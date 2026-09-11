@@ -1,0 +1,419 @@
+var indexTabActive = 0;
+var shopOrgId = '', userId = '' ,
+		hrl_totalpage = 1, hrl_currentpage = 1,	hrlreward_totalpage = 1, hrlreward_curpage = 1;
+const hrlytCouponImg = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="72" height="72" rx="8" fill="white"/><path d="M44 13C39.667 13 37.211 16.595 36 19.18C34.789 16.595 32.333 13 28 13C25.243 13 23 15.243 23 18C23 20.757 25.243 23 28 23H36H44C46.757 23 49 20.757 49 18C49 15.243 46.757 13 44 13ZM28 21C26.346 21 25 19.654 25 18C25 16.346 26.346 15 28 15C31.745 15 33.786 18.924 34.603 21H28ZM44 21H37.394C38.206 18.925 40.24 15 44 15C45.654 15 47 16.346 47 18C47 19.654 45.654 21 44 21Z" fill="#D1B43D"/><path d="M55 27H17V57C17 58.105 17.895 59 19 59H53C54.105 59 55 58.105 55 57V27Z" fill="#C94F49"/><path d="M57 21H15C13.895 21 13 21.895 13 23V29C13 30.105 13.895 31 15 31H57C58.105 31 59 30.105 59 29V23C59 21.895 58.105 21 57 21Z" fill="#E86C60"/><path d="M41 21H31V31H41V21Z" fill="#EFD358"/><path d="M41 31H31V59H41V31Z" fill="#D1B43D"/></svg>';
+var days = {
+	'1': 'Thứ 2',
+	'2': 'Thứ 3',
+	'3': 'Thứ 4',
+	'4': 'Thứ 5',
+	'5': 'Thứ 6',
+	'6': 'Thứ 7',
+	'7': 'Chủ nhật'
+}
+function formatPoint(number, format) {
+	if (number != undefined) {
+		return number.toFixed(0)// always two decimal digits
+			.replace(",", ".")// replace decimal point character with ,
+			.replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1,") + "" + format
+	}
+}
+function formatTime(date) {
+	var day = days[date.getDay()];
+	var time = (date.getHours() < 10 ? ('0' + date.getHours()): date.getHours()) + ':' + (date.getMinutes() < 10 ? '0' + date.getMinutes() : date.getMinutes());
+	var _date = (date.getDate() < 10 ? ('0' + date.getDate()):date.getDate());
+	var month = date.getMonth() + 1;
+	month = month < 10 ? ('Thg 0' + month): month;
+	var year = date.getFullYear();
+	return day + ', ' + time + ' ' + _date + ' ' + month + ', ' + year
+}
+var HRLoyalty = {
+	init: function() {
+		var that = this;
+		that.getInfoProfile();
+		that.tabListInfoLoyalty();
+		that.randomColorAvtLoyalty();
+	},
+	getInfoProfile: function() {
+		$.ajax({
+			type: 'GET',
+			url: '/apps/loyalty/me.json',
+			async: false,
+			success: function(result){
+				if(result.message != 'success'){
+					$(".sidebox-account--member,.sidebox-account .link-member").removeClass('js-visible');
+				}
+				else{
+					shopOrgId = result.data.organization_id;
+					userId = result.data.customer_profile_id;
+					var current_rank = result.data.current_membership_level;
+					var showRank = current_rank.toLowerCase();
+					$('.membership-card').attr('data-rank', showRank);
+
+					if(result.data.customer_fullname == undefined || result.data.customer_fullname == '' || result.data.customer_fullname == null){
+						$(".membership-card .card-name").html('Membership Card');
+					}else{
+						$(".membership-card .card-name").html(result.data.customer_fullname);
+					}
+					$(".membership-card .card-phone span").html(result.data.current_membership_level);
+					$(".membership-card .card-point .point-val").html(formatPoint(result.data.current_membership_level_point,'')); // Số điểm hạng hiện tại
+					var percentage = Math.ceil((result.data.current_membership_level_point/result.data.next_membership_level_point) * 100);
+					$(".membership-card .card-progress .point-bar").html('<div class="percent" style="width:'+percentage+'%">');
+					$(".membership-card .card-progress .point-need").html('Chi tiêu thêm <strong class="number">'+ Haravan.formatMoney(result.data.remaining_money_to_level_up * 100, formatMoney) +'</strong> để thăng hạng <strong class="level">'+result.data.next_membership_level+'</strong>');
+					$('.membership-other .p_1').html('Điểm thưởng hiện có: <strong>'+ formatPoint(result.data.available_points,'')+'</strong>');
+					$('.membership-other .p_2').html('Điểm thưởng đã sử dụng: <strong>'+ formatPoint(result.data.used_points,'')+'</strong>');
+					$(".membership-other .p_3").html('Tổng chi tiêu tích lũy: <strong>'+ Haravan.formatMoney(result.data.total_spent * 100, formatMoney) + '</strong>');
+					var avt = result.data.customer_firstname.toUpperCase();
+					$(".sidebox-account--member,.sidebox-account .link-member").addClass('js-visible');
+					$(".sidebox-account--member .member-avartar span").html(avt.charAt(0));
+					$(".sidebox-account--member .member-name").html(result.data.customer_fullname);
+					$(".sidebox-account--member .member-points").html(result.data.current_membership_level+' • ' + formatPoint(result.data.available_points,'') +' điểm thưởng');
+					//var total = parseInt(result.data.current_membership_level_point)*1000;
+					//$(".cus-card__content .point").html('Doanh thu tích luỹ: ' + moneyFormat(total,' VND'));
+				}
+				$(".layoutAccount-hidden").addClass('account-visible');
+			},
+			error: function(xhr) {
+				$(".sidebox-account--member,.sidebox-account .link-member").removeClass('js-visible');
+				$(".layoutAccount-hidden").addClass('account-visible');
+				if (window.location.search.indexOf('view=member') > -1) {
+					window.location = "/account";
+				}
+			}
+		});
+	},
+	getCouponsLoyalty: function(page){
+		var target = '#hrloyalty-panel-coupons';
+		$.get('/apps/loyalty/coupons.json?customer_profile_id='+userId +'&org_id='+shopOrgId+'&page='+page+'&limit=6').done(function(result){
+			if(result.message == 'success'){
+				if(result.data.data.length > 0){
+					/* Tính xem có phân trang không */
+					if(result.data.total > result.data.limit){
+						hrl_totalpage = Math.ceil(result.data.total / result.data.limit);
+					}
+					hrl_currentpage = ++page;
+
+					$.each(result.data.data,function(ind,coupon){
+						var item_coupon = $(target).find('.hrlyt-coupons-list .hrlyt-coupons-item.clone').clone();
+						item_coupon.attr('data-couponid',coupon.id);
+						if (coupon.image_url == null || coupon.image_url == '' ) {
+							item_coupon.find('.coupons__img').html(hrlytCouponImg);	
+						}
+						else{
+							item_coupon.find('.coupons__img').html('<img src="'+coupon.image_url+'" alt="'+ coupon.title+'">');	
+						}
+						item_coupon.find('.coupons__info .cpi-title').html(coupon.title);
+						item_coupon.find('.coupons__info .cpi-name').html(coupon.discount.name);
+						item_coupon.find('.coupons__info .cpi-code').html('Mã ưu đãi: <strong>' +coupon.code+'</strong>');
+						item_coupon.find('.coupons__info .cpi-getcode').attr('data-couponcode',coupon.code);
+						if(coupon.ended_at != null){
+							let checkExpire = new Date(coupon.ended_at).getTime();
+							let now = new Date().getTime();
+							let end_day = coupon.ended_at.split(' ')[0].split('-');
+							item_coupon.find('.cpi-time').html('HSD: '+end_day[2]+'/'+end_day[1]+'/'+end_day[0]);
+							if(now > checkExpire) item_coupon.addClass('expired');
+						}
+						else{
+							item_coupon.find('.cpi-time').html('Không thời hạn');
+						}
+						if(coupon.is_used != 0){
+							item_coupon.addClass('is_used'); 
+							item_coupon.find('.coupons__info .cpi-getcode').html('Đã sử dụng').addClass('disabled');
+						}
+
+						$(target).find('.hrlyt-coupons-list').append(item_coupon.removeClass('clone'));
+						if(hrl_totalpage >= hrl_currentpage) $(target).find('.hrlyt-coupons-more').removeClass('d-none');
+						else $(target).find('.hrlyt-coupons-more').addClass('d-none');
+					});
+				}
+				else{
+					$(target).find('.hrlyt-coupons-list').html("<div class='col-12 text-center hrlyt-coupons-item hrloyaltyt-empty '>Hiện tại bạn không có mã ưu đãi nào để sử dụng</div>");
+				}
+			}
+			else{
+				$(target).find('.hrlyt-coupons-list').html("<div class='col-12 text-center hrlyt-coupons-item hrloyaltyt-empty'>Hiện tại bạn không có mã ưu đãi nào để sử dụng</div>");
+			}
+		});
+	},
+	getRewardsLoyalty: function(page){
+		var target = '#hrloyalty-panel-rewards';
+		$.get('/apps/loyalty/rewards.json?customer_profile_id='+userId +'&org_id='+shopOrgId+'&page='+page+'&limit=6').done(function(result){
+			if(result.message == 'success'){
+				if(result.data.data.length > 0){
+					if(result.data.total > result.data.limit){
+						hrlreward_totalpage = Math.ceil(result.data.total / result.data.limit);
+					}
+					hrlreward_curpage = ++page;
+					var htmlrewards = '';
+					$.each(result.data.data,function(ind,coupon){
+						htmlrewards += '<div class="col-md-6 col-xs-12 col-12 hrlyt-coupons-item coupons-reward" data-reward="'+coupon.id+'" data-expire="'+coupon.number_date_coupon_expired+'">';
+						htmlrewards +=  '<div class="coupons__inner">';
+						var src_image = 	'<img src="'+coupon.discount.image_url+'" alt="'+ coupon.title+'">';
+						if (coupon.discount.image_url == null || coupon.discount.image_url == '' ) {
+							var src_image = hrlytCouponImg;
+						}
+						htmlrewards +=     '<div class="coupons__img">'+src_image+'</div>';
+						htmlrewards += 		 '<div class="coupons__info">';
+						htmlrewards += 				'<p class="cpi-title">'+coupon.title+'</p>';
+						htmlrewards += 				'<p class="cpi-point"><strong class="point">'+formatPoint(coupon.condition_value,'')+'</strong> điểm</p>';
+						htmlrewards += 				'<div class="cpi-under">';
+						htmlrewards += 					'<div class="cpi-under--l"><div class="cpi-time">'+(coupon.discount.settings.is_expired == 0? 'HSD: Không thời hạn' : 'HSD: ' + coupon.discount.settings.number_date_coupon_expired +' ngày')+'</div></div>';
+						htmlrewards += 					'<div class="cpi-under--r"><button class="cpi-mdlview">Xem chi tiết</button></div>';
+						htmlrewards +=   	 		'</div>';
+						htmlrewards +=   	 '</div>';
+						htmlrewards +=   '</div>';
+						htmlrewards +=  '</div>';
+					});
+					$(target).find('.hrlyt-coupons-list').append(htmlrewards);
+					if(hrlreward_totalpage >= hrlreward_curpage) $(target).find('.hrlyt-coupons-more').removeClass('d-none');
+					else $(target).find('.hrlyt-coupons-more').addClass('d-none');
+				}
+				else{
+					$(target).find('.hrlyt-coupons-list').html("<div class='col-12 text-center hrlyt-coupons-item hrloyaltyt-empty'>Hiện tại chưa có chương trình đổi thưởng</div>");
+				}
+			}
+			else{
+				$(target).find('.hrlyt-coupons-list').html("<div class='col-12 text-center hrlyt-coupons-item hrloyaltyt-empty'>Hiện tại chưa có chương trình đổi thưởng</div>");
+
+			}
+		});
+	},
+	detailCoupon_Loyalty: function(id) {
+		jQuery.ajax({
+			type: 'GET',
+			url: '/apps/loyalty/coupons/'+ id +'.json?customer_profile_id='+userId +'&org_id='+shopOrgId,
+			async: false,
+			success: function(result) {
+				var data = result.data;
+				if(result.message != 'success'){
+
+				}
+				else{
+					var btncopy = '<svg width="16" height="20" viewBox="0 0 16 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11.7499 0.833252H1.74992C0.833252 0.833252 0.083252 1.58325 0.083252 2.49992V14.1666H1.74992V2.49992H11.7499V0.833252ZM14.2499 4.16658H5.08325C4.16658 4.16658 3.41659 4.91658 3.41659 5.83325V17.4999C3.41659 18.4166 4.16658 19.1666 5.08325 19.1666H14.2499C15.1666 19.1666 15.9166 18.4166 15.9166 17.4999V5.83325C15.9166 4.91658 15.1666 4.16658 14.2499 4.16658ZM14.2499 17.4999H5.08325V5.83325H14.2499V17.4999Z" fill="#2463EB"></path></svg>'
+					$('.mdl-coupon--img').html('<img src="'+data.image_url+'" alt="'+data.title+'"></div>');
+					if (data.image_url == null || data.image_url == '' ) {
+						$('.mdl-coupon--img').html(hrlytCouponImg);
+					}
+					$('.mdl-coupon--title').html(data.title);
+					$('.mdl-coupon--name').html(data.discount.name); 
+					var	htmlDetail = '';
+					htmlDetail += 	'<div class="mdl-coupon--text text-flex"><p class="text-lb">Mã khuyến mãi</p><div class="text-vl text-right">'+data.code+'<button class="cta-copy">'+btncopy+'</button></div></div>';
+					if(data.ended_at != null){
+						let checkExpire = new Date(data.ended_at).getTime();
+						let now = new Date().getTime();
+						let end_day = data.ended_at.split(' ')[0].split('-');
+						htmlDetail += 	'<div class="mdl-coupon--text text-flex"><p class="text-lb">Hạn sử dụng</p><div class="text-vl text-right">'+end_day[2]+'/'+end_day[1]+'/'+end_day[0]+'</div></div>';
+						/*if(now > checkExpire) item_coupon.addClass('expired');*/
+					}
+					else{
+						htmlDetail += 	'<div class="mdl-coupon--text text-flex"><p class="text-lb">Hạn sử dụng</p><div class="text-vl text-right">Không thời hạn</div></div>';
+					}
+					htmlDetail += 	'<div class="mdl-coupon--text"><p class="text-lb">Thông tin chi tiết </p><div class="text-desc">'+data.discount.content+'</div></div>';
+					if(data.is_used == 0){
+						htmlDetail +=   '<div class="mdl-coupon--ctas"><button data-couponcode="'+data.code+'" class="cta-modal btn-modal-coupon">Sao chép mã</button></div>';
+					}
+					else{
+						htmlDetail += 	'<div class="mdl-coupon--ctas"><button data-couponcode="'+data.code+'" class="cta-modal btn-modal-coupon disabled">Đã sử dụng</button></div>';
+					}
+					$('#mdlLoyalty-detail .mdlcards-block--body').html(htmlDetail);
+					$('#mdlLoyalty-detail').modal('show');
+				}
+			}
+		});
+	},
+	detailReward_Loyalty: function(id) {
+		jQuery.ajax({
+			type: 'GET',
+			url: '/apps/loyalty/rewards/'+id +'.json?customer_profile_id='+userId +'&org_id='+shopOrgId,
+			async: false,
+			success: function(result) {
+				var data = result.data;
+				if(result.message != 'success'){
+
+				}
+				else{
+					if (data.discount.image_url == null || data.discount.image_url == '' ) {
+						$('.mdl-coupon--img').html(hrlytCouponImg);
+					}
+					else{
+						$('.mdl-coupon--img').html('<img src="'+data.discount.image_url+'" alt="'+data.discount.title+'"></div>');
+					}
+					$('.mdl-coupon--title').html(data.title);
+					$('.mdl-coupon--name').html(''); 
+					var	htmlDetail = '';
+					htmlDetail += 	'<div class="mdl-coupon--text text-flex"><p class="text-lb">Điểm cần có</p><div class="text-vl text-right"><strong class="text-point">'+formatPoint(data.condition_value,'')+'</strong> điểm</div></div>';
+					htmlDetail += 	'<div class="mdl-coupon--text text-flex"><p class="text-lb">Hạn sử dụng</p><div class="text-vl text-right">'+(data.discount.settings.is_expired == 0? 'Không thời hạn' :  data.discount.settings.number_date_coupon_expired +' ngày')+'</div></div>';
+					htmlDetail += 	'<div class="mdl-coupon--text"><p class="text-lb">Thông tin chi tiết </p><div class="text-desc">'+data.discount.content+'</div></div>';
+					htmlDetail +=   '<div class="mdl-coupon--ctas"><button data-rewardid="'+data.id+'" data-rewardpoint="'+formatPoint(data.condition_value,' điểm')+'" class="cta-modal btn-modal-redeem">Đổi thưởng</button></div>';
+				}
+				$('#mdlLoyalty-detail .mdlcards-block--body').html(htmlDetail);
+				$('#mdlLoyalty-detail').modal('show');
+			}
+		});
+	},
+	curTabCenter: function(parent, elem, speed) {
+		var active = jQuery(parent).find(elem);
+		var activeWidth = active.width() / 2;
+		var pos = jQuery(parent).find(elem).position().left + activeWidth;
+		var elpos = jQuery(parent).scrollLeft();
+		var elW = jQuery(parent).width();
+		pos = pos + elpos - elW / 2;
+		jQuery(parent).animate({
+			scrollLeft: pos
+		}, speed == undefined ? 1000 : speed);
+		return this;
+	},
+	tabListInfoLoyalty: function(){
+		$('.hrloyalty-tabsNav .nav-link[data-toggle="tab"]').on('shown.bs.tab', function(){
+			indexTabActive = jQuery('.hrloyalty-tabsContent .tab-pane.show').index();
+			if (jQuery(window).width() < 768) {		
+				HRLoyalty.curTabCenter(".hrloyalty-tabsNav .nav-list", ".active", 500);
+			}
+			if(indexTabActive == 0){}
+			else if(indexTabActive == 1){
+				if($('#hrloyalty-panel-coupons .hrlyt-coupons-item:not(.clone)').length == 0  ){	
+					HRLoyalty.getCouponsLoyalty(1);
+				}
+			}
+			else if(indexTabActive == 2){
+				if($('#hrloyalty-panel-rewards .hrlyt-coupons-item').length == 0 ){	
+					HRLoyalty.getRewardsLoyalty(1);
+				}
+			}
+		});
+		$(document).on('click','.membership-card .card-view',function(e){
+			$('#hrloyalty-tab-2').tab('show');
+		});
+		/* Button Coupons */
+		$(document).on('click','#hrloyalty-panel-coupons .btn-viewpage',function(e){
+			e.preventDefault();
+			var currentPag_Coupon = hrl_currentpage;
+			HRLoyalty.getCouponsLoyalty(currentPag_Coupon);
+		});
+		$(document).on('click','#hrloyalty-panel-coupons .hrlyt-coupons-item .cpi-getcode',function(e){
+			e.preventDefault();
+			//var coupon = $(this).siblings('label').html();
+			//var div_coupon = $(this).parents('.coupon');
+			$('.coupons__info .cpi-getcode').html('Sao chép mã').removeClass('disabled');
+			var copyText = $(this).attr('data-couponcode');
+			var el = document.createElement('textarea');
+			el.value = copyText;
+			el.setAttribute('readonly', '');
+			el.style.position = 'absolute';
+			el.style.left = '-9999px';
+			document.body.appendChild(el);
+			el.select();
+			document.execCommand('copy');
+			document.body.removeChild(el);
+			$(this).html('Đã sao chép').addClass('disabled');
+			$('button[data-couponcode="'+copyText+'"]').html('Đã sao chép').addClass('disabled');
+			/*$.post('/cart/update.js','attributes[couponPromotion]='+coupon).done(function(result){
+                        div_coupon.css('opacity',0.4);
+                    });*/
+		});
+		$(document).on('click','#hrloyalty-panel-coupons .hrlyt-coupons-item .cpi-mdltooltip',function(e){
+			//var self = $(this).parents('.coupons-reward');
+			var self = $(this).parents('.hrlyt-coupons-item');
+			var coupon_id = self.attr('data-couponid')
+			HRLoyalty.detailCoupon_Loyalty(coupon_id);
+		});
+		/* Button Rewards */
+		$(document).on('click','#hrloyalty-panel-rewards .btn-viewpage',function(e){
+			e.preventDefault();
+			var currentPag_rewards = hrlreward_curpage;
+			HRLoyalty.getRewardsLoyalty(currentPag_rewards);
+		});
+		$(document).on('click','#hrloyalty-panel-rewards .coupons-reward .cpi-mdlview',function(e){
+			e.preventDefault();
+			var self = $(this).parents('.coupons-reward');
+			var reward_id = self.attr('data-reward')
+			HRLoyalty.detailReward_Loyalty(reward_id);
+		});
+		/* Button Chung  */
+		$(document).on('click','#mdlLoyalty-detail .mdl-coupon--ctas .btn-modal-coupon',function(e){
+			e.preventDefault();
+			$('.coupons__info .cpi-getcode').html('Sao chép mã').removeClass('disabled');
+			var copyText = $(this).attr('data-couponcode');
+			var el = document.createElement('textarea');
+			el.value = copyText;
+			el.setAttribute('readonly', '');
+			el.style.position = 'absolute';
+			el.style.left = '-9999px';
+			document.body.appendChild(el);
+			el.select();
+			document.execCommand('copy');
+			document.body.removeChild(el);
+			$(this).html('Đã sao chép').addClass('disabled');
+			$('button[data-couponcode="'+copyText+'"]').html('Đã sao chép').addClass('disabled');
+		});
+		$(document).on('click','#mdlLoyalty-detail .mdl-coupon--ctas .btn-modal-redeem',function(e){
+			e.preventDefault();
+			var reward_id = $(this).attr('data-rewardid')
+			var txtp = $(this).attr('data-rewardpoint');
+			var swalText = "Bạn có chắc chắn muốn đổi phần thưởng này với <strong> " + txtp + "<\/strong>";
+			var content = document.createElement("p");
+			content.innerHTML = swalText;
+			$('#mdlLoyalty-detail').modal('hide');
+			setTimeout(function() {
+				swal({	
+					content: content,
+					buttons: ["Hủy bỏ", "Đổi thưởng"],
+					className: "swal-loyalty-info"
+				}).then(function() {
+					$('body').on('click', '.swal-button--confirm', function() {
+						jQuery.ajax({
+							url: '/apps/loyalty/redeem.json?org_id='+shopOrgId,
+							type: 'POST',
+							data: {
+								"reward_id": reward_id,
+							},
+							success: function(result){
+								//console.log(result);
+								swal({
+									icon: "success",
+									className: "swal-loyalty-success",
+									text: "Phần thưởng đã được thêm vào mục Ưu đãi của bạn",
+									button: false,
+									timer: 1500,
+								});
+								$('#hrloyalty-panel-coupons .hrlyt-coupons-item:not(.clone)').remove();
+								setTimeout(function() { 		HRLoyalty.getCouponsLoyalty(1); 		}, 300);
+							},
+							error: function(xhr) {
+								var err = JSON.parse(xhr.responseText);
+								var text_error = err.message_text;
+								swal({
+									icon: "error",
+									className: "swal-loyalty-error",
+									text:text_error,
+									button: false,
+									timer: 2500,
+								});
+							}
+						});
+					});
+				});
+			}, 450);
+		});
+		$(document).on('click','#mdlLoyalty-detail .mdlcards-block--body .cta-copy',function(e){
+			e.preventDefault();
+			$('#mdlLoyalty-detail .mdl-coupon--ctas .btn-modal-coupon').trigger('click');
+		});
+	},
+	randomColorAvtLoyalty: function(){
+		let currentColor = '#cccccc';
+		const listColors = ['#bf360d', '#512da8', '#7b20a2', '#03897b', '#0088d2', '#679f38', '#455a64'];
+		function getRandomColorExcept(previousColor) {
+			const listColorsFiltered = listColors.filter(color => color !== previousColor)
+			randomColor = listColorsFiltered[Math.floor(Math.random() * listColorsFiltered.length)]
+			currentColor = randomColor
+			return randomColor
+		}
+		if (document.getElementsByClassName("js-background").length > 0){
+			const bodyElement = document.querySelector('.member-avartar .js-background');
+			bodyElement.style.backgroundColor = getRandomColorExcept(currentColor);
+		}
+	}
+};
+$(document).ready(function() {  HRLoyalty.init(); });
+

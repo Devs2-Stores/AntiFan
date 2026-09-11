@@ -1,0 +1,135 @@
+<link rel="preload" href="{{ 'style-stores.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'style-stores.scss.css' | asset_url }}">
+<div class="layout-pageStores">	
+	{%- include 'breadcrumb' -%}
+	<div class="container">
+		<div class="wrapbox-content">	
+			<div class="heading-pageDetail"><div class="container"><h1 class="text-center">{{ page.title }}</h1></div></div>
+			<div class="row">
+				<div class="col-lg-4 col-md-12 col-12 wrapbox-left">
+					<div class="wrapbox-info">
+						<h2>Tìm cửa hàng</h2>
+						<div class="box-filter">
+							<div class="filter-select">
+								<div class="select-item">
+									<label for="filter-province">Chọn tỉnh thành</label>
+									<div class="field-select">
+										<select class="filter-item-province" id="city">
+											<option value="">- Chọn Tỉnh thành -</option>		
+										</select>
+									</div>
+								</div>
+								<div class="select-item">
+									<label for="filter-item-store">Chọn cửa hàng</label>
+									<div class="field-select">
+										<select class="filter-item-store" id="shop">
+											<option value="">- Chọn cửa hàng -</option>		
+										</select>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="box-content boxscroll" id="store-info">
+						</div>
+					</div> 
+				</div>
+				<div class="col-lg-8 col-md-12 col-12 wrapbox-right">
+					<div class="box-map" id="boxMap">	</div>
+				</div>
+			</div>			
+		</div>
+	</div>
+</div>
+
+<script setting-id="stores_data_link" setting-type="text" class="hrv-cf-stores_data_link">
+	const urlMap = "{{settings.stores_data_link}}";
+	let shop = [];
+	let currentMap = "";
+	function onViewMap(index) {
+		currentMap = shop[index].map;
+		$('#boxMap').html(currentMap);
+	}
+	
+	function getShops(){
+		const params = {
+			type: 'GET',
+			url: urlMap,
+			async: false,
+			dataType: "text",
+			success: function(data) { 
+				let datajs =JSON.parse(data)
+				let dataft = Array.from(new Set([...datajs.cuahang.filter(
+					item => item.province != undefined 
+					&& !item.province.match(/^[\s]*$/) 
+					&& item.shop_name != undefined 
+					&& !item.shop_name.match(/^[\s]*$/) 
+					&& item.address != undefined 
+					&& !item.address.match(/^[\s]*$/)
+				)]))
+				
+				let city = Array.from(new Set([...dataft.map(item => item.province && item.province.trim())]));
+				let cityHTML = city.map(city => {
+					return '<option value="' + city + '">' + city + '</option>';
+				})
+				$('#city').html(cityHTML);
+
+				$('#city').change(function(event){
+					shop = Array.from(new Set([...dataft.filter(item => item.province === event.target.value).map(item => item.district && item.district.trim())]))
+					let html = shop.map(shop => {
+						shop = $('<option value="' + shop + '">' + shop + '</option>').text();
+						return '<option value="' + shop + '">' + shop + '</option>';
+					})
+					if(html === "<option value=''></option>"){
+						html= '<option value="">Địa chỉ cửa hàng đang cập nhật</option>';
+					}
+					$('#shop').html(html)
+					$('#shop').val($('#shop option').val()).change()
+				})
+				$('#city').change();
+				
+				$('#shop').change(function(event){
+					let shopNameHTML = '';
+					shop = dataft.filter(item => item.district === event.target.value)
+					currentMap = shop.length > 0 && shop[0].map
+					if(shop.length != 1) {
+						shop.map((shop, index) => {
+							shopNameHTML+='<div class="store-item">';
+							shopNameHTML+=	'<h3 class="store--name">' + shop.shop_name + '</h3>';
+							shopNameHTML+=	'<p class="store--address">' + shop.address + '</p>';
+							if(shop.time != undefined && !shop.time.match(/^[\s]*$/)){
+								shopNameHTML+=	'<p class="store--time">Thời gian hoạt động: <span>' + shop.time + '</span></p>';
+							}
+							if(shop.phone != undefined && !shop.phone.match(/^[\s]*$/)){
+								shopNameHTML+=	'<p class="store--hotline">Điện thoại: <span>' + shop.phone + '</span></p>';
+							}
+							shopNameHTML+=	'<a href="javascript:void(0)" onClick="onViewMap('+ index + ')" class="store--link" id="map">Xem bản đồ</a>';
+							shopNameHTML+=	'</div>';
+						});
+					} else {
+						shop.map((shop, index) => {
+							shopNameHTML+='<div class="store-item">';
+							shopNameHTML+=	'<h3 class="store--name">' + shop.shop_name + '</h3>';
+							shopNameHTML+=	'<p class="store--address">' + shop.address + '</p>';
+							if(shop.time != undefined && !shop.time.match(/^[\s]*$/)){
+								shopNameHTML+=	'<p class="store--time">Thời gian hoạt động: <span>' + shop.time + '</span></p>';
+							}
+							if(shop.phone != undefined && !shop.phone.match(/^[\s]*$/)){
+								shopNameHTML+=	'<p class="store--hotline">Điện thoại: <span>' + shop.phone + '</span></p>';
+							}
+							shopNameHTML+=	'</div>';
+						});
+					}
+					$('#boxMap').html(currentMap);
+					$('#store-info').html(shopNameHTML);
+				})
+				$('#shop').change()
+			},
+			error: function(){
+
+			}
+		};
+		jQuery.ajax(params);
+	}
+	getShops()
+</script>
+

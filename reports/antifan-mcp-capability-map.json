@@ -1,0 +1,2851 @@
+{
+  "totalTools": 52,
+  "categories": {
+    "browser": [
+      {
+        "name": "anti.browser.tabs.list",
+        "description": "List tabs in the live AntiFan Desktop Browser GUI (every tab in the window by default; pass all: false to list only the tabs this session owns). Primary browser tool for theme development and live tab management.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "all": {
+              "type": "boolean",
+              "default": true,
+              "description": "List every tab in the browser window (default). Pass false to restrict the list to the tabs this session owns."
+            }
+          }
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.tabs.create",
+        "description": "Open a new tab in live AntiFan Desktop Browser GUI without stealing focus.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.tabs.activate",
+        "description": "Switch the active tab visible to the user in live AntiFan Desktop Browser GUI by tabId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tabId"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.tabs.close",
+        "description": "Close a tab in live AntiFan Desktop Browser GUI by tabId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tabId"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.navigate",
+        "description": "Navigate active or background tab in live AntiFan Desktop Browser GUI.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.reload",
+        "description": "Reload active or background tab in live AntiFan Desktop Browser GUI.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.set_viewport",
+        "description": "Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "mobile": {
+              "type": "boolean"
+            },
+            "deviceScaleFactor": {
+              "type": "number"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "reload": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.evaluate",
+        "description": "Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "expression": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "allowDegradedSurface": {
+              "type": "boolean",
+              "description": "Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)"
+            }
+          },
+          "required": [
+            "expression"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "browser.set-viewport",
+        "description": "Set the bound Chromium tab viewport dimensions and device emulation.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "mobile": {
+              "type": "boolean"
+            },
+            "deviceScaleFactor": {
+              "type": "number"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "reload": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ]
+        },
+        "category": "browser"
+      }
+    ],
+    "inspect": [
+      {
+        "name": "anti.inspect.dom",
+        "description": "Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "inspect"
+      },
+      {
+        "name": "anti.inspect.snapshot",
+        "description": "Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "selector": {
+              "type": "string"
+            },
+            "viewportOnly": {
+              "type": "boolean"
+            }
+          }
+        },
+        "category": "inspect"
+      },
+      {
+        "name": "anti.inspect.styles",
+        "description": "Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "properties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "inspect"
+      },
+      {
+        "name": "anti.inspect.region",
+        "description": "Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "inspect"
+      },
+      {
+        "name": "anti.inspect.page_inventory",
+        "description": "Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "inspect"
+      },
+      {
+        "name": "anti.inspect.style_diff",
+        "description": "Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string",
+              "description": "CSS selector of target element on tab 1"
+            },
+            "comparisonSelector": {
+              "type": "string",
+              "description": "CSS selector on tab 2 (defaults to selector)"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "comparisonTabId": {
+              "type": "string"
+            },
+            "properties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "CSS properties to compare"
+            }
+          },
+          "required": [
+            "selector"
+          ]
+        },
+        "category": "inspect"
+      },
+      {
+        "name": "anti.inspect.matched_styles",
+        "description": "Inspect live CDP matched CSS and classify active versus overridden declarations.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "number"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "stylesheetUrlMap": {
+              "type": "object"
+            }
+          }
+        },
+        "category": "inspect"
+      },
+      {
+        "name": "anti.inspect.responsive_matrix",
+        "description": "Probe document and target overflow at the five standard responsive widths.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "inspect"
+      }
+    ],
+    "capture": [
+      {
+        "name": "anti.screenshot.viewport",
+        "description": "Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "jpeg",
+                "png"
+              ]
+            },
+            "quality": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "capture"
+      },
+      {
+        "name": "anti.screenshot.full_page",
+        "description": "Capture canonical CDP full-page evidence (entire document scroll height) and stage it under the evidence lease.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "png",
+                "jpeg"
+              ]
+            },
+            "quality": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "capture"
+      },
+      {
+        "name": "anti.reference.capture",
+        "description": "Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "selector": {
+              "type": "string"
+            },
+            "screenshot": {
+              "type": "boolean"
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "png",
+                "jpeg"
+              ]
+            },
+            "quality": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "capture"
+      },
+      {
+        "name": "anti.visual.compare",
+        "description": "Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "baselineScreenshotRef": {
+              "type": "string"
+            },
+            "comparisonTabId": {
+              "type": "string"
+            },
+            "tolerance": {
+              "type": "number"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "clipRect": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "width": {
+                  "type": "number"
+                },
+                "height": {
+                  "type": "number"
+                }
+              }
+            },
+            "maskSelectors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "maskOptionalSelectors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "normalizeScroll": {
+              "type": "boolean"
+            },
+            "fullPage": {
+              "type": "boolean",
+              "description": "Capture and compare entire document scroll height"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "capture"
+      }
+    ],
+    "theme": [
+      {
+        "name": "theme.qa_validate",
+        "description": "Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            },
+            "workspaceRoot": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "theme"
+      },
+      {
+        "name": "theme.debug_bundle",
+        "description": "Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "theme"
+      },
+      {
+        "name": "theme.assert_cart",
+        "description": "Inspect passive storefront cart contract telemetry without adding synthetic items.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "theme"
+      },
+      {
+        "name": "theme.resolve_product",
+        "description": "Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "handle": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "theme"
+      },
+      {
+        "name": "storefront.resolve_product",
+        "description": "Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "handle": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "theme"
+      },
+      {
+        "name": "anti.theme.style_override",
+        "description": "In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": [
+                "apply",
+                "clear"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "css": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          },
+          "required": [
+            "operation",
+            "id"
+          ]
+        },
+        "category": "theme"
+      },
+      {
+        "name": "theme.style_override",
+        "description": "In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": [
+                "apply",
+                "clear"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "css": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          },
+          "required": [
+            "operation",
+            "id"
+          ]
+        },
+        "category": "theme"
+      },
+      {
+        "name": "anti.theme.resolve_element",
+        "description": "Map a live DOM element to bounded, correlated local theme source candidates.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "workspaceRoot": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "theme"
+      }
+    ],
+    "verification": [
+      {
+        "name": "anti.spec.validate_gate",
+        "description": "Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "specTabId": {
+              "type": "string"
+            },
+            "targetTabId": {
+              "type": "string"
+            },
+            "tolerance": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "verification"
+      },
+      {
+        "name": "anti.verification.record_claim",
+        "description": "Record a live verification claim as UNVERIFIED with explicit proof obligations.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "claim": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "INTERACTION",
+                "LAYOUT",
+                "RESPONSIVE",
+                "CUSTOM"
+              ]
+            },
+            "actor": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "user"
+              ]
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "expectedHeight": {
+              "type": "number"
+            },
+            "expectedSections": {
+              "type": "number"
+            },
+            "tolerance": {
+              "type": "number"
+            },
+            "proofObligations": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "metric": {
+                    "type": "string",
+                    "description": "Obligation metric identifier (required)"
+                  },
+                  "tolerance": {
+                    "type": "number"
+                  },
+                  "critical": {
+                    "type": "boolean"
+                  },
+                  "expected": {}
+                },
+                "required": [
+                  "metric"
+                ]
+              }
+            },
+            "linkedIssueId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "claim",
+            "tabId",
+            "category"
+          ]
+        },
+        "category": "verification"
+      },
+      {
+        "name": "anti.verification.verify_claim",
+        "description": "Evaluate a recorded claim against fresh live browser evidence and persist an authoritative receipt.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "claimId": {
+              "type": "string"
+            },
+            "witnessObservation": {
+              "type": "string"
+            },
+            "semanticFailureObservation": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "claimId"
+          ]
+        },
+        "category": "verification"
+      },
+      {
+        "name": "anti.verification.list",
+        "description": "List recorded verification claims and their current verdicts.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "verification"
+      }
+    ],
+    "agent_cursor": [
+      {
+        "name": "anti.agent.cursor.click",
+        "description": "Move visual Agent Cursor and click an element in live AntiFan Desktop tab without stealing visual focus.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.cursor.move",
+        "description": "Move visible Agent Cursor without clicking in live AntiFan Desktop tab.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.cursor.type",
+        "description": "Move visual Agent Cursor and type into an input element in live AntiFan Desktop tab without stealing visual focus.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "clear": {
+              "type": "boolean"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          },
+          "required": [
+            "text"
+          ]
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.cursor.scroll",
+        "description": "Scroll active or background tab using visual Agent Cursor in live AntiFan Desktop tab.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "deltaY": {
+              "type": "number"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.cursor.hover",
+        "description": "Move visual Agent Cursor to hover over an element in live AntiFan Desktop tab.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.cursor.highlight",
+        "description": "Highlight a DOM element with visual Agent Cursor overlay in live AntiFan Desktop tab.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.cursor.clear",
+        "description": "Clear all active Agent Cursor overlays in live AntiFan Desktop tab.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.file_upload",
+        "description": "Upload local files into a file input element in live AntiFan Desktop tab without native file dialogs.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "refOrSelector": {
+              "type": "string"
+            },
+            "filePaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          },
+          "required": [
+            "refOrSelector",
+            "filePaths"
+          ]
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.drop",
+        "description": "Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "refOrSelector": {
+              "type": "string"
+            },
+            "filePaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          },
+          "required": [
+            "refOrSelector",
+            "filePaths"
+          ]
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.sequence",
+        "description": "Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "stopOnError": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "actions"
+          ]
+        },
+        "category": "agent_cursor"
+      }
+    ],
+    "artifact": [
+      {
+        "name": "anti.artifact.read",
+        "description": "Read an authorized artifact by ID with bounded chunk size (clamped to max 32KB per frame).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "artifactId": {
+              "type": "string"
+            },
+            "offset": {
+              "type": "number"
+            },
+            "limit": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "artifactId"
+          ]
+        },
+        "category": "artifact"
+      },
+      {
+        "name": "anti.artifact.stat",
+        "description": "Retrieve metadata and size information for an authorized artifact.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "artifactId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "artifactId"
+          ]
+        },
+        "category": "artifact"
+      },
+      {
+        "name": "file.read",
+        "description": "Read a file relative to the authoritative workspace root.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "maxBytes": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "category": "artifact"
+      },
+      {
+        "name": "file.write",
+        "description": "Write a file relative to the authoritative workspace root with boundary enforcement.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        },
+        "category": "artifact"
+      }
+    ],
+    "other": [
+      {
+        "name": "browser_find",
+        "description": "Search the accessibility snapshot of the current page for text, pattern, query, or a regular expression.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "pattern": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "regex": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "browser_press_key",
+        "description": "Send native keyboard key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Control+a) to the active tab",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "anti.telemetry.record_fallback",
+        "description": "Record sanitized fallback telemetry when invoking Playwright after an AntiFan capability failure.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "primaryTool": {
+              "type": "string"
+            },
+            "fallbackTool": {
+              "type": "string"
+            },
+            "fallbackResult": {
+              "type": "string",
+              "enum": [
+                "SUCCESS",
+                "FAILED",
+                "SKIPPED"
+              ]
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "targetUrl": {
+              "type": "string"
+            },
+            "errorCode": {
+              "type": "string"
+            },
+            "errorMessage": {
+              "type": "string"
+            },
+            "durationMs": {
+              "type": "number"
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "primaryTool",
+            "fallbackTool",
+            "fallbackResult"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "anti.trace.interaction",
+        "description": "Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "click",
+                "hover",
+                "focus",
+                "type",
+                "scroll"
+              ]
+            },
+            "selector": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "deltaY": {
+              "type": "number"
+            },
+            "settleMs": {
+              "type": "number"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "anti.media.freeze",
+        "description": "Freeze or unfreeze dynamic media (videos, audios, CSS animations, requestAnimationFrame) in tab to enable deterministic visual comparisons.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "freeze": {
+              "type": "boolean",
+              "description": "True to freeze media and pause animations; false to resume"
+            }
+          }
+        },
+        "category": "other"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "anti.browser.tabs.list",
+      "description": "List tabs in the live AntiFan Desktop Browser GUI (every tab in the window by default; pass all: false to list only the tabs this session owns). Primary browser tool for theme development and live tab management.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "all": {
+            "type": "boolean",
+            "default": true,
+            "description": "List every tab in the browser window (default). Pass false to restrict the list to the tabs this session owns."
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.browser.tabs.create",
+      "description": "Open a new tab in live AntiFan Desktop Browser GUI without stealing focus.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "anti.browser.tabs.activate",
+      "description": "Switch the active tab visible to the user in live AntiFan Desktop Browser GUI by tabId.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ]
+      }
+    },
+    {
+      "name": "anti.browser.tabs.close",
+      "description": "Close a tab in live AntiFan Desktop Browser GUI by tabId.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ]
+      }
+    },
+    {
+      "name": "anti.browser.navigate",
+      "description": "Navigate active or background tab in live AntiFan Desktop Browser GUI.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "anti.browser.reload",
+      "description": "Reload active or background tab in live AntiFan Desktop Browser GUI.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.inspect.dom",
+      "description": "Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.screenshot.viewport",
+      "description": "Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "jpeg",
+              "png"
+            ]
+          },
+          "quality": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.screenshot.full_page",
+      "description": "Capture canonical CDP full-page evidence (entire document scroll height) and stage it under the evidence lease.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "png",
+              "jpeg"
+            ]
+          },
+          "quality": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.reference.capture",
+      "description": "Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "selector": {
+            "type": "string"
+          },
+          "screenshot": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "png",
+              "jpeg"
+            ]
+          },
+          "quality": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.browser.set_viewport",
+      "description": "Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "mobile": {
+            "type": "boolean"
+          },
+          "deviceScaleFactor": {
+            "type": "number"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "reload": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "width",
+          "height"
+        ]
+      }
+    },
+    {
+      "name": "anti.agent.cursor.click",
+      "description": "Move visual Agent Cursor and click an element in live AntiFan Desktop tab without stealing visual focus.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.agent.cursor.move",
+      "description": "Move visible Agent Cursor without clicking in live AntiFan Desktop tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.agent.cursor.type",
+      "description": "Move visual Agent Cursor and type into an input element in live AntiFan Desktop tab without stealing visual focus.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "clear": {
+            "type": "boolean"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "anti.agent.cursor.scroll",
+      "description": "Scroll active or background tab using visual Agent Cursor in live AntiFan Desktop tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "deltaY": {
+            "type": "number"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.agent.cursor.hover",
+      "description": "Move visual Agent Cursor to hover over an element in live AntiFan Desktop tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.agent.cursor.highlight",
+      "description": "Highlight a DOM element with visual Agent Cursor overlay in live AntiFan Desktop tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.agent.cursor.clear",
+      "description": "Clear all active Agent Cursor overlays in live AntiFan Desktop tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "browser_find",
+      "description": "Search the accessibility snapshot of the current page for text, pattern, query, or a regular expression.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "regex": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "browser_press_key",
+      "description": "Send native keyboard key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Control+a) to the active tab",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "theme.qa_validate",
+      "description": "Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "workspaceRoot": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "theme.debug_bundle",
+      "description": "Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "theme.assert_cart",
+      "description": "Inspect passive storefront cart contract telemetry without adding synthetic items.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "theme.resolve_product",
+      "description": "Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "storefront.resolve_product",
+      "description": "Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.theme.style_override",
+      "description": "In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "apply",
+              "clear"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "css": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "theme.style_override",
+      "description": "In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "apply",
+              "clear"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "css": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "anti.agent.file_upload",
+      "description": "Upload local files into a file input element in live AntiFan Desktop tab without native file dialogs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "refOrSelector": {
+            "type": "string"
+          },
+          "filePaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        },
+        "required": [
+          "refOrSelector",
+          "filePaths"
+        ]
+      }
+    },
+    {
+      "name": "anti.agent.drop",
+      "description": "Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "refOrSelector": {
+            "type": "string"
+          },
+          "filePaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        },
+        "required": [
+          "refOrSelector",
+          "filePaths"
+        ]
+      }
+    },
+    {
+      "name": "anti.inspect.snapshot",
+      "description": "Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "selector": {
+            "type": "string"
+          },
+          "viewportOnly": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.browser.evaluate",
+      "description": "Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "allowDegradedSurface": {
+            "type": "boolean",
+            "description": "Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)"
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      }
+    },
+    {
+      "name": "anti.telemetry.record_fallback",
+      "description": "Record sanitized fallback telemetry when invoking Playwright after an AntiFan capability failure.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "primaryTool": {
+            "type": "string"
+          },
+          "fallbackTool": {
+            "type": "string"
+          },
+          "fallbackResult": {
+            "type": "string",
+            "enum": [
+              "SUCCESS",
+              "FAILED",
+              "SKIPPED"
+            ]
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "targetUrl": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "errorMessage": {
+            "type": "string"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "primaryTool",
+          "fallbackTool",
+          "fallbackResult"
+        ]
+      }
+    },
+    {
+      "name": "anti.inspect.styles",
+      "description": "Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.inspect.region",
+      "description": "Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.trace.interaction",
+      "description": "Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "click",
+              "hover",
+              "focus",
+              "type",
+              "scroll"
+            ]
+          },
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "deltaY": {
+            "type": "number"
+          },
+          "settleMs": {
+            "type": "number"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "anti.visual.compare",
+      "description": "Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "baselineScreenshotRef": {
+            "type": "string"
+          },
+          "comparisonTabId": {
+            "type": "string"
+          },
+          "tolerance": {
+            "type": "number"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "clipRect": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              }
+            }
+          },
+          "maskSelectors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "maskOptionalSelectors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "normalizeScroll": {
+            "type": "boolean"
+          },
+          "fullPage": {
+            "type": "boolean",
+            "description": "Capture and compare entire document scroll height"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.media.freeze",
+      "description": "Freeze or unfreeze dynamic media (videos, audios, CSS animations, requestAnimationFrame) in tab to enable deterministic visual comparisons.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "freeze": {
+            "type": "boolean",
+            "description": "True to freeze media and pause animations; false to resume"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.inspect.page_inventory",
+      "description": "Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.inspect.style_diff",
+      "description": "Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string",
+            "description": "CSS selector of target element on tab 1"
+          },
+          "comparisonSelector": {
+            "type": "string",
+            "description": "CSS selector on tab 2 (defaults to selector)"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "comparisonTabId": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CSS properties to compare"
+          }
+        },
+        "required": [
+          "selector"
+        ]
+      }
+    },
+    {
+      "name": "anti.spec.validate_gate",
+      "description": "Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "specTabId": {
+            "type": "string"
+          },
+          "targetTabId": {
+            "type": "string"
+          },
+          "tolerance": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.agent.sequence",
+      "description": "Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "stopOnError": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "anti.artifact.read",
+      "description": "Read an authorized artifact by ID with bounded chunk size (clamped to max 32KB per frame).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "artifactId"
+        ]
+      }
+    },
+    {
+      "name": "anti.artifact.stat",
+      "description": "Retrieve metadata and size information for an authorized artifact.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifactId"
+        ]
+      }
+    },
+    {
+      "name": "browser.set-viewport",
+      "description": "Set the bound Chromium tab viewport dimensions and device emulation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "mobile": {
+            "type": "boolean"
+          },
+          "deviceScaleFactor": {
+            "type": "number"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "reload": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "width",
+          "height"
+        ]
+      }
+    },
+    {
+      "name": "file.read",
+      "description": "Read a file relative to the authoritative workspace root.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "maxBytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "file.write",
+      "description": "Write a file relative to the authoritative workspace root with boundary enforcement.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "anti.theme.resolve_element",
+      "description": "Map a live DOM element to bounded, correlated local theme source candidates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "workspaceRoot": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.inspect.matched_styles",
+      "description": "Inspect live CDP matched CSS and classify active versus overridden declarations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "number"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "stylesheetUrlMap": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.inspect.responsive_matrix",
+      "description": "Probe document and target overflow at the five standard responsive widths.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "anti.verification.record_claim",
+      "description": "Record a live verification claim as UNVERIFIED with explicit proof obligations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "INTERACTION",
+              "LAYOUT",
+              "RESPONSIVE",
+              "CUSTOM"
+            ]
+          },
+          "actor": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "user"
+            ]
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "expectedHeight": {
+            "type": "number"
+          },
+          "expectedSections": {
+            "type": "number"
+          },
+          "tolerance": {
+            "type": "number"
+          },
+          "proofObligations": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "metric": {
+                  "type": "string",
+                  "description": "Obligation metric identifier (required)"
+                },
+                "tolerance": {
+                  "type": "number"
+                },
+                "critical": {
+                  "type": "boolean"
+                },
+                "expected": {}
+              },
+              "required": [
+                "metric"
+              ]
+            }
+          },
+          "linkedIssueId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "claim",
+          "tabId",
+          "category"
+        ]
+      }
+    },
+    {
+      "name": "anti.verification.verify_claim",
+      "description": "Evaluate a recorded claim against fresh live browser evidence and persist an authoritative receipt.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "string"
+          },
+          "witnessObservation": {
+            "type": "string"
+          },
+          "semanticFailureObservation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "claimId"
+        ]
+      }
+    },
+    {
+      "name": "anti.verification.list",
+      "description": "List recorded verification claims and their current verdicts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

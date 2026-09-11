@@ -1,0 +1,56 @@
+Loomline.IndexBanner1Slider = {
+		init: function() {
+			var that = this;
+      that.Loomline_IndexBanner1Slider();
+		},
+  Loomline_IndexBanner1Slider: function(){
+    const loomlineSlider = new Swiper ('.loomline-index-banner-1 .swiper', {
+      slidesPerView: 1.5,  
+      spaceBetween: 10,
+			loop: $('.loomline-index-banner-1 .banner-item').length > 1 ? true:false,
+      preloadImages: false,
+      lazy: true,
+      speed: 1000,
+      //centeredSlides: true,
+      autoplay: false,
+      /*autoplay: {
+        delay: 5000,
+        disableOnInteraction: false,
+      },*/
+			navigation: {
+				nextEl: ".loomline-index-banner-1 .swiper-next",
+				prevEl: ".loomline-index-banner-1 .swiper-prev",
+			},
+      pagination: {
+        el: ".swiper-pagination",
+        clickable: 'true',
+        type: 'bullets',
+        renderBullet: function (index, className) {
+            return '<span class="' + className + '"></span>';
+          },
+      
+      },
+			breakpoints: {
+        0: { 
+          slidesPerView: 1,
+          spaceBetween: 10
+        },
+        768: { 
+          slidesPerView: 1.5,
+          spaceBetween: 10 
+        }
+      }
+    });
+    const totalSlides = loomlineSlider.slides.length;
+    if (totalSlides <= loomlineSlider.params.slidesPerView) {
+      $('.loomline-index-banner-1 .swiper-next, .loomline-index-banner-1 .swiper-prev').hide();
+    }
+  }
+};
+(function() {
+  Loomline.IndexBanner1Slider.init();
+})();
+
+
+
+

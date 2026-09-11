@@ -1,0 +1,51 @@
+
+#fake-order-popup {
+  position: fixed;
+  top: auto !important;
+  bottom: 20px;
+  left: 20px;
+  width: 300px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+  padding: 10px;
+  z-index: 99999;
+  transform: translateX(-120%);
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.5s ease;
+}
+
+#fake-order-popup.show {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+}
+
+.popup-content {
+  display: flex;
+  align-items: center;
+}
+
+.popup-content img {
+  width: 55px;
+  height: 55px;
+  border-radius: 8px;
+  margin-right: 10px;
+}
+
+.popup-text p {
+  margin: 0;
+  font-size: 14px;
+}
+
+#popup-product {
+  font-weight: 500;
+  color: #333;
+}
+
+#popup-time {
+  font-size: 12px;
+  color: #888;
+}
+

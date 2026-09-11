@@ -1,0 +1,5 @@
+{%-layout none-%}
+{
+	"pages": {%-paginate collection.products by settings.collection_pagination_limit-%}{{paginate.pages}}{%-endpaginate-%},
+	"products": {{collection.products.size}}
+}

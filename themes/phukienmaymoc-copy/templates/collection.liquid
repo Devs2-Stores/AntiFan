@@ -1,0 +1,265 @@
+<link rel="preload" href="{{ 'product-hoplong.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'product-hoplong.css' | asset_url }}">
+
+<style>
+.product-list .container.container-fuild {
+    max-width: 1240px;
+}
+.breadcrumb {
+    height: 64px !important;
+    padding-top: 20px !important;
+    padding-bottom: 20px !important;
+    box-sizing: border-box !important;
+}
+.breadcrumb-list {
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+}
+.breadcrumb-list__item {
+    display: inline-flex !important;
+    align-items: center !important;
+}
+.breadcrumb-list__item a {
+    color: #555 !important;
+    font-size: 14px !important;
+    text-decoration: none !important;
+}
+.breadcrumb-list__item .icon {
+    margin: 0 8px !important;
+    color: #999 !important;
+}
+.product-list .list-heading .title {
+    font-size: 21px;
+    font-weight: 600;
+    line-height: normal;
+    margin: 0;
+}
+.product-list .sort-list {
+    display: none;
+}
+.product-list .sort:hover .sort-list,
+.product-list .sort:focus-within .sort-list {
+    display: block;
+}
+.product-list .sort-list li a {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+}
+.product-list .cate-list__item .thumbnail-item img {
+    width: 100%;
+    height: auto;
+    object-fit: cover;
+}
+.product-list .product-list__item .content .price .left .hrv-cf-prod_pricezero_title {
+    color: #f30000;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 20px;
+    height: auto;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+}
+.product-list .collection-pagination {
+    margin-top: 20px;
+}
+.product-list .collection-pagination .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.product-list .collection-pagination .pagination li a,
+.product-list .collection-pagination .pagination li span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 8px;
+    background: #fff;
+    border-radius: 5px;
+    color: #22343e;
+    text-decoration: none;
+}
+.product-list .collection-pagination .pagination li span.current {
+    background: #3590ce;
+    color: #fff;
+}
+.product-list .collection-pagination .pagination li a:hover {
+    color: #3590ce;
+}
+@media (min-width: 992px) {
+    .product-list .grid-list .product-list__item {
+        flex: 0 0 calc((100% - 80px)/5);
+        max-width: calc((100% - 80px)/5);
+    }
+}
+@media (min-width: 768px) and (max-width: 991px) {
+    .product-list .grid-list .product-list__item {
+        flex: 0 0 calc((100% - 60px)/4);
+        max-width: calc((100% - 60px)/4);
+    }
+}
+@media (max-width: 767px) {
+    .product-list .grid-list .product-list__item {
+        flex: 0 0 calc((100% - 20px)/2);
+        max-width: calc((100% - 20px)/2);
+    }
+}
+</style>
+
+<main>
+    <div class="product-list view-list w-100">
+        <div class="breadcrumb w-100">
+            <div class="container desktop container-fuild"> 
+                <ul itemscope="" itemtype="https://schema.org/BreadcrumbList" class="flex-center-left breadcrumb-list">
+                    <li itemprop="itemListElement" class="breadcrumb-list__item flex-inline-center" itemscope="" itemtype="https://schema.org/ListItem">
+                        <a itemprop="item" href="/" style="display: inline;">
+                            <span itemprop="name">Trang chủ</span>
+                        </a>
+                        <meta itemprop="position" content="1">
+                        <span class="icon">/</span> 
+                    </li>
+                    <li itemprop="itemListElement" class="breadcrumb-list__item flex-inline-center" itemscope="" itemtype="https://schema.org/ListItem">
+                        <a itemprop="item" href="{{ collection.url }}" style="display: inline;">
+                            <span itemprop="name">{{ collection.title }}</span>
+                        </a>
+                        <meta itemprop="position" content="2">
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="container container-fuild">
+            <div class="cate-list w-100">
+                <h1 class="cate-title">{{ collection.title }}</h1>
+                <div class="cate-box flex">
+                    {% for cate in collections limit: 15 %}
+                    {% if cate.handle != collection.handle and cate.all_products_count > 0 %}
+                    <div class="cate-list__item flex-center-left">
+                        <div class="cate-image">
+                            <a href="{{ cate.url }}" title="{{ cate.title }}" aria-label="{{ cate.title }}">
+                                <div class="thumbnail-item">
+                                    {% if cate.image %}
+                                    <img loading="lazy" src="{{ cate.image.src | collection_img_url: 'medium' }}" alt="{{ cate.title | escape }}" title="{{ cate.title }}" width="58" height="58" onerror="this.onerror=null; this.src='{{ 'no_image.jpg' | asset_url }}';">
+                                    {% elsif cate.products.first %}
+                                    <img loading="lazy" src="{{ cate.products.first.featured_image | product_img_url: 'medium' }}" alt="{{ cate.title | escape }}" title="{{ cate.title }}" width="58" height="58" onerror="this.onerror=null; this.src='{{ 'no_image.jpg' | asset_url }}';">
+                                    {% endif %}
+                                </div>
+                            </a>
+                        </div>
+                        <div class="cate-name">
+                            <a href="{{ cate.url }}" title="{{ cate.title }}" aria-label="{{ cate.title }}">{{ cate.title }}</a>
+                            <span>({{ cate.all_products_count }} Sản phẩm)</span>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="product-main flex w-100">
+                <div class="list-heading flex-center-between w-100">
+                    <div class="list-heading__left">
+                        <h2 class="title">Sản phẩm nổi bật</h2>
+                    </div>
+                    <div class="list-heading__right flex-center">
+                        {% if settings.collection_sortby and collection.products_count > 0 %}
+                        {% assign current_sort = collection.sort_by | default: collection.default_sort_by %}
+                        {% case current_sort %}
+                        {% when 'price-ascending' %}{% assign sort_label = 'Giá: Tăng dần' %}
+                        {% when 'price-descending' %}{% assign sort_label = 'Giá: Giảm dần' %}
+                        {% when 'title-ascending' %}{% assign sort_label = 'Tên: A-Z' %}
+                        {% when 'title-descending' %}{% assign sort_label = 'Tên: Z-A' %}
+                        {% when 'created-ascending' %}{% assign sort_label = 'Cũ nhất' %}
+                        {% when 'created-descending' %}{% assign sort_label = 'Mới nhất' %}
+                        {% when 'best-selling' %}{% assign sort_label = 'Bán chạy nhất' %}
+                        {% when 'quantity-descending' %}{% assign sort_label = 'Tồn kho giảm dần' %}
+                        {% else %}{% assign sort_label = 'Sản phẩm nổi bật' %}
+                        {% endcase %}
+                        <div class="sort">
+                            <div class="sort-item" tabindex="0">
+                                <span>{{ settings.collection_sortby_title }}: <span>{{ sort_label }}</span></span>
+                            </div>
+                            <ul class="sort-list">
+                                {% unless collection.handle == 'all' %}
+                                <li{% if current_sort == 'manual' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=manual">Sản phẩm nổi bật</a></li>
+                                {% endunless %}
+                                <li{% if current_sort == 'price-ascending' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=price-ascending">Giá: Tăng dần</a></li>
+                                <li{% if current_sort == 'price-descending' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=price-descending">Giá: Giảm dần</a></li>
+                                <li{% if current_sort == 'title-ascending' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=title-ascending">Tên: A-Z</a></li>
+                                <li{% if current_sort == 'title-descending' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=title-descending">Tên: Z-A</a></li>
+                                <li{% if current_sort == 'created-ascending' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=created-ascending">Cũ nhất</a></li>
+                                <li{% if current_sort == 'created-descending' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=created-descending">Mới nhất</a></li>
+                                <li{% if current_sort == 'best-selling' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=best-selling">Bán chạy nhất</a></li>
+                                <li{% if current_sort == 'quantity-descending' %} class="active"{% endif %}><a href="{{ collection.url }}?sort_by=quantity-descending">Tồn kho giảm dần</a></li>
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% paginate collection.products by settings.collection_pagination_limit %}
+                {% if collection.products.size == 0 %}
+                <div class="product-noloop w-100 text-center">
+                    <div class="collection-alert-no"><p>Chưa có sản phẩm nào trong danh mục này</p></div>
+                </div>
+                {% else %}
+                <div class="grid-list flex w-100" id="product-list">
+                    {% for product in collection.products %}
+                    <div class="product-list__item">
+                        <div class="thumbnail">
+                            <a href="{{ product.url }}" title="{{ product.title }}" aria-label="{{ product.title }}">
+                                <div class="thumbnail-item">
+                                    <img loading="lazy" src="{{ product.featured_image.src | img_url: 'medium' }}" alt="{{ product.title | escape }}" title="{{ product.title }}" width="172" height="155" onerror="this.onerror=null; this.src='{{ 'no_image.jpg' | asset_url }}';">
+                                </div>
+                            </a>
+                        </div>
+                        <div class="content">
+                            <h3 class="text-bold">
+                                <a href="{{ product.url }}" title="{{ product.title }}" aria-label="{{ product.title }}">
+                                    {{ product.title }}
+                                </a>
+                            </h3>
+                            <div class="price flex-left-between">
+                                <div class="left">
+                                    {% if product.variants.first.price == 0 %}
+                                    {% if settings.prod_pricezero_btn_select == 'prod_pricezero_btn_form' %}
+                                    <button class="f-initial hrv-cf-prod_pricezero_title loomline-btn-prozero-form" setting-id="prod_pricezero_title" setting-type="text" data-url="{{ product.url }}"><span>{{ settings.prod_pricezero_title }}</span></button>
+                                    {% else %}
+                                    <a href="{{ settings.prod_pricezero_link }}" class="f-initial hrv-cf-prod_pricezero_title" setting-id="prod_pricezero_title" setting-type="text"><span>{{ settings.prod_pricezero_title }}</span></a>
+                                    {% endif %}
+                                    {% else %}
+                                    <p>{{ product.variants.first.price | money }}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="right">
+                                    {% if product.variants.first.compare_at_price > product.variants.first.price and product.variants.first.price > 0 %}
+                                    <span class="percent">-{{ product.variants.first.compare_at_price | minus: product.variants.first.price | times: 100 | divided_by: product.variants.first.compare_at_price | round: 0 }}%</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if paginate.pages > 1 %}
+                <div class="collection-pagination text-center">
+                    {% include 'pagination-default' %}
+                </div>
+                {% endif %}
+                {% endpaginate %}
+            </div>
+        </div>
+    </div>
+</main>

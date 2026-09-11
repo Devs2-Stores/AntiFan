@@ -1,0 +1,46 @@
+<div id="modal-preorder-contact" class="modal fade modal-contactform-pr" role="dialog">
+	<div class="modal-dialog modal-dialog-centered">
+		<div class="modal-content">
+			<div class="modal-header">
+				<button type="button" class="btn btn-close-preorder" data-dismiss="modal">×</button>
+				<h4 class="modal-title">{{settings.preorder_text_btn}}</h4>
+			</div>
+			<div class="modal-body content_product_form content_product_form-contact">
+				<div class="contact_form_pr">
+					{%- capture formPreorder -%}
+					{%- form 'contact' -%}
+					<div class="row">
+						<div class="col-sm-12 col-xs-12 col-12">
+							<div class="input-group">
+								<input required="required" type="text" name="contact[name]" class="form-control" placeholder="Họ và tên" aria-describedby="basic-addon1">
+							</div>
+							<div class="input-group">
+								<input required="required" type="text" name="contact[email]"pattern="^(.)+@[A-Za-z0-9]([A-Za-z0-9.\-]*[A-Za-z0-9])?\.[A-Za-z]{1,13}$"  class="form-control" placeholder="Địa chỉ email" aria-describedby="basic-addon1">
+							</div>
+							<div class="input-group">
+								<input pattern="[0-9]{10,12}" required="required" type="text" name="contact[phone]" class="form-control" placeholder="Số điện thoại" aria-describedby="basic-addon1">
+							</div>
+							<div class="input-group">
+								<textarea class="product-body-val" rows="4" cols="50" name="content" placeholder="Nội dung" value=""></textarea>
+								<input class="detailPr" name="contact[body]" type="hidden" product-name="{{product.title}}"/>
+							</div>
+						</div>
+						<div class="col-sm-12 col-xs-12 col-12 text-center">
+							{% if form.posted_successfully? %}<div class="alert alert-success alert-preorder d-none" id="preorder-form-success"></div>{%- endif -%}			
+							<div class="alert alert-success alert-preorder" id="preorder-form-alert"></div>
+							<div class="sitebox-recaptcha" >
+								This site is protected by reCAPTCHA and the Google
+								<a href="https://policies.google.com/privacy" target="_blank" rel="nofollow noreferrer">Privacy Policy</a> 
+								and <a href="https://policies.google.com/terms" target="_blank" rel="nofollow noreferrer">Terms of Service</a> apply.
+							</div>
+							<button type="submit" class="button btnred cta-submitform btn-submit-contact-pr">{{settings.preorder_text_btn_popup}}</button>
+						</div>
+					</div>
+					{%- endform -%}	
+					{%- endcapture -%}
+					{{ formPreorder | replace:'script','noscript' | replace:'noscript src=', 'noscript data-src='}}
+				</div>
+			</div>
+		</div>
+	</div>
+</div>

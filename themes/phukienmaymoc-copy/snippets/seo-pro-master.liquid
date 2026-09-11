@@ -1,0 +1,68 @@
+{% comment %}
+  ==============================================================================
+  SEO PRO MASTER INJECTOR FOR HARAVAN THEMES — v4.0.0
+  Fix v4:
+    - Preconnect server-side (trước đây để trong JS = quá muộn)
+    - Font preload từ seo-config.seo_font_preload_url
+    - Gọi seo-noindex trước seo-meta-head để guard đúng thứ tự
+  ==============================================================================
+
+  CÁCH DÙNG: Dán 1 dòng duy nhất vào layout/theme.liquid ngay TRƯỚC </head>:
+    {% include 'seo-pro-master' %}
+
+  KHÔNG dán 2 lần. Snippet tự có guard chống chạy 2 lần.
+  ==============================================================================
+{% endcomment %}
+
+{% comment %} Guard: Chống chạy 2 lần nếu theme include nhầm {% endcomment %}
+{% unless seo_pro_master_loaded %}
+{% assign seo_pro_master_loaded = true %}
+
+{% comment %} 1. Cấu hình shop (sameAs, logo, business type, font, địa chỉ...) {% endcomment %}
+{% include 'seo-config' %}
+
+{% comment %} 2. Preconnect server-side — phải ở đây để browser parse ngay trong <head> {% endcomment %}
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="preconnect" href="https://cdn.haravan.com" crossorigin />
+<link rel="dns-prefetch" href="//www.google-analytics.com" />
+<link rel="dns-prefetch" href="//www.googletagmanager.com" />
+
+{% comment %} 3. Font preload (nếu có config seo_font_preload_url) {% endcomment %}
+{% if seo_font_preload_url != '' and seo_font_preload_url != blank %}
+<link rel="preload" as="font" type="font/woff2"
+      href="{{ seo_font_preload_url }}"
+      crossorigin="anonymous" />
+{% endif %}
+
+{% comment %} 4. Noindex guard — chạy TRƯỚC meta-head để block trang system trước {% endcomment %}
+{% include 'seo-noindex' %}
+
+{% comment %} 5. Meta Description, Robots (nếu chưa noindex), Canonical, OG, Twitter Card {% endcomment %}
+{% include 'seo-meta-head' %}
+
+{% comment %} 6. Pagination rel prev/next (cho collection và blog) {% endcomment %}
+{% include 'seo-pagination' %}
+
+{% comment %} 7. JSON-LD Schema Engine {% endcomment %}
+{% comment %} Skip schema cho trang system không có nội dung {% endcomment %}
+{% unless seo_should_noindex %}
+  {% include 'seo-schema-engine' %}
+{% endunless %}
+
+{% comment %} 8. FAQ + HowTo Schema Parser {% endcomment %}
+{% if template contains 'article' or template contains 'page' %}
+  {% include 'seo-faq-parser' %}
+{% endif %}
+
+{% comment %} 9. LCP Preload ảnh sản phẩm — server-side, fetchpriority=high {% endcomment %}
+{% if template contains 'product' and product.featured_image %}
+  <link rel="preload" as="image"
+        href="https:{{ product.featured_image | img_url: '800x' }}"
+        fetchpriority="high" />
+{% endif %}
+
+{% comment %} 10. CWV Booster JS — defer để không block render {% endcomment %}
+<script src="{{ 'seo-cwv-booster.js' | asset_url }}" defer></script>
+
+{% endunless %}

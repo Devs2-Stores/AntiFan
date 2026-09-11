@@ -1,0 +1,77 @@
+{% layout none %}
+{% comment %}<!-- Tính phần trăm -->{% endcomment %}
+{% assign on_sale = false %}
+{% if product.variants.first.compare_at_price > product.variants.first.price %}
+  {% assign on_sale = true %}
+{% endif %}
+
+{% comment %}<!-- Tính giá khuyến mãi  -->{% endcomment %}
+{% if product.variants.first.compare_at_price > product.variants.first.price %}
+  {% assign price_sale = 0 %}
+  {% assign price_sale = product.variants.first.compare_at_price | minus: product.variants.first.price | divided_by: product.variants.first.compare_at_price | times: 100 | round: 0 %}
+{% endif %}
+
+{% comment %}<!-- Sản phẩm có giá 0đ  -->{% endcomment %}
+{%- assign price_zero = false -%}
+{%- if product.variants.first.price == 0 -%}
+  {%- assign price_zero = true -%}
+{%- endif -%}
+{% comment %}<!-- Tình trạng hết hàng -->{% endcomment %}
+{% assign sold_out = true %}
+{% if product.available %}
+  {% assign sold_out = false %}
+{% endif %}
+
+<div class="pro-item-video">
+  <div class="pro-img">
+    <a href="{{product.url}}">
+      <div class="product--image">
+        <img class="lazyload" data-src="{%if product.images.size > 0%}{{ product.featured_image.src | product_img_url: 'small' }}{%else%}{{'no_image.jpg' | asset_url}}{%endif%}" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" alt="{% if product.featured_image.alt.size >0 %}{{ product.featured_image.alt | strip_html | escape }}{% else%} {{product.title | strip_html | escape}} {% endif %}" />
+      </div>
+    </a>
+  </div>
+  <div class="pro-detail">
+    <a href="{{product.url}}" class="title">{{ product.title }}</a>
+    <div class="pro-price">
+      {% if price_zero %}
+        <a href="{{settings.prod_pricezero_link}}" class="price-contact hrv-cf-prod_pricezero_title" setting-id="prod_pricezero_title" setting-type="text">{{ settings.prod_pricezero_title }}</a>
+      {% else %}
+        <span class="price">{{ product.variants.first.price | money }}</span>
+        {%- if on_sale -%}
+          <del class="price-del">{{ product.variants.first.compare_at_price | money }}</del>
+        {%- endif -%}
+      {% endif %}
+    </div>
+  </div>
+  <div class="pro-btn">
+    {% unless price_zero or check_gift or settings.promotion_hrvapp_use %}
+      <div class="cart-product">
+        {%- if settings.loomline_shop_buying and product.variants.first.price > 0 -%}
+          {% unless sold_out %}
+          <button
+            type="submit"
+            class="loomline-btn-proloop-cart loomline-add-to-cart {% if sold_out %} disabled {%endif%} {% if product.variants.size > 1 %}loomline-btn-addcart-view {% endif %}"
+            onclick="Loomline.ProductLoop.Loomline_addCartProdItem('{{ product.variants.first.id }}')"
+            {% if sold_out %}
+            disabled
+            {% endif %}>
+              <span>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  xmlns="http://www.w3.org/2000/svg">
+                  <path d="M19.575 6.75H4.425C4.24045 6.75087 4.06254 6.81891 3.92451 6.94141C3.78648 7.06391 3.69778 7.23249 3.675 7.41562L2.34375 19.4156C2.33191 19.5202 2.34221 19.6261 2.37396 19.7264C2.40572 19.8267 2.45823 19.9192 2.52808 19.9979C2.59794 20.0766 2.68357 20.1397 2.77941 20.1831C2.87525 20.2266 2.97916 20.2494 3.08438 20.25H20.9156C21.0209 20.2494 21.1248 20.2266 21.2206 20.1831C21.3164 20.1397 21.4021 20.0766 21.4719 19.9979C21.5418 19.9192 21.5943 19.8267 21.626 19.7264C21.6578 19.6261 21.6681 19.5202 21.6563 19.4156L20.325 7.41562C20.3022 7.23249 20.2135 7.06391 20.0755 6.94141C19.9375 6.81891 19.7596 6.75087 19.575 6.75V6.75Z"></path>
+                  <path d="M8.25 6.75C8.25 5.75544 8.64509 4.80161 9.34835 4.09835C10.0516 3.39509 11.0054 3 12 3C12.9946 3 13.9484 3.39509 14.6517 4.09835C15.3549 4.80161 15.75 5.75544 15.75 6.75"></path>
+                </svg>
+              </span>
+          </button>
+            {% endunless %}
+        {%- endif -%}
+      </div>
+    {% endunless %}
+  </div>
+</div>

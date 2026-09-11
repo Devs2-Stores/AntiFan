@@ -1,0 +1,84 @@
+{% layout none %}
+
+{%- if index == 1 -%}
+  {%- assign sizeImage = "original" -%}
+{%- else -%}
+  {%- assign sizeImage = "grande" -%}{%- endif -%}
+{%- assign onSale = false %}
+{%- assign price = product.variants.first.price %}
+{%- assign compare = product.variants.first.compare_at_price %}
+{%- assign discount = compare | minus: price | divided_by: compare | times: 100 | round: 0 %}
+{% assign compare_price = compare | divided_by: 100 | round %}
+{%- assign percent = compare | minus: price | divided_by: compare | times: 100 %}
+{%- if percent > 99 %}
+  {%- assign discount = 99 %}{%- endif -%}
+{%- if percent < 1 %}
+  {%- assign discount = 1 %}{%- endif -%}
+{%- if percent > 0 and percent < 100 %}
+  {%- assign onSale = true -%}{%- endif -%}
+{%- assign currentMember = "" -%}
+{%- assign clearance = false -%}
+{%- assign membership0 = false -%}
+{%- assign membership1 = false -%}
+{%- for tag in product.tags -%}
+  {%- if tag contains 'clearance' -%}
+    {%- assign clearance = tag -%}{%- endif -%}
+  {%- if tag contains "membership-0" -%}
+    {%- assign currentMember = tag -%}{%- assign membership0 = tag -%}{%- endif -%}
+  {%- if tag contains "membership-1" -%}
+    {%- assign currentMember = tag -%}{%- assign membership1 = tag -%}{%- endif -%}
+{%- endfor -%}
+<div class="product-item product-loop product-lists-item"
+  data-id="{{ product.id }}"
+  data-var-id="{{ product.first_available_variant.id }}"
+  data-handle="{{ product.handle }}"
+  data-membership="{{ currentMember }}"
+  data-compare_price="{{ compare_price }}">
+  <div class="product-item-wrap">
+    <div class="product-item-top">
+      <div class="product-item-top-image">
+        <a href="{{ product.url }}?view={% if product.template_suffix %}{{ product.template_suffix | append: '.' }}{% endif %}en" class="product-item-top-image-showcase">
+          <img
+            src="{% if product.images.size > 0 %}{{ product.featured_image.src | img_url: sizeImage }}{% else %}https://bizweb.dktcdn.net/100/513/073/themes/945034/assets/product_demo_1.jpg?1711535923031{% endif %}"
+            alt='{% if product.featured_image_alt.size > 0 %}{{ product.featured_image.alt | escape }}{% else %}{{ product.metafields.hrvmultilang_en.title | default: product.title | append: "" | escape }}{% endif %}'
+            title='{% if product.featured_image_alt.size > 0 %}{{ product.featured_image.alt | escape }}{% else %}{{ product.metafields.hrvmultilang_en.title | default: product.title | append: "" | escape }}{% endif %}'
+            width="480"
+            height="480"
+            loading="eager"
+            style="aspect-ratio: 1"
+            decoding="async">
+        </a>
+        <a
+          href="#"
+          class="onAppWishList_remove"
+          data-id="{{product.id}}"
+          type="button"
+          class="rmv-wish">
+          <i class="fa fa-times"></i>
+        </a>
+      </div>
+    </div>
+    <div class="product-item-detail">
+      <div class="product-item-detail-flex">
+        <a class="product-item-detail-vendor" href="{{ product.url }}?view={% if product.template_suffix %}{{ product.template_suffix | append: '.' }}{% endif %}en" title="{{ product.type | escape  }}" aria-label="{{ product.type | escape }}">
+          <span>{{ product.type | default: '&nbsp;' }}</span>
+        </a>
+
+      </div>
+      <h3 class="product-item-detail-title fontTitle">
+        <a href="{{ product.url }}?view={% if product.template_suffix %}{{ product.template_suffix | append: '.' }}{% endif %}en" title="{{ product.metafields.hrvmultilang_en.title | default: product.title | append: "" | escape }}" aria-label="{{ product.metafields.hrvmultilang_en.title | default: product.title | append: "" | escape }}">{{ product.metafields.hrvmultilang_en.title | default: product.title | append: "" }}</a>
+      </h3>
+      <div class="product-item-detail-price">
+        {%- if price != 0 -%}
+          <strong>{{ price | money }}</strong>
+          {%- if onSale -%}
+            <small>-{{ discount }}%</small>
+            <del>{{ compare | money }}</del>
+          {%- endif -%}
+        {%- else -%}
+          <span style="margin: 0 !important; color: #F30;">Liên Hệ</span>
+        {%- endif -%}
+      </div>
+    </div>
+  </div>
+</div>

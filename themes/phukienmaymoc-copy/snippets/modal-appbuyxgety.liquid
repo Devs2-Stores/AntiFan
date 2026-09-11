@@ -1,0 +1,35 @@
+<div class="modal modal-productApp fade" tabindex="-1" role="dialog" id="combo-popup">
+	<div class="modal-dialog modal-dialog-centered" role="document">
+		<div class="modal-content">
+			<div class="modal-header">
+				<div class="heading-combo">
+					<div class="buyxgety-heading">
+						<h3>Các sản phẩm được tặng kèm</h3>								
+						<p>Chọn 1 trong các loại quà tặng</p>
+					</div>					
+				</div>
+				<button type="button" class="close close-modal-app" data-dismiss="modal" aria-label="Close">
+					<span aria-hidden="true">
+						<svg enable-background="new 0 0 11 11" viewBox="0 0 11 11" x="0" y="0"><path d="m10.7 9.2-3.8-3.8 3.8-3.7c.4-.4.4-1 0-1.4-.4-.4-1-.4-1.4 0l-3.8 3.7-3.8-3.7c-.4-.4-1-.4-1.4 0-.4.4-.4 1 0 1.4l3.8 3.7-3.8 3.8c-.4.4-.4 1 0 1.4.2.2.5.3.7.3.3 0 .5-.1.7-.3l3.8-3.8 3.8 3.8c.2.2.4.3.7.3s.5-.1.7-.3c.4-.4.4-1 0-1.4z"></path></svg>
+					</span>
+				</button>
+			</div>
+			<div class="modal-body">
+				<div class="selector-buyxgety">							
+					<div id="buyxgety-program" class="hidden">
+						<div id="buyxgety-product-list" data-id="{{product.id}}" data-title="{{product.title}}">
+							<div class="buyxgety_content clearfix">									
+								<div class="buyxgety_lists"></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button type="button" id="discount-promotion-buyxgety-add-btn" class="btn discount-promotion-btn button dark">
+					Thêm vào giỏ
+				</button>
+			</div>
+		</div>
+	</div>
+</div>

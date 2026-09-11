@@ -7,7 +7,15 @@ import {
   HaravanCampaignMatrix,
   CANONICAL_SURFACES,
   STANDARD_VIEWPORTS,
+  executeMatrixCampaign,
   type CampaignMatrixLeg,
+  type MatrixLegEvaluator,
+  type MatrixExecutionOptions,
+  type MatrixExecutionReport,
+  type MatrixLegResult,
+  type HaravanSurfaceSpec,
+  type ViewportDimension,
+  type HaravanEntityCandidate,
 } from './haravan-campaign-matrix.js';
 import type { StoreInventory } from '../platform/haravan/store-discovery.js';
 
@@ -328,9 +336,16 @@ describe('HaravanCampaignMatrix - Storefront Campaign Surface Matrix Engine (Aud
       assert.strictEqual(emptyReport.missingLegs.length, 45);
 
       const zeroMatrixReport = matrixEngine.validateMatrixCoverage([], ['home:desktop']);
-      assert.strictEqual(zeroMatrixReport.isComplete, true);
-      assert.strictEqual(zeroMatrixReport.coveragePercentage, 100);
+      assert.strictEqual(zeroMatrixReport.isComplete, false);
+      assert.strictEqual(zeroMatrixReport.coveragePercentage, 0);
       assert.strictEqual(zeroMatrixReport.missingLegs.length, 0);
+      assert.strictEqual(zeroMatrixReport.executedCount, 0);
+      assert.strictEqual(zeroMatrixReport.totalLegs, 0);
+
+      const nullMatrixReport = matrixEngine.validateMatrixCoverage(null as unknown as CampaignMatrixLeg[], []);
+      assert.strictEqual(nullMatrixReport.isComplete, false);
+      assert.strictEqual(nullMatrixReport.coveragePercentage, 0);
+      assert.strictEqual(nullMatrixReport.totalLegs, 0);
     });
   });
 
@@ -383,6 +398,262 @@ describe('HaravanCampaignMatrix - Storefront Campaign Surface Matrix Engine (Aud
 
       const report = HaravanCampaignMatrix.validateMatrixCoverage(matrix, [matrix[0].id]);
       assert.strictEqual(report.executedCount, 1);
+    });
+  });
+
+  describe('5. Matrix Campaign Execution Engine (executeMatrixCampaign - Audit §52, §68)', () => {
+    const sampleInventory: StoreInventory = {
+      products: [
+        {
+          id: 101,
+          title: 'Oxford Shirt Standard',
+          handle: 'oxford-shirt-standard',
+          variants: [{ id: 1001, title: 'Default', available: true, inventory_quantity: 15 }],
+          images: ['https://cdn.haravan.com/shirt.jpg'],
+          tags: ['oxford', 'shirt'],
+        },
+      ],
+      collections: [
+        {
+          id: 201,
+          title: 'Spring Lookbook',
+          handle: 'spring-lookbook',
+          productsCount: 8,
+        },
+      ],
+      articles: [
+        {
+          id: 301,
+          title: 'Fabric Guide 2026',
+          handle: 'fabric-guide-2026',
+          blogHandle: 'news',
+        },
+      ],
+      blogs: [],
+      pages: [],
+      menus: [],
+      themeSettings: { data: {} },
+      themeAssets: [],
+      capturedAt: new Date().toISOString(),
+    };
+
+    it('iterates through all 45 legs (15 canonical surfaces x 3 viewports) and provides complete context', async () => {
+      const visitedLegs: string[] = [];
+      const visitedSurfaces = new Set<string>();
+      const visitedViewports = new Set<string>();
+
+      const report = await matrixEngine.executeMatrixCampaign(async (context) => {
+        assert.ok(context.legId, 'context.legId must be defined');
+        assert.ok(context.surface, 'context.surface must be defined');
+        assert.ok(context.viewport, 'context.viewport must be defined');
+        assert.ok(context.targetUrl, 'context.targetUrl must be defined');
+        assert.ok(context.viewport.width > 0, 'viewport width must be positive');
+        assert.ok(context.viewport.height > 0, 'viewport height must be positive');
+
+        visitedLegs.push(context.legId);
+        visitedSurfaces.add(context.surface.surface);
+        visitedViewports.add(context.viewport.name);
+
+        return {
+          passed: true,
+          visualDiff: 0.25,
+          durationMs: 5,
+          renderErrors: [],
+          measurement: {
+            domNodeCount: 145,
+            layoutShiftScore: 0.01,
+            renderTimeMs: 12,
+          },
+          liquidChecks: {
+            syntaxValid: true,
+            missingFilters: [],
+            missingTags: [],
+          },
+        };
+      });
+
+      assert.strictEqual(visitedLegs.length, 45, 'Evaluator must receive all 45 legs');
+      assert.strictEqual(visitedSurfaces.size, 15, 'All 15 canonical surfaces must be visited');
+      assert.strictEqual(visitedViewports.size, 3, 'All 3 standard viewports must be visited');
+
+      // Comprehensive report checks
+      assert.strictEqual(report.totalLegs, 45);
+      assert.strictEqual(report.executedLegs, 45);
+      assert.strictEqual(report.passedLegs, 45);
+      assert.strictEqual(report.failedLegs, 0);
+      assert.strictEqual(report.passRate, 100);
+      assert.strictEqual(report.isPublishReady, true);
+      assert.strictEqual(report.results.length, 45);
+
+      // Check individual result fields
+      const first = report.results[0];
+      assert.strictEqual(first.passed, true);
+      assert.strictEqual(first.visualDiff, 0.25);
+      assert.strictEqual(first.renderErrors.length, 0);
+      assert.ok(first.measurement);
+      assert.strictEqual(first.measurement.domNodeCount, 145);
+      assert.ok(first.liquidChecks);
+      assert.strictEqual(first.liquidChecks.syntaxValid, true);
+    });
+
+    it('binds catalog entity info in leg context when store inventory is supplied', async () => {
+      let productContextSeen = false;
+      let collectionContextSeen = false;
+
+      await matrixEngine.executeMatrixCampaign(
+        async (context) => {
+          if (context.surface.surface === 'product-standard' && context.viewport.name === 'desktop') {
+            productContextSeen = true;
+            assert.ok(context.boundEntity, 'product leg must have bound entity');
+            assert.strictEqual(context.boundEntity.type, 'product');
+            assert.strictEqual(context.boundEntity.handle, 'oxford-shirt-standard');
+            assert.strictEqual(context.targetUrl, '/products/oxford-shirt-standard');
+          }
+          if (context.surface.surface === 'collection-grid' && context.viewport.name === 'laptop') {
+            collectionContextSeen = true;
+            assert.ok(context.boundEntity, 'collection leg must have bound entity');
+            assert.strictEqual(context.boundEntity.type, 'collection');
+            assert.strictEqual(context.boundEntity.handle, 'spring-lookbook');
+          }
+          return true;
+        },
+        { inventory: sampleInventory }
+      );
+
+      assert.strictEqual(productContextSeen, true);
+      assert.strictEqual(collectionContextSeen, true);
+    });
+
+    it('records pass/fail, visualDiff percentage, durationMs, and detected render errors accurately', async () => {
+      const report = await matrixEngine.executeMatrixCampaign(async (context) => {
+        if (context.legId === 'product-standard:mobile') {
+          // Leg with visual regression (12.5% diff exceeds default 5% threshold)
+          return {
+            visualDiff: 12.5,
+            renderErrors: [],
+          };
+        }
+        if (context.legId === 'cart-active:desktop') {
+          // Leg with Liquid render errors
+          return {
+            visualDiff: 0.5,
+            liquidChecks: {
+              syntaxValid: false,
+              syntaxErrors: ['Liquid error: Unknown tag line_item_subtotal'],
+            },
+          };
+        }
+        return {
+          visualDiff: 1.2,
+          renderErrors: [],
+        };
+      });
+
+      assert.strictEqual(report.totalLegs, 45);
+      assert.strictEqual(report.executedLegs, 45);
+      assert.strictEqual(report.failedLegs, 2);
+      assert.strictEqual(report.passedLegs, 43);
+      assert.strictEqual(report.passRate, 95.56);
+      assert.strictEqual(report.isPublishReady, false);
+
+      const visualFailedLeg = report.results.find((r) => r.legId === 'product-standard:mobile');
+      assert.ok(visualFailedLeg);
+      assert.strictEqual(visualFailedLeg.passed, false);
+      assert.strictEqual(visualFailedLeg.visualDiff, 12.5);
+
+      const liquidFailedLeg = report.results.find((r) => r.legId === 'cart-active:desktop');
+      assert.ok(liquidFailedLeg);
+      assert.strictEqual(liquidFailedLeg.passed, false);
+      assert.ok(liquidFailedLeg.renderErrors.some((e) => e.includes('line_item_subtotal')));
+    });
+
+    it('handles evaluator throwing an unhandled exception cleanly without crashing campaign', async () => {
+      const report = await matrixEngine.executeMatrixCampaign(async (context) => {
+        if (context.legId === 'cart-empty:laptop') {
+          throw new Error('CDP execution failed: tab disconnected');
+        }
+        return true;
+      });
+
+      assert.strictEqual(report.executedLegs, 45);
+      assert.strictEqual(report.failedLegs, 1);
+      assert.strictEqual(report.passedLegs, 44);
+      assert.strictEqual(report.isPublishReady, false);
+
+      const crashedLeg = report.results.find((r) => r.legId === 'cart-empty:laptop');
+      assert.ok(crashedLeg);
+      assert.strictEqual(crashedLeg.passed, false);
+      assert.strictEqual(crashedLeg.visualDiff, 100);
+      assert.ok(crashedLeg.error?.includes('tab disconnected'));
+      assert.ok(crashedLeg.renderErrors.some((e) => e.includes('tab disconnected')));
+    });
+
+    it('respects failFast option and halts immediately upon first failure', async () => {
+      let executionCount = 0;
+
+      const report = await matrixEngine.executeMatrixCampaign(
+        async () => {
+          executionCount++;
+          if (executionCount === 3) {
+            return { passed: false, renderErrors: ['Critical layout collapse'] };
+          }
+          return true;
+        },
+        { failFast: true }
+      );
+
+      assert.strictEqual(executionCount, 3);
+      assert.strictEqual(report.executedLegs, 3);
+      assert.strictEqual(report.failedLegs, 1);
+      assert.strictEqual(report.passedLegs, 2);
+      assert.strictEqual(report.totalLegs, 45);
+      assert.strictEqual(report.isPublishReady, false);
+    });
+
+    it('supports filtering by surface and viewport in options', async () => {
+      const report = await matrixEngine.executeMatrixCampaign(
+        async () => true,
+        {
+          surfaces: ['home', 'search-results'],
+          viewports: ['desktop', 'mobile'],
+        }
+      );
+
+      // 2 surfaces x 2 viewports = 4 legs
+      assert.strictEqual(report.executedLegs, 4);
+      assert.strictEqual(report.passedLegs, 4);
+      assert.ok(report.results.every((r) => ['home', 'search-results'].includes(r.surface as string)));
+      assert.ok(report.results.every((r) => ['desktop', 'mobile'].includes(r.viewport as string)));
+    });
+
+    it('supports static proxy and top-level exported executeMatrixCampaign helper', async () => {
+      // Static proxy
+      const staticReport = await HaravanCampaignMatrix.executeMatrixCampaign(
+        async () => true,
+        { surfaces: ['home'], viewports: ['desktop'] }
+      );
+      assert.strictEqual(staticReport.executedLegs, 1);
+      assert.strictEqual(staticReport.passedLegs, 1);
+
+      // Standalone helper
+      const standaloneReport = await executeMatrixCampaign(
+        async () => true,
+        { surfaces: ['home'], viewports: ['desktop'] }
+      );
+      assert.strictEqual(standaloneReport.executedLegs, 1);
+      assert.strictEqual(standaloneReport.passedLegs, 1);
+    });
+
+    it('rejects non-callable evaluator with descriptive error', async () => {
+      await assert.rejects(
+        async () => {
+          await matrixEngine.executeMatrixCampaign(null as unknown as MatrixLegEvaluator);
+        },
+        {
+          name: 'Error',
+          message: /evaluator must be a callable function/,
+        }
+      );
     });
   });
 });

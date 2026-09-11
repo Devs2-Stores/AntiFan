@@ -1,0 +1,24 @@
+<div class="sidebox-account">
+	{%-if settings.hrloyalty_icon_used-%}
+	<div class="sidebox-account--member">	
+		<div class="member-avartar"><span class="js-background"></span>	</div>
+		{% if customer.default_address.first_name == empty and customer.default_address.last_name == empty %}
+		<p class="member-name" >{{ customer.last_name }} {{ customer.first_name }}</p>
+		{% else %}
+		<p class="member-name">{{ customer.default_address.last_name }} {{ customer.default_address.first_name }}</p>
+		{% endif %}
+		<div class="member-points">&nbsp; </div>
+	</div>
+	{%- endif-%}
+	<h3 class="sidebox-account--title">	Tài khoản</h3>
+	<div class="sidebox-account--content">
+		<ul class="account-navlist list-unstyled">	
+			<li><a href="/account">Thông tin tài khoản</a></li>
+			{%-if settings.hrloyalty_icon_used-%}
+			<li class="link-member"><a href="/account?view=member">Thông tin hạng thành viên</a></li>
+			{%- endif-%}
+			<li><a href="/account/addresses">Danh sách địa chỉ</a></li>
+			<li><a href="/account/logout">Đăng xuất</a></li>
+		</ul>
+	</div>
+</div>

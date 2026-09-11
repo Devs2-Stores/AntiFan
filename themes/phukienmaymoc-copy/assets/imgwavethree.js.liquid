@@ -1,0 +1,224 @@
+window.addEventListener('DOMContentLoaded', () => {
+const flagSections = document.querySelectorAll(".flag");
+const segmentsX = 50;
+const segmentsY = 30;
+
+const flags = [];
+const geometries = [];
+const renderers = [];
+const scenes = [];
+const cameras = [];
+const clocks = [];
+const hoverStates = [];
+
+// Hàm tạo flag
+function initFlag(flagWrap){
+  const w = flagWrap.clientWidth;
+  const h = flagWrap.clientHeight;
+  if(w===0 || h===0) return; // tránh NaN
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 100);
+  camera.position.z = 2;
+
+  const renderer = new THREE.WebGLRenderer({alpha:true,antialias:true});
+  renderer.setSize(w,h);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  flagWrap.appendChild(renderer.domElement);
+
+  const loader = new THREE.TextureLoader();
+  loader.load(flagWrap.dataset.src, texture=>{
+    if(!texture.image) return;
+
+    const planeGeo = new THREE.PlaneGeometry(1,1,segmentsX,segmentsY);
+    const material = new THREE.MeshBasicMaterial({map: texture});
+    const flag = new THREE.Mesh(planeGeo, material);
+    scene.add(flag);
+
+    // Scale plane để cover container, giữ tỉ lệ ảnh
+    const imgAspect = texture.image.width / texture.image.height;
+    const containerAspect = w/h;
+    let scaleX=1, scaleY=1;
+
+    if(imgAspect > containerAspect){
+      scaleX = imgAspect / containerAspect;
+    } else {
+      scaleY = containerAspect / imgAspect;
+    }
+    flag.scale.set(scaleX, scaleY,1);
+
+    scenes.push(scene);
+    cameras.push(camera);
+    renderers.push(renderer);
+    geometries.push(planeGeo);
+    flags.push(flag);
+    clocks.push(new THREE.Clock());
+    hoverStates.push(false);
+
+    // Hover
+    flagWrap.addEventListener("mouseenter",()=>hoverStates[flags.length-1]=true);
+    flagWrap.addEventListener("mouseleave",()=>hoverStates[flags.length-1]=false);
+  });
+
+  window.addEventListener("resize",()=>{
+    const newW = flagWrap.clientWidth;
+    const newH = flagWrap.clientHeight;
+    camera.aspect = newW/newH;
+    camera.updateProjectionMatrix();
+    renderer.setSize(newW,newH);
+
+    // Update scale lại khi resize
+    if(flags.length){
+      const flag = flags[flags.length-1];
+      const texture = flag.material.map;
+      const imgAspect = texture.image.width / texture.image.height;
+      const containerAspect = newW/newH;
+      if(imgAspect > containerAspect){
+        flag.scale.set(imgAspect/containerAspect,1,1);
+      } else {
+        flag.scale.set(1, containerAspect/imgAspect,1);
+      }
+    }
+  });
+}
+
+// Dùng ResizeObserver để chắc chắn container có size
+const ro = new ResizeObserver(entries=>{
+  for(const entry of entries){
+    const flagWrap = entry.target;
+    const w = flagWrap.clientWidth;
+    const h = flagWrap.clientHeight;
+    if(w>0 && h>0){
+      initFlag(flagWrap);
+      ro.unobserve(flagWrap);
+    }
+  }
+});
+
+flagSections.forEach(flag => ro.observe(flag));
+
+// Animate sóng hover
+function animateAll(){
+  requestAnimationFrame(animateAll);
+
+  flags.forEach((flag,i)=>{
+    const geometry = geometries[i];
+    if(!geometry) return;
+
+    const position = geometry.getAttribute("position");
+    const vertex = new THREE.Vector3();
+    const time = clocks[i].getElapsedTime();
+
+    for(let j=0;j<position.count;j++){
+      vertex.fromBufferAttribute(position,j);
+      let z = 0;
+      if(hoverStates[i]){
+        const waveX = 0.08*Math.sin(vertex.x*3+time*3);
+        const waveY = 0.06*Math.sin(vertex.y*4+time*2);
+        z = waveX+waveY;
+      }
+      position.setZ(j,z);
+    }
+    position.needsUpdate = true;
+    renderers[i].render(scenes[i],cameras[i]);
+  });
+}
+
+animateAll();
+});
+
+
+
+
+
+
+{%comment%}
+const flagSections = document.querySelectorAll('.product--image');
+const planeWidth = 5, planeHeight = 3, segmentsX = 50, segmentsY = 30;
+
+const flags = [];
+const scenes = [];
+const cameras = [];
+const renderers = [];
+const geometries = [];
+const clocks = [];
+const hoverStates = []; // <--- lưu trạng thái hover của từng ảnh
+
+flagSections.forEach((flagWrap, idx) => {
+  const imgUrl = flagWrap.dataset.src;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(
+    75,
+    flagWrap.clientWidth / flagWrap.clientHeight,
+    0.1,
+    1000
+  );
+  camera.position.z = 5;
+
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  renderer.setSize(flagWrap.clientWidth, flagWrap.clientHeight);
+  flagWrap.appendChild(renderer.domElement);
+
+  const loader = new THREE.TextureLoader();
+  const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight, segmentsX, segmentsY);
+  const material = new THREE.MeshBasicMaterial({ map: loader.load(imgUrl) });
+  const flag = new THREE.Mesh(geometry, material);
+  scene.add(flag);
+
+  // Lưu các đối tượng
+  scenes.push(scene);
+  cameras.push(camera);
+  renderers.push(renderer);
+  geometries.push(geometry);
+  flags.push(flag);
+  clocks.push(new THREE.Clock());
+  hoverStates.push(false);
+
+  // Resize responsive
+  window.addEventListener('resize', () => {
+    camera.aspect = flagWrap.clientWidth / flagWrap.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(flagWrap.clientWidth, flagWrap.clientHeight);
+  });
+
+  // Hover sự kiện
+  flagWrap.addEventListener('mouseenter', () => {
+    hoverStates[idx] = true;
+  });
+  flagWrap.addEventListener('mouseleave', () => {
+    hoverStates[idx] = false;
+  });
+});
+
+// Hàm animate
+function animateAll() {
+  requestAnimationFrame(animateAll);
+
+  flags.forEach((flag, i) => {
+    const geometry = geometries[i];
+    const position = geometry.getAttribute('position');
+    const vertex = new THREE.Vector3();
+    const time = clocks[i].getElapsedTime();
+
+    for (let j = 0; j < position.count; j++) {
+      vertex.fromBufferAttribute(position, j);
+      let z = 0;
+
+      if (hoverStates[i]) {
+        // chỉ tạo sóng khi hover
+        const waveX1 = 0.15 * Math.sin(vertex.x * 2 + time * 2);
+        const waveY1 = 0.1 * Math.sin(vertex.y * 2 + time * 3);
+        z = waveX1 + waveY1;
+      }
+
+      position.setZ(j, z);
+    }
+
+    position.needsUpdate = true;
+    renderers[i].render(scenes[i], cameras[i]);
+  });
+}
+
+animateAll();
+{%endcomment%}

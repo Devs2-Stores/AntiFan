@@ -1,0 +1,17 @@
+<div class="productDetail-recently-viewed">
+	<div class="container container-pd0">
+		<div class="productViewed-title text-center">
+			{%- if settings.product_viewed_title == '' -%}
+			<h2>Sản phẩm đã xem</h2>
+			{%- else-%}
+			<h2 setting-id="product_viewed_title" setting-type="text" class="hrv-cf-product_viewed_title">{{settings.product_viewed_title}}</h2>
+			{%- endif-%}	
+		</div>
+		<div class="productViewed-content">
+			<div class="listProduct-viewed listProduct-row owlCarousel-dfex owl-carousel owlCarousel-style" id="listViewed"></div>
+		</div>
+	</div>
+</div>
+
+
+

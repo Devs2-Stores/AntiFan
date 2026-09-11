@@ -10,12 +10,14 @@
  * - CLI transport delegation for theme dev/preview/watch workflows (§9)
  */
 
+import { spawn, ChildProcess } from 'node:child_process';
 import {
   StoreContext,
   ThemeAsset,
   ThemeTransaction,
   ThemeTransactionPolicy,
 } from './types.js';
+import { CleanupAction } from './entity-resolver.js';
 
 // ============================================================================
 // Core Platform Adapter Interface (§7 - §8)
@@ -27,6 +29,7 @@ export interface PlatformAdapter {
   getTheme(id: number | string): Promise<{ id: number | string; name: string; role: string }>;
   getThemeAssets(themeId: number | string): Promise<ThemeAsset[]>;
   getThemeAsset(themeId: number | string, key: string): Promise<ThemeAsset | null>;
+  assertThemeIsMutable(themeId: number | string): Promise<{ id: number | string; name: string; role: string }>;
   beginTransaction(themeId: number | string, policy: ThemeTransactionPolicy): Promise<ThemeTransaction>;
   stageAssetMutation(
     transactionId: string,
@@ -60,6 +63,22 @@ export interface HaravanApiTransport {
   getPages?(params?: Record<string, unknown>): Promise<unknown[]>;
   getMenus?(): Promise<unknown[]>;
   getThemeSettings?(themeId: number | string): Promise<unknown>;
+
+  // Canary deletion endpoints (Audit §43)
+  deleteProduct?(id: number | string): Promise<{ id: number | string; deleted: boolean }>;
+  deleteCollection?(id: number | string): Promise<{ id: number | string; deleted: boolean }>;
+  deleteArticle?(id: number | string, blogId?: number | string): Promise<{ id: number | string; deleted: boolean }>;
+  deletePage?(id: number | string): Promise<{ id: number | string; deleted: boolean }>;
+}
+
+export type { CleanupAction };
+
+export type CleanupPlan = CleanupAction[];
+
+export interface CleanupExecutionResult {
+  executed: number;
+  failed: number;
+  errors: Array<{ targetId: string; error: string }>;
 }
 
 export interface ThemeCliPreviewOptions {
@@ -68,6 +87,8 @@ export interface ThemeCliPreviewOptions {
   themeId?: number | string;
   env?: string;
   dir?: string;
+  timeoutMs?: number;
+  waitForReady?: boolean;
 }
 
 export interface ThemeCliSyncOptions {
@@ -76,6 +97,7 @@ export interface ThemeCliSyncOptions {
   env?: string;
   files?: string[];
   force?: boolean;
+  timeoutMs?: number;
 }
 
 export interface ThemeCliWatchOptions {
@@ -83,8 +105,8 @@ export interface ThemeCliWatchOptions {
   themeId?: number | string;
   env?: string;
   notify?: boolean;
+  timeoutMs?: number;
 }
-
 export interface ThemeCliProcessResult {
   command: string;
   args: string[];
@@ -131,7 +153,7 @@ export class ThemeTransactionStateError extends HaravanAdapterError {
 export class ThemeTransactionPolicyError extends HaravanAdapterError {
   public override name = 'ThemeTransactionPolicyError';
   constructor(
-    public readonly reason: 'FORBIDDEN_FILE' | 'NOT_ALLOWED_FILE' | 'DIFF_BUDGET_FILES' | 'DIFF_BUDGET_BYTES',
+    public readonly reason: 'FORBIDDEN_FILE' | 'NOT_ALLOWED_FILE' | 'DIFF_BUDGET_FILES' | 'DIFF_BUDGET_BYTES' | 'LIVE_THEME_MUTATION_FORBIDDEN',
     public readonly violatingKey: string,
     message: string
   ) {
@@ -279,10 +301,30 @@ export class HaravanAdapter implements PlatformAdapter {
   // PlatformAdapter: Atomic Theme Transactions (§8)
   // --------------------------------------------------------------------------
 
+  public async assertThemeIsMutable(
+    themeId: number | string
+  ): Promise<{ id: number | string; name: string; role: string }> {
+    const targetTheme = await this.getTheme(themeId);
+    if (!targetTheme) {
+      throw new HaravanAdapterError(`Theme with ID ${themeId} not found.`);
+    }
+    const role = String(targetTheme.role || '').toLowerCase().trim();
+    if (role === 'main') {
+      throw new ThemeTransactionPolicyError(
+        'LIVE_THEME_MUTATION_FORBIDDEN',
+        String(themeId),
+        `Direct mutations on live production theme ${themeId} (role: 'main') are strictly forbidden (Audit §33, §64).`
+      );
+    }
+    return targetTheme;
+  }
+
   public async beginTransaction(
     themeId: number | string,
     policy: ThemeTransactionPolicy
   ): Promise<ThemeTransaction> {
+    await this.assertThemeIsMutable(themeId);
+
     this.txCounter += 1;
     const transactionId = `tx_${Date.now()}_${this.txCounter}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -621,6 +663,122 @@ export class HaravanAdapter implements PlatformAdapter {
   }
 
   // --------------------------------------------------------------------------
+  // Canary Fixture Cleanup Execution (Audit §43)
+  // --------------------------------------------------------------------------
+
+  public async executeCleanupPlan(
+    plan: CleanupPlan | { generateCleanupPlan?: () => CleanupAction[]; actions?: CleanupAction[] }
+  ): Promise<CleanupExecutionResult> {
+    let actions: CleanupAction[] = [];
+    if (Array.isArray(plan)) {
+      actions = plan;
+    } else if (plan && typeof plan === 'object') {
+      if ('generateCleanupPlan' in plan && typeof plan.generateCleanupPlan === 'function') {
+        actions = plan.generateCleanupPlan();
+      } else if ('actions' in plan && Array.isArray(plan.actions)) {
+        actions = plan.actions;
+      }
+    }
+    let executed = 0;
+    let failed = 0;
+    const errors: Array<{ targetId: string; error: string }> = [];
+
+    for (const step of actions) {
+      if (step.action !== 'delete') {
+        continue;
+      }
+      const targetId = String(step.id);
+      const entityType = String(step.type || '').toLowerCase();
+
+      try {
+        let deleted = false;
+        switch (entityType) {
+          case 'product':
+            if (this.apiTransport.deleteProduct) {
+              const res = await this.apiTransport.deleteProduct(step.id);
+              deleted = res.deleted !== false;
+            } else {
+              throw new Error(`API transport does not support deleteProduct for ${targetId}`);
+            }
+            break;
+          case 'collection':
+            if (this.apiTransport.deleteCollection) {
+              const res = await this.apiTransport.deleteCollection(step.id);
+              deleted = res.deleted !== false;
+            } else {
+              throw new Error(`API transport does not support deleteCollection for ${targetId}`);
+            }
+            break;
+          case 'article':
+            if (this.apiTransport.deleteArticle) {
+              const res = await this.apiTransport.deleteArticle(step.id);
+              deleted = res.deleted !== false;
+            } else {
+              throw new Error(`API transport does not support deleteArticle for ${targetId}`);
+            }
+            break;
+          case 'page':
+            if (this.apiTransport.deletePage) {
+              const res = await this.apiTransport.deletePage(step.id);
+              deleted = res.deleted !== false;
+            } else {
+              throw new Error(`API transport does not support deletePage for ${targetId}`);
+            }
+            break;
+          default:
+            throw new Error(`Unsupported entity type for cleanup deletion: ${step.type}`);
+        }
+
+        if (deleted) {
+          executed++;
+        } else {
+          failed++;
+          errors.push({
+            targetId,
+            error: `Failed to delete ${step.type} fixture ${targetId}: deletion returned false`,
+          });
+        }
+      } catch (err: unknown) {
+        failed++;
+        errors.push({
+          targetId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return { executed, failed, errors };
+  }
+
+  public async deleteProduct(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    if (this.apiTransport.deleteProduct) {
+      return this.apiTransport.deleteProduct(id);
+    }
+    throw new HaravanAdapterError('API transport does not implement deleteProduct');
+  }
+
+  public async deleteCollection(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    if (this.apiTransport.deleteCollection) {
+      return this.apiTransport.deleteCollection(id);
+    }
+    throw new HaravanAdapterError('API transport does not implement deleteCollection');
+  }
+
+  public async deleteArticle(id: number | string, blogId?: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    if (this.apiTransport.deleteArticle) {
+      return this.apiTransport.deleteArticle(id, blogId);
+    }
+    throw new HaravanAdapterError('API transport does not implement deleteArticle');
+  }
+
+  public async deletePage(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    if (this.apiTransport.deletePage) {
+      return this.apiTransport.deletePage(id);
+    }
+    throw new HaravanAdapterError('API transport does not implement deletePage');
+  }
+
+  // --------------------------------------------------------------------------
   // CLI Transport Delegation (§9)
   // --------------------------------------------------------------------------
 
@@ -831,17 +989,555 @@ export class InMemoryHaravanApiTransport implements HaravanApiTransport {
     }
     return null;
   }
+
+  public async deleteProduct(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    const prevLen = this.products.length;
+    this.products = this.products.filter((p) => {
+      if (p && typeof p === 'object' && 'id' in p) {
+        return String((p as { id: unknown }).id) !== String(id);
+      }
+      return true;
+    });
+    return { id, deleted: this.products.length < prevLen };
+  }
+
+  public async deleteCollection(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    const prevLen = this.collections.length;
+    this.collections = this.collections.filter((c) => {
+      if (c && typeof c === 'object' && 'id' in c) {
+        return String((c as { id: unknown }).id) !== String(id);
+      }
+      return true;
+    });
+    return { id, deleted: this.collections.length < prevLen };
+  }
+
+  public async deleteArticle(id: number | string, _blogId?: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    const prevLen = this.articles.length;
+    this.articles = this.articles.filter((a) => {
+      if (a && typeof a === 'object' && 'id' in a) {
+        return String((a as { id: unknown }).id) !== String(id);
+      }
+      return true;
+    });
+    return { id, deleted: this.articles.length < prevLen };
+  }
+
+  public async deletePage(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    const prevLen = this.pages.length;
+    this.pages = this.pages.filter((p) => {
+      if (p && typeof p === 'object' && 'id' in p) {
+        return String((p as { id: unknown }).id) !== String(id);
+      }
+      return true;
+    });
+    return { id, deleted: this.pages.length < prevLen };
+  }
+}
+
+// ============================================================================
+// Concrete HTTP Haravan REST Admin API Transport (Audit §16)
+// ============================================================================
+
+export interface HttpHaravanApiTransportOptions {
+  accessToken: string;
+  shopDomain?: string;
+  baseUrl?: string;
+  authType?: 'header' | 'bearer';
+  maxRetries?: number;
+  retryDelayMs?: number;
+  timeoutMs?: number;
+  fetchFn?: typeof fetch;
+}
+
+export class HttpHaravanApiTransport implements HaravanApiTransport {
+  private accessToken: string;
+  private shopDomain: string;
+  private baseUrl: string;
+  private authType: 'header' | 'bearer';
+  private maxRetries: number;
+  private retryDelayMs: number;
+  private timeoutMs: number;
+  private fetchFn: typeof fetch;
+
+  constructor(options: HttpHaravanApiTransportOptions) {
+    if (!options?.accessToken) {
+      throw new HaravanAdapterError('HttpHaravanApiTransport requires an accessToken.');
+    }
+    this.accessToken = options.accessToken;
+    this.shopDomain = options.shopDomain ?? 'haravan-store.myharavan.com';
+    this.baseUrl = (options.baseUrl ?? 'https://apis.haravan.com/web').replace(/\/+$/, '');
+    this.authType = options.authType ?? (options.accessToken.startsWith('Bearer ') ? 'bearer' : 'header');
+    this.maxRetries = options.maxRetries ?? 3;
+    this.retryDelayMs = options.retryDelayMs ?? 500;
+    this.timeoutMs = options.timeoutMs ?? 15000;
+    this.fetchFn = options.fetchFn ?? globalThis.fetch;
+  }
+
+  private async request<T = unknown>(
+    path: string,
+    init: RequestInit = {},
+    retryCount = 0
+  ): Promise<T> {
+    const url = path.startsWith('http://') || path.startsWith('https://')
+      ? path
+      : `${this.baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+
+    const headers = new Headers(init.headers);
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
+    if (!headers.has('Content-Type') && init.body && typeof init.body === 'string') {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    const token = this.accessToken.trim();
+    if (this.authType === 'bearer' || token.startsWith('Bearer ')) {
+      const bearerValue = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+      headers.set('Authorization', bearerValue);
+    } else {
+      headers.set('X-Haravan-Access-Token', token);
+    }
+
+    const timeout = this.timeoutMs;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await this.fetchFn(url, {
+        ...init,
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      // Handle Rate Limiting (429 Retry-After)
+      if (response.status === 429) {
+        if (retryCount < this.maxRetries) {
+          const retryAfterHeader = response.headers.get('Retry-After');
+          let delayMs = this.retryDelayMs * Math.pow(2, retryCount);
+          if (retryAfterHeader) {
+            const parsedSeconds = parseFloat(retryAfterHeader);
+            if (!isNaN(parsedSeconds) && parsedSeconds > 0) {
+              delayMs = Math.ceil(parsedSeconds * 1000);
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          return this.request<T>(path, init, retryCount + 1);
+        }
+        throw new HaravanAdapterError(
+          `Haravan API 429 Rate Limit exceeded for ${url} after ${retryCount} retries.`
+        );
+      }
+
+      // Handle Server Errors (5xx) with retry
+      if (response.status >= 500 && retryCount < this.maxRetries) {
+        const delayMs = this.retryDelayMs * Math.pow(2, retryCount);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        return this.request<T>(path, init, retryCount + 1);
+      }
+
+      if (!response.ok) {
+        let errorBody = '';
+        try {
+          errorBody = await response.text();
+        } catch {
+          // ignore
+        }
+        const err = new HaravanAdapterError(
+          `Haravan API request failed [${response.status} ${response.statusText}]: ${url} - ${errorBody}`
+        );
+        Object.assign(err, { status: response.status });
+        throw err;
+      }
+
+      if (response.status === 204) {
+        return {} as T;
+      }
+
+      const text = await response.text();
+      if (!text || text.trim() === '') {
+        return {} as T;
+      }
+      return JSON.parse(text) as T;
+    } catch (err: unknown) {
+      clearTimeout(timer);
+      if (err instanceof HaravanAdapterError) {
+        throw err;
+      }
+      if (err && typeof err === 'object' && 'name' in err && (err as { name: unknown }).name === 'AbortError') {
+        throw new HaravanAdapterError(`Haravan API request timed out after ${timeout}ms: ${url}`);
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new HaravanAdapterError(`Haravan API network error: ${msg}`);
+    }
+  }
+
+  public async getStoreContext(): Promise<StoreContext> {
+    try {
+      const data = await this.request<{ shop?: Record<string, unknown> }>('/admin/shop.json');
+      const shop = data.shop ?? {};
+      const name = typeof shop.name === 'string' ? shop.name : this.shopDomain;
+      const domain = typeof shop.domain === 'string' ? shop.domain : this.shopDomain;
+      const province = typeof shop.province === 'string' ? shop.province : undefined;
+      return {
+        store: name,
+        domain,
+        organization: province,
+        theme: 'Main Theme',
+        themeId: 0,
+        environment: 'development',
+        adminOrigin: `https://${domain}`,
+      };
+    } catch {
+      return {
+        store: this.shopDomain,
+        domain: this.shopDomain,
+        themeId: 0,
+        environment: 'development',
+        adminOrigin: `https://${this.shopDomain}`,
+      };
+    }
+  }
+
+  public async listThemes(): Promise<Array<{ id: number | string; name: string; role: string }>> {
+    const data = await this.request<{ themes?: Array<{ id: number | string; name: string; role: string }> }>('/admin/themes.json');
+    return data.themes ?? [];
+  }
+
+  public async getTheme(id: number | string): Promise<{ id: number | string; name: string; role: string }> {
+    const data = await this.request<{ theme: { id: number | string; name: string; role: string } }>(`/admin/themes/${id}.json`);
+    return data.theme;
+  }
+
+  public async getThemeAssets(themeId: number | string): Promise<ThemeAsset[]> {
+    const data = await this.request<{ assets?: Array<Record<string, unknown>> }>(`/admin/themes/${themeId}/assets.json`);
+    return (data.assets ?? []).map((a) => ({
+      key: String(a.key ?? ''),
+      size: typeof a.size === 'number' ? a.size : undefined,
+      updatedAt: typeof a.updated_at === 'string' ? a.updated_at : undefined,
+    }));
+  }
+
+  public async getThemeAsset(themeId: number | string, key: string): Promise<ThemeAsset | null> {
+    try {
+      const data = await this.request<{ asset?: Record<string, unknown> }>(
+        `/admin/themes/${themeId}/assets.json?asset[key]=${encodeURIComponent(key)}`
+      );
+      if (!data.asset) return null;
+      const a = data.asset;
+      return {
+        key: String(a.key ?? key),
+        value: typeof a.value === 'string' ? a.value : undefined,
+        attachment: typeof a.attachment === 'string' ? a.attachment : undefined,
+        contentType: typeof a.content_type === 'string' ? a.content_type : undefined,
+        size: typeof a.size === 'number' ? a.size : undefined,
+        updatedAt: typeof a.updated_at === 'string' ? a.updated_at : undefined,
+      };
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'status' in err && (err as { status: unknown }).status === 404) {
+        return null;
+      }
+      if (err instanceof Error && err.message.includes('404')) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  public async putThemeAsset(
+    themeId: number | string,
+    asset: { key: string; value?: string; attachment?: string }
+  ): Promise<ThemeAsset> {
+    const data = await this.request<{ asset: Record<string, unknown> }>(
+      `/admin/themes/${themeId}/assets.json`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ asset }),
+      }
+    );
+    const a = data.asset;
+    return {
+      key: String(a.key ?? asset.key),
+      value: typeof a.value === 'string' ? a.value : asset.value,
+      attachment: typeof a.attachment === 'string' ? a.attachment : asset.attachment,
+      contentType: typeof a.content_type === 'string' ? a.content_type : undefined,
+      size: typeof a.size === 'number' ? a.size : undefined,
+      updatedAt: typeof a.updated_at === 'string' ? a.updated_at : undefined,
+    };
+  }
+
+  public async deleteThemeAsset(themeId: number | string, key: string): Promise<{ key: string; deleted: boolean }> {
+    await this.request(
+      `/admin/themes/${themeId}/assets.json?asset[key]=${encodeURIComponent(key)}`,
+      { method: 'DELETE' }
+    );
+    return { key, deleted: true };
+  }
+
+  public async getProducts(params?: Record<string, unknown>): Promise<unknown[]> {
+    const query = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+    const data = await this.request<{ products?: unknown[] }>(`/admin/products.json${query}`);
+    return data.products ?? [];
+  }
+
+  public async getCollections(params?: Record<string, unknown>): Promise<unknown[]> {
+    const query = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+    try {
+      const data = await this.request<{ custom_collections?: unknown[]; collections?: unknown[] }>(
+        `/admin/custom_collections.json${query}`
+      );
+      return data.collections ?? data.custom_collections ?? [];
+    } catch {
+      const data = await this.request<{ collections?: unknown[] }>(`/admin/collections.json${query}`);
+      return data.collections ?? [];
+    }
+  }
+
+  public async getArticles(params?: Record<string, unknown>): Promise<unknown[]> {
+    const query = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+    const data = await this.request<{ articles?: unknown[] }>(`/admin/articles.json${query}`);
+    return data.articles ?? [];
+  }
+
+  public async getBlogs(): Promise<unknown[]> {
+    const data = await this.request<{ blogs?: unknown[] }>('/admin/blogs.json');
+    return data.blogs ?? [];
+  }
+
+  public async getPages(params?: Record<string, unknown>): Promise<unknown[]> {
+    const query = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+    const data = await this.request<{ pages?: unknown[] }>(`/admin/pages.json${query}`);
+    return data.pages ?? [];
+  }
+
+  public async getMenus(): Promise<unknown[]> {
+    try {
+      const data = await this.request<{ link_lists?: unknown[]; menus?: unknown[] }>('/admin/link_lists.json');
+      return data.menus ?? data.link_lists ?? [];
+    } catch {
+      const data = await this.request<{ menus?: unknown[] }>('/admin/menus.json');
+      return data.menus ?? [];
+    }
+  }
+
+  public async getThemeSettings(themeId: number | string): Promise<unknown> {
+    const asset = await this.getThemeAsset(themeId, 'config/settings_data.json');
+    if (asset?.value) {
+      try {
+        return JSON.parse(asset.value);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  public async deleteProduct(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    await this.request(`/admin/products/${id}.json`, { method: 'DELETE' });
+    return { id, deleted: true };
+  }
+
+  public async deleteCollection(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    try {
+      await this.request(`/admin/custom_collections/${id}.json`, { method: 'DELETE' });
+    } catch {
+      await this.request(`/admin/collections/${id}.json`, { method: 'DELETE' });
+    }
+    return { id, deleted: true };
+  }
+
+  public async deleteArticle(id: number | string, blogId?: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    const path = blogId
+      ? `/admin/blogs/${blogId}/articles/${id}.json`
+      : `/admin/articles/${id}.json`;
+    await this.request(path, { method: 'DELETE' });
+    return { id, deleted: true };
+  }
+
+  public async deletePage(id: number | string): Promise<{ id: number | string; deleted: boolean }> {
+    await this.request(`/admin/pages/${id}.json`, { method: 'DELETE' });
+    return { id, deleted: true };
+  }
 }
 
 // ============================================================================
 // Concrete Haravan CLI Transport (§9: hrv theme dev/preview/sync/watch)
 // ============================================================================
 
+export interface HaravanCliProcessTransportOptions {
+  binaryPath?: string;
+  spawnFn?: typeof spawn;
+  defaultCwd?: string;
+  defaultEnv?: Record<string, string>;
+  defaultTimeoutMs?: number;
+}
+
 export class HaravanCliProcessTransport implements HaravanCliTransport {
   private binaryPath: string;
+  private spawnFn: typeof spawn;
+  private defaultCwd?: string;
+  private defaultEnv?: Record<string, string>;
+  private defaultTimeoutMs: number;
 
-  constructor(options?: { binaryPath?: string }) {
+  constructor(options?: HaravanCliProcessTransportOptions) {
     this.binaryPath = options?.binaryPath ?? 'hrv';
+    this.spawnFn = options?.spawnFn ?? spawn;
+    this.defaultCwd = options?.defaultCwd;
+    this.defaultEnv = options?.defaultEnv;
+    this.defaultTimeoutMs = options?.defaultTimeoutMs ?? 30000;
+  }
+
+  private async spawnProcess(
+    args: string[],
+    options?: {
+      cwd?: string;
+      env?: Record<string, string>;
+      timeoutMs?: number;
+      isLongRunning?: boolean;
+      url?: string;
+    }
+  ): Promise<ThemeCliProcessResult> {
+    const command = this.binaryPath;
+    const cwd = options?.cwd ?? this.defaultCwd;
+    const env = { ...process.env, ...this.defaultEnv, ...(options?.env ?? {}) };
+    const isWin = process.platform === 'win32';
+    const isCmdOrBat = isWin && (
+      command.toLowerCase().endsWith('.cmd') ||
+      command.toLowerCase().endsWith('.bat') ||
+      (!command.toLowerCase().endsWith('.exe') && !command.includes('.'))
+    );
+
+    return new Promise<ThemeCliProcessResult>((resolve) => {
+      let child: ChildProcess;
+      try {
+        child = this.spawnFn(command, args, {
+          cwd,
+          env,
+          shell: isCmdOrBat,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } catch (err: unknown) {
+        return resolve({
+          command,
+          args,
+          exitCode: 1,
+          stdout: '',
+          stderr: err instanceof Error ? err.message : String(err),
+          url: options?.url,
+        });
+      }
+
+      let stdout = '';
+      let stderr = '';
+      let hasSettled = false;
+      let timer: NodeJS.Timeout | undefined;
+
+      const cleanupTimer = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+      };
+
+      const stop = async () => {
+        cleanupTimer();
+        if (child.pid && !child.killed) {
+          try {
+            if (isWin) {
+              child.kill();
+            } else {
+              child.kill('SIGTERM');
+            }
+          } catch {
+            // ignore
+          }
+        }
+      };
+
+      child.stdout?.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr?.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on('error', (err: Error) => {
+        cleanupTimer();
+        stderr += `\nProcess error: ${err.message}`;
+        if (!hasSettled) {
+          hasSettled = true;
+          const errCode = 'code' in err ? (err as { code: unknown }).code : undefined;
+          resolve({
+            command,
+            args,
+            exitCode: errCode === 'ENOENT' ? 127 : 1,
+            stdout,
+            stderr: stderr.trim(),
+            url: options?.url,
+            processId: child.pid,
+            stop,
+          });
+        }
+      });
+
+      child.on('close', (code, signal) => {
+        cleanupTimer();
+        if (!hasSettled) {
+          hasSettled = true;
+          resolve({
+            command,
+            args,
+            exitCode: code !== null ? code : signal ? 1 : 0,
+            stdout,
+            stderr: stderr.trim(),
+            url: options?.url,
+            processId: child.pid,
+            stop,
+          });
+        }
+      });
+
+      if (options?.timeoutMs && options.timeoutMs > 0) {
+        timer = setTimeout(() => {
+          cleanupTimer();
+          stderr += `\nProcess execution timed out after ${options.timeoutMs}ms`;
+          if (!hasSettled) {
+            hasSettled = true;
+            resolve({
+              command,
+              args,
+              exitCode: 124,
+              stdout,
+              stderr: stderr.trim(),
+              url: options?.url,
+              processId: child.pid,
+              stop,
+            });
+          }
+          stop();
+        }, options.timeoutMs);
+      }
+
+      if (options?.isLongRunning) {
+        setTimeout(() => {
+          if (!hasSettled) {
+            hasSettled = true;
+            resolve({
+              command,
+              args,
+              exitCode: child.exitCode ?? undefined,
+              stdout,
+              stderr: stderr.trim(),
+              url: options?.url,
+              processId: child.pid,
+              stop,
+            });
+          }
+        }, 50);
+      }
+    });
   }
 
   public async preview(
@@ -853,14 +1549,13 @@ export class HaravanCliProcessTransport implements HaravanCliTransport {
     if (options?.env) args.push('--env', options.env);
     if (options?.dir) args.push('--dir', options.dir);
 
-    return {
-      command: this.binaryPath,
-      args,
+    return this.spawnProcess(args, {
+      cwd: options?.dir,
+      env: options?.env ? { HARAVAN_ENV: options.env } : undefined,
+      timeoutMs: options?.timeoutMs,
+      isLongRunning: true,
       url: `http://127.0.0.1:${port}`,
-      exitCode: 0,
-      stdout: `Haravan preview server initialized on port ${port} for theme ${themeId}`,
-      stop: async () => {},
-    };
+    });
   }
 
   public async sync(
@@ -875,12 +1570,12 @@ export class HaravanCliProcessTransport implements HaravanCliTransport {
       args.push(...options.files);
     }
 
-    return {
-      command: this.binaryPath,
-      args,
-      exitCode: 0,
-      stdout: `Haravan theme assets synchronized successfully for theme ${themeId}`,
-    };
+    return this.spawnProcess(args, {
+      cwd: options?.dir,
+      env: options?.env ? { HARAVAN_ENV: options.env } : undefined,
+      timeoutMs: options?.timeoutMs,
+      isLongRunning: false,
+    });
   }
 
   public async watch(
@@ -892,12 +1587,23 @@ export class HaravanCliProcessTransport implements HaravanCliTransport {
     if (options?.dir) args.push('--dir', options.dir);
     if (options?.notify) args.push('--notify');
 
-    return {
-      command: this.binaryPath,
-      args,
-      exitCode: 0,
-      stdout: `Haravan file watcher started for theme ${themeId}`,
-      stop: async () => {},
-    };
+    return this.spawnProcess(args, {
+      cwd: options?.dir,
+      env: options?.env ? { HARAVAN_ENV: options.env } : undefined,
+      timeoutMs: options?.timeoutMs,
+      isLongRunning: true,
+    });
+  }
+
+  public async exec(
+    args: string[],
+    options?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }
+  ): Promise<ThemeCliProcessResult> {
+    return this.spawnProcess(args, {
+      cwd: options?.cwd,
+      env: options?.env,
+      timeoutMs: options?.timeoutMs,
+      isLongRunning: false,
+    });
   }
 }

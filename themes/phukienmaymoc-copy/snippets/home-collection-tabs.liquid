@@ -1,0 +1,108 @@
+{%- if settings.home_coll_1_navtabs_show -%}
+{%- if settings.home_coll_1_banner_show -%}
+	{%- if settings.home_coll_1_navtabs_limit != 12 -%}
+		{%-assign checkBanner = true-%}	
+	{%- endif -%}
+{%- endif -%}
+<section class="home-collection-navtabs-1">
+	<div class="container container-pd-parent">
+		<div class="section-heading">	
+			<div class="box-header">
+				{%- if settings.home_coll_1_navtabs_title -%}
+				<h2 class="hTitle">{{settings.home_coll_1_navtabs_title}}</h2>
+				{%- endif -%}
+			</div>
+			<div class="box-tablist">
+				{%- assign limit_desk = settings.home_navtabs_limit_desk | lstrip | rstrip | times: 1 -%}
+				{%- assign limit_mb = settings.home_navtabs_limit_mb | lstrip | rstrip | times: 1 -%}
+				{%- assign limit_final = limit_desk -%}
+				
+				{%- if limit_mb > limit_desk -%}  {%- assign limit_final = limit_mb -%}  {%- endif -%}
+				
+				<ul class="nav collection-navtabs-title pills-tab" data-limit="{{limit_final}}">
+					{%-assign loop = true-%}
+					{%-assign htmlTabPane = ''-%}
+					
+					
+					{%-for tab in (1..4)-%}
+					{%-capture title-%}home_collection_tabs_{{tab}}_title{%-endcapture-%}
+					{%-capture handle-%}home_collection_tabs_{{tab}}_handle{%-endcapture-%}
+					{%-assign handleSection = settings[handle]-%}
+					{%-unless forloop.first-%}
+					{%-capture show-%}home_collection_tabs_{{tab}}_show{%-endcapture-%}
+					{%-assign loop = settings[show]-%}
+					{%-endunless-%}
+					{%-if loop-%}
+					<li class="nav-item">
+						<a class="nav-link {%if forloop.first%}active{%endif%}" data-handle="{{ collections[handleSection].url }}" data-toggle="tab" href="#collection-tabs-{{tab}}" data-count="{{collections[handleSection].products.size}}">
+							{%-assign titleTab = 'Nhóm sản phẩm' -%}
+							{% if settings[title] != '' %}
+							{%-assign titleTab = settings[title]-%}
+							{%-elsif collections[handleSection].products.size >= 0  -%}
+							{%-assign titleTab = collections[handleSection].title -%}
+							{%-endif-%}
+							{{titleTab}}
+						</a>
+					</li>
+					{%-capture tab_pane_html-%}
+					<div class="tab-pane fade {%if forloop.first%} active show{%endif%}"  id="collection-tabs-{{tab}}" role="tabpanel" data-get="{%if forloop.first%}true{%else%}false{%endif%}">
+						{%-unless forloop.first-%}
+						<div class="row listProduct-row">
+							{% for i in (1..limit_final) %}
+								{%-include 'product-loop-loadding'-%}
+							{% endfor %}
+						</div>
+						{%-else-%}
+						{%-if collections[handleSection].products.size > 0-%}	
+						<div class="row listProduct-row">
+							{% for product in collections[handleSection].products limit: limit_final %}
+								{%-include 'product-loop' with collection.handle, section:'navTab_1'-%}
+							{% endfor %}
+						</div>	
+						{%-else-%}
+						<div class="row listProduct-row list-product-no">
+							{%-for i in (1..limit_final)-%}
+								{%-include 'product-loop-no'-%}
+							{%-endfor-%}
+						</div>
+						{%-endif-%}
+						{%-endunless-%}
+					</div>
+					{%-endcapture-%}
+					{%-assign htmlTabPane = htmlTabPane | append: tab_pane_html-%}
+					{%-endif-%}
+					{%-endfor-%}
+				</ul>
+			</div>
+		</div>
+		<div class="wrapbox row-mg-parent">
+			{%- if settings.home_coll_1_banner_show -%}
+			<div class="wrapbox--left">
+				<div class="wrapbox-img">
+					<a href="{{settings.home_collection_banner_link}}" aria-label="{{settings.home_coll_1_navtabs_title}}">
+						<img class="lazyload" data-src="{{ 'home_coll_1_banner.jpg' | asset_url }}" 
+								 src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+								 alt="banner">
+					</a>
+				</div>
+				<div class="wrapbox-detail text-center">
+					{% if settings.home_coll_1_banner_title  != blank %}<h3 class="wrapbox-detail__title">{{settings.home_coll_1_banner_title}}</h3>{% endif %}
+					{% if settings.home_coll_1_banner_desc  != blank %}<p class="wrapbox-detail__desc">{{settings.home_coll_1_banner_desc}}</p>{% endif %}
+					{% if settings.home_coll_1_banner_btn  != blank %}<a href="{{settings.home_coll_1_banner_link}}" class="button">{{settings.home_coll_1_banner_btn}}</a>{% endif %}
+				</div>
+			</div>
+			{%- endif -%}
+			<div class="wrapbox--right">
+				<div class="tab-content" id="collection-tabs-ajax">
+					{{ htmlTabPane }}
+				</div>
+			</div>
+			
+			<div class="wrapbox--btn {%if collections[settings.home_collection_tabs_1_handle].products.size <= limit_desk %}d-none{%endif%}">
+				<a href="{{collections[settings.home_collection_tabs_1_handle].url}}" class="button btn-loadmore">Xem tất cả <strong>{{settings.home_collection_tabs_1_title}}</strong></a>
+			</div>
+			     
+		</div>
+	</div>
+</section>
+{%- endif -%}

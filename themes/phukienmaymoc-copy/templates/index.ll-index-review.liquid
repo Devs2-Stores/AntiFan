@@ -1,0 +1,57 @@
+{% layout none %}
+<link href="{{ 'll-index-review.js' | asset_url }}" rel="preload" as="script">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'll-index-review.js' | asset_url }}"></script>
+<section class="loomline-index-review">
+  <div class="container">
+  <div class="review-heading">
+      <div class="heading-title">
+        {% if settings.loomline_index_review_title != empty %}
+          <h2 class="title2 hrv-cf-loomline_index_review_title" setting-id="loomline_index_review_title" setting-type="textarea">{{ settings.loomline_index_review_title | newline_to_br}}</h2>
+        {% endif %}
+      </div>
+      <div class="heading-nav">
+        <div class="swiper-nav swiper-prev button">
+          <svg width="30px" height="30px" viewBox="-78.5 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <title>left</title><path d="M257 64L291 98 128 262 291 426 257 460 61 262 257 64Z" /></svg>
+        </div>
+        <div class="swiper-nav swiper-next button">
+          <svg width="30px" height="30px" viewBox="-77 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <title>right</title><path d="M98 460L64 426 227 262 64 98 98 64 294 262 98 460Z" /></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="review-list">
+    <div class="swiper">
+      <div class="swiper-wrapper">
+        {% for i in (1..10) %}
+          {% capture show %}show_loomline_index_review_{{i}}{%endcapture%}
+          {% capture banner %}loomline_index_review_{{i}}_banner.jpg{%endcapture%}
+          {% capture name %}loomline_index_review_{{i}}_name{%endcapture%}
+          {% capture position %}loomline_index_review_{{i}}_position{%endcapture%}
+          {% capture desc %}loomline_index_review_{{i}}_desc{%endcapture%}
+          {% if settings[show] %}
+            <div class="swiper-slide">
+              <div class="review-item">
+                <div class="item-img">
+                  <img
+                      src="{{ banner | asset_url}}"
+                      alt="{{ settings[title] | strip_html | escape }}"
+                      class="swiper-lazy"
+                      loading="eager"
+                      decoding="sync" />
+                </div>
+                <div class="item-content">
+                  <div class="content-top">
+                    <div class="heading"><span class="name hrv-cf-{{ name }}" setting-id="{{ name }}" setting-type="text">{{settings[name]}}</span> <span class="position hrv-cf-{{ position }}" setting-id="{{ position }}" setting-type="text">{{settings[position]}}</span></div>
+                    <div class="desc hrv-cf-{{ desc }}" setting-id="{{ desc }}" setting-type="textarea">{{settings[desc]}}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    </div>
+</section>

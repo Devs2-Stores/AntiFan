@@ -1,0 +1,25 @@
+<div class="layout-pageNot" >
+	<div class="container">
+		<div class="content-pagenot text-center">
+			<h1 setting-id="page_404_title" setting-type="text">{%if settings.page_404_title != empty%} {{settings.page_404_title}}{%else%}<span>404</span> Không tìm thấy trang{%endif%}</h1>
+			<p class="subtext" setting-id="page_404_desc" setting-type="textarea">
+        {%if settings.page_404_desc != empty%}
+          {{settings.page_404_desc}}
+        {%else%}
+        Trang bạn đang tìm kiếm có thể đã bị xóa,
+				chuyển đi, thay đổi link hoặc chưa bao giờ tồn tại.{%endif%}</p>
+			<p class=""><a href="/" class="button">TRỞ VỀ TRANG CHỦ</a></p>
+		</div>
+	</div>
+</div>
+<div id="brands-route-container" style="display: none;">
+  {% include 'hl-page-brands' %}
+</div>
+<script>
+if (window.location.pathname === '/brands' || window.location.pathname === '/pages/brands') {
+  document.querySelector('.layout-pageNot')?.remove();
+  const bc = document.getElementById('brands-route-container');
+  if (bc) bc.style.display = 'block';
+  document.title = 'Danh mục thương hiệu – Phukienmaymoc';
+}
+</script>

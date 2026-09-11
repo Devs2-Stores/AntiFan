@@ -1,0 +1,51 @@
+:root {
+  --time: {{ settings.loomline_topbar_marquee_time }}s;
+}
+$colorTop: {{ settings.loomline_topbar_marquee_color }};
+$bgTop: {{ settings.loomline_topbar_marquee_bg_color }};
+@keyframes topbar-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.loomline-topbar-marquee {
+  padding: 8px 0;
+  background: $bgTop;
+  color: $colorTop;
+  .marquee {
+    overflow: hidden;
+    white-space: nowrap;
+    width: 100%;
+    &__inner {
+      display: inline-flex;
+      gap: 60px;
+      animation: topbar-marquee var(--time) linear infinite;
+      &--item {
+        display: inline-block;
+        font-size: 14px;
+        font-weight: 600;
+        text-transform: uppercase;
+        line-height: 1.5;
+      };
+
+
+      /*
+   &:hover{
+   animation-play-state: paused;
+   }
+*/
+    }
+  }
+  @media(max-width: 767px) {
+    padding: 5px 0;
+    .marquee__inner {
+      gap: 15px;
+      &--item {
+        font-size: 12px;
+      }
+    }
+  }
+}

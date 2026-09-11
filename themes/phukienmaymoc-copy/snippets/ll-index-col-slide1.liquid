@@ -1,0 +1,150 @@
+{% unless has_heading %}
+  <link rel="preload" href="{{ 'll-page-heading.scss.css' | asset_url }}" as="style">
+  <link rel="stylesheet" href="{{ 'll-page-heading.scss.css' | asset_url }}">
+  {%- assign has_heading = true -%}
+{% endunless %}
+<link rel="preload" href="{{ 'll-index-col-slide1.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'll-index-col-slide1.scss.css' | asset_url }}">
+<link href="{{ 'll-index-col-slide1.js' | asset_url }}" rel="preload" as="script">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'll-index-col-slide1.js' | asset_url }}"></script>
+{% capture title %}loomline_index_col_slide1_{{ind}}_title{%endcapture%}
+{% capture btn %}loomline_index_col_slide1_{{ind}}_btn{%endcapture%}
+{% capture link %}loomline_index_col_slide1_{{ind}}_link{%endcapture%}
+{% capture title1 %}loomline_index_col_slide1_{{ind}}_banner_title_1{%endcapture%}
+{% capture title2 %}loomline_index_col_slide1_{{ind}}_banner_title_2{%endcapture%}
+{% capture color_banner %}loomline_index_col_slide1_{{ind}}_banner_color{%endcapture%}
+{% capture btn_banner %}loomline_index_col_slide1_{{ind}}_banner_btn{%endcapture%}
+{% capture link_banner %}loomline_index_col_slide1_{{ind}}_banner_link{%endcapture%}
+{% capture img %}loomline_index_col_slide1_{{ind}}_banner_img.jpg{%endcapture%}
+{% capture show_video %}show_loomline_index_col_slide1_{{ind}}_banner_video{%endcapture%}
+{% capture video %}loomline_index_col_slide1_{{ind}}_banner_video_link{%endcapture%}
+{%capture limit_col%}loomline_index_col_slide1_{{ind}}_limit{%endcapture%}
+{% assign count = 0 %}
+{% assign policy = '' %}
+{% assign col_slide = '' %}
+{%comment%}
+{% for i in (1..5) %}
+  {% capture title_policy %}loomline_index_col_slide1_{{ind}}_policy_{{i}}{%endcapture%}
+  {% if settings[title_policy] != empty %}
+    {% assign count = count | plus: 1 %}
+    {% capture policy_html %}
+  <div class="policy-item">
+    <span class="icon"><svg width="20px" height="20px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path id="primary" d="M10,18a1,1,0,0,1-.71-.29l-5-5a1,1,0,0,1,1.42-1.42L10,15.59l8.29-8.3a1,1,0,1,1,1.42,1.42l-9,9A1,1,0,0,1,10,18Z"></path></svg></span>
+    <span class="title hrv-cf-{{ title_policy }}" setting-id="{{ title_policy }}" setting-type="text">{{settings[title_policy]}}</span>
+  </div>
+  {%endcapture%}
+    {% assign policy = policy | append: policy_html %}
+  {% endif %}
+{% endfor %}
+{%endcomment%}
+{%for i in (1..3)%}
+  {%capture show_col%}show_loomline_index_col_slide1_{{ind}}_col{{i}}{%endcapture%}
+  {%capture title_col%}loomline_index_col_slide1_{{ind}}_col{{i}}_title{%endcapture%}
+  {%capture handle_col%}loomline_index_col_slide1_{{ind}}_col{{i}}_handle{%endcapture%}
+  {%assign handle = settings[handle_col]%}
+  {%if settings[show_col]%}
+    {%capture col_slide_html%}
+      <div class="slide-col" id="slide1_{{ind}}_col_{{i}}">
+      <div class="col-heading">
+        {%if settings[title_col]%}<h3 class="title hrv-cf-{{ title_col }}" setting-id="{{ title_col }}" setting-type="text">{{settings[title_col]}}</h3>{%endif%}
+        <div class="heading-nav">
+          <div class="swiper-nav swiper-prev button">
+            <svg width="30px" height="30px" viewBox="-78.5 0 512 512" xmlns="http://www.w3.org/2000/svg">
+              <title>left</title><path d="M257 64L291 98 128 262 291 426 257 460 61 262 257 64Z" /></svg>
+          </div>
+          <div class="swiper-nav swiper-next button">
+            <svg width="30px" height="30px" viewBox="-77 0 512 512" xmlns="http://www.w3.org/2000/svg">
+              <title>right</title><path d="M98 460L64 426 227 262 64 98 98 64 294 262 98 460Z" /></svg>
+          </div>
+        </div>
+      </div>
+      <div class="list-pro swiper">
+        <div class="swiper-wrapper">
+          {% if collections[handle].products.size == 0 %}
+            {%for i in (1..4)%}
+            <div class="swiper-slide">
+               <div class="pro-item">
+                {% include 'no-ll-product-loop' %}
+              </div>
+            </div>
+            {%endfor%}
+          {%else%}
+          {%for product in collections[handle].products limit: settings[limit_col] %}
+            <div class="swiper-slide">
+               <div class="pro-item">
+                {% include 'll-product-loop' %}
+              </div>
+            </div>
+          {%endfor%}
+          {%endif%}
+        </div>
+      </div>
+      </div>
+    {%endcapture%}
+    {% assign col_slide = col_slide | append: col_slide_html %}
+  {%endif%}
+{%endfor%}
+<section class="loomline-index-col-slide1">
+  <div class="container">
+    {%comment%}
+    {% if count > 0 %}
+      <div class="row slide-policy">
+        {{ policy }}
+      </div>
+    {% endif %}
+{%endcomment%}
+    <div class="heading-title text-center">
+      {% if settings[title] != empty %}
+        <h2 class="title2 hrv-cf-{{ title }}" setting-id="{{ title }}" setting-type="textarea">{{ settings[title] | newline_to_br }}</h2>
+      {% endif %}
+    </div>
+    {%if settings[btn] != empty%}
+      <div class="btn-more text-center"><a href="{{settings[link]}}" class="btn-link hrv-cf-{{ btn }}" setting-id="{{ btn }}" setting-type="text">{{settings[btn]}}</a></div>
+    {%endif%}
+    <div class="row">
+      <div class="col-lg-6 col-12">
+        <div class="banner-box {% if settings[show_video] %}has-video{%endif%}" style="--color: {{settings[color_banner]}}">
+          {% if settings[show_video] %}
+            <div class="video-box">
+              <video
+                autoplay
+                loop
+                muted
+                playsinline
+                webkit-playsinline
+                preload="none"
+                poster="{{ img | asset_url}}" setting-id="{{ video }}" class="hrv-cf-{{ video }}">
+                <source src="{{settings[video]}}" type="video/mp4">
+              </video>
+            </div>
+          {% else %}
+            <div class="img-box">
+              <img
+                src="{{ img | asset_url}}"
+                alt="{{ settings[title2] | strip_html | escape }}"
+                loading="eager"
+                decoding="sync" />
+            </div>
+          {% endif %}
+          <div class="heading-title text-center">
+            {% if settings[title1] != empty %}
+              <div class="title1 hrv-cf-{{ title1 }}" setting-id="{{ title1 }}" setting-type="text">{{ settings[title1] }}</div>
+            {% endif %}
+            {% if settings[title2] != empty %}
+              <h3 class="title2 hrv-cf-{{ title2 }}" setting-id="{{ title2 }}" setting-type="textarea">{{ settings[title2] | newline_to_br }}</h3>
+            {% endif %}
+            {%if settings[btn_banner] != empty%}
+            <div class="btn-more"><a href="{{settings[link_banner]}}" class="button hrv-cf-{{ btn_banner }}" setting-id="{{ btn_banner }}" setting-type="text"><span>{{settings[btn_banner]}}</span></a></div>
+          {%endif%}
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6 col-12">
+        <div class="collection-box">
+          {{col_slide}}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+

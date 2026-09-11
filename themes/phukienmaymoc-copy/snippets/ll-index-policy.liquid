@@ -1,0 +1,21 @@
+<link rel="preload" href="{{ 'll-index-policy.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'll-index-policy.scss.css' | asset_url }}">
+<section class="loomline-index-policy">
+  <div class="container">
+    <div class="row list-policy">
+      {% for i in (1..5) %}
+        {% capture title_policy %}loomline_index_col_slide1_1_policy_{{i}}{%endcapture%}
+        {% if settings[title_policy] != empty %}
+          <div class="policy-item">
+          <span class="icon">
+            <svg width="20px" height="20px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path id="primary" d="M10,18a1,1,0,0,1-.71-.29l-5-5a1,1,0,0,1,1.42-1.42L10,15.59l8.29-8.3a1,1,0,1,1,1.42,1.42l-9,9A1,1,0,0,1,10,18Z"></path>
+            </svg>
+          </span>
+          <span class="title hrv-cf-{{ title_policy }}" setting-id="{{ title_policy }}" setting-type="text">{{ settings[title_policy] }}</span>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+</section>

@@ -1,0 +1,76 @@
+{% unless has_heading %}
+  <link rel="preload" href="{{ 'll-page-heading.scss.css' | asset_url }}" as="style">
+  <link rel="stylesheet" href="{{ 'll-page-heading.scss.css' | asset_url }}">
+  {% assign has_heading = true %}
+{% endunless %}
+<link rel="preload" href="{{ 'll-index-faqs.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'll-index-faqs.scss.css' | asset_url }}">
+
+<link href="{{ 'll-index-faqs.js' | asset_url }}" rel="preload" as="script">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'll-index-faqs.js' | asset_url }}"></script>
+<section class="loomline-index-faqs">
+  <div class="container">
+    <div class="row align-items-center">
+      <div class="col-lg-4 col-12">
+        <div class="heading-title">
+          {% if settings.loomline_index_faqs_title != empty %}
+            <h2 class="title2 hrv-cf-loomline_index_faqs_title" setting-id="loomline_index_faqs_title" setting-type="textarea">{{ settings.loomline_index_faqs_title | newline_to_br }}</h2>
+          {% endif %}
+          {% if settings.loomline_index_faqs_desc != empty %}
+            <div class="desc hrv-cf-loomline_index_faqs_desc" setting-id="loomline_index_faqs_desc" setting-type="textarea">{{ settings.loomline_index_faqs_desc | newline_to_br }}</div>
+          {% endif %}
+          {% if settings.loomline_index_faqs_btn != empty %}
+            <div class="btn-more">
+              <a href="{{settings.loomline_index_faqs_link}}" class="button hrv-cf-loomline_index_faqs_btn" setting-id="loomline_index_faqs_btn" setting-type="text"><span>{{ settings.loomline_index_faqs_btn }}</span></a>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-lg-4 col-12">
+        <div class="banner-box {% if settings.show_loomline_index_faqs_video %}has-video{%endif%}">
+          {% if settings.show_loomline_index_faqs_video %}
+            <div class="video-box">
+              <video
+                autoplay
+                loop
+                muted
+                playsinline
+                webkit-playsinline
+                preload="none"
+                poster="{{ settings.loomline_index_faqs_img }}" setting-id="loomline_index_faqs_video_link" class="hrv-cf-loomline_index_faqs_video_link">
+                <source src="{{settings.loomline_index_faqs_video_link}}" type="video/mp4">
+              </video>
+            </div>
+          {% else %}
+            <div class="img-box">
+              <img src="{{ settings.loomline_index_faqs_img }}" alt="{{ settings.loomline_index_faqs_title | strip_html | escape }}" loading="eager" decoding="sync" setting-id="loomline_index_faqs_img" setting-type="image" class="hrv-cf-loomline_index_faqs_img" />
+            </div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-lg-4 col-12">
+        <div class="list-faqs">
+          {% assign count = 0%}
+          {% for i in (1..6) %}
+            {% capture title %}loomline_index_faqs_{{i}}_title{% endcapture %}
+            {% capture desc %}loomline_index_faqs_{{i}}_desc{% endcapture %}
+            {% if settings[title] != empty %}
+              {% assign count = count | plus: 1%}
+              {% if count == 1 %}
+                <div class="faq-item opened">
+                  <div class="header-faqs hrv-cf-{{ title }}" setting-id="{{ title }}" setting-type="textarea">{{ settings[title] }}</div>
+                  <div class="content-faqs" style="display: block;"><div class="desc hrv-cf-{{ desc }}" setting-id="{{ desc }}" setting-type="textarea">{{ settings[desc] }}</div></div>
+                </div>
+              {% else %}
+                <div class="faq-item">
+                  <div class="header-faqs hrv-cf-{{ title }}" setting-id="{{ title }}" setting-type="textarea">{{ settings[title] }}</div>
+                  <div class="content-faqs"><div class="desc hrv-cf-{{ desc }}" setting-id="{{ desc }}" setting-type="textarea">{{ settings[desc] }}</div></div>
+                </div>
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

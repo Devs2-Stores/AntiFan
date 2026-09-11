@@ -118,6 +118,40 @@ describe('LiquidBindingEngine', () => {
       assert.ok(bound.includes("{% form 'product', product %}"), 'Must wrap quick add button in form');
       assert.ok(bound.includes('{{ product.selected_or_first_available_variant.id }}'), 'Must inject hidden variant id for card');
     });
+    it('scopes form replacement strictly to forms with purchase indicators and leaves search/newsletter forms uncorrupted', () => {
+      const htmlWithMultipleForms = `
+<div class="product-page">
+  <form action="/search" method="get" class="search-form">
+    <input type="search" name="q" placeholder="Tìm sản phẩm..." />
+    <button type="submit">Tìm kiếm</button>
+  </form>
+  <div class="product-detail">
+    <h1 class="product-title">Giày Sneaker</h1>
+    <form action="/cart/add" method="post" class="product-form" data-cart="true">
+      <select name="id"><option value="101">Size 41</option></select>
+      <button type="submit" class="btn-add-to-cart">Mua hàng</button>
+    </form>
+  </div>
+  <form action="/contact#newsletter" method="post" class="newsletter-form">
+    <input type="email" name="contact[email]" placeholder="Nhập email..." />
+    <button type="submit">Đăng ký</button>
+  </form>
+</div>
+      `.trim();
+
+      const bound = engine.bindProductSection(htmlWithMultipleForms);
+
+      // Search form must NOT be corrupted into product form
+      assert.ok(bound.includes('<form action="/search" method="get" class="search-form">'), 'Search form opening tag must remain untouched');
+      assert.ok(bound.includes('</form>'), 'Non-purchase forms must retain closing tag');
+
+      // Newsletter form must NOT be corrupted into product form
+      assert.ok(bound.includes('<form action="/contact#newsletter" method="post" class="newsletter-form">'), 'Newsletter form opening tag must remain untouched');
+
+      // Only the product form with purchase indicators must be converted
+      assert.ok(bound.includes("{% form 'product', product %}"), 'Product form must be converted to Liquid form');
+      assert.ok(bound.includes('{% endform %}'), 'Product form must have endform');
+    });
   });
 
   describe('bindCollectionSection', () => {
@@ -226,6 +260,23 @@ describe('LiquidBindingEngine', () => {
       assert.ok(bound.includes("{{ article.image | img_url: 'master' }}"), 'Must bind article image');
       assert.ok(bound.includes('{{ article.excerpt }}'), 'Must bind article excerpt');
     });
+    it('preserves HTML tags and capture groups in title and content replacers without literal $1 or $3 leakage', () => {
+      const articleHtml = `
+<div class="blog-post">
+  <h1 class="article-title" data-heading="main">Tiêu đề bài viết chuyên sâu</h1>
+  <div class="article-content" data-reading-time="5">
+    <p>Nội dung đoạn 1.</p>
+    <p>Nội dung đoạn 2.</p>
+  </div>
+</div>
+      `.trim();
+
+      const bound = engine.bindArticleSection(articleHtml);
+      assert.ok(!bound.includes('$1'), 'Must not leak literal $1');
+      assert.ok(!bound.includes('$3'), 'Must not leak literal $3');
+      assert.ok(bound.includes('<h1 class="article-title" data-heading="main">{{ article.title }}</h1>'), 'Must preserve h1 tags and attributes');
+      assert.ok(bound.includes('<div class="article-content" data-reading-time="5">{{ article.content }}</div>'), 'Must preserve content div tags and attributes');
+    });
   });
 
   describe('sanitizeDotLiquid', () => {
@@ -307,6 +358,14 @@ describe('LiquidBindingEngine', () => {
       const sanitized = engine.sanitizeDotLiquid(raw);
       assert.ok(!sanitized.includes('article.image.src'), 'Must replace raw article.image.src pipe');
       assert.ok(sanitized.includes("article.image | img_url: 'master'"), 'Must convert to safe article.image filter');
+    });
+    it('constrains Ruby type casting within single tag boundaries without crossing HTML or multiple tags', () => {
+      const raw = '{{ settings.max_items.to_i }} <p>Check file.to_i and script.to_s here</p> {% if item.count.to_s != blank %}<span>{{ items.length }}</span>{% endif %}';
+      const sanitized = engine.sanitizeDotLiquid(raw);
+      assert.ok(sanitized.includes('{{ settings.max_items | plus: 0 }}'), 'Must sanitize .to_i inside {{ }}');
+      assert.ok(sanitized.includes('<p>Check file.to_i and script.to_s here</p>'), 'Must NOT touch .to_i or .to_s outside Liquid tags');
+      assert.ok(sanitized.includes("{% if item.count | append: '' != blank %}"), 'Must sanitize .to_s inside {% %}');
+      assert.ok(sanitized.includes('{{ items | size }}'), 'Must sanitize .length inside {{ }}');
     });
   });
 });

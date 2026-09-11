@@ -11,6 +11,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { RouteResolver } from '../platform/haravan/route-resolver.js';
 import type { HaravanRouteIdentity } from '../platform/haravan/types.js';
 import type {
@@ -85,6 +86,129 @@ export interface MatrixCoverageReport {
   isComplete: boolean;
   totalLegs: number;
   executedCount: number;
+}
+
+/**
+ * Surface specification alias conforming to canonical surface definition (Audit §52, §68)
+ */
+export type HaravanSurfaceSpec = CanonicalSurfaceDefinition;
+
+/**
+ * Responsive viewport dimension spec
+ */
+export type ViewportDimension = CampaignViewport;
+
+/**
+ * Catalog / Storefront entity candidate bound to surface
+ */
+export type HaravanEntityCandidate = BoundEntityInfo;
+
+/**
+ * Context provided to evaluator callback for a single matrix leg
+ */
+export interface MatrixLegContext {
+  legId: string;
+  surface: HaravanSurfaceSpec;
+  viewport: ViewportDimension;
+  boundEntity?: HaravanEntityCandidate;
+  targetUrl: string;
+  leg?: CampaignMatrixLeg;
+}
+
+/**
+ * Output data returned by MatrixLegEvaluator
+ */
+export interface MatrixLegEvaluationOutput {
+  passed?: boolean;
+  visualDiff?: number;
+  durationMs?: number;
+  renderErrors?: string[];
+  measurement?: {
+    domNodeCount?: number;
+    layoutShiftScore?: number;
+    renderTimeMs?: number;
+    pageSizeBytes?: number;
+    [key: string]: unknown;
+  };
+  visualComparison?: {
+    diffPixels?: number;
+    diffPercentage?: number;
+    mismatchTolerance?: number;
+    baselineImage?: string;
+    actualImage?: string;
+    [key: string]: unknown;
+  };
+  liquidChecks?: {
+    syntaxValid?: boolean;
+    missingFilters?: string[];
+    missingTags?: string[];
+    syntaxErrors?: string[];
+    unrenderedTokens?: string[];
+    [key: string]: unknown;
+  };
+  error?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Evaluator callback for a matrix evaluation leg
+ */
+export type MatrixLegEvaluator = (
+  context: MatrixLegContext
+) => Promise<MatrixLegEvaluationOutput | boolean | void> | MatrixLegEvaluationOutput | boolean | void;
+
+/**
+ * Configuration options for matrix campaign execution
+ */
+export interface MatrixExecutionOptions {
+  /** Optional store inventory to bind routes and entities */
+  inventory?: StoreInventory | Record<string, unknown> | null;
+  /** Optional explicit matrix (defaults to standard 45-leg matrix) */
+  matrix?: CampaignMatrixLeg[];
+  /** Maximum acceptable visual diff percentage before a leg fails (default: 5.0%) */
+  visualDiffThreshold?: number;
+  /** Abort execution immediately on the first failed leg (default: false) */
+  failFast?: boolean;
+  /** Minimum pass rate percentage required to be publish ready (default: 100) */
+  minPassRateForPublish?: number;
+  /** Run only specific surfaces if filtered */
+  surfaces?: CanonicalSurfaceName[] | string[];
+  /** Run only specific viewports if filtered */
+  viewports?: CampaignViewportName[] | string[];
+  /** Timeout per leg in ms (default: 30000ms) */
+  legTimeoutMs?: number;
+}
+
+/**
+ * Result record for a single executed matrix leg
+ */
+export interface MatrixLegResult {
+  legId: string;
+  surface: CanonicalSurfaceName | string;
+  viewport: CampaignViewportName | string;
+  targetUrl: string;
+  passed: boolean;
+  visualDiff: number;
+  durationMs: number;
+  renderErrors: string[];
+  measurement?: Record<string, unknown>;
+  liquidChecks?: Record<string, unknown>;
+  visualComparison?: Record<string, unknown>;
+  error?: string;
+  boundEntity?: HaravanEntityCandidate;
+}
+
+/**
+ * Comprehensive execution report for the complete campaign matrix
+ */
+export interface MatrixExecutionReport {
+  totalLegs: number;
+  executedLegs: number;
+  passedLegs: number;
+  failedLegs: number;
+  passRate: number;
+  isPublishReady: boolean;
+  results: Array<MatrixLegResult>;
 }
 
 /**
@@ -310,11 +434,11 @@ export class HaravanCampaignMatrix {
   ): MatrixCoverageReport {
     if (!Array.isArray(matrix) || matrix.length === 0) {
       return {
-        coveragePercentage: 100,
+        isComplete: false,
+        coveragePercentage: 0,
         missingLegs: [],
-        isComplete: true,
-        totalLegs: 0,
         executedCount: 0,
+        totalLegs: 0,
       };
     }
 
@@ -390,7 +514,7 @@ export class HaravanCampaignMatrix {
 
     const totalLegs = matrix.length;
     const executedCount = totalLegs - missingLegs.length;
-    const coveragePercentage = totalLegs > 0 ? Number(((executedCount / totalLegs) * 100).toFixed(2)) : 100;
+    const coveragePercentage = totalLegs > 0 ? Number(((executedCount / totalLegs) * 100).toFixed(2)) : 0;
     const isComplete = missingLegs.length === 0 && totalLegs > 0;
 
     return {
@@ -453,6 +577,221 @@ export class HaravanCampaignMatrix {
     return [];
   }
 
+  /**
+   * Executes an end-to-end evaluation campaign across all 45 surface-viewport matrix legs (Audit §52, §68).
+   *
+   * Iterates through all 15 canonical surfaces x 3 standard viewports. For each leg,
+   * invokes the evaluator callback with rich contextual information:
+   *   - legId: Unique composite leg identifier (e.g. 'home:desktop')
+   *   - surface: Canonical surface specification with kind, template, requirements
+   *   - viewport: Dimensions (width, height, name)
+   *   - boundEntity: Bound catalog entity details if discovered from inventory
+   *   - targetUrl: Fully resolved storefront path or canonical route
+   *
+   * Executes measurement, visual comparison, and Liquid render checks.
+   * Records pass/fail status, visualDiff percentage, durationMs, and any detected render errors.
+   *
+   * Returns a comprehensive MatrixExecutionReport:
+   *   - totalLegs: 45
+   *   - executedLegs: number
+   *   - passedLegs: number
+   *   - failedLegs: number
+   *   - passRate: number (percentage 0 - 100)
+   *   - isPublishReady: boolean
+   *   - results: Array<MatrixLegResult>
+   */
+  public async executeMatrixCampaign(
+    evaluator: MatrixLegEvaluator,
+    options?: MatrixExecutionOptions
+  ): Promise<MatrixExecutionReport> {
+    if (typeof evaluator !== 'function') {
+      throw new Error('HaravanCampaignMatrix.executeMatrixCampaign: evaluator must be a callable function');
+    }
+
+    const matrix = options?.matrix && options.matrix.length > 0
+      ? options.matrix
+      : this.buildFullMatrix(options?.inventory);
+
+    const totalLegs = matrix.length;
+    const results: MatrixLegResult[] = [];
+    let passedLegs = 0;
+    let failedLegs = 0;
+
+    for (const leg of matrix) {
+      if (options?.surfaces && options.surfaces.length > 0) {
+        if (!options.surfaces.includes(leg.surface as CanonicalSurfaceName)) {
+          continue;
+        }
+      }
+      if (options?.viewports && options.viewports.length > 0) {
+        const vpName = typeof leg.viewport === 'string' ? leg.viewport : leg.viewport?.name;
+        if (vpName && !options.viewports.includes(vpName as CampaignViewportName)) {
+          continue;
+        }
+      }
+
+      const surfaceDef: HaravanSurfaceSpec =
+        CANONICAL_SURFACES.find((s) => s.surface === leg.surface) || {
+          surface: leg.surface as CanonicalSurfaceName,
+          kind: (leg.kind as HaravanRouteIdentity['kind']) || 'home',
+          template: leg.template,
+          description: leg.description || '',
+          defaultPath: leg.url,
+          required: leg.required ?? true,
+          stateModifier: leg.stateModifier,
+        };
+
+      const vpDim: ViewportDimension = typeof leg.viewport === 'string'
+        ? (STANDARD_VIEWPORTS[leg.viewport as CampaignViewportName] || { name: leg.viewport, width: 1440, height: 900 })
+        : leg.viewport;
+
+      const context: MatrixLegContext = {
+        legId: leg.id,
+        surface: surfaceDef,
+        viewport: vpDim,
+        targetUrl: leg.url,
+        ...(leg.boundEntity ? { boundEntity: leg.boundEntity } : {}),
+        leg,
+      };
+
+      const start = performance.now();
+      let passed = false;
+      let visualDiff = 0;
+      let renderErrors: string[] = [];
+      let durationMs = 0;
+      let measurement: Record<string, unknown> | undefined;
+      let liquidChecks: Record<string, unknown> | undefined;
+      let visualComparison: Record<string, unknown> | undefined;
+      let errorStr: string | undefined;
+
+      try {
+        let evalPromise: Promise<MatrixLegEvaluationOutput | boolean | void> | MatrixLegEvaluationOutput | boolean | void;
+
+        if (options?.legTimeoutMs && options.legTimeoutMs > 0) {
+          evalPromise = Promise.race([
+            Promise.resolve(evaluator(context)),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`Matrix leg execution timed out after ${options.legTimeoutMs}ms`)),
+                options.legTimeoutMs
+              )
+            ),
+          ]);
+        } else {
+          evalPromise = evaluator(context);
+        }
+
+        const output = await evalPromise;
+        const elapsed = performance.now() - start;
+
+        if (typeof output === 'boolean') {
+          passed = output;
+          visualDiff = output ? 0 : 100;
+          durationMs = Math.round(elapsed);
+        } else if (output && typeof output === 'object') {
+          durationMs = typeof output.durationMs === 'number' ? output.durationMs : Math.round(elapsed);
+          visualDiff = typeof output.visualDiff === 'number'
+            ? output.visualDiff
+            : typeof output.visualComparison?.diffPercentage === 'number'
+            ? output.visualComparison.diffPercentage
+            : 0;
+
+          renderErrors = Array.isArray(output.renderErrors) ? [...output.renderErrors] : [];
+
+          if (output.liquidChecks) {
+            liquidChecks = output.liquidChecks;
+            if (Array.isArray(output.liquidChecks.syntaxErrors)) {
+              for (const err of output.liquidChecks.syntaxErrors) {
+                if (!renderErrors.includes(err)) renderErrors.push(err);
+              }
+            }
+            if (output.liquidChecks.syntaxValid === false && renderErrors.length === 0) {
+              renderErrors.push('Liquid syntax validation failed');
+            }
+          }
+
+          if (output.measurement) {
+            measurement = output.measurement;
+          }
+          if (output.visualComparison) {
+            visualComparison = output.visualComparison;
+          }
+
+          if (typeof output.passed === 'boolean') {
+            passed = output.passed;
+          } else {
+            const threshold = options?.visualDiffThreshold ?? 5.0;
+            passed = visualDiff <= threshold && renderErrors.length === 0;
+          }
+
+          if (output.error) {
+            errorStr = output.error;
+            if (!renderErrors.includes(output.error)) {
+              renderErrors.push(output.error);
+            }
+            passed = false;
+          }
+        } else {
+          durationMs = Math.round(elapsed);
+          passed = true;
+          visualDiff = 0;
+        }
+      } catch (err: unknown) {
+        const elapsed = performance.now() - start;
+        durationMs = Math.round(elapsed);
+        passed = false;
+        errorStr = err instanceof Error ? err.message : String(err);
+        renderErrors.push(errorStr);
+        visualDiff = 100;
+      }
+
+      if (passed) {
+        passedLegs++;
+      } else {
+        failedLegs++;
+      }
+
+      results.push({
+        legId: leg.id,
+        surface: leg.surface,
+        viewport: typeof leg.viewport === 'string' ? leg.viewport : leg.viewport.name,
+        targetUrl: leg.url,
+        passed,
+        visualDiff,
+        durationMs,
+        renderErrors,
+        ...(measurement ? { measurement } : {}),
+        ...(liquidChecks ? { liquidChecks } : {}),
+        ...(visualComparison ? { visualComparison } : {}),
+        ...(errorStr ? { error: errorStr } : {}),
+        ...(leg.boundEntity ? { boundEntity: leg.boundEntity } : {}),
+      });
+
+      if (options?.failFast && !passed) {
+        break;
+      }
+    }
+
+    const executedLegs = results.length;
+    const minPassRate = options?.minPassRateForPublish ?? 100;
+    const passRate = totalLegs > 0 ? Number(((passedLegs / totalLegs) * 100).toFixed(2)) : 0;
+    const isPublishReady =
+      totalLegs > 0 &&
+      executedLegs === totalLegs &&
+      failedLegs === 0 &&
+      passRate >= minPassRate;
+
+    return {
+      totalLegs,
+      executedLegs,
+      passedLegs,
+      failedLegs,
+      passRate,
+      isPublishReady,
+      results,
+    };
+  }
+
   // --- Static Convenience Proxies ---
 
   public static buildFullMatrix(inventory?: StoreInventory | Record<string, unknown> | null): CampaignMatrixLeg[] {
@@ -475,6 +814,13 @@ export class HaravanCampaignMatrix {
 
   public static async importSurfaceInventory(sourcePath: string): Promise<CampaignMatrixLeg[]> {
     return new HaravanCampaignMatrix().importSurfaceInventory(sourcePath);
+  }
+
+  public static async executeMatrixCampaign(
+    evaluator: MatrixLegEvaluator,
+    options?: MatrixExecutionOptions
+  ): Promise<MatrixExecutionReport> {
+    return new HaravanCampaignMatrix().executeMatrixCampaign(evaluator, options);
   }
 
   // --- Private Catalog & Route Binding Helpers ---
@@ -802,4 +1148,14 @@ export class HaravanCampaignMatrix {
 
     return bindings;
   }
+}
+
+/**
+ * Top-level standalone helper to execute the 45-leg Haravan campaign matrix (Audit §52, §68)
+ */
+export async function executeMatrixCampaign(
+  evaluator: MatrixLegEvaluator,
+  options?: MatrixExecutionOptions
+): Promise<MatrixExecutionReport> {
+  return new HaravanCampaignMatrix().executeMatrixCampaign(evaluator, options);
 }

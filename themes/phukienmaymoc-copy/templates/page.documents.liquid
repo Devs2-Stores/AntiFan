@@ -1,0 +1,35 @@
+{% include 'breadcrumb' %}
+<div class="page-documents w-100" style="padding: 40px 0;">
+    <div class="container container-fuild">
+        <h1 style="font-size: 28px; font-weight: bold; margin-bottom: 20px;">{{ page.title }}</h1>
+        {% if page.content != blank %}
+        <div class="page-content" style="margin-bottom: 30px; font-size: 14px; line-height: 1.6;">
+            {{ page.content }}
+        </div>
+        {% endif %}
+        <div class="documents-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px;">
+            <div class="doc-card" style="padding: 20px; border: 1px solid #eee; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <h3 style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">Catalogue Schneider Electric</h3>
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">Tổng hợp thông số và mã sản phẩm đóng cắt, điều khiển Schneider.</p>
+                <a href="/collections/all?filter=(vendor:product=Schneider%20Electric)" style="color: #0961ca; font-weight: 600; text-decoration: none;">Xem danh mục thiết bị Schneider &rarr;</a>
+            </div>
+            <div class="doc-card" style="padding: 20px; border: 1px solid #eee; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <h3 style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">Catalogue Autonics Sensor</h3>
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">Tài liệu kỹ thuật cảm biến quang, cảm biến tiệm cận Autonics.</p>
+                <a href="/collections/cam-bien" style="color: #0961ca; font-weight: 600; text-decoration: none;">Xem danh mục Cảm biến Autonics &rarr;</a>
+            </div>
+            <div class="doc-card" style="padding: 20px; border: 1px solid #eee; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <h3 style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">Catalogue Biến tần Inovance</h3>
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">Hướng dẫn cài đặt và sơ đồ đấu nối biến tần Inovance MD200/MD310.</p>
+                <a href="/collections/all?filter=(vendor:product=Inovance)" style="color: #0961ca; font-weight: 600; text-decoration: none;">Xem danh mục thiết bị Inovance &rarr;</a>
+            </div>
+            {% for article in blogs['news'].articles limit: 3 %}
+            <div class="doc-card" style="padding: 20px; border: 1px solid #eee; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <h3 style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">{{ article.title }}</h3>
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">{{ article.content | strip_html | truncatewords: 20 }}</p>
+                <a href="{{ article.url }}" style="color: #0961ca; font-weight: 600; text-decoration: none;">Đọc tài liệu kỹ thuật &rarr;</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>

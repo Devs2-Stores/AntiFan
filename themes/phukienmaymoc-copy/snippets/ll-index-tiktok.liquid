@@ -1,0 +1,82 @@
+{%comment%}
+<div style="display: none">
+  <div class="container">
+    <div class="row">
+      <div class="iframe-tiktok">
+  <iframe
+  src="https://www.tiktok.com/embed/v2/7577283054943603976"
+  frameborder="0" allow="autoplay; encrypted-media"
+  allowfullscreen
+></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+{%endcomment%}
+{%if settings.show_loomline_index_tiktok%}
+{% unless has_heading %}
+  <link rel="preload" href="{{ 'll-page-heading.scss.css' | asset_url }}" as="style">
+  <link rel="stylesheet" href="{{ 'll-page-heading.scss.css' | asset_url }}">
+  {% assign has_heading = true %}
+{% endunless %}
+<link rel="preload" href="{{ 'll-index-tiktok.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'll-index-tiktok.scss.css' | asset_url }}">
+<link href="{{ 'll-index-tiktok.js' | asset_url }}" rel="preload" as="script">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'll-index-tiktok.js' | asset_url }}"></script>
+<section class="loomline-index-tiktok">
+  <div class="container">
+    <div class="heading-title text-center">
+      {% if settings.loomline_index_tiktok_title != empty %}
+        <h2 class="title2 hrv-cf-loomline_index_tiktok_title" setting-id="loomline_index_tiktok_title" setting-type="textarea">{{ settings.loomline_index_tiktok_title | newline_to_br }}</h2>
+      {% endif %}
+    </div>
+    {%if settings.loomline_index_tiktok_btn != empty%}
+      <div class="btn-more btn-heading text-center"><a href="{{settings.loomline_index_tiktok_link}}" class="btn-link hrv-cf-loomline_index_tiktok_btn" setting-id="loomline_index_tiktok_btn" setting-type="text">{{settings.loomline_index_tiktok_btn}}</a></div>
+    {%endif%}
+<div class="slide-swiper">
+    <div class="list-banner">
+      {%for i in (1..5)%}
+        {%capture show%}show_loomline_index_tiktok_{{i}}{%endcapture%}
+        {%capture img%}loomline_index_tiktok_{{i}}_img.jpg{%endcapture%}
+        {%capture show_video%}show_loomline_index_tiktok_{{i}}_video{%endcapture%}
+        {%capture link_video%}loomline_index_tiktok_{{i}}_video_link{%endcapture%}
+        {%if settings[show]%}
+          <div class="swiper-slide">
+      <div class="item-col">
+        <div class="banner-item">
+          <div class="banner-box {% if settings[show_video] %}has-video{%endif%}">
+          {% if settings[show_video] %}
+            <div class="video-box">
+              <video
+                autoplay
+                loop
+                muted
+                playsinline
+                webkit-playsinline
+                preload="none"
+                poster="{{ img | asset_url}}" setting-id="{{ link_video }}" class="hrv-cf-{{ link_video }}">
+                <source src="{{settings[link_video]}}" type="video/mp4">
+              </video>
+            </div>
+          {% else %}
+            <div class="img-box">
+              <img src="{{ img | asset_url}}" alt="{{ settings[title] | strip_html | escape }}" loading="eager" decoding="sync" />
+            </div>
+          {% endif %}
+        </div>
+        </div>
+      </div>
+          </div>
+          {%endif%}
+        {%endfor%}
+    </div>
+  <div class="swiper-nav swiper-next">
+        <svg width="12px" height="12px" viewBox="-77 0 512 512" xmlns="http://www.w3.org/2000/svg" ><title>right</title><path d="M98 460L64 426 227 262 64 98 98 64 294 262 98 460Z" /></svg>
+      </div>
+      <div class="swiper-nav swiper-prev">
+        <svg width="12px" height="12px" viewBox="-78.5 0 512 512" xmlns="http://www.w3.org/2000/svg" ><title>left</title><path d="M257 64L291 98 128 262 291 426 257 460 61 262 257 64Z" /></svg>
+      </div>
+        </div>
+  </div>
+</section>
+{%endif%}

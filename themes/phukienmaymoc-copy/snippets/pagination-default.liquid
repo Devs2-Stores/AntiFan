@@ -1,0 +1,33 @@
+<div id="pagination">
+	{%- if paginate.pages > 1 -%}
+	<ul class="pagination">
+		{%- if paginate.previous -%}
+		<li>
+			<a href="{{ paginate.previous.url }}">
+				<i class="fa fa-angle-double-left"></i>			
+			</a>
+		</li>
+		{%- endif -%}
+		{%- for part in paginate.parts -%}
+		{%- if part.is_link -%}
+		<li>
+			<a href="{{part.url}}">{{part.title}}</a>
+		</li>
+		{%- else -%}
+		<li>
+			<span class="{%if part.title == paginate.current_page%}current{%endif%}">
+				{{part.title}}
+			</span>
+		</li>		
+		{%- endif -%}
+		{%- endfor -%}
+		{%- if paginate.next -%}
+		<li>
+			<a href="{{ paginate.next.url }}">
+				<i class="fa fa-angle-double-right"></i>			
+			</a>
+		</li>
+		{%- endif -%}
+	</ul>
+	{%- endif -%}
+</div>

@@ -1,0 +1,74 @@
+<aside class="sidebar-blogs blogs-aside--sticky">
+	<!-- Bai viet moi nhat -->
+	{%- if settings.blogs_news_show -%}
+	<div class="group-sidebox">
+		<div class="sidebox-title ">
+			{%- if settings.blogs_news_title != '' -%}
+			<h3 class="htitle hrv-cf-blogs_news_title" setting-id="blogs_news_title" setting-type="text">{{ settings.blogs_news_title }}</h3>
+			{%- else -%}<h3 class="htitle">Bài viết mới nhất</h3>{%- endif -%}
+		</div>
+		<div class="sidebox-content sidebox-content-togged">
+			<div class="list-blogs-latest">	
+				{% for art in blogs.all.articles limit: 4 %}
+				{% include 'article-image' with article:art %}	
+				<div class="item-article clearfix ">
+					<div class="post-image">
+						<a href="{{ art.url }}">
+							<img class="lazyload" data-src="{{imageUrl | product_img_url : 'compact'}}" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+									 alt="{{art.title}}"/></a>
+					</div>
+					<div class="post-content">
+						<h3><a href="{{ art.url }}">{{ art.title }}</a></h3>
+						<p class="post-meta">
+							<span class="cate">{{ art.blog.title }}</span>
+							{%if settings.blogs_author_show%}<span class="author d-none"><a href="{{ art.url }}">{{art.author}}</a></span>{%endif%}
+							{%if settings.blogs_date_show%}<span class="date">- {{ art.published_at | date: '%d.%m.%Y' }}</span>{%endif%}
+						</p>
+					</div>
+				</div>				
+				{% endfor %}
+			</div>
+		</div>
+	</div>
+	{%- endif -%}
+	
+	<!-- Menu bai viet -->
+	{%- if settings.blogs_menu_show -%}	
+	<div class="group-sidebox">
+		<div class="sidebox-title ">
+			{%- if settings.blogs_menu_title != '' -%}
+			<h3 class="htitle hrv-cf-blogs_menu_title" setting-id="blogs_menu_title" setting-type="text">{{ settings.blogs_menu_title }}</h3>
+			{%- else -%}<h3 class="htitle">Danh mục bài viết</h3>{%- endif -%}
+		</div>
+		<div class="sidebox-content sidebox-content-togged">
+			<ul class="menuList-links">
+				{% for link in linklists[settings.blogs_menu_category].links limit: 10 %}
+				{% if linklists[link.handle].links == empty %}				
+				<li class="{% if link.active %} active {% endif %}"><a href="{{link.url}}" title="{{link.title}}"><span>{{link.title}}</span></a></li>
+				{% else %}
+				<li class="has-submenu level0 {% if link.active %} active {% endif %}">
+					<a href="{{ link.url }}" title="{{link.title}}">{{ link.title }} <span class="icon-plus-submenu plus-nClick1"></span></a>
+					<ul class="submenu-links">
+						{% for link2 in linklists[link.handle].links %}
+						{% if linklists[link2.handle].links == empty %}
+						<li><a href="{{ link2.url }}" title="{{link2.title}}">{{ link2.title }}</a></li>
+						{% else %}
+						<li class="has-submenu level1">
+							<a href="{{ link2.url }}">{{ link2.title }}  <span class="icon-plus-submenu plus-nClick2"></span></a>
+							<ul class="submenu-links" >
+								{% for link3 in linklists[link2.handle].links %}						
+								<li class=""><a href="{{ link3.url }}" title="{{link3.title}}" >{{ link3.title }}</a></li>
+								{% endfor %}
+							</ul>
+						</li>
+						{% endif %}
+						{% endfor %}
+					</ul>
+				</li>
+				{% endif %}
+				{% endfor%}
+			</ul>
+		</div>
+	</div>
+	{%- endif -%} 
+</aside>

@@ -1,0 +1,59 @@
+{% if settings.home_collection_4_show %}
+<section class="home-collection-banner">
+	<div class="container">
+		<div class="section-heading">	
+			{% if settings.home_collection_4_title == '' %}
+			<h2 class="hTitle">{{collections[settings.home_collection_4_handle].title}}</h2>
+			{% else %}
+			<h2 class="hTitle">{{settings.home_collection_4_title}}</h2>
+			{% endif %}
+			<div class="box-link">
+				{% if settings.home_collection_4_titlelink !=blank %}<a href="{{collections[settings.home_collection_4_handle].url}}">{{settings.home_collection_4_titlelink}} <i class="fa fa-angle-right" aria-hidden="true"></i></a>{% endif %}
+			</div>
+		</div>
+		<div class="section-content">
+			<div class="row">
+				<div class="col-lg-4 col-md-12 col-12 wrapbox-left">
+					<div class="wrapbox-content">
+						<div class="wrapbox-img">
+							<img class="lazyload" data-src="{{ 'home_collection_banner.jpg' | asset_url }}" 
+									 src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+									 alt="{% if settings[title] == '' %}{{collections[handleSection].title}}{% else %}{{settings[title]}}{% endif %}">
+						</div>
+						<div class="wrapbox-detail">
+							{% if settings.home_collection_4_txt1  != blank %}<span class="wrapbox-detail__title">{{settings.home_collection_4_txt1}}</span>{% endif %}
+							{% if settings.home_collection_4_txt2  != blank %}<span class="wrapbox-detail__discount">{{settings.home_collection_4_txt2}}</span>{% endif %}
+							{% if settings.home_collection_4_txt3  != blank %}<span class="wrapbox-detail__subtext">{{settings.home_collection_4_txt3}}</span>{% endif %}
+						</div>
+						<div class="wrapbox-btn">
+							{% if settings.home_collection_4_btn  != blank %}<button class="button">{{settings.home_collection_4_btn}}</button>{% endif %}
+						</div>
+					</div>
+				</div>
+				<div class="col-lg-8 col-md-12 col-12 wrapbox-right">
+					<div class="wrap-content">
+						{%-if collections[settings.home_collection_4_handle].products.size > 0-%}	
+						<div class="row listProduct-row listProduct-resize-3">
+							{% for product in collections[settings.home_collection_4_handle].products limit: 8 %}
+							<div class="col-lg-3 col-md-4 col-6 product-loop">
+								{%-include 'product-loop' with collection.handle -%}
+							</div>
+							{% endfor %}
+						</div>	
+						{%-else-%}
+						<div class="row listProduct-row listProduct-resize-3">
+							{%-for i in (1..8)-%}
+							<div class="col-lg-3 col-md-6 col-6 product-loop animated">
+								{%-include 'product-loop-no'-%}
+							</div>	
+							{%-endfor-%}
+						</div>
+						{%-endif-%}
+					</div>
+				</div>
+		</div>
+		</div>
+	</div>
+</section>
+{% endif %}
+

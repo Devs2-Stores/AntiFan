@@ -1,0 +1,31 @@
+{% layout none %}
+{% paginate search.results by 4 %}
+{% if search.results.size > 0  %}
+{% for product in search.results %}
+<div class="item-ult">
+	<div class="thumbs">
+		<a href="{{ product.url }}" title="{{ product.title | split: '|' | first }}">
+			<img alt="{{product.title | split: '|' | first}}" src="{%if product.images.size > 0%}{{ product.featured_image.src | img_url: 'compact' }}{%else%}{{'no_image.jpg' | asset_url}}{%endif%}" alt="{{ product.featured_image.alt | escape }}" />
+		</a>
+	</div>
+	<div class="title">
+		<a title="{{product.title | split: '|' | first}}" href="{{product.url}}">{{product.title | split: '|' | first}}</a>
+		<p class="f-initial">{{product.variants.first.price | money}}
+			{%if product.variants.first.compare_at_price > product.variants.first.price %}
+			<del>{{ product.variants.first.compare_at_price | money}}</del>
+			{%endif%}
+		</p>
+	</div>
+</div>
+{% endfor %}
+{% if search.results.size > 4 %}
+<div class="resultsMore">
+	<a href="/search?type=product&q={{search.terms | strip_html | escape  }}">Xem thêm {{ search.results.size | minus: 4 }} sản phẩm</a>
+</div>	
+{% endif %}
+{% else %}
+<p class="dataEmpty">
+	Không có sản phẩm nào...
+</p>
+{% endif %}
+{% endpaginate %}

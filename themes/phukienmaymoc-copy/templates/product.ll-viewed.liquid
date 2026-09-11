@@ -1,0 +1,222 @@
+{%- layout none -%}
+
+{% comment %}Tính phần trăm{% endcomment %}
+{% assign on_sale = false %}
+{% if product.variants.first.compare_at_price > product.variants.first.price %}
+{% assign on_sale = true %}
+{% endif %}
+{% comment %}<!-- Sản phẩm có giá 0đ  -->{% endcomment %}
+{%- assign price_zero = false -%}
+{%- if  product.variants.first.price == 0 -%}
+{%- assign price_zero = true -%}
+{%- endif -%}
+{% comment %}Tính giá khuyến mãi{% endcomment %}
+{% if product.variants.first.compare_at_price > product.variants.first.price %}
+{% assign price_sale = 0 %}
+{% assign price_sale = product.variants.first.compare_at_price | minus: product.variants.first.price | divided_by:product.variants.first.compare_at_price | times : 100 | round : 0 %}
+{% endif %}
+
+{% comment %}Tình trạng hết hàng{% endcomment %}
+{% assign sold_out = true %}
+{% if product.available %}
+{% assign sold_out = false %}
+{% endif %}  
+
+
+{% comment %}<!-- Tag sản phẩm -->{% endcomment %}
+{%- assign at_store = false -%}	
+{%- assign check_gift = false -%}
+{%- for tag in product.tags -%}
+{%- if tag == 'giftbox' -%} {%- assign check_gift = true -%} {%- endif -%}
+{%- endfor -%}
+
+{% comment %}<!-- Check collection -->{% endcomment %}
+{%- assign is_preorder_prodloop = false -%}
+{%- for item in product.collections -%}
+	{%- if item.handle == settings.collection_preorder -%}
+		{%- assign is_preorder_prodloop = true -%}
+		{%- break -%}
+	{%- endif -%}
+{%- endfor -%}
+{% comment %}<!-- Check Video -->{% endcomment %}
+{%- assign check_video = false -%}
+{%-if product.media.size > 0 -%}
+{%- for media in product.media -%}
+		{%- if media.media_type == 'external_video' -%}
+			{%- assign check_video = true -%}
+		{%- endif -%}
+{%-endfor-%}
+{%- endif -%}
+
+{%assign template_project = false%}
+{%if product.template_suffix == 'project'%}
+{%assign template_project = true%}
+{%endif%}
+
+{%-assign index_item = forloop.index | times: 1 -%}
+<div class="loomline-product-loop {%if template_project %}loomline-product-loop-project{%endif%}" data-id="{{ product.variants.first.id }}">
+	<div class="loomline-product-inner" data-proid="{{ product.id }}" id="viewed-loop-">
+		<div class="loomline-proloop-image">
+      {% if on_sale %}
+        <div class="loomline-pro-sale">
+          <span>-{{ price_sale }}%</span>
+        </div>
+      {% endif %}
+      {% if sold_out %}
+        <div class="loomline-pro-soldout">
+          <span>Hết hàng</span>
+        </div>
+      {% endif %}
+      {% if settings.promotion_hrvapp_use and settings.promotion_hrvapp == 'appcombo' or settings.promotion_hrvapp == 'appbuyxgety' %}
+        <div class="gift product_gift_label d-none" data-id="{{product.id}}">
+          <img class="lazyload" data-src="{{ settings.combo_icon }}" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" alt="Icon quà tặng">
+        </div>
+      {% endif %}
+
+      {%- if product.description contains '"image360":' or check_video -%}
+        <div class="loomline-pro-iconbox ">
+        {%- if check_video -%}
+          <div class="loomline-pro-video">
+            <img class="lazyload" data-src="https://file.hstatic.net/200000592359/file/icon_video_2d253ef605b0407da214e359ac3bdea5.png" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" alt="image video" />
+          </div>
+        {%- endif -%}
+        {%- if product.description contains '"image360":' - %}
+          				<div class="loomline-pro-360">
+          					<img class="lazyload" data-src="https://file.hstatic.net/200000592359/file/icon_spin_3_556d2cb6ff344907b916eeb57020e156.png" 
+          							 src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+          							 alt="image 360"/>
+          				</div>
+          				{%-endif -%}
+          </div>
+        {%- endif -%}
+        <a href="{{product.url}}" class="loomline-product-link">
+          {%if product.images.size > 1%}
+            <div class="loomline-product--image first-image" data-src="{{ product.featured_image.src | product_img_url: 'large' }}">
+            <picture>
+              <source media="(max-width: 480px)" data-srcset="{{ product.featured_image.src | product_img_url: 'large' }}" srcset="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
+              <source media="(min-width: 481px)" data-srcset="{{ product.featured_image.src | product_img_url: 'master' }}" srcset="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
+              <img class="lazyload img-loop " data-src="{{ product.featured_image.src | product_img_url: 'small' }}" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" alt="{% if product.featured_image.alt.size >0 %}{{ product.featured_image.alt | strip_html | escape }}{% else%} {{product.title | strip_html | escape}} {% endif %}" loading="eager" decoding="sync" />
+            </picture>
+          </div>
+            <div class="loomline-product--image second-image" data-src="{{ product.images[1] | product_img_url: 'large' }}">
+            <picture>
+              <source media="(max-width: 480px)" data-srcset="{{ product.images[1] | product_img_url: 'large' }}" srcset="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
+              <source media="(min-width: 481px)" data-srcset="{{ product.images[1] | product_img_url: 'master' }}" srcset="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
+              <img class="lazyload img-loop " data-src="{{ product.images[1] | product_img_url: 'small' }}" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" alt="{% if product.featured_image.alt.size >0 %}{{ product.featured_image.alt | strip_html | escape }}{% else%} {{product.title | strip_html | escape}} {% endif %}" loading="eager" decoding="sync" />
+            </picture>
+          </div>
+          {%else%}
+          <div class="loomline-product--image" data-src="{%if product.images.size > 0%}{{ product.featured_image.src | product_img_url: 'large' }}{%else%}{{'no_image.jpg' | asset_url}}{%endif%}">
+            <picture>
+              <source media="(max-width: 480px)" data-srcset="{%if product.images.size > 0%}{{ product.featured_image.src | product_img_url: 'large' }}{%else%}{{'no_image.jpg' | asset_url}}{%endif%}" srcset="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
+              <source media="(min-width: 481px)" data-srcset="{%if product.images.size > 0%}{{ product.featured_image.src | product_img_url: 'master' }}{%else%}{{'no_image.jpg' | asset_url}}{%endif%}" srcset="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
+              <img class="lazyload img-loop " data-src="{%if product.images.size > 0%}{{ product.featured_image.src | product_img_url: 'small' }}{%else%}{{'no_image.jpg' | asset_url}}{%endif%}" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" alt="{% if product.featured_image.alt.size >0 %}{{ product.featured_image.alt | strip_html | escape }}{% else%} {{product.title | strip_html | escape}} {% endif %}" loading="eager" decoding="sync" />
+            </picture>
+          </div>
+          {%endif%}
+        </a>
+
+          {%unless price_zero or check_gift%}
+          <div class="loomline-quickview-product">
+            <a
+              class="loomline-icon-quickview button"
+              href="javascript:void(0)"
+              name="icon quickview"
+              data-handle="{{product.url}}">
+             Xem nhanh
+            </a>
+          </div>
+          {%endunless%}
+          <div class="loomline-view-product">
+            <a href="{{product.url}}" class="button">
+              <svg width="20" height="20" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" x="0px" y="0px" viewBox="0 0 451 451" style="enable-background:new 0 0 451 451;" xml:space="preserve">
+                <g>
+                  <path d="M447.05,428l-109.6-109.6c29.4-33.8,47.2-77.9,47.2-126.1C384.65,86.2,298.35,0,192.35,0C86.25,0,0.05,86.3,0.05,192.3   s86.3,192.3,192.3,192.3c48.2,0,92.3-17.8,126.1-47.2L428.05,447c2.6,2.6,6.1,4,9.5,4s6.9-1.3,9.5-4   C452.25,441.8,452.25,433.2,447.05,428z M26.95,192.3c0-91.2,74.2-165.3,165.3-165.3c91.2,0,165.3,74.2,165.3,165.3   s-74.1,165.4-165.3,165.4C101.15,357.7,26.95,283.5,26.95,192.3z"></path>
+                </g>
+              </svg>
+            </a>
+          </div>
+      </div>
+      <div class="loomline-proloop-detail">
+        {%- unless product.vendor == 'Khác' -%}
+          <p class="loomline-proloop--vendor">{{ product.vendor | link_to_vendor }}</p>
+        {%- endunless -%}
+{% include 'product-loop--options'%}
+        <h3>
+          <a href="{{product.url}}" class="loomline-quickview-product" data-handle="{{product.url}}">{{ product.title }}</a>
+        </h3>
+        
+          {%- unless product.type == 'Khác' -%}
+            <div class="loomline-proloop--type">{{ product.type }}</div>
+          {%- endunless -%}
+          
+        {%- if settings.productreviews_hrvapp_use and settings.productreviews_hrvapp_proloop -%}
+          <div class="loomline-proloop--review">
+            <!-- check review -->
+            {%- assign rate_review = product.metafields.src.product_loop | append: "" - %}
+              				{% assign rate_number = '' %}
+              				{%-if rate_review ! = '' - %}
+              				{%-assign rate_number = rate_review | remove: ' đánh giá' - %}
+              				{%-endif -%}
+            <div class="haravan-product-reviews-badge" data-id="{{ product.id }}">
+              {{ product.metafields.src.product_loop }}
+            </div>
+          </div>
+        {%- endif -%}
+        <div class="loomline-wrapper-action-loop">
+          {%- unless price_zero -%}
+            <p class="loomline-proloop--price {% if on_sale %}on-sale{% endif %}">
+              <span class="loomline-price">{{ product.variants.first.price | money }}</span>
+              {%- if on_sale -%}
+                <span class="loomline-price-del">{{ product.variants.first.compare_at_price | money }}</span>
+              {%- endif -%}
+              {%- if sold_out -%}
+                <span class="loomline-prohzt-soldout">Hết hàng</span>
+              {%- endif -%}
+            </p>
+          {%- endunless -%}
+          {%- assign checkDescript = product.description | strip_html -%}  
+					{% if checkDescript.size > 0 %}
+          <div class="loomline-short-product">
+      			{{ checkDescript | truncatewords: 15 }}
+      		</div>
+            {%endif%}
+          {%- if price_zero or check_gift -%}
+            <div class="loomline-proloop-actions">
+              <div class="loomline-proloop-actions__inner">
+                {%- if check_gift -%}
+                  <a href="{{product.url}}" class="loomline-btn-proloop loomline-btn-proloop-gift" title="{{product.title}}">
+                    <span>Hàng tặng không bán</span>
+                  </a>
+                {%- else -%}
+                {%if settings.prod_pricezero_btn_select == 'prod_pricezero_btn_form'%}
+                    <button class="loomline-btn-proloop loomline-btn-proloop-contact loomline-btn-prozero-form hrv-cf-prod_pricezero_title" setting-id="prod_pricezero_title" setting-type="text" data-url="{{product.url}}"><span>{{ settings.prod_pricezero_title }}</span></button>
+                  {%else%}
+                  <a href="{{settings.prod_pricezero_link}}" class="loomline-btn-proloop loomline-btn-proloop-contact hrv-cf-prod_pricezero_title" setting-id="prod_pricezero_title" setting-type="text"><span>{{ settings.prod_pricezero_title }}</span></a>
+                  {%endif%}
+                {%- endif -%}
+              </div>
+            </div>
+          {%- endif -%}
+          {% unless price_zero or check_gift or settings.promotion_hrvapp_use %}
+            <div class="loomline-cart-product">
+              {%- if settings.loomline_shop_buying and product.variants.first.price > 0 -%}
+                
+                <button
+                  type="submit"
+                  class="loomline-btn-proloop-cart loomline-add-to-cart {% if sold_out %} disabled {%endif%} {% if product.variants.size > 1 %}loomline-btn-addcart-view {% endif %}"
+                  onclick="Loomline.ProductLoop.Loomline_addCartProdItem('{{ product.variants.first.id }}')"
+                  {% if sold_out %}
+                  disabled
+                  {% endif %}>
+                  {% if sold_out %}<span>Hết hàng</span>{%else%}<span>Thêm vào giỏ</span>{%endif%}
+                </button>
+                  
+              {%- endif -%}
+            </div>
+          {% endunless %}
+        </div>
+      </div>
+	</div>
+	<script> var viewed = {{product | json}}; </script>	
+</div>

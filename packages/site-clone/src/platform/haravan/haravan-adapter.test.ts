@@ -9,6 +9,7 @@ import * as assert from 'node:assert/strict';
 import {
   HaravanAdapter,
   InMemoryHaravanApiTransport,
+  HttpHaravanApiTransport,
   HaravanCliProcessTransport,
   ThemeTransactionPolicyError,
   ThemeTransactionNotFoundError,
@@ -17,8 +18,10 @@ import {
   ThemeCliProcessResult,
   HaravanCliTransport,
   HaravanApiTransport,
+  CleanupPlan,
 } from './haravan-adapter.js';
 import { ThemeAsset } from './types.js';
+import { FixtureRegistry } from './entity-resolver.js';
 
 describe('HaravanAdapter', () => {
   describe('Glob Pattern Matching Helper', () => {
@@ -131,7 +134,7 @@ describe('HaravanAdapter', () => {
   describe('Theme Transactions Lifecycle & Commit (§8)', () => {
     it('executes create, update, and delete mutations atomically on commit', async () => {
       const initialAssets: Record<string, Record<string, ThemeAsset>> = {
-        '1001': {
+        '1002': {
           'snippets/old.liquid': {
             key: 'snippets/old.liquid',
             value: 'old-content',
@@ -146,8 +149,8 @@ describe('HaravanAdapter', () => {
       const transport = new InMemoryHaravanApiTransport({ assets: initialAssets });
       const adapter = new HaravanAdapter({ apiTransport: transport });
 
-      // Begin transaction with permissive policy
-      const tx = await adapter.beginTransaction(1001, {});
+      // Begin transaction with permissive policy on staging theme 1002
+      const tx = await adapter.beginTransaction(1002, {});
       assert.equal(tx.status, 'pending');
 
       // Stage operations
@@ -169,9 +172,9 @@ describe('HaravanAdapter', () => {
       });
 
       // Before commit, store is still in initial state
-      assert.equal(await adapter.getThemeAsset(1001, 'snippets/new.liquid'), null);
-      assert.equal((await adapter.getThemeAsset(1001, 'snippets/old.liquid'))?.value, 'old-content');
-      assert.ok(await adapter.getThemeAsset(1001, 'snippets/to-delete.liquid'));
+      assert.equal(await adapter.getThemeAsset(1002, 'snippets/new.liquid'), null);
+      assert.equal((await adapter.getThemeAsset(1002, 'snippets/old.liquid'))?.value, 'old-content');
+      assert.ok(await adapter.getThemeAsset(1002, 'snippets/to-delete.liquid'));
 
       // Commit transaction
       await adapter.commitTransaction(tx.id);
@@ -181,24 +184,36 @@ describe('HaravanAdapter', () => {
       assert.ok(committedTx?.committedAt);
 
       // Verify store was updated
-      const newAsset = await adapter.getThemeAsset(1001, 'snippets/new.liquid');
+      const newAsset = await adapter.getThemeAsset(1002, 'snippets/new.liquid');
       assert.equal(newAsset?.value, '<nav>New Navigation</nav>');
 
-      const updatedAsset = await adapter.getThemeAsset(1001, 'snippets/old.liquid');
+      const updatedAsset = await adapter.getThemeAsset(1002, 'snippets/old.liquid');
       assert.equal(updatedAsset?.value, 'updated-content-v2');
 
-      const deletedAsset = await adapter.getThemeAsset(1001, 'snippets/to-delete.liquid');
+      const deletedAsset = await adapter.getThemeAsset(1002, 'snippets/to-delete.liquid');
       assert.equal(deletedAsset, null);
     });
   });
 
   describe('Policy Violations Enforcement (Fail-Closed)', () => {
+    it('blocks direct mutations on live production theme (role: main) (Audit §33, §64)', async () => {
+      const adapter = new HaravanAdapter();
+      await assert.rejects(
+        () => adapter.beginTransaction(1001, {}),
+        (err: unknown) => {
+          assert.ok(err instanceof ThemeTransactionPolicyError);
+          assert.equal(err.reason, 'LIVE_THEME_MUTATION_FORBIDDEN');
+          assert.equal(err.violatingKey, '1001');
+          return true;
+        }
+      );
+    });
+
     it('blocks mutations matching forbiddenFiles policy', async () => {
       const adapter = new HaravanAdapter();
-      const tx = await adapter.beginTransaction(1001, {
+      const tx = await adapter.beginTransaction(1002, {
         forbiddenFiles: ['config/settings_data.json', 'assets/secure-*'],
       });
-
       await assert.rejects(
         () =>
           adapter.stageAssetMutation(tx.id, {
@@ -232,7 +247,7 @@ describe('HaravanAdapter', () => {
 
     it('blocks mutations not in allowedFiles policy', async () => {
       const adapter = new HaravanAdapter();
-      const tx = await adapter.beginTransaction(1001, {
+      const tx = await adapter.beginTransaction(1002, {
         allowedFiles: ['templates/*', 'snippets/*'],
       });
 
@@ -262,7 +277,7 @@ describe('HaravanAdapter', () => {
 
     it('enforces diffBudget maxFilesChanged limit', async () => {
       const adapter = new HaravanAdapter();
-      const tx = await adapter.beginTransaction(1001, {
+      const tx = await adapter.beginTransaction(1002, {
         diffBudget: {
           maxFilesChanged: 2,
         },
@@ -298,7 +313,7 @@ describe('HaravanAdapter', () => {
 
     it('enforces diffBudget maxBytesDelta limit', async () => {
       const adapter = new HaravanAdapter();
-      const tx = await adapter.beginTransaction(1001, {
+      const tx = await adapter.beginTransaction(1002, {
         diffBudget: {
           maxBytesDelta: 50, // max 50 bytes total mutation
         },
@@ -332,7 +347,7 @@ describe('HaravanAdapter', () => {
   describe('In-Memory Rollback Buffer & Atomic Revert', () => {
     it('discards staged mutations on pending transaction rollback', async () => {
       const adapter = new HaravanAdapter();
-      const tx = await adapter.beginTransaction(1001, {});
+      const tx = await adapter.beginTransaction(1002, {});
 
       await adapter.stageAssetMutation(tx.id, {
         type: 'create',
@@ -346,7 +361,7 @@ describe('HaravanAdapter', () => {
       assert.equal(rolledBackTx?.status, 'rolled_back');
 
       // Asset was never written
-      assert.equal(await adapter.getThemeAsset(1001, 'snippets/discarded.liquid'), null);
+      assert.equal(await adapter.getThemeAsset(1002, 'snippets/discarded.liquid'), null);
 
       // Cannot commit a rolled back transaction
       await assert.rejects(
@@ -357,7 +372,7 @@ describe('HaravanAdapter', () => {
 
     it('reverts committed changes accurately on post-commit rollback', async () => {
       const initialAssets: Record<string, Record<string, ThemeAsset>> = {
-        '1001': {
+        '1002': {
           'snippets/hero.liquid': {
             key: 'snippets/hero.liquid',
             value: 'original-hero',
@@ -372,7 +387,7 @@ describe('HaravanAdapter', () => {
       const transport = new InMemoryHaravanApiTransport({ assets: initialAssets });
       const adapter = new HaravanAdapter({ apiTransport: transport });
 
-      const tx = await adapter.beginTransaction(1001, {});
+      const tx = await adapter.beginTransaction(1002, {});
 
       // 1. Update hero
       await adapter.stageAssetMutation(tx.id, {
@@ -396,23 +411,23 @@ describe('HaravanAdapter', () => {
 
       // Commit
       await adapter.commitTransaction(tx.id);
-      assert.equal((await adapter.getThemeAsset(1001, 'snippets/hero.liquid'))?.value, 'mutated-hero');
-      assert.equal(await adapter.getThemeAsset(1001, 'snippets/footer.liquid'), null);
-      assert.equal((await adapter.getThemeAsset(1001, 'snippets/banner.liquid'))?.value, 'new-banner');
+      assert.equal((await adapter.getThemeAsset(1002, 'snippets/hero.liquid'))?.value, 'mutated-hero');
+      assert.equal(await adapter.getThemeAsset(1002, 'snippets/footer.liquid'), null);
+      assert.equal((await adapter.getThemeAsset(1002, 'snippets/banner.liquid'))?.value, 'new-banner');
 
       // Now Rollback the committed transaction
       await adapter.rollbackTransaction(tx.id);
 
       // Hero should be restored to original-hero
-      const restoredHero = await adapter.getThemeAsset(1001, 'snippets/hero.liquid');
+      const restoredHero = await adapter.getThemeAsset(1002, 'snippets/hero.liquid');
       assert.equal(restoredHero?.value, 'original-hero');
 
       // Footer should be restored to original-footer
-      const restoredFooter = await adapter.getThemeAsset(1001, 'snippets/footer.liquid');
+      const restoredFooter = await adapter.getThemeAsset(1002, 'snippets/footer.liquid');
       assert.equal(restoredFooter?.value, 'original-footer');
 
       // Banner created in transaction should be deleted
-      const restoredBanner = await adapter.getThemeAsset(1001, 'snippets/banner.liquid');
+      const restoredBanner = await adapter.getThemeAsset(1002, 'snippets/banner.liquid');
       assert.equal(restoredBanner, null);
     });
 
@@ -432,7 +447,7 @@ describe('HaravanAdapter', () => {
       }
 
       const initialAssets: Record<string, Record<string, ThemeAsset>> = {
-        '1001': {
+        '1002': {
           'snippets/first.liquid': { key: 'snippets/first.liquid', value: 'orig-first' },
         },
       };
@@ -440,7 +455,7 @@ describe('HaravanAdapter', () => {
       const failingTransport = new FailingPutApiTransport({ assets: initialAssets });
       const adapter = new HaravanAdapter({ apiTransport: failingTransport });
 
-      const tx = await adapter.beginTransaction(1001, {});
+      const tx = await adapter.beginTransaction(1002, {});
 
       await adapter.stageAssetMutation(tx.id, {
         type: 'update',
@@ -464,11 +479,11 @@ describe('HaravanAdapter', () => {
       assert.equal(statusTx?.status, 'rolled_back');
 
       // first.liquid was rolled back to original
-      const first = await adapter.getThemeAsset(1001, 'snippets/first.liquid');
+      const first = await adapter.getThemeAsset(1002, 'snippets/first.liquid');
       assert.equal(first?.value, 'orig-first');
 
       // second.liquid was not created
-      const second = await adapter.getThemeAsset(1001, 'snippets/second.liquid');
+      const second = await adapter.getThemeAsset(1002, 'snippets/second.liquid');
       assert.equal(second, null);
     });
   });
@@ -488,7 +503,7 @@ describe('HaravanAdapter', () => {
 
     it('rejects mutations on already committed transactions', async () => {
       const adapter = new HaravanAdapter();
-      const tx = await adapter.beginTransaction(1001, {});
+      const tx = await adapter.beginTransaction(1002, {});
       await adapter.commitTransaction(tx.id);
 
       await assert.rejects(
@@ -587,6 +602,276 @@ describe('HaravanAdapter', () => {
 
       const settings = await adapter.getThemeSettings(1001);
       assert.deepEqual(settings, { header_logo: 'logo.png', font_size: '16px' });
+    });
+  });
+
+  describe('Canary Cleanup Plan Execution (Audit §43)', () => {
+    it('safely deletes canary fixtures (products, collections, articles, pages) via apiTransport', async () => {
+      const transport = new InMemoryHaravanApiTransport({
+        products: [{ id: 101, title: 'Canary Product 101' }],
+        collections: [{ id: 202, title: 'Canary Collection 202' }],
+        articles: [{ id: 303, title: 'Canary Article 303' }],
+        pages: [{ id: 404, title: 'Canary Page 404' }],
+      });
+      const adapter = new HaravanAdapter({ apiTransport: transport });
+
+      const plan: CleanupPlan = [
+        { action: 'delete', type: 'product', id: 101 },
+        { action: 'delete', type: 'collection', id: 202 },
+        { action: 'delete', type: 'article', id: 303 },
+        { action: 'delete', type: 'page', id: 404 },
+      ];
+
+      const result = await adapter.executeCleanupPlan(plan);
+      assert.equal(result.executed, 4);
+      assert.equal(result.failed, 0);
+      assert.deepEqual(result.errors, []);
+
+      // Verify fixtures were removed from store
+      assert.equal((await adapter.getProducts()).length, 0);
+      assert.equal((await adapter.getCollections()).length, 0);
+      assert.equal((await adapter.getArticles()).length, 0);
+      assert.equal((await adapter.getPages()).length, 0);
+    });
+
+    it('accepts and executes CleanupPlan generated by FixtureRegistry', async () => {
+      const registry = new FixtureRegistry();
+      registry.registerFixture({
+        fixtureId: 'canary-prod-1',
+        key: 'product:canary-hoodie',
+        type: 'product',
+        id: 777,
+        cleanupTag: 'antifan-canary-fixture',
+        createdAt: new Date().toISOString(),
+      });
+      registry.registerFixture({
+        fixtureId: 'canary-col-1',
+        key: 'collection:canary-apparel',
+        type: 'collection',
+        id: 888,
+        cleanupTag: 'antifan-canary-fixture',
+        createdAt: new Date().toISOString(),
+      });
+
+      const transport = new InMemoryHaravanApiTransport({
+        products: [{ id: 777, title: 'Canary Hoodie' }],
+        collections: [{ id: 888, title: 'Canary Apparel' }],
+      });
+      const adapter = new HaravanAdapter({ apiTransport: transport });
+
+      // Execute directly from registry
+      const result = await adapter.executeCleanupPlan(registry);
+      assert.equal(result.executed, 2);
+      assert.equal(result.failed, 0);
+      assert.equal(result.errors.length, 0);
+
+      assert.equal((await adapter.getProducts()).length, 0);
+      assert.equal((await adapter.getCollections()).length, 0);
+    });
+
+    it('captures failures gracefully when deletion fails or type is unknown', async () => {
+      const transport = new InMemoryHaravanApiTransport();
+      transport.deleteProduct = async (id: number | string) => {
+        throw new Error(`Product ${id} is locked by external process`);
+      };
+
+      const adapter = new HaravanAdapter({ apiTransport: transport });
+      const plan: CleanupPlan = [
+        { action: 'delete', type: 'product', id: 999 },
+        { action: 'delete', type: 'unsupported_fixture', id: 111 },
+      ];
+
+      const result = await adapter.executeCleanupPlan(plan);
+      assert.equal(result.executed, 0);
+      assert.equal(result.failed, 2);
+      assert.equal(result.errors.length, 2);
+      assert.equal(result.errors[0]?.targetId, '999');
+      assert.match(result.errors[0]?.error ?? '', /is locked by external process/);
+      assert.equal(result.errors[1]?.targetId, '111');
+      assert.match(result.errors[1]?.error ?? '', /Unsupported entity type/);
+    });
+  });
+
+  describe('HttpHaravanApiTransport (Audit §16)', () => {
+    it('authenticates via X-Haravan-Access-Token header and fetches themes', async () => {
+      let capturedHeader: string | null = null;
+      let requestedUrl = '';
+
+      const mockFetch: typeof fetch = async (input, init) => {
+        requestedUrl = String(input);
+        const headers = new Headers(init?.headers);
+        capturedHeader = headers.get('X-Haravan-Access-Token');
+        return new Response(
+          JSON.stringify({
+            themes: [
+              { id: 2001, name: 'Live Production', role: 'main' },
+              { id: 2002, name: 'Staging Theme', role: 'unpublished' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      };
+
+      const transport = new HttpHaravanApiTransport({
+        accessToken: 'hrv_sec_token_999',
+        baseUrl: 'https://apis.haravan.com/web',
+        fetchFn: mockFetch,
+      });
+
+      const themes = await transport.listThemes();
+      assert.equal(themes.length, 2);
+      assert.equal(themes[0]?.name, 'Live Production');
+      assert.equal(capturedHeader, 'hrv_sec_token_999');
+      assert.equal(requestedUrl, 'https://apis.haravan.com/web/admin/themes.json');
+    });
+
+    it('authenticates via Bearer Authorization header when configured', async () => {
+      let authHeader: string | null = null;
+
+      const mockFetch: typeof fetch = async (_input, init) => {
+        const headers = new Headers(init?.headers);
+        authHeader = headers.get('Authorization');
+        return new Response(
+          JSON.stringify({
+            theme: { id: 2002, name: 'Staging Theme', role: 'unpublished' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      };
+
+      const transport = new HttpHaravanApiTransport({
+        accessToken: 'oauth_bearer_123',
+        authType: 'bearer',
+        fetchFn: mockFetch,
+      });
+
+      const theme = await transport.getTheme(2002);
+      assert.equal(theme.id, 2002);
+      assert.equal(authHeader, 'Bearer oauth_bearer_123');
+    });
+
+    it('handles rate limiting (429 Retry-After) and transparently recovers', async () => {
+      let callCount = 0;
+
+      const mockFetch: typeof fetch = async () => {
+        callCount++;
+        if (callCount === 1) {
+          return new Response(JSON.stringify({ error: 'Throttled' }), {
+            status: 429,
+            headers: { 'Retry-After': '0.01' },
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            products: [{ id: 55, title: 'Recovered Product' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      };
+
+      const transport = new HttpHaravanApiTransport({
+        accessToken: 'token_rate_limit',
+        retryDelayMs: 10,
+        fetchFn: mockFetch,
+      });
+
+      const products = await transport.getProducts();
+      assert.equal(callCount, 2);
+      assert.equal(products.length, 1);
+    });
+
+    it('handles 404 for missing asset by returning null', async () => {
+      const mockFetch: typeof fetch = async () => {
+        return new Response('Asset not found', { status: 404, statusText: 'Not Found' });
+      };
+
+      const transport = new HttpHaravanApiTransport({
+        accessToken: 'token',
+        fetchFn: mockFetch,
+      });
+
+      const asset = await transport.getThemeAsset(1002, 'snippets/missing.liquid');
+      assert.equal(asset, null);
+    });
+
+    it('implements putThemeAsset, deleteThemeAsset, and canary deletions', async () => {
+      const records: string[] = [];
+
+      const mockFetch: typeof fetch = async (input, init) => {
+        const method = init?.method ?? 'GET';
+        records.push(`${method} ${input}`);
+        if (method === 'PUT') {
+          return new Response(
+            JSON.stringify({
+              asset: { key: 'snippets/nav.liquid', value: '<nav></nav>', size: 12 },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      };
+
+      const transport = new HttpHaravanApiTransport({
+        accessToken: 'test_token',
+        baseUrl: 'https://apis.haravan.com/web',
+        fetchFn: mockFetch,
+      });
+
+      const asset = await transport.putThemeAsset(1002, { key: 'snippets/nav.liquid', value: '<nav></nav>' });
+      assert.equal(asset.key, 'snippets/nav.liquid');
+
+      await transport.deleteThemeAsset(1002, 'snippets/nav.liquid');
+      await transport.deleteProduct(101);
+      await transport.deleteCollection(202);
+      await transport.deleteArticle(303, 99);
+      await transport.deletePage(404);
+
+      assert.ok(records.some((r) => r.startsWith('PUT https://apis.haravan.com/web/admin/themes/1002/assets.json')));
+      assert.ok(records.some((r) => r.startsWith('DELETE https://apis.haravan.com/web/admin/themes/1002/assets.json?asset[key]=snippets%2Fnav.liquid')));
+      assert.ok(records.some((r) => r.startsWith('DELETE https://apis.haravan.com/web/admin/products/101.json')));
+      assert.ok(records.some((r) => r.startsWith('DELETE https://apis.haravan.com/web/admin/custom_collections/202.json')));
+      assert.ok(records.some((r) => r.startsWith('DELETE https://apis.haravan.com/web/admin/blogs/99/articles/303.json')));
+      assert.ok(records.some((r) => r.startsWith('DELETE https://apis.haravan.com/web/admin/pages/404.json')));
+    });
+  });
+
+  describe('HaravanCliProcessTransport Execution & Lifecycle (Audit P0.1, §9)', () => {
+    it('preview spawns process, derives preview url, and stops process on request', async () => {
+      const transport = new HaravanCliProcessTransport({
+        binaryPath: process.execPath,
+      });
+
+      const res = await transport.preview(1002, { port: 9191 });
+      assert.equal(res.command, process.execPath);
+      assert.equal(res.url, 'http://127.0.0.1:9191');
+      assert.ok(typeof res.stop === 'function');
+      await res.stop();
+    });
+
+    it('sync executes command and captures exit code and output', async () => {
+      const transport = new HaravanCliProcessTransport({
+        binaryPath: process.execPath,
+      });
+
+      const res = await transport.exec(['-e', 'console.log("Haravan CLI Sync OK"); process.exit(0);']);
+      assert.equal(res.exitCode, 0);
+      assert.match(res.stdout ?? '', /Haravan CLI Sync OK/);
+    });
+
+    it('enforces execution timeout and terminates runaway process', async () => {
+      const transport = new HaravanCliProcessTransport({
+        binaryPath: process.execPath,
+      });
+
+      const res = await transport.exec(
+        ['-e', 'setInterval(() => {}, 1000);'],
+        { timeoutMs: 80 }
+      );
+      assert.equal(res.exitCode, 124);
+      assert.match(res.stderr ?? '', /timed out/);
     });
   });
 });

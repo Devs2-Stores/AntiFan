@@ -1,0 +1,21 @@
+{%layout none%}
+{%paginate collection.products by settings.loomline_index_collection_tab2_limit %}
+<div class="row list-pro">
+  {%assign time = 0 %}
+  {% if collection.products.size == 0 %}
+    {%for i in (1..4)%}
+  	{%assign time = time | plus: 0.2 %}
+     <div class="pro-item" style="--time: {{time}}s">
+  		{% include 'no-ll-product-loop' %}
+  	</div>
+  	{%endfor%}
+  {%else%}
+	{%for product in collection.products%}
+	{%assign time = time | plus: 0.2 %}
+   <div class="pro-item" style="--time: {{time}}s">
+		{% include 'll-product-loop' %}
+	</div>
+	{%endfor%}
+  {%endif%}
+</div>
+{% endpaginate %} 

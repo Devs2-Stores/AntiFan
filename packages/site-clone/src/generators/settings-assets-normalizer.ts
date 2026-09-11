@@ -157,10 +157,10 @@ export class SettingsAssetsNormalizer {
    * in theme templates/configs that do not exist on disk, and synthesizes minimal valid
    * assets to satisfy structural checks.
    */
-  public async auditAndSynthesizeAssets(
+  public auditAndSynthesizeAssetsSync(
     themeDir: string,
     declaredAssets: string[] = []
-  ): Promise<AssetSynthesisResult> {
+  ): AssetSynthesisResult {
     const targetDir = path.resolve(themeDir);
     const candidateRefs = new Set<string>();
 
@@ -170,7 +170,6 @@ export class SettingsAssetsNormalizer {
       }
     }
 
-    // Also scan theme directory for any template asset references
     if (fs.existsSync(targetDir)) {
       const scanned = this.scanThemeAssetReferences(targetDir);
       for (const ref of scanned) {
@@ -191,15 +190,12 @@ export class SettingsAssetsNormalizer {
         continue;
       }
 
-      // Check if asset already exists
       if (this.localAssetExists(targetDir, cleanRef)) {
         continue;
       }
 
-      // Missing asset identified
       missingCount += 1;
 
-      // Determine directory and file name
       let subDir = 'assets';
       let fileName = cleanRef;
 
@@ -210,10 +206,10 @@ export class SettingsAssetsNormalizer {
       }
 
       const filePath = path.join(targetDir, subDir, fileName);
-      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
       const content = SettingsAssetsNormalizer.synthesizeAssetContent(fileName);
-      await fs.promises.writeFile(filePath, content);
+      fs.writeFileSync(filePath, content);
 
       synthesizedAssets.push(cleanRef);
     }
@@ -222,6 +218,13 @@ export class SettingsAssetsNormalizer {
       synthesizedAssets,
       missingCount,
     };
+  }
+
+  public async auditAndSynthesizeAssets(
+    themeDir: string,
+    declaredAssets: string[] = []
+  ): Promise<AssetSynthesisResult> {
+    return this.auditAndSynthesizeAssetsSync(themeDir, declaredAssets);
   }
 
   /**
@@ -299,7 +302,7 @@ export class SettingsAssetsNormalizer {
    * 2. Normalizes config/settings_schema.json and writes back to disk
    * 3. Audits and synthesizes missing assets
    */
-  public async normalizeTheme(themeDir: string): Promise<ThemeNormalizationResult> {
+  public normalizeThemeSync(themeDir: string): ThemeNormalizationResult {
     const resolvedThemeDir = path.resolve(themeDir);
     const schemaPath = path.join(resolvedThemeDir, 'config', 'settings_schema.json');
     const dataPath = path.join(resolvedThemeDir, 'config', 'settings_data.json');
@@ -353,20 +356,29 @@ export class SettingsAssetsNormalizer {
     const schemaResult = this.normalizeSettingsSchema(combinedData, schema);
 
     if (schemaResult.addedSettingsCount > 0) {
-      await fs.promises.mkdir(path.dirname(schemaPath), { recursive: true });
-      await fs.promises.writeFile(
+      fs.mkdirSync(path.dirname(schemaPath), { recursive: true });
+      fs.writeFileSync(
         schemaPath,
         JSON.stringify(schemaResult.normalizedSchema, null, 2),
         'utf-8'
       );
     }
 
-    const assetResult = await this.auditAndSynthesizeAssets(resolvedThemeDir, []);
+    const assetResult = this.auditAndSynthesizeAssetsSync(resolvedThemeDir, []);
 
     return {
       schemaResult,
       assetResult,
     };
+  }
+
+  public static normalizeTheme(themeDir: string): ThemeNormalizationResult {
+    const normalizer = new SettingsAssetsNormalizer();
+    return normalizer.normalizeThemeSync(themeDir);
+  }
+
+  public async normalizeTheme(themeDir: string): Promise<ThemeNormalizationResult> {
+    return this.normalizeThemeSync(themeDir);
   }
 
   /**

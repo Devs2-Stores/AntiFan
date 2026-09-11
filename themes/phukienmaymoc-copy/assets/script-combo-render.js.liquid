@@ -1,0 +1,726 @@
+HRVTheme.AppCombo = {
+  init: function() {
+    var that = this;
+    that.renderCombo(currentId);
+		that.changeOptionCombo();
+		that.changeOptionFirstCombo();
+		that.clickAddCombo();
+  },
+  render_img: function(result,aIdCombo){
+		var htmlImg = '';
+		var numIdCombo = aIdCombo.length - 1;
+		htmlImg += '<div class="combo-content--images">';
+		$.each(aIdCombo,function(i,v){
+			htmlImg +=  '<a href="'+result[v].url+'" title="'+result[v].title+'" class="image ">';
+			htmlImg +=    '<img src="'+Haravan.resizeImage(result[v].img,'medium')+'" alt="'+result[v].title+'">';
+			htmlImg +=  '</a>';
+			if(i < numIdCombo ){
+				htmlImg +=  '<p class="plus">+</p>';
+			}
+		});
+		htmlImg += '</div>';    
+		return htmlImg;	
+	},
+	render_price: function(result,dtCombo){
+		var price_combo = 0, dt_vrt_list = [];
+		if(!dtCombo.is_apply_by_variant){
+      var dt_of_combo = []
+			dt_of_combo.quantity = dtCombo.quantity;
+			switch (dtCombo.type){
+				case 1: 
+					price_combo = result.price - dtCombo.promotion_value;
+					break;
+				case 2:
+					price_combo = result.price - (result.price * (dtCombo.promotion_value / 100));
+					break;
+				default:
+					price_combo = dtCombo.promotion_value;
+			}
+			dt_of_combo.price = price_combo;
+      dt_of_combo.push(dt_of_combo)
+      dt_of_combo.push({
+        id: result.id,
+        quantity: result.qty,
+        price: price_combo
+      });
+      return dt_of_combo
+		}
+		else{
+      var dt_of_combo = [];
+            if(!dtCombo.none_promotion) {
+              $.each(dtCombo.apply_productvariants,function(i,v){
+        				if(v != null){
+        					var vrt = result.variants.filter(item => item.id == v.id)
+                  vrt.forEach(vrt => {
+          					switch (v.type){
+          						case 1: 
+          							price_combo = vrt.price - v.promotion_value;
+          							break;
+          						case 2:
+          							price_combo = vrt.price - (vrt.price * (v.promotion_value/100));
+          							break;
+          						default:
+          							price_combo = v.promotion_value;
+          					}
+                    dt_of_combo.push({
+                      id: vrt.id,
+                      quantity: v.qty,
+                      price: price_combo
+                    });
+        					});
+        				}
+        			});
+            }
+            else {
+              $.each(dtCombo.apply_productvariants,function(i,v){
+              var vrt = result.variants.filter(item => item.id == v.id)
+                  vrt.forEach(vrt => {
+          					switch (v.type){
+          						case 1: 
+          							price_combo = vrt.price;
+          							break;
+          						case 2:
+          							price_combo = vrt.price ;
+          							break;
+          						default:
+          							price_combo = vrt.price ;
+          					}
+                    dt_of_combo.push({
+                      id: vrt.id,
+                      quantity: v.qty,
+                      price: price_combo
+                    });
+        					});
+                });
+            }
+         
+      
+      return dt_of_combo;
+		}
+		
+	},
+	render_items: function(result,iCombo,nCombo,currentId){
+		var htmlDetail = '<div class="combo-content--list">';
+		htmlDetail +=    	 '<div class="list-combos">';
+		var totalPriceCombo = 0;
+		var totalPriceInit = 0;
+		var numCombo = nCombo.length - 1;
+    var countCombo=0;
+		variantItem.push(result);
+		//if(nCombo.length == 2){$('.combo-info').addClass('width-small')}
+		//else{$('.combo-info').removeClass('width-small')}
+
+		$.each(nCombo,function(i,v){
+			/* Kiểm tra giảm theo biến thể từ app */
+			var is_vrt_combo = false;
+			var vrt_combo = '';
+      
+			if(dataItemsCombo[iCombo][v].is_apply_by_variant){  
+				is_vrt_combo = true;
+        
+         var ids = dataItemsCombo[iCombo][v].apply_productvariants.map(p => Number(p.id));
+        //vrt_combo = result[v].variants.filter(i => ids.includes(Number(i.id)));
+        //vrt_combo = (Array.isArray(result[v]?.variants) ? result[v].variants : []).filter(i => ids.includes(Number(i.id)));
+
+        const variants = Array.isArray(result[v]?.variants) ? result[v].variants : [];
+        vrt_combo = variants.filter(i => ids.includes(Number(i.id)));
+        
+				//vrt_combo_c = result[v].variants.find(i => i.id == dataItemsCombo[iCombo][v].apply_productvariants[0].id)
+        //console.log(vrt_combo) 
+        //console.log(vrt_combo_c)
+			} else {
+        vrt_combo = [result[v]]
+      }
+      
+			/* Xử lý giá trị từ app */
+			var dtCombo = HRVTheme.AppCombo.render_price(result[v],dataItemsCombo[iCombo][v]);
+      console.log(dtCombo)
+			/* End Xử lý */
+			var vrtOption = Object.values(result[v].variants);
+			//var vrt = Array.from(new Set([...vrtOption.map(item => item.title)]));
+			var optionSize = result[v].option_size;
+
+      if(is_vrt_combo){
+            /*var dtPrice = $.isEmptyObject(dtCombo)?vrt_combo.price:dtCombo.price;
+            var dtQty = $.isEmptyObject(dtCombo)?1:dtCombo.quantity;
+            totalPriceInit += vrt_combo.price;
+            totalPriceCombo += (dtPrice*dtQty);*/
+          }
+      else{
+        var dtPrice = $.isEmptyObject(dtCombo)?result[v].price:dtCombo.price;
+        var dtQty = $.isEmptyObject(dtCombo)?1:dtCombo.quantity;
+        totalPriceInit += result[v].price;
+        totalPriceCombo += (dtPrice*dtQty);
+      }
+      
+      
+      vrt_combo.forEach((vrt_combo,index) => {
+        countCombo+=1
+        
+			//if(!dataItemsCombo[iCombo][v].is_apply_by_variant){
+          const dt = dtCombo.find(d => d.id == vrt_combo.id);
+          //console.log(dt)
+          var dtPrice = dt.price
+          var dtQty = dt.quantity
+          totalPriceInit += result[v].price;
+          totalPriceCombo += (dtPrice*dtQty);
+    			htmlDetail +=   '<div class="combo-item'+ (v == currentId?' item-force':' ')+'">';		
+    			htmlDetail +=			'<div class="combo-item--images">';
+    			htmlDetail +=  			'<a href="'+result[v].url+'" title="'+result[v].title+'" class="image ">';
+    			htmlDetail +=					'<span class="lazy-img-cb">';
+    			if(is_vrt_combo){
+    				htmlDetail +=    				'<img src="'+Haravan.resizeImage(vrt_combo.img,'medium')+'" alt="'+result[v].title+'">';
+    			}
+    			else{
+    				htmlDetail +=    				'<img src="'+Haravan.resizeImage(result[v].img,'medium')+'" alt="'+result[v].title+'">';
+    			}
+    			htmlDetail +=					'</span>';
+    			htmlDetail +=  			'</a>';
+    			htmlDetail +=	    '</div>';
+    			htmlDetail +=			'<div class="combo-item--detail">';
+    			htmlDetail +=			'<div class="combo-item--head">';
+    			htmlDetail +=				'<div class="combo-item--title">'
+    			if(is_vrt_combo){
+    				if(v == currentId){
+  					htmlDetail +=	   '<input type="checkbox" id="item-force" class="force" name="combo-option" value="'+vrt_combo.id+'"  data-combo="'+dtPrice+'" data-quantity="'+dtQty+'" data-origin="'+vrt_combo.price+'" data-km="'+vrt_combo.compare_at_price+'" checked/>';
+  				}
+  				else{
+  					htmlDetail +=   '<input type="checkbox" name="combo-option" value="'+vrt_combo.id+'" data-combo="'+dtPrice+'" data-quantity="'+dtQty+'" data-origin="'+vrt_combo.price+'" data-km="'+vrt_combo.compare_at_price+'" checked/>';
+  				}
+  			}
+  			else{
+  				if(v == currentId){
+  					htmlDetail +=	   '<input type="checkbox" id="item-force" class="force" name="combo-option" value="'+result[v].first_available+'"  data-combo="'+dtPrice+'" data-quantity="'+dtQty+'" data-origin="'+result[v].price+'" data-km="'+result[v].compare_at_price+'" checked/>';
+  				}
+  				else{
+  					htmlDetail +=   '<input type="checkbox" name="combo-option" value="'+result[v].first_available+'" data-combo="'+dtPrice+'" data-quantity="'+dtQty+'" data-origin="'+result[v].price+'" data-km="'+result[v].compare_at_price+'" checked/>';
+  				}
+  			}
+  			htmlDetail +=	    	'<span class="combo--title">'+(v == currentId?'<strong>Bạn đang xem: </strong> ':'')+dtQty+' x '+result[v].title;
+  			htmlDetail +=	    	'</span>';
+  			htmlDetail +=				'</div>';
+  			if (is_vrt_combo) {
+  				if (result[v].option_size == 1 && result[v].options[0].value == 'Default Title')htmlDetail +=				'<div class="combo-item--option is-hide">';
+  				else htmlDetail +=				'<div class="combo-item--option disable">';
+  			}else{
+  				if (result[v].option_size == 1 && (result[v].options[0].value == 'Default Title' || result[v].options[0].value.length == 1))htmlDetail +=				'<div class="combo-item--option is-hide">';
+  				else htmlDetail +=				'<div class="combo-item--option">';
+  			}
+  			htmlDetail +=					'<div class="options-title">';
+  			htmlDetail +=						'<div class="title">Vui lòng chọn:</div>';
+  			htmlDetail +=					'</div>';
+  			htmlDetail +=					'<div class="options-list">';
+  			if (result[v].option_size == 1) {
+  				result[v].options.forEach((op,index) => {
+  					htmlDetail +=				'<div class="select-option option'+ (index+1) +'" data-option="option'+(index+1)+'">';
+  					if(op.value.length != 1){
+  						htmlDetail += '<select class="filter-option" name="option'+ (index+1) +'" data-pro-id="'+ v +'" id="select-item'+(i+1)+'-option'+ (index+1) +'">';
+  					}else{
+  						htmlDetail += '<select class="filter-option disable" name="option'+ (index+1) +'" data-pro-id="'+ v +'" id="select-item'+(i+1)+'-option'+ (index+1) +'">';
+  					}
+  					if(is_vrt_combo){
+  						htmlDetail += '<option value="'+ vrt_combo.title + '">'+ vrt_combo.title + '</option>';
+  					}
+  					else{
+  						op.value.forEach((p) => {
+  							var isDisabled = false;
+  							var variant = result[v].variants.find((item) => item.title.includes(p));
+  							if (variant) isDisabled = !variant.available;
+  							if (isDisabled) htmlDetail += '<option disabled value="'+ p + '">'+ p + '</option>';
+  							else htmlDetail += '<option value="'+ p + '">'+ p + '</option>';
+  						});
+  					}
+  					htmlDetail += '</select>';
+  					htmlDetail +=			'</div>'
+  				});
+  			}
+  			else {
+  				var indexOption = -1;
+  				result[v].options.forEach((op,i) => {
+  					if(op.name == "Màu sắc"){
+  						indexOption = i;
+  						return false;
+  					}
+  				});
+  				var colorFirst = result[v].variants[indexOption].optionColor;
+  				var available = result[v].variants.filter(item => item.available && item.optionColor[0] == colorFirst);
+  
+  				var valueOption2 = "";
+  				//var sortResult = [result[v].options.find((item) => item.name === "Màu sắc"),...result[v].options.filter((item) => item.name !== "Màu sắc")]
+  				if(is_vrt_combo){
+  					htmlDetail +=				'<div class="select-option option1" data-option="option1">'
+  					htmlDetail += 				'<select class="filter-option" name="option1" data-pro-id="'+ v +'" id="select-item'+(i+1)+'-option'+ (i+1) +'">';
+  					htmlDetail += 					'<option value="'+ vrt_combo.title + '">'+ vrt_combo.title + '</option>';
+  					htmlDetail += 				'</select>';
+  					htmlDetail +=				'</div>'
+  				}
+  				else{
+  					result[v].options.forEach((op,index) => {
+  						if(op.name == "Màu sắc") indexOption = index;
+  						htmlDetail +=				'<div class="select-option option'+ (index+1) +'" data-option="option'+(index+1)+'">';
+  						if(op.value.length != 1){
+  							htmlDetail += '<select class="filter-option" onchange="HRVTheme.AppCombo.onchange_op'+ (index+1) +'(this,'+ v +','+index+')" name="option'+ (index+1) +'" data-pro-id="'+ v +'" id="select'+(i+1)+'-option'+ (index+1) +'">';
+  						}else{
+  							htmlDetail += '<select class="filter-option disable" onchange="HRVTheme.AppCombo.onchange_op'+ (index+1) +'(this,'+ v +','+index+')" name="option'+ (index+1) +'" data-pro-id="'+ v +'" id="select'+(i+1)+'-option'+ (index+1) +'">';
+  						}
+  						if(index == 1){
+  							op.value.forEach((p,i) => {
+  								if(i == 0) valueOption2 = p;
+  								var variant = available.find((item) => item.title.includes(p));
+  								if (variant) htmlDetail += '<option value="'+ p + '">'+ p + '</option>';
+  								else htmlDetail += '<option disabled value="'+ p + '">'+ p + '</option>';
+  							});
+  						}
+  						else if(index == 2){
+  							available = result[v].variants.filter(item => item.available && item.optionColor[0] == colorFirst && item.title.includes(colorFirst + ' / ' + valueOption2));
+  							op.value.forEach((p) => {
+  								var variant = available.find((item) => item.title.includes(p));
+  								if (variant) htmlDetail += '<option value="'+ p + '">'+ p + '</option>';
+  								else htmlDetail += '<option disabled value="'+ p + '">'+ p + '</option>';
+  							});
+  						}
+  						else{
+  							op.value.forEach((p) => {
+  								var variant = result[v].variants.find((item) => item.title.includes(p));
+  								htmlDetail += '<option value="'+ p + '">'+ p + '</option>';
+  							});
+  						}
+  						htmlDetail += '</select>';
+  						htmlDetail +=			'</div>'
+  					});
+  				}
+  			}
+  			htmlDetail +=					'</div>'
+  			htmlDetail +=					'</div>'
+  			htmlDetail +=					'</div>'
+  			htmlDetail +=			'<div class="combo-item--bottom">';
+        
+  			if(is_vrt_combo){
+          if(dt) {
+            htmlDetail +=	    	'<p class="combo-item--priceInit"><span><b>'+ Haravan.formatMoney(vrt_combo.price*100, formatMoney) +'</b>' + (vrt_combo.price < vrt_combo.compare_at_price?'<del>'+Haravan.formatMoney(vrt_combo.compare_at_price*100, formatMoney)+'</del>':'') + '</span></p>';
+      			htmlDetail +=	    	'<p class="combo-item--price"><span class="price-tt">Giảm còn: </span><span class="price-cb">'+Haravan.formatMoney(dtPrice*dtQty*100, formatMoney)+'</span>'+(vrt_combo.price > dtPrice?'<del>'+Haravan.formatMoney(vrt_combo.price*dtQty*100, formatMoney)+'</del>':'')+'</p>';
+          }
+          
+        }
+  			else{
+  				htmlDetail +=	    	'<p class="combo-item--priceInit"><span><b>'+ Haravan.formatMoney(result[v].price*100, formatMoney) +'</b>' + (result[v].price < result[v].compare_at_price?'<del>'+Haravan.formatMoney(result[v].compare_at_price*100, formatMoney)+'</del>':'') + '</span></p>';
+  				htmlDetail +=	    	'<p class="combo-item--price"><span class="price-tt">Giảm còn: </span><span class="price-cb">'+Haravan.formatMoney(dtPrice*dtQty*100, formatMoney)+'</span>'+(result[v].price > dtPrice?'<del>'+Haravan.formatMoney(result[v].price*dtQty*100, formatMoney)+'</del>':'')+'</p>';
+  			}
+  			htmlDetail +=	    	'</div>';
+  			htmlDetail +=		 		'</div>';
+  			htmlDetail +=	    	'</div>';
+			//}
+     });
+		});
+		htmlDetail +=		 	 '</div>';
+		htmlDetail +=		 '</div>';//end list item
+
+		htmlDetail +=		 '<div class="combo-content--total">';
+		htmlDetail +=				'<div class="wrapbox-total">'
+		htmlDetail +=					'<div class="combo-total">'
+		htmlDetail +=						'<p class="txt1">Tổng tiền: <span class="combo-total-price">'+Haravan.formatMoney(totalPriceCombo*100, formatMoney)+'</span></p>';
+		htmlDetail +=						'<p class="txt2">Tiết kiệm: <span class="combo-total-priceInit">'+Haravan.formatMoney(totalPriceInit*100 - totalPriceCombo*100, formatMoney)+'</span></p>';
+		htmlDetail +=					'</div>'
+		htmlDetail +=					'<button type="button" class="add-combo">Thêm combo vào giỏ hàng</button>'
+		htmlDetail +=	   		'</div>';
+		htmlDetail +=	   '</div>';
+    
+    
+		return htmlDetail;
+	},
+	uniques: function(arr) {
+		var a = [];
+		for (var i=0, l=arr.length; i<l; i++)
+			if (a.indexOf(arr[i]) === -1 && arr[i] !== '')
+				a.push(arr[i]);
+		return a;
+	},
+	updateInfoItemCombo: function(e,id,indexCombo,resulData){
+		if(resulData.img == null){resulData.img = " ";}
+		$(e).parents('.combo-item--detail').find('.combo-item--title input').attr('value',resulData.id);
+		$(e).parents('.combo-item .combo-item--detail').siblings().find('img').attr('src',resulData.img);
+		if(checkIsCombo){
+			$(e).parents('.combo-item--detail').find('.combo-item--price').html('<span class="price-tt">Giảm còn:</span><span class="price-cb">'+ Haravan.formatMoney(HRVTheme.AppCombo.render_price(resulData,dataItemsCombo[indexCombo][id]).price*100, formatMoney)+'</span>' + '<del>'+ Haravan.formatMoney(resulData.price*100, formatMoney) +'</del>');
+		}
+		else{
+			$(e).parents('.combo-item--detail').find('.combo-item--price').html('&nbsp');
+		}
+		if(resulData.price < resulData.compare_at_price){    
+			$(e).parents('.combo-item--detail').find('.combo-item--priceInit span del').removeClass("d-none");
+			$(e).parents('.combo-item--detail').find('.combo-item--priceInit span b').html(Haravan.formatMoney(resulData.price*100, formatMoney));
+			$(e).parents('.combo-item--detail').find('.combo-item--priceInit span del').html(Haravan.formatMoney(resulData.compare_at_price*100, formatMoney));
+		}
+		else{
+			$(e).parents('.combo-item--detail').find('.combo-item--priceInit span b').html(Haravan.formatMoney(resulData.price*100, formatMoney));
+			$(e).parents('.combo-item--detail').find('.combo-item--priceInit span del').addClass("d-none");
+		}
+	},
+	updatePriceTotalCombo: function(e,id,index,strValue,resulData){
+		var totalPriceCombo = 0;
+		var totalPriceInit = 0;
+		var indexCombo = $(e).parents('.combo-info--content').attr('data-combo-index');
+		var priceItemCb = HRVTheme.AppCombo.render_price(resulData,dataItemsCombo[indexCombo][id]);
+		var dtPrice = $.isEmptyObject(priceItemCb)?resulData.price:priceItemCb.price;
+		var dtQty = $.isEmptyObject(priceItemCb)?1:priceItemCb.quantity;
+
+		$(e).parents('.combo-item--detail').find('.combo-item--title input').attr('data-origin',resulData.price);
+		$(e).parents('.combo-item--detail').find('.combo-item--title input').attr('data-km',resulData.compare_at_price);
+		$(e).parents('.combo-item--detail').find('.combo-item--title input').attr('data-combo',dtPrice);
+
+		if(checkIsCombo){
+			$(e).parents('.combo-info--content').find('.combo-item:not(.disabled)').each((i,v)=>{
+				var itemPrice = $(e).parents('.combo-info--content').find('.combo-item:eq('+i+') .combo-item--price .price-cb').html();
+				var itemPriceFirst = $(e).parents('.combo-info--content').find('.combo-item:eq('+i+') .combo-item--price del').html();
+				var parsrPrice = parseInt(itemPrice.replace(/₫/g, "").replace(/,/g, ""));
+				var parsrPriceFirst = parseInt(itemPriceFirst.replace(/₫/g, "").replace(/,/g, ""));
+				totalPriceCombo += parsrPrice;
+				totalPriceInit += parsrPriceFirst;
+			});
+		}
+		else{
+			$(e).parents('.combo-info--content').find('.combo-item:not(.disabled)').each((i,v)=>{
+				var itemPrice = $(e).parents('.combo-info--content').find('.combo-item:not(.disabled):eq('+i+') .combo-item--priceInit b').html();
+				var itemPriceFirst = $(e).parents('.combo-info--content').find('.combo-item:not(.disabled):eq('+i+') .combo-item--priceInit del').html();
+				var parsrPrice = parseInt(itemPrice.replace(/₫/g, "").replace(/,/g, ""));
+				if(itemPriceFirst == undefined) itemPriceFirst = itemPrice;
+				var parsrPriceFirst = parseInt(itemPriceFirst.replace(/₫/g, "").replace(/,/g, ""));
+				totalPriceCombo += parsrPrice;
+				totalPriceInit += parsrPriceFirst;
+			});
+		}
+		$(e).parents('.combo-info--content').find('.combo-content--total .combo-total-price').html(Haravan.formatMoney(totalPriceCombo*100, formatMoney));
+		$(e).parents('.combo-info--content').find('.combo-content--total .combo-total-priceInit').html(Haravan.formatMoney(totalPriceInit*100 - totalPriceCombo*100, formatMoney));
+
+	},
+	renderCombo: function(currentId,view){
+		var aIdCombo = [], aIdSearch = [], nameCombo = [];
+		htmlQvApp = htmlCombo = "";
+		dataItemsCombo = [];
+		var comboDOM = (view != undefined?'#quickview-template .combo-info':'.layout-productDetail .combo-info');
+		//var parentDOM = (view != undefined?'#quickview-template':'.products-detail-js .combo-info');
+		$.get('https://combo-omni.haravan.com/js/list_recommendeds?product_id='+currentId).done(function(data){
+      
+			if(data.length > 0){
+				$.each(data,function(i,v){
+					var temp = [];
+					var temp2 = {};
+					$.each(v.recommendeds,function(j,k){
+						temp.push(k.product_id);
+						aIdSearch.push(k.product_id);
+						temp2[k.product_id] = k;
+					});
+					aIdCombo.push(temp); 
+					dataItemsCombo.push(temp2);
+					nameCombo.push(v.name_combo)
+				});
+				aIdSearch = HRVTheme.AppCombo.uniques(aIdSearch);
+				var str = "/search?q=filter=((id:product="+aIdSearch.join(')||(id:product=')+'))';
+				$.get(str+'&view=datacombo').done(function(result){
+					result = JSON.parse(result);
+          
+					$.each(aIdCombo,function(i,v){
+						var allAvailable = true;
+						/* Kiểm tra có item nào trong combo ko valid thì không hiển thị */
+						/* Hoặc có item nào bị ẩn thì ko hiển thị */
+						$.each(v,function(j,k){
+							if(result[k]){
+								if(dataItemsCombo[i][k].is_apply_by_variant){
+									var apply_length = dataItemsCombo[i][k].apply_productvariants.length;
+									$.each(dataItemsCombo[i][k].apply_productvariants,function(index,value){
+                    
+										/*if(!result[k].variants[index].available){
+											allAvailable = false;
+											if(apply_length == 1) return false;
+											else m = null;
+										}*/
+									});
+								}
+								else{
+									if(!result[k].available){
+										allAvailable = false;
+										return false;
+									}
+								}
+							}
+							else{
+								allAvailable = false;
+								return false;
+							}
+						});
+						/* End Kiểm tra */
+
+						/* Nếu kiểm tra các item trong combo đều còn hàng thì render */
+						if(allAvailable){
+							htmlCombo += '<div class="combo-info--content" data-combo-index="'+ i +'">'; 
+							//var htmlImg = render_img(result,v);
+							//var htmlDetail = render_detail(result,i,v,currentId);
+							htmlCombo += '<div class="combo-content--name">'+ nameCombo[i] +'</div>';
+              console.log(result)
+							var htmlDetail = HRVTheme.AppCombo.render_items(result,i,v,currentId);
+							//htmlCombo += htmlImg;
+							htmlCombo += htmlDetail;
+							htmlCombo += '</div>';
+						}
+					});
+
+					if(htmlCombo != ''){
+						$(comboDOM).append(htmlCombo).removeClass('d-none');
+            $('.productDetail--app-combo').removeClass('d-none');
+						if(view != undefined){
+							htmlQvApp = htmlCombo;
+						}
+					}
+				});
+			}
+			else{
+				if(view == 'quickview' ){
+					//return htmlCombo || '';
+					return htmlCombo;
+				}			
+			}
+		});
+	},
+	changeOptionCombo: function(){
+		$(document).on('change','.layout-productDetail .combo-info input[name="combo-option"]:not(.force)',function(){
+			var ind = $(this).parents('.combo-item').index();
+			var total = 0;
+			var totalKm = 0;
+			if(ind >= 0){
+				if($(this).is(':checked')){
+					//$(this).parents('.combo-info--content').find('.combo-item:nth-child('+(ind*2 + 1)+')'+'.combo-item--images a').removeClass('disabled');
+					$(this).parents('.combo-info--content').find('.combo-item:nth-child('+(ind*1 + 1)+')').removeClass('disabled');
+				}
+				else{
+					$(this).parents('.combo-info--content').find('.combo-item:nth-child('+(ind*1 + 1)+')').addClass('disabled');
+				}
+				var numCombo = $(this).parents('.combo-info--content').find('input').length;
+				var numCheck = $(this).parents('.combo-info--content').find('input:checked').length;
+				$(this).parents('.combo-info--content').find('input').each(function(){
+					var combo = parseInt($(this).attr('data-combo').trim());
+					var qty = parseInt($(this).attr('data-quantity').trim());
+					var origin = parseInt($(this).attr('data-origin').trim());
+					if(numCombo == numCheck){
+						checkIsCombo = true;
+						total += combo*qty;
+						totalKm += origin*qty - combo*qty;
+						var htmlDel = '';
+						if(origin > combo){
+							htmlDel += '<del>'+Haravan.formatMoney(origin*qty*100, formatMoney)+'</del>';
+						}
+						$(this).parents('.combo-item').find('.combo-item--price').html('<span class="price-tt">Giảm còn: </span><span class="price-cb">' +Haravan.formatMoney(combo*qty*100, formatMoney)+'</span>'+htmlDel);
+					}
+					else{
+						checkIsCombo = false;
+						$(this).parents('.combo-item--detail').find('.combo-item--price').html('&nbsp');
+						var origin = parseInt($(this).attr('data-origin').trim());
+						var priceKm = parseInt($(this).attr('data-km').trim());
+						if(priceKm == 0) priceKm = origin;
+
+						$(this).parents('div.combo-item').find('.combo-item--price').html(Haravan.formatMoney(origin*qty*100, formatMoney));
+						$(this).parents('div.combo-item').find('.combo-item--price').html('&nbsp');
+						if($(this).is(':checked')) total += origin*qty, totalKm += priceKm*qty - origin*qty;
+					}
+				});
+				$(this).parents('.combo-info--content').find('.combo-total-price').html(Haravan.formatMoney(total*100, formatMoney));
+				$(this).parents('.combo-info--content').find('.combo-total-priceInit').html(Haravan.formatMoney(totalKm*100, formatMoney));
+        
+				$(this).parents('.combo-info--content').find('.add-combo').html('Thêm combo vào giỏ hàng');
+			}
+			//var parents = $(this).parents('.products-detail-js').attr('id');
+			//var checkcount = $('#'+parents+' input[name="combo-option"]:checked').length;
+			//$(this).parents('.combo-info--content').find('.add-combo').html('Thêm '+(checkcount == 1 ? '' : checkcount + ' ')+'vào giỏ hàng');
+		});
+	},
+	changeOptionFirstCombo: function(){
+		jQuery(document).on('change','.combo-item--option [name="option1"]', function(e) { 
+			var vrtSize = $(this).parents('.combo-item--option ').find('.select-option').length;
+			var name = $(this).attr('name');
+			var pro_id = $(this).attr('data-pro-id');
+			var index = $(this).parents('.combo-item').index();
+			var indexCombo = $(this).parents('.combo-info--content').attr('data-combo-index');
+			var totalPriceCombo = 0;
+			var totalPriceInit = 0;
+			//var dtPrice = $.isEmptyObject(dtCombo)?result[v].price:dtCombo.price;
+			if(vrtSize == 1) {
+				var strValue = $(this).val();
+				var resulData = variantItem[0][pro_id].variants.find(item => item.title == strValue);
+
+				if(resulData.img == null){resulData.img = " ";}
+				$(this).parents('.combo-item--detail').find('.combo-item--title input').attr('value',resulData.id);
+				$(this).parents('.combo-item .combo-item--detail').siblings().find('img').attr('src',resulData.img);
+
+				if(resulData.price < resulData.compare_at_price){    
+					$(this).parents('.combo-item--detail').find('.combo-item--priceInit span del').removeClass("d-none");
+					$(this).parents('.combo-item--detail').find('.combo-item--priceInit span b').html(Haravan.formatMoney(resulData.price*100, formatMoney));
+					$(this).parents('.combo-item--detail').find('.combo-item--priceInit span del').html(Haravan.formatMoney(resulData.compare_at_price*100, formatMoney));
+				}
+				else{
+					$(this).parents('.combo-item--detail').find('.combo-item--priceInit span b').html(Haravan.formatMoney(resulData.price*100, formatMoney));
+					$(this).parents('.combo-item--detail').find('.combo-item--priceInit span del').addClass("d-none");
+				}
+
+				var priceItemCb = HRVTheme.AppCombo.render_price(resulData,dataItemsCombo[indexCombo][pro_id]);
+				var dtPrice = $.isEmptyObject(priceItemCb)?resulData.price:priceItemCb.price;
+				var dtQty = $.isEmptyObject(priceItemCb)?1:priceItemCb.quantity;
+
+				$(this).parents('.combo-item--detail').find('.combo-item--title input').attr('data-origin',resulData.price);
+				$(this).parents('.combo-item--detail').find('.combo-item--title input').attr('data-km',resulData.compare_at_price);
+				$(this).parents('.combo-item--detail').find('.combo-item--title input').attr('data-combo',dtPrice);
+
+				if(checkIsCombo){
+					$(this).parents('.combo-item--detail').find('.combo-item--price').html('<span class="price-tt">Giảm còn:</span><span class="price-cb">'+ Haravan.formatMoney(HRVTheme.AppCombo.render_price(resulData,dataItemsCombo[indexCombo][pro_id]).price*100, formatMoney)+'</span>' + '<del>'+ Haravan.formatMoney(resulData.price*100, formatMoney) +'</del>');
+					$(this).parents('.combo-info--content').find('.combo-item:not(.disabled)').each((i,v)=>{
+						var itemPrice = $(this).parents('.combo-info--content').find('.combo-item:eq('+i+') .combo-item--price .price-cb').html();
+						var itemPriceFirst = $(this).parents('.combo-info--content').find('.combo-item:eq('+i+') .combo-item--price del').html();
+						var parsrPrice = parseInt(itemPrice.replace(/₫/g, "").replace(/,/g, ""));
+						var parsrPriceFirst = parseInt(itemPriceFirst.replace(/₫/g, "").replace(/,/g, ""));
+						totalPriceCombo += parsrPrice;
+						totalPriceInit += parsrPriceFirst;
+					});
+				}
+				else{
+					$(this).parents('.combo-item--detail').find('.combo-item--price').html('&nbsp');
+					$(this).parents('.combo-info--content').find('.combo-item:not(.disabled)').each((i,v)=>{
+						var itemPrice = $(this).parents('.combo-info--content').find('.combo-item:not(.disabled):eq('+i+') .combo-item--priceInit b').html();
+						var itemPriceFirst = $(this).parents('.combo-info--content').find('.combo-item:not(.disabled):eq('+i+') .combo-item--priceInit del').html();
+						var parsrPrice = parseInt(itemPrice.replace(/₫/g, "").replace(/,/g, ""));
+						if(itemPriceFirst == undefined) itemPriceFirst = itemPrice;
+						var parsrPriceFirst = parseInt(itemPriceFirst.replace(/₫/g, "").replace(/,/g, ""));
+						totalPriceCombo += parsrPrice;
+						totalPriceInit += parsrPriceFirst;
+					});
+				}
+				//console.log(totalPriceCombo,totalPriceInit)
+				$(this).parents('.combo-info--content').find('.combo-content--total .combo-total-price').html(Haravan.formatMoney(totalPriceCombo*100, formatMoney));
+				$(this).parents('.combo-info--content').find('.combo-content--total .combo-total-priceInit').html(Haravan.formatMoney(totalPriceInit*100 - totalPriceCombo*100, formatMoney));
+
+			}
+		})
+	},
+	onchange_op1: function(e,id,index){
+		var vrtSize = $(e).parents('.combo-item--option ').find('.select-option').length;
+		var value1 = $(e).val();
+		var value2 = $(e).parents('.combo-item--option').find('[name="option2"]').val();
+		var value3 = $(e).parents('.combo-item--option').find('[name="option3"]').val();
+		var indexCombo = $(e).parents('.combo-info--content').attr('data-combo-index');
+
+		if(vrtSize == 2){
+			var available = variantItem[0][id].variants.filter(item => item.available && item.optionColor[0] == value1);
+			$(e).parents('.combo-item--option').find('[name="option2"] option').each((i)=>{
+				var name = ($(e).parents('.combo-item--option').find('[name="option2"] option:eq('+ i +')').val());
+				var variant = available.find((item) => item.title.includes(value1 +' / '+ name));
+				if(variant != undefined) $(e).parents('.combo-item--option').find('[name="option2"] option[value='+ name +']').prop("disabled", false);
+				else $(e).parents('.combo-item--option').find('[name="option2"] option[value='+ name +']').prop("disabled", true);
+			});
+			$(e).parents('.combo-item--option').find('[name="option2"]').val($(e).parents('.combo-item--option').find('[name="option2"] option:not([disabled]):first').val());
+			var strValue = value1 + ' / ' + $(e).parents('.combo-item--option').find('[name="option2"]').val();
+			var resulData = variantItem[0][id].variants.find(item => item.title == strValue);
+			HRVTheme.AppCombo.updateInfoItemCombo(e,id,indexCombo,resulData);
+			HRVTheme.AppCombo.updatePriceTotalCombo(e,id,index,strValue,resulData);
+		}
+		else {
+			var available = variantItem[0][id].variants.filter(item => item.available && item.optionColor[0] == value1);
+			$(e).parents('.combo-item--option').find('[name="option2"] option').each((i)=>{
+				var name = ($(e).parents('.combo-item--option').find('[name="option2"] option:eq('+ i +')').val());
+				var variant = available.find((item) => item.title.includes(value1 + ' / ' + name ));
+				if(variant != undefined) $(e).parents('.combo-item--option').find('[name="option2"] option[value='+ name +']').prop("disabled", false);
+				else $(e).parents('.combo-item--option').find('[name="option2"] option[value='+ name +']').prop("disabled", true);
+			});
+			$(e).parents('.combo-item--option').find('[name="option2"]').val($(e).parents('.combo-item--option').find('[name="option2"] option:not([disabled]):first').val());
+			$(e).parents('.combo-item--option').find('[name="option3"] option').each((i)=>{
+				var name = ($(e).parents('.combo-item--option').find('[name="option3"] option:eq('+ i +')').val());
+				var variant = available.find((item) => item.title.includes(value1 +' / '+ $(e).parents('.combo-item--option').find('[name="option2"]').val() +' / '+ name ));
+				if(variant != undefined) $(e).parents('.combo-item--option').find('[name="option3"] option[value='+ name +']').prop("disabled", false);
+				else $(e).parents('.combo-item--option').find('[name="option3"] option[value='+ name +']').prop("disabled", true);
+			});
+			$(e).parents('.combo-item--option').find('[name="option3"]').val($(e).parents('.combo-item--option').find('[name="option3"] option:not([disabled]):first').val());
+
+			//console.log($(e).parents('.combo-item--option').find('[name="option2"]').val())
+			var strValue = value1 + ' / ' + $(e).parents('.combo-item--option').find('[name="option2"]').val() + ' / ' + $(e).parents('.combo-item--option').find('[name="option3"]').val();
+			var resulData = variantItem[0][id].variants.find(item => item.title == strValue);
+			HRVTheme.AppCombo.updateInfoItemCombo(e,id,indexCombo,resulData);
+			HRVTheme.AppCombo.updatePriceTotalCombo(e,id,index,strValue,resulData);
+		}
+	},
+	onchange_op2: function(e,id,index){
+		var vrtSize = $(e).parents('.combo-item--option ').find('.select-option').length;
+		var value1 = $(e).parents('.combo-item--option').find('[name="option1"]').val();
+		var value2 = $(e).parents('.combo-item--option').find('[name="option2"]').val();
+		var value3 = $(e).parents('.combo-item--option').find('[name="option3"]').val();
+		if(vrtSize == 2) {
+			var strValue = value1 + ' / ' + value2;
+			var indexCombo = $(e).parents('.combo-info--content').attr('data-combo-index');
+			var resulData = variantItem[0][id].variants.find(item => item.title == strValue);
+			HRVTheme.AppCombo.updateInfoItemCombo(e,id,indexCombo,resulData);
+			HRVTheme.AppCombo.updatePriceTotalCombo(e,id,index,strValue,resulData);
+		}
+		else {
+			var available = variantItem[0][id].variants.filter(item => item.available && item.optionColor[0] == value1);
+			$(e).parents('.combo-item--option').find('[name="option3"] option').each((i)=>{
+				var name = ($(e).parents('.combo-item--option').find('[name="option3"] option:eq('+ i +')').val());
+				var variant = available.find((item) => item.title.includes(value1 +' / '+ $(e).parents('.combo-item--option').find('[name="option2"]').val() + ' / ' + name));
+				if(variant != undefined) $(e).parents('.combo-item--option').find('[name="option3"] option[value='+ name +']').prop("disabled", false);
+				else $(e).parents('.combo-item--option').find('[name="option3"] option[value='+ name +']').prop("disabled", true);
+			});
+			$(e).parents('.combo-item--option').find('[name="option3"]').val($(e).parents('.combo-item--option').find('[name="option3"] option:not([disabled]):first').val());
+			var strValue = value1 + ' / ' + value2 + ' / ' + $(e).parents('.combo-item--option').find('[name="option3"]').val();
+			var indexCombo = $(e).parents('.combo-info--content').attr('data-combo-index');
+			var resulData = variantItem[0][id].variants.find(item => item.title == strValue);
+			HRVTheme.AppCombo.updateInfoItemCombo(e,id,indexCombo,resulData);
+			HRVTheme.AppCombo.updatePriceTotalCombo(e,id,index,strValue,resulData);
+		}
+	},
+	onchange_op3: function(e,id,index){
+		var value1 = $(e).parents('.combo-item--option').find('[name="option1"]').val();
+		var value2 = $(e).parents('.combo-item--option').find('[name="option2"]').val();
+		var value3 = $(e).parents('.combo-item--option').find('[name="option3"]').val();
+		var strValue = value1 + ' / ' + value2 + ' / ' + value3;
+		var indexCombo = $(e).parents('.combo-info--content').attr('data-combo-index');
+
+		var resulData = variantItem[0][id].variants.find(item => item.title == strValue);
+		//console.log(resulData)
+		HRVTheme.AppCombo.updateInfoItemCombo(e,id,indexCombo,resulData);
+		HRVTheme.AppCombo.updatePriceTotalCombo(e,id,index,strValue,resulData);
+	},
+	addCombo: function(indx, aItems, callback){
+		if(indx < aItems.length){
+			$.ajax({
+				url: '/cart/add.js',
+				type: 'POST',
+				data: 'id='+aItems[indx].vid+'&quantity='+aItems[indx].qty,
+				async: false,
+				success: function(data){
+					indx++;
+					HRVTheme.AppCombo.addCombo(indx, aItems, callback);
+				},
+				error: function(){
+
+				}
+			});
+		}
+		else{
+			if(typeof callback === 'function') return callback();
+		}
+	},
+	clickAddCombo: function(){
+		$(document).on('click','.layout-productDetail .combo-info .add-combo',function(){
+			var aItems = [];
+			$(this).parents('.combo-info--content').find('input:checked').each(function(){
+				var temp = {};
+				temp.vid = $(this).val();
+				//temp.qty = $(this).attr('data-quantity');
+				temp.qty = 	parseInt($(this).attr('data-quantity')) * parseInt($('#quantity').val());
+				aItems.push(temp);
+			});
+			HRVTheme.AppCombo.addCombo(0, aItems, function(){
+				//window.location = '/cart';
+				Loomline.Cart.Loomline_getCartModal();
+        var $info = '<div class="row"><div class="col-md-12 col-xs-12"><p class="jGowl-text">Đã thêm vào giỏ hàng thành công!</p></div></div>';
+				HRVTheme.General.notifyProduct($info);
+			});
+		});
+	}
+};
+(function() {
+  HRVTheme.AppCombo.init();
+})();

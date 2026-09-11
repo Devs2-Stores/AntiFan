@@ -1,0 +1,634 @@
+{
+  "store": "phukienmaymoc.com",
+  "org_id": "200001207485",
+  "inventory_date": "2026-09-12T00:00:00Z",
+  "theme_target": {
+    "id": 1001512581,
+    "name": "Bản sao chép của clothing",
+    "role": "unpublished",
+    "description": "Hoplongtech clone staging theme copy (SAFE TO TEST & MODIFY)"
+  },
+  "production_theme_protected": {
+    "id": 1001510509,
+    "name": "Phụ Kiện Máy Móc New Version",
+    "role": "main",
+    "status": "PROTECTED_NEVER_TOUCH"
+  },
+  "counts": {
+    "products": 234,
+    "custom_collections": 35,
+    "smart_collections": 0,
+    "total_collections": 35,
+    "pages": 6,
+    "blogs": 1,
+    "articles": 10,
+    "menus": 3,
+    "themes": 2
+  },
+  "menus_summary": {
+    "api_endpoint_status": "REST endpoint /web/link_lists.json returned 404 (Omni API limitation). Menus referenced via Haravan Liquid linklists object and theme settings.",
+    "unique_handles": [
+      "footer",
+      "left",
+      "main-menu"
+    ],
+    "theme_menu_bindings": [
+      {
+        "handle": "main-menu",
+        "setting_key": "loomline_mainmenu_link",
+        "label": "Menu chính header"
+      },
+      {
+        "handle": "main-menu",
+        "setting_key": "loomline_footer_linklist1_menu",
+        "label": "Menu footer liên kết 1"
+      },
+      {
+        "handle": "left",
+        "setting_key": "loomline_footer_linklist2_menu",
+        "label": "Menu footer liên kết 2"
+      },
+      {
+        "handle": "footer",
+        "setting_key": "footer_linklist3_menu",
+        "label": "Menu footer chính sách"
+      },
+      {
+        "handle": "main-menu",
+        "setting_key": "blogs_menu_category",
+        "label": "Menu sidebar bài viết"
+      },
+      {
+        "handle": "main-menu",
+        "setting_key": "page_menu_category",
+        "label": "Menu sidebar trang"
+      }
+    ]
+  },
+  "products_summary": {
+    "total_count": 234,
+    "unique_vendors_count": 48,
+    "vendors_sample": [
+      "Au3tech",
+      "BEUT",
+      "BOCHU",
+      "BWT",
+      "CSK",
+      "Cks Fan",
+      "Dairuike",
+      "Donaldson",
+      "FANUC",
+      "FEELTEK",
+      "HAXIN",
+      "HIWIN",
+      "Hanli",
+      "IPG",
+      "Inovance",
+      "JPT",
+      "JYM",
+      "KAIHE",
+      "KINGBAO Power",
+      "Khác",
+      "Leadshine",
+      "Leiling",
+      "Maxphotonics",
+      "OF AIR",
+      "Ospri"
+    ],
+    "unique_product_types_count": 68,
+    "product_types_sample": [
+      "Bánh răng và chốt",
+      "Bộ Dụng Cụ Làm Sạch Bằng Laser",
+      "Bộ Lọc Cartridge cho Máy Nén Khí",
+      "Bộ dụng cụ Core DIY",
+      "Bộ lọc Cartridge cho Laser Chiller",
+      "Bộ phận Laser",
+      "Bộ phận điện",
+      "Bộ điều khiển in kim loại 3D",
+      "Bộ ổn áp",
+      "Các Bộ Phận Cắt Bằng Laser",
+      "Các bộ phận laser",
+      "Dao cắt sợi quang",
+      "Dây Hàn Nhôm Cao Cấp",
+      "Dây Hàn Nhôm Hiệu Suất Cao",
+      "Dây Hàn Thép Carbon",
+      "Dầm ngang",
+      "Dụng cụ Lắp đặt & Vật liệu Hỗ trợ",
+      "Gói phụ kiện & ốc vít",
+      "Hướng dẫn và Thanh trượt",
+      "Hệ Thống Cắt Laser",
+      "Hệ thống điều khiển khí phụ",
+      "Hệ thống điều khiển khí phụ trợ",
+      "Hộp Giảm Tốc",
+      "Khác",
+      "Kính Bảo Hộ Laser"
+    ]
+  },
+  "collections": [
+    {
+      "id": 1004808177,
+      "title": "Phụ Kiện Hàn",
+      "handle": "phu-kien-han",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-09-09T07:31:24.948Z",
+      "updated_at": "2026-09-09T07:31:32.84Z"
+    },
+    {
+      "id": 1004800451,
+      "title": "Dụng Cụ Laser Đồng Trục",
+      "handle": "dung-cu-laser-dong-truc",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:08:52.276Z",
+      "updated_at": "2026-09-08T10:24:12.137Z"
+    },
+    {
+      "id": 1004802865,
+      "title": "Phụ Kiện Laser CO2",
+      "handle": "phu-kien-laser-co2",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-31T04:02:27.86Z",
+      "updated_at": "2026-09-08T10:23:46.438Z"
+    },
+    {
+      "id": 1004802866,
+      "title": "Phụ Kiện Khắc Laser",
+      "handle": "phu-kien-khac-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-31T04:03:13.571Z",
+      "updated_at": "2026-09-08T10:23:30.679Z"
+    },
+    {
+      "id": 1004807307,
+      "title": "Linh Kiện Điện",
+      "handle": "linh-kien-dien",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-09-08T04:35:32.07Z",
+      "updated_at": "2026-09-08T10:23:08.648Z"
+    },
+    {
+      "id": 1004807611,
+      "title": "Đầu Hàn Laser",
+      "handle": "dau-han-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-09-08T09:38:37.667Z",
+      "updated_at": "2026-09-08T10:22:55.699Z"
+    },
+    {
+      "id": 1004800723,
+      "title": "Bộ Ổn Định Điện Áp",
+      "handle": "bo-on-dinh-dien-ap",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T08:34:19.359Z",
+      "updated_at": "2026-08-27T08:34:22.719Z"
+    },
+    {
+      "id": 1004800452,
+      "title": "Máy Uốn Cong",
+      "handle": "may-uon-cong",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:09:06.431Z",
+      "updated_at": "2026-08-27T03:09:15.299Z"
+    },
+    {
+      "id": 1004800450,
+      "title": "Thiết Bị Làm Sạch Bằng Laser",
+      "handle": "thiet-bi-lam-sach-bang-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:08:31.871Z",
+      "updated_at": "2026-08-27T03:08:43.44Z"
+    },
+    {
+      "id": 1004800449,
+      "title": "Máy Phát Điện Cho Máy Hàn Laser",
+      "handle": "may-phat-dien-cho-may-han-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:08:14.917Z",
+      "updated_at": "2026-08-27T03:08:30.504Z"
+    },
+    {
+      "id": 1004800448,
+      "title": "Thiết Bị Và Dụng Cụ Sửa Chữa Cáp Quang",
+      "handle": "thiet-bi-va-dung-cu-sua-chua-cap-quang",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:07:28.81Z",
+      "updated_at": "2026-08-27T03:07:52.152Z"
+    },
+    {
+      "id": 1004800446,
+      "title": "Quạt Ly Tâm",
+      "handle": "quat-ly-tam",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:06:29.179Z",
+      "updated_at": "2026-08-27T03:06:36.877Z"
+    },
+    {
+      "id": 1004800445,
+      "title": "Máy Lọc Khói",
+      "handle": "may-loc-khoi",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:06:13.047Z",
+      "updated_at": "2026-08-27T03:06:20.709Z"
+    },
+    {
+      "id": 1004800444,
+      "title": "Máy Thu Bụi",
+      "handle": "may-thu-bui",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:05:40.121Z",
+      "updated_at": "2026-08-27T03:05:57.849Z"
+    },
+    {
+      "id": 1004800443,
+      "title": "Máy Nén Khí",
+      "handle": "may-nen-khi",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:05:31.805Z",
+      "updated_at": "2026-08-27T03:05:39.252Z"
+    },
+    {
+      "id": 1004800442,
+      "title": "Phụ Trợ",
+      "handle": "phu-tro",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:05:14.21Z",
+      "updated_at": "2026-08-27T03:05:19.711Z"
+    },
+    {
+      "id": 1004800441,
+      "title": "Phụ Kiện Máy Laser",
+      "handle": "phu-kien-may-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:04:48.017Z",
+      "updated_at": "2026-08-27T03:04:55.198Z"
+    },
+    {
+      "id": 1004800440,
+      "title": "Hàn Laser Rô-Bốt 3D",
+      "handle": "han-laser-ro-bot-3d",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:04:20.513Z",
+      "updated_at": "2026-08-27T03:04:24.493Z"
+    },
+    {
+      "id": 1004800438,
+      "title": "Cắt Laser Rô-Bốt 3D",
+      "handle": "cat-laser-ro-bot-3d",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:03:29.416Z",
+      "updated_at": "2026-08-27T03:03:32.49Z"
+    },
+    {
+      "id": 1004800437,
+      "title": "In 3D Kim Loại SLM",
+      "handle": "in-3d-kim-loai-slm",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:02:45.025Z",
+      "updated_at": "2026-08-27T03:02:51.91Z"
+    },
+    {
+      "id": 1004800436,
+      "title": "Vật Tư Tiêu Hao Cho Laser",
+      "handle": "vat-tu-tieu-hao-cho-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:02:29.53Z",
+      "updated_at": "2026-08-27T03:02:33.026Z"
+    },
+    {
+      "id": 1004800435,
+      "title": "Hệ Thống Hỗ Trợ Máy Móc",
+      "handle": "he-thong-ho-tro-may-moc",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:01:45.036Z",
+      "updated_at": "2026-08-27T03:01:48.093Z"
+    },
+    {
+      "id": 1004800434,
+      "title": "Phụ Kiện Điện Tử",
+      "handle": "phu-kien-dien-tu",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:01:26.041Z",
+      "updated_at": "2026-08-27T03:01:34.293Z"
+    },
+    {
+      "id": 1004800433,
+      "title": "Hệ Thống Điều Khiển Khí Phụ Trợ",
+      "handle": "he-thong-dieu-khien-khi-phu-tro",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:00:59.282Z",
+      "updated_at": "2026-08-27T03:01:02.561Z"
+    },
+    {
+      "id": 1004800432,
+      "title": "Chuck Cho Máy Cắt Ống Laser",
+      "handle": "chuck-cho-may-cat-ong-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:00:14.129Z",
+      "updated_at": "2026-08-27T03:00:43.323Z"
+    },
+    {
+      "id": 1004800431,
+      "title": "Thanh Răng Và Bánh Răng Côn",
+      "handle": "thanh-rang-va-banh-rang-con",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T03:00:08.281Z",
+      "updated_at": "2026-08-27T03:00:13.216Z"
+    },
+    {
+      "id": 1004800430,
+      "title": "Hướng Dẫn Và Thanh Trượt",
+      "handle": "huong-dan-va-thanh-truot",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:59:39.126Z",
+      "updated_at": "2026-08-27T02:59:45.447Z"
+    },
+    {
+      "id": 1004800429,
+      "title": "Thanh Trượt Trục Z",
+      "handle": "thanh-truot-truc-z",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:59:04.816Z",
+      "updated_at": "2026-08-27T02:59:24.986Z"
+    },
+    {
+      "id": 1004800428,
+      "title": "Bộ Giảm Tốc",
+      "handle": "bo-giam-toc",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:58:41.682Z",
+      "updated_at": "2026-08-27T02:59:02.504Z"
+    },
+    {
+      "id": 1004800427,
+      "title": "Động Cơ Servo & Bộ Điều Khiển Servo",
+      "handle": "dong-co-servo-bo-dieu-khien-servo",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:57:07.507Z",
+      "updated_at": "2026-08-27T02:58:40.494Z"
+    },
+    {
+      "id": 1004800300,
+      "title": "Phần Mềm Cắt Laser",
+      "handle": "phan-mem-cat-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:19:22.586Z",
+      "updated_at": "2026-08-27T02:57:04.778Z"
+    },
+    {
+      "id": 1004800422,
+      "title": "Đầu Cắt Laser",
+      "handle": "dau-cat-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:55:06.224Z",
+      "updated_at": "2026-08-27T02:56:51.005Z"
+    },
+    {
+      "id": 1004800426,
+      "title": "Máy Làm Lạnh Nước",
+      "handle": "may-lam-lanh-nuoc",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:56:16.275Z",
+      "updated_at": "2026-08-27T02:56:29.699Z"
+    },
+    {
+      "id": 1004800423,
+      "title": "Đầu Hàn & Làm Sạch Bằng Laser",
+      "handle": "dau-han-lam-sach-bang-laser",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:55:17.569Z",
+      "updated_at": "2026-08-27T02:55:20.725Z"
+    },
+    {
+      "id": 1004800420,
+      "title": "Nguồn Laser Sợi Quang",
+      "handle": "nguon-laser-soi-quang",
+      "type": "custom",
+      "products_count": 0,
+      "published_at": "2026-08-27T02:54:46.913Z",
+      "updated_at": "2026-08-27T02:54:54.593Z"
+    }
+  ],
+  "pages": [
+    {
+      "id": 1004468743,
+      "title": "Liên hệ",
+      "handle": "lien-he",
+      "author": "Hệ thống",
+      "published_at": "2026-08-26T04:52:25.385Z",
+      "updated_at": "2026-08-26T04:52:25.385Z"
+    },
+    {
+      "id": 1004468742,
+      "title": "Trang chủ",
+      "handle": "frontpage",
+      "author": "Hệ thống",
+      "published_at": "2026-08-26T04:52:25.385Z",
+      "updated_at": "2026-08-26T04:52:25.385Z"
+    },
+    {
+      "id": 1004468741,
+      "title": "Điều khoản dịch vụ",
+      "handle": "dieu-khoan-dich-vu",
+      "author": "Hệ thống",
+      "published_at": "2026-08-26T04:52:25.385Z",
+      "updated_at": "2026-08-26T04:52:25.385Z"
+    },
+    {
+      "id": 1004468740,
+      "title": "Chính sách đổi trả",
+      "handle": "chinh-sach-doi-tra",
+      "author": "Hệ thống",
+      "published_at": "2026-08-26T04:52:25.385Z",
+      "updated_at": "2026-08-26T04:52:25.385Z"
+    },
+    {
+      "id": 1004468739,
+      "title": "Chính sách bảo mật",
+      "handle": "chinh-sach-bao-mat",
+      "author": "Hệ thống",
+      "published_at": "2026-08-26T04:52:25.385Z",
+      "updated_at": "2026-08-26T04:52:25.385Z"
+    },
+    {
+      "id": 1004468738,
+      "title": "Giới thiệu",
+      "handle": "about-us",
+      "author": "Hệ thống",
+      "published_at": "2026-08-26T04:52:25.385Z",
+      "updated_at": "2026-08-26T04:52:25.385Z"
+    }
+  ],
+  "blogs": [
+    {
+      "id": 1001059309,
+      "title": "Tin tức",
+      "handle": "news",
+      "articles_count": 10
+    }
+  ],
+  "articles": [
+    {
+      "id": 1003094216,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "PLC là gì? Cấu tạo, nguyên lý hoạt động và ứng dụng trong tự động hóa",
+      "handle": "plc-la-gi-cau-tao-nguyen-ly-hoat-dong",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:09:19.690Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094217,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "5 câu hỏi thường gặp về bộ lưu điện UPS trong công nghiệp và tòa nhà",
+      "handle": "5-cau-hoi-thuong-gap-ve-bo-luu-dien-ups",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:09:24.397Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094218,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "Cảm biến quang E3AS-F giúp tối ưu chi phí cho dây chuyền sản xuất",
+      "handle": "cam-bien-quang-e3as-f-giup-toi-uu-chi-phi-cho-day-chuyen-san-xuat",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:09:29.268Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094219,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "Hệ thống kho hàng công ty Cổ Phần công nghệ Hợp Long",
+      "handle": "he-thong-kho-hang-cong-ty-co-phan-cong-nghe-hop-long",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:09:33.326Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094220,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "[MITSUBISHI] Bảng hướng dẫn chuyển đổi mã từ dòng HMI GOT1000 sang dòng GOT2000 mới",
+      "handle": "mitsubishi-bang-huong-dan-chuyen-doi-ma-tu-dong-hmi-got1000-sang-dong-got2000-moi",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:09:39.038Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094221,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "Bộ lưu điện là gì? Cấu tạo, nguyên lý hoạt động và cách chọn mua",
+      "handle": "bo-luu-dien-la-gi-cau-tao-nguyen-ly-hoat-dong",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:09:43.918Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094222,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "Cảm biến E2E NEXT có khoảng cách phát hiện tăng gấp đôi",
+      "handle": "cam-bien-e2e-next-co-khoang-cach-phat-hien-tang-gap-doi",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:09:49.013Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094223,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "Smart Camera Omron MicroHAWK V/F400 và V/F300 trong kiểm tra lỗi tự động",
+      "handle": "smart-camera-omron-microhawk-v-f400-va-v-f300",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:10:08.833Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094224,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "Dòng cảm biến mới E2EW của Omron chính xác hơn với bề mặt kim loại",
+      "handle": "dong-cam-bien-moi-e2ew-cua-omron-chinh-xac-hon-voi-be-mat-kim-loai",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:10:13.547Z",
+      "summary_html": ""
+    },
+    {
+      "id": 1003094225,
+      "blog_id": 1001059309,
+      "blog_title": "Tin tức",
+      "blog_handle": "news",
+      "title": "Điện trở xả là gì? Cách tính toán công suất, phân loại và đấu nối an toàn",
+      "handle": "dien-tro-xa-la-gi-cach-chon-phan-loai",
+      "author": "Phụ Kiện Máy Móc",
+      "published_at": "2026-08-31T02:10:17.931Z",
+      "summary_html": ""
+    }
+  ],
+  "themes": [
+    {
+      "id": 1001512581,
+      "name": "Bản sao chép của clothing",
+      "role": "unpublished",
+      "previewable": true,
+      "processing": false,
+      "created_at": "2026-09-06T07:28:14.600Z",
+      "updated_at": null
+    },
+    {
+      "id": 1001510509,
+      "name": "Phụ Kiện Máy Móc New Version",
+      "role": "main",
+      "previewable": true,
+      "processing": false,
+      "created_at": "2026-08-26T04:52:26.092Z",
+      "updated_at": null
+    }
+  ]
+}

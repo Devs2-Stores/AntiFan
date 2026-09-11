@@ -1,0 +1,18 @@
+{%if settings.show_loomline_topbar%}
+<link rel="preload" href="{{ 'll-topbar.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'll-topbar.scss.css' | asset_url }}">
+<div class="loomline-topbar-marquee" setting-id="loomline_topbar_marquee_desc">
+  <div class="marquee">
+    <div class="marquee__inner">
+      {% if settings.loomline_topbar_marquee_desc != '' %}
+        {% assign list = settings.loomline_topbar_marquee_desc | split: ';' %}
+        {% for i in (1..3) %}
+          {% for desc in list %}
+            <div class="marquee__inner--item">{{ desc }}</div>
+        {% endfor %}
+      {% endfor %}
+    {% endif %}
+  </div>
+  </div>
+</div>
+{%endif%}

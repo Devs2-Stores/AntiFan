@@ -1,0 +1,116 @@
+{% comment %}Tình trạng hết hàng{% endcomment %}
+{% assign sold_out = true %}
+{% if product.available %}
+{% assign sold_out = false %}
+{% endif %}  
+
+{% comment %}Tag sản phẩm {% endcomment %}
+{%- assign check_gift = false -%}
+{%- for tag in product.tags -%}
+{%- if tag == 'giftbox' -%} {%- assign check_gift = true -%} {%- endif -%}
+{%- endfor -%}
+
+{%- assign is_collection_preorder = false -%}
+{%- for item in product.collections -%}
+{%- if item.handle == settings.collection_preorder -%}
+{%- assign is_collection_preorder = true -%}
+{%- break -%}
+{%- endif -%}
+{%- endfor -%}
+
+<div class="sidebar-action-bottom {%if template contains 'product.ldp-product'%}show{%endif%}">
+	<div class="container">
+		<div class="sticky-atc">
+			<div class="sticky-atc__img">
+				<div class="prod-img">
+					<img src="{{ product.featured_image | product_img_url : 'small' }}" alt="{{product.title | strip_html | escape }}">
+				</div>
+				<div class="prod-info">
+					{%- if settings.productreviews_hrvapp_use -%}
+					<div class="prod-info__reviews">					
+						<div class="haravan-product-reviews-badge rating-star" data-id="{{ product.id }}"> 
+							{%-assign proreview = product.metafields.src.product_loop %}
+							{{ proreview }} 
+						</div>
+					</div>	
+					{%-endif-%}
+					{%- unless products_price_zero -%}
+					<div class="prod-info__price">
+						<span class="prod-price">{{ product.price | money }}</span>
+						{% if product.compare_at_price > product.price %}	
+						<del class="{% if product.variants.first.compare_at_price < product.price %}d-none{% endif %}">{{ product.variants.first.compare_at_price | money }}</del>
+						<span class="prod-percent {% if product.variants.first.compare_at_price < product.price %}d-none{% endif %}">-{{product.variants.first.compare_at_price | minus: product.variants.first.price | divided_by:product.variants.first.compare_at_price | times : 100 | round : 0}}%</span>
+						{% endif %}
+					</div>
+					{%- endunless -%}
+				</div>
+			</div>
+			<div class="sticky-atc__vrt">
+				{%- assign hide_default_title = false -%}
+				{%- if product.variants.size == 1 and product.variants.first.title contains 'Default' and product.options.size == 1 -%}
+				{%- assign hide_default_title = true -%}
+				{%- endif -%}	
+				<form id="add-item-form-sb" action="/cart/add" method="post">				
+					<div class="select d-none">
+						<select id="product-select-sb" name="id">
+							{% for variant in product.variants %}
+							<option value="{{ variant.id }}">{{ variant.title }} - {{ variant.price | money }}</option>
+							{% endfor %}
+						</select>
+					</div>
+					<div class="select-swatch">
+						{% if product.available and product.variants.size > 1 %}
+						{% for option in product.options %}
+						{% include 'swatch-sb' with option %}
+						{% endfor %}
+						{% endif %}
+					</div>
+				</form>
+			</div>
+			<div class="sticky-atc__action">
+				<div class="sticky-atc__btn">
+					{%- unless is_collection_preorder or products_price_zero -%}
+					<div class="btn-quantity">
+						<button type="button" onclick="HRVTheme.General.minusQuantity()" aria-label="minus-quantity" class="qty-btn">
+							<svg enable-background="new 0 0 10 10" viewBox="0 0 10 10" x="0" y="0"><polygon points="4.5 4.5 3.5 4.5 0 4.5 0 5.5 3.5 5.5 4.5 5.5 10 5.5 10 4.5"></polygon></svg>
+						</button>
+						<input type="text" id="quantity-sb" aria-labelledby="quantity" name="quantity" value="1" min="1" class="quantity-input">
+						<button type="button" onclick="HRVTheme.General.plusQuantity()" aria-label="plus-quantity" class="qty-btn">
+							<svg enable-background="new 0 0 10 10" viewBox="0 0 10 10" x="0" y="0"><polygon points="10 4.5 5.5 4.5 5.5 0 4.5 0 4.5 4.5 0 4.5 0 5.5 4.5 5.5 4.5 10 5.5 10 5.5 5.5 10 5.5"></polygon></svg>
+						</button>
+					</div>
+					{%- endunless -%}
+					<div class="btn-atc">
+						{%- if check_gift -%}
+						<button type="submit" name="add-to-cart" class="btn-buy-sticky disabled" id="add-to-cart-sticky" disabled>
+							<span class="add-to-cart--text">Hàng tặng không bán</span>
+						</button>
+						{%-elsif products_price_zero-%}
+              {%if settings.prod_pricezero_btn_select == 'prod_pricezero_btn_form'%}
+                <button class="btn-pricezero-sticky button dark {{btnClassTrack}} hrv-cf-prod_pricezero_title loomline-btn-prozero-form" setting-id="prod_pricezero_title" setting-type="text" data-url="{{product.url}}"><span>{{ settings.prod_pricezero_title }}</span></button>
+              {%else%}
+              <a href="{{settings.prod_pricezero_link}}" class="btn-pricezero-sticky button dark {{btnClassTrack}} hrv-cf-prod_pricezero_title" setting-id="prod_pricezero_title" setting-type="text"><span>{{ settings.prod_pricezero_title }}</span></a>
+              {%endif%}
+						{%- elsif is_collection_preorder -%}
+						<button type="submit" name="preorder-sticky" class="btn-buy-sticky" id="js-preorder-sticky">
+							<span class="add-to-cart--text">{{settings.preorder_text_btn_prodloop}}</span>
+						</button>
+						{%- else -%}
+						{%- if sold_out -%}
+						<button type="submit" name="add-to-cart" class="btn-buy-sticky disabled" id="add-to-cart-sticky" disabled>
+							<span class="add-to-cart--text">Hết hàng</span>
+						</button>
+						{%- else -%}
+						<button type="submit" name="add-to-cart" class="btn-buy-sticky" id="add-to-cart-sticky">
+							<span class="add-to-cart--text">Thêm vào giỏ</span>
+						</button> 
+						{%- endif -%}
+						{%- endif -%}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+

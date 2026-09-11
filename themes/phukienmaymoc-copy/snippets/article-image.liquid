@@ -1,0 +1,39 @@
+{%- if article.image -%}
+{% comment %} Lấy hình Featured {% endcomment %}
+{%- assign imageUrl = article.image.src -%}
+{%- else -%}
+
+{% comment %}Kiểm tra trích dẫn và content có hình hay ko{% endcomment %}
+{%- assign imageUrl = '' -%}
+{%- if article.excerpt contains 'src=' -%}
+{%- assign imageExcerptNotNull = true -%}
+{%- else -%}
+{%- assign imageExcerptNotNull = false -%}
+{%- endif -%}
+{%- if article.content contains 'src=' -%}
+{%- assign imageContentNotNull = true -%}
+{%- else -%}
+{%- assign imageContentNotNull = false -%}
+{%- endif -%}
+
+{% comment %}Nếu có Excerpt or Content cắt hình{% endcomment %}
+{%- if imageExcerptNotNull -%}
+{%- assign arrayUrl = article.excerpt | split : 'src="' -%}
+{%- else -%}
+{%- if imageContentNotNull -%}
+{%- assign arrayUrl = article.content | split : 'src="' -%}
+{%- endif -%}
+{%- endif -%}
+
+{% comment %}Truyền hình vào biến imageUrl{% endcomment %}
+{%- if imageExcerptNotNull == false and imageContentNotNull == false -%}
+{%- assign imageUrl = 'no-image-blog.jpg' | asset_url -%}
+{%- else -%}
+{%- assign imageUrl = arrayUrl[1] | split : '"' -%}
+{%- if imageUrl contains '//hstatic' -%}
+{%- assign imageUrl = imageUrl.first -%}
+{%- else -%}
+{%- assign imageUrl = imageUrl.first -%}
+{%- endif -%}
+{%- endif -%}
+{%- endif -%}

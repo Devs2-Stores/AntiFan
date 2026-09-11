@@ -1,0 +1,37 @@
+<div class="haravan-messages">
+	<div class="haravan-messages-outer">
+		<div id="haravan-minimize">{{ settings.fb_chat_title }}</div>
+		<div id="haravan-facebook" data-href="{{ settings.fb_chat }}" class="fb-page fb_iframe_widget" data-adapt-container-width="true" data-height="300" data-hide-cover="false" data-show-facepile="true" data-show-posts="false" data-small-header="false" data-tabs="messages" data-width="250" fb-xfbml-state="rendered" >
+			<div class="haravan-facebook-span">
+				<div class='fb-page' data-href='{{ settings.fb_chat }}' data-tabs='messages' data-width='250' data-height='300' data-small-header='false' data-adapt-container-width='true' data-hide-cover='false' data-show-facepile='true' data-show-posts='false'></div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<style>
+	.haravan-messages{position:fixed;bottom:-300px;right:-135px;z-index:999999}.haravan-messages-outer{position:relative}#haravan-minimize{background:#3b5998;font-size:14px;color:#fff;padding:3px 10px;position:absolute;top:-34px;left:-1px;border:1px solid #E9EAED;cursor:pointer}#haravan-facebook{opacity:0}.haravan-facebook-span{vertical-align:bottom;width:250px;height:300px}
+</style>
+
+<script>
+$(document).ready(function() {
+	$('#haravan-minimize').click(function() {
+		if ($('#haravan-facebook').css('opacity') == 0) {
+			$('#haravan-facebook').css('opacity', 1);
+			$('.haravan-messages').animate({
+				right: '0'
+			}).animate({
+				bottom: '0'
+			});
+		} else {
+			$('.haravan-messages').animate({
+				bottom: '-300px'
+			}).animate({
+				right: '-135px'
+			}, 400, function() {
+				$('#haravan-facebook').css('opacity', 0)
+			});
+		}
+	})
+});
+</script>

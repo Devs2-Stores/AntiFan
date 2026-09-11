@@ -1,0 +1,49 @@
+{%-layout none-%}
+{
+	{%-for product in search.results-%}
+		"{{product.id}}": {
+			"url": "{{product.url}}",
+			"title": {{product.title | json}},
+			"options": [
+				{%- assign option_index = 0 -%}
+				{%-for option in product.options-%}
+					{%- assign option_index = forloop.index0 -%}
+					{%- assign values = '' -%}	
+					{
+						"name": "{{option}}",
+						"value": [{%-for variant in product.variants-%}{%- assign value = variant.options[option_index] -%}
+							{%- assign values = values | append: ',' | append: value -%} 
+							{%-endfor-%}
+							{%- assign values = values | split: ',' | uniq -%}
+							{%-for vrt in values -%}
+								"{{vrt}}"{%-unless forloop.last-%},{%-endunless-%}
+							{%-endfor-%}
+						]
+					}{%-unless forloop.last-%},{%-endunless-%}
+				{%-endfor-%}
+			],
+			"option_size": "{{product.options.size}}",
+			"price": {%if product.first_available_variant != nil-%}{{product.first_available_variant.price | divided_by: 100}}{%-else-%}{{product.variants.first.price | divided_by: 100}}{%-endif-%},
+			"compare_at_price": {%if product.first_available_variant != nil-%}{{product.first_available_variant.compare_at_price | divided_by: 100}}{%-else-%}{{product.variants.first.compare_at_price | divided_by: 100}}{%-endif-%},
+			"available": {{product.available}},
+			"img": "{{product.featured_image.src}}",
+			"first_available": {%if product.first_available_variant != nil-%}{{product.first_available_variant.id}}{%-else-%}null{%-endif-%},
+			"variant_size": {{product.variants.size}},
+			"variants": [
+				{%-for variant in product.variants-%}
+				 {
+					"id":"{{variant.id}}",
+					"title": "{{variant.title}}",
+					"available": {{variant.available}},
+					"price": {{variant.price | divided_by: 100}},
+					"compare_at_price": {{variant.compare_at_price | divided_by: 100}},
+					"img": {%-if variant.image != nil-%}"{{variant.image.src}}"{%-else-%}null{%-endif-%},
+					"optionColor": [
+						"{{variant.option1}}"
+					]
+				}{%-unless forloop.last-%},{%-endunless-%}
+				{%-endfor-%}
+			]
+		}{%-unless forloop.last-%},{%-endunless-%}
+	{%-endfor-%}
+}

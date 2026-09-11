@@ -430,4 +430,167 @@ describe('ThemeCompiler - End-to-End Haravan OS 2.0 Theme Compilation', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('8. Full compilation generates valid Liquid bindings, schemas, and normalized assets', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-integrated-test-'));
+
+    const ir = {
+      version: '1.1.0' as const,
+      metadata: {
+        sourceUrl: 'https://test-store.vn',
+        extractedAt: new Date().toISOString()
+      },
+      layout: {
+        containerMaxWidth: 1280,
+        containerPaddingPx: 16,
+        gridGapPx: 20,
+        breakpoints: {
+          mobileMax: 767,
+          tabletMin: 768,
+          tabletMax: 1024,
+          desktopMin: 1025
+        }
+      },
+      storefrontRuntime: { controllers: [] },
+      themeSettings: [],
+      sections: [
+        {
+          id: 'featured_collection',
+          name: 'Featured Collection',
+          archetype: 'product_grid' as const,
+          layoutType: 'grid' as const,
+          className: 'featured-products',
+          liquidTemplate: `
+<section class="featured-products">
+  <h2 class="collection-title">Sản phẩm nổi bật</h2>
+  <div class="product-grid">
+    <div class="product-card">
+      <a href="/products/item-1" class="product-link">
+        <img src="item1.jpg" alt="Item 1">
+        <h3 class="product-title">Sản phẩm 1</h3>
+        <span class="price">150.000₫</span>
+      </a>
+      <button class="btn-add-to-cart">Thêm vào giỏ</button>
+    </div>
+  </div>
+  <div class="limit-indicator">{{ section.settings.max_limit.to_i }}</div>
+</section>
+          `.trim(),
+          settings: {},
+          blocks: []
+        },
+        {
+          id: 'latest_blog',
+          name: 'Latest Blog Post',
+          archetype: 'rich_text' as const,
+          layoutType: 'column' as const,
+          className: 'blog-section',
+          liquidTemplate: `
+<section class="blog-section">
+  <article class="article-item">
+    <h2 class="article-title">Kinh nghiệm chọn giày nam</h2>
+    <div class="article-content">
+      <p>Tổng hợp những bí quyết chọn giày chuẩn phong cách 2026.</p>
+    </div>
+    <span class="author">Tác giả: Tuấn Anh</span>
+  </article>
+  <div class="promo-badge">
+    {% if settings.custom_promo_banner_active != empty %}
+      <img src="{{ 'icon-trust-badge.svg' | asset_url }}" alt="Trust Badge">
+    {% endif %}
+  </div>
+</section>
+          `.trim(),
+          settings: {},
+          blocks: []
+        },
+        {
+          id: 'single_product_detail',
+          name: 'Featured Single Product',
+          archetype: 'custom_section' as const,
+          layoutType: 'flow' as const,
+          className: 'product-detail-wrap',
+          liquidTemplate: `
+<section class="product-detail-wrap">
+  <div class="product-info">
+    <h1 class="product-title">Áo Khoác Nam Thể Thao</h1>
+    <span class="price">450.000₫</span>
+    <form action="/cart/add" method="post" class="product-form" data-cart="true">
+      <select name="id"><option value="1">Size L</option></select>
+      <button type="submit" class="btn-add-to-cart">Mua ngay</button>
+    </form>
+  </div>
+</section>
+          `.trim(),
+          settings: {},
+          blocks: []
+        }
+      ]
+    };
+
+    try {
+      const result = compiler.compileTheme(tempDir, ir);
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.sectionCount, 3);
+
+      // 1. Verify LiquidBindingEngine integration in sections
+      // 1a. Collection loop binding in featured_collection.liquid
+      const collFile = path.join(tempDir, 'sections', 'featured_collection.liquid');
+      assert.ok(fs.existsSync(collFile), 'featured_collection.liquid must exist');
+      const collContent = fs.readFileSync(collFile, 'utf-8');
+      assert.ok(collContent.includes('{% for product in collection.products %}'), 'Must bind product grid to collection loop');
+      assert.ok(collContent.includes('{{ product.title }}'), 'Must bind product title inside card');
+      assert.ok(collContent.includes('{{ product.price | money }}'), 'Must bind product price inside card');
+
+      // 1b. Article binding in latest_blog.liquid
+      const blogFile = path.join(tempDir, 'sections', 'latest_blog.liquid');
+      assert.ok(fs.existsSync(blogFile), 'latest_blog.liquid must exist');
+      const blogContent = fs.readFileSync(blogFile, 'utf-8');
+      assert.ok(blogContent.includes('{{ article.title }}'), 'Must bind article title');
+      assert.ok(blogContent.includes('{{ article.content }}'), 'Must bind article content');
+      assert.ok(blogContent.includes('{{ article.author }}'), 'Must bind article author');
+
+      // 1c. Product form binding in single_product_detail.liquid
+      const prodFile = path.join(tempDir, 'sections', 'single_product_detail.liquid');
+      assert.ok(fs.existsSync(prodFile), 'single_product_detail.liquid must exist');
+      const prodContent = fs.readFileSync(prodFile, 'utf-8');
+      assert.ok(prodContent.includes("{% form 'product', product %}"), 'Must bind product form');
+      assert.ok(prodContent.includes('{% endform %}'), 'Must close product form');
+
+      // 1d. DotLiquid sanitization
+      assert.ok(collContent.includes('| plus: 0'), 'Must sanitize .to_i into | plus: 0');
+      assert.ok(!collContent.includes('.to_i'), 'Must not contain raw .to_i');
+      assert.ok(blogContent.includes('!= blank'), 'Must sanitize != empty into != blank');
+      assert.ok(!blogContent.includes('!= empty'), 'Must not contain raw != empty');
+
+      // 2. Verify HaravanSchemaGenerator dynamic schema wrapping
+      for (const sFile of ['featured_collection.liquid', 'latest_blog.liquid', 'single_product_detail.liquid']) {
+        const content = fs.readFileSync(path.join(tempDir, 'sections', sFile), 'utf-8');
+        const schemaMatch = content.match(/\{%\s*schema\s*%\}([\s\S]*?)\{%\s*endschema\s*%\}/);
+        assert.ok(schemaMatch, `${sFile} must contain {% schema %}`);
+        const schema = JSON.parse(schemaMatch[1]);
+        assert.ok(schema.name, `${sFile} schema must have name`);
+        assert.ok(Array.isArray(schema.settings), `${sFile} schema settings must be array`);
+        assert.ok(Array.isArray(schema.blocks), `${sFile} schema blocks must be array`);
+        assert.ok(Array.isArray(schema.presets), `${sFile} schema presets must be array`);
+      }
+
+      // 3. Verify SettingsAssetsNormalizer integration
+      // 3a. Undeclared setting custom_promo_banner_active added to settings_schema.json
+      const settingsSchemaPath = path.join(tempDir, 'config', 'settings_schema.json');
+      assert.ok(fs.existsSync(settingsSchemaPath), 'settings_schema.json must exist');
+      const settingsSchema = JSON.parse(fs.readFileSync(settingsSchemaPath, 'utf-8'));
+      assert.ok(Array.isArray(settingsSchema), 'settings_schema must be an array');
+      const allSettings = settingsSchema.flatMap((g: any) => g.settings || []);
+      const foundSetting = allSettings.find((s: any) => s.id === 'custom_promo_banner_active');
+      assert.ok(foundSetting, 'SettingsAssetsNormalizer must declare custom_promo_banner_active in schema');
+
+      // 3b. Missing asset icon-trust-badge.svg synthesized on disk
+      const synthesizedAssetPath = path.join(tempDir, 'assets', 'icon-trust-badge.svg');
+      assert.ok(fs.existsSync(synthesizedAssetPath), 'SettingsAssetsNormalizer must synthesize icon-trust-badge.svg');
+      assert.ok(fs.statSync(synthesizedAssetPath).size > 0, 'Synthesized asset must not be empty');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

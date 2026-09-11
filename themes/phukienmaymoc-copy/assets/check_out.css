@@ -1,0 +1,281 @@
+/*Start custom css style for checkout form  */
+body{
+	margin:0px;
+}
+/* End css*/
+
+
+/*Start custom css style for checkout form  */
+.form-group p {
+	color: #2b3033;
+}
+h1 span.btn-back{
+	text-indent: -9999px;
+	background: transparent;
+}
+h2 {
+	color: #2b3033;
+	font-weight: bold;
+}
+a, .color-blue, .user-login {
+	color: #2b3033;
+}
+.line {
+	border-bottom: 1px solid #2b3033;
+}
+::selection {
+	background: #2b3033; /* WebKit/Blink Browsers */
+}
+::-moz-selection {
+	background: #2b3033; /* Gecko Browsers */
+}
+.btn-checkout, .btn-submit-coupon, .continue-coupon, .cancel-coupon, .btn-checkout:hover, .btn-submit-coupon:hover, .continue-coupon:hover, .custom-dropdown:before{
+	background-color: #e81c25;
+}
+.error.summary,
+form#purchase-form .col-4:nth-child(4) {
+	visibility: hidden;
+	width:0;
+	height:0;
+	margin:0px;
+	padding:0px;
+}
+
+
+
+.h-shipping{
+	visibility: hidden !important;
+}
+
+
+.ctrl-city>div {
+	visibility: visible !important;
+}
+.user-login{
+	display: none;
+}
+.line{
+	display: none;
+}
+.color-blue{
+	display: none;
+}
+#purchase-form .col-4{
+	float: right;
+	padding-right: 0px;
+}
+/** custom**/
+@media only screen and (max-width: 768px) {
+	.col-4.step1 {
+		width: 100%!important;
+		min-width: 100%;
+		padding: 0;
+		border:none !important;
+	}
+	#forminfo .form-group p {
+		display:none;
+	}
+	.form-group.ctrl-city,
+	.form-group.ctrl-district {
+		margin-left: 0px !important;
+	}
+}
+.col-4.step1 {
+	width: 735px;
+	background: #FFF;  border-radius: 3px;  
+	border: 1px solid #ddd;
+}
+
+.col-4.step1 h1 {
+	background: #ddd;
+}
+
+.col-4.step1 h2 {
+	background: #f9f9f9;
+	margin-left: -15px;
+	width: 100%; /* * padding-left: 3px; * */
+	padding-left: 30px;
+	margin-top: -15px;
+	padding-top: 10px;
+	border-top-left-radius: 3px;
+	border-top-right-radius: 3px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid #ddd;
+}
+
+.form-group input + p, .form-group textarea + p {
+	display: block;
+	float: left;
+	width: 130px;
+	line-height:36px;
+	margin:0px;
+}
+
+.form-group.ctrl-city,
+.form-group.ctrl-district {
+	margin-left: 130px;
+}
+
+
+form#purchase-form .col-4:nth-child(3) {
+	width: 0px;
+	padding: 0;
+	margin: 0;
+	overflow: hidden;
+}
+form#purchase-form .col-4:nth-child(4) {
+	width: 0px;
+	padding: 0;
+	margin: 0;
+	overflow: hidden;
+}
+.box-cart {
+	margin-top:-15px;
+}
+@media only screen and (max-width: 768px){
+	.box-cart {
+		margin-top: 0px;
+		margin-bottom: 0px;
+	}
+}
+
+.total-checkout {
+	box-shadow: 0px 1px 0px rgba(255, 255, 255, 0.7) inset;  border-top: 1px solid #ddd;  border-bottom: 1px solid #ddd;
+}
+
+
+.form-group input, .form-group select, .form-group textarea{
+	border :1px solid #ddd;
+}
+
+.form-info{
+	margin-left: 20px;
+}
+body{
+	background:#fff;
+}
+input.error {
+	display: inline;
+}
+.error.summary {
+	width: calc(100% - 23px);
+}
+.btn-checkout, 
+.btn-submit-coupon, 
+.continue-coupon, 
+.cancel-coupon, .btn-checkout:hover, .btn-submit-coupon:hover, .continue-coupon:hover, .custom-dropdown:before{
+	background-color: #A97C50;
+}
+/* End css*/
+
+.step1 .container{
+	padding-top:10px;
+	border: none;
+	box-shadow: none;
+}
+
+body.step1 a:nth-child(2) h1{
+	background-image: url('//hstatic.net/930/1000062930/10/2015/12-25/logo-wood.png');
+	background-position: 0px 0px;
+	background-repeat: no-repeat;
+	font-size: 0px;
+	height: 70px;
+	width: 300px;
+	margin-top: 15px;
+	margin-bottom: 5px;
+}
+
+.btn-back {
+	display:block;
+}
+@media (max-width:767px){
+	.btn-back {
+		width: 55px;
+		overflow: hidden;
+	}
+}
+
+#billing_address_province {
+	background: none;
+}
+
+.btn-coupon{
+	padding: 10px;
+	border-radius: 4px;
+	background-position: 50px;
+	background-repeat: no-repeat;
+	text-align: center;
+	font-size: 16px;
+	font-weight: bold;
+	text-decoration: none;
+	color: #4EA7FF;
+}
+.btn-coupon:hover {
+	color: #ef8742;
+	background: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAALCAYAAABcUvyWAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyFpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNS1jMDIxIDc5LjE1NDkxMSwgMjAxMy8xMC8yOS0xMTo0NzoxNiAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIChXaW5kb3dzKSIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDpDOTBCRkQxRUQxNDkxMUU0QTczOUIyMkZFMzUzOTM4RiIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDpDOTBCRkQxRkQxNDkxMUU0QTczOUIyMkZFMzUzOTM4RiI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOkM5MEJGRDFDRDE0OTExRTRBNzM5QjIyRkUzNTM5MzhGIiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOkM5MEJGRDFERDE0OTExRTRBNzM5QjIyRkUzNTM5MzhGIi8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+Gt0nMwAAANNJREFUeNpiNGw/8P//p9er/v/5Fc7w7w8Dw98/DP///WVg+vv6QQaLnF4YAwNDBwMSYBa3DDj77+OLr6xKZo3/3j35ClR+jOH/fwYmqIKe3w8v9LOqWnYD2QkgARYk3UV/nlwVYVWznv/rxqFPTIzMbAyMnHwMjCCp3z/j/n1+y8Aiq7eWiQEV7GTiFmD4c++UF7LEchZFI7df1/YHAdnbYRITWeQNIn5dO5AMZK8HCYAkWllktPN+3z5aDmTPg2lnYuIVqvpz9/Q0ILsL2TKAAAMAHnVNPyeKq8wAAAAASUVORK5CYII=') no-repeat right;
+	background-position: 50px;
+	display: block;
+	-webkit-transition: all 0.1s ease;
+	-moz-transition: all 0.1s ease;
+	-o-transition: all 0.1s ease;
+	-ms-transition: all 0.1s ease;
+	transition: all 0.1s ease;
+}
+body:after {
+
+	background:black;
+	display:block;
+	text-align:center;
+	padding: 40px 0px;
+	color:white;
+	font-size:16px;
+}
+@media only screen and (max-width: 1200px){
+	.box-btn-checkout-first {
+		padding: 0;
+		padding-bottom: 15px;
+	}
+	.container form div.col-4:last-of-type {
+		min-width: 100%;
+		padding: 0;
+	}
+}
+/*
+.step3 h1 {
+font-size: 0;
+width: 100%;
+height: 30px;
+display: block;
+background: none;
+}
+*/
+
+#forminfo > div:nth-child(13) #billing_note {
+	height:0px;
+	width:0px;
+}
+#forminfo > div:nth-child(13) p {
+	height:0px;
+	width:0px;
+}
+.new_order {
+	margin:0px;
+}
+
+
+body.step1 #purchase-form > div:nth-child(5) {
+	visibility: hidden;
+	margin: 0;
+	width: 0;
+	height: 0;
+}
+
+body *{
+	border-radius: 0px !important;
+}
+
+
+
+
+
+

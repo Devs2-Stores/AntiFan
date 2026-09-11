@@ -1,0 +1,57 @@
+Loomline.IndexScroll = {
+		init: function() {
+			var that = this;
+      that.Loomline_Scroll();
+      //that.Loomline_IndexAjax();
+		},
+  Loomline_Scroll: function(){
+    function isScrolledIntoView(elem) {	
+      var docViewTop = $(window).scrollTop() +50;
+      var docViewBottom = docViewTop + $(window).height();
+      var elemTop = $(elem).offset().top + 50;
+      var elemBottom = elemTop + $(elem).height();
+      return ((elemTop <= docViewBottom) && (elemBottom >= docViewTop));
+    }
+    let timer;
+			$(window).on('scroll', function () {
+				clearTimeout(timer);
+				timer = setTimeout(function () {
+					$('.loomline-index-col-tab .detail,.loomline-index-video .video-list').each(function(){
+							const $this = $(this);
+							if (!$this.data('viewed') && isScrolledIntoView($this)) {
+								// Chỉ chạy 1 lần
+								//$this.data('viewed', true); 
+                /*if(!$this.find('.pro-item').hasClass('viewed')){
+                  $this.find('.pro-item').data('viewed', true).addClass('has-view');
+                }*/
+                $this.find('.pro-item,.ani-video').data('viewed', true).addClass('has-view');
+							}
+						});
+				}, 100);
+			});
+  },
+  Loomline_IndexAjax: function(){
+    $('.loomline-index-ajax').each(function(){
+      const $this = $(this);
+      let id = $this.attr('id');
+      let urls = '?view=' + id;
+      $.ajax({
+          url: urls,					
+          type: 'GET',
+          async: false,
+          success:function(data){
+            $('.loomline-index-ajax[id="'+ id +'"]').html(data);
+          }
+        });
+    })
+    
+  }
+};
+(function() {
+  Loomline.IndexScroll.init();
+})();
+
+
+
+
+

@@ -1,0 +1,56 @@
+<style>
+@media (min-width: 992px) {
+  section.banner-category .banner-category__content {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 991px) {
+  section.banner-category .banner-category__content {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 10px !important;
+    padding: 8px 12px !important;
+  }
+  section.banner-category .banner-category__item {
+    flex: 0 0 345px !important;
+    width: 345px !important;
+    min-width: 345px !important;
+    box-sizing: border-box !important;
+  }
+  section.banner-category .banner-category__item img {
+    width: 100% !important;
+    height: auto !important;
+    border-radius: 8px !important;
+  }
+}
+</style>
+<section class="banner-category">
+  <div class="container container-fuild">
+    <div class="banner-category__content w-100">
+      <div class="banner-category__item">
+        <a href="/series/miluz-e" title="/series/miluz-e" aria-label="/series/miluz-e">
+          <div class="thumbnail-item">
+            <img loading="eager" src="{{ "logo.png" | asset_url }}" alt="miluz-e" width="466" height="196" onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';">
+          </div>
+        </a>
+      </div>
+      <div class="banner-category__item">
+        <a href="/collections/bien-ap-cach-ly?filterBrandIds[0]=1162" title="/collections/bien-ap-cach-ly?filterBrandIds[0]=1162" aria-label="/collections/bien-ap-cach-ly?filterBrandIds[0]=1162">
+          <div class="thumbnail-item">
+            <img loading="eager" src="{{ "logo.png" | asset_url }}" alt="bien-ap-giga-electric-1" width="466" height="196" onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';">
+          </div>
+        </a>
+      </div>
+      <div class="banner-category__item">
+        <a href="/collections/bien-tan-ha-the?filterBrandIds[0]=1189" title="/collections/bien-tan-ha-the?filterBrandIds[0]=1189" aria-label="/collections/bien-tan-ha-the?filterBrandIds[0]=1189">
+          <div class="thumbnail-item">
+            <img loading="eager" src="{{ "logo.png" | asset_url }}" alt="bien-tan-nistro-3" width="466" height="196" onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';">
+          </div>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>

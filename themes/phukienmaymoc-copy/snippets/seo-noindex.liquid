@@ -1,0 +1,48 @@
+{% comment %}
+  ==============================================================================
+  AUTO NOINDEX GUARD FOR HARAVAN — v4.0.0
+  Tự động thêm noindex cho các trang system không có giá trị SEO.
+  Ngăn Google crawl trang lãng phí crawl budget.
+  ==============================================================================
+
+  Các trang tự động bị noindex:
+  - /search  (trang kết quả tìm kiếm nội bộ)
+  - /cart    (giỏ hàng)
+  - /account (tài khoản, đăng nhập, đăng ký)
+  - /404     (trang không tìm thấy)
+  - /policies (chính sách refund, privacy, shipping...)
+
+  Trang KHÔNG bị ảnh hưởng: product, collection, article, blog, page, index
+  ==============================================================================
+{% endcomment %}
+
+{% comment %} Xác định các template cần noindex {% endcomment %}
+{% assign seo_should_noindex = false %}
+
+{% if template == 'search' %}
+  {% assign seo_should_noindex = true %}
+{% elsif template contains 'cart' %}
+  {% assign seo_should_noindex = true %}
+{% elsif template contains 'account' %}
+  {% assign seo_should_noindex = true %}
+{% elsif template contains 'customers' %}
+  {% assign seo_should_noindex = true %}
+{% elsif template == '404' %}
+  {% assign seo_should_noindex = true %}
+{% elsif template contains 'policy' %}
+  {% assign seo_should_noindex = true %}
+{% elsif template == 'password' %}
+  {% assign seo_should_noindex = true %}
+{% elsif template == 'gift_card' %}
+  {% assign seo_should_noindex = true %}
+{% endif %}
+
+{% comment %} Override meta robots nếu cần noindex {% endcomment %}
+{% if seo_should_noindex %}
+  {% comment %}
+    Fix v4: Set flag TRƯỚC khi render tag — đảm bảo seo-meta-head sẽ không render
+    thêm 1 tag robots thứ 2 nữa (browser đọc tag đầu tiên, nhưng có 2 tag là invalid HTML).
+  {% endcomment %}
+  {% assign seo_meta_robots_done = true %}
+  <meta name="robots" content="noindex, nofollow" />
+{% endif %}

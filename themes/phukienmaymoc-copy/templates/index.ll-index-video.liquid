@@ -1,0 +1,110 @@
+{% layout none %}
+<link href="{{ 'll-index-video.js' | asset_url }}" rel="preload" as="script">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'll-index-video.js' | asset_url }}"></script>
+{% assign count_item = 0 %}
+{% assign tab_title_first = '' %}
+{% assign tab_title = '' %}
+{% assign tab_detail = '' %}
+{% for i in (1..4) %}
+  {% capture show %}show_loomline_index_video_tab_{{i}}{%endcapture%}
+  {% capture title %}loomline_index_video_tab_{{i}}_title{%endcapture%}
+  {% capture desc %}loomline_index_video_tab_{{i}}_desc{%endcapture%}
+  {% if settings[show] %}
+    {% assign count_item = count_item | plus: 1 %}
+    {% capture tab_title_html %}
+    <li class="nav-item">
+      <a class="nav-link {%if count_item == 1%}active{%endif%}" data-toggle="tab" href="#tab_video_{{i}}">
+        {% if settings[title] != empty%}<h3 class="title hrv-cf-{{ title }}" setting-id="{{ title }}" setting-type="text">{{settings[title]}}</h3>{%endif%}
+        {% if settings[desc] != empty%}<div class="desc hrv-cf-{{ desc }}" setting-id="{{ desc }}" setting-type="textarea">{{settings[desc]}}</div>{%endif%}
+      </a>
+    </li>
+    {%endcapture%}
+    {%if count_item == 1%}
+      {% capture tab_title_first_html %}
+          {% if settings[title] != empty%}<div class="title-mb hrv-cf-{{ title }}" setting-id="{{ title }}" setting-type="text">{{settings[title]}}</div>{%endif%}
+      {%endcapture%}
+      {% assign tab_title_first = tab_title_first | append: tab_title_first_html %}
+      {%endif%}
+    {% capture tab_detail_html %}
+      <div class="tab-pane {%if count_item == 1%}active{%endif%}" id="tab_video_{{i}}">
+        {% if settings[desc] != empty%}<div class="desc-mb hrv-cf-{{ desc }}" setting-id="{{ desc }}" setting-type="textarea">{{settings[desc]}}</div>{%endif%}
+        <div class="row">
+          {%assign time = 0 %}
+        {%for j in (1..4)%}
+          {%capture show_item%}show_loomline_index_video_tab_{{i}}_item_{{j}}{%endcapture%}
+          {%capture handle%}loomline_index_video_tab_{{i}}_item_{{j}}_handle{%endcapture%}
+          {%capture img%}loomline_index_video_tab_{{i}}_item_{{j}}_img.jpg{%endcapture%}
+          {%capture show_video%}show_loomline_index_video_tab_{{i}}_item_{{j}}_video{%endcapture%}
+          {%capture link_video%}loomline_index_video_tab_{{i}}_item_{{j}}_video_link{%endcapture%}
+          {%if settings[show_item]%}
+            {%assign time = time | plus: 0.2 %}
+            <div class="col-lg-6 col-10 ani-video" style="--time: {{time}}s">
+              <div class="video-item" data-handle="{{settings[handle]}}">
+                <div class="item-banner {% if settings[show_video] %}has-video{%endif%}">
+                {% if settings[show_video] %}
+                  <div class="video-box">
+                    <video
+                      autoplay
+                      loop
+                      muted
+                      playsinline
+                      webkit-playsinline
+                      preload="none"
+                      poster="{{ img | asset_url}}" setting-id="{{ link_video }}" class="hrv-cf-{{ link_video }}">
+                      <source src="{{settings[link_video]}}" type="video/mp4">
+                    </video>
+                  </div>
+                {% else %}
+                  <div class="img-box">
+                    <a href="{%if settings[handle] != empty%}/products/{{settings[handle]}}{%else%}javascript:void(0){%endif%}">
+                    <img
+                      src="{{ img | asset_url}}"
+                      alt="{{ settings[title] | strip_html | escape }}"
+                      loading="eager"
+                      decoding="sync" />
+                    </a>
+                  </div>
+                {% endif %}
+              </div>
+                <div class="item-pro"></div>
+              </div>
+            </div>
+          {%endif%}
+        {%endfor%}
+        </div>
+      </div>
+    {%endcapture%}
+
+    {% assign tab_title = tab_title | append: tab_title_html %}
+    {% assign tab_detail = tab_detail | append: tab_detail_html %}
+  {% endif %}
+{% endfor %}
+<section class="loomline-index-video">
+  <div class="container">
+    <div class="row">
+      <div class="col-lg-4 col-12">
+        <div class="video-content">
+          <div class="heading-title">
+            {% if settings.loomline_index_video_title1 != empty %}
+              <div class="title1 hrv-cf-loomline_index_video_title1" setting-id="loomline_index_video_title1" setting-type="text">{{ settings.loomline_index_video_title1 }}</div>
+            {% endif %}
+            {% if settings.loomline_index_video_title2 != empty %}
+              <h2 class="title2 hrv-cf-loomline_index_video_title2" setting-id="loomline_index_video_title2" setting-type="textarea">{{ settings.loomline_index_video_title2 | newline_to_br }}</h2>
+            {% endif %}
+          </div>
+          <div class="tab-mb">
+            <div class="heading-mb">{{tab_title_first}} <span class="icon"><svg width="16px" height="16px" viewBox="0 -6 524 524" xmlns="http://www.w3.org/2000/svg" ><path d="M64 191L98 157 262 320 426 157 460 191 262 387 64 191Z" /></svg></span></div>
+            <ul class="nav nav-tabs">
+              {{tab_title}}
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-8 col-12">
+        <div class="video-list tab-content">
+          {{tab_detail}}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

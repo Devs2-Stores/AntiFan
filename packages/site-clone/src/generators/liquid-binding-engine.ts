@@ -147,9 +147,9 @@ export class LiquidBindingEngine {
     let titleBound = false;
     bound = bound.replace(
       /(<(?:h1|h2|h3)\b[^>]*class=["'][^"']*(?:article-title|post-title|entry-title|blog-title|article__title)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:h1|h2|h3)>)/gi,
-      () => {
+      (_match, open, _inner, close) => {
         titleBound = true;
-        return `$1{{ article.title }}$3`;
+        return `${open}{{ article.title }}${close}`;
       }
     );
 
@@ -157,7 +157,7 @@ export class LiquidBindingEngine {
       // Fallback to first h1
       bound = bound.replace(
         /(<h1\b[^>]*>)([\s\S]*?)(<\/h1>)/i,
-        `$1{{ article.title }}$3`
+        (_match, open, _inner, close) => `${open}{{ article.title }}${close}`
       );
     }
 
@@ -165,9 +165,9 @@ export class LiquidBindingEngine {
     let contentBound = false;
     bound = bound.replace(
       /(<(?:div|section|article)\b[^>]*class=["'][^"']*(?:article-content|post-content|entry-content|article-body|post-body|article__content|blog-content)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:div|section|article)>)/gi,
-      () => {
+      (_match, open, _inner, close) => {
         contentBound = true;
-        return `$1{{ article.content }}$3`;
+        return `${open}{{ article.content }}${close}`;
       }
     );
 
@@ -175,7 +175,7 @@ export class LiquidBindingEngine {
       // Look for id="article-content"
       bound = bound.replace(
         /(<(?:div|section|article)\b[^>]*id=["'][^"']*(?:article-content|article-body)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:div|section|article)>)/gi,
-        `$1{{ article.content }}$3`
+        (_match, open, _inner, close) => `${open}{{ article.content }}${close}`
       );
     }
 
@@ -193,7 +193,7 @@ export class LiquidBindingEngine {
     // Also match rel="author"
     bound = bound.replace(
       /(<[a-zA-Z0-9_-]+\b[^>]*\brel=["']author["'][^>]*>)([\s\S]*?)(<\/[a-zA-Z0-9_-]+>)/gi,
-      `$1{{ article.author }}$3`
+      (_match, open, _inner, close) => `${open}{{ article.author }}${close}`
     );
 
     // 4. Bind Published Date
@@ -212,7 +212,7 @@ export class LiquidBindingEngine {
     // Check date classes
     bound = bound.replace(
       /(<(?:span|div|p)\b[^>]*class=["'][^"']*(?:published-at|published-date|post-date|article-date|date|entry-date)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:span|div|p)>)/gi,
-      `$1{{ article.published_at | date: '%d/%m/%Y' }}$3`
+      (_match, open, _inner, close) => `${open}{{ article.published_at | date: '%d/%m/%Y' }}${close}`
     );
 
     // 5. Bind Featured Image
@@ -229,7 +229,7 @@ export class LiquidBindingEngine {
     // 6. Bind Article Excerpt
     bound = bound.replace(
       /(<(?:div|p)\b[^>]*class=["'][^"']*(?:article-excerpt|post-excerpt|excerpt)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:div|p)>)/gi,
-      `$1{{ article.excerpt }}$3`
+      (_match, open, _inner, close) => `${open}{{ article.excerpt }}${close}`
     );
 
     return bound;
@@ -288,24 +288,18 @@ export class LiquidBindingEngine {
       '$1 reversed'
     );
 
-    // Ruby type casting methods inside Liquid tags
+    // Ruby type casting methods inside single tag boundaries ({{...}} or {%...%})
     sanitized = sanitized.replace(
-      /({[{%][\s\S]*?)\.to_i\b([\s\S]*?[}%]})/gi,
-      '$1 | plus: 0$2'
+      /(\{\{(?:(?!}}).)*?\}\}|\{%(?:(?!%}).)*?%\})/gs,
+      (tag) => {
+        let cleaned = tag;
+        cleaned = cleaned.replace(/\.to_i\b/g, ' | plus: 0');
+        cleaned = cleaned.replace(/\.to_s\b/g, " | append: ''");
+        cleaned = cleaned.replace(/\.to_f\b/g, ' | plus: 0.0');
+        cleaned = cleaned.replace(/\.length\b/g, ' | size');
+        return cleaned;
+      }
     );
-    sanitized = sanitized.replace(
-      /({[{%][\s\S]*?)\.to_s\b([\s\S]*?[}%]})/gi,
-      '$1 | append: \'\'$2'
-    );
-    sanitized = sanitized.replace(
-      /({[{%][\s\S]*?)\.to_f\b([\s\S]*?[}%]})/gi,
-      '$1 | plus: 0.0$2'
-    );
-    sanitized = sanitized.replace(
-      /({[{%][\s\S]*?)\.length\b([\s\S]*?[}%]})/gi,
-      '$1 | size$2'
-    );
-
     // 5. DotLiquid Quirk: Logical Operators inside Liquid Tags
     // Convert && -> and, || -> or, === -> ==, !== -> !=, null -> nil
     sanitized = sanitized.replace(
@@ -546,45 +540,69 @@ export class LiquidBindingEngine {
 
     const hiddenVariantMarkup = `<input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}" />`;
 
-    // 1. Check if HTML already has a <form ...>
-    const formOpenRegex = /<form\b([^>]*)>/i;
-    const formCloseRegex = /<\/form>/i;
+    // Helper to determine if a form has purchase indicators
+    const hasPurchaseIndicators = (attrs: string, inner: string): boolean => {
+      // 1. action*="cart"
+      if (/action=["'][^"']*cart[^"']*["']/i.test(attrs)) return true;
+      // 2. data-cart or data-product-form
+      if (/\b(?:data-cart|data-product-form|data-cart-submit)\b/i.test(attrs)) return true;
+      // 3. Product form classes or IDs
+      if (/class=["'][^"']*(?:product-form|form-product|add-to-cart-form|cart-form|form-add-to-cart)[^"']*["']/i.test(attrs)) return true;
+      if (/id=["'][^"']*(?:add-to-cart-form|product-form|cart-form)[^"']*["']/i.test(attrs)) return true;
+      // 4. Containing buy/cart inputs or buttons
+      if (/name=["'](?:id|quantity)["']/i.test(inner)) return true;
+      if (/<(?:button|input)\b[^>]*class=["'][^"']*(?:btn-add-to-cart|add-to-cart|buy-now|btn-buy|btn-cart|btn-addcart)[^"']*["']/i.test(inner)) return true;
+      if (/<(?:button|input)\b[^>]*(?:data-add-to-cart|data-cart-add|data-buy-now)/i.test(inner)) return true;
+      if (/<input\b[^>]*type=["']hidden["'][^>]*name=["'](?:id|product-id)["']/i.test(inner)) return true;
+      if (/<(?:button|input)\b[^>]*type=["']submit["'][^>]*>[\s\S]*?(?:thêm vào giỏ|mua ngay|add to cart|buy now)/i.test(inner)) return true;
+      return false;
+    };
 
-    if (formOpenRegex.test(bound)) {
-      // Replace <form ...> with {% form 'product', product %}
-      bound = bound.replace(formOpenRegex, `{% form 'product', product %}`);
-      // Replace </form> with {% endform %}
-      bound = bound.replace(formCloseRegex, `{% endform %}`);
+    // 1. Check if HTML contains purchase forms matching purchase indicators
+    let purchaseFormFound = false;
+    const formRegex = /<form\b([^>]*)>([\s\S]*?)<\/form>/gi;
 
-      // Handle variant selector inside the form
+    bound = bound.replace(formRegex, (match, attrs, inner) => {
+      if (!hasPurchaseIndicators(attrs, inner)) {
+        // Leave search, newsletter, contact, or other non-purchase forms intact
+        return match;
+      }
+
+      purchaseFormFound = true;
+      let transformedInner = inner;
+
       if (!isCard) {
-        if (/<select\b[^>]*name=["']id["'][^>]*>[\s\S]*?<\/select>/i.test(bound)) {
-          bound = bound.replace(
+        if (/<select\b[^>]*name=["']id["'][^>]*>[\s\S]*?<\/select>/i.test(transformedInner)) {
+          transformedInner = transformedInner.replace(
             /<select\b[^>]*name=["']id["'][^>]*>[\s\S]*?<\/select>/i,
             variantSelectorMarkup
           );
-        } else if (!bound.includes('name="id"')) {
+        } else if (!transformedInner.includes('name="id"')) {
           // Inject variant selector before submit button or endform
-          if (/<button\b[^>]*type=["']submit["']/i.test(bound)) {
-            bound = bound.replace(
+          if (/<button\b[^>]*type=["']submit["']/i.test(transformedInner)) {
+            transformedInner = transformedInner.replace(
               /(<button\b[^>]*type=["']submit["'])/i,
               `${variantSelectorMarkup}\n$1`
             );
           } else {
-            bound = bound.replace('{% endform %}', `${variantSelectorMarkup}\n{% endform %}`);
+            transformedInner = `${transformedInner}\n${variantSelectorMarkup}`;
           }
         }
       } else {
         // For card, ensure hidden variant ID is present
-        if (!bound.includes('name="id"')) {
-          bound = bound.replace('{% form \'product\', product %}', `{% form 'product', product %}\n${hiddenVariantMarkup}`);
+        if (!transformedInner.includes('name="id"')) {
+          transformedInner = `${hiddenVariantMarkup}\n${transformedInner}`;
         }
       }
 
+      return `{% form 'product', product %}\n${transformedInner}\n{% endform %}`;
+    });
+
+    if (purchaseFormFound) {
       return bound;
     }
 
-    // 2. If no <form> is present:
+    // 2. If no purchase <form> was present:
     // For product detail, find purchase action or add-to-cart button and wrap in {% form 'product', product %}
     const btnRegex = /(<button\b[^>]*class=["'][^"']*(?:btn-add-to-cart|add-to-cart|buy-now|btn-buy|btn-cart)[^"']*["'][^>]*>[\s\S]*?<\/button>)/i;
 

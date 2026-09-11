@@ -1,0 +1,75 @@
+<nav class="loomline-navbar-mainmenu">
+  <div class="edit-menu">
+    <a href="/" setting-id="loomline_mainmenu_link"><img src="{{ 'icon-home.png' | asset_url}}" alt="home" /></a>
+  </div>
+	<ul class="loomline-menuList-main">
+		{%- for link in linklists[settings.loomline_mainmenu_link].links -%}
+		{%- if linklists[link.handle].links == empty -%}
+		<li class="{% if link.active  %}active{% endif %}">
+			<a href="{{link.url}}" title="{{ link.title }}"> 
+				{{ link.title }}
+			</a>
+		</li>
+		{%- else -%}
+		<li class="loomline-has-submenu {% if link.active  %}active{% endif %}">
+			<a href="{{ link.url }}" title="{{ link.title }}">
+				{{ link.title }}
+				<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" x="0" y="0" viewBox="0 0 128 128"><g><path d="m64 88c-1.023 0-2.047-.391-2.828-1.172l-40-40c-1.563-1.563-1.563-4.094 0-5.656s4.094-1.563 5.656 0l37.172 37.172 37.172-37.172c1.563-1.563 4.094-1.563 5.656 0s1.563 4.094 0 5.656l-40 40c-.781.781-1.805 1.172-2.828 1.172z"></path></g></svg>
+			</a>
+			<ul class="loomline-menuList-submain">
+				{% for link_vl_1 in linklists[link.handle].links %}
+				{% if  linklists[link_vl_1.handle].links == empty %}
+				<li class="{% if link_vl_1.active  %}active{% endif %}">
+					<a href="{{ link_vl_1.url }}" title="{{ link_vl_1.title }}"> 
+						{{ link_vl_1.title }}
+					</a>
+				</li>
+				{% else %}
+				<li class="loomline-has-submenu {% if link_vl_1.active  %}active{% endif %}">
+					<a href="{{ link_vl_1.url }}" title="{{ link_vl_1.title }}"> 
+						{{ link_vl_1.title }}	
+						<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 128 128"><g><path d="m44 108c-1.023 0-2.047-.391-2.828-1.172-1.563-1.563-1.563-4.094 0-5.656l37.172-37.172-37.172-37.172c-1.563-1.563-1.563-4.094 0-5.656s4.094-1.563 5.656 0l40 40c1.563 1.563 1.563 4.094 0 5.656l-40 40c-.781.781-1.805 1.172-2.828 1.172z" fill="currentColor" data-original="currentColor"></path></g></svg>
+					</a>
+					<ul class="loomline-menuList-submain">
+						{% for link_vl_2 in linklists[link_vl_1.handle].links %}
+						{% if  linklists[link_vl_2.handle].links == empty %}
+						<li class="{% if link_vl_2.active  %}active{% endif %}">
+							<a href="{{ link_vl_2.url }}" title="{{ link_vl_2.title }}"> 
+								{{ link_vl_2.title }}	
+							</a>
+						</li>
+						{% else %}
+						<li class=" loomline-has-submenu {% if link_vl_2.active  %}active{% endif %}">
+							<a href="{{ link_vl_2.url }}" title="{{ link_vl_2.title }}"> 
+								{{ link_vl_2.title }}
+								<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 128 128"><g><path d="m44 108c-1.023 0-2.047-.391-2.828-1.172-1.563-1.563-1.563-4.094 0-5.656l37.172-37.172-37.172-37.172c-1.563-1.563-1.563-4.094 0-5.656s4.094-1.563 5.656 0l40 40c1.563 1.563 1.563 4.094 0 5.656l-40 40c-.781.781-1.805 1.172-2.828 1.172z" fill="currentColor" data-original="currentColor"></path></g></svg>
+							</a>
+							<ul class="loomline-menuList-submain">
+								{% for link_vl_3 in linklists[link_vl_2.handle].links %}
+								<li>
+									<a href="{{ link_vl_3.url }}" title="{{ link_vl_3.title }}"> 
+										{{ link_vl_3.title }}	
+									</a>
+								</li>
+								{% endfor %}
+							</ul>
+						</li>
+						{% endif %}
+						{% endfor %}
+					</ul>
+				</li>
+				{% endif %}
+				{% endfor %}
+			</ul>
+		</li>
+		{% endif %}
+		{% endfor %}
+		{%- if settings.loomline_header_live_show -%} 
+		<li class="loomline-item-live"> 
+			<div class="loomline-header-box-live">
+				<button type="button" class="loomline-btn-live hrv-cf-loomline_header_live_txt" setting-id="loomline_header_live_txt" setting-type="text">{{settings.loomline_header_live_txt}}</button>
+			</div>
+		</li>
+		{%- endif -%}
+	</ul>  
+</nav>

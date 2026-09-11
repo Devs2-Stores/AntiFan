@@ -1,0 +1,43 @@
+{% comment %}
+{% if product.images.size > 1 or (product.images.size >= 1 and has_video) or (product.images.size >= 1 and has_360 %}
+<div class="productGallery_slider">	
+	<ul class="productList-slider productCarousel-slider owl-carousel" id="productCarousel-slider-mobile">
+		{%-if has_video-%}
+		<li class="product-gallery prod-video">
+			<div class="product-gallery__item boxlazy-img">  
+				<div class="boxlazy-img__insert lazy-img__prod">
+					<span class="boxlazy-img__aspect">
+						<iframe class="url-frame" width="100%" height="100%" src="" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+					</span>
+				</div>
+			</div>
+		</li>
+		{%-endif-%}
+
+		{%-if has_360-%}
+		<li class="product-gallery illusion_360" id="gallery-scroll-image360">
+			<div class="product-gallery__item boxlazy-img">  
+				<div class="boxlazy-img__insert lazy-img__prod">
+					<span class="boxlazy-img__aspect">
+						<div id="div_360_mb"></div>
+					</span>
+				</div>
+			</div>
+		</li>
+		{%-endif-%}
+		{% for thumb in product.images %}
+		<li class="product-gallery"  data-image="{{ thumb.src | product_img_url : 'master' }}">
+			<a class="product-gallery__item" 
+				 data-fancybox="gallery" href="{{ thumb.src | product_img_url : 'master' }}">					
+				<img src="{{ thumb.src | product_img_url : 'master' }}" alt="{% if product.images.alt.size >0 %}{{ product.images.alt  | strip_html | escape }} {% else%} {{product.title | strip_html | escape }} {% endif %}">
+			</a>					
+		</li>	
+		{% endfor %}
+	</ul>	
+</div>
+{% else %}
+<div class="product-gallery">
+	<img src="{{ product.featured_image | product_img_url : 'master' }}" alt="{% if product.images.alt.size >0 %}{{ product.images.alt  | strip_html | escape }} {% else%} {{product.title | strip_html | escape }} {% endif %}">
+</div>
+{%endif%}
+{% endcomment %}

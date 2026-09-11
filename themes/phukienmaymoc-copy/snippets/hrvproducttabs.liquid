@@ -1,0 +1,105 @@
+{% assign tabs = product.metafields.hrvptabs.tabs %} 
+ 
+{% if tabs %} 
+{% assign tabList = tabs | append: '' | split: '@@###@@' %} 
+<div class="hrvproduct-tabs"> 
+    <ul class="tabs"> 
+		{% for tab in tabList %} 
+		{% assign tabTitle = tab | split: '@@##@@' | first %} 
+		{% assign tabContent = tab | split: '@@##@@' | last %} 
+ 
+      <li {% if forloop.first %}class="active"{% endif %}> 
+        <a href="#">{{ tabTitle }} 
+          <span>{% if forloop.first %}-{% else %}+{% endif %}</span> 
+        </a> 
+        <div class="tabs-content">{{ tabContent }}</div> 
+      </li> 
+		{% endfor %} 
+    </ul> 
+</div> 
+<style> 
+	.hrvproduct-tabs { 
+		position: relative; 
+	} 
+ 
+	.hrvproduct-tabs .tabs > li { 
+		margin: 8px 0; 
+		height: 40px; 
+		overflow: hidden; 
+	} 
+ 
+	.hrvproduct-tabs .tabs > li.active { 
+		height: auto; 
+	} 
+ 
+	.hrvproduct-tabs .tabs > li > a { 
+		background-color: #fff; 
+		width: 100%; 
+		display: block; 
+		color: #000; 
+		padding: 0 10px; 
+		height: 40px; 
+		line-height: 40px; 
+		transition: border-color 0.3s; 
+		-webkit-transition: border-color 0.3s; 
+		text-transform: uppercase; 
+		font-weight: bold; 
+		border-bottom: 2px solid transparent; 
+		position: relative; 
+	} 
+ 
+	.hrvproduct-tabs .tabs > li > a > span { 
+		height: 100%; 
+		display: inline-block; 
+		position: absolute; 
+		right: 0; 
+		top: 0; 
+		width: 30px; 
+		text-align: center; 
+		font-size: 24px; 
+	} 
+ 
+	.hrvproduct-tabs .tabs > li.active > a { 
+		border-bottom-color: #000; 
+	} 
+ 
+	.hrvproduct-tabs .tabs > li.active > a > span { 
+		color: #000; 
+	} 
+ 
+	.hrvproduct-tabs .tabs-content { 
+		overflow: hidden; 
+		padding: 10px; 
+		background: #fff; 
+	} 
+</style> 
+<script> 
+var blocks = $('.hrvproduct-tabs .tabs li'); 
+var blockLinks = $('.hrvproduct-tabs .tabs li a'); 
+var blockToggles = $('.hrvproduct-tabs .tabs li a span'); 
+var blockContents = $('.hrvproduct-tabs .tabs-content'); 
+ 
+blockLinks.click(function (e) { 
+	e.preventDefault(); 
+ 
+	var self = this; 
+	var targetBlock = $(this).parent('li'); 
+	var blockHeight = targetBlock[0].scrollHeight; 
+ 
+	if(targetBlock.hasClass('active')) { 
+		blocks.removeClass('active'); 
+		blockToggles.text('+'); 
+		targetBlock.removeClass('active'); 
+		$(self).find('span').text('+'); 
+		targetBlock.animate({ height: 40 }, 300); 
+	} else { 
+		blocks.removeClass('active'); 
+		blockToggles.text('+'); 
+		blocks.animate({ height: 40 }, 200); 
+		targetBlock.addClass('active'); 
+		$(self).find('span').text('-'); 
+		targetBlock.animate({ height: blockHeight }, 200); 
+	} 
+}); 
+</script> 
+{% endif %} 

@@ -1,0 +1,841 @@
+Loomline.Cart = {
+	init: function() {
+		var that = this;
+		if ($('.summary-picktime').length > 0) {
+			that.Loomline_initTimeCart();
+			that.Loomline_pickOptionTime();
+			that.Loomline_checkTimeExist();	
+		}
+		that.Loomline_clickCheckoutCart();
+		that.Loomline_addCartSocial();
+		that.Loomline_clickCheckbill();
+		that.Loomline_checkChangeInput();
+		that.Loomline_clickSaveInfoBill();
+		that.Loomline_sliderCoupon();
+		that.Loomline_sliderProduct();
+	}, 
+	Loomline_updatePriceChange: function(action,line,vId,pId,qty){
+		var updates = [];
+		var qtyGift = 0;
+		$('.cart-ajloading').show();
+		if(promotionApp && promotionApp_name == 'app_buyxgety' || promotionApp_name == 'app_combo'){
+			if(promotionApp_name == 'app_buyxgety'){
+				var old_promotion_variant_id = buyXgetY.getPromotionStorage(vId);
+				var dataPost = $('#cartformpage').serialize();
+
+				if(old_promotion_variant_id !== undefined){
+
+					var gOSP = 0,//Gift other but same main product 
+							gOPR = 0,//Gift priority but same main product
+							gCurrent = null;
+
+					var giftExistInCart = true, qtyGiftNotInCart = 0;
+					if(old_promotion_variant_id != undefined){
+						$.each(old_promotion_variant_id,function(vIdGift,infoGift){
+							var filterGiftInCart = cartGet.items.filter(x => x.variant_id == vIdGift && x.promotionby.length > 0 && x.promotionby[0].product_id == pId);
+							if(infoGift.priority == false && filterGiftInCart.length > 0){
+								gOSP += filterGiftInCart[0].quantity;
+							}
+
+							if(infoGift.priority == true){
+								if(vIdGift != 'not_gift'){
+									if(filterGiftInCart.length > 0){
+										if(action == 'plus'){
+											gOPR += filterGiftInCart[0].quantity;
+										}
+										else{
+											gOPR += filterGiftInCart[0].quantity * infoGift.count_buy / infoGift.count_gift;
+										}
+									}
+									else{
+										giftExistInCart = false;
+									}
+								}
+								gCurrent = infoGift;
+								gCurrent.vId = vIdGift;
+							}
+						});
+
+						if(giftExistInCart == false && action == 'plus' && gCurrent.vId != 'not_gift'){
+							qtyGift = (qty - gOSP) / gCurrent.count_buy*gCurrent.count_gift;
+						}
+					}
+
+					cartGet.items.map((item,index) => {
+						if(item.variant_id == vId){
+							updates[index] = qty;
+						}
+						else{
+							if(item.promotionby.length > 0 && item.promotionby[0].product_id == pId){
+								if(gCurrent != null){
+									if(gCurrent.priority == true && gCurrent.vId != 'not_gift' && gCurrent.vId == item.variant_id){
+										var haohut = qty - (gOSP + gOPR);
+										qtyGift = (item.quantity + haohut)/gCurrent.count_buy*gCurrent.count_gift;
+										updates[index] = qtyGift;
+									}
+									else{
+										updates[index] = item.quantity;
+									}
+								}
+							}
+							else{
+								updates[index] = item.quantity;
+							}
+						}
+					});
+
+					dataPost = {
+						'updates[]': updates
+					};
+				}
+
+				var params = {
+					type: 'POST',
+					url: '/cart/update.js',	
+					data: dataPost,	
+					async: false,
+					dataType: 'json',
+					success: function(data) {					
+						if(old_promotion_variant_id !== undefined){
+							if(giftExistInCart){
+								window.location.reload();
+							}
+							else{
+								$.post('/cart/add.js','id='+gCurrent.vId+'&quantity='+qtyGift).done(function(){
+									window.location.reload();
+								});
+							}
+						}
+						else{
+							window.location.reload();
+						}
+					},
+					error: function(XMLHttpRequest, textStatus) {
+						Haravan.onError(XMLHttpRequest, textStatus);
+					}
+				};
+				jQuery.ajax(params);
+
+			}
+			else{
+
+			}
+		}
+		else{
+			var params = {
+				type: 'POST',
+				url: '/cart/update.js',	
+				data: $('#cartformpage').serialize(),	
+				async: false,
+				dataType: 'json',
+				success: function(data) {					
+					/*cartItem = {};
+					cartGet = data;
+					$.each(data.items,function(i,v){
+						var id = v.variant_id;
+						cartItem[v.variant_id] = v.quantity;
+						$('.table-cart .line-item:eq('+i+') .line-item-total').html(Haravan.formatMoney(v.line_price, formatMoney));
+					});	
+					$('.summary-total span').html(Haravan.formatMoney(data.total_price, formatMoney));
+					$('.cart-total-price').html(Haravan.formatMoney(data.total_price, formatMoney));
+					$('.total_price').html(Haravan.formatMoney(data.total_price, formatMoney));
+					$('.count-cart').html( data.item_count + " sản phẩm");
+					$('.count-holder .count').html(data.item_count );
+					setTimeout(function(){
+						$('.cart-ajloading').hide();
+					},400);*/
+					if(window.buy2get1){
+						buy2get1.checkCart()
+					}
+					window.location.reload();
+				},
+				error: function(XMLHttpRequest, textStatus) {
+					Haravan.onError(XMLHttpRequest, textStatus);
+				}
+			};
+			jQuery.ajax(params);
+		}
+	},
+	Loomline_initQuantityCart: function() {
+		$(document).on('click', '.qty-click .qtyplus', function(e){
+			e.preventDefault();
+			$(this).parent('.quantity-partent').find('.qtyminus').removeClass('stop');
+			var input = $(this).parent('.quantity-partent').find('input');
+			var currentVal = parseInt(input.val());
+			if (!isNaN(currentVal)) {
+				input.val(currentVal + 1);
+			} 
+			else {
+				input.val(1);
+			}
+			var line = input.attr('line');
+			var vId = input.attr('variantid');
+			var pId = input.attr('productid');
+			var currentQty = parseInt(input.val());
+			Loomline.Cart.Loomline_updatePriceChange('plus',line,vId,pId,currentQty);
+		});
+
+		$(document).on('click', '.qty-click .qtyminus:not(.stop)', function(e){
+			e.preventDefault();
+			var input = $(this).parent('.quantity-partent').find('input');
+			var currentVal = parseInt(input.val());
+			if (!isNaN(currentVal) && currentVal > 1) {
+				input.val(currentVal - 1);
+				if( currentVal - 1 == 1 ) $(this).addClass('stop');
+			} 
+			else {
+				input.val(1);
+				$(this).addClass('stop');
+			}
+
+			var line = input.attr('line');
+			var vId = input.attr('variantid');
+			var pId = input.attr('productid');
+			var currentQty = parseInt(input.val());
+			Loomline.Cart.Loomline_updatePriceChange('minus',line,vId,pId,currentQty);
+		});
+	}, 
+	Loomline_removeItemCart: function(t, url){
+		var self = $(t)
+		swal({	
+			text: "Bạn chắc chắn muốn bỏ sản phẩm này ra khỏi giỏ hàng?",
+			buttons: ["Hủy", "Đồng ý"],
+			className: "swal-cart-remove"
+		}).then(function() {
+			$('body').on('click', '.swal-button--confirm', function() {
+				jQuery.ajax({
+					type: 'GET',
+					url: url,
+					dataType: 'json',
+					success: function(data) {
+						var elItem = self.closest('.line-item')
+						elItem.css('background-color', '#fcfcfc').fadeOut();
+						setTimeout(function() {
+							var elParentItem = elItem.parent();
+							elItem.remove();
+							var itemLength = elParentItem.find('.line-item').length;
+							if (itemLength == 0) {
+								elParentItem.remove();
+							}
+						}, 200);
+						window.location.reload();
+						/*	if (data.item_count == 0) {
+							window.location.href = '/';
+							return;
+						}	else{}*/			
+					},
+					error: function(erorr) {
+						console.log(error);
+					}
+				});
+			});
+		});
+	},
+
+	Loomline_checkTimeExist: function(){
+		$.when($.get('/cart.js')).then(function(result){
+			if(result != null && result.attributes.hasOwnProperty('Delivery Time')){
+				var now = new Date().getTime();
+				var txtNow = $("#picktime_radio label[for='timeRadios-1']").text();
+				if(result.attributes['Delivery Time'] ==  txtNow ){
+					var maxExist = dateNowJs + ' ' + $("#picktime_radio").attr("data-time-start");
+					maxExist = new Date(maxExist).getTime();
+				}
+				else{
+					var dataTime = result.attributes['Delivery Time'].split(' ');
+					var maxExist = dataTime[0].split('/').reverse().join('/') + ' ' + dataTime[dataTime.length - 1] + ':00';
+					maxExist = new Date(maxExist).getTime();
+				}
+				if(now > maxExist || maxExist - now < 45*60*1000  ){				
+					$('.txt-time span').html('Chọn thời gian');
+					//delete result.attributes['Delivery Time'];
+					result.attributes['Delivery Time'] = null;
+					$.post('/cart/update.js',{ "attributes": result.attributes }).done(function(cart){ 
+						cartGet = cart;
+					});
+				}
+			}
+		});
+	},
+	Loomline_checkTimeAvailable: function(time){
+		var countDisable = 0;
+		var rangeTime = $('#time_shipping option').length; 
+		/* Check trong ngày từ 8h đến 21h */
+		var stillAvailable = true;
+		/* Nếu nhập giờ bắt đầu ko nhận đơn và giờ bắt đầu mở cửa */
+		var startStop = endStop = null;
+
+		if($("#picktime_radio").attr("data-time-end") != '' && $("#picktime_radio").attr("data-time-start") != ''){
+			//debugger;
+			var dataStart = Number($("#picktime_radio").attr("data-time-start").replace(/\:/g,''));
+			var dataEnd = Number($("#picktime_radio").attr("data-time-end").replace(/\:/g,''));
+			startStop = new Date(dateNowJs+' '+$("#picktime_radio").attr("data-time-start")).getTime();
+			endStop = new Date(dateNowJs+' '+$("#picktime_radio").attr("data-time-end")).getTime() + (dataStart > dataEnd? 84600000 : 0);
+			if(dataStart < dataEnd){
+				if(time > startStop && time <= endStop) stillAvailable = false;
+			}else{
+				if(startStop < endStop && time <= endStop) stillAvailable = false;
+			}
+		}
+
+		var timeOpenWork = 0;
+		var newChange = false;
+		$('#time_shipping option').each(function(j,t){
+			var min_time = new Date(dateNowJs+' '+$(this).attr('data-min'));
+			var max_time = new Date(dateNowJs+' '+$(this).attr('data-max'));		
+			min_time = min_time.getTime();
+			max_time = max_time.getTime();
+			if(j == 0) timeOpenWork = min_time;
+
+			var checkLimitTime = false;
+			//debugger;
+			if(startStop != null && endStop != null){
+				if(dataStart < dataEnd){
+					if(max_time <= endStop) checkLimitTime = true;
+				}
+				else{
+					//if((min_time >= startStop && time <= endStop) || time < timeOpenWork) checkLimitTime = true;
+					if((min_time >= startStop && time <= endStop) || time < timeOpenWork ) checkLimitTime = true;
+				}
+			}
+
+			if( time > max_time || (max_time > time && time > min_time && (max_time - time < 45*60*1000)) || checkLimitTime){
+				$(this).attr('disabled',true);
+				countDisable++;
+			}
+			else{
+				if(newChange == false){
+					$('#time_shipping').val($(this).attr('value')).change();
+					newChange = true;
+				}
+			}
+		});
+
+		if(countDisable == rangeTime)	$('#btn-cart-accepttime').attr('disabled',true).addClass('disabled');
+		if(stillAvailable == false)	$('#btnCart-checkout').addClass('btntime-disable').html('Đã ngưng nhận đơn hôm nay');
+
+	},
+	Loomline_initTimeCart: function(){
+		var now = new Date();
+		var nowObj = {
+			'date': now.getDate(),
+			'month': now.getMonth()+1,
+			'year': now.getFullYear()
+		};
+		dateNow = (nowObj.month < 10?'0'+nowObj.month:nowObj.month)+'/'+(nowObj.date < 10?'0'+nowObj.date:nowObj.date)+'/'+nowObj.year;
+		dateNowVN = (nowObj.date < 10?'0'+nowObj.date:nowObj.date)+'/'+(nowObj.month < 10?'0'+nowObj.month:nowObj.month)+'/'+nowObj.year;
+		dateNowJs = nowObj.year+'/'+(nowObj.month < 10?'0'+nowObj.month:nowObj.month)+'/'+(nowObj.date < 10?'0'+nowObj.date:nowObj.date);
+		var time = now.getTime();
+		var date1 = new Date(time + 86400000);
+		var date2 = new Date(time + 2 * 86400000);
+		date1 = {
+			'date': date1.getDate(),
+			'month': date1.getMonth()+1,
+			'year': date1.getFullYear()
+		};
+		date2 = {
+			'date': date2.getDate(),
+			'month': date2.getMonth()+1,
+			'year': date2.getFullYear()
+		};
+		var date1Text = (date1.date < 10?'0'+date1.date:date1.date)+'/'+(date1.month < 10?'0'+date1.month:date1.month)+'/'+date1.year;
+		var date2Text = (date2.date < 10?'0'+date2.date:date2.date)+'/'+(date2.month < 10?'0'+date2.month:date2.month)+'/'+date2.year;
+		var htmlDate = '<option value="'+date1Text+'">'+date1Text+'</option>';
+		htmlDate+= '<option value="'+date2Text+'">'+date2Text+'</option>';
+		$('#date_shipping').append(htmlDate);
+		this.Loomline_checkTimeAvailable(time);
+	},	
+	Loomline_pickOptionTime: function(){
+		var that = this;		
+		$("#picktime_radio input[name='timeRadios']").on('change', function(){		
+			if($("#picktime_radio input[name='timeRadios']:checked").length == 0){
+				//$(".side-cart--time").addClass('js-opacity-time');
+			}
+			else {	
+				//$(".side-cart--time").removeClass('js-opacity-time');
+				if ($("#picktime_radio input[name='timeRadios']:checked").val() == 'timeNow') {		
+					$('.picktime_selecter').slideUp(300);
+					$('.boxtime-title .txt-time span').html($("#picktime_radio label[for='timeRadios-1']").text());
+
+					var startStop = endStop = null;
+					var stillAvailable = true;
+
+					var now = new Date().getTime();
+					if($("#picktime_radio").attr("data-time-end") != '' && $("#picktime_radio").attr("data-time-start") != ''){
+						var dataStart = Number($("#picktime_radio").attr("data-time-start").replace(/\:/g,''));
+						var dataEnd = Number($("#picktime_radio").attr("data-time-end").replace(/\:/g,''));
+						endStop = new Date(dateNowJs+' '+$("#picktime_radio").attr("data-time-end")).getTime() + (dataStart > dataEnd? 84600000 : 0);
+						startStop = new Date(dateNowJs+' '+$("#picktime_radio").attr("data-time-start")).getTime();
+						if(dataStart < dataEnd){
+							if(now > startStop && now <= endStop) stillAvailable = false;
+						}
+						else{
+							if(startStop < endStop && now <= endStop) stillAvailable = false;
+						}
+						//if(now > startStop && now <= endStop) stillAvailable = false;
+					}	
+
+					if(startStop != null && endStop != null){
+						if( stillAvailable == false ){
+							$('#btnCart-checkout').addClass('btntime-disable').html('Đã ngưng nhận đơn hôm nay');
+						}
+						else{
+							cartGet.attributes['Delivery Time'] = $("#picktime_radio label[for='timeRadios-1']").text();
+							$.post('/cart/update.js',{ attributes: cartGet.attributes }).done(function(cart){
+								cartGet = cart;
+								cartAttributes = cart.attributes; 				
+								if(cart.total_price > 0)	$('#btnCart-checkout').removeClass('btntime-disable').html('Thanh toán');
+							});	
+						}
+					}
+					else{
+						cartGet.attributes['Delivery Time'] = $("#picktime_radio label[for='timeRadios-1']").text();
+						$.post('/cart/update.js',{ attributes: cartGet.attributes }).done(function(cart){
+							cartGet = cart;
+							cartAttributes = cart.attributes; 				
+							if(cart.total_price > 0)	$('#btnCart-checkout').removeClass('btntime-disable').html('Thanh toán');
+						});
+					}
+				}
+				else if($("#picktime_radio input[name='timeRadios']:checked").val() == 'timeDate') {				
+					$('.picktime_selecter').slideDown(300);
+				}
+			}
+		});
+
+		$('#date_shipping').on('change',function(){
+			var dateOrder = $(this).val();
+			if(dateNowVN == dateOrder){
+				var now = new Date();
+				var time = now.getTime();
+				that.checkTimeAvailable(time);
+			}
+			else{
+				$('#time_shipping option').removeAttr('disabled');
+				$('#btn-cart-accepttime').removeAttr('disabled').removeClass('disabled');
+				$('#btnCart-checkout').removeClass('btntime-disable').html('Thanh toán');				
+			}
+		});	
+
+		$('#btn-cart-accepttime').on('click',function(e){
+			e.preventDefault();
+			var time = $("#picktime_radio label[for='timeRadios-1']").text();
+			if($("#picktime_radio input[name='timeRadios']:checked").val() == 'timeDate') {
+				time = $('#date_shipping').val()+' '+$('#time_shipping').val();
+				cartGet.attributes['Delivery Time'] = time;
+			}
+			$('.boxtime-title .txt-time span').html(time);
+			$('.picktime_selecter').slideUp(300);
+			$("#picktime_radio input[value='timeDate']").prop('checked', false);
+			$.post('/cart/update.js',{ attributes: cartGet.attributes }).done(function(cart){
+				cartGet = cart;
+				cartAttributes = cart.attributes;
+				//debugger;
+				$('#btnCart-checkout').removeClass('btntime-disable').html('Thanh toán');	
+			});
+		});
+	},
+	Loomline_clickCheckoutCart: function(){			
+		$(document).on("click","#btnCart-checkout:not(.disabled)",function(e){
+			e.preventDefault();
+			var updateNote = $('#note').val();
+			var total_price = Number($('.summary-total span').html().replace(/\,/g,'').replace('₫','').replace('đ',''));	
+			var a = $(this);
+
+			{%if settings.use_cart_total_min%}
+			if(Number(priceMin) <= total_price){
+				$('.summary-alert').removeClass('inn').slideUp('200');
+				if($('#checkbox-bill').is(':checked')){
+					var a = $(this);
+					swal({
+						title: "Bạn có muốn xuất hóa đơn?",
+						text: "Hãy kiểm tra lại thông tin hóa đơn của mình thật chính xác!",
+						icon: "warning",
+						buttons: ["Không", "Có"],
+						className: "swal-cart-checkInvoice"
+					}).then(function(){
+						$('body').on('click', '.swal-button--confirm', function(){
+							var f = true;
+							$('#cartformpage .val-f').each(function(){
+								if($(this).val() === ''){
+									f = false;
+									if($(this).siblings('span.text-danger').length == 0)
+										$(this).after('<span class="text-danger">Bạn không được để trống trường này</span>');
+								}else{
+									$(this).siblings('span.text-danger').remove();
+								}
+								if($(this).hasClass('val-n') && $(this).val().trim().length<10){
+									f = false;
+									if($(this).siblings('span.text-danger').length == 0)
+										$(this).after('<span class="text-danger">Mã số thuế phải tối thiểu 10 ký tự</span>');
+								}
+								if($(this).hasClass('val-mail') && HRVTheme.General.checkemail($(this).val()) == false){
+									if($(this).siblings('span.text-danger').length == 0)
+										$(this).after('<span class="text-danger">Email không hợp lệ</span>');
+								}
+
+							});
+
+							if(f){
+
+								var company = $('input[name="attributes[bill_order_company]"]').val();
+								var address = $('input[name="attributes[bill_order_address]"]').val();
+								var tax = $('input[name="attributes[bill_order_tax_code]"]').val();
+								var mail = $('input[name="attributes[bill_email]"]').val();
+								//var cart_info = {'company':company, 'address': address, 'tax':tax};
+								//Cookies.set('cart_info', cart_info);
+								//a.unbind(e).click();
+								cartAttributes.invoice = 'yes';
+								if(company == '' && cartAttributes.hasOwnProperty('bill_order_company')){
+									cartAttributes.bill_order_company = null;
+								}
+								else{
+									cartAttributes.bill_order_company = company;
+								}
+
+								if(address == '' && cartAttributes.hasOwnProperty('bill_order_address')){
+									cartAttributes.bill_order_address = null;
+								}
+								else{
+									cartAttributes.bill_order_address = address;
+								}
+
+								if(tax == '' && cartAttributes.hasOwnProperty('bill_order_tax_code')){
+									cartAttributes.bill_order_tax_code = null;
+								}
+								else{
+									cartAttributes.bill_order_tax_code = tax;
+								}
+
+								if(mail == '' && cartAttributes.hasOwnProperty('bill_email')){
+									cartAttributes.bill_email = null;
+								}
+								else{
+									cartAttributes.bill_email = mail;
+								}
+
+								$.ajax({
+									url: '/cart/update.js',
+									type: 'POST',
+									data: {
+										"attributes": cartAttributes,
+										"note": updateNote
+									},
+									success: function(data){
+										window.location = '/checkout';
+									}
+								});
+							}
+							if(!f) return false;
+						});
+						$('body').on('click', '.swal-button--cancel', function(){
+							if(cartAttributes.hasOwnProperty('invoice')) cartAttributes.invoice = "no";
+							if(cartAttributes.hasOwnProperty('bill_order_company')) cartAttributes.bill_order_company = null;
+							if(cartAttributes.hasOwnProperty('bill_order_address')) cartAttributes.bill_order_address = null;
+							if(cartAttributes.hasOwnProperty('bill_order_tax_code')) cartAttributes.bill_order_tax_code = null;
+							if(cartAttributes.hasOwnProperty('bill_email')) cartAttributes.bill_email = null;
+
+							$.ajax({
+								url: '/cart/update.js',
+								type: 'POST',
+								data: {
+									"attributes": cartAttributes,
+									"note": updateNote
+								},
+								success: function(data){
+									window.location = '/checkout';
+								}
+							});
+						});
+					});
+				}
+				else{
+					if(cartAttributes.hasOwnProperty('invoice')) cartAttributes.invoice = "no";
+					if(cartAttributes.hasOwnProperty('bill_order_company')) cartAttributes.bill_order_company = null;
+					if(cartAttributes.hasOwnProperty('bill_order_address')) cartAttributes.bill_order_address = null;
+					if(cartAttributes.hasOwnProperty('bill_order_tax_code')) cartAttributes.bill_order_tax_code = null;
+					if(cartAttributes.hasOwnProperty('bill_email')) cartAttributes.bill_email = null;
+					$.ajax({
+						url: '/cart/update.js',
+						type: 'POST',
+						data: {
+							"attributes": cartAttributes,
+							"note": updateNote
+						},
+						success: function(data){
+							window.location = '/checkout';
+						}
+					});
+				}
+			}
+			else{
+				$('.summary-alert').addClass('inn').slideDown('200');
+			}
+			 {%else%}
+			 if($('#checkbox-bill').is(':checked')){
+					var a = $(this);
+					swal({
+						title: "Bạn có muốn xuất hóa đơn?",
+						text: "Hãy kiểm tra lại thông tin hóa đơn của mình thật chính xác!",
+						icon: "warning",
+						buttons: ["Không", "Có"],
+						className: "swal-cart-checkInvoice"
+					}).then(function(){
+						$('body').on('click', '.swal-button--confirm', function(){
+							var f = true;
+							$('#cartformpage .val-f').each(function(){
+								if($(this).val() === ''){
+									f = false;
+									if($(this).siblings('span.text-danger').length == 0)
+										$(this).after('<span class="text-danger">Bạn không được để trống trường này</span>');
+								}else{
+									$(this).siblings('span.text-danger').remove();
+								}
+								if($(this).hasClass('val-n') && $(this).val().trim().length<10){
+									f = false;
+									if($(this).siblings('span.text-danger').length == 0)
+										$(this).after('<span class="text-danger">Mã số thuế phải tối thiểu 10 ký tự</span>');
+								}
+								if($(this).hasClass('val-mail') && HRVTheme.General.checkemail($(this).val()) == false){
+									if($(this).siblings('span.text-danger').length == 0)
+										$(this).after('<span class="text-danger">Email không hợp lệ</span>');
+								}
+
+							});
+
+							if(f){
+
+								var company = $('input[name="attributes[bill_order_company]"]').val();
+								var address = $('input[name="attributes[bill_order_address]"]').val();
+								var tax = $('input[name="attributes[bill_order_tax_code]"]').val();
+								var mail = $('input[name="attributes[bill_email]"]').val();
+								//var cart_info = {'company':company, 'address': address, 'tax':tax};
+								//Cookies.set('cart_info', cart_info);
+								//a.unbind(e).click();
+								cartAttributes.invoice = 'yes';
+								if(company == '' && cartAttributes.hasOwnProperty('bill_order_company')){
+									cartAttributes.bill_order_company = null;
+								}
+								else{
+									cartAttributes.bill_order_company = company;
+								}
+
+								if(address == '' && cartAttributes.hasOwnProperty('bill_order_address')){
+									cartAttributes.bill_order_address = null;
+								}
+								else{
+									cartAttributes.bill_order_address = address;
+								}
+
+								if(tax == '' && cartAttributes.hasOwnProperty('bill_order_tax_code')){
+									cartAttributes.bill_order_tax_code = null;
+								}
+								else{
+									cartAttributes.bill_order_tax_code = tax;
+								}
+
+								if(mail == '' && cartAttributes.hasOwnProperty('bill_email')){
+									cartAttributes.bill_email = null;
+								}
+								else{
+									cartAttributes.bill_email = mail;
+								}
+
+								$.ajax({
+									url: '/cart/update.js',
+									type: 'POST',
+									data: {
+										"attributes": cartAttributes,
+										"note": updateNote
+									},
+									success: function(data){
+										window.location = '/checkout';
+									}
+								});
+							}
+							if(!f) return false;
+						});
+						$('body').on('click', '.swal-button--cancel', function(){
+							if(cartAttributes.hasOwnProperty('invoice')) cartAttributes.invoice = "no";
+							if(cartAttributes.hasOwnProperty('bill_order_company')) cartAttributes.bill_order_company = null;
+							if(cartAttributes.hasOwnProperty('bill_order_address')) cartAttributes.bill_order_address = null;
+							if(cartAttributes.hasOwnProperty('bill_order_tax_code')) cartAttributes.bill_order_tax_code = null;
+							if(cartAttributes.hasOwnProperty('bill_email')) cartAttributes.bill_email = null;
+
+							$.ajax({
+								url: '/cart/update.js',
+								type: 'POST',
+								data: {
+									"attributes": cartAttributes,
+									"note": updateNote
+								},
+								success: function(data){
+									window.location = '/checkout';
+								}
+							});
+						});
+					});
+				}
+				else{
+					if(cartAttributes.hasOwnProperty('invoice')) cartAttributes.invoice = "no";
+					if(cartAttributes.hasOwnProperty('bill_order_company')) cartAttributes.bill_order_company = null;
+					if(cartAttributes.hasOwnProperty('bill_order_address')) cartAttributes.bill_order_address = null;
+					if(cartAttributes.hasOwnProperty('bill_order_tax_code')) cartAttributes.bill_order_tax_code = null;
+					if(cartAttributes.hasOwnProperty('bill_email')) cartAttributes.bill_email = null;
+					$.ajax({
+						url: '/cart/update.js',
+						type: 'POST',
+						data: {
+							"attributes": cartAttributes,
+							"note": updateNote
+						},
+						success: function(data){
+							window.location = '/checkout';
+						}
+					});
+				}
+			 {%endif%}
+		});
+	},
+	Loomline_addCartSocial: function(){
+		var href = window.location.href;
+		if (href.indexOf("?add=") != -1){
+			var splitHref = href.split("?add=")[1];
+			var variantId = parseInt($.trim(splitHref.split("&ref=")[0]));	
+			$.ajax({					
+				url: "/cart/" + variantId + ":1",
+				success: function(data){
+					var x = false;
+					if(data.items.length > 0){
+						data.items.map(function(v,i){
+							if(v.variant_id == variantId){
+								x = true;
+							}
+						});						
+					}		
+					if(!x){
+						alert('Sản phẩm bạn vừa mua đã hết hàng');
+					}
+					window.location = '/cart';
+				},
+				error: function(XMLHttpRequest, textStatus) {
+					Haravan.onError(XMLHttpRequest, textStatus);
+				}
+			});
+		}
+	},
+
+	Loomline_clickCheckbill: function(){	
+		if($('.order-invoice-block .regular-checkbox').is(':checked')){
+			$('.bill-field').show();
+		}
+		$('#cartformpage .regular-checkbox').click(function(){
+			if($(this).is(':checked')){
+				$(this).siblings('#re-checkbox-bill').val('yes');
+			}
+			else{
+				$(this).siblings('#re-checkbox-bill').val('no');
+				$('#cartformpage .val-f').siblings('span.text-danger').remove();
+			}
+			$('#cartformpage .bill-field').slideToggle(300);  
+		})
+	},
+	Loomline_checkChangeInput: function(){
+		$(".check_change").on("change paste keyup", function() {
+			jQuery('.btn-save').html("Lưu thông tin");
+		});
+	},
+	Loomline_clickSaveInfoBill: function(){
+		$('.order-invoice-block .btn-save').on('click', function(e){
+			e.preventDefault();
+			$('#cartformpage .val-f').each(function(){
+				if($(this).val() === ''){
+					if($(this).siblings('span.text-danger').length == 0)
+						$(this).after('<span class="text-danger">Bạn không được để trống trường này</span>');
+				}
+				else{
+					$(this).siblings('span.text-danger').remove();
+					setTimeout(function(){
+						jQuery('.btn-save').html("Đã lưu thông tin");
+					}, 500);
+				}
+				if($(this).hasClass('val-n') && $(this).val().trim().length<10){
+					if($(this).siblings('span.text-danger').length == 0)
+						$(this).after('<span class="text-danger">Mã số thuế phải tối thiểu 10 ký tự</span>');
+				}
+
+				if($(this).hasClass('val-mail') && HRVTheme.General.checkemail($(this).val()) == false){
+					if($(this).siblings('span.text-danger').length == 0)
+						$(this).after('<span class="text-danger">Email không hợp lệ</span>');
+				}
+
+			});
+		});
+	},
+
+	Loomline_sliderCoupon: function(){
+		var swiper = new Swiper("#cartCoupon", {
+			spaceBetween: 12,
+			navigation: {
+				nextEl: ".swiper-coupon-cart-next",
+				prevEl: ".swiper-coupon-cart-prev",
+			},
+			breakpoints: {
+				0: {
+					slidesPerView: 1,
+					grid: {
+						rows: 2,
+						fill: "row",
+					},
+				},
+				768: {
+					slidesPerView: 2,
+					grid: {
+						rows: 2,
+						fill: "row",
+					},
+				},
+				1024: {
+					slidesPerView: 1,
+					grid: {
+						rows: 2,
+						fill: "row",
+					},
+				},
+			},
+		});
+	},
+
+	Loomline_sliderProduct: function(){
+		var swiper = new Swiper('#slideProductCart', {
+			slidesPerView: 3,  
+			spaceBetween: 14,
+			loop: false,
+			navigation: {
+				nextEl: ".swiper-product-cart-next",
+				prevEl: ".swiper-product-cart-prev",
+			},
+			breakpoints: {
+				0: {
+					slidesPerView: 2,
+					spaceBetween: 14,
+				},
+				768: {
+					slidesPerView: 2,
+					spaceBetween: 14,
+				},
+				992: {
+					slidesPerView: 3,
+					spaceBetween: 14,
+				},
+				1600: {
+					slidesPerView: 4,
+					spaceBetween: 14,
+				},
+			}
+		});
+	},
+};
+(function() {
+  Loomline.Cart.init();
+})();

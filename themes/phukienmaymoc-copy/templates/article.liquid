@@ -1,0 +1,328 @@
+<link rel="preload" href="{{ 'style-blog.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'style-blog.scss.css' | asset_url }}">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'blog.js' | asset_url }}"></script>
+<div  class="layout-article" id="article">
+	{%- include 'breadcrumb' -%}
+	{%-comment-%}
+	{% if settings.blogs_banner_show %}
+	<div class="header-blog-banner text-center">
+		<img class="lazyload" data-src="{{ 'blogs_banner_paralax.jpg' |asset_url  }}"
+				 src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+				 alt="{{blog.title}}"/>
+	</div>
+	{% endif %}
+	<div class="articleToolbar d-lg-block d-sm-none">
+		<div class="container">
+			<div class="flex-row-articleToolbar">
+				<div class="articleToolbar-title col-lg-8 col-12">
+					<p>Đang xem:<span> {{ article.title }}</span></p>
+				</div>
+				<div class="articleToolbar-navigation col-lg-4 col-4 text-right">
+					<div class="articleToolbar--nav">							
+						{% if blog.previous_article %}
+						<span>
+							<svg class="arrow-left" role="presentation" viewBox="0 0 11 18">
+								<path d="M9.5 1.5L1.5 9l8 7.5" stroke-width="2" stroke="currentColor" fill="none" fill-rule="evenodd" stroke-linecap="square"></path>
+							</svg>
+							{{ 'Bài trước' | link_to: blog.previous_article }}
+						</span>
+						{% endif %}
+						{% if blog.next_article and blog.previous_article %}
+						<span class="separator"></span>
+						{% endif %}		
+						{% if blog.next_article %}
+						<span>
+							{{ 'Bài sau' | link_to: blog.next_article }}
+							<svg class="arrow-right" role="presentation" viewBox="0 0 11 18">
+								<path d="M1.5 1.5l8 7.5-8 7.5" stroke-width="2" stroke="currentColor" fill="none" fill-rule="evenodd" stroke-linecap="square"></path>
+							</svg>
+						</span>
+						{% endif %}							
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	{% endcomment  %}
+	<div class="wrapper-contentArticle">
+		<div class="container pd-top">
+			<div class="row">
+				<div class="col-lg-9 col-md-12 col-12 boxAricle-left">
+					<div class="inforArticle-content">
+						<div class="boxArticle-detail">
+							<div class="heading-article">	
+								<h1>{{article.title}}</h1>	
+								<div class="article-post-meta">   
+									{%if settings.blogs_author_show%}<span class="author">bởi: {{article.author}}</span>{%endif%}
+                  {%if settings.blogs_date_show%}
+									<span class="date">                
+										<time pubdate datetime="{{ article.published_at | date: '%d Tháng %m, %Y' }}">{{ article.published_at | date: '%d Tháng %m, %Y' }}</time>
+									</span>
+                  {%endif%}
+									{% if blog.comments_enabled? %}
+									<span class="comment"><i class="comment-icon fa fa-comment-o"></i>
+										<a href="{{ article.url }}#comments">
+											{{ article.comments_count }}<span> {{ article.comments_count | pluralize: 'Bình luận','Bình luận' }}</span>
+										</a>
+									</span>
+									{% endif %}	
+								</div>		
+							</div>
+							<div class="article-content">
+								<div class="box-article-heading clearfix">		
+									{% include 'article-image' with article:article %}
+									<div class="background-img">
+										<img src="{{ imageUrl }}" alt="{{ article.title }}" >
+									</div>
+								</div>
+								<div class="box-article-detail article-body article-table-contents unreset">{{ article.content }}</div>
+								{%- if article.tags.size > 0 -%}
+								<div class="box-article-tags">
+									<strong class="tags-title">Tags: </strong> 
+									{% for tag in article.tags %}
+									<a class="tag" href="{{shop.url}}/blogs/all/tagged/{{ tag | handle }}">#{{ tag }},</a>
+									{% endfor %}
+								</div>
+								{%- endif -%}		
+								<div class="box-article-navigation post-navigation articleToolbar ">							
+									<div class="flex-row-articleToolbar">
+										<div class="articleToolbar-title col-lg-8 col-md-12 col-12">
+											<p>Đang xem:<span> {{ article.title }}</span></p>
+										</div>
+										<div class="articleToolbar-navigation col-lg-4 col-md-12 col-12 ">
+											<div class="articleToolbar--nav">							
+												{% if blog.previous_article %}
+												<span>
+													<svg class="arrow-left" role="presentation" viewBox="0 0 11 18">
+														<path d="M9.5 1.5L1.5 9l8 7.5" stroke-width="2" stroke="currentColor" fill="none" fill-rule="evenodd" stroke-linecap="square"></path>
+													</svg>
+													{{ 'Bài trước' | link_to: blog.previous_article }}
+												</span>
+												{% endif %}
+												{% if blog.next_article and blog.previous_article %}
+												<span class="separator"></span>
+												{% endif %}		
+												{% if blog.next_article %}
+												<span>
+													{{ 'Bài sau' | link_to: blog.next_article }}
+													<svg class="arrow-right" role="presentation" viewBox="0 0 11 18">
+														<path d="M1.5 1.5l8 7.5-8 7.5" stroke-width="2" stroke="currentColor" fill="none" fill-rule="evenodd" stroke-linecap="square"></path>
+													</svg>
+												</span>
+												{% endif %}							
+											</div>
+										</div>
+									</div>					
+								</div>	
+							</div>					
+						</div>
+						{% if blog.comments_enabled? %}
+						<div class="article-comment" id="comments">
+							<div class="article-comment-form">
+								<div class="title-bl"><h3>Viết bình luận</h3></div>
+								<div id="comment">
+									<div id="comment" class="comment">
+										<div class="comment_form">
+											{% form "new_comment", article %}
+											{% if form.posted_successfully? %}
+											{% if blog.moderated? %}
+											<p class="subtext success pb-2">Bình luận thành công! Tuy nhiên, lời bình cần được kiểm duyệt trước khi đăng lên</p>
+											{% else %}
+											<p class="subtext success pb-2">Bình luận của bạn đã được đăng lên</p>
+											{% endif %}
+											{% endif %}
+
+											{% if form.errors %}
+											<p class="subtext error">Thông tin bạn nhập chưa đầy đủ</p>
+											{% endif %}
+											<div class="row">
+												<div class="col-lg-6 col-md-6 col-12">
+													<div class="form-group">
+														<input required type="text" id="comment_author" name="comment[author]" size="40" class="text form-control" placeholder="Tên của bạn " required="required" />
+													</div>
+												</div>
+												<div class="col-lg-6 col-md-6 col-12">
+													<div class="form-group">
+														<input required type="text" id="comment_email" name="comment[email]" size="40" class="text form-control" placeholder="Email của bạn" required="required"/>
+													</div>
+												</div>
+												<div class="col-lg-12 col-md-12 col-12">
+													<div class="form-group">												
+														<textarea id="comment_body" name="comment[body]" cols="40" rows="5" class="text form-control" placeholder="Viết bình luận ..." required="required">{{form.body}}</textarea>
+														<div class="sitebox-recaptcha">
+															This site is protected by reCAPTCHA and the Google
+															<a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Privacy Policy</a> 
+															and <a href="https://policies.google.com/terms" target="_blank" rel="noreferrer">Terms of Service</a> apply.
+														</div>	
+														{% if blog.moderated? %}
+														<div class="notice">Bình luận của bạn sẽ được duyệt trước khi đăng lên</div>
+														{% endif %}
+													</div>			
+													{{form.captcha_html}}
+												</div>
+											</div>
+											{%comment%}
+											<span class="pull-right">
+												<small>Tối thiểu 20 ký tự</small>
+											</span>
+											{%endcomment%}
+											<button type="submit" class="readmore button btn-rb clear-fix" id="comment-submit" >Gửi bài viết</button>
+											{% endform %}
+										</div>
+									</div>
+								</div>
+							</div>
+							{% if article.comments.size > 0 or comment.created_at %}
+							<div class="article-comment-info">
+								<div class="title-bl"><h3>Bình luận</h3></div>
+								<div id="binhluan">
+									{%- comment -%}
+									{% if comment and comment.created_at %}
+									<div id="comment-{{ comment.id }}" class="comment-user clearfix">
+										<p class="author">
+											<strong>{{ comment.author }}</strong>
+											<span class="date">{{ comment.created_at | date: '%d/%m/%Y' }}</span>
+										</p>
+										<div>{{ comment.content }}</div>
+									</div>
+									{% endif %}
+									{%- endcomment -%}
+
+									{% for comment in article.comments %}
+									<div id="comment-{{ comment.id }}" class="comment-user clearfix">
+										<p class="author">
+											<strong>{{ comment.author }}</strong>
+											<span class="date">{{ comment.created_at | date: '%d/%m/%Y' }}</span>
+										</p>
+										<div>{{ comment.content }}</div>
+									</div> <!-- /.comment -->
+									{% endfor %}
+								</div>
+							</div>
+							{% endif %}
+						</div>
+						{%endif%}	
+						{% if settings.blogs_related_show and blog.articles_count > 1 %}
+						<div class="article-related">
+							<h3 class="title-blog-related">
+								<span setting-id="blogs_related_title" setting-type="text" class="hrv-cf-blogs_related_title">
+									{%- if settings.blogs_related_title != '' -%}
+									{{settings.blogs_related_title}}
+									{%- else -%}Bài viết liên quan{%- endif -%}
+								</span>
+							</h3>		
+							<div class="content-blogs-related">
+								{%- comment -%}
+								<div class="list-blogs-related row">	
+									{% assign limitsize = 0 %}						
+									{% for a in blogs[blog.handle].articles %}
+									{% if a.image %}
+									{% comment %} Lấy hình Featured {% endcomment %}
+									{% assign imageUrl = a.image.src  | product_img_url : 'large' %}
+									{% else %}
+
+									{% comment %}Kiểm tra trích dẫn và content có hình hay ko{% endcomment %}
+									{% assign imageUrl = '' %}
+									{% if a.excerpt contains 'src=' %}
+									{% assign imageExcerptNotNull = true %}
+									{% else %}
+									{% assign imageExcerptNotNull = false %}
+									{% endif %}
+									{% if a.content contains 'src=' %}
+									{% assign imageContentNotNull = true %}
+									{% else %}
+									{% assign imageContentNotNull = false %}
+									{% endif %}
+
+									{% comment %}Nếu có Excerpt or Content cắt hình{% endcomment %}
+									{% if imageExcerptNotNull %}
+									{% assign arrayUrl = a.excerpt | split : 'src="' %}
+									{% else %}
+									{% if imageContentNotNull %}
+									{% assign arrayUrl = a.content | split : 'src="' %}
+									{% endif %}
+									{% endif %}
+
+									{% comment %}Truyền hình vào biến imageUrl{% endcomment %}
+									{% if imageExcerptNotNull == false and imageContentNotNull == false %}
+									{% assign imageUrl = '//theme.hstatic.net/1000300454/1000391697/14/blog_no_image.jpg' %}
+									{% else %}
+									{% assign imageUrl = arrayUrl[1] | split : '"'%}
+									{% if imageUrl contains '//hstatic' %}
+									{% assign imageUrl = imageUrl.first | product_img_url : 'large' %}
+									{% else %}
+									{% assign imageUrl = imageUrl.first %}
+									{% endif %}
+									{% endif %}
+									{% endif %}	
+
+									{% unless a.id == article.id %}
+									{% assign limitsize = limitsize | plus : 1 %}
+									<article class="article-post col-md-3 col-6">
+										<div class="article-inner">
+											{%if imageUrl !='' %}
+											<div class="post-image">
+												<a href="{{ a.url }}"><img src="{{imageUrl}}" alt="{{a.title}}"/></a>
+											</div>
+											{%endif%}
+											<div class="post-content">
+												<h3><a href="{{ a.url }}">{{ a.title }}</a></h3>			
+											</div>
+										</div>
+									</article>
+									{%endunless%}
+									{% if limitsize >= 4 %}{% break %}{% endif %}
+									{% endfor %}
+								</div>	
+								{%- endcomment -%}
+								<div class="list-blogs-related list-article-content owl-carousel owlCarousel-style owlCarousel-dfex">	
+									{% assign limitsize = 0 %}
+									{% for article in blogs[blog.handle].articles %}
+									{% include 'article-image' with article:article %}
+									{% assign limitsize = limitsize | plus : 1 %}
+									<article class="article-loop">
+										<div class="article-inner">				
+											<div class="article-image">
+												<a href="{{ article.url}}" class="blog-post-thumbnail" title="{{ article.title }}" rel="nofollow">
+													<img class="lazyload" {%if forloop.first%} data-src="{{ imageUrl | product_img_url : '1024x1024' }}"{%else%}data-src="{{ imageUrl | product_img_url : 'grande' }}"{%endif%}
+															 src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+															 alt="{{ article.title }}" >
+												</a>
+											</div>
+											<div class="article-detail">	
+												<div class="article-title">
+													<h3 class="post-title">
+														<a href="{{ article.url}}" title="{{ article.title }}">{{ article.title }}</a>
+													</h3>
+												</div>		
+
+												<p class="entry-content">{{ article.content | strip_html | truncatewords: 35 }}</p>
+
+												<div class="article-post-meta">   
+													<span class="date">                
+														<time pubdate datetime="{{ article.published_at | date: '%d Tháng %m, %Y' }}">{{ article.published_at | date: '%d Tháng %m, %Y' }}</time>
+													</span>
+												</div>										
+											</div>
+										</div>						
+									</article>
+									{% if limitsize >= 6 %}{% break %}{% endif %}
+									{% endfor %}
+								</div>
+							</div>							
+						</div>
+						{%endif%}	
+					</div>
+				</div>
+				<div class="col-lg-3 col-md-12 col-12 boxAricle-right">
+					{% include 'sidebar-blog' %}	
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+
+
+
+

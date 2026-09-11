@@ -1,0 +1,70 @@
+<div class="contact-form">
+  <div class="row">
+    <div class="col-sm-6 col-xs-12">
+      <div class="input-group">
+        <select class="form-control" id="dh_form_service" data-valid="dh_form_service" name="{{settings.dh_gg_service}}">
+          <option value="none">{{settings.dh_form_service}}</option>
+          {%for i in (1..10)%}
+            {%capture title%}dh_form_service_{{i}}{%endcapture%}
+            {%if settings[title]%}
+            <option value="{{settings[title]}}">{{settings[title]}}</option>
+            {%endif%}
+          {%endfor%}
+        </select>
+      </div>
+      <p class="dh_form_service-validation field-error"></p>
+    </div>
+    <div class="col-sm-6 col-xs-12">
+      <div class="input-group">
+        <input required type="text" name="{{settings.dh_gg_full_name}}" id="full_name" data-valid="full_name"  class="form-control" placeholder="{{settings.dh_form_full_name}}" aria-describedby="basic-addon1">
+      </div>
+      <p class="full_name-validation field-error"></p>
+    </div>
+    <div class="col-sm-6 col-xs-12">
+      <div class="input-group">
+        <input pattern="[0-9]{10,12}" required type="text" name="{{settings.dh_gg_phone}}" id="your_phone" data-valid="your_phone" class="form-control" placeholder="{{settings.dh_form_phone}}" aria-describedby="basic-addon1">
+      </div>
+      <p class="your_phone-validation field-error"></p>
+    </div>
+    <div class="col-sm-6 col-xs-12">
+      <div class="input-group">
+        <input required type="text" name="{{settings.dh_gg_email}}" id="your_email" data-valid="your_email" class="form-control" placeholder="{{settings.dh_form_email}}" aria-describedby="basic-addon1">
+      </div>
+      <p class="your_email-validation field-error"></p>
+    </div>
+    <div class="col-sm-6 col-xs-12">
+      <div class="input-group">
+        <input required type="date" name="{{settings.dh_gg_date}}" id="your_date" data-valid="your_date" class="form-control" placeholder="{{settings.dh_form_date}}" aria-describedby="basic-addon1">
+      </div>
+    </div>
+    <div class="col-sm-6 col-xs-12">
+      <div class="input-group">
+        <select class="form-control" id="dh_form_time" data-valid="dh_form_time" name="{{settings.dh_gg_time}}">
+          <option value="none">{{settings.dh_form_time}}</option>
+          {%for i in (1..10)%}
+            {%capture time%}dh_form_time_{{i}}{%endcapture%}
+            {%if settings[time]%}
+            <option value="{{settings[time]}}">{{settings[time]}}</option>
+            {%endif%}
+          {%endfor%}
+        </select>
+      </div>
+      <p class="dh_form_time-validation field-error"></p>
+    </div>
+    <div class="col-sm-12 col-xs-12">
+      <div class="input-group">
+        <textarea id="your_body" class="form-control hidden" placeholder=""></textarea>
+      </div>
+    </div>
+    <div class="col-sm-12 col-xs-12">
+      <div class="addcart-area">						
+        <button type="button" id="btn-booking-send" class="button btn-disabled" disabled>
+          <span class="link-title">{{settings.dh_form_booking}}</span>
+            <span class="icon">
+              <svg width="20px" height="20px" viewBox="0 0 24 24" data-name="Flat Color" xmlns="http://www.w3.org/2000/svg"><path id="primary" d="M12,20a1,1,0,0,1-1-1V13H5a1,1,0,0,1,0-2h6V5a1,1,0,0,1,2,0v6h6a1,1,0,0,1,0,2H13v6A1,1,0,0,1,12,20Z" ></path></svg>
+            </span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,91 @@
+<div class="layout-account {%if settings.hrloyalty_icon_used%}layoutAccount-hidden{%endif%}">
+	<div class="container">
+		<div class="customers-wrapper">
+			<div class="row">
+				<div class="col-lg-3 col-md-12 col-12 pr-lg-0 customers-sidebar">{% include 'sidebar-account' %}</div>
+				<div class="col-lg-9 col-md-12 col-12 pl-lg-0 customers-details" >
+					<div class="customers-details__wrap">
+						<div class="customers-header"><h1>Tài khoản của bạn </h1></div>	
+						<div class="customers-details__profile " id="customer_sidebar">
+							<p class="title-detail d-none hidden">Thông tin tài khoản</p>
+              {%if customer.last_name != empty and customer.first_name != empty%}
+              <h2 class="p_name" >{{ customer.last_name }} {{ customer.first_name }}</h2>
+              {%elsif customer.addresses_count > 0%}
+							{%- if customer.default_address.first_name != empty and customer.default_address.last_name != empty -%}
+							<h2 class="p_name" >{{ customer.default_address.last_name }} {{ customer.default_address.first_name }} </h2>
+							{%- endif -%}
+              {% endif %}
+							
+							<p class="p_email">{{ customer.email }}</p>
+              {%if customer.addresses_count > 0%}
+							<div class="address mt-1 ">
+								{% if customer.default_address != nil %}
+								<p>{{ customer.default_address.address1 }}</p>
+								{% if customer.default_address.address2 != "" %}
+								<p>{{ customer.default_address.address2 }}</p>
+								{% endif %}
+								<p>{{ customer.default_address.city}} {% if address.province_code %}{{customer.default_address.province_code}}, {% endif %}{{customer.default_address.country}}</p>
+								<p>{{ customer.default_address.phone }}</p>
+								{% endif %}
+								<p><a class="p_link" id="view_address" href="/account/addresses">Xem địa chỉ</a></p>
+							</div>
+              {%endif%}
+						</div>
+						<div class="customers-details__tables" id="customer_orders">	
+							<div class="customer-table-wrap">							
+								<div class="customer-table-bg">		
+									{% if customer.orders.size != 0 %}
+									<p class="title-detail">Danh sách đơn hàng mới nhất</p>
+									<div class="table-responsive-overflow">
+										<div class="table-responsive">
+											<table class="table table-customers">
+												<thead>
+													<tr>
+														<th class="order_number text-left">Mã đơn hàng</th>
+														<th class="date text-center">Ngày đặt</th>
+														<th class="total text-right">Thành tiền</th>
+														<th class="payment_status text-center">Trạng thái thanh toán</th>
+														<th class="fulfillment_status text-center">Vận chuyển</th>
+													</tr>
+												</thead>
+												<tbody>
+													{%- for order in customer.orders -%}
+													<tr class="{% cycle 'odd', 'even' %} {% if order.cancelled %}cancelled_order{% endif %}">
+														<td class="text-left">{{ order.name | link_to: order.customer_url }}</td>
+														<td class="text-center"><span>{{ order.created_at | date: '%d/%m/%Y' }}</span></td>
+														<td class="text-right"><span class="total money">{{ order.total_price | money }}</span></td>
+														<td class="text-center"><span class="status_{{ order.financial_status }}">{{ order.financial_status  | replace : 'pending', 'Chờ xử lý' | replace : 'paid', 'Đã hoàn tất'}}</span></td>
+														<td class="text-center"><span class="status_{{ order.fulfillment_status }}">
+															{% if order.shipment_status == 'readytopick' or  order.shipment_status == 'picking' %}
+															Đang xử lý
+															{%elsif order.shipment_status == 'delivering' or order.shipment_status == 'notmeetcustomer' %}
+															Đang giao hàng
+															{%elsif order.shipment_status == 'delivered'%}
+															Đã giao hàng
+															{%elsif order.shipment_status == 'cancel'%}
+															Đã hủy
+															{%elsif order.shipment_status == 'return' or order.shipment_status == 'waitingforreturn'%}
+															Giao không thành công
+															{%elsif order.shipment_status == 'pending'%}
+															Chờ xử lý
+															{%endif%}
+															</span>
+														</td>	
+													</tr>
+													{%- endfor -%}
+												</tbody>
+											</table>
+										</div>
+									</div>
+									{%- else -%}
+									<p>Bạn chưa đặt mua sản phẩm.</p>
+									{%- endif -%}
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>

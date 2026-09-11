@@ -1,0 +1,882 @@
+<header class="site-header">
+    <div class="site-header__top w-100">
+        <div class="container container-fuild">
+        <div class="mobile-header-bar flex flex-center-between w-100">
+            <div class="menu-mobile" onclick="document.querySelector('.category-navigation')?.classList.toggle('active')">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M27.2904 1.22144H20.8904C18.8706 1.22144 17.2333 2.86166 17.2333 4.88498V11.2962C17.2333 13.3195 18.8706 14.9597 20.8904 14.9597H27.2904C29.3102 14.9597 30.9476 13.3195 30.9476 11.2962V4.88498C30.9476 2.86166 29.3102 1.22144 27.2904 1.22144Z" fill="#3590CE" fill-opacity="0.3"></path>
+                    <path d="M27.43 1.87769H20.7509C19.17 1.87769 17.8884 3.1615 17.8884 4.74517V11.436C17.8884 13.0196 19.17 14.3035 20.7509 14.3035H27.43C29.0109 14.3035 30.2925 13.0196 30.2925 11.436V4.74517C30.2925 3.1615 29.0109 1.87769 27.43 1.87769Z" fill="#3590CE" fill-opacity="0.3" stroke="#3590CE" stroke-width="2"></path>
+                    <path d="M11.0571 1.22144H4.65714C2.63736 1.22144 1 2.86166 1 4.88498V11.2962C1 13.3195 2.63736 14.9597 4.65714 14.9597H11.0571C13.0769 14.9597 14.7143 13.3195 14.7143 11.2962V4.88498C14.7143 2.86166 13.0769 1.22144 11.0571 1.22144Z" fill="#3590CE" fill-opacity="0.3"></path>
+                    <path d="M11.1967 1.87769H4.51762C2.93672 1.87769 1.65515 3.1615 1.65515 4.74517V11.436C1.65515 13.0196 2.93672 14.3035 4.51762 14.3035H11.1967C12.7776 14.3035 14.0592 13.0196 14.0592 11.436V4.74517C14.0592 3.1615 12.7776 1.87769 11.1967 1.87769Z" fill="#3590CE" fill-opacity="0.3" stroke="#3590CE" stroke-width="2"></path>
+                    <path d="M27.2904 17.4832H20.8904C18.8706 17.4832 17.2333 19.1234 17.2333 21.1467V27.5579C17.2333 29.5812 18.8706 31.2215 20.8904 31.2215H27.2904C29.3102 31.2215 30.9476 29.5812 30.9476 27.5579V21.1467C30.9476 19.1234 29.3102 17.4832 27.2904 17.4832Z" fill="#3590CE" fill-opacity="0.3"></path>
+                    <path d="M27.43 18.1394H20.7509C19.17 18.1394 17.8884 19.4232 17.8884 21.0069V27.6977C17.8884 29.2814 19.17 30.5652 20.7509 30.5652H27.43C29.0109 30.5652 30.2925 29.2814 30.2925 27.6977V21.0069C30.2925 19.4232 29.0109 18.1394 27.43 18.1394Z" fill="#3590CE" fill-opacity="0.3" stroke="#3590CE" stroke-width="2"></path>
+                    <path d="M11.0571 17.4832H4.65714C2.63736 17.4832 1 19.1234 1 21.1467V27.5579C1 29.5812 2.63736 31.2215 4.65714 31.2215H11.0571C13.0769 31.2215 14.7143 29.5812 14.7143 27.5579V21.1467C14.7143 19.1234 13.0769 17.4832 11.0571 17.4832Z" fill="#3590CE" fill-opacity="0.3"></path>
+                    <path d="M11.1967 18.1394H4.51762C2.93672 18.1394 1.65515 19.4232 1.65515 21.0069V27.6977C1.65515 29.2814 2.93672 30.5652 4.51762 30.5652H11.1967C12.7776 30.5652 14.0592 29.2814 14.0592 27.6977V21.0069C14.0592 19.4232 12.7776 18.1394 11.1967 18.1394Z" fill="#3590CE" fill-opacity="0.3" stroke="#3590CE" stroke-width="2"></path>
+                </svg>
+            </div>
+            <div class="logo">
+                <a href="/" aria-label="Logo">
+                    <img src="{{ "logo.png" | asset_url }}" alt="logo-hlt-2024" width="199" height="45">
+                </a>
+            </div>
+            <div class="user">
+                <a class="flex-center open-login" href="/account" aria-label="Account">
+                    <svg width="20" height="25" viewBox="0 0 20 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 12.7841C13.5302 12.7841 16.3921 9.92227 16.3921 6.39205C16.3921 2.86182 13.5302 0 10 0C6.46979 0 3.60797 2.86182 3.60797 6.39205C3.60797 9.92227 6.46979 12.7841 10 12.7841Z" fill="#3590CE"></path>
+                        <path d="M10 14.9148C4.74434 14.9148 0.482971 18.892 0.482971 24.0057C0.482971 24.5739 0.909108 25 1.47729 25H18.5227C18.5227 25 19.5171 24.5739 19.5171 24.0057C19.5171 19.0341 15.2557 14.9148 10 14.9148Z" fill="#3590CE"></path>
+                    </svg>
+                </a>
+            </div>
+        </div>
+        <div class="main-header__search mobile">
+            <div class="search-form">
+                <form action="/search" method="GET">
+                    <div class="search-form__input">
+                        <input autocomplete="off" type="text" name="q" placeholder="Nhập từ khoá để tìm kiếm sản phẩm">
+                    </div>
+                    <div class="search-form_btn">
+                        <button type="submit" aria-label="Tìm kiếm">
+                            <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M19.9138 18.6329L16.0438 14.7642C18.9396 10.8955 18.1511 5.41042 14.2811 2.51551C10.4111 -0.379397 4.92417 0.40892 2.0283 4.28426C-0.867571 8.15297 -0.0789933 13.6314 3.79763 16.5263C6.90555 18.8515 11.1731 18.8515 14.2877 16.5263L18.1577 20.3951C18.6414 20.8786 19.4366 20.8786 19.9204 20.3951C20.4041 19.9115 20.4041 19.1165 19.9204 18.6329H19.9138ZM9.06585 15.7778C5.6266 15.7778 2.83675 12.9889 2.83675 9.55074C2.83675 6.11262 5.63322 3.33033 9.07248 3.33033C12.5117 3.33033 15.3016 6.11924 15.3016 9.55736C15.3016 12.9955 12.5117 15.7844 9.07248 15.7844L9.06585 15.7778Z" fill="white"/>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="search-popular flex-left-center">
+                <p class="search-popular__title">Tìm kiếm nhiều nhất :</p>
+                <div class="search-popular__list flex-left-center">
+                    <p class="search-popular__value"><a href="/collections/cam-bien-ap-suat">Cảm biến áp suất</a></p>
+                    <p class="search-popular__value"><a href="/collections/cam-bien-tiem-can">Cảm biến tiệm cận</a></p>
+                    <p class="search-popular__value"><a href="/collections/bien-tan">Biến tần</a></p>
+                    <p class="search-popular__value"><a href="/collections/nut-nhan">Nút nhấn</a></p>
+                </div>
+            </div>
+        </div>
+            <div class="main-header flex flex-left-between w-100">
+                <div class="main-header__logo">
+                    <a href="/" aria-label="Logo" title="Logo">
+                        <div class=""
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="logo-hlt-2024"
+                            width="243"
+                            height="55"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                    </a>
+                </div>
+                <div class="main-header__search">
+    <div class="search-form">
+        <form method="GET">
+            <input type="hidden" name="_token" value="cbPgr9fLBRyoJ0xKguHa3QFSYertLGpMDINS35Ce" autocomplete="off">            <div class="search-form__input">
+                <input autocomplete="off" type="text" placeholder="Nhập từ khoá để tìm kiếm sản phẩm">
+                <span class="loading-suggest">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 200 200"><radialGradient id="a10" cx=".66" fx=".66" cy=".3125" fy=".3125" gradientTransform="scale(1.5)"><stop offset="0" stop-color="#ffffff"></stop><stop offset=".3" stop-color="#ffffff" stop-opacity=".9"></stop><stop offset=".6" stop-color="#ffffff" stop-opacity=".6"></stop><stop offset=".8" stop-color="#ffffff" stop-opacity=".3"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop></radialGradient><circle transform-origin="center" fill="none" stroke="url(#a10)" stroke-width="9" stroke-linecap="round" stroke-dasharray="200 1000" stroke-dashoffset="0" cx="100" cy="100" r="70"><animateTransform type="rotate" attributeName="transform" calcMode="spline" dur="2" values="360;0" keyTimes="0;1" keySplines="0 0 1 1" repeatCount="indefinite"></animateTransform></circle><circle transform-origin="center" fill="none" opacity=".2" stroke="#ffffff" stroke-width="9" stroke-linecap="round" cx="100" cy="100" r="70"></circle></svg>
+                </span>
+            </div>
+            <div class="search-form_btn">
+                <button type="submit">
+                    <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M19.9138 18.6329L16.0438 14.7642C18.9396 10.8955 18.1511 5.41042 14.2811 2.51551C10.4111 -0.379397 4.92417 0.40892 2.0283 4.28426C-0.867571 8.15297 -0.0789933 13.6314 3.79763 16.5263C6.90555 18.8515 11.1731 18.8515 14.2877 16.5263L18.1577 20.3951C18.6414 20.8786 19.4366 20.8786 19.9204 20.3951C20.4041 19.9115 20.4041 19.1165 19.9204 18.6329H19.9138ZM9.06585 15.7778C5.6266 15.7778 2.83675 12.9889 2.83675 9.55074C2.83675 6.11262 5.63322 3.33033 9.07248 3.33033C12.5117 3.33033 15.3016 6.11924 15.3016 9.55736C15.3016 12.9955 12.5117 15.7844 9.07248 15.7844L9.06585 15.7778Z" fill="white"/>
+                    </svg>
+                </button>
+            </div>
+        </form>
+    </div>
+            <div class="search-popular flex-left">
+            <p class="search-popular__title">Tìm kiếm nhiều nhất :</p>
+                            <p class="search-popular__value"><a aria-label="Cảm biến áp suất" title="Cảm biến áp suất" href="/collections/cam-bien-ap-suat">Cảm biến áp suất</a></p>
+                            <p class="search-popular__value"><a aria-label="Cảm biến tiệm cận" title="Cảm biến tiệm cận" href="/collections/cam-bien-tiem-can">Cảm biến tiệm cận</a></p>
+                            <p class="search-popular__value"><a aria-label="Biến tần" title="Biến tần" href="/collections/bien-tan">Biến tần</a></p>
+                            <p class="search-popular__value"><a aria-label="Nút nhấn" title="Nút nhấn" href="/collections/nut-nhan">Nút nhấn</a></p>
+                    </div>
+        
+    <div class="suggest " id="suggest" >
+                <div class="suggest-keyword">
+            <div class="suggest-title">
+                <p>Có thể bạn muốn tìm kiếm</p>
+            </div>
+                            <div class="suggest-keyword__item">
+                    <a href="/products/fr150a-2s-22b-h" aria-label="Biến tần FR150A-2S-2.2B-H Frecon" title="Biến tần FR150A-2S-2.2B-H Frecon">Biến tần FR150A-2S-2.2B-H Frecon</a></a>
+                </div>
+                            <div class="suggest-keyword__item">
+                    <a href="/products/mvs16n3mf2l" aria-label="Máy cắt khí MVS16N3MF2L Schneider" title="Máy cắt khí MVS16N3MF2L Schneider">Máy cắt khí MVS16N3MF2L Schneider</a></a>
+                </div>
+                    </div>
+                
+            <div class="suggest-product">
+                <div class="suggest-title">
+                    <p>Sản phẩm</p>
+                </div>
+                                    <p class="search-not-found">Không có sản phẩm nào phù hợp!</p>
+                
+            </div>
+    </div>
+</div>
+                <div class="main-header-cta flex-center-around">
+                    <div class="hotline flex-center">
+                        <a href="tel:1800 6345" aria-label="1800 6345" title="1800 6345" class="item-cta flex-center">
+                            <svg width="21" height="20" viewBox="0 0 21 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <g clip-path="url(#clip0_144_3515)">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M8.68786 11.039C8.15241 10.5036 7.63523 9.95599 7.13021 9.38403C6.76513 8.9642 6.80164 8.32532 7.22147 7.96024C7.27624 7.91157 7.331 7.87506 7.39184 7.83855L8.93732 6.9502C9.46668 6.63989 9.64314 5.9645 9.33891 5.43514L6.56434 0.622244C6.26011 0.0928861 5.57864 -0.0896513 5.04928 0.214578L1.19774 2.44153C0.8996 2.6119 0.698809 2.91004 0.650132 3.25078C0.619709 3.62802 0.662301 4.01135 0.777908 4.37034C1.89139 7.77771 3.78977 10.8687 6.32704 13.3999C9.29023 16.3752 13.0201 18.4683 17.1028 19.4418C17.5653 19.527 18.0338 19.3141 18.265 18.9064L20.4859 15.0549C20.7901 14.5255 20.6075 13.844 20.0782 13.5398L15.2653 10.7652C14.7359 10.461 14.0545 10.6375 13.7502 11.1729L12.6733 13.0348C12.3994 13.5215 11.7849 13.6919 11.2981 13.4181C11.2495 13.3877 11.1947 13.3573 11.1521 13.3147C10.2942 12.5967 9.46668 11.8422 8.67569 11.0451L8.68786 11.039Z" fill="#3590CE"/>
+                                </g>
+                                <defs>
+                                <clipPath id="clip0_144_3515">
+                                <rect width="20" height="19.3915" fill="white" transform="translate(0.644531 0.0683594)"/>
+                                </clipPath>
+                                </defs>
+                            </svg>
+                            <span>Hotline: 1800 6345</span>
+                        </a>
+                    </div>
+                    <div class="systerm" @click.away="openBranch = false">
+                                                    <p class="item-cta flex-center">
+                                <svg width="17" height="21" viewBox="0 0 17 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd" clip-rule="evenodd" d="M8.82187 20.7642C10.6363 20.7642 16.9992 13.8758 16.9992 8.94971C16.9992 4.0236 13.748 0.76416 8.82187 0.76416C3.89576 0.76416 0.644531 4.0236 0.644531 8.9415C0.644531 13.8594 7.00742 20.7559 8.82187 20.7559V20.7642ZM8.82187 12.5868C10.8334 12.5868 12.459 10.9612 12.459 8.94971C12.459 6.93822 10.8334 5.3126 8.82187 5.3126C6.81038 5.3126 5.18476 6.93822 5.18476 8.94971C5.18476 10.9612 6.81038 12.5868 8.82187 12.5868Z" fill="#3590CE"/>
+                                </svg>
+                                <span>Hệ thống chi nhánh</span>
+                            </p>
+                            <div :class="{ 'systerm-lists': true, 'active': openBranch }" id="systerm-list">
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=1" aria-label="Trụ sở chính">
+                                            <span class="name">Trụ sở chính</span><br>
+                                            <span class="description">Tầng 3, tòa nhà HH01, 87 Lĩnh Nam, phường Vĩnh Tuy, Hà Nội</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=2" aria-label="Văn Phòng Thái Hà">
+                                            <span class="name">Văn Phòng Thái Hà</span><br>
+                                            <span class="description">Số 33A, Ngõ 41 phố Thái Hà, phường Đống Đa, Hà Nội</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=8" aria-label="Chi nhánh Hồ Chí Minh">
+                                            <span class="name">Chi nhánh Hồ Chí Minh</span><br>
+                                            <span class="description">55 Minh Phụng, phường Đông Hưng Thuận (Quận 12 cũ)</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=5" aria-label="Chi nhánh Hải Phòng">
+                                            <span class="name">Chi nhánh Hải Phòng</span><br>
+                                            <span class="description">Số 23, BS1 Khu Đô thị PG, phường An Hải, Hải Phòng</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=7" aria-label="Chi nhánh Đà Nẵng">
+                                            <span class="name">Chi nhánh Đà Nẵng</span><br>
+                                            <span class="description">35 Chu Mạnh Trinh, phường Cẩm Lệ, Đà Nẵng</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=4" aria-label="Xưởng sản xuất">
+                                            <span class="name">Xưởng sản xuất</span><br>
+                                            <span class="description">Số 20, Ngõ 64 Sài Đồng, phường Phúc Lợi, Hà Nội</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=9" aria-label="Trung tâm Bảo hành Ecovacs">
+                                            <span class="name">Trung tâm Bảo hành Ecovacs</span><br>
+                                            <span class="description">Toà D CC Báo Nhân Dân, phường Xuân Phương, Hà Nội</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=12" aria-label="Aqara Smart Home">
+                                            <span class="name">Aqara Smart Home</span><br>
+                                            <span class="description">198 Ngọc Trai 6, Vinhomes Ocean Park, xã Gia Lâm, Hà Nội</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=11" aria-label="National Distribution Center 1">
+                                            <span class="name">National Distribution Center 1</span><br>
+                                            <span class="description">Thôn Lập Thành, xã Yên Xuân, Hà Nội</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=13" aria-label="National Distribution Center 2">
+                                            <span class="name">National Distribution Center 2</span><br>
+                                            <span class="description">KCN Yên Mỹ 1, xã Yên Mỹ, Hưng Yên</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=10" aria-label="National Distribution Center 3">
+                                            <span class="name">National Distribution Center 3</span><br>
+                                            <span class="description">16/16 Tân Thới Nhất 8, phường Đông Hưng Thuận, Hồ Chí Minh</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=3" aria-label="Region Distribution Center 1">
+                                            <span class="name">Region Distribution Center 1</span><br>
+                                            <span class="description">186 phố Sài Đồng, phường Phúc Lợi, Hà Nội</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=14" aria-label="Region Distribution Center 2">
+                                            <span class="name">Region Distribution Center 2</span><br>
+                                            <span class="description">45 Vũ Viết Sào, phường An Hải, Hải Phòng</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=15" aria-label="Region Distribution Center 3">
+                                            <span class="name">Region Distribution Center 3</span><br>
+                                            <span class="description">Kho Bình Vinh, Đường số 1, KCN Hòa Cầm, phường Cẩm Lệ, Đà Nẵng</span>
+                                        </a>
+                                    </p>
+                                                                    <p class="systerm-lists__item">
+                                        <a href="/lien-he?branch=16" aria-label="Region Distribution Center 4">
+                                            <span class="name">Region Distribution Center 4</span><br>
+                                            <span class="description">Km 330+445, đường tránh TP, phường Quảng Phú, Thanh Hóa</span>
+                                        </a>
+                                    </p>
+                                                            </div>
+                                            </div>
+                </div>
+                <div class="main-header-icon flex flex-center-right">
+                    <div class="icon-top">
+                        <a class="flex-center" href="/my-account/notifications" aria-label="Notification" title="Notifications">
+                            <svg width="19" height="21" viewBox="0 0 19 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M18.2625 10.7181L16.825 5.95246C15.6844 1.82746 11.4032 -0.594414 7.26255 0.546211C4.51255 1.31184 2.38755 3.53059 1.76255 6.32746L0.65317 10.9368C0.106295 13.1712 1.4813 15.4212 3.71567 15.9681C4.0438 16.0462 4.37192 16.0931 4.70005 16.0931H14.2938C16.5907 16.0931 18.4657 14.2337 18.4657 11.9212C18.4657 11.515 18.4032 11.1087 18.2938 10.7181H18.2625Z" fill="#3590CE"/>
+                                <path d="M5.6875 18.0933C6.60937 20.2026 9.04688 21.1558 11.1562 20.2495C12.125 19.8276 12.8906 19.062 13.3125 18.0933H5.6875Z" fill="#3590CE"/>
+                            </svg>
+                        </a>
+                        <span class="notify-qty quantity-slot">
+                                                            0
+                                                    </span>
+                    </div>
+                    <div class="icon-top">
+                        <a class="flex-center" href="/cart" aria-label="Cart" title="Cart">
+                            <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M19.7033 3.92801C19.7033 3.92801 18.4811 3.15023 17.8145 3.15023H4.37001V2.92801C4.14779 1.59467 3.03668 0.816895 1.81445 0.816895H1.59223C1.59223 0.816895 0.814453 1.15023 0.814453 1.59467C0.814453 2.03912 1.2589 2.37245 1.59223 2.37245H1.81445C1.81445 2.37245 2.59223 2.59467 2.59223 3.03912L3.70334 11.928C4.03668 13.928 5.81445 15.3724 7.81445 15.2613H16.4811C16.4811 15.2613 17.2589 15.0391 17.2589 14.5947C17.2589 14.1502 17.0367 13.8169 16.5922 13.8169C16.5922 13.8169 16.5922 13.8169 16.4811 13.8169H7.81445C6.81445 13.8169 5.81445 13.2613 5.48112 12.2613H15.37C17.2589 12.2613 19.0367 11.0391 19.4811 9.15023L20.1478 5.81689C20.2589 5.15023 20.1478 4.48356 19.5922 3.92801H19.7033Z" fill="#3590CE"/>
+                                <path d="M6.61089 20.712C7.83819 20.712 8.83312 19.7171 8.83312 18.4898C8.83312 17.2625 7.83819 16.2676 6.61089 16.2676C5.38359 16.2676 4.38867 17.2625 4.38867 18.4898C4.38867 19.7171 5.38359 20.712 6.61089 20.712Z" fill="#3590CE"/>
+                                <path d="M14.3882 20.712C15.6155 20.712 16.6105 19.7171 16.6105 18.4898C16.6105 17.2625 15.6155 16.2676 14.3882 16.2676C13.1609 16.2676 12.166 17.2625 12.166 18.4898C12.166 19.7171 13.1609 20.712 14.3882 20.712Z" fill="#3590CE"/>
+                            </svg>
+                        </a>
+                        <span class="cart-qty quantity-slot">0</span>
+                    </div>
+                    <div class="icon-top show-desktop">
+                        <a class="flex-center open-login w-100" aria-label="My account" title="My account"
+                                                           
+                                                    >
+                            <svg width="17" height="21" viewBox="0 0 17 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8.50036 10.9914C11.3245 10.9914 13.614 8.70198 13.614 5.8778C13.614 3.05361 11.3245 0.76416 8.50036 0.76416C5.67617 0.76416 3.38672 3.05361 3.38672 5.8778C3.38672 8.70198 5.67617 10.9914 8.50036 10.9914Z" fill="#3590CE"/>
+                                <path d="M8.50036 12.6958C4.29581 12.6958 0.886719 15.8776 0.886719 19.9685C0.886719 20.4231 1.22763 20.764 1.68217 20.764H15.3185C15.3185 20.764 16.114 20.4231 16.114 19.9685C16.114 15.9913 12.7049 12.6958 8.50036 12.6958Z" fill="#3590CE"/>
+                            </svg>
+                        </a>
+                                                    <div>
+            <div :class="{'popup popup-login flex-center': true, 'active': openLogin }" id="popup-login">
+            <div class="popup-content">
+                <p class="popup-close">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M1.08008 1.07764L14.0978 14.0954" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M1.08008 14.0942L14.0978 1.07647" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </p>
+                <div class="popup-content__wrap flex-left-between">
+                    <div class="form-login">
+                        <p class="form-login__title flex-center-left">
+                            <span>Chào mừng bạn quay trở lại</span>
+                            <svg width="38" height="36" viewBox="0 0 38 36" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                                <rect width="38" height="36" fill="url(#pattern0)"/>
+                                <defs>
+                                <pattern id="pattern0" patternContentUnits="objectBoundingBox" width="1" height="1">
+                                <use xlink:href="#image0_386_25713" transform="matrix(0.0227273 0 0 0.0239899 0 -0.00378788)"/>
+                                </pattern>
+                                <image id="image0_386_25713" width="44" height="42" xlink:href="data:image/png;base64,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"/>
+                                </defs>
+                            </svg>
+                        </p>
+                        <form class="form-login__action">
+                            <p class="connect-out">
+                                <a href="/login/google" class="flex-center">
+                                    <svg width="26" height="25" viewBox="0 0 26 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M24.4821 10.228L14.4631 10.2275C14.0207 10.2275 13.6621 10.5861 13.6621 11.0285V14.2291C13.6621 14.6715 14.0207 15.0301 14.4631 15.0301H17.0842C18.5398 15.0301 19.4985 16.5163 18.4852 17.5613C17.689 18.3824 17.3263 19.6314 17.8985 20.6218L18.0646 20.9094C18.7296 22.0605 20.2229 22.4711 21.2295 21.6028C23.8885 19.3092 25.4095 16.0416 25.4095 12.4622C25.4095 11.838 25.3635 11.3918 25.2715 10.8893C25.2016 10.5076 24.8702 10.228 24.4821 10.228Z" fill="#167EE6"/>
+                                        <path d="M13.1267 19.8391C11.2254 19.8391 9.49044 19.1238 8.17155 17.9495C7.18101 17.0675 5.73063 16.6341 4.58154 17.2965C3.42993 17.9602 3.01957 19.4525 3.89507 20.4527C6.14395 23.0218 9.4479 24.6449 13.1267 24.6449C15.3531 24.6449 17.4539 24.0458 19.264 23.0017C19.2661 23.0005 19.2674 22.9983 19.2674 22.9959C19.2674 22.9947 19.2671 22.9935 19.2665 22.9925L18.7595 22.1149C17.7119 20.3013 15.3408 19.8045 13.2466 19.8382C13.2067 19.8388 13.1667 19.8391 13.1267 19.8391Z" fill="#12B347"/>
+                                        <path d="M19.2643 23.0019C19.2664 23.0007 19.2677 22.9985 19.2677 22.9961C19.2677 22.9949 19.2674 22.9937 19.2668 22.9927L17.8417 20.5257C17.3008 19.5894 16.133 19.287 15.0906 19.5742C14.0495 19.8611 13.127 20.7148 13.127 21.7947V22.2422C13.127 23.5693 14.2129 24.6693 15.5147 24.4116C16.8533 24.1465 18.1172 23.6636 19.2643 23.0019Z" fill="#0F993E"/>
+                                        <path d="M5.65149 12.3635C5.65149 11.8524 5.70387 11.3536 5.8031 10.8718C6.07153 9.56814 5.7246 8.08913 4.57146 7.42447C3.42404 6.76311 1.93168 7.1502 1.50233 8.40305C1.07638 9.64596 0.845703 10.9784 0.845703 12.3635C0.845703 13.7487 1.07638 15.0811 1.50233 16.324C1.93168 17.5768 3.42404 17.9639 4.57146 17.3026C5.7246 16.6379 6.07153 15.1589 5.8031 13.8553C5.70387 13.3734 5.65149 12.8747 5.65149 12.3635Z" fill="#FFD500"/>
+                                        <path d="M13.1267 4.88781C14.9272 4.88781 16.5811 5.5276 17.8729 6.59181C18.1916 6.85433 18.6548 6.83538 18.9467 6.54346L21.2144 4.27571C21.5457 3.94449 21.5221 3.40234 21.1682 3.0954C19.0039 1.21773 16.1878 0.0820312 13.1267 0.0820312C9.4479 0.0820312 6.14395 1.70516 3.89507 4.27426C3.01957 5.27442 3.42993 6.76671 4.58154 7.43048C5.73063 8.09281 7.18101 7.65948 8.17155 6.77748C9.49044 5.60312 11.2254 4.88781 13.1267 4.88781Z" fill="#FF4B26"/>
+                                        <path d="M17.8732 6.59181C18.1918 6.85433 18.6551 6.83538 18.947 6.54346L21.2147 4.27571C21.5459 3.94449 21.5223 3.40234 21.1685 3.0954C19.581 1.71814 17.6429 0.74011 15.5146 0.316599C14.2131 0.0575949 13.127 1.15784 13.127 2.48492C13.127 3.812 14.23 4.84985 15.4888 5.27005C16.367 5.56321 17.1732 6.01521 17.8732 6.59181Z" fill="#D93F21"/>
+                                    </svg>
+                                    <span>Đăng nhập bằng Google</span>
+                                </a>
+                            </p>
+                            <p class="connect-out">
+                                <a href="/login/facebook" class="flex-center">
+                                    <svg width="26" height="25" viewBox="0 0 26 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M13.1257 24.643C19.9078 24.643 25.4057 19.1451 25.4057 12.363C25.4057 5.58095 19.9078 0.0830078 13.1257 0.0830078C6.34365 0.0830078 0.845703 5.58095 0.845703 12.363C0.845703 19.1451 6.34365 24.643 13.1257 24.643Z" fill="#3B5998"/>
+                                        <path d="M16.3195 11.81C16.259 12.3974 15.7642 12.8439 15.1737 12.8439C14.5376 12.8439 14.0219 13.3596 14.0219 13.9957V19.2116C14.0219 20.1283 13.2787 20.8715 12.3619 20.8715C11.4452 20.8715 10.702 20.1283 10.702 19.2116V13.6334C10.702 13.1974 10.3485 12.8439 9.91252 12.8439C9.47651 12.8439 9.12305 12.4904 9.12305 12.0544V10.8122C9.12305 10.3761 9.47651 10.0227 9.91252 10.0227C10.3485 10.0227 10.702 9.66922 10.702 9.23321V8.19704C10.702 6.8915 11.3221 4.84717 14.0514 4.84717L15.1442 4.85174C15.8998 4.8549 16.5106 5.46828 16.5106 6.22383C16.5106 6.98162 15.8963 7.59593 15.1385 7.59593H14.7263C14.4336 7.59593 14.0221 7.74216 14.0221 8.36493V8.84845C14.0221 9.49841 14.549 10.0253 15.1989 10.0253C15.8966 10.0253 16.441 10.6287 16.3696 11.3226L16.3195 11.81Z" fill="white"/>
+                                    </svg>
+                                    <span>Đăng nhập bằng Facebook</span>
+                                </a>
+                            </p>
+                            <p class="text-center or-login">Hoặc</p>
+                            <label for="username">
+                                <span>Email</span>
+                                <input type="text" placeholder="Email">
+                                <span class="input-icon">
+                                    <svg width="18" height="15" viewBox="0 0 18 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M17.0069 3.63311C17.0086 3.63466 17.0086 3.63729 17.0069 3.63884L11.2166 9.07598C9.8747 10.336 7.69152 10.336 6.34967 9.07598L0.765987 3.84252C0.682401 3.76418 0.513672 3.82141 0.513672 3.93598V11.696C0.513672 13.476 2.05787 14.926 3.9535 14.926H13.5914C15.4977 14.926 17.0312 13.476 17.0312 11.696V3.92598C17.0312 3.82914 17.0113 3.74168 17.0003 3.63635C17 3.63275 17.0043 3.63063 17.0069 3.63311Z" fill="#D4D4D4"/>
+                                        <path d="M10.2427 8.16629C10.2461 8.16629 10.2494 8.16499 10.2518 8.16266L14.0109 4.62695C15.4731 3.2516 15.61 0.696289 13.6026 0.696289H3.96469C1.95178 0.696289 2.0878 3.25389 3.55519 4.63177L7.31932 8.16629C8.12738 8.92505 9.43435 8.92629 10.2334 8.16998C10.2359 8.16762 10.2392 8.16629 10.2427 8.16629Z" fill="#D4D4D4"/>
+                                    </svg>
+                                </span>
+                            </label>
+                            <label for="password">
+                                <span>Mật khẩu</span>
+                                <input type="password" placeholder="*******">
+                                <span class="input-icon">
+                                    <svg width="18" height="14" viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <g clip-path="url(#clip0_386_25757)">
+                                        <path d="M9.0287 9.75859C10.5957 9.75859 11.866 8.48261 11.866 6.90859C11.866 5.33458 10.5957 4.05859 9.0287 4.05859C7.46171 4.05859 6.19141 5.33458 6.19141 6.90859C6.19141 8.48261 7.46171 9.75859 9.0287 9.75859Z" fill="#D4D4D4"/>
+                                        <path d="M17.0128 5.06879C15.3901 2.15879 12.3437 0.328789 9.02859 0.258789C5.70348 0.328789 2.66707 2.15879 1.03438 5.06879C0.337499 6.19879 0.337499 7.61879 1.03438 8.73879C2.65711 11.6488 5.69352 13.4788 9.01863 13.5588C12.3437 13.4888 15.3802 11.6588 17.0029 8.73879C17.6998 7.60879 17.6998 6.18879 17.0029 5.06879H17.0128ZM9.02859 11.1788C6.67911 11.1788 4.77762 9.26879 4.77762 6.90879C4.77762 4.54879 6.67911 2.63879 9.02859 2.63879C11.3781 2.63879 13.2796 4.54879 13.2796 6.90879C13.2796 9.26879 11.3781 11.1788 9.02859 11.1788Z" fill="#D4D4D4"/>
+                                        </g>
+                                        <defs>
+                                        <clipPath id="clip0_386_25757">
+                                        <rect x="0.517578" y="0.258789" width="17.0138" height="13.31" rx="5" fill="white"/>
+                                        </clipPath>
+                                        </defs>
+                                    </svg>
+                                </span>
+                            </label>
+                            <div class="form-remember flex-left-between">
+                                <label for="remember-check">
+                                    <input type="checkbox" id="remember-check" value="1">
+                                    Nhớ mật khẩu
+                                </label>
+                                <a href="/forgot-password" aria-label="Bạn quên mật khẩu ?" class="forgot-password">Bạn quên mật khẩu ?</a>
+                            </div>
+                            <button type="submit" class="flex-center">
+                                <span>Đăng nhập</span>
+                                <span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 200 200"><radialGradient id="a10" cx=".66" fx=".66" cy=".3125" fy=".3125" gradientTransform="scale(1.5)"><stop offset="0" stop-color="#ffffff"></stop><stop offset=".3" stop-color="#ffffff" stop-opacity=".9"></stop><stop offset=".6" stop-color="#ffffff" stop-opacity=".6"></stop><stop offset=".8" stop-color="#ffffff" stop-opacity=".3"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop></radialGradient><circle transform-origin="center" fill="none" stroke="url(#a10)" stroke-width="9" stroke-linecap="round" stroke-dasharray="200 1000" stroke-dashoffset="0" cx="100" cy="100" r="70"><animateTransform type="rotate" attributeName="transform" calcMode="spline" dur="2" values="360;0" keyTimes="0;1" keySplines="0 0 1 1" repeatCount="indefinite"></animateTransform></circle><circle transform-origin="center" fill="none" opacity=".2" stroke="#ffffff" stroke-width="9" stroke-linecap="round" cx="100" cy="100" r="70"></circle></svg>
+                                </span>
+                            </button>
+                                                        <p class="register">Bạn chưa có tài khoản ? <a href="/register" aria-label="Đăng ký ngay">Đăng ký ngay</a> </p>
+                        </form>
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+                                                                    </div>
+                    <div class="icon-top responsive">
+                        <a class="flex-center open-login" aria-label="My account" title="My account"
+                                                           
+                                                    >
+                            <svg width="17" height="21" viewBox="0 0 17 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8.50036 10.9914C11.3245 10.9914 13.614 8.70198 13.614 5.8778C13.614 3.05361 11.3245 0.76416 8.50036 0.76416C5.67617 0.76416 3.38672 3.05361 3.38672 5.8778C3.38672 8.70198 5.67617 10.9914 8.50036 10.9914Z" fill="#3590CE"/>
+                                <path d="M8.50036 12.6958C4.29581 12.6958 0.886719 15.8776 0.886719 19.9685C0.886719 20.4231 1.22763 20.764 1.68217 20.764H15.3185C15.3185 20.764 16.114 20.4231 16.114 19.9685C16.114 15.9913 12.7049 12.6958 8.50036 12.6958Z" fill="#3590CE"/>
+                            </svg>
+                        </a>
+                                                    <div>
+            <div :class="{'popup popup-login flex-center': true, 'active': openLogin }" id="popup-login">
+            <div class="popup-content">
+                <p class="popup-close">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M1.08008 1.07764L14.0978 14.0954" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M1.08008 14.0942L14.0978 1.07647" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </p>
+                <div class="popup-content__wrap flex-left-between">
+                    <div class="form-login">
+                        <p class="form-login__title flex-center-left">
+                            <span>Chào mừng bạn quay trở lại</span>
+                            <svg width="38" height="36" viewBox="0 0 38 36" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                                <rect width="38" height="36" fill="url(#pattern0)"/>
+                                <defs>
+                                <pattern id="pattern0" patternContentUnits="objectBoundingBox" width="1" height="1">
+                                <use xlink:href="#image0_386_25713" transform="matrix(0.0227273 0 0 0.0239899 0 -0.00378788)"/>
+                                </pattern>
+                                <image id="image0_386_25713" width="44" height="42" xlink:href="data:image/png;base64,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"/>
+                                </defs>
+                            </svg>
+                        </p>
+                        <form class="form-login__action">
+                            <p class="connect-out">
+                                <a href="/login/google" class="flex-center">
+                                    <svg width="26" height="25" viewBox="0 0 26 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M24.4821 10.228L14.4631 10.2275C14.0207 10.2275 13.6621 10.5861 13.6621 11.0285V14.2291C13.6621 14.6715 14.0207 15.0301 14.4631 15.0301H17.0842C18.5398 15.0301 19.4985 16.5163 18.4852 17.5613C17.689 18.3824 17.3263 19.6314 17.8985 20.6218L18.0646 20.9094C18.7296 22.0605 20.2229 22.4711 21.2295 21.6028C23.8885 19.3092 25.4095 16.0416 25.4095 12.4622C25.4095 11.838 25.3635 11.3918 25.2715 10.8893C25.2016 10.5076 24.8702 10.228 24.4821 10.228Z" fill="#167EE6"/>
+                                        <path d="M13.1267 19.8391C11.2254 19.8391 9.49044 19.1238 8.17155 17.9495C7.18101 17.0675 5.73063 16.6341 4.58154 17.2965C3.42993 17.9602 3.01957 19.4525 3.89507 20.4527C6.14395 23.0218 9.4479 24.6449 13.1267 24.6449C15.3531 24.6449 17.4539 24.0458 19.264 23.0017C19.2661 23.0005 19.2674 22.9983 19.2674 22.9959C19.2674 22.9947 19.2671 22.9935 19.2665 22.9925L18.7595 22.1149C17.7119 20.3013 15.3408 19.8045 13.2466 19.8382C13.2067 19.8388 13.1667 19.8391 13.1267 19.8391Z" fill="#12B347"/>
+                                        <path d="M19.2643 23.0019C19.2664 23.0007 19.2677 22.9985 19.2677 22.9961C19.2677 22.9949 19.2674 22.9937 19.2668 22.9927L17.8417 20.5257C17.3008 19.5894 16.133 19.287 15.0906 19.5742C14.0495 19.8611 13.127 20.7148 13.127 21.7947V22.2422C13.127 23.5693 14.2129 24.6693 15.5147 24.4116C16.8533 24.1465 18.1172 23.6636 19.2643 23.0019Z" fill="#0F993E"/>
+                                        <path d="M5.65149 12.3635C5.65149 11.8524 5.70387 11.3536 5.8031 10.8718C6.07153 9.56814 5.7246 8.08913 4.57146 7.42447C3.42404 6.76311 1.93168 7.1502 1.50233 8.40305C1.07638 9.64596 0.845703 10.9784 0.845703 12.3635C0.845703 13.7487 1.07638 15.0811 1.50233 16.324C1.93168 17.5768 3.42404 17.9639 4.57146 17.3026C5.7246 16.6379 6.07153 15.1589 5.8031 13.8553C5.70387 13.3734 5.65149 12.8747 5.65149 12.3635Z" fill="#FFD500"/>
+                                        <path d="M13.1267 4.88781C14.9272 4.88781 16.5811 5.5276 17.8729 6.59181C18.1916 6.85433 18.6548 6.83538 18.9467 6.54346L21.2144 4.27571C21.5457 3.94449 21.5221 3.40234 21.1682 3.0954C19.0039 1.21773 16.1878 0.0820312 13.1267 0.0820312C9.4479 0.0820312 6.14395 1.70516 3.89507 4.27426C3.01957 5.27442 3.42993 6.76671 4.58154 7.43048C5.73063 8.09281 7.18101 7.65948 8.17155 6.77748C9.49044 5.60312 11.2254 4.88781 13.1267 4.88781Z" fill="#FF4B26"/>
+                                        <path d="M17.8732 6.59181C18.1918 6.85433 18.6551 6.83538 18.947 6.54346L21.2147 4.27571C21.5459 3.94449 21.5223 3.40234 21.1685 3.0954C19.581 1.71814 17.6429 0.74011 15.5146 0.316599C14.2131 0.0575949 13.127 1.15784 13.127 2.48492C13.127 3.812 14.23 4.84985 15.4888 5.27005C16.367 5.56321 17.1732 6.01521 17.8732 6.59181Z" fill="#D93F21"/>
+                                    </svg>
+                                    <span>Đăng nhập bằng Google</span>
+                                </a>
+                            </p>
+                            <p class="connect-out">
+                                <a href="/login/facebook" class="flex-center">
+                                    <svg width="26" height="25" viewBox="0 0 26 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M13.1257 24.643C19.9078 24.643 25.4057 19.1451 25.4057 12.363C25.4057 5.58095 19.9078 0.0830078 13.1257 0.0830078C6.34365 0.0830078 0.845703 5.58095 0.845703 12.363C0.845703 19.1451 6.34365 24.643 13.1257 24.643Z" fill="#3B5998"/>
+                                        <path d="M16.3195 11.81C16.259 12.3974 15.7642 12.8439 15.1737 12.8439C14.5376 12.8439 14.0219 13.3596 14.0219 13.9957V19.2116C14.0219 20.1283 13.2787 20.8715 12.3619 20.8715C11.4452 20.8715 10.702 20.1283 10.702 19.2116V13.6334C10.702 13.1974 10.3485 12.8439 9.91252 12.8439C9.47651 12.8439 9.12305 12.4904 9.12305 12.0544V10.8122C9.12305 10.3761 9.47651 10.0227 9.91252 10.0227C10.3485 10.0227 10.702 9.66922 10.702 9.23321V8.19704C10.702 6.8915 11.3221 4.84717 14.0514 4.84717L15.1442 4.85174C15.8998 4.8549 16.5106 5.46828 16.5106 6.22383C16.5106 6.98162 15.8963 7.59593 15.1385 7.59593H14.7263C14.4336 7.59593 14.0221 7.74216 14.0221 8.36493V8.84845C14.0221 9.49841 14.549 10.0253 15.1989 10.0253C15.8966 10.0253 16.441 10.6287 16.3696 11.3226L16.3195 11.81Z" fill="white"/>
+                                    </svg>
+                                    <span>Đăng nhập bằng Facebook</span>
+                                </a>
+                            </p>
+                            <p class="text-center or-login">Hoặc</p>
+                            <label for="username">
+                                <span>Email</span>
+                                <input type="text" placeholder="Email">
+                                <span class="input-icon">
+                                    <svg width="18" height="15" viewBox="0 0 18 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M17.0069 3.63311C17.0086 3.63466 17.0086 3.63729 17.0069 3.63884L11.2166 9.07598C9.8747 10.336 7.69152 10.336 6.34967 9.07598L0.765987 3.84252C0.682401 3.76418 0.513672 3.82141 0.513672 3.93598V11.696C0.513672 13.476 2.05787 14.926 3.9535 14.926H13.5914C15.4977 14.926 17.0312 13.476 17.0312 11.696V3.92598C17.0312 3.82914 17.0113 3.74168 17.0003 3.63635C17 3.63275 17.0043 3.63063 17.0069 3.63311Z" fill="#D4D4D4"/>
+                                        <path d="M10.2427 8.16629C10.2461 8.16629 10.2494 8.16499 10.2518 8.16266L14.0109 4.62695C15.4731 3.2516 15.61 0.696289 13.6026 0.696289H3.96469C1.95178 0.696289 2.0878 3.25389 3.55519 4.63177L7.31932 8.16629C8.12738 8.92505 9.43435 8.92629 10.2334 8.16998C10.2359 8.16762 10.2392 8.16629 10.2427 8.16629Z" fill="#D4D4D4"/>
+                                    </svg>
+                                </span>
+                            </label>
+                            <label for="password">
+                                <span>Mật khẩu</span>
+                                <input type="password" placeholder="*******">
+                                <span class="input-icon">
+                                    <svg width="18" height="14" viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <g clip-path="url(#clip0_386_25757)">
+                                        <path d="M9.0287 9.75859C10.5957 9.75859 11.866 8.48261 11.866 6.90859C11.866 5.33458 10.5957 4.05859 9.0287 4.05859C7.46171 4.05859 6.19141 5.33458 6.19141 6.90859C6.19141 8.48261 7.46171 9.75859 9.0287 9.75859Z" fill="#D4D4D4"/>
+                                        <path d="M17.0128 5.06879C15.3901 2.15879 12.3437 0.328789 9.02859 0.258789C5.70348 0.328789 2.66707 2.15879 1.03438 5.06879C0.337499 6.19879 0.337499 7.61879 1.03438 8.73879C2.65711 11.6488 5.69352 13.4788 9.01863 13.5588C12.3437 13.4888 15.3802 11.6588 17.0029 8.73879C17.6998 7.60879 17.6998 6.18879 17.0029 5.06879H17.0128ZM9.02859 11.1788C6.67911 11.1788 4.77762 9.26879 4.77762 6.90879C4.77762 4.54879 6.67911 2.63879 9.02859 2.63879C11.3781 2.63879 13.2796 4.54879 13.2796 6.90879C13.2796 9.26879 11.3781 11.1788 9.02859 11.1788Z" fill="#D4D4D4"/>
+                                        </g>
+                                        <defs>
+                                        <clipPath id="clip0_386_25757">
+                                        <rect x="0.517578" y="0.258789" width="17.0138" height="13.31" rx="5" fill="white"/>
+                                        </clipPath>
+                                        </defs>
+                                    </svg>
+                                </span>
+                            </label>
+                            <div class="form-remember flex-left-between">
+                                <label for="remember-check">
+                                    <input type="checkbox" id="remember-check" value="1">
+                                    Nhớ mật khẩu
+                                </label>
+                                <a href="/forgot-password" aria-label="Bạn quên mật khẩu ?" class="forgot-password">Bạn quên mật khẩu ?</a>
+                            </div>
+                            <button type="submit" class="flex-center">
+                                <span>Đăng nhập</span>
+                                <span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 200 200"><radialGradient id="a10" cx=".66" fx=".66" cy=".3125" fy=".3125" gradientTransform="scale(1.5)"><stop offset="0" stop-color="#ffffff"></stop><stop offset=".3" stop-color="#ffffff" stop-opacity=".9"></stop><stop offset=".6" stop-color="#ffffff" stop-opacity=".6"></stop><stop offset=".8" stop-color="#ffffff" stop-opacity=".3"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop></radialGradient><circle transform-origin="center" fill="none" stroke="url(#a10)" stroke-width="9" stroke-linecap="round" stroke-dasharray="200 1000" stroke-dashoffset="0" cx="100" cy="100" r="70"><animateTransform type="rotate" attributeName="transform" calcMode="spline" dur="2" values="360;0" keyTimes="0;1" keySplines="0 0 1 1" repeatCount="indefinite"></animateTransform></circle><circle transform-origin="center" fill="none" opacity=".2" stroke="#ffffff" stroke-width="9" stroke-linecap="round" cx="100" cy="100" r="70"></circle></svg>
+                                </span>
+                            </button>
+                                                        <p class="register">Bạn chưa có tài khoản ? <a href="/register" aria-label="Đăng ký ngay">Đăng ký ngay</a> </p>
+                        </form>
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+                                                                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="site-header__bottom">
+        <div class="container container-fuild">
+            <div class="w-100 flex-center-between">
+                <nav class="menu w-100 menu-header" id="header-main-menu">
+        <ul class="menu-list flex-inline-center">
+        {% include 'header-category-menu' %}
+                                                <li class="menu-list__item   ">
+                    <a class="menu-link flex-inline-center"   aria-label="Các thương hiệu" rel="" href="/brands" target="_self">
+                                                    <div class="menu-link__icon"
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="icon"
+                            width="100%"
+                            height="100%"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                                                <span class="menu-link__name">Các thương hiệu</span>
+                                             </a>  
+                                    </li> 
+                            <li class="menu-list__item   ">
+                    <a class="menu-link flex-inline-center"   aria-label="Đặt hàng nhanh" rel="" href="/dat-hang-nhanh" target="_self">
+                                                    <div class="menu-link__icon"
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="icon-01"
+                            width="100%"
+                            height="100%"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                                                <span class="menu-link__name">Đặt hàng nhanh</span>
+                                             </a>  
+                                    </li> 
+                            <li class="menu-list__item   ">
+                    <a class="menu-link flex-inline-center"   aria-label="Yêu cầu báo giá" rel="" href="/bao-gia" target="_self">
+                                                    <div class="menu-link__icon"
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="icon-02"
+                            width="100%"
+                            height="100%"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                                                <span class="menu-link__name">Yêu cầu báo giá</span>
+                                             </a>  
+                                    </li> 
+                            <li class="menu-list__item   ">
+                    <a class="menu-link flex-inline-center"   aria-label="Tracking Order" rel="" href="/my-account/tracking-order" target="_self">
+                                                    <div class="menu-link__icon"
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="icon-03"
+                            width="100%"
+                            height="100%"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                                                <span class="menu-link__name">Tracking Order</span>
+                                             </a>  
+                                    </li> 
+                            <li class="menu-list__item   ">
+                    <a class="menu-link flex-inline-center"   aria-label="Check bảo hành" rel="" href="/my-account/checking-warranty" target="_self">
+                                                    <div class="menu-link__icon"
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="icon-04"
+                            width="100%"
+                            height="100%"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                                                <span class="menu-link__name">Check bảo hành</span>
+                                             </a>  
+                                    </li> 
+                            <li class="menu-list__item   ">
+                    <a class="menu-link flex-inline-center"   aria-label="Tài liệu kỹ thuật" rel="" href="/tai-lieu-ky-thuat" target="_self">
+                                                    <div class="menu-link__icon"
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="icon-05"
+                            width="100%"
+                            height="100%"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                                                <span class="menu-link__name">Tài liệu kỹ thuật</span>
+                                             </a>  
+                                    </li> 
+                            <li class="menu-list__item   {% if template contains 'blog' or template contains 'article' %}active{% endif %}">
+                    <a class="menu-link flex-inline-center"   aria-label="Tin tức" rel="" href="/tin-tuc" target="_self">
+                                                    <div class="menu-link__icon"
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="icon-06"
+                            width="100%"
+                            height="100%"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                                                <span class="menu-link__name">Tin tức</span>
+                                             </a>  
+                                    </li> 
+                            <li class="menu-list__item   ">
+                    <a class="menu-link flex-inline-center"   aria-label="Flash Sale" rel="" href="/flashsale" target="_self">
+                                                    <div class="menu-link__icon"
+        >
+    <img
+                src="{{ "logo.png" | asset_url }}"
+        alt="flash-sales-2-1"
+                            width="100%"
+                            height="100%"
+                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+    >
+</div>
+                                                <span class="menu-link__name">Flash Sale</span>
+                                             </a>  
+                                    </li> 
+                        </ul>
+</nav>
+                            </div>
+        </div>
+    </div>
+</header>
+<style>
+.site-header,
+.site-header__top {
+  overflow: visible !important;
+}
+.main-header__logo img {
+  vertical-align: baseline !important;
+}
+.site-header svg {
+  vertical-align: baseline !important;
+}
+.site-header__bottom .menu-header {
+  display: block !important;
+  padding: 12px 0px !important;
+}
+@media (max-width: 1200px) {
+  .site-header__bottom .menu-list {
+    min-height: 45px !important;
+  }
+}
+.loading-suggest {
+  display: none !important;
+}
+</style>
+<style>
+.site-header .search-popular p,
+.site-header .search-popular__title,
+.site-header .search-popular__value,
+.site-header .systerm .item-cta,
+.site-header .hotline .item-cta {
+  margin-bottom: 0 !important;
+  margin-top: 0 !important;
+}
+</style>
+<style>
+.mobile-header-bar {
+  display: none !important;
+}
+.bottom-navigation {
+  display: none !important;
+}
+.main-header__search.mobile {
+  display: none !important;
+}
+.loomline_actiontoolbar_mobile {
+  display: none !important;
+}
+
+@media (max-width: 767px) {
+  #haravan-notification, .haravan-notification {
+    display: none !important;
+  }
+  body {
+    padding-bottom: 60px !important;
+  }
+  header.site-header {
+    background: #ffffff !important;
+    position: relative !important;
+    z-index: 100 !important;
+  }
+  header.site-header .main-header {
+    display: none !important;
+  }
+  .site-header__top .container,
+  .site-header__top .container-fuild {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    box-sizing: border-box !important;
+  }
+  .mobile-header-bar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 6px 0 !important;
+    width: 100% !important;
+  }
+  .mobile-header-bar .logo {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .mobile-header-bar .logo img {
+    max-height: 40px !important;
+    width: auto !important;
+  }
+  .mobile-header-bar .menu-mobile,
+  .mobile-header-bar .user {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+  }
+  .main-header__search.mobile {
+    display: block !important;
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    margin-top: 8px !important;
+    margin-bottom: 6px !important;
+  }
+  .main-header__search.mobile .search-form form {
+    display: flex !important;
+    position: relative !important;
+    width: 100% !important;
+    border: 1px solid #3590ce !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+    background: #fff !important;
+  }
+  .main-header__search.mobile .search-form__input {
+    flex: 1 !important;
+  }
+  .main-header__search.mobile .search-form__input input {
+    width: 100% !important;
+    height: 38px !important;
+    border: none !important;
+    padding: 0 12px !important;
+    font-size: 13px !important;
+    outline: none !important;
+  }
+  .main-header__search.mobile .search-form_btn button {
+    width: 50px !important;
+    height: 38px !important;
+    background: #3590ce !important;
+    border: none !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+  }
+  .main-header__search.mobile .search-popular {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    margin-top: 6px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    white-space: nowrap !important;
+    gap: 8px !important;
+    width: 100% !important;
+    padding: 2px 0 !important;
+  }
+  .main-header__search.mobile .search-popular__title {
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    margin: 0 !important;
+    color: #22343e !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+  .main-header__search.mobile .search-popular__list {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    flex-shrink: 0 !important;
+  }
+  .main-header__search.mobile .search-popular__value {
+    margin: 0 !important;
+  }
+  .main-header__search.mobile .search-popular__value a {
+    display: inline-block !important;
+    background: #f2f4f7 !important;
+    padding: 3px 8px !important;
+    border-radius: 4px !important;
+    font-size: 11px !important;
+    color: #5d6f7a !important;
+    text-decoration: none !important;
+    white-space: nowrap !important;
+  }
+  header.site-header .site-header__bottom {
+    display: none !important;
+  }
+  .bottom-navigation {
+    display: block !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 56px !important;
+    background: #ffffff !important;
+    z-index: 99999 !important;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.08) !important;
+  }
+  .bottom-navigation .container {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-around !important;
+    height: 100% !important;
+    padding: 0 4px !important;
+  }
+  .bottom-navigation__item {
+    flex: 1 !important;
+    text-align: center !important;
+  }
+  .bottom-navigation__item a {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-decoration: none !important;
+    position: relative !important;
+    padding: 4px 8px !important;
+  }
+  .bottom-navigation__item.active a {
+    background: rgb(221, 236, 255) !important;
+    border-radius: 20px !important;
+  }
+  .bottom-navigation__item a p {
+    font-size: 11px !important;
+    margin: 2px 0 0 !important;
+    color: #393939 !important;
+  }
+  .bottom-navigation__item.active a p {
+    color: #3590ce !important;
+    font-weight: 600 !important;
+  }
+  .bottom-navigation__item a span {
+    position: absolute !important;
+    top: 0px !important;
+    right: calc(50% - 16px) !important;
+    background: rgb(255, 147, 46) !important;
+    color: #fff !important;
+    border-radius: 50% !important;
+    width: 16px !important;
+    height: 16px !important;
+    font-size: 10px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+}
+</style>
+<div class="bottom-navigation" id="bottom-navigation">
+    <div class="container flex-center">
+        <div class="bottom-navigation__item active">
+            <a href="/">
+                <svg width="26" height="25" viewBox="0 0 26 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12.9999 15.6192C14.6922 15.6192 16.064 17.0192 16.064 18.7461V25H9.93584V18.7461C9.93584 17.0192 11.3077 15.6192 12.9999 15.6192Z" fill="#3590CE"></path>
+                    <path d="M7.89313 18.7461V25H3.80769C2.11545 25 0.743597 23.6 0.743597 21.8731V12.3661C0.743357 11.8246 0.94956 11.3043 1.31864 10.9152L9.99817 1.33942C11.5296 -0.351576 14.1144 -0.455401 15.7714 1.10749C15.8501 1.18175 15.9259 1.25909 15.9987 1.33942L24.6629 10.9121C25.0432 11.3027 25.2565 11.8311 25.2563 12.3817V21.8731C25.2563 23.6 23.8845 25 22.1923 25H18.1068V18.7461C18.0877 15.9039 15.8391 13.5829 13.1242 13.5161C10.3184 13.447 7.91453 15.8075 7.89313 18.7461Z" fill="#3590CE"></path>
+                </svg>
+                <p>Trang chủ</p>
+            </a>
+        </div>
+        <div class="bottom-navigation__item">
+            <a href="/notifications">
+                <svg width="23" height="25" viewBox="0 0 23 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21.8047 12.8569L20.0368 6.99586C18.634 1.92265 13.3686 -1.05593 8.2762 0.346885C4.89406 1.2885 2.28059 4.01727 1.51193 7.45706L0.147544 13.126C-0.52504 15.874 1.16603 18.6412 3.91401 19.3137C4.31756 19.4098 4.72111 19.4675 5.12466 19.4675H16.9237C19.7486 19.4675 22.0546 17.1807 22.0546 14.3366C22.0546 13.837 21.9777 13.3374 21.8432 12.8569H21.8047Z" fill="#3590CE"></path>
+                    <path d="M6.3385 21.9272C7.47228 24.5215 10.4701 25.6937 13.0643 24.5791C14.2558 24.0603 15.1974 23.1186 15.7162 21.9272H6.3385Z" fill="#3590CE"></path>
+                </svg>
+                <span>0</span>
+                <p>Thông báo</p>
+            </a>
+        </div>
+        <div class="bottom-navigation__item">
+            <a href="/cart">
+                <svg width="25" height="25" viewBox="0 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M23.6475 3.79425C23.0393 3.14543 22.2012 2.79399 21.3091 2.79399H4.92636L4.88581 2.46958C4.62899 1.02325 3.34486 -0.0310836 1.8715 0.0229847H1.64171C1.10103 -0.00404945 0.654964 0.41498 0.62793 0.955664C0.654964 1.49635 1.10103 1.90186 1.64171 1.87483H1.8715C2.35812 1.86131 2.79066 2.19924 2.88528 2.68585L4.27754 13.513C4.69657 15.9461 6.84579 17.6898 9.31942 17.5952H19.9033C20.4169 17.6493 20.863 17.2708 20.9171 16.7571C20.9711 16.2435 20.5927 15.7974 20.079 15.7434C20.0249 15.7434 19.9574 15.7434 19.9033 15.7434H9.31942C8.07584 15.7704 6.94041 15.0405 6.45379 13.8915H18.5381C20.89 13.9726 22.9717 12.3776 23.5259 10.0932L24.3234 6.06512C24.4856 5.24058 24.2423 4.40252 23.661 3.79425H23.6475Z" fill="#3590CE"></path>
+                    <path d="M8.04912 24.3536C9.54218 24.3536 10.7525 23.1433 10.7525 21.6502C10.7525 20.1571 9.54218 18.9468 8.04912 18.9468C6.55606 18.9468 5.3457 20.1571 5.3457 21.6502C5.3457 23.1433 6.55606 24.3536 8.04912 24.3536Z" fill="#3590CE"></path>
+                    <path d="M17.4974 24.3536C18.9904 24.3536 20.2008 23.1433 20.2008 21.6502C20.2008 20.1571 18.9904 18.9468 17.4974 18.9468C16.0043 18.9468 14.7939 20.1571 14.7939 21.6502C14.7939 23.1433 16.0043 24.3536 17.4974 24.3536Z" fill="#3590CE"></path>
+                </svg>
+                <span class="cart-qty">0</span>
+                <p>Giỏ hàng</p>
+            </a>
+        </div>
+        <div class="bottom-navigation__item">
+            <a href="/contact">
+                <svg width="20" height="26" viewBox="0 0 20 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M19.3672 22.578V25.1821H0.617092V22.578C0.617092 20.0832 2.58064 18.0571 5.04107 17.9175L7.90879 22.578L9.99213 19.4529L12.0755 22.578L14.9432 17.9175C17.4036 18.0571 19.3672 20.0842 19.3672 22.578ZM4.65044 4.37684C6.24316 2.88413 8.32858 2.14663 10.515 2.28204C14.6026 2.54663 17.8057 6.10393 17.8057 10.38C17.8057 12.2237 16.3067 13.7227 14.463 13.7227H11.9567C11.7025 12.8592 10.913 12.2237 9.96713 12.2237C8.81608 12.2237 7.88379 13.156 7.88379 14.3071C7.88379 15.4581 8.81608 16.3904 9.96713 16.3904C10.5275 16.3904 11.0348 16.1665 11.4088 15.8061H14.463C17.4547 15.8061 19.889 13.3717 19.889 10.38C19.888 5.00914 15.8296 0.538286 10.6484 0.20391C7.87337 0.0237009 5.24107 0.966413 3.22544 2.85809C1.36397 4.60288 0.245215 7.0206 0.11084 9.55811H2.19731C2.32543 7.57581 3.18481 5.75081 4.65044 4.37684ZM13.2307 11.6519C13.2546 11.6467 13.2859 11.6404 13.2859 11.6404H14.6463C15.1682 11.6404 15.6244 11.2571 15.6849 10.7383C15.7557 10.1269 15.7296 9.48624 15.5901 8.83103C15.1276 6.66539 13.3703 4.91851 11.2015 4.47268C7.51712 3.71538 4.26502 6.52477 4.26502 10.0779C4.26502 11.6081 4.86815 12.9998 5.84836 14.0279C5.96399 11.83 7.76608 10.0779 9.99317 10.0779C11.3088 10.0779 12.4671 10.6998 13.2307 11.6519Z" fill="#3590CE"></path>
+                </svg>
+                <p>Liên hệ</p>
+            </a>
+        </div>
+    </div>
+</div>

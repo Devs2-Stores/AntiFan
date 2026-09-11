@@ -1,0 +1,28 @@
+{% include 'article-image' with article:article %}
+<div class="item-article">
+	<div class="media-article">
+		<a href="{{ article.url }}" title="{{ article.title }}" aria-label="{{ article.title }}" class="img-hover img-zoom">
+			<img src="{{ imageUrl | product_img_url : 'grande'}}" alt="{{ article.title }}"/>
+		</a>	
+	</div>
+	<div class="info-article">
+    <div class="article-post-meta">   
+      <span class="author">{{article.author}}</span>
+      <span class="date">                
+        <time pubdate datetime="{{ article.published_at | date: '%d Tháng %m, %Y' }}">{{ article.published_at | date: '%d Tháng %m, %Y' }}</time>
+      </span>
+    </div>
+		<div class="title-article">
+			<h4>
+				<a href="{{ article.url }}">{{ article.title }}</a>
+			</h4>
+      <div class="short-article">
+			{{ article.excerpt_or_content | strip_html | truncatewords: 10 }}
+		</div>
+			<div class="btn-link">
+				<a href="{{ article.url }}" class="arrow-link"><span class="arrow"></span></a>
+			</div>
+		</div>
+		
+	</div>
+</div>

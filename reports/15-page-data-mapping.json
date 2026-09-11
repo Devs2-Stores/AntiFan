@@ -1,0 +1,437 @@
+{
+  "store": "phukienmaymoc.com",
+  "org_id": "200001207485",
+  "theme_target_id": 1001512581,
+  "total_targets": 15,
+  "status_summary": {
+    "EXISTING": 4,
+    "REUSED": 4,
+    "FIXTURE_NEEDED": 7
+  },
+  "pages": [
+    {
+      "index": 1,
+      "canonical_name": "TRANG CHỦ",
+      "canonical_url": "https://hoplongtech.com/",
+      "canonical_path": "/",
+      "haravan_status": "EXISTING",
+      "haravan_url": "https://phukienmaymoc.com/?preview_theme_id=1001512581",
+      "haravan_path": "/",
+      "haravan_handle": "frontpage",
+      "haravan_id": 1004468742,
+      "entity_type": "home / page",
+      "haravan_template": "index.liquid",
+      "matching_criteria": "Exact route match (Haravan root / served by theme index.liquid, with backing Page frontpage ID 1004468742)",
+      "dynamic_data_source": "Haravan storefront catalog: 234 products, 35 collections, 10 articles from blog news, hero banners & settings in settings_data.json",
+      "fixture_needed": null,
+      "redirect_needed": null
+    },
+    {
+      "index": 2,
+      "canonical_name": "DANH MỤC THƯƠNG HIỆU",
+      "canonical_url": "https://hoplongtech.com/brands",
+      "canonical_path": "/brands",
+      "haravan_status": "FIXTURE_NEEDED",
+      "haravan_url": "https://phukienmaymoc.com/pages/brands?preview_theme_id=1001512581",
+      "haravan_path": "/pages/brands",
+      "haravan_handle": "brands",
+      "haravan_id": null,
+      "entity_type": "page",
+      "haravan_template": "page.brands.liquid",
+      "matching_criteria": "Dedicated theme template page.brands.liquid exists in theme 1001512581. Dynamically maps shop.vendors (48 active brands in store) with alphabetical A-Z navigation",
+      "dynamic_data_source": "shop.vendors Liquid loop (48 vendors: Au3tech, BEUT, BOCHU, BWT, CSK, FANUC, FEELTEK, HIWIN, Inovance, JPT, etc.)",
+      "fixture_needed": {
+        "action": "create_page",
+        "endpoint": "POST /web/pages.json",
+        "payload": {
+          "page": {
+            "title": "Danh mục thương hiệu",
+            "handle": "brands",
+            "body_html": "",
+            "template_suffix": "brands",
+            "published": true
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/brands",
+        "target": "/pages/brands"
+      }
+    },
+    {
+      "index": 3,
+      "canonical_name": "NHÓM KHÔNG FILTER",
+      "canonical_url": "https://hoplongtech.com/category/cam-bien",
+      "canonical_path": "/category/cam-bien",
+      "haravan_status": "REUSED",
+      "haravan_url": "https://phukienmaymoc.com/collections/linh-kien-dien?preview_theme_id=1001512581",
+      "haravan_path": "/collections/linh-kien-dien",
+      "haravan_handle": "linh-kien-dien",
+      "haravan_id": 1004807307,
+      "entity_type": "collection",
+      "haravan_template": "collection.liquid",
+      "matching_criteria": "Semantic equivalent in existing Haravan data: collection 'Linh Kiện Điện' (ID 1004807307) containing 40 electrical and sensing accessories; or fixture collection 'cam-bien'",
+      "dynamic_data_source": "collection.products (40 products in linh-kien-dien)",
+      "fixture_needed": {
+        "action": "optional_fixture_collection",
+        "endpoint": "POST /com/custom_collections.json",
+        "payload": {
+          "custom_collection": {
+            "title": "Cảm biến",
+            "handle": "cam-bien",
+            "body_html": "<p>Danh mục thiết bị cảm biến công nghiệp</p>"
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/category/cam-bien",
+        "target": "/collections/linh-kien-dien"
+      }
+    },
+    {
+      "index": 4,
+      "canonical_name": "TRANG NHÓM SẢN PHẨM CÓ FILTER",
+      "canonical_url": "https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127",
+      "canonical_path": "/category/contactor?filterBrandIds[0]=1127",
+      "haravan_status": "FIXTURE_NEEDED",
+      "haravan_url": "https://phukienmaymoc.com/collections/linh-kien-dien?filter=(vendor:product=Inovance)&preview_theme_id=1001512581",
+      "haravan_path": "/collections/linh-kien-dien?filter=(vendor:product=Inovance)",
+      "haravan_handle": "linh-kien-dien",
+      "haravan_id": 1004807307,
+      "entity_type": "collection with vendor filter",
+      "haravan_template": "collection.liquid",
+      "matching_criteria": "Filter by vendor/brand on collection. Reused existing collection linh-kien-dien with vendor filter Inovance; or create fixture collection contactor with vendor Schneider",
+      "dynamic_data_source": "collection.products filtered by vendor Inovance (31 products in store)",
+      "fixture_needed": {
+        "action": "create_collection",
+        "endpoint": "POST /com/custom_collections.json",
+        "payload": {
+          "custom_collection": {
+            "title": "Contactor",
+            "handle": "contactor",
+            "body_html": "<p>Thiết bị đóng cắt Contactor khởi động từ công nghiệp</p>"
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/category/contactor",
+        "target": "/collections/contactor"
+      }
+    },
+    {
+      "index": 5,
+      "canonical_name": "NHÓM SẢN PHẨM BRAND",
+      "canonical_url": "https://hoplongtech.com/brands/ecovacs",
+      "canonical_path": "/brands/ecovacs",
+      "haravan_status": "REUSED",
+      "haravan_url": "https://phukienmaymoc.com/collections/vendors?q=Inovance&preview_theme_id=1001512581",
+      "haravan_path": "/collections/vendors?q=Inovance",
+      "haravan_handle": "vendors?q=Inovance",
+      "haravan_id": null,
+      "entity_type": "vendor collection / collection",
+      "haravan_template": "collection.brand.liquid",
+      "matching_criteria": "Reused top existing brand vendor 'Inovance' (31 products) via native Haravan vendor collection route or template collection.brand.liquid; or create fixture collection 'ecovacs'",
+      "dynamic_data_source": "shop.vendors matching Inovance (31 products in catalog)",
+      "fixture_needed": {
+        "action": "optional_fixture_collection",
+        "endpoint": "POST /com/custom_collections.json",
+        "payload": {
+          "custom_collection": {
+            "title": "Ecovacs",
+            "handle": "ecovacs",
+            "body_html": "<p>Thương hiệu robot hút bụi và thiết bị thông minh Ecovacs</p>",
+            "template_suffix": "brand"
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/brands/ecovacs",
+        "target": "/collections/vendors?q=Inovance"
+      }
+    },
+    {
+      "index": 6,
+      "canonical_name": "GIỎ HÀNG",
+      "canonical_url": "https://hoplongtech.com/cart",
+      "canonical_path": "/cart",
+      "haravan_status": "EXISTING",
+      "haravan_url": "https://phukienmaymoc.com/cart?preview_theme_id=1001512581",
+      "haravan_path": "/cart",
+      "haravan_handle": "cart",
+      "haravan_id": null,
+      "entity_type": "cart",
+      "haravan_template": "cart.liquid",
+      "matching_criteria": "Exact standard Haravan route /cart, served by template cart.liquid and Ajax Cart API endpoints (/cart.js, /cart/add.js, /cart/change.js, /cart/clear.js)",
+      "dynamic_data_source": "Haravan native cart session object (cart.item_count, cart.total_price, cart.items)",
+      "fixture_needed": null,
+      "redirect_needed": null
+    },
+    {
+      "index": 7,
+      "canonical_name": "CHI TIẾT SẢN PHẨM",
+      "canonical_url": "https://hoplongtech.com/products/lc1d09m7",
+      "canonical_path": "/products/lc1d09m7",
+      "haravan_status": "REUSED",
+      "haravan_url": "https://phukienmaymoc.com/products/laser-cable-sensing-for-cutting-head?preview_theme_id=1001512581",
+      "haravan_path": "/products/laser-cable-sensing-for-cutting-head",
+      "haravan_handle": "laser-cable-sensing-for-cutting-head",
+      "haravan_id": 1076250485,
+      "entity_type": "product",
+      "haravan_template": "product.liquid",
+      "matching_criteria": "Reused existing industrial automation sensor product ID 1076250485 ('Cáp Cảm Biến Laser: Cáp Cảm Biến Laser & Cáp Laser cho Đầu Cắt', price 420,000 VND); or create fixture product lc1d09m7",
+      "dynamic_data_source": "Haravan Product ID 1076250485 (Sky Fire Laser vendor, variants, featured images, description)",
+      "fixture_needed": {
+        "action": "optional_fixture_product",
+        "endpoint": "POST /com/products.json",
+        "payload": {
+          "product": {
+            "title": "Contactor LC1D09M7 Schneider Electric 9A 220VAC",
+            "handle": "lc1d09m7",
+            "vendor": "Schneider Electric",
+            "product_type": "Contactor",
+            "body_html": "<p>Contactor LC1D09M7 Schneider Electric 9A 220VAC chính hãng</p>",
+            "variants": [
+              {
+                "price": "285000",
+                "sku": "LC1D09M7",
+                "inventory_quantity": 100
+              }
+            ]
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/products/lc1d09m7",
+        "target": "/products/laser-cable-sensing-for-cutting-head"
+      }
+    },
+    {
+      "index": 8,
+      "canonical_name": "BÁO GIÁ",
+      "canonical_url": "https://hoplongtech.com/bao-gia",
+      "canonical_path": "/bao-gia",
+      "haravan_status": "FIXTURE_NEEDED",
+      "haravan_url": "https://phukienmaymoc.com/pages/bao-gia?preview_theme_id=1001512581",
+      "haravan_path": "/pages/bao-gia",
+      "haravan_handle": "bao-gia",
+      "haravan_id": null,
+      "entity_type": "page",
+      "haravan_template": "page.quote.liquid",
+      "matching_criteria": "Dedicated template page.quote.liquid already implemented in theme 1001512581 with contact form {% form 'contact' %}, phone, email, product rows, and file upload",
+      "dynamic_data_source": "Haravan Customer Contact Form submission engine",
+      "fixture_needed": {
+        "action": "create_page",
+        "endpoint": "POST /web/pages.json",
+        "payload": {
+          "page": {
+            "title": "Yêu cầu báo giá",
+            "handle": "bao-gia",
+            "body_html": "",
+            "template_suffix": "quote",
+            "published": true
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/bao-gia",
+        "target": "/pages/bao-gia"
+      }
+    },
+    {
+      "index": 9,
+      "canonical_name": "TÀI LIỆU KỸ THUẬT",
+      "canonical_url": "https://hoplongtech.com/tai-lieu-ky-thuat",
+      "canonical_path": "/tai-lieu-ky-thuat",
+      "haravan_status": "FIXTURE_NEEDED",
+      "haravan_url": "https://phukienmaymoc.com/pages/tai-lieu-ky-thuat?preview_theme_id=1001512581",
+      "haravan_path": "/pages/tai-lieu-ky-thuat",
+      "haravan_handle": "tai-lieu-ky-thuat",
+      "haravan_id": null,
+      "entity_type": "page",
+      "haravan_template": "page.documents.liquid",
+      "matching_criteria": "Dedicated template page.documents.liquid already implemented in theme 1001512581 with technical catalogues for Schneider, Autonics, and Inovance",
+      "dynamic_data_source": "Haravan page entity content and theme template document cards",
+      "fixture_needed": {
+        "action": "create_page",
+        "endpoint": "POST /web/pages.json",
+        "payload": {
+          "page": {
+            "title": "Tài liệu kỹ thuật",
+            "handle": "tai-lieu-ky-thuat",
+            "body_html": "",
+            "template_suffix": "documents",
+            "published": true
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/tai-lieu-ky-thuat",
+        "target": "/pages/tai-lieu-ky-thuat"
+      }
+    },
+    {
+      "index": 10,
+      "canonical_name": "TIN TỨC",
+      "canonical_url": "https://hoplongtech.com/tin-tuc",
+      "canonical_path": "/tin-tuc",
+      "haravan_status": "EXISTING",
+      "haravan_url": "https://phukienmaymoc.com/blogs/news?preview_theme_id=1001512581",
+      "haravan_path": "/blogs/news",
+      "haravan_handle": "news",
+      "haravan_id": 1001059309,
+      "entity_type": "blog",
+      "haravan_template": "blog.liquid",
+      "matching_criteria": "Exact existing Haravan Blog entity (ID 1001059309, Title 'Tin tức', Handle 'news') containing 10 published articles",
+      "dynamic_data_source": "Haravan Blog ID 1001059309 (10 published technical automation articles with pagination)",
+      "fixture_needed": null,
+      "redirect_needed": {
+        "path": "/tin-tuc",
+        "target": "/blogs/news"
+      }
+    },
+    {
+      "index": 11,
+      "canonical_name": "CHI TIẾT TIN TỨC",
+      "canonical_url": "https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html",
+      "canonical_path": "/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html",
+      "haravan_status": "REUSED",
+      "haravan_url": "https://phukienmaymoc.com/blogs/news/he-thong-kho-hang-cong-ty-co-phan-cong-nghe-hop-long?preview_theme_id=1001512581",
+      "haravan_path": "/blogs/news/he-thong-kho-hang-cong-ty-co-phan-cong-nghe-hop-long",
+      "haravan_handle": "he-thong-kho-hang-cong-ty-co-phan-cong-nghe-hop-long",
+      "haravan_id": 1003094219,
+      "entity_type": "article",
+      "haravan_template": "article.liquid",
+      "matching_criteria": "Reused existing Haravan Article ID 1003094219 in blog news specifically titled 'Hệ thống kho hàng công ty Cổ Phần công nghệ Hợp Long'; or create fixture article with exact slug",
+      "dynamic_data_source": "Haravan Article ID 1003094219 (content, images, author, comments)",
+      "fixture_needed": {
+        "action": "optional_fixture_article",
+        "endpoint": "POST /web/blogs/1001059309/articles.json",
+        "payload": {
+          "article": {
+            "title": "Quốc vương Jordan Abdullah II thăm tập đoàn Agibot thúc đẩy hợp tác công nghệ robot",
+            "handle": "quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot",
+            "body_html": "<p>Nội dung bài viết về công nghệ robot tự động hóa...</p>",
+            "published": true
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html",
+        "target": "/blogs/news/he-thong-kho-hang-cong-ty-co-phan-cong-nghe-hop-long"
+      }
+    },
+    {
+      "index": 12,
+      "canonical_name": "GIỚI THIỆU",
+      "canonical_url": "https://hoplong.com/gioi-thieu-ve-hop-long/",
+      "canonical_path": "/gioi-thieu-ve-hop-long/",
+      "haravan_status": "EXISTING",
+      "haravan_url": "https://phukienmaymoc.com/pages/about-us?preview_theme_id=1001512581",
+      "haravan_path": "/pages/about-us",
+      "haravan_handle": "about-us",
+      "haravan_id": 1004468738,
+      "entity_type": "page",
+      "haravan_template": "page.about-us.liquid",
+      "matching_criteria": "Exact existing Haravan Page ID 1004468738 ('Giới thiệu', handle 'about-us'). Theme template page.about-us.liquid provides default title 'Giới thiệu về Hợp Long' and corporate overview",
+      "dynamic_data_source": "Haravan Page ID 1004468738",
+      "fixture_needed": null,
+      "redirect_needed": {
+        "path": "/gioi-thieu-ve-hop-long/",
+        "target": "/pages/about-us"
+      }
+    },
+    {
+      "index": 13,
+      "canonical_name": "LỊCH SỬ PHÁT TRIỂN",
+      "canonical_url": "https://hoplong.com/lich-su-phat-trien/",
+      "canonical_path": "/lich-su-phat-trien/",
+      "haravan_status": "FIXTURE_NEEDED",
+      "haravan_url": "https://phukienmaymoc.com/pages/lich-su-phat-trien?preview_theme_id=1001512581",
+      "haravan_path": "/pages/lich-su-phat-trien",
+      "haravan_handle": "lich-su-phat-trien",
+      "haravan_id": null,
+      "entity_type": "page",
+      "haravan_template": "page.liquid",
+      "matching_criteria": "Standard Haravan page for company timeline / development history",
+      "dynamic_data_source": "Haravan page body_html",
+      "fixture_needed": {
+        "action": "create_page",
+        "endpoint": "POST /web/pages.json",
+        "payload": {
+          "page": {
+            "title": "Lịch sử phát triển",
+            "handle": "lich-su-phat-trien",
+            "body_html": "<p>Hành trình hình thành và phát triển của Hợp Long qua các mốc thời gian tiêu biểu từ năm 2010 đến nay.</p>",
+            "published": true
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/lich-su-phat-trien/",
+        "target": "/pages/lich-su-phat-trien"
+      }
+    },
+    {
+      "index": 14,
+      "canonical_name": "TUYỂN DỤNG",
+      "canonical_url": "https://hoplong.com/tuyen-dung/",
+      "canonical_path": "/tuyen-dung/",
+      "haravan_status": "FIXTURE_NEEDED",
+      "haravan_url": "https://phukienmaymoc.com/pages/tuyen-dung?preview_theme_id=1001512581",
+      "haravan_path": "/pages/tuyen-dung",
+      "haravan_handle": "tuyen-dung",
+      "haravan_id": null,
+      "entity_type": "page",
+      "haravan_template": "page.liquid",
+      "matching_criteria": "Standard Haravan page for career portal / job listings overview",
+      "dynamic_data_source": "Haravan page body_html",
+      "fixture_needed": {
+        "action": "create_page",
+        "endpoint": "POST /web/pages.json",
+        "payload": {
+          "page": {
+            "title": "Tuyển dụng",
+            "handle": "tuyen-dung",
+            "body_html": "<p>Cơ hội nghề nghiệp hấp dẫn tại Công ty Cổ phần Công nghệ Hợp Long với môi trường chuyên nghiệp, chế độ đãi ngộ hàng đầu.</p>",
+            "published": true
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/tuyen-dung/",
+        "target": "/pages/tuyen-dung"
+      }
+    },
+    {
+      "index": 15,
+      "canonical_name": "CHI TIẾT TUYỂN DỤNG",
+      "canonical_url": "https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/",
+      "canonical_path": "/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/",
+      "haravan_status": "FIXTURE_NEEDED",
+      "haravan_url": "https://phukienmaymoc.com/pages/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung?preview_theme_id=1001512581",
+      "haravan_path": "/pages/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung",
+      "haravan_handle": "ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung",
+      "haravan_id": null,
+      "entity_type": "page",
+      "haravan_template": "page.liquid",
+      "matching_criteria": "Standard Haravan page for specific job opening description and application instructions",
+      "dynamic_data_source": "Haravan page body_html",
+      "fixture_needed": {
+        "action": "create_page",
+        "endpoint": "POST /web/pages.json",
+        "payload": {
+          "page": {
+            "title": "[Hà Nội] Trợ Lý Trưởng Phòng Kinh Doanh Khối Ngành Điện Gia Dụng",
+            "handle": "ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung",
+            "body_html": "<p>Thông tin tuyển dụng vị trí Trợ Lý Trưởng Phòng Kinh Doanh Khối Ngành Điện Gia Dụng tại Hà Nội.</p><ul><li>Địa điểm: Hà Nội</li><li>Mức lương: Thỏa thuận</li><li>Kinh nghiệm: 2-3 năm</li></ul>",
+            "published": true
+          }
+        }
+      },
+      "redirect_needed": {
+        "path": "/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/",
+        "target": "/pages/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung"
+      }
+    }
+  ]
+}

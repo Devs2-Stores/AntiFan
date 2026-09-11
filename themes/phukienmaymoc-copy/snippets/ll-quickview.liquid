@@ -1,0 +1,14 @@
+<link rel="preload stylesheet" href="{{ 'll-quickview.scss.css' | asset_url }}" as="stylesheet">
+<div id="loomline-quick-view-modal" class="modal fade loomline-modal-product-quickview">	
+	<div class="modal-dialog modal-dialog-centered">
+		<div class="modal-content loomline-wrapper-quickview">
+			
+		</div>
+	</div>
+</div>
+<div class="quickviewOverlay"></div>
+
+{%-if settings.promotion_hrvapp_use and settings.promotion_hrvapp == 'appbuyxgety' -%}
+{%-include 'modal-buyxgety-qv'-%}
+{%-endif-%}
+

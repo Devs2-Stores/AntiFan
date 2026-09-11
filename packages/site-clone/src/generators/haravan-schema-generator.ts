@@ -556,13 +556,35 @@ export class HaravanSchemaGenerator {
           });
         } else {
           const settingId = allocateId(rawSet.id || 'setting');
-          settings.push({
+          const settingObj: HaravanSchemaSetting = {
             type: sanitized.type,
             id: settingId,
             label: rawSet.label || rawSet.id || 'Setting',
             default: rawSet.default !== undefined ? (rawSet.default as HaravanSchemaSetting['default']) : undefined,
             ...sanitized.transformedProps
-          });
+          };
+          if (Array.isArray(rawSet.options) && !settingObj.options) {
+            settingObj.options = rawSet.options as HaravanSelectOption[];
+          }
+          if (typeof rawSet.min === 'number' && settingObj.min === undefined) {
+            settingObj.min = rawSet.min;
+          }
+          if (typeof rawSet.max === 'number' && settingObj.max === undefined) {
+            settingObj.max = rawSet.max;
+          }
+          if (typeof rawSet.step === 'number' && settingObj.step === undefined) {
+            settingObj.step = rawSet.step;
+          }
+          if (typeof rawSet.unit === 'string' && settingObj.unit === undefined) {
+            settingObj.unit = rawSet.unit;
+          }
+          if (typeof rawSet.info === 'string' && settingObj.info === undefined) {
+            settingObj.info = rawSet.info;
+          }
+          if (typeof rawSet.placeholder === 'string' && settingObj.placeholder === undefined) {
+            settingObj.placeholder = rawSet.placeholder;
+          }
+          settings.push(settingObj);
         }
       }
     }
@@ -618,7 +640,7 @@ export class HaravanSchemaGenerator {
       tag: ctx.tag || 'section',
       class: ctx.className || `section-${ctx.id || 'custom'}`,
       settings,
-      blocks: blockDefinitions.length > 0 ? blockDefinitions : undefined,
+      blocks: blockDefinitions,
       presets
     };
 

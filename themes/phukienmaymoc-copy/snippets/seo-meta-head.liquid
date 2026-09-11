@@ -1,0 +1,114 @@
+{% comment %}
+  ==============================================================================
+  SEO META & AI SNIPPET CONTROL — v4.0.0
+  Fix v4: escape description đúng khi vào HTML attribute, đồng bộ filter
+  ==============================================================================
+{% endcomment %}
+
+{% comment %} ---- ROBOTS DIRECTIVE (AI Overviews Readiness) ---- {% endcomment %}
+{% unless seo_meta_robots_done %}
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+{% assign seo_meta_robots_done = true %}
+{% endunless %}
+
+{% comment %} ---- CANONICAL URL ---- {% endcomment %}
+{% unless seo_meta_canonical_done %}
+<link rel="canonical" href="{{ canonical_url }}" />
+{% assign seo_meta_canonical_done = true %}
+{% endunless %}
+
+{% comment %} ---- Tính title, description, image, alt theo loại trang ---- {% endcomment %}
+{% if template contains 'product' %}
+  {% assign seo_og_type        = 'product' %}
+  {% assign seo_og_title       = product.title %}
+  {% assign seo_og_description = product.description | strip_html | truncatewords: 40 %}
+  {% assign seo_og_image_alt   = product.title | strip_html | escape %}
+  {% if product.featured_image %}
+    {% assign seo_og_image = product.featured_image | img_url: '1200x630', crop: 'center' | prepend: 'https:' %}
+  {% else %}
+    {% assign seo_og_image = seo_og_fallback_image %}
+  {% endif %}
+
+{% elsif template contains 'article' %}
+  {% assign seo_og_type        = 'article' %}
+  {% assign seo_og_title       = article.title %}
+  {% assign seo_og_description = article.excerpt_or_content | strip_html | truncatewords: 40 %}
+  {% assign seo_og_image_alt   = article.title | strip_html | escape %}
+  {% assign seo_article_author_name = article.author | default: seo_default_author %}
+  {% if article.image %}
+    {% assign seo_og_image = article.image | img_url: '1200x630', crop: 'center' | prepend: 'https:' %}
+  {% else %}
+    {% assign seo_og_image = seo_og_fallback_image %}
+  {% endif %}
+
+{% elsif template contains 'collection' %}
+  {% assign seo_og_type        = 'website' %}
+  {% assign seo_og_title       = collection.title %}
+  {% assign seo_og_description = collection.description | strip_html | truncatewords: 40 | default: shop.description %}
+  {% assign seo_og_image_alt   = collection.title | strip_html | escape %}
+  {% if collection.image %}
+    {% assign seo_og_image = collection.image | img_url: '1200x630', crop: 'center' | prepend: 'https:' %}
+  {% else %}
+    {% assign seo_og_image = seo_og_fallback_image %}
+  {% endif %}
+
+{% else %}
+  {% assign seo_og_type        = 'website' %}
+  {% assign seo_og_title       = page_title | default: shop.name %}
+  {% assign seo_og_description = page_description | default: shop.description %}
+  {% assign seo_og_image_alt   = seo_og_title | strip_html | escape %}
+  {% assign seo_og_image       = seo_og_fallback_image %}
+{% endif %}
+
+{% comment %} Truncate + escape sạch cho meta description (155 ký tự chuẩn Google) {% endcomment %}
+{% assign seo_meta_description = seo_og_description | strip_html | strip_newlines | truncate: 155 | escape %}
+
+{% comment %} ---- META DESCRIPTION (Critical — bắt buộc có) ---- {% endcomment %}
+{% unless seo_meta_description_done %}
+<meta name="description" content="{{ seo_meta_description }}" />
+{% assign seo_meta_description_done = true %}
+{% endunless %}
+
+{% comment %} ---- OPEN GRAPH BASE ---- {% endcomment %}
+<meta property="og:site_name" content="{{ shop.name | escape }}" />
+<meta property="og:url"       content="{{ canonical_url }}" />
+<meta property="og:locale"    content="vi_VN" />
+<meta property="og:type"      content="{{ seo_og_type }}" />
+<meta property="og:title"     content="{{ seo_og_title | strip_html | escape }}" />
+<meta property="og:description" content="{{ seo_og_description | strip_html | strip_newlines | truncate: 300 | escape }}" />
+
+{% comment %} OG Image với alt text {% endcomment %}
+{% if seo_og_image != blank %}
+<meta property="og:image"        content="{{ seo_og_image }}" />
+<meta property="og:image:width"  content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt"    content="{{ seo_og_image_alt }}" />
+{% endif %}
+
+{% comment %} ---- Article-specific OG tags ---- {% endcomment %}
+{% if template contains 'article' %}
+<meta property="article:published_time" content="{{ article.published_at | date: '%Y-%m-%dT%H:%M:%S+07:00' }}" />
+<meta property="article:modified_time"  content="{{ article.updated_at | default: article.published_at | date: '%Y-%m-%dT%H:%M:%S+07:00' }}" />
+<meta property="article:author"         content="{{ seo_article_author_name | escape }}" />
+{% for tag in article.tags %}
+<meta property="article:tag" content="{{ tag | escape }}" />
+{% endfor %}
+{% endif %}
+
+{% comment %} ---- Product-specific OG tags ---- {% endcomment %}
+{% if template contains 'product' %}
+<meta property="og:price:amount"   content="{{ product.price | divided_by: 100 }}" />
+<meta property="og:price:currency" content="VND" />
+{% endif %}
+
+{% comment %} ---- TWITTER CARD ---- {% endcomment %}
+<meta name="twitter:card"        content="summary_large_image" />
+{% if seo_twitter_handle != '' %}
+<meta name="twitter:site"        content="{{ seo_twitter_handle }}" />
+{% endif %}
+<meta name="twitter:title"       content="{{ seo_og_title | strip_html | escape }}" />
+<meta name="twitter:description" content="{{ seo_og_description | strip_html | strip_newlines | truncate: 200 | escape }}" />
+{% if seo_og_image != blank %}
+<meta name="twitter:image"       content="{{ seo_og_image }}" />
+<meta name="twitter:image:alt"   content="{{ seo_og_image_alt }}" />
+{% endif %}

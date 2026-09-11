@@ -1,0 +1,48 @@
+{% unless has_heading %}
+  <link rel="preload" href="{{ 'll-page-heading.scss.css' | asset_url }}" as="style">
+  <link rel="stylesheet" href="{{ 'll-page-heading.scss.css' | asset_url }}">
+{% endunless %}
+
+<link rel="preload" href="{{ 'll-index-form.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'll-index-form.scss.css' | asset_url }}">
+<link href="{{ 'll-index-form.js' | asset_url }}" rel="preload" as="script">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'll-index-form.js' | asset_url }}"></script>
+<section class="loomline-index-form">
+  <div class="container">
+    <div class="row align-items-center">
+        <div class="col-lg-6 col-12">
+          <div class="banner">
+            <img src="{{ 'loomline_index_form_img.jpg' | asset_url}}" alt="{{ settings.loomline_index_form_title | strip_html | escape }}" loading="eager" decoding="sync" />
+          </div>
+        </div>
+      <div class="col-lg-6 col-12">
+        <div class="index-form">
+      {% if settings.loomline_index_form_title != empty %}
+    <div class="heading-title">
+        <h2 class="title">{{ settings.loomline_index_form_title | newline_to_br }}</h2>
+    </div>
+    {% endif %}
+          <div class="form-box form-booking">
+                    {%if settings.dh_form_pro_booking == 'google-sheet'%}
+                      <form id="formbooking" action="{{settings.dh_gg_link_form}}" data-shop="{{shop.name}}">
+                        {%include 'index-form'%}
+                      </form>
+                    {%else%}
+                    {%- capture formProductContact -%}
+                      {%form "contact"%}
+                        {%include 'index-form'%}
+                      {%endform%}
+                      {%- endcapture -%}
+                      {{ formProductContact | replace: "script","noscript" }}
+                    {%endif%}
+                  </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{%include 'modal-success'%}
+
+
+

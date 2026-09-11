@@ -1,0 +1,37 @@
+{%layout none%}
+{% for article in blog.articles limit: 3 %}
+  {% include 'article-image' with article: article %}
+  <article class="article-loop">
+    <div class="article-inner">
+      <div class="article-image">
+        <a href="{{ article.url}}" class="blog-post-thumbnail" title="{{ article.title }}" rel="nofollow">
+          <img
+            class="lazyload"
+            {% if forloop.first %}
+            data-src="{{ imageUrl | product_img_url : '1024x1024' }}"
+            {% else %}
+            data-src="{{ imageUrl | product_img_url : 'grande' }}"
+            {% endif %}
+            src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+            alt="{{ article.title }}">
+        </a>
+      </div>
+      <div class="article-detail">
+        <div class="article-title">
+          <h3 class="post-title">
+            <a href="{{ article.url}}" title="{{ article.title }}">{{ article.title }}</a>
+          </h3>
+        </div>
+        <div class="article-post-meta">
+          <span class="author">bởi: {{ article.author }}</span>
+          <span> - </span>
+          <span class="date">
+            <time pubdate datetime="{{ article.published_at | date: '%d Tháng %m, %Y' }}">{{ article.published_at | date: '%d Tháng %m, %Y' }}</time>
+          </span>
+        </div>
+        <p class="entry-content">{{ article.content | strip_html | truncatewords: 35 }}</p>
+        <a href="{{article.url}}" class="btn-link">Xem chi tiết</a>
+      </div>
+    </div>
+  </article>
+{% endfor %}

@@ -1,0 +1,16 @@
+{%layout none%}
+{% assign col_handle = '' %}
+{% assign col_limit = 0 %}
+{%for i in (1..2)%}
+  {%capture handle%}loomline_col_{{i}}_handle{%endcapture%}
+  {%capture limit%}loomline_col_{{i}}_limit{%endcapture%}
+  {%if collection.handle == settings[handle] %}
+    {% assign col_handle = settings[handle] %}
+    {% assign col_limit = settings[limit] %}
+  {%endif%}
+{%endfor%}
+{% for product in collection.products limit: col_limit %}
+  <div class="pro-item">
+      {% include 'll-product-loop' %}
+    </div>
+{% endfor %}

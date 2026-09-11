@@ -1,0 +1,210 @@
+Loomline.IndexForm = {
+		init: function() {
+			var that = this;
+      that.Loomline_formBooking();
+		},
+  Loomline_formBooking: function(){
+		var today = new Date();
+		var dd = today.getDate();
+		var mm = today.getMonth()+1; //January is 0!
+		var yyyy = today.getFullYear();
+		var h = today.getHours();
+		var m = today.getMinutes();
+		if(h<10){h='0'+h} if(m<10){m='0'+m} 
+		if(dd<10){dd='0'+dd} if(mm<10){mm='0'+mm} 
+		today =yyyy+'-'+mm+'-'+dd;
+	
+		$('#your_date').val(today);
+		//$('#your_time').val(h + ':' + m);
+		function checkSelect(obj) {
+			var name = $(obj).attr("data-valid");
+
+			$("."+name+"-validation").html("");
+			$(obj).css("border-bottom","");
+
+			if($(obj).val() == 'none' || $(obj).val() == 'undefined'  || $(obj).val() == undefined) {
+				$(obj).css("border-bottom","#FF0000 1px solid");
+				$("."+name+"-validation").html("Vui lòng chọn thông tin tại đây");
+				return false;
+			}
+			return true;
+		}
+		function checkEmpty(obj) {
+			var name = $(obj).attr("data-valid");
+
+			$("."+name+"-validation").html("");
+			$(obj).css("border-bottom","");
+
+			if($(obj).val() == "" || $(obj).val() == 'null' || $(obj).val() == null  || $(obj).val() == 'undefined'  || $(obj).val() == undefined) {
+				$(obj).css("border-bottom","#FF0000 1px solid");
+				$("."+name+"-validation").html("Vui lòng điền thông tin tại đây");
+				return false;
+			}
+			return true;
+		}
+		function checkEmail(obj) {
+			var result_ph = true;
+
+			var name = $(obj).attr("data-valid");
+			$("."+name+"-validation").html("");
+			$(obj).css("border-bottom","");
+
+			result_ph = checkEmpty(obj);
+
+			if(!result_ph) {
+				$(obj).css("border-bottom","#FF0000 1px solid");
+				$("."+name+"-validation").html("Vui lòng điền thông tin tại đây");
+				return false;
+			}
+
+			var email_regex = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+			result_ph = email_regex.test($(obj).val());
+
+			if(!result_ph) {
+				$(obj).css("border-bottom","#FF0000 1px solid");
+				$("."+name+"-validation").html("Địa chỉ Email không hợp lệ");
+				return false;
+			}
+
+			return result_ph;
+		}
+		function checkPhone(obj) {
+			var result = true;
+
+			var name = $(obj).attr("data-valid");
+			$("."+name+"-validation").html("");
+			$(obj).css("border-bottom","");
+
+			result = checkEmpty(obj);
+
+			if(!result) {
+				$(obj).css("border-bottom","#FF0000 1px solid");
+				$("."+name+"-validation").html("Vui lòng điền thông tin tại đây");
+				return false;
+			}
+
+			var phone_regex = /(^0[2-9]\d{8}$)|(^01\d{9}$)/;
+			result = phone_regex.test($(obj).val());
+
+			if(!result) {
+				$(obj).css("border-bottom","#FF0000 1px solid");
+				$("."+name+"-validation").html("Số điện thoại không hợp lệ");
+				return false;
+			}
+
+			return result;
+		}
+    var valid = false;
+		function validate(){
+			var name = $('.form-booking #full_name').val();
+			var phone = $('.form-booking #your_phone').val();
+			var email = $('.form-booking #your_email').val();
+			
+			//debugger;
+			if(name != '' && name != null && checkPhone($(".form-booking #your_phone")) && checkEmail($(".form-booking #your_email")) && $(".form-booking #dh_form_service").val() != 'none' && $(".form-booking #dh_form_time").val() != 'none'){
+				valid = true;
+				//valid = valid && checkPhone($(".form-booking #your_phone"));
+			}
+			else{
+				valid = false;
+			}
+			if(valid == true){
+				$("#btn-booking-send").removeClass('btn-disabled').attr("disabled",false);
+			}
+			else{
+				$("#btn-booking-send").addClass('btn-disabled').attr("disabled",true);
+			}
+		}
+    
+		$('.form-booking #full_name').on('change keyup blur',function(){
+			checkEmpty($('.form-booking #full_name'));
+      validate();
+		})
+		$('.form-booking #your_phone').on('change keyup blur',function(){
+			checkPhone($(this));
+      validate();
+		})
+		$('.form-booking #your_email').on('change keyup blur',function(){
+			checkEmail($(this));
+      validate();
+		})
+    $('.form-booking .input-group select').change(function(){
+      checkSelect($(this));
+      validate();
+		})
+
+		$('#btn-booking-send').click(function(e){
+			e.preventDefault() ;
+			if(checkEmpty($(".form-booking #full_name")) && checkPhone($(".form-booking #your_phone")) && checkEmail($(".form-booking #your_email")) && $(".form-booking #dh_form_service").val() != 'none' && $(".form-booking #dh_form_time").val() != 'none'){
+				let check_form = false;
+				debugger;
+				{%if settings.dh_form_pro_booking == 'google-sheet'%}
+					check_form = true;
+				{%endif%}
+				 if(check_form){
+					 let unindexed_array = $("#formbooking").serializeArray();
+					 let indexed_array = {};
+					 let url = $("#formbooking").attr('action');
+					 $.map(unindexed_array, function(n, i){
+						 indexed_array[n['name']] = n['value'];
+					 });
+					 //debugger;
+					 $.ajax({
+						 type: 'POST',
+						 url: url,
+						 async : false,
+						 data: indexed_array,
+						 dataType: 'json',
+						 complete: function() {
+							 setTimeout(function(){
+								 //$('#modal-booking').modal('hide');
+								 $('#mymodal_success').modal('show');
+							 },300);
+							 setTimeout(function(){
+								 $('#mymodal_success').modal('hide');
+							 },5000);	
+						 },
+						 error: function(XMLHttpRequest, textStatus) {
+							 console.log('err', textStatus );
+						 }
+					 });
+				 }
+				 else{
+					const self = $(this).parents('form');
+              let namee = self.find("#full_name").val(),
+              phonee = self.find("#your_phone").val(),
+              emaill = self.find("#your_email").val(),
+              message = "{%if settings.dh_form_service != ''%}{{settings.dh_form_service}}: {%else%}Dịch vụ: {%endif%}";
+              message += self.find("#dh_form_service").val();
+              message += "\nNgày: " + self.find("#your_date").val();
+               message += "\n{%if settings.dh_form_time != ''%}{{settings.dh_form_time}}: {%else%}Giờ: {%endif%} " + self.find("#dh_form_time").val();
+             grecaptcha.ready(function() {
+               grecaptcha.execute('6LchSLkqAAAAABVHBpeFgg8N-WgkYsr5fO6GUF_s', {action: 'submit'}).then(function(token) {
+                 self.find('input[name="g-recaptcha-response"]').val(token);
+                  $.ajax({
+                   type: 'POST',
+                   url:'/contact',
+                   data: "form_type=contact&__RequestVerificationToken="+self.find('input[name="__RequestVerificationToken"]').val()+"&utf8=✓&contact[name]="+namee+"&contact[phone]="+phonee+"&contact[email]="+emaill+"&contact[body]="+message+"&g-recaptcha-response="+self.find('input[name="g-recaptcha-response"]').val(),
+                   success:function(data){
+                     self.trigger("reset")
+                     setTimeout(function(){
+    									 $('#mymodal_success').modal('show');
+    								 },300);
+    								 setTimeout(function(){
+    									 $('#mymodal_success').modal('hide');
+    								 },5000);	
+                   }
+                 })
+               })
+             })
+				 }
+				}
+		});
+		$("#mymodal_success").on('hidden.bs.modal', function(){
+					 location.reload();
+		});	
+	},
+};
+(function() {
+  Loomline.IndexForm.init();
+})();

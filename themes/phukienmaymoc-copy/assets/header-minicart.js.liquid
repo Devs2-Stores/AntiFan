@@ -1,0 +1,468 @@
+
+//Delay action
+function Loomline_delayTime (func, wait) {
+	return function() {
+		var that = this,
+				args = [].slice(arguments);
+		clearTimeout(func._throttleTimeout);
+		func._throttleTimeout = setTimeout(function() {
+			func.apply(that, args);
+		}, wait);
+	};
+}
+Loomline.MiniCart = {
+		init: function() {
+			var that = this;
+      that.Loomline_showModalCoupon();
+      that.Loomline_slideCouponModal();
+      that.Loomline_copyCodeModalCoupon();
+      that.Loomline_updateMiniCart();
+      that.Loomline_clickNote();
+      //that.Loomline_listItem();
+		},
+  Loomline_showModalCoupon: function(){
+		$(document).on('click', '.loomline-sitenav-cart .loomline-linkcoupon', function(e){ 
+			$('#loomline-modal-coupon').modal('show');
+		})
+	},
+	Loomline_slideCouponModal: function(){
+		var swiper = new Swiper("#loomline-modalCoupon", {
+			slidesPerView: 1,
+			spaceBetween: 12,
+			grid: {
+				rows: 2,
+				fill: "row",
+			},
+			pagination: {
+				el: ".swiper-pagination",
+				clickable: true,
+			},
+		});
+	},
+  Loomline_copyCodeModalCoupon: function(){
+		$(document).on('click', '.loomline-coupon-item .loomline-cp-btn', function(e){ 
+			e.preventDefault();	
+			$('.loomline-coupon-item .loomline-cp-btn').html('Sao chép mã').removeClass('disabled');
+			var copyText = $(this).attr('data-coupon');
+			var dummy = $('<input class="loomline-copy-coupon-text-hide">').val(copyText).appendTo('.loomline-coupon-initial').select();
+			dummy.focus();
+			document.execCommand('copy');
+			$('.loomline-copy-coupon-text-hide').remove();
+			$(this).html('Đã sao chép').addClass('disabled');
+		});
+	},
+  Loomline_updateMiniCart: function(){
+		$(document).on('click','.loomline-mini-cart__quantity .loomline-mnc-plus',function(e){
+			e.preventDefault();
+			var line = $(this).parents('.loomline-mini-cart__item').index() + 1;
+			var currentQty = parseInt($(this).parents('.loomline-mini-cart__item').find('input').val());
+			var newQty = currentQty + 1;
+			$(this).parents('.loomline-mini-cart__item').find('input').val(newQty);
+		});
+
+		$(document).on('click','.loomline-mini-cart__quantity .loomline-mnc-minus',function(e){
+			e.preventDefault();
+			var line = $(this).parents('.loomline-mini-cart__item').index() + 1;
+			var currentQty = parseInt($(this).parents('.loomline-mini-cart__item').find('input').val());
+			if(currentQty > 1){
+				var newQty = currentQty - 1;
+				$(this).parents('.loomline-mini-cart__item').find('input').val(newQty);
+			}
+		}); 
+
+		$(document).on('click','.loomline-mini-cart__quantity .loomline-mnc-plus', Loomline_delayTime(function(){
+			//debugger
+			var line = $(this).parents('.loomline-mini-cart__item').index() + 1;
+			var vId = $(this).parents('.loomline-mini-cart__item').find('input').attr('data-vid');
+			var pId = $(this).parents('.loomline-mini-cart__item').attr('data-pid');
+			var currentQty = parseInt($(this).parents('.loomline-mini-cart__item').find('input').val());
+			var updates = [];
+			var qtyGift = 0;
+			var updateNormal = true;
+			if(promotionApp){
+				if(promotionApp_name == 'app_buyxgety'){
+					updateNormal = false;
+					var old_promotion_variant_id = buyXgetY.getPromotionStorage(vId);
+					if(old_promotion_variant_id !== undefined){
+
+						var gOSP = 0,//Gift other but same main product 
+								gOPR = 0,//Gift priority but same main product
+								gCurrent = null;
+
+						var giftExistInCart = true,
+								qtyGiftNotInCart = 0;
+						if(old_promotion_variant_id != undefined){
+							$.each(old_promotion_variant_id,function(vIdGift,infoGift){
+
+								var filterGiftInCart = cartGet.items.filter(x => x.variant_id == vIdGift && x.promotionby.length > 0 && x.promotionby[0].product_id == pId);
+								if(infoGift.priority == false && filterGiftInCart.length > 0){
+									gOSP += filterGiftInCart[0].quantity;
+								}
+
+								if(infoGift.priority == true){
+									if(filterGiftInCart.length > 0){
+										gOPR += filterGiftInCart[0].quantity;
+									}
+									else{
+										giftExistInCart = false;
+									}
+									gCurrent = infoGift;
+									gCurrent.vId = vIdGift;
+								}
+							});
+
+							if(giftExistInCart == false){
+								qtyGift = (currentQty - gOSP) / gCurrent.count_buy * gCurrent.count_gift;
+							}
+						}
+
+						cartGet.items.map((item,index) => {
+							if(item.variant_id == vId){
+								updates[index] = currentQty;
+							}
+							else{
+								if(item.promotionby.length > 0 && item.promotionby[0].product_id == pId){
+									if(gCurrent != null){
+										if(gCurrent.priority == true && gCurrent.vId == item.variant_id){
+											var haohut = currentQty - (gOSP + gOPR);
+											qtyGift = (item.quantity + haohut)/gCurrent.count_buy*gCurrent.count_gift;
+											updates[index] = qtyGift;
+										}
+										else{
+											updates[index] = item.quantity;
+										}
+									}
+								}
+								else{
+									updates[index] = item.quantity;
+								}
+							}
+						});
+
+						var params = {
+							type: 'POST',
+							url: '/cart/update.js',	
+							data: {
+								'updates[]': updates
+							},	
+							async: false,
+							dataType: 'json',
+							success: function(data) {					
+								cartItem = {};
+								cartGet = data;
+								for (i = 0; i < data.items.length; i++) {
+									var id = data.items[i].variant_id;
+									cartItem[data.items[i].variant_id] = data.items[i].quantity;
+									$('.loomline-mini-cart__item input[data-vid="'+id+'"]').val(data.items[i].quantity);
+									$('.proloop-actions[data-vrid="'+id+'"]').find('.proloop-boxqty input').val(data.items[i].quantity);
+									$('.proloop-actions[data-vrid="'+id+'"] .proloop-value').val(data.items[i].quantity);
+								}	
+
+								if(giftExistInCart){
+									Loomline.Cart.Loomline_getCartModal(false);
+								}
+								else{
+									if(gCurrent.vId == 'not_gift'){
+										Loomline.Cart.Loomline_getCartModal(false);
+									}
+									else{
+										$.post('/cart/add.js','id='+gCurrent.vId+'&quantity='+qtyGift).done(function(){
+											Loomline.Cart.Loomline_getCartModal(false);
+
+											/*
+									var total_price = Haravan.formatMoney(data.total_price,formatMoney);
+									$('#loomline-total-view-cart,.boxinfo.p-price,.loomline-mnc-total-price').html(total_price);
+									$('.count-holder .count').html(data.item_count);
+									$('.boxinfo.p-count').html(data.item_count + ' sản phẩm');
+									*/
+										});
+									}
+								}
+							},
+							error: function(XMLHttpRequest, textStatus) {
+								Haravan.onError(XMLHttpRequest, textStatus);
+							}
+						};
+						jQuery.ajax(params);
+					}
+					else{
+						var params = {
+							type: 'POST',
+							url: '/cart/change.js',	
+							data:'quantity=' + currentQty + '&line=' + line,	
+							async: false,
+							dataType: 'json',
+							success: function(data) {					
+								cartItem = {};
+								cartGet = data;
+								for (i = 0; i < data.items.length; i++) {
+									var id = data.items[i].variant_id;
+									cartItem[data.items[i].variant_id] = data.items[i].quantity;
+									$('.loomline-mini-cart__item input[data-vid="'+id+'"]').val(data.items[i].quantity);
+									$('.proloop-actions[data-vrid="'+id+'"]').find('.proloop-boxqty input').val(data.items[i].quantity);
+								}	
+
+								Loomline.Cart.Loomline_getCartModal(false);
+							},
+							error: function(XMLHttpRequest, textStatus) {
+								Haravan.onError(XMLHttpRequest, textStatus);
+							}
+						};
+						jQuery.ajax(params);
+					}
+				}
+			}
+			if(updateNormal){
+				var params = {
+					type: 'POST',
+					url: '/cart/change.js',	
+					data:'quantity=' + currentQty + '&line=' + line,	
+					async: false,
+					dataType: 'json',
+					success: function(data) {					
+						cartItem = {};
+						cartGet = data;
+						for (i = 0; i < data.items.length; i++) {
+							var id = data.items[i].variant_id;
+							cartItem[data.items[i].variant_id] = data.items[i].quantity;
+							$('.loomline-mini-cart__item input[data-vid="'+id+'"]').val(data.items[i].quantity);
+							$('.proloop-actions[data-vrid="'+id+'"]').find('.proloop-boxqty input').val(data.items[i].quantity);
+							$('.proloop-actions[data-vrid="'+id+'"] .proloop-value').val(data.items[i].quantity);
+						}	
+						Loomline.Cart.Loomline_getCartModal(false);
+						var total_price = Haravan.formatMoney(data.total_price,formatMoney);
+						$('#loomline-total-view-cart,.loomline-mnc-total-price').html(total_price);
+						$('.loomline-count-holder .loomline-count').html(data.item_count);
+						//$('.boxinfo.p-count').html(data.item_count + ' sản phẩm');
+					},
+					error: function(XMLHttpRequest, textStatus) {
+						Haravan.onError(XMLHttpRequest, textStatus);
+					}
+				};
+				jQuery.ajax(params);
+			}
+		},300));
+
+		$(document).on('click','.loomline-mini-cart__quantity .loomline-mnc-minus',Loomline_delayTime(function(){
+			//var isXhasSpecialY = $(this).parents('.loomline-mini-cart__item').hasClass('xSpecial');
+			var updates = [];
+			var line = $(this).parents('.loomline-mini-cart__item').index() + 1;		
+			var vId = $(this).parents('.loomline-mini-cart__item').find('input').attr('data-vid');
+			var pId = $(this).parents('.loomline-mini-cart__item').attr('data-pid');
+			var currentQty = parseInt($(this).parents('.loomline-mini-cart__item').find('input').val());
+			if(currentQty > 0){
+				var updateNormal = true;
+				if(promotionApp){
+					if(promotionApp_name == 'app_buyxgety'){
+						updateNormal = false;
+						var old_promotion_variant_id = buyXgetY.getPromotionStorage(vId);
+						if(old_promotion_variant_id !== undefined){
+
+							var gOSP = 0,//Gift other but same main product 
+									gOPR = 0,//Gift priority but same main product
+									gCurrent = null;
+
+							if(old_promotion_variant_id != undefined){
+								$.each(old_promotion_variant_id,function(vIdGift,infoGift){
+									var filterGiftInCart = cartGet.items.filter(x => x.variant_id == vIdGift && x.promotionby.length > 0 && x.promotionby[0].product_id == pId);
+									if(infoGift.priority == false && filterGiftInCart.length > 0){
+										gOSP += filterGiftInCart[0].quantity;
+									}
+									if(infoGift.priority == true && filterGiftInCart.length > 0){
+										gOPR += filterGiftInCart[0].quantity * infoGift.count_buy / infoGift.count_gift;
+										gCurrent = infoGift;
+										gCurrent.vId = vIdGift;
+									}
+								});
+							}
+
+							cartGet.items.map((item,index) => {
+								if(item.variant_id == vId) updates[index] = currentQty;
+								else{
+									if(item.promotionby.length > 0 && item.promotionby[0].product_id == pId){
+										if(gCurrent != null && gCurrent.priority == true && gCurrent.vId == item.variant_id){
+											var haohut = gOSP + gOPR - currentQty;
+											var qtyGift = item.quantity - (haohut / gCurrent.count_buy * gCurrent.count_gift);
+											updates[index] = qtyGift;
+										}
+										else{
+											updates[index] = item.quantity;
+										}
+									}
+									else{
+										updates[index] = item.quantity;
+									}
+								}
+							});
+
+							var params = {
+								type: 'POST',
+								url: '/cart/update.js',	
+								data: {
+									'updates[]': updates
+								},	
+								async: false,
+								dataType: 'json',
+								success: function(data) {					
+									cartItem = {};
+									cartGet = data;
+									for (i = 0; i < data.items.length; i++) {
+										var id = data.items[i].variant_id;
+										cartItem[data.items[i].variant_id] = data.items[i].quantity;
+										$('.loomline-mini-cart__item input[data-vid="'+id+'"]').val(data.items[i].quantity);
+										$('.proloop-actions[data-vrid="'+id+'"]').find('.proloop-boxqty input').val(data.items[i].quantity);
+									}	
+
+									Loomline.Cart.Loomline_getCartModal(false);
+
+									var total_price = Haravan.formatMoney(data.total_price,formatMoney);
+									$('#loomline-total-view-cart,.loomline-mnc-total-price').html(total_price);
+									$('.loomline-count-holder .loomline-count').html(data.item_count);
+									//$('.boxinfo.p-count').html(data.item_count + ' sản phẩm');
+								},
+								error: function(XMLHttpRequest, textStatus) {
+									Haravan.onError(XMLHttpRequest, textStatus);
+								}
+							};
+							jQuery.ajax(params);
+						}
+						else{
+							var params = {
+								type: 'POST',
+								url: '/cart/change.js',	
+								data:'quantity=' + currentQty + '&line=' + line,	
+								async: false,
+								dataType: 'json',
+								success: function(data) {					
+									cartItem = {};
+									cartGet = data;
+									for (i = 0; i < data.items.length; i++) {
+										var id = data.items[i].variant_id;
+										cartItem[data.items[i].variant_id] = data.items[i].quantity;
+										$('.loomline-mini-cart__item input[data-vid="'+id+'"]').val(data.items[i].quantity);
+										$('.proloop-actions[data-vrid="'+id+'"]').find('.proloop-boxqty input').val(data.items[i].quantity);
+										$('.proloop-actions[data-vrid="'+id+'"] .proloop-value').val(data.items[i].quantity);
+									}	
+
+									Loomline.Cart.Loomline_getCartModal(false);
+
+									var total_price = Haravan.formatMoney(data.total_price,formatMoney);
+									$('#loomline-total-view-cart,.loomline-mnc-total-price').html(total_price);
+									$('.loomline-count-holder .loomline-count').html(data.item_count);
+									//$('.boxinfo.p-count').html(data.item_count + ' sản phẩm');
+								},
+								error: function(XMLHttpRequest, textStatus) {
+									Haravan.onError(XMLHttpRequest, textStatus);
+								}
+							};
+							jQuery.ajax(params);
+						}
+					}
+				}
+				if(updateNormal){
+					var params = {
+						type: 'POST',
+						url: '/cart/change.js',	
+						data:'quantity=' + currentQty + '&line=' + line,	
+						async: false,
+						dataType: 'json',
+						success: function(data) {					
+							cartItem = {};
+							cartGet = data;
+							for (i = 0; i < data.items.length; i++) {
+								var id = data.items[i].variant_id;
+								cartItem[data.items[i].variant_id] = data.items[i].quantity;
+								$('.loomline-mini-cart__item input[data-vid="'+id+'"]').val(data.items[i].quantity);
+								$('.proloop-actions[data-vrid="'+id+'"]').find('.proloop-boxqty input').val(data.items[i].quantity);
+								$('.proloop-actions[data-vrid="'+id+'"] .proloop-value').val(data.items[i].quantity);
+							}	
+
+							Loomline.Cart.Loomline_getCartModal(false);
+
+							var total_price = Haravan.formatMoney(data.total_price,formatMoney);
+							$('#loomline-total-view-cart,.loomline-mnc-total-price').html(total_price);
+							$('.loomline-count-holder .loomline-count').html(data.item_count);
+							//$('.boxinfo.p-count').html(data.item_count + ' sản phẩm');
+						},
+						error: function(XMLHttpRequest, textStatus) {
+							Haravan.onError(XMLHttpRequest, textStatus);
+						}
+					};
+					jQuery.ajax(params);
+				}
+			}
+		},300));
+	},
+  Loomline_clickNote: function(){
+    function checkEmpty(obj) {
+		if($(obj).val() == "" || $(obj).val() == 'null' || $(obj).val() == null  || $(obj).val() == 'undefined'  || $(obj).val() == undefined) {
+			return false;
+		}
+		return true;
+	}
+    $(document).on("change keyup blur", ".popup-mini-note #note-val", function() {
+      if(checkEmpty($(this))){
+        $('#mini-note-apply').removeClass('btn-disabled').attr("disabled",false);
+      }else{
+        $('#mini-note-apply').addClass('btn-disabled').attr("disabled",true);
+      }
+	});
+    $('#mini-note').click(function(){
+      $('.loomline-sidebar-main .loomline-sitenav-cart').addClass('note-show');
+    });
+    $('.loomline-note-overlay,#mini-note-close').click(function(e){
+			$('.loomline-sidebar-main .loomline-sitenav-cart').removeClass('note-show');
+		});
+    $('#mini-note-apply').click(function(e){
+      var note = $(this).parents('.popup-mini-note').find('#note-val').val();debugger;
+      if(note != '' && note != null && note != undefined){
+        $.ajax({
+        url: '/cart/update.js',
+        type: 'POST',
+        data: {
+          "note": note
+        },
+        success: function(data){
+          $('.loomline-sidebar-main .loomline-sitenav-cart').removeClass('note-show');
+        }
+      });
+      }
+		})
+  },
+  Loomline_getCollection: function(handle){
+    var url = '/products/'+ handle + '?view=test';
+    console.log(url);
+    jQuery.ajax({
+					url: url,
+					async: false,
+					success: function(data) {
+            data = JSON.parse(data);
+            console.log('ddddd'+data.collection);
+						jQuery.ajax({
+    					url: '/collections/'+ data.collection +'?view=mini-col',
+    					async: false,
+    					success: function(data) {
+                console.log(data);
+    					},
+    					error: function(erorr) {
+    						console.log(error);
+    					}
+    				});
+					},
+					error: function(erorr) {
+						console.log(error);
+					}
+				});
+  },
+  Loomline_listItem: function(){
+    $('.loomline-mini-cart__item').each(function(){
+      var data_hd = $(this).attr('data-handle');
+      if(data_hd != '' && data_hd != null && data_hd != undefined){
+        Loomline.MiniCart.Loomline_getCollection(data_hd);
+      }
+    })
+  }
+};
+(function() {
+  Loomline.MiniCart.init();
+})();

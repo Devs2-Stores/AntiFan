@@ -1,0 +1,824 @@
+<link rel="preload" href="{{ 'll-product-loop.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'll-product-loop.scss.css' | asset_url }}">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'll-product-loop.js' | asset_url }}"></script>
+{% if settings.cart_coupon_show %}
+<link rel="preload" href="{{ 'coupon.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'coupon.scss.css' | asset_url }}">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'coupon.js' | asset_url }}"></script>
+{%endif%}
+<link rel="preload" href="{{ 'style-cart.scss.css' | asset_url }}" as="style">
+<link rel="stylesheet" href="{{ 'style-cart.scss.css' | asset_url }}">
+<script fetchpriority="low" type="text/javascript" defer src="{{ 'cart.js' | asset_url }}"></script>
+{%- unless settings.loomline_shop_buying -%}
+<script>
+	window.location.href="/"
+</script>
+{%- endunless -%}
+{%- assign checkPriTotal = false -%}
+{%- assign checkFreeShip = false -%}
+
+{%- assign valuePriMin = ''-%}
+{%- assign freeShipMin = 0 -%}
+{%- assign valuePriTotal =  cart.total_price | divided_by : 100 -%}
+
+{%- if settings.cart_freeship_min != blank -%}
+	{%- assign freeShipMin = settings.cart_freeship_min  | lstrip | rstrip | times: 1 -%}
+	{%- assign checkFreeShip = true -%}
+{%- endif-%}
+{%- assign percent = valuePriTotal | times: 100 | divided_by: freeShipMin -%}
+
+{%- if settings.cart_total_min != blank -%}
+	{%- assign valuePriMin =  settings.cart_total_min | lstrip | rstrip | times: 1 -%}
+	{%- if valuePriMin > valuePriTotal -%} 
+		{%- assign checkPriTotal = true -%}
+	{%- endif -%}
+{%- endif -%}
+{%- if valuePriTotal == 0 -%} {%- assign checkPriTotal = true -%} {%- endif -%}
+
+<div class="layout-cart" id="layout-cart">
+	{% include 'breadcrumb' -%}
+	<div class="wrapper-mainCart">
+		<div class="content-bodyCart">
+			<div class="container">
+				<div class="row">			
+					<div class="col-lg-8 col-md-12 col-12 contentCart-detail">
+						<div class="mainCart-detail">
+							{%if settings.promotion_hrvapp_use and settings.promotion_hrvapp == 'appbuy2get1' -%}
+							<div id="hrv-promotion-buy2get1" style="display: none">
+								<div class="notify-setting">
+									<div class="setting-left">
+										<div class="item logo">
+											<img src="https://shopfront-cdn.tekoapis.com/cart/gift-filled.png" alt="cart.png"/>
+										</div>
+										<div class="item">
+											<h4 class="header"></h4>
+											<div class="content"></div>
+										</div>
+									</div>
+									<div class="item">
+										<button id="btn-buy-now">Mua ngay</button>
+									</div>
+								</div>
+								<div class="notify-system">
+									<div class="item">
+										<h4 class="header"></h4>
+									</div>
+									<div class="item">
+										<div class="content"></div>
+										<ul class="list"></ul>
+									</div>
+								</div>
+							</div>
+							{%endif-%}
+							<div class="heading-cart {% if cart.item_count != 0 %}heading-row{%endif%}">
+								<h1>Giỏ hàng của bạn</h1>
+								{% if cart.item_count != 0 %}
+								<p class="title-number-cart">Bạn đang có <strong class="count-cart">{{ cart.item_count }} sản phẩm</strong> trong giỏ hàng</p>
+								{% endif -%}
+                {%if settings.use_cart_freeship_min and freeShipMin > 0%}
+								<div class="cart-shipping {%if valuePriTotal >= freeShipMin %}cart-shipping-free{%endif%}" setting-id="use_cart_freeship_min">
+									{%- if valuePriTotal >= freeShipMin -%}
+									<div class="cart-shipping__title">Bạn đã được <span class="free-ship">miễn phí vận chuyển</span></div>
+									<div class="cart-shipping__bar {%if cart.item_count == 0%}d-none{%endif%}">
+										<span class="shipping-bar" style="width:100%">
+											<span class="icon">
+												<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-truck"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+											</span>
+										</span>
+									</div>
+									{%- else -%}
+									<div class="cart-shipping__title">Bạn cần mua thêm <span class="price">{{ freeShipMin | minus: valuePriTotal | times: 100 | money}}</span> để được <span class="free-ship">miễn phí vận chuyển</span></div>
+									<div class="cart-shipping__bar {%if cart.item_count == 0%}d-none{%endif%}">
+										<span class="shipping-bar" style="width:{{percent}}%">
+											<span class="icon">
+												<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-truck"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+											</span>
+										</span>
+									</div>
+									{%- endif -%}
+								</div>
+								{%- endif -%}
+							</div>
+								
+							{%assign checkUnActiveApp = ''-%}
+							{%assign still = false-%}
+							{% if cart.item_count == 0 %}			
+							<!--<div class="expanded-message">Giỏ hàng của bạn đang trống</div>	-->
+							<div class="expanded-content mb-5">
+								<div class="expanded-info">
+									<div class="info-image">
+										<img data-src="{{ settings.cart_banner_image }}" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" class="lazyload hrv-cf-cart_banner_image" alt="Giỏ hàng của bạn đang trống"/ setting-id="cart_banner_image" setting-type="image">
+									</div>
+									<div class="info-text">
+										<p class="text1">Chưa có sản phẩm trong giỏ hàng...</p>
+										<p class="text2">Bạn có thể quay về <a href="{{shop.url}}">trang chủ</a> hoặc nhập từ khoá sản phẩm bạn cần tìm ở đây:</p>
+									</div>
+									<div class="search-field">
+										<form class="search-page" action="/search">
+											<input type="hidden" name="type" value="product">
+											<input type="text" name="q" class="search_box" placeholder="Tìm kiếm sản phẩm..." aria-label="Tìm kiếm sản phẩm">
+											<button type="submit" class="btn-search btn">
+												<svg version="1.1" class="svg search" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 24 27" style="enable-background:new 0 0 24 27;" xml:space="preserve"><path d="M10,2C4.5,2,0,6.5,0,12s4.5,10,10,10s10-4.5,10-10S15.5,2,10,2z M10,19c-3.9,0-7-3.1-7-7s3.1-7,7-7s7,3.1,7,7S13.9,19,10,19z"></path><rect x="17" y="17" transform="matrix(0.7071 -0.7071 0.7071 0.7071 -9.2844 19.5856)" width="4" height="8"></rect></svg>
+											</button>
+										</form>
+									</div>
+								</div>
+							</div>
+							{% else %}
+							<div class="list-pageform-cart  mb-3">
+								<form action="/cart" method="post" id="cartformpage">
+									<div class="cart-row">
+										<div class="table-cart">
+											{% assign price_mini = 0%}
+                      {% assign price_mini_compare = 0%}
+                      {% assign total_price_mini = 0%}
+                      {% assign total_price_mini_compare = 0%}
+                      {% assign total_sale_compare = 0%}
+											{% for item in cart.items -%}
+                      {% assign price_mini = item.price | times: item.quantity %}
+                      {% assign price_mini_compare = item.variant.compare_at_price | times: item.quantity %}
+                      {%-if item.product.compare_at_price > item.price-%}
+                        {% assign total_price_mini = total_price_mini | plus: price_mini%}
+                        {% assign total_price_mini_compare = total_price_mini_compare | plus: price_mini_compare%}
+                      {%-endif-%}
+											{%unless settings.promotion_hrvapp_use-%}
+											{%if item.properties.Combo != nil-%}
+											{%assign still = true-%}
+											{%if checkUnActiveApp == ''-%}
+											{%assign checkUnActiveApp = checkUnActiveApp | append: 'updates[]=0'-%}
+											{%else-%}
+											{%assign checkUnActiveApp = checkUnActiveApp | append: '&' | append: 'updates[]=0'-%}
+											{%endif-%}
+											{%elsif item.properties.BuyXGetY != nil-%}
+											{%assign still = true -%}
+											{%if checkUnActiveApp == ''-%}
+											{%assign checkUnActiveApp = checkUnActiveApp | append: 'updates[]=0'-%}
+											{%else-%}
+											{%assign checkUnActiveApp = checkUnActiveApp | append: '&' | append: 'updates[]=0'-%}
+											{%endif-%}
+											{%else-%}
+											{%if checkUnActiveApp == ''-%}
+											{%assign checkUnActiveApp = checkUnActiveApp | append: 'updates[]=' | append: item.quantity-%}
+											{%else-%}
+											{%assign checkUnActiveApp = checkUnActiveApp | append: '&' | append: 'updates[]=' | append: item.quantity-%}
+											{%endif-%}
+											{%endif-%}
+											{%endunless-%}
+											
+											{% comment %}<!-- Kiếm tra có khuyến mãi hay không -->{% endcomment %}
+											{%assign prmote_check = true-%}
+											{%-if settings.promotion_hrvapp_use -%}
+													{%-if item.price == 0 -%}
+														{%-assign prmote_check = false-%}
+													{%-endif-%}
+											{%-endif-%}
+											<div class="media-line-item line-item line-item-container" data-title="{{ item.title }}" data-line="{{forloop.index}}"  data-variant-id="{{ item.variant_id }}" data-product-id="{{ item.product.id }}"
+                        data-key_buyx="" data-link="{{item.product.url}}" data-id="{{item.id}}">
+												<div class="media-left">
+													<div class="item-img">
+														<a href="{{ item.url }}">
+															<img src="{% if item.image > 0 %} {% if item.variant.image == empty %} {{ item.image | product_img_url : 'medium'}} {% else%} {{ item.variant.image | product_img_url : 'medium'}}{% endif %}{% else %}{{'no_image.jpg' | asset_url}}{% endif %}" alt="{{ item.title }}" />
+														</a>
+													</div>
+													{%unless settings.promotion_hrvapp_use and item.price == 0 -%}
+													<div class="item-remove">
+														<a href="javascript:void(0)" onclick="Loomline.Cart.Loomline_removeItemCart(this,'/cart/change?line={{ forloop.index }}&quantity=0')" class="cart">Xóa</a>
+													</div>
+													{%endunless-%}
+												</div>
+												<div class="media-right">
+													<div class="item-info">
+														<h3 class="item--title"><a href="{{ item.url }}">{{ item.product.title }}</a></h3>
+
+														{% if item.product.variants.size > 1 %}
+														{% comment -%}
+															<div class="item-edit">
+																<a class="item-edit--cart" data-edit="{{item.url}}?variant={{item.variant_id}}">
+																	<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" fill="none">
+																		<path fill-rule="evenodd" d="M15.747 2.97a.864.864 0 011.177 1.265l-7.904 7.37-1.516.194.653-1.785 7.59-7.044zm2.639-1.366a2.864 2.864 0 00-4-.1L6.62 8.71a1 1 0 00-.26.39l-1.3 3.556a1 1 0 001.067 1.335l3.467-.445a1 1 0 00.555-.26l8.139-7.59a2.864 2.864 0 00.098-4.093zM3.1 3.007c0-.001 0-.003.002-.005A.013.013 0 013.106 3H8a1 1 0 100-2H3.108a2.009 2.009 0 00-2 2.19C1.256 4.814 1.5 7.848 1.5 10c0 2.153-.245 5.187-.391 6.81A2.009 2.009 0 003.108 19H17c1.103 0 2-.892 2-1.999V12a1 1 0 10-2 0v5H3.106l-.003-.002a.012.012 0 01-.002-.005v-.004c.146-1.62.399-4.735.399-6.989 0-2.254-.253-5.37-.4-6.99v-.003zM17 17c-.001 0 0 0 0 0zm0 0z"/>
+																	</svg>Sửa</a>
+															</div>
+														{% endcomment -%}
+														
+														{%if prmote_check-%}
+														<p class="item-variant item-variant-edit cart-variant-edit"  data-edit="{{item.url}}?variant={{item.variant_id}}">
+															<span>{{ item.variant.title }}</span>
+														</p>
+														{% else %}
+														<p class="item-variant"><span>{{ item.variant.title }}</span></p>
+														{% endif -%}
+														
+														{% endif -%}
+														{%if settings.promotion_hrvapp_use and item.properties.Combo != nil-%}
+														<p class="item-prmote type_promote">{{item.properties.Combo | append: '' | split: '-' | last}}</p>
+														{%endif-%}
+													</div>
+													<div class="item-price">
+														<p>
+															<span>{{item.price | money }}</span>
+															{% if item.product.compare_at_price > item.price  %}
+															<del>{{ item.variant.compare_at_price | money }}</del>
+															{% endif %}
+															{%if settings.promotion_hrvapp_use and item.properties.BuyXGetY != nil-%}
+															<span class="ico-gift"><img src="{{settings.combo_icon}}" alt="icon quà tặng"></span>
+															{%endif-%}
+														</p>
+													</div>
+												</div>
+												<div class="media-total">
+													<div class="item-total-price">
+														<div class="price">
+															<span class="line-item-total">{{ item.line_price | money }}</span>
+														</div>
+													</div>
+													<div class="item-qty">
+														<div class="qty quantity-partent qty-click clearfix">
+															{%if prmote_check-%}
+															<button type="button" class="qtyminus qty-btn">
+																<svg enable-background="new 0 0 10 10" viewBox="0 0 10 10" x="0" y="0"><polygon points="4.5 4.5 3.5 4.5 0 4.5 0 5.5 3.5 5.5 4.5 5.5 10 5.5 10 4.5"></polygon></svg>
+															</button>
+															{%endif-%}
+															<input type="text" size="4" name="updates[]" min="1" 
+                                data-key_buyx="{{ item.properties.BuyXGetY }}" 
+                                oriPrice="{{item.price_original}}" 
+                                line="{{ forloop.index }}" 
+                                productId="{{ item.product_id }}" 
+                                variantId="{{ item.variant_id }}" 
+                                id="updates_{{ item.variant_id }}" 
+                                data-price="{{ item.price }}" value="{{ item.quantity }}" readonly  class="tc line-item-qty item-quantity" />
+															{%if prmote_check-%}
+															<button type="button" class="qtyplus qty-btn">
+																<svg enable-background="new 0 0 10 10" viewBox="0 0 10 10" x="0" y="0"><polygon points="10 4.5 5.5 4.5 5.5 0 4.5 0 4.5 4.5 0 4.5 0 5.5 4.5 5.5 4.5 10 5.5 10 5.5 5.5 10 5.5"></polygon></svg>
+															</button>
+															{%endif-%}
+														</div>
+													</div>
+
+												</div>
+											</div>
+											{% endfor %}
+											{% if still == false-%}{%assign checkUnActiveApp = '' -%}{% endif -%}
+										</div>
+									</div>
+									<div class="cart-row">
+										<div class="order-noted-block">	
+											<div class="container-pd15">				
+												<div class="checkout-buttons clearfix">
+													<label for="note" class="note-label">Ghi chú đơn hàng</label>
+													<textarea class="form-control" id="note" name="note" rows="5"></textarea>
+												</div>	
+												<button type="submit" id="checkout" class="btn-checkout button d-none {% if cart.total_price == 0 %} disabled {% endif %}" name="checkout" value="" >Thanh toán</button>
+											</div> 
+										</div>
+									</div>
+									<div class="cart-row">
+										<div class="order-invoice-block">	
+											<div class="checkbox">
+												<input type="hidden" name="attributes[invoice]" id="re-checkbox-bill" value='{% if cart.attributes["invoice"] == "yes" %}yes{%else%}no{% endif %}'>
+												<input type="checkbox" id="checkbox-bill" value="yes" {% if cart.attributes["invoice"] == 'yes' %} checked{% endif %} name="regular-checkbox" class="regular-checkbox" />
+												<label for="checkbox-bill" class="box"></label>
+												<label for="checkbox-bill" class="title">Xuất hoá đơn cho đơn hàng</label>
+											</div>
+											{%if cart.attributes['bill_order_company']-%}{%assign bill_order_company = cart.attributes['bill_order_company']-%}{%endif-%} 
+											{%if cart.attributes['bill_order_tax_code']-%}{%assign bill_order_tax_code = cart.attributes['bill_order_tax_code']-%}{%endif-%}
+											{%if cart.attributes['bill_email']-%}{%assign bill_email = cart.attributes['bill_email']-%}{%endif-%}
+											{%if cart.attributes['bill_order_address']-%}{%assign bill_order_address = cart.attributes['bill_order_address']-%}{%endif-%}
+											<div class="bill-field">
+												<div class="form-group">
+													<input type="text" class="form-control val-f check_change" name="attributes[bill_order_company]" value="{{ bill_order_company }}" placeholder="Tên công ty...">
+												</div>	
+												<div class="form-group">
+													<input type="number" pattern=".{10,}" onkeydown="return HRVTheme.General.FilterInput(event)" onpaste="HRVTheme.General.handlePaste(event)" class="form-control val-f val-n check_change" name="attributes[bill_order_tax_code]" value="{{ bill_order_tax_code }}" placeholder="Mã số thuế...">
+												</div>
+												<div class="form-group">
+													<input type="email" class="form-control val-f val-mail check_change" name="attributes[bill_email]" value="{{ bill_email }}" placeholder="Email...">
+												</div>
+												<div class="form-group">
+													<input type="text" class="form-control val-f check_change" name="attributes[bill_order_address]" value="{{ bill_order_address }}" placeholder="Địa chỉ công ty...">
+												</div>
+												<div class="form-btn">
+													<a href="javascript:void();" class="button btndark btn-save">Lưu thông tin</a>
+												</div>
+											</div>
+										</div>
+									</div>
+								</form>
+							</div>
+							{% endif %}	
+             
+							<div class="pageCart-hrvpmo  hrvpmo-grids"><div class="hrv-pmo-discount" data-hrvpmo-layout="grids"></div></div>
+							
+						</div>
+					
+						{% if settings.cart_collection_show -%}
+						<div class="collectionCart-detail" setting-id="cart_collection_show">
+							<div class="collectionCart-inner">
+								<h2 class="collectionCart-title" setting-id="cart_collection_title" setting-type="text">
+									{% if collections[settings.cart_collection].url != blank -%}
+									<a href="{{collections[settings.cart_collection].url}}">{{settings.cart_collection_title}}</a>
+									{% else -%}
+									{{settings.cart_collection_title}}
+									{% endif -%}
+								</h2>
+								<div class="collectionCart-product">
+									<div class="list-product-slide swiper" id="slideProductCart">
+										{%if collections[settings.cart_collection].products.size > 0-%}	
+										<div class="swiper-wrapper">
+											{% for product in collections[settings.cart_collection].products limit: 12 -%}
+											<div class="swiper-slide">{% include 'll-product-loop' with section:'section_cart' -%}</div>
+											{% endfor -%}
+										</div>
+										<div class="swiper-nav">
+											<span class="swiper-button swiper-prev swiper-product-cart-prev">
+												<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 511.993 511.993" style="transform: rotate(180deg)"><g><g><g><path d="M487.292,235.408H20.59c-11.372,0-20.59,9.224-20.59,20.59c0,11.366,9.217,20.59,20.59,20.59h466.702 c11.372,0,20.59-9.217,20.59-20.59C507.882,244.625,498.665,235.408,487.292,235.408z"></path></g></g><g><g><path d="M505.96,241.434L304.187,39.653c-8.044-8.037-21.07-8.037-29.114,0c-8.044,8.044-8.044,21.084,0,29.121l187.216,187.223 L275.073,443.221c-8.044,8.037-8.044,21.077,0,29.114c4.022,4.022,9.286,6.033,14.557,6.033s10.535-2.011,14.557-6.033	l201.773-201.78C514.004,262.511,514.004,249.47,505.96,241.434z"></path></g></g></g></svg>
+											</span>
+											<span class="swiper-button swiper-next swiper-product-cart-next">
+												<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 511.993 511.993"><g><g><g><path d="M487.292,235.408H20.59c-11.372,0-20.59,9.224-20.59,20.59c0,11.366,9.217,20.59,20.59,20.59h466.702 c11.372,0,20.59-9.217,20.59-20.59C507.882,244.625,498.665,235.408,487.292,235.408z"></path></g></g><g><g><path d="M505.96,241.434L304.187,39.653c-8.044-8.037-21.07-8.037-29.114,0c-8.044,8.044-8.044,21.084,0,29.121l187.216,187.223 L275.073,443.221c-8.044,8.037-8.044,21.077,0,29.114c4.022,4.022,9.286,6.033,14.557,6.033s10.535-2.011,14.557-6.033	l201.773-201.78C514.004,262.511,514.004,249.47,505.96,241.434z"></path></g></g></g></svg>
+											</span>
+										</div>
+										{%else-%}
+										<div class="collection-alert-no">
+                      <p>Chưa có sản phẩm nào trong danh mục này</p>
+                    </div>
+										{% endif -%}
+									</div>
+								</div>
+							</div>
+						</div>
+						{% endif -%}
+
+					</div>
+					<div class="col-lg-4 col-md-12 col-12 sidebarCart-sticky {%if cart.item_count == 0%}is-hidden{%endif%}">
+						<div class="wrap-order-summary">			
+							<div class="order-summary-block">
+								<h2 class="summary-title">Thông tin đơn hàng</h2>
+								{% if settings.cart_deliverytime_show -%}
+								<div class="summary-time summary-picktime" setting-id="cart_deliverytime_show">
+									<div class="summary-time__row">
+										<div class="boxtime-title">												
+											<p class="txt-title">Thời gian giao hàng</p>	
+											<p class="txt-time ">
+												<i class="fa fa-clock-o" aria-hidden="true"></i> 
+												<span>{%if cart.attributes['Delivery Time']-%} {{cart.attributes['Delivery Time']}} {% else-%} Chọn thời gian {%endif-%}</span>
+											</p>	
+										</div>							
+										<div class="boxtime-radio" id="picktime_radio" 
+												 data-time-start='{{settings.cart_deliverytime_start | lstrip | rstrip }}'
+												 data-time-end='{{settings.cart_deliverytime_end | lstrip | rstrip }}'>		
+											{% if settings.cart_deliverytime_now != blank -%}
+											<div class="radio-item">
+												<input class="input-radio" type="radio" name="timeRadios" id="timeRadios-1" value="timeNow" >
+												<label class="label-radio hrv-cf-cart_deliverytime_now" for="timeRadios-1" setting-id="cart_deliverytime_now" setting-type="text">{{settings.cart_deliverytime_now}}</label>
+											</div>	
+											{% endif -%}
+											<div class="radio-item">
+												<input class="input-radio" type="radio" name="timeRadios" id="timeRadios-2" value="timeDate">
+												<label class="label-radio" for="timeRadios-2">Chọn thời gian</label>
+											</div>										
+										</div>												
+									</div>
+									<div class="summary-time__row picktime_selecter">
+										<div class="boxtime-select">
+											<div class="select-choose">
+												<div class="select-box date-option">
+													<label>Ngày giao</label>
+													<div class="select-option">
+														<select id="date_shipping">
+															<option value="{{ 'now' | date: '%d/%m/%Y' }}">Hôm nay</option>
+														</select>
+													</div>
+												</div>
+												<div class="select-box time-option">
+													<label>Thời gian giao</label>
+													<div class="select-option">
+														<select id="time_shipping">														
+															{% for i in (1..14) -%}
+															{% capture hourstime %}cart_deliverytime_{{ i }}{% endcapture %}														
+															{% assign timeStart = settings[hourstime] | lstrip | rstrip -%}	
+															{% assign datamin = timeStart | split: '-' | first -%}	
+															{% assign datamax = timeStart | split: '-' | last -%}	
+															{% if timeStart != blank  %}
+															<option data-min="{{ datamin | lstrip | rstrip | append:':00' }}" data-max="{{datamax | lstrip | rstrip | append:':00' }}" value="{{timeStart}}">{{timeStart}}</option>
+															{% endif -%}
+															{% endfor -%}
+														</select>
+													</div>
+												</div>
+											</div>
+											<div class="select-button">
+												<button class="btn-accepttime"  id="btn-cart-accepttime">Xác nhận thời gian</button>
+											</div>
+										</div>
+									</div>
+								</div>
+								{% endif -%}
+								<div class="summary-total" data-total="{{ cart.total_price }}">
+									<p>Tổng tiền: <span>{{ cart.total_price | money }}</span></p>
+                  {% assign total_sale_compare = total_price_mini_compare | minus: total_price_mini %}
+                  <div  class="loomline-cart-total-price-compare {% unless total_sale_compare > 0%}d-none{%endunless%}">
+                    <div class="loomline-cart-total text-left">Bạn đã tiết kiệm:</div>
+          					<div class="loomline-cart-total text-right" id="loomline-total-view-cart-compare">{{total_sale_compare | money}}</div>
+                  </div>
+								</div>
+                
+								<div class="summary-action">					
+									{% if settings.cart_txt1 != blank -%}<p setting-id="cart_txt1" setting-type="textarea" class="hrv-cf-cart_txt1">{{settings.cart_txt1}}</p>{% endif -%}
+									{% if settings.cart_txt2 != blank -%}<p setting-id="cart_txt2" setting-type="textarea" class="hrv-cf-cart_txt2">>{{settings.cart_txt2}}</p>{% endif -%}
+									{% if settings.cart_txt3 != blank -%}<p setting-id="cart_txt3" setting-type="textarea" class="hrv-cf-cart_txt3">{{settings.cart_txt3}}</p>{% endif -%}
+									<div class="summary-alert alert alert-danger " {% if checkPriTotal %}style="display:block"{% endif %}>
+										Giỏ hàng của bạn hiện chưa đạt mức tối thiểu để thanh toán.
+									</div>
+								</div>
+                <div style="margin-top: 10px; display: flex; gap: 5px; align-items: baseline;">
+                  <input style="transform: translateY(2px);" type="checkbox" autocomplete="off" id="check-checkout" onchange="$('.checkout-btn').attr('data-check', Number(!Boolean(Number($('.checkout-btn').attr('data-check')))))" checked />
+                  <label for="check-checkout" style="display: inline-block;">Tôi đã đọc và đồng ý với <a style="color: #eb0029;" href="/pages/chinh-sach-bao-mat">điều khoản và điều kiện</a> Của Website<span style="color: #eb0029;">*</span></label>
+                </div>
+								<div class="summary-button">	
+									<a id="btnCart-checkout" data-check="1" class="checkout-btn btnred {% if checkPriTotal %}disabled{% endif %}"
+										 data-price-min="{{ valuePriMin }}" 
+										 data-price-total="{{ valuePriTotal }}" 
+										 href="#" >THANH TOÁN </a>
+								</div>
+							</div>
+							<div class="order-summary-hrvpmo"><div class="hrv-pmo-coupon" data-hrvpmo-layout="minimum"></div></div>
+							{%if settings.use_cart_total_min%}
+							{%- if settings.cart_total_min != '' or settings.cart_total_min != blank -%}
+							<div class="col-lg-12 col-md-12 col-12 cart-policy" setting-id="use_cart_total_min">
+								<div class="order-summary-block order-summary-notify ">
+									<div class="summary-warning alert-order">						
+										<p class="textmr"><strong>Chính sách mua hàng</strong>:</p>
+										<p>Hiện chúng tôi chỉ áp dụng thanh toán với đơn hàng có giá trị tối thiểu <strong setting-id="cart_total_min" setting-type="text" class="hrv-cf-cart_total_min">{{settings.cart_total_min | lstrip | rstrip | money | replace: ',','.'}} </strong> trở lên.</p>
+									</div>
+								</div>
+							</div>
+							{%- endif -%}
+							{%- endif -%}
+              {%if settings.cart_coupon_show%}
+							<div class="order-summary-block" setting-id="cart_coupon_show">
+								<div class="cart-coupon">
+									{% include 'list-coupon-slide' with couponIndex: 'cartCoupon' -%}
+									<div class="swiper-nav">
+										<span class="swiper-button swiper-prev swiper-coupon-cart-prev">
+											<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 511.993 511.993" style="transform: rotate(180deg)"><g><g><g><path d="M487.292,235.408H20.59c-11.372,0-20.59,9.224-20.59,20.59c0,11.366,9.217,20.59,20.59,20.59h466.702 c11.372,0,20.59-9.217,20.59-20.59C507.882,244.625,498.665,235.408,487.292,235.408z"></path></g></g><g><g><path d="M505.96,241.434L304.187,39.653c-8.044-8.037-21.07-8.037-29.114,0c-8.044,8.044-8.044,21.084,0,29.121l187.216,187.223 L275.073,443.221c-8.044,8.037-8.044,21.077,0,29.114c4.022,4.022,9.286,6.033,14.557,6.033s10.535-2.011,14.557-6.033	l201.773-201.78C514.004,262.511,514.004,249.47,505.96,241.434z"></path></g></g></g></svg>
+										</span>
+										<span class="swiper-button swiper-next swiper-coupon-cart-next">
+											<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 511.993 511.993"><g><g><g><path d="M487.292,235.408H20.59c-11.372,0-20.59,9.224-20.59,20.59c0,11.366,9.217,20.59,20.59,20.59h466.702 c11.372,0,20.59-9.217,20.59-20.59C507.882,244.625,498.665,235.408,487.292,235.408z"></path></g></g><g><g><path d="M505.96,241.434L304.187,39.653c-8.044-8.037-21.07-8.037-29.114,0c-8.044,8.044-8.044,21.084,0,29.121l187.216,187.223 L275.073,443.221c-8.044,8.037-8.044,21.077,0,29.114c4.022,4.022,9.286,6.033,14.557,6.033s10.535-2.011,14.557-6.033	l201.773-201.78C514.004,262.511,514.004,249.47,505.96,241.434z"></path></g></g></g></svg>
+										</span>
+									</div>
+								</div>
+							</div>
+              {%endif%}
+						</div>
+					</div>
+					<div class="col-lg-12 col-md-12 col-12">
+					 <div class="hrv-pus-promotion" data-hrvpus-layout="upsell"></div>
+					</div>
+					<div class="col-lg-12 col-md-12 col-12 cart-collection">
+						{% if settings.cart_collection_show -%}
+						<div class="collectionCart-detail" setting-id="cart_collection_show">
+							<div class="collectionCart-inner">
+								<h2 class="collectionCart-title hrv-cf-cart_collection_title" setting-id="cart_collection_title" setting-type="text">
+									{% if collections[settings.cart_collection].url != blank -%}
+									<a href="{{collections[settings.cart_collection].url}}">{{settings.cart_collection_title}}</a>
+									{% else -%}
+									{{ settings.cart_collection_title }}
+									{% endif -%}
+								</h2>
+								<div class="collectionCart-product">
+									<div class="list-product-slide swiper" id="slideProductCart">
+										{%if collections[settings.cart_collection].products.size > 0-%}	
+										<div class="swiper-wrapper">
+											{% for product in collections[settings.cart_collection].products limit: 12-%}
+											<div class="swiper-slide">{% include 'll-product-loop' -%}</div>
+											{% endfor -%}
+										</div>
+										<div class="swiper-nav">
+											<span class="swiper-button swiper-prev swiper-product-cart-prev">
+												<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 511.993 511.993" style="transform: rotate(180deg)"><g><g><g><path d="M487.292,235.408H20.59c-11.372,0-20.59,9.224-20.59,20.59c0,11.366,9.217,20.59,20.59,20.59h466.702 c11.372,0,20.59-9.217,20.59-20.59C507.882,244.625,498.665,235.408,487.292,235.408z"></path></g></g><g><g><path d="M505.96,241.434L304.187,39.653c-8.044-8.037-21.07-8.037-29.114,0c-8.044,8.044-8.044,21.084,0,29.121l187.216,187.223 L275.073,443.221c-8.044,8.037-8.044,21.077,0,29.114c4.022,4.022,9.286,6.033,14.557,6.033s10.535-2.011,14.557-6.033	l201.773-201.78C514.004,262.511,514.004,249.47,505.96,241.434z"></path></g></g></g></svg>
+											</span>
+											<span class="swiper-button swiper-next swiper-product-cart-next">
+												<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 511.993 511.993"><g><g><g><path d="M487.292,235.408H20.59c-11.372,0-20.59,9.224-20.59,20.59c0,11.366,9.217,20.59,20.59,20.59h466.702 c11.372,0,20.59-9.217,20.59-20.59C507.882,244.625,498.665,235.408,487.292,235.408z"></path></g></g><g><g><path d="M505.96,241.434L304.187,39.653c-8.044-8.037-21.07-8.037-29.114,0c-8.044,8.044-8.044,21.084,0,29.121l187.216,187.223 L275.073,443.221c-8.044,8.037-8.044,21.077,0,29.114c4.022,4.022,9.286,6.033,14.557,6.033s10.535-2.011,14.557-6.033	l201.773-201.78C514.004,262.511,514.004,249.47,505.96,241.434z"></path></g></g></g></svg>
+											</span>
+										</div>
+										{%else-%}
+										<div class="collection-alert-no">
+                      <p>Chưa có sản phẩm nào trong danh mục này</p>
+                    </div>
+										{% endif -%}
+									</div>
+								</div>
+							</div>
+						</div>
+						{% endif -%}
+					</div>   
+				</div>
+			</div>
+		</div>
+	</div>
+</div> 
+<div class="d-none">{{ htmlPopover }}</div>
+<div class="modal-coupon--backdrop"></div>
+
+<!-- modal quickview -->
+<div class="modal fade modal-height mdlcart-product-edit" id="mdlcart-product-edit" tabindex="-1" role="dialog" aria-hidden="false">
+	<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><!-- -->
+		<div class="modal-content mdlcart-detail">
+
+		</div>
+	</div>
+</div>	
+<script>	
+	var line_picked = -1;
+	var option_value = '';
+
+	jQuery(document).ready(function(){ 
+		/* Edit sản phẩm chính */
+		$(document).on('click','.cart-variant-edit',function(e){
+			e.preventDefault();
+			var link_edit = $(this).attr('data-edit');
+			line_picked = $(this).parents('.media-line-item').attr('data-line');
+			option_value =  $(this).parents('.media-line-item').find('.item-variant span').html();
+			qty_edit = Number($(this).parents('.media-line-item').find('.line-item-qty').val());
+			$.ajax({
+				url:link_edit +'&view=quickview-cart',
+				success:function(e){
+					$('#mdlcart-product-edit .mdlcart-detail').html(e);	
+					$('#mdlcart-product-edit .mdcart-variant').html(option_value);
+					$('#mdlcart-product-edit #quickview-qtyvalue').val(qty_edit);
+					$('#mdlcart-product-edit').modal('show');		
+				}
+			});
+		});
+		/* Update Cart */
+		$(document).on('click','.mdcart-actions .btn-mdcart-confirm ',function(e){
+			e.preventDefault();
+			$('#layout-cart').find('.cart-ajloading').remove();
+			var id = $('#mdlcart-product-edit #product-select-quickview').val();
+			var qty = $('#mdlcart-product-edit #quickview-qtyvalue').val();
+			$.post("/cart/change.js",{line: line_picked, quantity: 0}).done(function(){
+				$.post("/cart/add.js",{id: id, quantity: qty}).done(function(){
+					//$('#mdlcart-product-edit').modal('hide');	
+					$('#layout-cart').after('<div class="cart-ajloading"><div><div class="lds-ellipsis"><div></div><div></div><div></div><div></div></div></div></div>');
+					setTimeout(function() {
+						window.location.reload();
+					},120);
+
+				}).fail(function(){
+					alert('Sản phẩm bạn vừa mua đã vượt quá tồn kho');
+				});
+			});
+		});
+	});
+</script>
+<script>
+    function delayTime2 (func, wait) {
+  		return function() {
+  			var that = this,
+  					args = [].slice(arguments);
+  			clearTimeout(func._throttleTimeout);
+  			func._throttleTimeout = setTimeout(function() {
+  				func.apply(that, args);
+  			}, wait);
+  		};
+  	}
+    {%if settings.promotion_hrvapp_use and settings.promotion_hrvapp == 'appbuyxgety' or settings.promotion_hrvapp == 'appcombo'-%}
+    $('#layout-cart').on('click','.qty .qtyplus',function(){
+			var val = $(this).parent('.qty').find('.item-quantity').val();
+			var id = $(this).parents('.line-item-container').attr('data-id');
+			var _this = $(this).parent('.quantity-partent');
+			if ( val != undefined ) {
+				var currentVal = parseInt(val);
+        var num = currentVal + 1;
+				if (!isNaN(currentVal)) {
+					_this.find('.item-quantity').val(num);
+				} else {
+					_this.find('.item-quantity').val(1);
+				}
+			}else {
+				console.log('error: Not see elemnt ' + jQuery('input[name="quantity"]').val());
+			}
+		});
+		$('#layout-cart').on('click','.qty .qtyminus',function(){
+			var val = $(this).parent().find('.item-quantity').val();
+			var id = $(this).parents('.line-item-container').attr('data-id');
+			var _this = $(this).parent('.quantity-partent');
+			if ( val != undefined ) {
+				var currentVal = parseInt(val);
+				if (!isNaN(currentVal) && currentVal > 1) {
+					_this.find('.item-quantity').val(currentVal - 1);
+					if(!promotionApp && !promotionApp_name == 'app_buyxgety'){
+					}
+				}
+			}else { 
+				console.log('error: Not see elemnt ' + jQuery('input[name="quantity"]').val());
+			}
+    });
+      {%if settings.promotion_hrvapp == 'appbuyxgety'-%}
+			var keyProperties = JSON.parse(localStorage.getItem('vs_key_properties')) || {};
+			$('.line-item-container').each(function () {
+				var id = $(this).data('product-id'); 
+				if (keyProperties[id] && keyProperties[id].key_buyx) {
+					$(this).find('.line-item-qty').attr('data-key_buyx', keyProperties[id].key_buyx);
+				}
+			});
+			$('#layout-cart').on('click', '.qty .qtyplus', delayTime2(function(){
+        
+				var input = $(this).parent('.quantity-partent').find('input.line-item-qty');
+				$(this).parent('.quantity-partent').find('.btn-sub').removeClass('stop');
+				var line = input.attr('line');
+				var vId = input.attr('variantId');
+				var pId = input.attr('productId');
+				var currentQty = parseInt(input.val());
+				var key = input.attr('data-key_buyx');
+				updatePriceChange2('plus',line,vId,pId,currentQty,key);
+			},500));
+			$('#layout-cart').on('click','.qty .qtyminus', delayTime2(function(){
+				if(!$(this).hasClass('stop')){
+					var input = $(this).parent('.quantity-partent').find('input.line-item-qty');
+					var line = input.attr('line');
+					var vId = input.attr('variantId');
+					var pId = input.attr('productId');
+					var currentQty = parseInt(input.val());
+					var key = input.attr('data-key_buyx');
+					updatePriceChange2('minus',line,vId,pId,currentQty,key);
+				}
+			},500));
+			$(document).on('click','#update-cart',function(e){
+				e.preventDefault();
+				buyXgetY.UpdateCartFromCart();
+			});
+			function updatePriceChange2(action,line,vId,pId,qty,keyxy){
+				var updates = [];
+				var qtyGift = 0;
+				$('.cart-ajloading').show();
+				var old_promotion_variant_id = buyXgetY.getPromotionStorage(vId);
+				var dataPost = $('#cartformpage').serialize();
+				if(old_promotion_variant_id !== undefined){
+					var gOSP = 0,//Gift other but same main product 
+							gOPR = 0,//Gift priority but same main product
+							gCurrent = null;
+
+					var giftExistInCart = true, qtyGiftNotInCart = 0;
+					if(old_promotion_variant_id != undefined){
+						$.each(old_promotion_variant_id,function(vIdGift,infoGift){
+							//var filterGiftInCart = cartGet.items.filter(x => x.variant_id == vIdGift && x.promotionby.length > 0 && x.promotionby[0].product_id == pId);
+							//var filterGiftInCart = cartGet.items.filter(x => x.variant_id == vIdGift  && x.properties.BuyXGetY != null)
+							var filterGiftInCart = cartGet.items.filter(x => x.variant_id == vIdGift  && x.properties.BuyXGetY != null && x.properties.BuyXGetY == keyxy)
+
+              console.log(filterGiftInCart)
+              
+							if(infoGift.priority == false && filterGiftInCart.length > 0){
+								gOSP += filterGiftInCart[0].quantity;
+							}
+							if(infoGift.priority == true){
+								if(vIdGift != 'not_gift'){
+									if(filterGiftInCart.length > 0){
+										if(action == 'plus'){
+											gOPR += filterGiftInCart[0].quantity;
+										}
+										else{
+											gOPR += filterGiftInCart[0].quantity * infoGift.count_buy / infoGift.count_gift;
+										}
+									}
+									else{
+										giftExistInCart = false;
+									}
+								}
+								gCurrent = infoGift;
+								gCurrent.vId = vIdGift;
+							}
+						});
+						if(giftExistInCart == false && action == 'plus' && gCurrent.vId != 'not_gift'){
+							qtyGift = (qty - gOSP) / gCurrent.count_buy*gCurrent.count_gift;
+						}
+					}
+					cartGet.items.map((item,index) => {
+						if(item.variant_id == vId){
+							updates[index] = qty;
+						}
+						else{
+							//if(item.promotionby.length > 0 && item.promotionby[0].product_id == pId){
+							//if(item.properties.BuyXGetY != null){
+							if(item.properties.BuyXGetY != null && item.properties.BuyXGetY == keyxy ){
+								if(gCurrent != null){
+									if(gCurrent.priority == true && gCurrent.vId != 'not_gift' && gCurrent.vId == item.variant_id){
+										var haohut = qty - (gOSP + gOPR);
+										qtyGift = (item.quantity + haohut)/gCurrent.count_buy*gCurrent.count_gift;
+										updates[index] = qtyGift;
+									}
+									else{
+										updates[index] = item.quantity;
+									}
+								}
+							}
+							else{
+								updates[index] = item.quantity;
+							}
+						}
+					});
+					dataPost = {
+						'updates[]': updates
+					};
+				}
+				var params = {
+					type: 'POST',
+					url: '/cart/update.js',	
+					data: dataPost,	
+					async: false,
+					dataType: 'json',
+					success: function(data) {					
+						if(old_promotion_variant_id !== undefined){
+							if(giftExistInCart){
+								window.location.reload();
+							}
+							else{
+								$.post('/cart/add.js','id='+gCurrent.vId+'&quantity='+qtyGift).done(function(){
+									window.location.reload();
+								});
+							}
+						}
+						else{
+							window.location.reload();
+						}
+					},
+					error: function(XMLHttpRequest, textStatus) {
+						Haravan.onError(XMLHttpRequest, textStatus);
+					}
+				};
+				jQuery.ajax(params);
+			}
+{%elsif settings.promotion_hrvapp == 'appcombo'-%}
+  		$(document).on('click', '.qty-click .qtyplus,.qty-click .qtyminus', delayTime2(function(){
+  			comboApp.comboUpdateCart();
+  		},500));
+  		 $(document).on('change', '.qty .item-quantity', delayTime2(function() {				
+  			 comboApp.comboUpdateCart();
+  		 }, 500));
+        {%endif%}
+      {%else%}
+      function updatePriceChange(action,line,vId,pId,qty){
+		var updates = [];
+		var qtyGift = 0;
+		$('.cart-ajloading').show();
+			var params = {
+				type: 'POST',
+				url: '/cart/update.js',	
+				data: $('#cartformpage').serialize(),	
+				async: false,
+				dataType: 'json',
+				success: function(data) {					
+					if(window.buy2get1){
+						buy2get1.checkCart()
+					}
+					window.location.reload();
+				},
+				error: function(XMLHttpRequest, textStatus) {
+					Haravan.onError(XMLHttpRequest, textStatus);
+				}
+			};
+			jQuery.ajax(params);
+	};
+
+		$(document).on('click', '.qty .qtyplus', function(e){
+			e.preventDefault();
+			$(this).parent('.quantity-partent').find('.qtyminus').removeClass('stop');
+			var input = $(this).parent('.quantity-partent').find('input');
+			var currentVal = parseInt(input.val());
+			if (!isNaN(currentVal)) {
+				input.val(currentVal + 1);
+			} 
+			else {
+				input.val(1);
+			}
+			var line = input.attr('line');
+			var vId = input.attr('variantId');
+			var pId = input.attr('productId');
+			var currentQty = parseInt(input.val());
+			updatePriceChange('plus',line,vId,pId,currentQty);
+		});
+
+		$(document).on('click', '.qty .qtyminus:not(.stop)', function(e){
+			e.preventDefault();
+			var input = $(this).parent('.quantity-partent').find('input');
+			var currentVal = parseInt(input.val());
+			if (!isNaN(currentVal) && currentVal > 1) {
+				input.val(currentVal - 1);
+				if( currentVal - 1 == 1 ) $(this).addClass('stop');
+			} 
+			else {
+				input.val(1);
+				$(this).addClass('stop');
+			}
+			var line = input.attr('line');
+			var vId = input.attr('variantId');
+			var pId = input.attr('productId');
+			var currentQty = parseInt(input.val());
+			updatePriceChange('minus',line,vId,pId,currentQty);
+		});
+    {%endif%}
+  
+</script>
+
+
+
+

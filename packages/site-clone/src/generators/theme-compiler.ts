@@ -10,11 +10,12 @@ import { ComponentContractIR } from '../models/clone-ir.js';
 import { CloneIRBuilder } from '../models/clone-ir-builder.js';
 import { HaravanLayoutGenerator } from './haravan-layout-generator.js';
 import { HaravanSectionGenerator } from './haravan-section-generator.js';
-import { HaravanSchemaGenerator } from './haravan-schema-generator.js';
+import { HaravanSchemaGenerator, type HaravanBlockDefinition } from './haravan-schema-generator.js';
 import { HaravanSnippetGenerator } from './haravan-snippet-generator.js';
 import { StateSynthesizer } from '../models/state-synthesizer.js';
 import { AssetLocalizer, LocalizeAssetOptions, AssetLocalizationPipelineResult } from '../models/asset-localizer.js';
-
+import { LiquidBindingEngine } from './liquid-binding-engine.js';
+import { SettingsAssetsNormalizer } from './settings-assets-normalizer.js';
 export class ThemeCompiler {
   private layoutGen = new HaravanLayoutGenerator();
   private sectionGen = new HaravanSectionGenerator();
@@ -22,7 +23,8 @@ export class ThemeCompiler {
   private snippetGen = new HaravanSnippetGenerator();
   private stateSynth = new StateSynthesizer();
   private irBuilder = new CloneIRBuilder();
-
+  private liquidBindingEngine = new LiquidBindingEngine();
+  private settingsNormalizer = new SettingsAssetsNormalizer();
   public async compileThemeWithLocalizationAsync(
     outputDir: string,
     input: string | ComponentContractIR,
@@ -187,23 +189,13 @@ export class ThemeCompiler {
 
       // 6. Generate sections/*.liquid from IR
       for (const sec of sections) {
-        let sectionContent = '';
+        let sectionLiquid = '';
         const sectionControllers = ir.storefrontRuntime?.controllers?.filter((c) => c.sectionId === sec.id) || [];
+
         if (sec.liquidTemplate) {
-          sectionContent = this.sectionGen.generateSectionFile({
-            id: sec.id,
-            type: sec.archetype === 'header' ? 'header' : sec.archetype === 'footer' ? 'footer' : 'custom-content',
-            name: sec.name,
-            tagName: 'section',
-            className: sec.className || `section-${sec.id}`,
-            rawHtml: sec.rawHtml || '',
-            liquidTemplate: sec.liquidTemplate,
-            schemaSettings: sec.schemaSettings || [],
-            blockDefinitions: (sec.blockDefinitions as unknown as Array<{ type: string; name: string; settings: Array<{ type: string; id: string; label: string }> }>) || [],
-            blockInstances: sec.blocks.map((b, bi) => ({ id: b.id || `${b.type}_${bi + 1}`, type: b.type, settings: b.settings }))
-          }, sectionControllers);
+          sectionLiquid = sec.liquidTemplate;
         } else {
-          sectionContent = `
+          sectionLiquid = `
 <section class="${sec.className || sec.id}" id="{{ section.id }}">
   <div class="container container-fluid">
     {% if section.settings.heading != blank %}
@@ -218,18 +210,109 @@ export class ThemeCompiler {
     </div>
   </div>
 </section>
-{% schema %}
-{
-  "name": "${sec.name.replace(/"/g, '')}",
-  "settings": [
-    { "type": "text", "id": "heading", "label": "Heading", "default": "${(sec.heading || sec.name).replace(/"/g, '')}" }
-  ],
-  "blocks": [],
-  "presets": [{ "name": "${sec.name.replace(/"/g, '')}" }]
-}
-{% endschema %}
           `.trim();
         }
+
+        // Strip any pre-existing schema block so schemaGen can wrap dynamically
+        sectionLiquid = sectionLiquid.replace(/\{%\s*schema\s*%\Block?[\s\S]*?\{%\s*endschema\s*%\}/gi, '').trim();
+
+        // 6a. Controller injection (carousel, modal, dropdown)
+        for (const ctrl of sectionControllers) {
+          if (ctrl.type === 'carousel') {
+            if (!sectionLiquid.includes('data-antifan-slider')) {
+              sectionLiquid = sectionLiquid.replace(/<section\b([^>]*)>/i, '<section$1 data-antifan-slider data-antifan-autoplay="5000">');
+            }
+            if (!sectionLiquid.includes('data-antifan-slider-track')) {
+              sectionLiquid = sectionLiquid.replace(
+                /(<div\b[^>]*class=["'][^"']*(?:product-grid|slider|s-content)[^"']*["'])([^>]*>)/i,
+                '$1 data-antifan-slider-track$2'
+              );
+            }
+          } else if (ctrl.type === 'dropdown') {
+            if (!sectionLiquid.includes('data-antifan-hover')) {
+              sectionLiquid = sectionLiquid.replace(
+                /(<li\b[^>]*class=["'][^"']*(?:menu-item-has-children|dropdown|has-sub)[^"']*["'])([^>]*>)/i,
+                '$1 data-antifan-hover$2'
+              );
+            }
+          } else if (ctrl.type === 'modal') {
+            const modalTarget = (ctrl.targetSelector && ctrl.targetSelector.startsWith('#'))
+              ? ctrl.targetSelector
+              : `#modal-${sec.id}`;
+            const modalId = modalTarget.replace(/^#/, '');
+
+            if (!sectionLiquid.includes('data-antifan-modal')) {
+              sectionLiquid = sectionLiquid.replace(
+                /(<button\b[^>]*class=["'][^"']*(?:modal-btn|popup-btn|item-cta)[^"']*["'])([^>]*>)/i,
+                `$1 data-antifan-modal="${modalTarget}"$2`
+              );
+            }
+            if (!sectionLiquid.includes('data-antifan-modal-dialog')) {
+              if (/(<div\b[^>]*class=["'][^"']*(?:modal|popup|dialog)[^"']*["'])([^>]*>)/i.test(sectionLiquid)) {
+                sectionLiquid = sectionLiquid.replace(
+                  /(<div\b[^>]*class=["'][^"']*(?:modal|popup|dialog)[^"']*["'])([^>]*>)/i,
+                  `$1 id="${modalId}" data-antifan-modal-dialog aria-hidden="true"$2`
+                );
+              } else {
+                sectionLiquid += `\n<div id="${modalId}" class="modal popup" data-antifan-modal-dialog aria-hidden="true"><div class="modal-content"><button class="close-btn" data-antifan-modal-close aria-label="Đóng">&times;</button><div class="modal-body"></div></div></div>`;
+              }
+            }
+            if (!sectionLiquid.includes('data-antifan-modal-close')) {
+              sectionLiquid = sectionLiquid.replace(
+                /(<button\b[^>]*class=["'][^"']*(?:close|modal-close|btn-close)[^"']*["'])([^>]*>)/i,
+                `$1 data-antifan-modal-close$2`
+              );
+            }
+          }
+        }
+
+        // 6b. Dynamic Liquid Binding via LiquidBindingEngine
+        const sectionContext = `${sec.id} ${sec.name} ${sec.className || ''}`.toLowerCase();
+
+        if (
+          (sec.archetype === 'rich_text' && /(?:article|blog|post|news)/i.test(sectionContext)) ||
+          /(?:article|blog|post|news)/i.test(sectionContext) ||
+          /(?:article-content|post-content|entry-content|article__content|article-title|post-title|article__title)/i.test(sectionLiquid)
+        ) {
+          sectionLiquid = this.liquidBindingEngine.bindArticleSection(sectionLiquid);
+        } else if (
+          sec.archetype === 'product_grid' ||
+          sec.archetype === 'collection_list' ||
+          /(?:product-grid|product-list|collection|featured-products)/i.test(sectionContext) ||
+          /(?:product-grid|product-list|collection-products)/i.test(sectionLiquid)
+        ) {
+          sectionLiquid = this.liquidBindingEngine.bindCollectionSection(sectionLiquid);
+        } else if (
+          /(?:product-detail|product-single|product-info|product-form|single-product)/i.test(sectionContext) ||
+          /(?:product-detail|product-single|product-info|btn-add-to-cart|add-to-cart)/i.test(sectionLiquid)
+        ) {
+          sectionLiquid = this.liquidBindingEngine.bindProductSection(sectionLiquid);
+        }
+
+        // Apply DotLiquid sanitization against .NET quirks
+        sectionLiquid = this.liquidBindingEngine.sanitizeDotLiquid(sectionLiquid);
+
+        // 6c. Dynamic Schema Wrapping via HaravanSchemaGenerator
+        const sectionSchema = this.schemaGen.extractSectionSchema({
+          id: sec.id,
+          name: sec.name,
+          tag: 'section',
+          className: sec.className || `section-${sec.id}`,
+          archetype: sec.archetype,
+          layoutType: sec.layoutType,
+          heading: sec.heading,
+          rawHtml: sec.rawHtml,
+          schemaSettings: sec.schemaSettings,
+          blockDefinitions: sec.blockDefinitions as unknown as HaravanBlockDefinition[],
+          blocks: sec.blocks as unknown as Array<{ id?: string; type: string; settings?: Record<string, unknown> }>,
+          settings: sec.settings
+        });
+
+        if (!Array.isArray(sectionSchema.blocks)) {
+          sectionSchema.blocks = [];
+        }
+
+        const sectionContent = this.schemaGen.generateSectionLiquidWithSchema(sectionLiquid, sectionSchema);
 
         const sectionPath = path.join(stagingDir, 'sections', `${sec.id}.liquid`);
         fs.writeFileSync(sectionPath, sectionContent, 'utf-8');
@@ -310,6 +393,16 @@ export class ThemeCompiler {
             const destAssetPath = path.join(stagingDir, 'assets', item.filename);
             fs.copyFileSync(item.localPath, destAssetPath);
             filesWritten.push(destAssetPath);
+          }
+        }
+      }
+      // 9c. Normalize undeclared settings and synthesize missing assets before final commit
+      const normResult = SettingsAssetsNormalizer.normalizeTheme(stagingDir);
+      if (normResult.assetResult && Array.isArray(normResult.assetResult.synthesizedAssets)) {
+        for (const synthesized of normResult.assetResult.synthesizedAssets) {
+          const synthesizedPath = path.join(stagingDir, 'assets', path.basename(synthesized));
+          if (fs.existsSync(synthesizedPath) && !filesWritten.includes(synthesizedPath)) {
+            filesWritten.push(synthesizedPath);
           }
         }
       }

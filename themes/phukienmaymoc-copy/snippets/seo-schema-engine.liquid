@@ -1,0 +1,308 @@
+{% comment %}
+  ==============================================================================
+  AUTOMATED JSON-LD SCHEMA ENGINE FOR HARAVAN — v4.0.0
+  Fix v4:
+    - priceValidUntil: dùng date filter chuẩn thay vì string arithmetic
+    - Thêm ItemList schema cho Collection (Google Shopping)
+    - Update version
+  ==============================================================================
+{% endcomment %}
+
+{% comment %}
+  Fix v4: Dùng Liquid date filter để tính năm chuẩn xác thay vì string plus arithmetic.
+  '1 year from now' = lấy timestamp hiện tại, cộng 31536000 giây (365 ngày).
+{% endcomment %}
+{% assign seo_one_year_from_now = 'now' | date: '%s' | plus: 31536000 %}
+{% assign seo_price_valid_until = seo_one_year_from_now | date: '%Y-%m-%d' %}
+
+{% comment %} =========================================================
+  1. ORGANIZATION / LOCAL BUSINESS SCHEMA
+     - Trang chủ: render đầy đủ
+     - Trang khác: chỉ cần @id reference (nhẹ hơn, không duplicate thông tin)
+  ========================================================= {% endcomment %}
+
+{% if template == 'index' %}
+
+  {% comment %} Chọn @type theo loại doanh nghiệp {% endcomment %}
+  {% if seo_business_type == 'local' %}
+    {% assign seo_org_type = 'LocalBusiness' %}
+  {% else %}
+    {% assign seo_org_type = 'Organization' %}
+  {% endif %}
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": {{ seo_org_type | json }},
+  "@id": "{{ shop.url }}/#organization",
+  "name": {{ shop.name | json }},
+  "url": "{{ shop.url }}",
+  "logo": {
+    "@type": "ImageObject",
+    "url": {{ seo_logo_url | json }},
+    "width": 600,
+    "height": 60
+  }
+  {% if seo_founding_year != '' %}
+  ,"foundingDate": {{ seo_founding_year | json }}
+  {% endif %}
+  {% if seo_contact_email != '' or seo_phone != '' %}
+  ,"contactPoint": {
+    "@type": "ContactPoint"
+    {% if seo_phone != '' %},"telephone": {{ seo_phone | json }}{% endif %}
+    {% if seo_contact_email != '' %},"email": {{ seo_contact_email | json }}{% endif %}
+    ,"contactType": "customer service"
+    ,"availableLanguage": "Vietnamese"
+  }
+  {% endif %}
+  {% comment %} Địa chỉ — cho cả LocalBusiness và Organization có địa điểm {% endcomment %}
+  {% if seo_street_address != '' %}
+  ,"address": {
+    "@type": "PostalAddress",
+    "streetAddress": {{ seo_street_address | json }},
+    "addressLocality": {{ seo_city | json }},
+    "addressCountry": {{ seo_country | json }}
+  }
+  {% endif %}
+  {% comment %} Tọa độ — chỉ cho LocalBusiness {% endcomment %}
+  {% if seo_business_type == 'local' and seo_geo_lat != '' and seo_geo_lng != '' %}
+  ,"geo": {
+    "@type": "GeoCoordinates",
+    "latitude": "{{ seo_geo_lat }}",
+    "longitude": "{{ seo_geo_lng }}"
+  }
+  ,"openingHours": {{ seo_opening_hours | json }}
+  ,"priceRange": {{ seo_price_range | json }}
+  {% endif %}
+  {% if seo_sameas_list.size > 0 %}
+  ,"sameAs": [
+    {% for url in seo_sameas_list %}
+      {{ url | json }}{% unless forloop.last %},{% endunless %}
+    {% endfor %}
+  ]
+  {% endif %}
+}
+</script>
+
+{% endif %}
+
+{% comment %} =========================================================
+  2. WEBSITE + SITELINKS SEARCHBOX (chỉ trang chủ)
+  ========================================================= {% endcomment %}
+
+{% if template == 'index' %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": "{{ shop.url }}/#website",
+  "url": "{{ shop.url }}",
+  "name": {{ shop.name | json }},
+  "inLanguage": "vi-VN",
+  "publisher": { "@id": "{{ shop.url }}/#organization" },
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+      "@type": "EntryPoint",
+      "urlTemplate": "{{ shop.url }}/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+  }
+}
+</script>
+{% endif %}
+
+{% comment %} =========================================================
+  3. PRODUCT SCHEMA
+  ========================================================= {% endcomment %}
+
+{% if template contains 'product' %}
+{% assign seo_product_price = product.price | divided_by: 100 %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "@id": "{{ shop.url }}{{ product.url }}/#product",
+  "name": {{ product.title | json }},
+  "description": {{ product.description | strip_html | json }},
+  "url": "{{ shop.url }}{{ product.url }}"
+  {% if product.images.size > 0 %}
+  ,"image": [
+    {% for image in product.images %}
+      "https:{{ image | img_url: 'master' }}"{% unless forloop.last %},{% endunless %}
+    {% endfor %}
+  ]
+  {% endif %}
+  {% if product.variants.first.sku != blank %}
+  ,"sku": {{ product.variants.first.sku | json }}
+  {% endif %}
+  ,"brand": {
+    "@type": "Brand",
+    "name": {{ product.vendor | default: shop.name | json }}
+  }
+  {% comment %} AggregateRating — chỉ render nếu có metafield review {% endcomment %}
+  {% if product.metafields.reviews.rating_count > 0 %}
+  ,"aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "{{ product.metafields.reviews.rating }}",
+    "reviewCount": "{{ product.metafields.reviews.rating_count }}",
+    "bestRating": "5",
+    "worstRating": "1"
+  }
+  {% endif %}
+  ,"offers": {
+    "@type": "Offer",
+    "priceCurrency": "VND",
+    "price": "{{ seo_product_price }}",
+    "priceValidUntil": "{{ seo_price_valid_until }}",
+    "itemCondition": "https://schema.org/NewCondition",
+    "availability": "https://schema.org/{% if product.available %}InStock{% else %}OutOfStock{% endif %}",
+    "url": "{{ shop.url }}{{ product.url }}",
+    "seller": {
+      "@type": "Organization",
+      "@id": "{{ shop.url }}/#organization"
+    }
+  }
+}
+</script>
+{% endif %}
+
+{% comment %} =========================================================
+  4. ARTICLE SCHEMA
+  ========================================================= {% endcomment %}
+
+{% if template contains 'article' %}
+{% assign seo_article_author = article.author | default: seo_default_author %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "@id": "{{ shop.url }}{{ article.url }}/#article",
+  "headline": {{ article.title | json }},
+  "description": {{ article.excerpt_or_content | strip_html | truncatewords: 50 | json }},
+  "datePublished": "{{ article.published_at | date: '%Y-%m-%dT%H:%M:%S+07:00' }}",
+  "dateModified": "{{ article.updated_at | default: article.published_at | date: '%Y-%m-%dT%H:%M:%S+07:00' }}",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "{{ shop.url }}{{ article.url }}"
+  },
+  "inLanguage": "vi-VN"
+  {% if article.tags.size > 0 %}
+  ,"keywords": "{{ article.tags | join: ', ' }}"
+  {% endif %}
+  {% if article.image %}
+  ,"image": {
+    "@type": "ImageObject",
+    "url": "https:{{ article.image | img_url: 'master' }}",
+    "width": 1200,
+    "height": 628
+  }
+  {% endif %}
+  ,"author": {
+    "@type": "Person",
+    "name": {{ seo_article_author | json }}
+  }
+  ,"publisher": {
+    "@type": "Organization",
+    "@id": "{{ shop.url }}/#organization"
+  }
+}
+</script>
+{% endif %}
+
+{% comment %} =========================================================
+  5. COLLECTION PAGE SCHEMA
+  ========================================================= {% endcomment %}
+
+{% if template contains 'collection' %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "@id": "{{ shop.url }}{{ collection.url }}/#collectionpage",
+  "name": {{ collection.title | json }},
+  "description": {{ collection.description | strip_html | default: shop.description | json }},
+  "url": "{{ shop.url }}{{ collection.url }}"
+  {% if collection.image %}
+  ,"image": "https:{{ collection.image | img_url: 'master' }}"
+  {% endif %}
+  {% comment %} ItemList: Liệt kê top sản phẩm — Google Shopping & AI Overviews cần cái này {% endcomment %}
+  {% if collection.products.size > 0 %}
+  ,"mainEntity": {
+    "@type": "ItemList",
+    "numberOfItems": {{ collection.products_count }},
+    "itemListElement": [
+      {% assign seo_item_position = 0 %}
+      {% for product in collection.products limit: 10 %}
+        {% assign seo_item_position = seo_item_position | plus: 1 %}
+        {
+          "@type": "ListItem",
+          "position": {{ seo_item_position }},
+          "url": "{{ shop.url }}{{ product.url }}",
+          "name": {{ product.title | json }}
+        }{% unless forloop.last %},{% endunless %}
+      {% endfor %}
+    ]
+  }
+  {% endif %}
+}
+</script>
+{% endif %}
+
+{% comment %} =========================================================
+  6. CONTACT PAGE SCHEMA
+  ========================================================= {% endcomment %}
+
+{% if template contains 'page' and page.handle contains 'contact' %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ContactPage",
+  "@id": "{{ shop.url }}{{ page.url }}/#contactpage",
+  "name": {{ page.title | json }},
+  "url": "{{ shop.url }}{{ page.url }}",
+  "mainEntity": {
+    "@type": "Organization",
+    "@id": "{{ shop.url }}/#organization"
+  }
+}
+</script>
+{% endif %}
+
+{% comment %} =========================================================
+  7. BREADCRUMB SCHEMA (tất cả trang trừ trang chủ)
+  ========================================================= {% endcomment %}
+
+{% unless template == 'index' %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Trang chủ",
+      "item": "{{ shop.url }}"
+    }
+    {% if template contains 'product' %}
+      {% if collection %}
+      ,{ "@type": "ListItem", "position": 2, "name": {{ collection.title | json }}, "item": "{{ shop.url }}{{ collection.url }}" }
+      ,{ "@type": "ListItem", "position": 3, "name": {{ product.title | json }}, "item": "{{ shop.url }}{{ product.url }}" }
+      {% else %}
+      ,{ "@type": "ListItem", "position": 2, "name": {{ product.title | json }}, "item": "{{ shop.url }}{{ product.url }}" }
+      {% endif %}
+    {% elsif template contains 'collection' %}
+      ,{ "@type": "ListItem", "position": 2, "name": {{ collection.title | json }}, "item": "{{ shop.url }}{{ collection.url }}" }
+    {% elsif template contains 'article' %}
+      ,{ "@type": "ListItem", "position": 2, "name": {{ blog.title | json }}, "item": "{{ shop.url }}{{ blog.url }}" }
+      ,{ "@type": "ListItem", "position": 3, "name": {{ article.title | json }}, "item": "{{ shop.url }}{{ article.url }}" }
+    {% elsif template contains 'page' %}
+      ,{ "@type": "ListItem", "position": 2, "name": {{ page.title | json }}, "item": "{{ shop.url }}{{ page.url }}" }
+    {% elsif template contains 'blog' %}
+      ,{ "@type": "ListItem", "position": 2, "name": {{ blog.title | json }}, "item": "{{ shop.url }}{{ blog.url }}" }
+    {% endif %}
+  ]
+}
+</script>
+{% endunless %}

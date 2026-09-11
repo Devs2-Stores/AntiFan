@@ -1,0 +1,30 @@
+Loomline.Page = {
+		init: function() {
+			var that = this;
+      that.Loomline_menuSidebarPage();
+		},
+  Loomline_menuSidebarPage: function(){
+		$('.layout-pageDetail .plus-nClick1').click(function(e){
+			e.preventDefault();
+			$(this).parents('.level0').toggleClass('opened');
+			$(this).parents('.level0').children('ul').slideToggle(200);
+		});
+		$('.layout-pageDetail .plus-nClick2').click(function(e){
+			e.preventDefault();
+			$(this).parents('.level1').toggleClass('opened');
+			$(this).parents('.level1').children('ul').slideToggle(200);
+		});
+		$('.layout-pageDetail .plus-nClick3').click(function(e){
+			e.preventDefault();
+			$(this).parents('.level2').toggleClass('opened');
+			$(this).parents('.level2').children('ul').slideToggle(200);
+		});
+		jQuery('.layout-pageDetail .sidebox-title .htitle').click(function(){
+			$(this).parents('.layout-pageDetail .group-sidebox').toggleClass('is-open').find('.sidebox-content-togged').slideToggle('medium');
+		}); 
+	},
+};
+(function() {
+  Loomline.Page.init();
+})();
+

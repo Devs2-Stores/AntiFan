@@ -1,0 +1,2488 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "metadata": {
+    "reportTitle": "AntiFan — Hoplongtech 15-Page Clone Storefront Haravan Fidelity Campaign Matrix",
+    "generatedAt": "2026-09-12T00:00:00.000Z",
+    "sourceEvidence": "15-PAGE-HOPLONGTECH-CLONE-CANARY.md",
+    "targetPlatform": "haravan",
+    "store": {
+      "name": "Phukienmaymoc Storefront",
+      "domain": "phukienmaymoc.com",
+      "baseUrl": "https://phukienmaymoc.com",
+      "orgId": "200001207485",
+      "previewThemeId": "1001512581",
+      "previewThemeName": "Bản sao chép của clothing",
+      "liveThemeId": "1001510509",
+      "liveThemeConstraint": "STRICT_READ_ONLY_INVARIANT_NEVER_MUTATE_OR_WRITE"
+    },
+    "viewports": [
+      {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false,
+        "label": "1440"
+      },
+      {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false,
+        "label": "1024"
+      },
+      {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true,
+        "label": "390"
+      }
+    ],
+    "scope": {
+      "totalPages": 15,
+      "viewportsPerPage": 3,
+      "totalCases": 45
+    },
+    "priorCanaryExecution": {
+      "completedDate": "2026-09-11T00:18:04.503Z",
+      "executiveVerdict": "FAIL",
+      "finalDecision": "NEEDS_TARGETED_FIXES",
+      "passCases": 8,
+      "failCases": 17,
+      "inconclusiveCases": 20,
+      "passRatePercentage": 17.78,
+      "networkZeroHotlinkPassed": true,
+      "typographyVerified": true,
+      "captureIntegrityVerified": true
+    }
+  },
+  "routeConstructionRules": {
+    "baseDomain": "phukienmaymoc.com",
+    "themeIdParam": "themeid=1001512581",
+    "viewParam": "view=<viewName>",
+    "standardUrlPattern": "https://phukienmaymoc.com/{route}?themeid=1001512581",
+    "customViewPattern": "https://phukienmaymoc.com/{route}?themeid=1001512581&view={viewName}",
+    "assetCdnPattern": "https://cdn.hstatic.net/themes/200001207485/1001512581/{assetPath}",
+    "criticalRoutingInvariants": [
+      "Silent Fallback Trap: Haravan storefront returns HTTP 200 for invalid/non-existent theme IDs (e.g. 999999) but serves assets from live production theme (1001510509). Verifier MUST inspect rendered asset URLs to assert they match /1001512581/.",
+      "Never mutate or push to live theme 1001510509. All writes strictly confined to theme copy 1001512581.",
+      "Zero external hotlinks: no visual requests (images, fonts, stylesheets) may hit reference domains (hoplongtech.com, hoplong.com, img.hoplongtech.com)."
+    ]
+  },
+  "failureTaxonomy": {
+    "failModes": [
+      {
+        "id": "FAIL-MOBILE-GEOMETRY-MISMATCH",
+        "name": "Mobile Structural Parity Mismatch (Geometry Drift > 2px)",
+        "affectedCases": [
+          "P02-390",
+          "P03-390",
+          "P04-390",
+          "P05-390",
+          "P08-390",
+          "P09-390",
+          "P10-390"
+        ],
+        "caseCount": 7,
+        "description": "On mobile viewport (390px), clone rendered with tiny pixel diff (0.01% mismatch) but document height differed by 10px from reference (e.g. 4270px ref vs 4280px clone). Because maxGeometryDeltaPx is strictly 2px in computeStructuralMetrics, geometryWithinTolerance evaluated to false. By Structural Primacy invariant, structural failure overrides low visual diff, forcing verdictMatch=false and producing FAIL with causeCode STRUCTURAL_PARITY_MISMATCH.",
+        "rootCause": "Padding/margin box calculation divergence on mobile elements (likely header/footer or viewport auto-scaling in mobile container adding 10px vertical height).",
+        "remediation": "Audit and align mobile root container CSS padding, margin, and border-box sizing to eliminate the 10px vertical drift."
+      },
+      {
+        "id": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "name": "Cross-Domain CMS/Elementor Layout & Animation Divergence (hoplong.com)",
+        "affectedCases": [
+          "P12-1440",
+          "P12-390",
+          "P13-1440",
+          "P13-1024",
+          "P13-390",
+          "P14-1440",
+          "P14-390",
+          "P15-1440",
+          "P15-1024",
+          "P15-390"
+        ],
+        "caseCount": 10,
+        "description": "Pages 12-15 originate from hoplong.com (WordPress Elementor architecture) rather than hoplongtech.com. They rely on complex CSS keyframe animations, scroll-triggered milestones (Page 13 timeline: 8643px height, 74.57% mismatch), dynamic job accordions (Pages 14-15), and Inter font typography. When extracted and localized, dynamic Elementor runtime states and animations did not settle identically, yielding massive pixel mismatches (24.83% to 74.57%).",
+        "rootCause": "Elementor dynamic animation scripts, scroll-reveal transitions, and uncompiled WordPress layout blocks failing to settle deterministically in static Haravan Liquid templates.",
+        "remediation": "Normalize and freeze Elementor animation states; replace dynamic keyframe transforms with static layout CSS; ensure exact typography alignment (Inter font metrics)."
+      }
+    ],
+    "inconclusiveModes": [
+      {
+        "id": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "name": "Tablet (1024px) Responsive Breakpoint Height Divergence",
+        "affectedCases": [
+          "P01-1024",
+          "P02-1024",
+          "P03-1024",
+          "P04-1024",
+          "P05-1024",
+          "P06-1024",
+          "P08-1024",
+          "P09-1024",
+          "P10-1024",
+          "P14-1024"
+        ],
+        "caseCount": 10,
+        "description": "At 1024px tablet breakpoint, reference and clone exhibit minor layout height differences (delta 15px to 120px) due to text wrapping or header/nav collapse. Because dimensionsMatch is false, comparator returned STRUCTURAL_PARITY_MISMATCH, which canonicalVerdict maps to INCONCLUSIVE.",
+        "rootCause": "Breakpoint transition rules at 1024px differing between reference CSS and clone theme CSS.",
+        "remediation": "Tune 1024px @media queries for font sizing, line-height, and container widths to achieve byte-identical document height."
+      },
+      {
+        "id": "INCONC-CAPTURE-FAIL-TRUNCATION",
+        "name": "CDP Capture Failure & Settle Timeout / Severe Truncation",
+        "affectedCases": [
+          "P01-390",
+          "P06-390",
+          "P12-1024"
+        ],
+        "caseCount": 3,
+        "description": "On mobile 390px for Home and Cart, reference measured at 3156px while clone measured 4491px (a 1335px delta), causing CDP full-page screenshot capture or dimension validation to fail (Capture: FAIL). On P12-1024, CDP capture failed to complete within the capture budget. canonicalVerdict maps captureValid=false to INCONCLUSIVE (CAPTURE_INVALID).",
+        "rootCause": "Massive document height delta (1335px) caused by uncollapsed mobile navigation, lazy loading failure, or auth redirect modal divergence on mobile.",
+        "remediation": "Stabilize mobile lazy-loaded components and ensure full-page height settling before screenshot invocation."
+      },
+      {
+        "id": "INCONC-STRUCTURAL-TRUNCATION-PRODUCT",
+        "name": "Structural Truncation Detected (> 10% Height Tolerance Delta)",
+        "affectedCases": [
+          "P07-1440",
+          "P07-390"
+        ],
+        "caseCount": 2,
+        "description": "On Product Detail page (P07), RefDocH vs CloneDocH delta was -395px (11% delta) at 1440px and -618px (12.7% delta) at 390px. Because height delta exceeded the 10% effectiveHeightTolerance, comparator aborted pixel comparison with STRUCTURAL_TRUNCATION_DETECTED (100% mismatch), which maps to INCONCLUSIVE.",
+        "rootCause": "Missing specifications table rows, description tab truncation, or absent related product cards in the clone template.",
+        "remediation": "Ensure complete Liquid product template rendering including technical specification tables, reviews block, and related product grid."
+      },
+      {
+        "id": "INCONC-CONTENT-PARITY-MISMATCH",
+        "name": "Complex Article & Product Content Layout Parity Mismatch",
+        "affectedCases": [
+          "P07-1024",
+          "P09-1440",
+          "P11-1440",
+          "P11-1024",
+          "P11-390"
+        ],
+        "caseCount": 5,
+        "description": "On P11 (Chi tiết tin tức), article content formatting, inline images, and related articles sidebar layout diverged, causing 26.29% to 30.22% mismatch and 208px to 290px height deltas. P07-1024 had 25.93% mismatch. P09-1440 had 0.77% mismatch with 15px height delta.",
+        "rootCause": "Article body typography, inline image scaling, and sidebar wrapping differences across viewports.",
+        "remediation": "Standardize rich text article content styling, image responsive constraints, and technical document tables."
+      }
+    ]
+  },
+  "cases": [
+    {
+      "caseId": "P01-1440",
+      "pageIndex": 1,
+      "pageName": "TRANG CHỦ",
+      "pageSlug": "page-01-home",
+      "referenceUrl": "https://hoplongtech.com/",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "home",
+      "canonicalSurface": "home",
+      "haravanTemplate": "index.liquid",
+      "haravanRoute": "/",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "PASS",
+        "visualStatus": "PASS",
+        "mismatchPercentage": 1.81,
+        "refDocHeight": 5422,
+        "cloneDocHeight": 5422,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 15,
+          "cloneSections": 15,
+          "refCards": 83,
+          "cloneCards": 83
+        }
+      },
+      "failureMode": null,
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains; all assets from cdn.hstatic.net/themes/200001207485/1001512581/",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "15 sections match (Hero, banner, categories, product tabs, brands, news, footer)",
+          "83 product cards rendered with accurate prices and images",
+          "Zero hotlinks to hoplongtech.com",
+          "Visual difference <= 1.81% at 1440x900"
+        ]
+      }
+    },
+    {
+      "caseId": "P01-1024",
+      "pageIndex": 1,
+      "pageName": "TRANG CHỦ",
+      "pageSlug": "page-01-home",
+      "referenceUrl": "https://hoplongtech.com/",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "home",
+      "canonicalSurface": "home",
+      "haravanTemplate": "index.liquid",
+      "haravanRoute": "/",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 2.21,
+        "refDocHeight": 5426,
+        "cloneDocHeight": 5546,
+        "docHeightDeltaPx": 120,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 15,
+          "cloneSections": 15,
+          "refCards": 83,
+          "cloneCards": 83
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 120px (5426px vs 5546px) at 1024px due to banner wrapping and nav collapse.",
+        "mechanism": "dimensionsMatch evaluated to false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Document height matches within 2px tolerance (target: 5426px)",
+          "Pixel mismatch <= 2.5%",
+          "No horizontal overflow (overflowX: false)"
+        ]
+      }
+    },
+    {
+      "caseId": "P01-390",
+      "pageIndex": 1,
+      "pageName": "TRANG CHỦ",
+      "pageSlug": "page-01-home",
+      "referenceUrl": "https://hoplongtech.com/",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "home",
+      "canonicalSurface": "home",
+      "haravanTemplate": "index.liquid",
+      "haravanRoute": "/",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "INCONCLUSIVE",
+        "mismatchPercentage": null,
+        "refDocHeight": 3156,
+        "cloneDocHeight": 4491,
+        "docHeightDeltaPx": 1335,
+        "captureStatus": "FAIL",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 14,
+          "cloneSections": 14,
+          "refCards": 83,
+          "cloneCards": 83
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-CAPTURE-FAIL-TRUNCATION",
+        "category": "Capture & Settle",
+        "rootCause": "Massive document height delta (1335px; ref 3156px vs clone 4491px) caused by mobile lazy-load truncation on reference vs fully expanded clone, triggering Capture FAIL.",
+        "mechanism": "captureValid evaluated to false, preventing pixel comparison and forcing canonicalVerdict to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "CDP full-page capture succeeds with valid PNG bytes",
+          "Document height delta <= 2px after double-settle protocol",
+          "Mobile hamburger menu, bottom navigation, and sticky search behave correctly"
+        ]
+      }
+    },
+    {
+      "caseId": "P02-1440",
+      "pageIndex": 2,
+      "pageName": "DANH MỤC THƯƠNG HIỆU",
+      "pageSlug": "page-02-brands",
+      "referenceUrl": "https://hoplongtech.com/brands",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "page.brands.liquid",
+      "haravanRoute": "/pages/brands",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/brands?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "PASS",
+        "visualStatus": "PASS",
+        "mismatchPercentage": 0.05,
+        "refDocHeight": 3975,
+        "cloneDocHeight": 3975,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": null,
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Complete A-Z brand alphabet index and logo grid rendered",
+          "0.05% visual fidelity maintained",
+          "All brand links correctly routed"
+        ]
+      }
+    },
+    {
+      "caseId": "P02-1024",
+      "pageIndex": 2,
+      "pageName": "DANH MỤC THƯƠNG HIỆU",
+      "pageSlug": "page-02-brands",
+      "referenceUrl": "https://hoplongtech.com/brands",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "page.brands.liquid",
+      "haravanRoute": "/pages/brands",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/brands?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 0.77,
+        "refDocHeight": 4200,
+        "cloneDocHeight": 4230,
+        "docHeightDeltaPx": 30,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 30px (4200px vs 4230px) due to brand alphabet grouping grid wrap differences.",
+        "mechanism": "dimensionsMatch evaluated to false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Document height matches within 2px tolerance (4200px)",
+          "Brand alphabet cards wrap uniformly across columns"
+        ]
+      }
+    },
+    {
+      "caseId": "P02-390",
+      "pageIndex": 2,
+      "pageName": "DANH MỤC THƯƠNG HIỆU",
+      "pageSlug": "page-02-brands",
+      "referenceUrl": "https://hoplongtech.com/brands",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "page.brands.liquid",
+      "haravanRoute": "/pages/brands",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/brands?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 0.01,
+        "refDocHeight": 4270,
+        "cloneDocHeight": 4280,
+        "docHeightDeltaPx": 10,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-MOBILE-GEOMETRY-MISMATCH",
+        "category": "Structural Parity Mismatch",
+        "rootCause": "Document height divergence of 10px (4270px vs 4280px) exceeding maxGeometryDeltaPx of 2px.",
+        "mechanism": "geometryWithinTolerance evaluated false; Structural Primacy forced verdictMatch=false despite tiny 0.01% pixel diff."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Eliminate 10px height drift by adjusting mobile container padding/margin",
+          "Ensure deltaGeometry <= 2px",
+          "Maintain pixel mismatch <= 0.1%"
+        ]
+      }
+    },
+    {
+      "caseId": "P03-1440",
+      "pageIndex": 3,
+      "pageName": "NHÓM KHÔNG FILTER",
+      "pageSlug": "page-03-category-cam-bien",
+      "referenceUrl": "https://hoplongtech.com/category/cam-bien",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "collection.liquid",
+      "haravanRoute": "/collections/cam-bien",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/cam-bien?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "PASS",
+        "visualStatus": "PASS",
+        "mismatchPercentage": 0.08,
+        "refDocHeight": 2389,
+        "cloneDocHeight": 2389,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 20,
+          "cloneCards": 20
+        }
+      },
+      "failureMode": null,
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "20 product cards rendered in collection grid",
+          "Pagination / infinite load controls functional",
+          "Zero layout shifts or horizontal scroll"
+        ]
+      }
+    },
+    {
+      "caseId": "P03-1024",
+      "pageIndex": 3,
+      "pageName": "NHÓM KHÔNG FILTER",
+      "pageSlug": "page-03-category-cam-bien",
+      "referenceUrl": "https://hoplongtech.com/category/cam-bien",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "collection.liquid",
+      "haravanRoute": "/collections/cam-bien",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/cam-bien?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 0.63,
+        "refDocHeight": 2766,
+        "cloneDocHeight": 2781,
+        "docHeightDeltaPx": 15,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 20,
+          "cloneCards": 20
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 15px (2766px vs 2781px) on tablet grid card spacing.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align grid gap and card height at 1024px to eliminate 15px delta",
+          "Ensure 20 product cards match cardinality exactly"
+        ]
+      }
+    },
+    {
+      "caseId": "P03-390",
+      "pageIndex": 3,
+      "pageName": "NHÓM KHÔNG FILTER",
+      "pageSlug": "page-03-category-cam-bien",
+      "referenceUrl": "https://hoplongtech.com/category/cam-bien",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "collection.liquid",
+      "haravanRoute": "/collections/cam-bien",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/cam-bien?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 0.01,
+        "refDocHeight": 3487,
+        "cloneDocHeight": 3497,
+        "docHeightDeltaPx": 10,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 20,
+          "cloneCards": 20
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-MOBILE-GEOMETRY-MISMATCH",
+        "category": "Structural Parity Mismatch",
+        "rootCause": "10px height drift (3487px vs 3497px) on mobile collection grid violating 2px maxGeometryDeltaPx tolerance.",
+        "mechanism": "Structural parity failed, overriding 0.01% pixel diff."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align 390px collection list container height to exactly 3487px",
+          "Maintain 2-column mobile card grid layout"
+        ]
+      }
+    },
+    {
+      "caseId": "P04-1440",
+      "pageIndex": 4,
+      "pageName": "TRANG NHÓM SẢN PHẨM",
+      "pageSlug": "page-04-category-contactor",
+      "referenceUrl": "https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-filtered",
+      "haravanTemplate": "collection.liquid",
+      "haravanRoute": "/collections/contactor?filter=brand-1127",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/contactor?filter=brand-1127&themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "PASS",
+        "visualStatus": "PASS",
+        "mismatchPercentage": 0.07,
+        "refDocHeight": 2666,
+        "cloneDocHeight": 2666,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 40,
+          "cloneCards": 40
+        }
+      },
+      "failureMode": null,
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Brand filter facet active and displayed in filtered pills",
+          "40 product cards rendered matching filter criteria",
+          "Filter sidebar state preserved"
+        ]
+      }
+    },
+    {
+      "caseId": "P04-1024",
+      "pageIndex": 4,
+      "pageName": "TRANG NHÓM SẢN PHẨM",
+      "pageSlug": "page-04-category-contactor",
+      "referenceUrl": "https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-filtered",
+      "haravanTemplate": "collection.liquid",
+      "haravanRoute": "/collections/contactor?filter=brand-1127",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/contactor?filter=brand-1127&themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 0.59,
+        "refDocHeight": 2992,
+        "cloneDocHeight": 3007,
+        "docHeightDeltaPx": 15,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 40,
+          "cloneCards": 40
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 15px (2992px vs 3007px) on filtered collection layout at 1024px.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align tablet filter drawer and grid spacing to eliminate 15px delta",
+          "Ensure exactly 40 product cards remain visible"
+        ]
+      }
+    },
+    {
+      "caseId": "P04-390",
+      "pageIndex": 4,
+      "pageName": "TRANG NHÓM SẢN PHẨM",
+      "pageSlug": "page-04-category-contactor",
+      "referenceUrl": "https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-filtered",
+      "haravanTemplate": "collection.liquid",
+      "haravanRoute": "/collections/contactor?filter=brand-1127",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/contactor?filter=brand-1127&themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 0.01,
+        "refDocHeight": 4408,
+        "cloneDocHeight": 4418,
+        "docHeightDeltaPx": 10,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 36,
+          "cloneCards": 36
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-MOBILE-GEOMETRY-MISMATCH",
+        "category": "Structural Parity Mismatch",
+        "rootCause": "10px height drift (4408px vs 4418px) on mobile filtered listing exceeding 2px tolerance.",
+        "mechanism": "Structural parity failed, overriding 0.01% pixel diff."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align 390px mobile filter drawer trigger bar and product grid padding",
+          "Ensure docHeight matches 4408px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P05-1440",
+      "pageIndex": 5,
+      "pageName": "NHÓM SẢN PHẨM BRAND",
+      "pageSlug": "page-05-brands-ecovacs",
+      "referenceUrl": "https://hoplongtech.com/brands/ecovacs",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "collection.brand.liquid",
+      "haravanRoute": "/collections/ecovacs",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/ecovacs?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "PASS",
+        "visualStatus": "PASS",
+        "mismatchPercentage": 0.07,
+        "refDocHeight": 2646,
+        "cloneDocHeight": 2646,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": null,
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Brand banner, logo, and brand description correctly positioned",
+          "Product sub-categories or series lists rendered accurately",
+          "0.07% visual mismatch maintained"
+        ]
+      }
+    },
+    {
+      "caseId": "P05-1024",
+      "pageIndex": 5,
+      "pageName": "NHÓM SẢN PHẨM BRAND",
+      "pageSlug": "page-05-brands-ecovacs",
+      "referenceUrl": "https://hoplongtech.com/brands/ecovacs",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "collection.brand.liquid",
+      "haravanRoute": "/collections/ecovacs",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/ecovacs?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 0.61,
+        "refDocHeight": 2856,
+        "cloneDocHeight": 2871,
+        "docHeightDeltaPx": 15,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 15px (2856px vs 2871px) on brand banner description at 1024px.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align brand banner typography and description line clamp at 1024px",
+          "Ensure docHeight delta <= 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P05-390",
+      "pageIndex": 5,
+      "pageName": "NHÓM SẢN PHẨM BRAND",
+      "pageSlug": "page-05-brands-ecovacs",
+      "referenceUrl": "https://hoplongtech.com/brands/ecovacs",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "collection",
+      "canonicalSurface": "collection-grid",
+      "haravanTemplate": "collection.brand.liquid",
+      "haravanRoute": "/collections/ecovacs",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/collections/ecovacs?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 0.01,
+        "refDocHeight": 2454,
+        "cloneDocHeight": 2464,
+        "docHeightDeltaPx": 10,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-MOBILE-GEOMETRY-MISMATCH",
+        "category": "Structural Parity Mismatch",
+        "rootCause": "10px height drift (2454px vs 2464px) on mobile brand landing page exceeding 2px tolerance.",
+        "mechanism": "Structural parity failed, overriding 0.01% pixel diff."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Adjust mobile brand banner padding to eliminate 10px drift",
+          "Verify docHeight matches 2454px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P06-1440",
+      "pageIndex": 6,
+      "pageName": "GIỎ HÀNG",
+      "pageSlug": "page-06-cart",
+      "referenceUrl": "https://hoplongtech.com/cart",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "cart",
+      "canonicalSurface": "cart-empty",
+      "haravanTemplate": "cart.liquid",
+      "haravanRoute": "/cart",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "PASS",
+        "visualStatus": "PASS",
+        "mismatchPercentage": 1.81,
+        "refDocHeight": 5422,
+        "cloneDocHeight": 5422,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 15,
+          "cloneSections": 15,
+          "refCards": 83,
+          "cloneCards": 83
+        }
+      },
+      "failureMode": null,
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Cart layout or unauthenticated modal renders without script crash",
+          "Cart totals and continuation CTA clearly visible",
+          "Zero reference hotlinks"
+        ]
+      }
+    },
+    {
+      "caseId": "P06-1024",
+      "pageIndex": 6,
+      "pageName": "GIỎ HÀNG",
+      "pageSlug": "page-06-cart",
+      "referenceUrl": "https://hoplongtech.com/cart",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "cart",
+      "canonicalSurface": "cart-empty",
+      "haravanTemplate": "cart.liquid",
+      "haravanRoute": "/cart",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 2.21,
+        "refDocHeight": 5426,
+        "cloneDocHeight": 5546,
+        "docHeightDeltaPx": 120,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 15,
+          "cloneSections": 15,
+          "refCards": 83,
+          "cloneCards": 83
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 120px (5426px vs 5546px) mirroring home page unauthenticated modal background.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align background document height to 5426px",
+          "Modal overlay bounds match reference exactly"
+        ]
+      }
+    },
+    {
+      "caseId": "P06-390",
+      "pageIndex": 6,
+      "pageName": "GIỎ HÀNG",
+      "pageSlug": "page-06-cart",
+      "referenceUrl": "https://hoplongtech.com/cart",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "cart",
+      "canonicalSurface": "cart-empty",
+      "haravanTemplate": "cart.liquid",
+      "haravanRoute": "/cart",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "INCONCLUSIVE",
+        "mismatchPercentage": null,
+        "refDocHeight": 3156,
+        "cloneDocHeight": 4491,
+        "docHeightDeltaPx": 1335,
+        "captureStatus": "FAIL",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 14,
+          "cloneSections": 14,
+          "refCards": 83,
+          "cloneCards": 83
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-CAPTURE-FAIL-TRUNCATION",
+        "category": "Capture & Settle",
+        "rootCause": "1335px document height delta (3156px ref vs 4491px clone) causing capture failure during full-page screenshot.",
+        "mechanism": "captureValid evaluated false, resulting in INCONCLUSIVE verdict."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Ensure mobile cart view completes settle before screenshot capture",
+          "Document height matches within 2px tolerance"
+        ]
+      }
+    },
+    {
+      "caseId": "P07-1440",
+      "pageIndex": 7,
+      "pageName": "CHI TIẾT SẢN PHẨM",
+      "pageSlug": "page-07-product-detail",
+      "referenceUrl": "https://hoplongtech.com/products/lc1d09m7",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "product",
+      "canonicalSurface": "product-standard",
+      "haravanTemplate": "product.liquid",
+      "haravanRoute": "/products/lc1d09m7",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/products/lc1d09m7?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_TRUNCATION_DETECTED",
+        "mismatchPercentage": 100,
+        "refDocHeight": 3592,
+        "cloneDocHeight": 3197,
+        "docHeightDeltaPx": -395,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 12,
+          "cloneCards": 12
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-STRUCTURAL-TRUNCATION-PRODUCT",
+        "category": "Structural Truncation",
+        "rootCause": "Document height delta of -395px (11.0% divergence) exceeding the 10% effectiveHeightTolerance. Caused by missing/collapsed technical specs accordion.",
+        "mechanism": "browser-control-port aborted pixel compare with STRUCTURAL_TRUNCATION_DETECTED (100% mismatch); canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Full technical specifications table rendered and expanded",
+          "Related products carousel rendered with 12 cards",
+          "Document height matches 3592px within 2px tolerance",
+          "Visual pixel mismatch <= 3.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P07-1024",
+      "pageIndex": 7,
+      "pageName": "CHI TIẾT SẢN PHẨM",
+      "pageSlug": "page-07-product-detail",
+      "referenceUrl": "https://hoplongtech.com/products/lc1d09m7",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "product",
+      "canonicalSurface": "product-standard",
+      "haravanTemplate": "product.liquid",
+      "haravanRoute": "/products/lc1d09m7",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/products/lc1d09m7?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 25.93,
+        "refDocHeight": 4922,
+        "cloneDocHeight": 4542,
+        "docHeightDeltaPx": -380,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 12,
+          "cloneCards": 12
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-CONTENT-PARITY-MISMATCH",
+        "category": "Content Parity",
+        "rootCause": "Document height delta of -380px and 25.93% visual mismatch due to tablet gallery layout stacking and description tabs collapse.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Gallery thumbnails and main image viewer correctly positioned at 1024px",
+          "Specifications table fully displayed without layout truncation",
+          "Height matches 4922px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P07-390",
+      "pageIndex": 7,
+      "pageName": "CHI TIẾT SẢN PHẨM",
+      "pageSlug": "page-07-product-detail",
+      "referenceUrl": "https://hoplongtech.com/products/lc1d09m7",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "product",
+      "canonicalSurface": "product-standard",
+      "haravanTemplate": "product.liquid",
+      "haravanRoute": "/products/lc1d09m7",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/products/lc1d09m7?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_TRUNCATION_DETECTED",
+        "mismatchPercentage": 100,
+        "refDocHeight": 4857,
+        "cloneDocHeight": 4239,
+        "docHeightDeltaPx": -618,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 2,
+          "cloneCards": 2
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-STRUCTURAL-TRUNCATION-PRODUCT",
+        "category": "Structural Truncation",
+        "rootCause": "Height delta of -618px (12.7% divergence) exceeding 10% tolerance on mobile product detail. Description and specs tabs collapsed in clone.",
+        "mechanism": "STRUCTURAL_TRUNCATION_DETECTED aborted compare; canonicalVerdict classified as INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Mobile sticky Add-to-Cart bar rendered",
+          "Specifications accordion state matches reference (docHeight: 4857px)",
+          "Pixel mismatch <= 4.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P08-1440",
+      "pageIndex": 8,
+      "pageName": "BÁO GIÁ",
+      "pageSlug": "page-08-bao-gia",
+      "referenceUrl": "https://hoplongtech.com/bao-gia",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-contact",
+      "haravanTemplate": "page.bao-gia.liquid",
+      "haravanRoute": "/pages/bao-gia",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/bao-gia?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "PASS",
+        "visualStatus": "PASS",
+        "mismatchPercentage": 0.12,
+        "refDocHeight": 1440,
+        "cloneDocHeight": 1440,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 4,
+          "cloneSections": 4,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": null,
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Quote request form, input fields, and submit behavior functional",
+          "4 sections rendered with 0.12% visual mismatch",
+          "No external script dependencies"
+        ]
+      }
+    },
+    {
+      "caseId": "P08-1024",
+      "pageIndex": 8,
+      "pageName": "BÁO GIÁ",
+      "pageSlug": "page-08-bao-gia",
+      "referenceUrl": "https://hoplongtech.com/bao-gia",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-contact",
+      "haravanTemplate": "page.bao-gia.liquid",
+      "haravanRoute": "/pages/bao-gia",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/bao-gia?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 0.88,
+        "refDocHeight": 1980,
+        "cloneDocHeight": 1995,
+        "docHeightDeltaPx": 15,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 4,
+          "cloneSections": 4,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 15px (1980px vs 1995px) on quote request form layout at 1024px.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align form row gaps and input heights to eliminate 15px delta",
+          "Ensure docHeight matches 1980px"
+        ]
+      }
+    },
+    {
+      "caseId": "P08-390",
+      "pageIndex": 8,
+      "pageName": "BÁO GIÁ",
+      "pageSlug": "page-08-bao-gia",
+      "referenceUrl": "https://hoplongtech.com/bao-gia",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-contact",
+      "haravanTemplate": "page.bao-gia.liquid",
+      "haravanRoute": "/pages/bao-gia",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/bao-gia?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 0.01,
+        "refDocHeight": 2012,
+        "cloneDocHeight": 2022,
+        "docHeightDeltaPx": 10,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 4,
+          "cloneSections": 4,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-MOBILE-GEOMETRY-MISMATCH",
+        "category": "Structural Parity Mismatch",
+        "rootCause": "10px height drift (2012px vs 2022px) on mobile quote form violating 2px maxGeometryDeltaPx threshold.",
+        "mechanism": "Structural parity failed, overriding 0.01% pixel diff."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Eliminate 10px form container padding drift",
+          "Ensure deltaGeometry <= 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P09-1440",
+      "pageIndex": 9,
+      "pageName": "TÀI LIỆU",
+      "pageSlug": "page-09-tai-lieu",
+      "referenceUrl": "https://hoplongtech.com/tai-lieu-ky-thuat",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.tai-lieu.liquid",
+      "haravanRoute": "/pages/tai-lieu-ky-thuat",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tai-lieu-ky-thuat?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 0.77,
+        "refDocHeight": 2180,
+        "cloneDocHeight": 2195,
+        "docHeightDeltaPx": 15,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 4,
+          "cloneSections": 4,
+          "refCards": 10,
+          "cloneCards": 10
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-CONTENT-PARITY-MISMATCH",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 15px (2180px vs 2195px) on desktop technical documents table.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Document table row height and download CTA padding aligned",
+          "Ensure docHeight matches 2180px within 2px",
+          "10 document cards/rows rendered"
+        ]
+      }
+    },
+    {
+      "caseId": "P09-1024",
+      "pageIndex": 9,
+      "pageName": "TÀI LIỆU",
+      "pageSlug": "page-09-tai-lieu",
+      "referenceUrl": "https://hoplongtech.com/tai-lieu-ky-thuat",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.tai-lieu.liquid",
+      "haravanRoute": "/pages/tai-lieu-ky-thuat",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tai-lieu-ky-thuat?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 1.45,
+        "refDocHeight": 2213,
+        "cloneDocHeight": 2243,
+        "docHeightDeltaPx": 30,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 4,
+          "cloneSections": 4,
+          "refCards": 10,
+          "cloneCards": 10
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 30px (2213px vs 2243px) on tablet document list.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Document table responsive columns wrap cleanly at 1024px",
+          "Ensure docHeight matches 2213px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P09-390",
+      "pageIndex": 9,
+      "pageName": "TÀI LIỆU",
+      "pageSlug": "page-09-tai-lieu",
+      "referenceUrl": "https://hoplongtech.com/tai-lieu-ky-thuat",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.tai-lieu.liquid",
+      "haravanRoute": "/pages/tai-lieu-ky-thuat",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tai-lieu-ky-thuat?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 0.01,
+        "refDocHeight": 2411,
+        "cloneDocHeight": 2421,
+        "docHeightDeltaPx": 10,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 4,
+          "cloneSections": 4,
+          "refCards": 10,
+          "cloneCards": 10
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-MOBILE-GEOMETRY-MISMATCH",
+        "category": "Structural Parity Mismatch",
+        "rootCause": "10px height drift (2411px vs 2421px) on mobile document list violating 2px tolerance.",
+        "mechanism": "Structural parity failed, overriding 0.01% pixel diff."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Adjust mobile document card margins to eliminate 10px drift",
+          "Ensure deltaGeometry <= 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P10-1440",
+      "pageIndex": 10,
+      "pageName": "TIN TỨC",
+      "pageSlug": "page-10-tin-tuc",
+      "referenceUrl": "https://hoplongtech.com/tin-tuc",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "blog",
+      "canonicalSurface": "blog-listing",
+      "haravanTemplate": "blog.liquid",
+      "haravanRoute": "/blogs/tin-tuc",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/blogs/tin-tuc?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "PASS",
+        "visualStatus": "PASS",
+        "mismatchPercentage": 0.06,
+        "refDocHeight": 3236,
+        "cloneDocHeight": 3236,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 19,
+          "cloneSections": 19,
+          "refCards": 3,
+          "cloneCards": 3,
+          "articles": 16
+        }
+      },
+      "failureMode": null,
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "16 article cards and featured article banner rendered",
+          "Pagination links working correctly",
+          "0.06% visual mismatch maintained"
+        ]
+      }
+    },
+    {
+      "caseId": "P10-1024",
+      "pageIndex": 10,
+      "pageName": "TIN TỨC",
+      "pageSlug": "page-10-tin-tuc",
+      "referenceUrl": "https://hoplongtech.com/tin-tuc",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "blog",
+      "canonicalSurface": "blog-listing",
+      "haravanTemplate": "blog.liquid",
+      "haravanRoute": "/blogs/tin-tuc",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/blogs/tin-tuc?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 0.43,
+        "refDocHeight": 4080,
+        "cloneDocHeight": 4095,
+        "docHeightDeltaPx": 15,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 19,
+          "cloneSections": 19,
+          "refCards": 3,
+          "cloneCards": 3,
+          "articles": 16
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Document height delta of 15px (4080px vs 4095px) on tablet news grid.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Article title line clamping and grid spacing aligned at 1024px",
+          "Ensure docHeight matches 4080px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P10-390",
+      "pageIndex": 10,
+      "pageName": "TIN TỨC",
+      "pageSlug": "page-10-tin-tuc",
+      "referenceUrl": "https://hoplongtech.com/tin-tuc",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "blog",
+      "canonicalSurface": "blog-listing",
+      "haravanTemplate": "blog.liquid",
+      "haravanRoute": "/blogs/tin-tuc",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/blogs/tin-tuc?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 0.01,
+        "refDocHeight": 4397,
+        "cloneDocHeight": 4407,
+        "docHeightDeltaPx": 10,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 16,
+          "cloneSections": 16,
+          "refCards": 3,
+          "cloneCards": 3,
+          "articles": 16
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-MOBILE-GEOMETRY-MISMATCH",
+        "category": "Structural Parity Mismatch",
+        "rootCause": "10px height drift (4397px vs 4407px) on mobile news listing violating 2px tolerance.",
+        "mechanism": "Structural parity failed, overriding 0.01% pixel diff."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Adjust mobile article card margin and image height to eliminate 10px drift",
+          "Ensure deltaGeometry <= 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P11-1440",
+      "pageIndex": 11,
+      "pageName": "CHI TIẾT TIN TỨC",
+      "pageSlug": "page-11-tin-tuc-detail",
+      "referenceUrl": "https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "article",
+      "canonicalSurface": "article-detail",
+      "haravanTemplate": "article.liquid",
+      "haravanRoute": "/blogs/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/blogs/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 26.29,
+        "refDocHeight": 3837,
+        "cloneDocHeight": 4045,
+        "docHeightDeltaPx": 208,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 3,
+          "cloneCards": 3
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-CONTENT-PARITY-MISMATCH",
+        "category": "Content Parity",
+        "rootCause": "Article body typography, font-size, inline image captions, and related article sidebar formatting divergence causing 208px height delta and 26.29% mismatch.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Normalize article body typography (font-size 16px, line-height 1.6)",
+          "Constrain inline images to max-width 100% with centered captions",
+          "Ensure docHeight matches 3837px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P11-1024",
+      "pageIndex": 11,
+      "pageName": "CHI TIẾT TIN TỨC",
+      "pageSlug": "page-11-tin-tuc-detail",
+      "referenceUrl": "https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "article",
+      "canonicalSurface": "article-detail",
+      "haravanTemplate": "article.liquid",
+      "haravanRoute": "/blogs/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/blogs/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 29.94,
+        "refDocHeight": 4681,
+        "cloneDocHeight": 4904,
+        "docHeightDeltaPx": 223,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 3,
+          "cloneCards": 3
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-CONTENT-PARITY-MISMATCH",
+        "category": "Content Parity",
+        "rootCause": "Article body typography and sidebar wrapping differences causing 223px height delta and 29.94% mismatch.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align sidebar wrap breakpoint at 1024px to match reference",
+          "Ensure docHeight matches 4681px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P11-390",
+      "pageIndex": 11,
+      "pageName": "CHI TIẾT TIN TỨC",
+      "pageSlug": "page-11-tin-tuc-detail",
+      "referenceUrl": "https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html",
+      "referenceDomain": "hoplongtech.com",
+      "surfaceKind": "article",
+      "canonicalSurface": "article-detail",
+      "haravanTemplate": "article.liquid",
+      "haravanRoute": "/blogs/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/blogs/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 30.22,
+        "refDocHeight": 5739,
+        "cloneDocHeight": 6029,
+        "docHeightDeltaPx": 290,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 3,
+          "cloneSections": 3,
+          "refCards": 3,
+          "cloneCards": 3
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-CONTENT-PARITY-MISMATCH",
+        "category": "Content Parity",
+        "rootCause": "Mobile text wrapping and related news items stacked vertically creating 290px height delta and 30.22% mismatch.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align mobile article font-size and paragraph margins",
+          "Ensure docHeight matches 5739px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P12-1440",
+      "pageIndex": 12,
+      "pageName": "GIỚI THIỆU",
+      "pageSlug": "page-12-gioi-thieu",
+      "referenceUrl": "https://hoplong.com/gioi-thieu-ve-hop-long/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/gioi-thieu-ve-hop-long",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/gioi-thieu-ve-hop-long?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 44.58,
+        "refDocHeight": 5462,
+        "cloneDocHeight": 5466,
+        "docHeightDeltaPx": 4,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 10,
+          "cloneSections": 10,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "Elementor WordPress widgets, counter animations, and grid container layouts rendering differently than static clone bundle (44.58% pixel mismatch).",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Freeze Elementor numerical counters at final numbers",
+          "Ensure Inter font weights and letter-spacing match exactly",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P12-1024",
+      "pageIndex": 12,
+      "pageName": "GIỚI THIỆU",
+      "pageSlug": "page-12-gioi-thieu",
+      "referenceUrl": "https://hoplong.com/gioi-thieu-ve-hop-long/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/gioi-thieu-ve-hop-long",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/gioi-thieu-ve-hop-long?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "INCONCLUSIVE",
+        "mismatchPercentage": null,
+        "refDocHeight": 5617,
+        "cloneDocHeight": 5582,
+        "docHeightDeltaPx": -35,
+        "captureStatus": "FAIL",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 10,
+          "cloneSections": 10,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-CAPTURE-FAIL-TRUNCATION",
+        "category": "Capture & Settle",
+        "rootCause": "CDP capture failed on 1024px due to Elementor background image rendering timeout.",
+        "mechanism": "captureValid evaluated false; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Capture completes with valid PNG bytes",
+          "DocHeight matches 5617px within 2px"
+        ]
+      }
+    },
+    {
+      "caseId": "P12-390",
+      "pageIndex": 12,
+      "pageName": "GIỚI THIỆU",
+      "pageSlug": "page-12-gioi-thieu",
+      "referenceUrl": "https://hoplong.com/gioi-thieu-ve-hop-long/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/gioi-thieu-ve-hop-long",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/gioi-thieu-ve-hop-long?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 44.95,
+        "refDocHeight": 8046,
+        "cloneDocHeight": 8046,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 10,
+          "cloneSections": 10,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "Mobile Elementor column stacking, icon box layout, and mission/vision cards mismatch (44.95% mismatch) despite identical 8046px height.",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align mobile icon box layout and text centering",
+          "Ensure mission/vision cards match reference styling",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P13-1440",
+      "pageIndex": 13,
+      "pageName": "LỊCH SỬ",
+      "pageSlug": "page-13-lich-su",
+      "referenceUrl": "https://hoplong.com/lich-su-phat-trien/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/lich-su-phat-trien",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/lich-su-phat-trien?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 74.57,
+        "refDocHeight": 8643,
+        "cloneDocHeight": 8643,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 8,
+          "cloneSections": 8,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "Severe visual divergence (74.57% mismatch) on complex milestone timeline despite matching 8643px docHeight. Caused by scroll-activated milestone animations, SVG path lines, and timeline node positioning failing to render in static bundle.",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Bake timeline nodes, milestone images, and connecting SVG lines into static CSS layout",
+          "Remove scroll-triggered opacity=0 or transform translate offsets",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P13-1024",
+      "pageIndex": 13,
+      "pageName": "LỊCH SỬ",
+      "pageSlug": "page-13-lich-su",
+      "referenceUrl": "https://hoplong.com/lich-su-phat-trien/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/lich-su-phat-trien",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/lich-su-phat-trien?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 72.38,
+        "refDocHeight": 8072,
+        "cloneDocHeight": 8072,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 8,
+          "cloneSections": 8,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "72.38% visual mismatch on 1024px timeline due to scroll-triggered timeline node rendering failures.",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Ensure tablet timeline nodes align with center connecting axis",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P13-390",
+      "pageIndex": 13,
+      "pageName": "LỊCH SỬ",
+      "pageSlug": "page-13-lich-su",
+      "referenceUrl": "https://hoplong.com/lich-su-phat-trien/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/lich-su-phat-trien",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/lich-su-phat-trien?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 57.61,
+        "refDocHeight": 16196,
+        "cloneDocHeight": 16196,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 8,
+          "cloneSections": 8,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "57.61% visual mismatch on 16196px mobile timeline. Timeline nodes shifted to left rail in mobile Elementor layout while clone nodes rendered unstabilized.",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align mobile single-rail timeline milestone cards and year badges",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P14-1440",
+      "pageIndex": 14,
+      "pageName": "TUYỂN DỤNG",
+      "pageSlug": "page-14-tuyen-dung",
+      "referenceUrl": "https://hoplong.com/tuyen-dung/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/tuyen-dung",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tuyen-dung?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 24.83,
+        "refDocHeight": 2612,
+        "cloneDocHeight": 2612,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 8,
+          "cloneSections": 8,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "Job department tabs, accordion expansion states, and banner gradient divergence on Elementor careers page (24.83% mismatch).",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Department filter tabs styled to match reference active states",
+          "Job vacancy cards and CTA buttons aligned",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P14-1024",
+      "pageIndex": 14,
+      "pageName": "TUYỂN DỤNG",
+      "pageSlug": "page-14-tuyen-dung",
+      "referenceUrl": "https://hoplong.com/tuyen-dung/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/tuyen-dung",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tuyen-dung?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "INCONCLUSIVE",
+        "visualStatus": "STRUCTURAL_PARITY_MISMATCH",
+        "mismatchPercentage": 20.75,
+        "refDocHeight": 2842,
+        "cloneDocHeight": 2815,
+        "docHeightDeltaPx": -27,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 8,
+          "cloneSections": 8,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "INCONC-TABLET-HEIGHT-DIVERGENCE",
+        "category": "Responsive Layout",
+        "rootCause": "Height delta of -27px (2842px vs 2815px) and 20.75% visual mismatch on tablet careers page.",
+        "mechanism": "dimensionsMatch evaluated false; comparator returned STRUCTURAL_PARITY_MISMATCH; canonicalVerdict mapped to INCONCLUSIVE."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Ensure docHeight matches 2842px within 2px",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P14-390",
+      "pageIndex": 14,
+      "pageName": "TUYỂN DỤNG",
+      "pageSlug": "page-14-tuyen-dung",
+      "referenceUrl": "https://hoplong.com/tuyen-dung/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/tuyen-dung",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tuyen-dung?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 46.66,
+        "refDocHeight": 4471,
+        "cloneDocHeight": 4471,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 8,
+          "cloneSections": 8,
+          "refCards": 0,
+          "cloneCards": 0
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "46.66% visual mismatch on mobile careers page despite matching 4471px docHeight. Mobile job card accordion styles and search box diverged.",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Mobile job list items styled with correct border, badge, and typography",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P15-1440",
+      "pageIndex": 15,
+      "pageName": "CHI TIẾT TUYỂN DỤNG",
+      "pageSlug": "page-15-tuyendung-detail",
+      "referenceUrl": "https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/tuyendung-ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tuyendung-ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung?themeid=1001512581",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 42.29,
+        "refDocHeight": 4221,
+        "cloneDocHeight": 4221,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 6,
+          "cloneSections": 6,
+          "refCards": 0,
+          "cloneCards": 0,
+          "articles": 1
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "Job description requirement bullet points, application sidebar form, and compensation badges mismatch (42.29% mismatch) despite matching 4221px docHeight.",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Sidebar application form and job summary badges styled identically to reference",
+          "Inter font typography and bullet points aligned",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P15-1024",
+      "pageIndex": 15,
+      "pageName": "CHI TIẾT TUYỂN DỤNG",
+      "pageSlug": "page-15-tuyendung-detail",
+      "referenceUrl": "https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/tuyendung-ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tuyendung-ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung?themeid=1001512581",
+      "viewport": {
+        "name": "laptop",
+        "width": 1024,
+        "height": 900,
+        "isMobile": false
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 34.97,
+        "refDocHeight": 4559,
+        "cloneDocHeight": 4559,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 6,
+          "cloneSections": 6,
+          "refCards": 0,
+          "cloneCards": 0,
+          "articles": 1
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "34.97% visual mismatch on 1024px tablet job detail layout despite matching 4559px docHeight.",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Align tablet two-column to single-column breakpoint",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    },
+    {
+      "caseId": "P15-390",
+      "pageIndex": 15,
+      "pageName": "CHI TIẾT TUYỂN DỤNG",
+      "pageSlug": "page-15-tuyendung-detail",
+      "referenceUrl": "https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/",
+      "referenceDomain": "hoplong.com",
+      "surfaceKind": "page",
+      "canonicalSurface": "page-standard",
+      "haravanTemplate": "page.liquid",
+      "haravanRoute": "/pages/tuyendung-ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung",
+      "haravanPreviewUrl": "https://phukienmaymoc.com/pages/tuyendung-ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung?themeid=1001512581",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "isMobile": true
+      },
+      "priorCanaryResult": {
+        "verdict": "FAIL",
+        "visualStatus": "FAIL",
+        "mismatchPercentage": 25.59,
+        "refDocHeight": 8944,
+        "cloneDocHeight": 8944,
+        "docHeightDeltaPx": 0,
+        "captureStatus": "PASS",
+        "networkVerdict": "PASS",
+        "structure": {
+          "refSections": 6,
+          "cloneSections": 6,
+          "refCards": 0,
+          "cloneCards": 0,
+          "articles": 1
+        }
+      },
+      "failureMode": {
+        "code": "FAIL-CROSS-DOMAIN-ELEMENTOR-DIVERGENCE",
+        "category": "Cross-Domain CMS Architecture",
+        "rootCause": "25.59% visual mismatch on 8944px mobile job detail page due to mobile form fields and call-to-action button styling divergence.",
+        "mechanism": "diffResult.mismatchPercentage exceeded 5.0% tolerance, producing visual FAIL."
+      },
+      "verificationCriteria": {
+        "visualTolerance": "< 5.0% pixel mismatch",
+        "structuralTolerance": "deltaGeometry <= 2px and cardinalityMatch == true",
+        "assetLocalization": "0 requests to reference domains",
+        "safeThemeInvariant": "Theme 1001510509 strictly read-only",
+        "acceptanceConditions": [
+          "Style mobile application form and submit button to match reference exactly",
+          "Reduce visual mismatch to < 5.0%"
+        ]
+      }
+    }
+  ],
+  "verificationPlan": {
+    "stage1_TargetedMobileGeometryFixes": {
+      "priority": "P0",
+      "goal": "Flip 7 mobile FAILs (P2, P3, P4, P5, P8, P9, P10 at 390px) to PASS.",
+      "action": "Adjust mobile container root layout margin and padding to eliminate the 10px vertical drift, achieving deltaGeometry <= 2px while preserving the 0.01% visual diff."
+    },
+    "stage2_TabletBreakpointTuning": {
+      "priority": "P1",
+      "goal": "Flip 10 tablet INCONCLUSIVEs (1024px) to PASS.",
+      "action": "Harmonize font-size, line-height, and container padding at @media (min-width: 1024px) to eliminate the 15px-120px height deltas, achieving dimensionsMatch: true."
+    },
+    "stage3_ProductDetailTruncationRepair": {
+      "priority": "P1",
+      "goal": "Resolve P07 Product Detail truncation across viewports.",
+      "action": "Ensure technical specifications table and related products slider are fully rendered and default-expanded, eliminating the -395px (1440) and -618px (390) height deficits."
+    },
+    "stage4_ElementorStaticBundleNormalization": {
+      "priority": "P2",
+      "goal": "Resolve 10 hoplong.com FAILs (Pages 12-15).",
+      "action": "Freeze Elementor counters and keyframe animations into settled static DOM; normalize Inter typography; replace scroll-reveal offsets with static CSS positioning."
+    },
+    "stage5_FullMatrixReEvaluation": {
+      "priority": "P3",
+      "goal": "Execute full 45-leg campaign on theme copy 1001512581.",
+      "action": "Run .canary/tools/theme-fidelity-run.mjs against phukienmaymoc.com?themeid=1001512581 to verify 45/45 legs pass with < 5.0% visual mismatch and zero requests to reference domains."
+    }
+  }
+}

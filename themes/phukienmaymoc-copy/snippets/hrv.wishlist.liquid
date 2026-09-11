@@ -1,0 +1,580 @@
+<script>
+var onAppWishList_browser_id = "";
+var onAppWishList_customer_id = "{{customer.id}}";
+(function (){
+  $( document ).ready(function() {
+    function onAppWishList_getLocalStogare(nameLocalStorage) {
+      return JSON.parse(localStorage.getItem(nameLocalStorage));
+    }
+    function onAppWishList_setLocalStogare(nameLocalStorage, data) {
+      return localStorage.setItem(nameLocalStorage, JSON.stringify(data));
+    }
+      var onAppWishList_url = "https://onapp.haravan.com/wishlist/frontend";
+      var onAppWishList_name_app = "onApp_wishlist_app";
+      var onAppWishList_shop = Haravan.shop;
+
+      //var onAppWishList_customer_id = "{{customer.id}}";
+      var onAppWishList_first_name = "{{customer.first_name}}";
+      var onAppWishList_last_name = "{{customer.last_name}}";
+      var onAppWishList_email = "{{customer.email}}";
+
+      var onAppWishList_product_id = "{{product.id}}";
+      var onAppWishList_product_title = "{{product.title}}";
+      var onAppWishList_product_price = "{{product.price}}";
+      var onAppWishList_product_handle = "{{product.handle}}";
+      var onAppWishList_page =1;
+
+      var onAppWishList_url_browserid = onAppWishList_url+"/api/browserid";
+      var onAppWishList_url_checkactive = onAppWishList_url+"/api/checkactive";
+      var onAppWishList_url_synccustomer = onAppWishList_url+"/api/synccustomer";
+      var onAppWishList_url_countproduct = onAppWishList_url+"/api/countproduct";
+      var onAppWishList_url_getproduct = onAppWishList_url+"/api/getproduct";
+      var onAppWishList_url_likeproduct = onAppWishList_url+"/api/likeproduct";
+      var onAppWishList_url_unlikeproduct = onAppWishList_url+"/api/unlikeproduct";
+      var onAppWishList_url_getlistproduct = onAppWishList_url+"/api/listproduct";
+      var onAppWishList_url_removeproduct = onAppWishList_url+"/api/unlikeproduct";
+      var onAppWishList_url_removeallproduct = onAppWishList_url+"/api/removealllike";
+
+      var onAppWishList_btn_add_div = document.getElementById('onAppWishList_btn_add');
+      var onAppWishList_btn_remove_div = document.getElementById('onAppWishList_btn_remove');
+      var onAppWishList_numberLike_div = document.getElementById('onAppWishList_numberLike');
+      var onAppWishList_btn_wishlist_div = document.getElementById('onAppWishList_btn_wishlist');
+      var onAppWishList_btn_page_div = document.getElementById('onAppWishList_btn_page');
+      var onAppWishList_page_div = document.getElementById('onAppWishList_page');
+
+    if(onAppWishList_btn_add_div)onAppWishList_btn_add_div.style.display = 'none';
+    if(onAppWishList_btn_remove_div)onAppWishList_btn_remove_div.style.display = 'none';
+
+      var onAppWishList_browser_id = "";
+      var onAppWishList_is_sync = "";
+      var onAppWishList_is_active = "";
+      var onAppWishList_expire_unstall = "";
+
+    if(onAppWishList_getLocalStogare(onAppWishList_name_app))onAppWishList_browser_id = onAppWishList_getLocalStogare(onAppWishList_name_app).onAppWishList_browser_id;
+    if(onAppWishList_getLocalStogare('sync_'+onAppWishList_name_app))onAppWishList_is_sync = onAppWishList_getLocalStogare('sync_'+onAppWishList_name_app).onAppWishList_is_sync;
+    if(onAppWishList_getLocalStogare('active_'+onAppWishList_name_app))onAppWishList_is_active = onAppWishList_getLocalStogare('active_'+onAppWishList_name_app).onAppWishList_is_active;
+    if(onAppWishList_getLocalStogare('active_'+onAppWishList_name_app))onAppWishList_expire_unstall = onAppWishList_getLocalStogare('active_'+onAppWishList_name_app).onAppWishList_expire_unstall;
+
+    function onAppWishList_ajaxPost(data, url, callback) {
+      $.ajax({
+        type: 'POST',
+        url: url,
+        data: data,
+        success: function(data_response) {
+          callback(data_response);
+        }
+      })
+    }
+    function onAppWishList_ajaxGet(url, callback) {
+      $.ajax({
+        method: "GET",
+        url: url,
+        dataType: "json",
+        success: function(data_response) {
+          callback(data_response);
+        }
+      });
+    }
+    function onAppWishList_checkBrowser(callback) {
+      if(onAppWishList_browser_id){
+        callback();
+      }else {
+        onAppWishList_ajaxGet(onAppWishList_url_browserid, function (res) {
+          if(res && res.err){
+            console.error(res.message);
+            callback();
+          }else if(res && res.wishlist_browser_id){
+            var data = {
+              onAppWishList_browser_id: res.wishlist_browser_id
+            };
+            onAppWishList_browser_id = res.wishlist_browser_id;
+            var local = onAppWishList_setLocalStogare(onAppWishList_name_app, data);
+            callback(null, local);
+          }else {
+            callback();
+            console.error('Có lỗi xảy ra');
+          }
+        })
+      }
+    }
+    function onAppWishList_checkSync(callback) {
+      if(onAppWishList_customer_id && onAppWishList_is_sync){
+        callback();
+      }else {
+        var data =  {
+          shop: onAppWishList_shop,
+          customer_id: onAppWishList_customer_id,
+          browser_id: onAppWishList_browser_id,
+          first_name: onAppWishList_first_name,
+          last_name: onAppWishList_last_name,
+          email: onAppWishList_email
+        };
+        onAppWishList_ajaxPost(data, onAppWishList_url_synccustomer, function (res) {
+          if(res && res.err){
+            console.error(res.message);
+            callback(res.err);
+          }else{
+            var local = onAppWishList_setLocalStogare('sync_'+onAppWishList_name_app, {onAppWishList_is_sync: true});
+            callback(null, local);
+          }
+        })
+      }
+    }
+    function onAppWishList_statusActive() {
+      if(onAppWishList_getLocalStogare('active_'+onAppWishList_name_app))onAppWishList_is_active = onAppWishList_getLocalStogare('active_'+onAppWishList_name_app).onAppWishList_is_active;
+      if(onAppWishList_is_active){
+        if(onAppWishList_numberLike_div)onAppWishList_numberLike_div.style.display = 'block';
+        if(onAppWishList_btn_wishlist_div)onAppWishList_btn_wishlist_div.style.display = 'block';
+        if(onAppWishList_page_div)onAppWishList_page_div.style.display = 'block';
+        if(onAppWishList_btn_page_div)onAppWishList_btn_page_div.style.display = 'block';
+      }else {
+        if(onAppWishList_btn_add_div)onAppWishList_btn_add_div.style.display = 'none';
+        if(onAppWishList_btn_remove_div)onAppWishList_btn_remove_div.style.display = 'none';
+        if(onAppWishList_numberLike_div)onAppWishList_numberLike_div.style.display = 'none';
+        if(onAppWishList_btn_wishlist_div)onAppWishList_btn_wishlist_div.style.display = 'none';
+        if(onAppWishList_btn_page_div)onAppWishList_btn_page_div.style.display = 'none';
+        if(onAppWishList_page_div)onAppWishList_page_div.style.display = 'none';
+      }
+    }
+    function onAppWishList_checkActive(callback) {
+      var d = new Date();
+      var data =  {
+        shop: onAppWishList_shop
+      };
+      if(onAppWishList_expire_unstall){
+        if(onAppWishList_is_active){
+          callback();
+        }else {
+          if(onAppWishList_expire_unstall < d.valueOf()){
+            onAppWishList_ajaxPost(data, onAppWishList_url_checkactive, function (res) {
+              if(res && res.err){
+                console.error(res.message);
+                callback(res.err);
+              }else {
+                var local = onAppWishList_setLocalStogare('active_'+onAppWishList_name_app, {onAppWishList_is_active: res.status_app, onAppWishList_expire_unstall: res.expire_unstall})
+                callback(null, local);
+              }
+            });
+          }
+        }
+      }else {
+        onAppWishList_ajaxPost(data, onAppWishList_url_checkactive, function (res) {
+          if(res && res.err){
+            console.error(res.message);
+            callback(res.err);
+          }else{
+            var local = onAppWishList_setLocalStogare('active_'+onAppWishList_name_app, {onAppWishList_is_active: res.status_app, onAppWishList_expire_unstall: res.expire_unstall})
+            callback(null, local);
+          }
+        });
+      }
+    }
+    function checkWish(res){
+      if(res.expire_unstall){
+        var data = {
+          onAppWishList_is_active: res.status_app,
+          onAppWishList_expire_unstall: res.expire_unstall
+        };
+        onAppWishList_setLocalStogare('active_'+onAppWishList_name_app, data);
+        onAppWishList_statusActive();
+      }else {
+        if(res && res.data && res.data._id){
+          document.getElementById("onAppWishList_btn_remove").style.display = "block";
+          document.getElementById("onAppWishList_btn_add").style.display = "none";
+        }else{
+          document.getElementById("onAppWishList_btn_remove").style.display = "none";
+          document.getElementById("onAppWishList_btn_add").style.display = "block";
+        }
+      }
+    }
+
+    function checkWishCollection(res,element){
+				console.log(res)
+				if(res.expire_unstall){
+					var data = {
+						onAppWishList_is_active: res.status_app,
+						onAppWishList_expire_unstall: res.expire_unstall
+					};
+					onAppWishList_setLocalStogare('active_'+onAppWishList_name_app, data);
+					onAppWishList_statusActive();
+				}else {
+					if(res && res.data && res.data._id){
+						$('.onwishlist_btn_remove[data-id=' + element + ']').show();
+						$('.onwishlist_btn_add[data-id=' + element + ']').hide();
+					}else{
+						$('.onwishlist_btn_remove[data-id=' + element + ']').hide();
+						$('.onwishlist_btn_add[data-id=' + element + ']').show();
+					}
+				}
+			}
+    function onAppWishList_detailProduct(product_id) {
+      var data =  {
+        shop: onAppWishList_shop,
+        customer_id: onAppWishList_customer_id,
+        browser_id: onAppWishList_browser_id,
+        product_id: product_id
+      };
+      onAppWishList_ajaxPost(data, onAppWishList_url_getproduct, function (res) {
+        if(res && res.err){
+          console.error(res.message);
+        }else{
+          checkWish(res);
+        }
+      })
+    }
+    function onAppWishList_countProduct() {
+      var data =  {
+        shop: onAppWishList_shop,
+        customer_id: onAppWishList_customer_id,
+        browser_id: onAppWishList_browser_id
+      };
+      onAppWishList_ajaxPost(data, onAppWishList_url_countproduct, function (res) {
+        if(res && res.err){
+          console.error(res.message);
+          document.getElementById("onAppWishList_numberLike").innerHTML = 0;
+        }else{
+          document.getElementById("onAppWishList_numberLike").innerHTML = res.count;
+        }
+      })
+    }
+    function initCollectionWishList(){
+				var ProductListId = [];
+				$('.product-item').each(function(){
+					ProductListId.push($(this).attr('data-id'));
+				});
+				var ProductListIdUnique = uniques(ProductListId);
+				getCollectionProductsWishlist(ProductListIdUnique,function(response){
+					if(response && response.err){
+						console.error(response.message);
+					}else{
+						$('.product-item').each(function(index, element){
+							var length = response.products.length;
+							var id_product_item = $(this).attr('data-id');
+							var that = $(this);
+							
+							if(length == 0){
+								that.find('.onwishlist_btn_remove').hide();
+								that.find('.onwishlist_btn_add').show();
+							}
+							else{
+								for(var i = 0; i < length; i++){
+									var id_array_wishlist = parseInt(response.products[i]);
+									if(id_product_item == id_array_wishlist){
+										that.find('.onwishlist_btn_remove').show();
+										that.find('.onwishlist_btn_add').hide();
+										break;
+									}else{
+										that.find('.onwishlist_btn_remove').hide();
+										that.find('.onwishlist_btn_add').show();
+									}
+								}
+							}
+						});
+					}
+				});
+			}
+    function onAppWishList_like() {
+      var data =  {
+        shop: onAppWishList_shop,
+        customer_id: onAppWishList_customer_id,
+        browser_id: onAppWishList_browser_id,
+        product_id: onAppWishList_product_id,
+        first_name : onAppWishList_first_name,
+        last_name : onAppWishList_last_name,
+        email : onAppWishList_email,
+        product_handle: onAppWishList_product_handle,
+        product_price: onAppWishList_product_price,
+        product_title: onAppWishList_product_title
+      };
+      onAppWishList_ajaxPost(data, onAppWishList_url_likeproduct, function (res) {
+        if(res && res.err){
+          console.error(res.message);
+        }else{
+          checkWish(res);
+          document.getElementById("onAppWishList_numberLike").innerHTML = res.total;
+        }
+      })
+    }
+    function onAppWishList_unlike() {
+      var data =  {
+        shop: onAppWishList_shop,
+        customer_id: onAppWishList_customer_id,
+        browser_id: onAppWishList_browser_id,
+        product_id: onAppWishList_product_id,
+        first_name : onAppWishList_first_name,
+        last_name : onAppWishList_last_name,
+        email : onAppWishList_email,
+        product_handle: onAppWishList_product_handle,
+        product_price: onAppWishList_product_price,
+        product_title: onAppWishList_product_title
+      };
+      onAppWishList_ajaxPost(data, onAppWishList_url_unlikeproduct, function (res) {
+        if(res && res.err){
+          console.error(res.message);
+        }else{
+          checkWish(res);
+          document.getElementById("onAppWishList_numberLike").innerHTML = res.total;
+        }
+      })
+    }
+    function onAppWishList_listProduct(page) {
+      var data= {
+        shop: Haravan.shop,
+        customer_id: onAppWishList_customer_id,
+        browser_id: onAppWishList_browser_id,
+        page: page
+      };
+      onAppWishList_ajaxPost(data, onAppWishList_url_getlistproduct, function (res) {
+        if(res && res.err){
+          console.error(res.message);
+        }else {
+          var wishOld = res.data;
+          if (wishOld && wishOld.length && res.total){
+            onAppWishList_loadHtml(wishOld, 0)
+          }else {
+            {
+              $(".wish-list").html("<div class='text-center wish-empty'><div><i class='fa fa-heart-o'></i></div>Không có sản phẩm trong danh sách yêu thích.</div>")
+            }
+          }
+          if(res.total <=9 || wishOld.length <9){
+            document.getElementById("onAppWishList_nextPageWishList").style.display = 'none';
+          }
+        }
+      })
+    }
+
+    function onAppWishList_loadHtml(arrWishList, index) {
+      if (index < arrWishList.length) {
+        $.ajax({
+          url:'/products/'+arrWishList[index].product_handle+'?view=wishlist.view',
+          async: true,
+          success:function(data){
+            var product_id = 'data-id="' + arrWishList[index].product_id + '"'
+            var confirm_id = data.indexOf(product_id);
+            if (confirm_id == -1) {
+             var numberLike = document.getElementById("onAppWishList_numberLike").innerHTML;
+             document.getElementById("onAppWishList_numberLike").innerHTML = Number(numberLike) - 1;
+             onAppWishList_remove(arrWishList[index].product_id);
+            } else {
+             $(".wish-list").append(data);
+            }
+            index++;
+            onAppWishList_loadHtml(arrWishList, index);
+          },
+          error: function(XMLHttpRequest, textStatus) {
+            if (XMLHttpRequest && XMLHttpRequest.status == '404') {
+             onAppWishList_remove(arrWishList[index].product_id);
+            }
+            var numberLike = document.getElementById("onAppWishList_numberLike").innerHTML;
+            document.getElementById("onAppWishList_numberLike").innerHTML = Number(numberLike) - 1;
+            index++;
+            onAppWishList_loadHtml(arrWishList, index);
+          }
+        });
+      } else {
+        return;
+      }
+    }
+    function onAppWishList_remove(product_id){
+      var data = {
+        shop: onAppWishList_shop,
+        customer_id: onAppWishList_customer_id,
+        browser_id: onAppWishList_browser_id,
+        product_id: product_id
+      };
+      onAppWishList_ajaxPost(data, onAppWishList_url_removeproduct, function (res) {
+        if(res && res.err){
+          console.error(res.message);
+        }else{
+          if ($("div [data-id=" + product_id + "]")) $("div [data-id=" + product_id + "]").remove();
+          document.getElementById("onAppWishList_numberLike").innerHTML = res.total;
+          if(res.total <=9){
+            document.getElementById("onAppWishList_nextPageWishList").style.display = 'none';
+          }
+        }
+      })
+    }
+    function onAppWishList_removeAll(){
+      var data = {
+        shop: onAppWishList_shop,
+        customer_id: onAppWishList_customer_id,
+        browser_id: onAppWishList_browser_id
+      };
+      onAppWishList_ajaxPost(data, onAppWishList_url_removeallproduct, function (res) {
+        if(res && res.err){
+          console.error(res.message);
+        }else {
+          document.getElementById("onAppWishList_numberLike").innerHTML = 0;
+          onAppWishList_listProduct(1);
+        }
+      })
+    }
+    $("#onAppWishList_btn_add").click(function(){
+      onAppWishList_like();
+    });
+    $("#onAppWishList_btn_remove").click(function(){
+      onAppWishList_unlike();
+    });
+    $('body').on('click', '.onAppWishList_remove', function(){
+     var id = $(this).attr("data-id");
+     onAppWishList_remove(id);
+    });
+    $('#onAppWishList_removeAll').click(function(){
+      onAppWishList_removeAll();
+    });
+    $('#nextPageWishList').click(function(){
+      onAppWishList_page ++;
+      onAppWishList_listProduct(onAppWishList_page);
+    });
+    function onAppWishList_start() {
+      if(onAppWishList_getLocalStogare('active_'+onAppWishList_name_app))onAppWishList_is_active = onAppWishList_getLocalStogare('active_'+onAppWishList_name_app).onAppWishList_is_active;
+      onAppWishList_statusActive();
+      if(onAppWishList_is_active){
+        if(onAppWishList_btn_add_div && onAppWishList_btn_remove_div){
+          onAppWishList_detailProduct(onAppWishList_product_id);
+        }
+        if(onAppWishList_numberLike_div){
+          onAppWishList_countProduct();
+        }
+        if(onAppWishList_page_div) {
+          onAppWishList_listProduct(1);
+        }
+        initCollectionWishList();
+      }
+    }
+
+    function onAppWishList_collection_like(prod_id,prod_handle,prod_price,prod_title,element){
+				var data =  {
+					shop: onAppWishList_shop,
+					customer_id: onAppWishList_customer_id,
+					browser_id: onAppWishList_browser_id,
+					product_id: prod_id,
+					first_name : onAppWishList_first_name,
+					last_name : onAppWishList_last_name,
+					email : onAppWishList_email,
+					product_handle: prod_handle,
+					product_price: prod_price,
+					product_title: prod_title
+				};
+
+				onAppWishList_ajaxPost(data, onAppWishList_url_likeproduct, function (res) {
+					if(res && res.err){
+						console.error(res.message);
+					}else{
+						checkWishCollection(res,prod_id);
+						$("#onAppWishList_numberLike").html(res.total);
+						if (res.total > 0) {
+							showHideIconWishList(true);
+						} else if(res.total != undefined){
+							showHideIconWishList(false);
+						}
+					}
+				})
+			}
+			function onAppWishList_collection_unlike(prod_id,prod_handle,prod_price,prod_title,element) {
+				var data =  {
+					shop: onAppWishList_shop,
+					customer_id: onAppWishList_customer_id,
+					browser_id: onAppWishList_browser_id,
+					product_id: prod_id,
+					first_name : onAppWishList_first_name,
+					last_name : onAppWishList_last_name,
+					email : onAppWishList_email,
+					product_handle: prod_handle,
+					product_price: prod_price,
+					product_title: prod_title
+				};
+				onAppWishList_ajaxPost(data, onAppWishList_url_unlikeproduct, function (res) {
+					if(res && res.err){
+						console.error(res.message);
+					}else{
+						checkWishCollection(res,prod_id);
+						$("#onAppWishList_numberLike").html(res.total);
+						if (res.total > 0) {
+							showHideIconWishList(true);
+						} else {
+							showHideIconWishList(false);
+						}
+					}
+				})
+			}
+			function uniques(arr) {
+				var a = [];
+				for (var i = 0, l = arr.length; i < l; i++)
+					if (a.indexOf(arr[i]) === -1 && arr[i] !== '')
+						a.push(arr[i]);
+				return a;
+			}
+			function getCollectionProductsWishlist(productsId, callback){
+				var browser_id = '';
+				var customer_id = '';
+				var products_id = '';
+				if(onAppWishList_customer_id)customer_id = onAppWishList_customer_id;
+				if(onAppWishList_browser_id)browser_id = onAppWishList_browser_id;
+				if(productsId && productsId.length)products_id = productsId.toString();
+				var url =  "https://onapp.haravan.com/wishlist/frontend/api/wishlist-product?browser_id="+browser_id+"&customer_id="+customer_id+"&product_ids="+products_id;
+				$.ajax({
+					type: 'GET',
+					url: url,
+					success: function(data_response) {
+						callback(data_response);
+					}
+				})
+			}
+			function showHideIconWishList(boolean) {
+				if (boolean == true) {
+					$('.wishlist-true').show();
+				//	$('.wishlist-false').hide();
+				} else {
+					//$('.wishlist-true').hide();
+					$('.wishlist-false').show();
+				}
+			}
+
+			//$(".onwishlist_btn_add").click(function(){
+			$(document).on('click','.onwishlist_btn_add', function(){
+				if(!onAppWishList_customer_id)return window.location.href="/account";
+				var handle_pro = $(this).data('handle');
+				var title_pro = $(this).data('title');
+				var price_pro = $(this).data('price');
+				var id_pro = $(this).data('id');
+				console.log('b1');
+				onAppWishList_collection_like(id_pro,handle_pro,price_pro,title_pro,$(this));
+
+			});
+			//$(".onwishlist_btn_remove").click(function(){
+			$(document).on('click','.onwishlist_btn_remove', function(){
+				if(!onAppWishList_customer_id)return window.location.href="/account";
+				var handle_pro = $(this).data('handle');
+				var title_pro = $(this).data('title');
+				var price_pro = $(this).data('price');
+				var id_pro = $(this).data('id');
+				onAppWishList_collection_unlike(id_pro,handle_pro,price_pro,title_pro,$(this));
+			});
+    
+    function onAppWishList_init() {
+      if(onAppWishList_getLocalStogare('sync_'+onAppWishList_name_app))onAppWishList_is_sync = onAppWishList_getLocalStogare('sync_'+onAppWishList_name_app).onAppWishList_is_sync;
+      onAppWishList_customer_id = "{{customer.id}}";
+      onAppWishList_checkBrowser(function () {
+        if(onAppWishList_customer_id && !onAppWishList_is_sync){
+          onAppWishList_checkSync(function () {
+            onAppWishList_checkActive(function () {
+              onAppWishList_start();
+            });
+          });
+        }else if(!onAppWishList_customer_id){
+          onAppWishList_setLocalStogare('sync_'+onAppWishList_name_app, {onAppWishList_is_sync: false});
+          onAppWishList_checkActive(function () {
+            onAppWishList_start();
+          });
+        }else{
+          onAppWishList_checkActive(function () {
+            onAppWishList_start();
+          });
+        }
+      });
+    }
+    onAppWishList_init();
+  });
+})();
+</script>

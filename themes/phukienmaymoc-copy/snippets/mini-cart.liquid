@@ -1,0 +1,195 @@
+{%- unless template contains 'cart'-%}
+{%- assign checkPriTotal = false -%}
+{%- assign valuePriTotal =  cart.total_price | divided_by : 100 -%}
+{%- assign valuePriMin = 0-%}
+{%- assign freeShipMin =  settings.cart_freeship_min -%}
+{%- assign percent = valuePriTotal | times: 100 | divided_by: freeShipMin -%}
+{%- if settings.use_cart_total_min and settings.cart_total_min != '' -%}
+{%- assign valuePriMin =  settings.cart_total_min | lstrip | rstrip | times: 1 -%}
+{%- if valuePriMin > valuePriTotal -%} 
+{%- assign checkPriTotal = true -%}
+{%- endif -%}
+{%- endif -%}
+
+{% if valuePriTotal == 0 %} {%- assign checkPriTotal = true -%} {% endif %}
+<div class="sitenav-wrapper sitenav-right sitenav-cart {%if valuePriTotal == 0 %}cart-empty{%endif%}">
+	<div class="sitenav-inner">
+		<div class="sitenav-header">
+			<p class="sitenav-header__title">Giỏ hàng</p>
+			<a name="button-close" class="sitenav-header__btn btn-sitenav-close">
+				<svg viewBox="0 0 19 19" role="presentation"><path d="M9.1923882 8.39339828l7.7781745-7.7781746 1.4142136 1.41421357-7.7781746 7.77817459 7.7781746 7.77817456L16.9705627 19l-7.7781745-7.7781746L1.41421356 19 0 17.5857864l7.7781746-7.77817456L0 2.02943725 1.41421356.61522369 9.1923882 8.39339828z" fill-rule="evenodd"></path></svg>
+			</a>
+			{%if settings.use_cart_freeship_min and freeShipMin > 0%}
+			<div class="cart-shipping {%if valuePriTotal >= freeShipMin %}cart-shipping-free{%endif%}">
+				{%- if valuePriTotal >= freeShipMin -%}
+				<div class="cart-shipping__title">Bạn đã được <span class="free-ship">miễn phí vận chuyển</span></div>
+				<div class="cart-shipping__bar {%if cart.item_count == 0%}d-none{%endif%}">
+					<span class="shipping-bar" style="width:100%">
+						<span class="icon">
+							<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-truck"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+						</span>
+					</span>
+				</div>
+				{%- else -%}
+				<div class="cart-shipping__title">Bạn cần mua thêm <span class="price">{{ freeShipMin | minus: valuePriTotal | times: 100 | money}}</span> để được <span class="free-ship">miễn phí vận chuyển</span></div>
+				<div class="cart-shipping__bar {%if cart.item_count == 0%}d-none{%endif%}">
+					<span class="shipping-bar" style="width:{{percent}}%">
+						<span class="icon">
+							<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-truck"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+						</span>
+					</span>
+				</div>
+				{%- endif -%}
+			</div>
+			{%endif%}
+		</div>
+		<div class="sitenav-content">
+			<div class="cart-view">
+				<div class="cart-view-scroll">
+					<div id="clone-item-cart" class="table-clone-cart">
+						<div class="mini-cart__item d-none">
+							<div class="mini-cart__left"><a class="mnc-link" href="#" title=""><img src="" alt="" /></a></div>
+							<div class="mini-cart__right">
+								<p class="mini-cart__title">	
+									<a class="mnc-title mnc-link" href="#" title=""></a>
+									<span class="mnc-variant">	</span>	
+								</p>
+								<div class="mini-cart__quantity">
+									<button class="qty-btn mnc-minus">
+										<svg enable-background="new 0 0 10 10" viewBox="0 0 10 10" x="0" y="0"><polygon points="4.5 4.5 3.5 4.5 0 4.5 0 5.5 3.5 5.5 4.5 5.5 10 5.5 10 4.5"></polygon></svg>
+									</button>
+									<input class="qty-value" type="text" readonly="" name="mnc-quantity" value="{{item.quantity}}">
+									<button class="qty-btn mnc-plus">
+										<svg enable-background="new 0 0 10 10" viewBox="0 0 10 10" x="0" y="0"><polygon points="10 4.5 5.5 4.5 5.5 0 4.5 0 4.5 4.5 0 4.5 0 5.5 4.5 5.5 4.5 10 5.5 10 5.5 5.5 10 5.5"></polygon></svg>
+									</button>
+								</div>
+								<div class="mini-cart__price">
+									<span class="mnc-price">{{ item.price | money }}</span> 
+									<del class="mnc-ori-price"></del>
+								</div>
+								<div class="mini-cart__remove"></div>	
+							</div>
+						</div>   
+					</div>
+					<div id="cart-view">
+						{%- if cart.item_count > 0 -%}
+						{%- assign xHasyPrice = ''-%} 
+						{%- for item in cart.items -%}
+						{%-assign promtoionref = item.promotionref | append: ''-%}
+						{%-if item.price == 0 and item.price_original > 0 and item.promotionref != 'null'-%}
+						{%-if item.promotionby[0].variant_ids.size == 0-%}
+						{%- assign xHasyPrice = xHasyPrice | append: ',' | append: item.promotionby[0].product_id-%}
+						{%-else-%}
+						{%-comment-%}<!-- Xử lý case theo biến thể -->{%-endcomment-%}
+						{%-endif-%}
+						{%-endif-%}
+						{%-endfor-%}
+						{%- assign xHasyPrice = xHasyPrice | remove_first: ',' | split: ','-%}
+
+						{%- for item in cart.items -%}
+						{%-assign promtoionref = item.promotionref | append: ''-%}
+						{%-assign signSpecial = ''-%}
+						{%-if xHasyPrice != ''-%}
+						{%-assign itemPrdId = item.product_id | append: ''-%}
+						{%-assign itemVrtId = item.variant_id | append: ''-%}
+						{%-if xHasyPrice contains itemPrdId or xHasyPrice contains itemVrtId-%}
+						{%-assign signSpecial = ' xSpecial'-%}
+						{%-endif-%}
+						{%-endif-%}
+						<div class="mini-cart__item {{signSpecial}}" data-vid="{{item.variant_id}}" data-pid="{{item.product_id}}">
+							<div class="mini-cart__left">
+								<a class="mnc-link" href="{{ item.product.url }}">
+									<img src="{% if item.variant.image == empty %} {{ item | img_url: 'small' }} {% else%} {{ item.variant.image | product_img_url : 'small'}}  {% endif %}" alt="{{ item.title }}" />
+									{%- if settings.promotion_hrvapp_use and item.properties.BuyXGetY != nil -%}
+									<span class="mnc-gift"><img src="{{settings.combo_icon}}" alt="icon quà tặng"></span>
+									{%- endif -%}
+								</a>
+							</div>
+							<div class="mini-cart__right">
+								<p class="mini-cart__title">	
+									<a class="mnc-title mnc-link" href="{{ item.product.url }}" title="{{ item.title }}">{{ item.title }}</a>
+									<span class="mnc-variant">
+										{% unless item.variant.title contains 'Default Title' %}
+										{{ item.variant.title }}
+										{% endunless %}		
+									</span>	
+								</p>
+								<div class="mini-cart__quantity">
+									{%-assign show_btn_qty = true-%}
+
+									{%-if settings.promotion_hrvapp_use -%}
+									{%-if item.price == 0 or item.properties.BuyXGetY != nil or item.properties.Combo != nil -%}
+									{%-assign show_btn_qty = false-%}
+									{%-endif-%}
+									{%-endif-%}
+
+									{%-if show_btn_qty-%}
+									<button class="qty-btn mnc-minus">
+										<svg enable-background="new 0 0 10 10" viewBox="0 0 10 10" x="0" y="0"><polygon points="4.5 4.5 3.5 4.5 0 4.5 0 5.5 3.5 5.5 4.5 5.5 10 5.5 10 4.5"></polygon></svg>
+									</button>
+									{%-endif-%}
+									<!--<span class="mnc-value">{{ item.quantity }}</span>-->	
+									<input class="qty-value {%unless show_btn_qty %} qty-value-app {% endunless %} " type="text" readonly="" name="mnc-quantity" value="{{item.quantity}}" data-vid="{{item.variant_id}}">
+									{%-if show_btn_qty-%}
+									<button class="qty-btn mnc-plus">
+										<svg enable-background="new 0 0 10 10" viewBox="0 0 10 10" x="0" y="0"><polygon points="10 4.5 5.5 4.5 5.5 0 4.5 0 4.5 4.5 0 4.5 0 5.5 4.5 5.5 4.5 10 5.5 10 5.5 5.5 10 5.5"></polygon></svg>
+									</button>
+									{%-endif-%}
+								</div>
+								<div class="mini-cart__price">
+									<span class="mnc-price">{{ item.price | money }}</span> 
+									<del class="mnc-ori-price">{%-if item.price_original > item.price-%}{{item.price_original | money}}{%-endif-%}</del>
+								</div>
+								{%-unless settings.promotion_hrvapp_use and item.price == 0 -%}
+								<div class="mini-cart__remove">
+									<a href='javascript:void(0);' onclick='HRT.All.deleteCart({{forloop.index}}, {{item.product.variants.first.id}})'>
+										<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 1000 1000" enable-background="new 0 0 1000 1000" xml:space="preserve"> <g><path d="M500,442.7L79.3,22.6C63.4,6.7,37.7,6.7,21.9,22.5C6.1,38.3,6.1,64,22,79.9L442.6,500L22,920.1C6,936,6.1,961.6,21.9,977.5c15.8,15.8,41.6,15.8,57.4-0.1L500,557.3l420.7,420.1c16,15.9,41.6,15.9,57.4,0.1c15.8-15.8,15.8-41.5-0.1-57.4L557.4,500L978,79.9c16-15.9,15.9-41.5,0.1-57.4c-15.8-15.8-41.6-15.8-57.4,0.1L500,442.7L500,442.7z"/></g> </svg>
+									</a>
+								</div>
+								{%-endunless-%}
+							</div>
+						</div>
+						{% endfor %}
+						{% else %}
+						<div class="mini-cart__empty">
+							<div class="svgico-mini-cart">
+								<img class="lazyload hrv-cf-cart_banner_image" data-src="{{ settings.cart_banner_image }}" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Giỏ hàng của bạn đang trống"/ setting-id="cart_banner_image" setting-type="image">
+								<p>Chưa có sản phẩm trong giỏ hàng...</p>
+								<div class="action-link-empty">
+									<a href="{%if settings.mini_cart_linkreturn != blank%}{{settings.mini_cart_linkreturn}}{%else%}/collections/all{%endif%}" class="linkreturn">{%-if settings.mini_cart_name != blank -%}{{settings.mini_cart_name}}{%-else-%}Trở về trang sản phẩm{%-endif-%}</a>
+									<a name="link-copuon" class="linkcoupon">Khuyến mãi dành cho bạn</a>
+								</div>
+							</div>					
+						</div>
+						{% endif %}
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="sitenav-footer">
+			<div class="cart-view-total">
+				<div class="total-price">
+					<div class="mnc-total text-left">TỔNG TIỀN:</div>
+					<div class="mnc-total text-right" id="total-view-cart">{{cart.total_price | money}}</div>
+				</div>
+				<div class="total-actions">
+					<div class="summary-alert alert alert-danger " {% if checkPriTotal %}style="display:block"{% endif %}>
+						Giỏ hàng của bạn hiện chưa đạt mức tối thiểu để thanh toán.
+					</div>
+					<div class="action-btn"><a href="/checkout" class="linktocheckout button {% if checkPriTotal %}disabled{% endif %}">Thanh toán</a></div>
+					<div class="action-link">
+						<a href="/cart" class="linktocart">Xem giỏ hàng</a>
+						{%- if settings.coupon_title != blank -%}
+						<a name="link-copuon" class="linkcoupon hrv-cf-coupon_title" setting-id="coupon_title" setting-type="text">{{settings.coupon_title}}</a>
+						{%- else -%}
+						<a name="link-copuon" class="linkcoupon">Khuyến mãi dành cho bạn</a>
+						{%- endif -%}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="sidebar-overlay"></div>
+</div>
+{%- endunless -%}
+

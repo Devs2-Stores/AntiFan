@@ -1,0 +1,43 @@
+{% layout none %}
+{% paginate search.results by 4 %}
+{% if search.results.size > 0  %}
+{% for product in search.results %}
+{%- assign price_zero_search = false -%}
+{%- if product.variants.first.price == 0 -%}
+  {%- assign price_zero_search = true -%}
+{%- endif -%}
+<div class="item-ult">
+	<div class="thumbs">
+		<a href="{{ product.url }}" title="{{ product.title | split: '|' | first }}">
+			<img alt="{{product.title | split: '|' | first}}" src="{%if product.images.size > 0%}{{ product.featured_image.src | img_url: 'compact' }}{%else%}{{'no_image.jpg' | asset_url}}{%endif%}" alt="{{ product.featured_image.alt | escape }}" />
+		</a>
+	</div>
+	<div class="title">
+		<a title="{{product.title | split: '|' | first}}" href="{{product.url}}">{{product.title | split: '|' | first}}</a>
+    {%if price_zero_search%}
+    {%if settings.prod_pricezero_btn_select == 'prod_pricezero_btn_form'%}
+      <button class="f-initial hrv-cf-prod_pricezero_title loomline-btn-prozero-form" setting-id="prod_pricezero_title" setting-type="text" data-url="{{product.url}}"><span>{{ settings.prod_pricezero_title }}</span></button>
+    {%else%}
+    <a href="{{settings.prod_pricezero_link}}" class="f-initial hrv-cf-prod_pricezero_title" setting-id="prod_pricezero_title" setting-type="text"><span>{{ settings.prod_pricezero_title }}</span></a>
+    {%endif%}
+    {%else%}
+		<p class="f-initial">{{product.variants.first.price | money}}
+			{%if product.variants.first.compare_at_price > product.variants.first.price %}
+			<del>{{ product.variants.first.compare_at_price | money}}</del>
+			{%endif%}
+		</p>
+    {%endif%}
+	</div>
+</div>
+{% endfor %}
+{% if search.results.size > 4 %}
+<div class="resultsMore">
+	<a href="/search?type=product&q={{search.terms | strip_html | escape  }}">Xem thêm {{ search.results.size | minus: 4 }} sản phẩm</a>
+</div>	
+{% endif %}
+{% else %}
+<p class="dataEmpty">
+	Không có sản phẩm nào...
+</p>
+{% endif %}
+{% endpaginate %}

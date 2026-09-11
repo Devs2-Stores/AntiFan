@@ -1,0 +1,154 @@
+<div class="layout-account {%if settings.hrloyalty_icon_used%}layoutAccount-hidden{%endif%}">
+	<div class="container">
+		<div class="customers-wrapper">
+			<div class="row">
+				<div class="col-lg-3 col-md-12 col-12 pr-lg-0 customers-sidebar">{% include 'sidebar-account' %}</div>
+				<div class="col-lg-9 col-md-12 col-12 pl-lg-0 customers-details" >
+					<div class="customers-details__wrap">
+						<div class="customers-header">	<h1>Chi tiết đơn hàng </h1></div>	
+						<div class="customers-details__orders">
+							<h3 class="order_name">Đơn hàng: {{ order.name }},
+								<span class="order_date">Đặt lúc &mdash; {{ order.created_at | date: "%d/%m/%Y, %I:%M%p" }}</span>
+							</h3>
+							{% if order.cancelled %}
+							<div class="order_cancelled" id="order_cancelled" >
+								<h4 id="order_cancelled_title">Hủy đơn hàng <span>{{ order.cancelled_at | date: "%d/%m/%Y, %I:%M%p" }}</span></h4>
+								<span>{{ order.cancel_reason }}</span>
+							</div>
+							{% endif %}
+							<p>	<a href="/account" id='return_to_store' class="order_backhome">Quay lại trang tài khoản </a>	</p>
+						</div>	
+						<div class="customers-details__tables">
+							<div class="customer-table-wrap">
+								<div class="customer-table-bg">	
+									<p class="title-detail">Chi tiết đơn hàng	</p>
+									<div class="wrap-table-orderline table-responsive-overflow">
+										<div class="table-responsive">
+											<table id="order_details" class="table table-customers ">
+												<thead>
+													<tr>
+														<th class=""></th>
+														<th class="">Sản phẩm</th>
+														<th class="text-center">Mã sản phẩm</th>
+														<th class="text-center">Đơn giá</th>
+														<th class="text-center">Số lượng</th>
+														<th class="total text-right">Thành tiền</th>
+													</tr>
+												</thead>
+												{% for line_item in order.line_items %}
+												<tr id="{{ line_item.product_id }}" class="line-order {% cycle 'odd', 'even' %}">
+													<td class="order-image" >											
+														<a href="{{ line_item.url }}" aria-label="{{ line_item.title }}">									
+															<img src="{% if line_item.image > 0 %}{{ line_item.image | product_img_url : 'small'}}{% else %}{{'no_image.jpg' | asset_url}}{% endif %}" alt="{{ line_item.title }}" />
+														</a>
+													</td>
+													<td class="name" style="max-width:300px">
+														{{ line_item.product.title | link_to: line_item.url }} <br/> 
+														<span class="variant_acc">
+															{%unless line_item.variant.title contains 'Default' %}
+															{{line_item.variant.title}}
+															{%endunless%}
+														</span>
+														{% if line_item.fulfillment %}
+														<div>
+															Fulfilled {{ line_item.fulfillment.created_at | date: "%b %d" }}
+															{% if line_item.fulfillment.tracking_number %}
+															<a href="{{ line_item.fulfillment.tracking_url }}">{{ line_item.fulfillment.tracking_company }} #{{ line_item.fulfillment.tracking_number}}</a>
+															{% endif %}
+														</div>
+														{% endif %}
+													</td>
+													<td class="sku text-center">{{ line_item.sku }}</td>
+													<td class="money text-center">{{ line_item.price | money }}</td>
+													<td class="quantity center text-center">{{ line_item.quantity }}</td>
+													<td class="total money text-right">{{ line_item.quantity | times: line_item.price | money }}</td>
+												</tr>
+												{% endfor %}
+											</table>
+										</div>
+									</div>		
+									<div class="wrap-table-ordership">
+										<table class="table table-customers table-customers-summary ">
+											<tr class="order_summary ">
+												<td class="text-left" colspan="4"><b>Giá sản phẩm</b></td>
+												<td class="total money text-right"><b>{{ order.subtotal_price | money }}</b></td>
+											</tr>   
+											{% for shipping_method in order.shipping_methods %}
+											<tr class="order_summary ">
+												<td class="text-left" colspan="4"><b>{{ shipping_method.title }}</b></td>
+												<td class="total money text-right"><b>{{ shipping_method.price | money }}</b></td>
+											</tr>
+											{% endfor %}
+											{% for tax_line in order.tax_lines %}
+											<tr class="order_summary ">
+												<td class="text-left" colspan="4"><b>{{ tax_line.title }} {{ tax_line.rate | times: 100 }}</b>%</td>
+												<td class="total money text-right"><b>{{ tax_line.price | money }}</b></td>
+											</tr>
+											{% endfor %}  
+											<tr class="order_summary order_total">
+												<td class="text-left" colspan="4"><b>Tổng tiền</b></td>
+												<td class="total money text-right"><b>{{ order.total_price | money }} {{ order.currency }}</b></td>
+											</tr>   
+
+										</table> 
+									</div>	
+								</div>
+							</div>
+							<div class="customer-status-order">
+								<div class="row">
+									<div id="order_payment" class="col-lg-6 col-12 order-payment">
+										<h3 class="order_section_title">Địa chỉ nhận thanh toán</h3>
+										<div class="alert alert-info">
+											<span class="text_status">Tình trạng thanh toán:</span> <span class="status_{{ order.financial_status }}">{{ order.financial_status  | replace : 'pending', 'Chờ xử lý' | replace : 'paid', 'Đã hoàn tất'}}</span>
+										</div>
+										<div class="box-address">
+											<p class="adressName ">{{ order.billing_address.name }}</p>
+											<p>{{ order.billing_address.company }}</p>
+											<p>{{ order.billing_address.address1 }}</p>
+											<p>{{ order.billing_address.address2 }}</p>
+											<p>{{ order.billing_address.city }} {{ order.billing_address.province }}</p>
+											<p>{{ order.billing_address.country }}</p>
+											<p>{{ order.billing_address.phone }}</p>
+										</div>
+									</div>
+									{% if order.shipping_address %}
+									<div id="order_shipping" class="col-lg-6 col-12 order-shipping">
+										<h3 class="order_section_title">Địa chỉ gửi hàng</h3>
+										<div class="alert alert-info">
+											<span class="text_status">Vận chuyển:</span> 
+											<span class="status_{{ order.fulfillment_status }}">
+												{% if order.shipment_status == 'readytopick' or order.shipment_status == 'picking' %}
+												Đang xử lý
+												{%elsif order.shipment_status == 'delivering' or order.shipment_status == 'notmeetcustomer' %}
+												Đang giao hàng
+												{%elsif order.shipment_status == 'delivered'%}
+												Đã giao hàng
+												{%elsif order.shipment_status == 'cancel'%}
+												Đã hủy
+												{%elsif order.shipment_status == 'return' or order.shipment_status == 'waitingforreturn'%}
+												Giao không thành công
+												{%elsif order.shipment_status == 'pending'%}
+												Chờ xử lý
+												{%endif%}
+											</span>
+										</div>
+										<div class="box-address">
+											<p class="adressName ">{{ order.shipping_address.name }}</p>
+											<p>{{ order.shipping_address.company }}</p>
+											<p>{{ order.shipping_address.address1 }}</p>
+											<p>{{ order.shipping_address.address2 }}</p>
+											<p>{{ order.shipping_address.city }} {{ order.shipping_address.province }}</p>
+											<p>{{ order.shipping_address.country }} </p>
+											<p>{{ order.shipping_address.phone }}</p>
+										</div>
+									</div>
+									{% endif %}
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>

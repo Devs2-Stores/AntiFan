@@ -1,0 +1,24 @@
+{%- capture sizeguide_img -%}tagsize_{{ind}}_img.jpg{%-endcapture-%}
+{%- capture sizeguide_note -%}tagsize_{{ind}}_text{%-endcapture-%}
+<div class="modal modal-sizes fade modal-sizes-{{ind}}" tabindex="-1" role="dialog" id="modal-sizeguide">
+	<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable" role="document">
+		<div class="modal-content">
+			<div class="modal-header {% if settings.tagsize_title  != blank %} mdal-border {% endif %}">
+				{%- if settings.tagsize_title  != blank -%}<p class="mdl-title">{{settings.tagsize_title}}</p>{%- endif -%}
+				<button type="button" class="close close-modal-size" data-dismiss="modal" aria-label="Close">
+					<span aria-hidden="true">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512.001 512.001"><g><path d="M294.111,256.001L504.109,46.003c10.523-10.524,10.523-27.586,0-38.109c-10.524-10.524-27.587-10.524-38.11,0L256,217.892    L46.002,7.894c-10.524-10.524-27.586-10.524-38.109,0s-10.524,27.586,0,38.109l209.998,209.998L7.893,465.999    c-10.524,10.524-10.524,27.586,0,38.109c10.524,10.524,27.586,10.523,38.109,0L256,294.11l209.997,209.998    c10.524,10.524,27.587,10.523,38.11,0c10.523-10.524,10.523-27.586,0-38.109L294.111,256.001z"></path></g>	</svg>
+					</span>
+				</button>
+			</div>
+			<div class="modal-body">
+				<div class="mdl-banner">
+					<img src="{{ settings[sizeguide_img] }}"  alt="{{product.title}}"/ setting-id="{{ sizeguide_img }}" setting-type="image" class="hrv-cf-{{ sizeguide_img }}">
+				</div>
+				{%- if settings[sizeguide_note]  != blank -%}<div class="mdl-note">{{ settings[sizeguide_note] }}	</div>{%- endif -%}
+			</div>
+		</div>
+	</div>
+</div>
+
+

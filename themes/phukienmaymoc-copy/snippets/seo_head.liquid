@@ -1,0 +1,82 @@
+<!-- SEO META DESCRIPTION -->
+{%- assign pageDes = '' -%}
+{%- if template contains 'search' -%}
+	{%- assign sTerm = search.terms | split: 'titlespace:product contains' | last -%}
+	{%- assign sTerm2 = sTerm | split: ')' | first | strip -%}
+	{%- if current_page == 1 -%}
+		{%- capture pageDes -%}Kết quả tìm kiếm với từ khóa {{ sTerm2 }}{%- endcapture -%}
+	{%- else -%}
+		{%- capture pageDes -%}Trang {{ current_page }} – Kết quả tìm kiếm với từ khóa 
+		{{ sTerm2 }}{%- endcapture -%}
+	{%- endif -%}
+{%- elsif page_description -%}
+	{%- assign pageDes = page_description | strip_newlines | strip_html | truncate: 320 -%}
+	{%- if template contains 'collection' or template contains 'blog'-%}
+			{%- if current_page > 1 -%}
+			{%- assign pageDes = 'Trang ' | append: current_page | append: ' – ' | append: pageDes -%}
+			{%- endif -%}
+	{%- endif -%}
+{%- else -%}
+	{%- if product -%}
+			{%- capture pageDes -%}{{ page_title }}. {{ product.price | money }}. Mua ngay – Xem nhanh
+			{%- endcapture -%}
+	{%- endif -%}
+	{%- if collection -%}
+			{%- capture pageDes -%}{% if current_page > 1 %}Trang {{ current_page }} – {% endif %}{{collection.products.first.title }}. {{collection.products.first.price | money }}. 
+			Mua ngay – Xem nhanh{%- endcapture -%}
+	{%- endif -%}
+{%- endif -%}
+<meta name="description" content="{{ pageDes }}" />
+<!-- END SEO META DESCRIPTION -->
+
+<!-- SEO PAGI -->
+{%- comment -%}
+{%- if template contains 'collection' and current_page > 1 -%}
+<meta name="robots" content="noindex, nofollow">
+{%- endif -%}
+{%- endcomment -%}
+
+{%- if template contains 'collection' or template contains 'blog' or template contains 'search' -%}
+{%- assign pagiTem = collection.products -%}
+{%- assign current_url = collection.handle -%} 
+{%- assign limit = 16 -%}
+{%- if template contains '20' -%}
+{%- assign limit = 20 -%}
+{%- elsif template contains '24' -%}
+{%- assign limit = 24 -%}
+{%- elsif template contains 'blog' -%}
+{%- assign pagiTem = blog.articles -%}
+{%- assign current_url = blog.handle -%} 
+{%- assign limit = 12 -%}
+{%- elsif template contains 'search' -%}
+{%- assign pagiTem = search.results -%}
+{%- assign limit = 12 -%}
+{%- else -%}
+{%- assign limit = 16 -%}
+{%- endif -%}
+{%- paginate pagiTem by limit -%}
+{%- if paginate.pages > 1 -%}
+{%- comment -%}
+{%- if paginate.current_page == 1 -%}
+<meta href="/{{ template | split: '.' | first }}{% unless template contains 'search'%}s{%endunless %}/{{current_url}}" rel="canonical" />
+{%- endif -%}
+{%- endcomment -%}
+{%- if paginate.current_page > 1 and template != 'search'-%}
+<meta name="robots" content="noindex, follow" />
+{%- endif -%}
+{%- if paginate.previous -%}
+{%- assign prevLink = paginate.previous.url -%}
+{%- unless prevLink contains '=11' -%}
+{%- if prevLink contains 'page=1' -%}
+{%- assign prevLink = paginate.previous.url | remove: '&page=1' | remove: '?page=1' | replace: '&sort_by','?sort_by' -%}
+{%- endif -%}
+{%- endunless -%}
+<meta href="{{ prevLink }}" rel="prev" />
+{%- endif -%}
+{%- if paginate.next -%}
+<meta href="{{ paginate.next.url }}" rel="next" />
+{%- endif -%}
+{%- endif -%}
+{%- endpaginate -%}
+{%- endif -%}
+<!-- END SEO PAGI -->

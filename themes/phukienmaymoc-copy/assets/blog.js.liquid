@@ -1,0 +1,218 @@
+Loomline.Blog = {
+		init: function() {
+			var that = this;
+      that.Loomline_menuSidebar();
+      that.Loomline_tbOfContentsArt();
+      that.Loomline_sliderRelatedBlog();
+		},
+  Loomline_menuSidebar: function(){
+		$('.plus-nClick1').click(function(e){
+			e.preventDefault();
+			$(this).parents('.level0').toggleClass('opened');
+			$(this).parents('.level0').children('ul').slideToggle(200);
+		});
+		$('.plus-nClick2').click(function(e){
+			e.preventDefault();
+			$(this).parents('.level1').toggleClass('opened');
+			$(this).parents('.level1').children('ul').slideToggle(200);
+		});
+		$('.plus-nClick3').click(function(e){
+			e.preventDefault();
+			$(this).parents('.level2').toggleClass('opened');
+			$(this).parents('.level2').children('ul').slideToggle(200);
+		});
+		jQuery('.sidebox-title .htitle').click(function(){
+			$(this).parents('.group-sidebox').toggleClass('is-open').find('.sidebox-content-togged').slideToggle('medium');
+		}); 
+	},
+  Loomline_tbOfContentsArt: function(){
+		if($('.article-table-contents').length > 0){
+			function urlfriendly (slug) {
+				//Đổi chữ hoa thành chữ thường
+				//Đổi ký tự có dấu thành không dấu
+				slug = slug.toLowerCase();
+				slug = slug.trim().replace(/á|à|ả|ạ|ã|ă|ắ|ằ|ẳ|ẵ|ặ|â|ấ|ầ|ẩ|ẫ|ậ/gi, 'a');
+				slug = slug.replace(/é|è|ẻ|ẽ|ẹ|ê|ế|ề|ể|ễ|ệ/gi, 'e');
+				slug = slug.replace(/i|í|ì|ỉ|ĩ|ị/gi, 'i');
+				slug = slug.replace(/ó|ò|ỏ|õ|ọ|ô|ố|ồ|ổ|ỗ|ộ|ơ|ớ|ờ|ở|ỡ|ợ/gi, 'o');
+				slug = slug.replace(/ú|ù|ủ|ũ|ụ|ư|ứ|ừ|ử|ữ|ự/gi, 'u');
+				slug = slug.replace(/ý|ỳ|ỷ|ỹ|ỵ/gi, 'y');
+				slug = slug.replace(/đ/gi, 'd');
+				//Xóa các ký tự đặt biệt
+				slug = slug.replace(/\`|\~|\!|\@|\#|\||\$|\%|\^|\&|\*|\(|\)|\+|\=|\,|\.|\/|\?|\>|\<|\'|\"|\:|\;|_/gi, '_');
+				//Đổi khoảng trắng thành ký tự gạch ngang
+				slug = slug.replace(/ /gi, "_");
+				//Đổi nhiều ký tự gạch ngang liên tiếp thành 1 ký tự gạch ngang
+				//Phòng trường hợp người nhập vào quá nhiều ký tự trắng
+				slug = slug.replace(/\-\-\-\-\-/gi, '_');
+				slug = slug.replace(/\-\-\-\-/gi, '_');
+				slug = slug.replace(/\-\-\-/gi, '_');
+				slug = slug.replace(/\-\-/gi, '_');
+				//Xóa các ký tự gạch ngang ở đầu và cuối
+				slug = '@' + slug + '@';
+				slug = slug.replace(/\@\-|\-\@|\@/gi, '');
+				//In slug ra textbox có id “slug”
+				return slug;
+			};
+			class TableOfContents {
+				constructor({ from, to }) {
+					this.fromElement = from;
+					this.toElement = to;
+					// Get all the ordered headings.
+					this.headingElements = this.fromElement.querySelectorAll("h1, h2, h3,h4,h5,h6");
+					this.tocElement = document.createElement("div")
+				}
+				/*  Get the most important heading level.
+        For example if the article has only <h2>, <h3> and <h4> tags
+        this method will return 2.
+     */
+				getMostImportantHeadingLevel() {
+					let mostImportantHeadingLevel = 6; // <h6> heading level
+					for (let i = 0; i < this.headingElements.length; i++) {
+						let headingLevel = TableOfContents.getHeadingLevel(this.headingElements[i]);
+						mostImportantHeadingLevel = (headingLevel < mostImportantHeadingLevel) ?
+							headingLevel : mostImportantHeadingLevel;
+					}
+					return mostImportantHeadingLevel;
+				}
+				static generateId(headingElement) {
+					return urlfriendly(headingElement.textContent)
+				}
+				static getHeadingLevel(headingElement) {
+					switch (headingElement.tagName.toLowerCase()) {							
+						case "h2": return 2;
+						case "h3": return 3;
+							break;
+						default: return 4;
+					}
+				}
+				generateTable() {
+					let currentLevel = this.getMostImportantHeadingLevel() - 1,
+							currentElement = this.tocElement;
+					for (let i = 0; i < this.headingElements.length; i++) {
+						let headingElement = this.headingElements[i],
+								headingLevel = TableOfContents.getHeadingLevel(headingElement),
+								headingLevelDifference = headingLevel - currentLevel,
+								linkElement = document.createElement("a");
+						if (!headingElement.id) {
+							headingElement.id = TableOfContents.generateId(headingElement);
+						}
+						linkElement.href = `#${headingElement.id}`;
+						linkElement.textContent = headingElement.textContent;
+
+						if (headingLevelDifference > 0) {
+							// Go down the DOM by adding list elements.
+							for (let j = 0; j < headingLevelDifference; j++) {
+								let listElement = document.createElement("ul"),													
+										listItemElement = document.createElement("li");
+								listElement.appendChild(listItemElement);
+								currentElement.appendChild(listElement);
+								currentElement = listItemElement;
+							}
+							currentElement.appendChild(linkElement);
+						} 
+						else {
+							// Go up the DOM.
+							for (let j = 0; j < -headingLevelDifference; j++) {
+								currentElement = currentElement.parentNode.parentNode;
+							}
+							let listItemElement = document.createElement("li");
+							listItemElement.appendChild(linkElement);
+							currentElement.parentNode.appendChild(listItemElement);
+							currentElement = listItemElement;
+						}
+						currentLevel = headingLevel;
+					}
+					if(this.tocElement.firstChild != null){
+						this.toElement.appendChild(this.tocElement.firstChild);
+					}else{
+						document.getElementById("table-content-container").remove();
+					}
+				}
+			}
+			(function($) {
+				var stringtemplate = $('<div id="table-content-container" class="table-of-contents"><div class="table-title"><div class="htitle">Các nội dung chính<span class="toc_toggle">[<a class="icon-list" href="javascript:void(0)">Ẩn</a>]</span></div></div></div>');
+				stringtemplate.insertBefore(".article-table-contents");
+
+				new TableOfContents({
+					from: document.querySelector(".article-table-contents"),
+					to: document.querySelector("#table-content-container")
+				}).generateTable();
+				$("#table-content-container .icon-list").click(function(){
+					$(this).parents("#table-content-container").find("ul:first").slideToggle({ direction: "left" }, 100);
+					var texxx = $(this).text();
+					if(texxx == "Ẩn"){
+						$(this).html("Hiện")
+					}else{
+						$(this).html("Ẩn")
+					}
+				})
+
+				var buttontable = '<div class="table-content-button"><button class="btn-icolist"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 511.994 511.994"><path d="M35.537 292.17l-.225-.863 14.613-15.857c9.495-10.333 16.006-18.227 19.544-23.47s5.3-11.326 5.3-18.148c0-10.135-3.326-18.146-9.974-23.984-6.65-5.83-15.9-8.76-27.775-8.76-11.174 0-20.15 3.467-26.923 10.412S.06 226.807.3 236.795l.15.34 24.473.002c0-4.403 1.076-8.9 3.227-12.097s5.105-4.73 8.863-4.73c4.202 0 7.355 1.26 9.457 3.73s3.152 5.8 3.152 9.955c0 2.917-1.04 6.36-3.115 10.313s-5.72 8.458-10.122 13.5L1.28 294.304v15.478h74.847v-17.6h-40.6zM51.9 127.068V37.72L1.28 45.283v17.945h24.215v63.84H1.28v19.812h74.846v-19.812zm21.156 299.964c-3.265-4.33-7.8-7.542-13.574-9.668 5.092-2.325 9.16-5.55 12.2-9.677s4.56-8.643 4.56-13.534c0-9.84-3.5-17.442-10.53-22.806s-16.4-8.046-28.1-8.046c-10.087 0-18.665 2.67-25.736 8S1.418 384.007 1.716 392.6l.15.83h24.327c0-4.403 1.233-5.774 3.707-7.654s5.34-3 8.603-3c4.154 0 7.317 1.065 9.495 3.4s3.262 5.142 3.262 8.555c0 4.3-1.2 7.868-3.632 10.3s-5.884 3.837-10.384 3.837h-11.75v17.6h11.75c4.995 0 8.863 1.475 11.608 3.872s4.117 6.358 4.117 11.597c0 3.76-1.312 6.943-3.93 9.415s-6.133 3.74-10.534 3.74c-3.857 0-7.13-1.662-9.827-4s-4.042-4.803-4.042-9.206H.16l-.147.95c-.247 10.087 3.423 18.042 11.013 23.357s16.453 8.1 26.588 8.1c11.77 0 21.435-2.765 29-8.427S77.96 452.44 77.96 442.55c0-6.033-1.63-11.195-4.894-15.523zm75.7-64.426h363.227v72.645H148.767zm0-143.09h363.227v72.645H148.767zm0-147.483h363.227v72.645H148.767z"></path></svg></button> </div><div class="table-content-fixed"><div class="table-of-header"><span class="hTitle"> Các nội dung chính</span><span class="hClose"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512.001 512.001"><path d="M284.286 256.002L506.143 34.144c7.81-7.81 7.81-20.475 0-28.285s-20.475-7.81-28.285 0L256 227.717 34.143 5.86c-7.81-7.81-20.475-7.81-28.285 0s-7.81 20.475 0 28.285L227.715 256 5.858 477.86c-7.81 7.81-7.81 20.475 0 28.285C9.763 510.05 14.882 512 20 512a19.94 19.94 0 0 0 14.143-5.857L256 284.287l221.857 221.857C481.762 510.05 486.88 512 492 512a19.94 19.94 0 0 0 14.143-5.857c7.81-7.81 7.81-20.475 0-28.285L284.286 256.002z"></path></svg></span></div><div id="clone-table" class="table-of-contents"></div></div>';
+				$("#article").append(buttontable).ready(function(){
+					var tablehtml = $("#table-content-container").html()
+					$("#clone-table").html(tablehtml);
+				});
+			})(jQuery);						
+
+			$('body').on('click', '#table-content-container ul li a, #clone-table  ul li a', function(e){
+				e.preventDefault();
+				var id = $(this).attr('href');
+				$("html,body").animate({ scrollTop: $(id).offset().top - 70 }, 600)	;
+				$('.table-content-fixed').removeClass('active');
+			})
+			$('.table-content-button .btn-icolist').on('click', function(e){
+
+				$('.table-content-fixed').toggleClass('active');
+			})
+			$('.table-content-fixed .table-of-header .hClose').on('click', function(e){
+				$('.table-content-fixed').toggleClass('active');
+			})
+			if($('#table-content-container').length > 0){
+				var ofsettop_ = $(".article-table-contents").offset().top - 300 ;
+				$(window).scroll(function(){
+					if($(window).scrollTop() > ofsettop_){
+						$(".table-content-button").addClass('active');
+					}else{
+						$(".table-content-button").removeClass('active');
+						$('.table-content-fixed').removeClass('active');
+					}
+				});		
+			}
+		}
+	},
+	Loomline_sliderRelatedBlog:function(){
+		$('.list-blogs-related.owl-carousel').owlCarousel({
+			items: 3,
+			nav: true,
+			dots: false,
+			loop: false,	
+			margin: 30,
+			smartSpeed:1200,
+			autoplayTimeout: 1500,
+			responsive: {
+				0: {
+					items: 2,
+					margin: 0,
+					stagePadding: 30
+				},
+				768: {
+					items: 3,
+					margin: 15
+				},
+				992: {
+					items: 3,
+					margin: 15
+				},
+				1200: {
+					items: 3,
+					touchDrag: $('.list-blogs-related.owl-carousel').length > 3 ? true:false,
+					mouseDrag: $('.list-blogs-related.owl-carousel').length > 3 ? true:false
+				}
+			}
+		});
+	}
+};
+(function() {
+  Loomline.Blog.init();
+})();

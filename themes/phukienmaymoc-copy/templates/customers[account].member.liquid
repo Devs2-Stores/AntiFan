@@ -1,0 +1,167 @@
+{%-if settings.hrloyalty_icon_used-%}
+<div class="layout-account layoutAccount-hidden">
+	<div class="container">
+		<div class="customers-wrapper">
+			<div class="row">
+				<div class="col-lg-3 col-md-12 col-12 pr-lg-0 customers-sidebar">{% include 'sidebar-account' %}</div>
+				<div class="col-lg-9 col-md-12 col-12 pl-lg-0 customers-details" >
+					<div class="customers-details__wrap">
+						<div class="customers-header"><h1>Thông tin hạng thành viên </h1></div>	
+						<div class="customers-maintabs">
+							<div class="hrloyalty-tabsNav">
+								<ul class="nav nav-tabs  nav-list" role="tablist">
+									<li class="nav-item">
+										<a class="nav-link active" id="hrloyalty-tab-1" data-toggle="tab" href="#hrloyalty-panel-profile" role="tab" aria-controls="hrloyalty-panel-profile" aria-selected="true">Hạng thành viên</a>
+									</li>
+									<li class="nav-item">
+										<a class="nav-link" id="hrloyalty-tab-2" data-toggle="tab"     href="#hrloyalty-panel-coupons" role="tab" aria-controls="hrloyalty-panel-profile" aria-selected="false">Ưu đãi của bạn</a>
+									</li>
+									<li class="nav-item">
+										<a class="nav-link" id="hrloyalty-tab-3" data-toggle="tab"     href="#hrloyalty-panel-rewards" role="tab" aria-controls="hrloyalty-panel-rewards" aria-selected="false">Đổi thưởng</a>
+									</li>
+								</ul>
+							</div>
+							<div class="tab-content hrloyalty-tabsContent">
+								<div id="hrloyalty-panel-profile" class="tab-pane fade show active" role="tabpanel" aria-labelledby="hrloyalty-tab-1">
+									<div class="customers-details__membership lowlight" >
+										<div class="row">
+											<div class="col-lg-7 col-md-6 col-12 membership-left">
+												<div class="membership-card">
+													<div class="membership-card--content">
+														<div class="row">
+															<div class="col">
+																<p class="card-name">Member</p>
+																<p class="card-phone">
+																	<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M8 16C12.4183 16 16 12.4183 16 8C16 3.58172 12.4183 0 8 0C3.58172 0 0 3.58172 0 8C0 12.4183 3.58172 16 8 16ZM3.94868 6.31623C3.5578 6.18594 3.18593 6.5578 3.31623 6.94868L4.88604 11.6581C4.95409 11.8623 5.14516 12 5.36038 12H10.6396C10.8548 12 11.0459 11.8623 11.114 11.6581L12.6838 6.94868C12.8141 6.5578 12.4422 6.18594 12.0513 6.31623L10.3623 6.87923C10.1484 6.95053 9.91323 6.86985 9.78816 6.68224L8.41603 4.62404C8.21811 4.32717 7.78189 4.32717 7.58397 4.62404L6.21184 6.68224C6.08677 6.86985 5.8516 6.95053 5.6377 6.87923L3.94868 6.31623Z" ></path></svg>
+																	<span>&nbsp;</span>
+																</p>
+															</div>
+															<div class="col-auto  card-point"><span class="point-val">&nbsp; </span> Điểm tích lũy</div>
+														</div>
+														<div class="card-progress">
+															<div class="point-bar"></div>
+															<div class="point-need">&nbsp; <strong>&nbsp;</strong>&nbsp; <strong>&nbsp;</strong></div>
+														</div>
+														<p class="card-view">Xem ưu đãi thành viên 
+															<svg viewBox="0 0 10 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0.0958406 15.8585L1.57084 17.3335L9.90418 9.00016L1.57084 0.666827L0.0958418 2.14183L6.95418 9.00016L0.0958406 15.8585Z" ></path></svg>
+														</p>
+													</div>
+												</div>
+												<div class="membership-other">
+													<p class="p_1">&nbsp; <strong>&nbsp; </strong></p>
+													<p class="p_2">&nbsp; <strong>&nbsp; </strong></p>
+													<p class="p_3">&nbsp; <strong>&nbsp; </strong></p>
+												</div>
+											</div>
+											{%- if settings.membercard_offer_show -%}
+											<div class="col-lg-5 col-md-6 col-12 membership-right">
+												<div class="membership-offer">
+													{%- if settings.membercard_offer_title != blank -%}<p class="membership-label">Ưu đãi thành viên</p>{%- endif-%}
+													<div class="offer-list">
+														{%- for i in (1..4) -%}
+														{%- capture offer_show -%}membercard_offer_{{i}}_show{%- endcapture -%}
+														{%- capture offer_text -%}membercard_offer_{{i}}_text{%- endcapture -%}
+														{%- capture offer_img -%}membercard_offer_{{i}}_img.png{%- endcapture -%}
+														{%- if settings[offer_show] -%}
+														<div class="offer-item">	
+															<div class="offer-icon">
+																<img class="lazyload hrv-cf-{{ offer_img }}" 
+																		 data-src="{{ settings[offer_img] }}" 
+																		 src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+																		 alt="{{ settings[offer_text] | strip_html | escape }}" setting-id="{{ offer_img }}" setting-type="image">
+															</div>
+															<div class="offer-text">
+																{%- if settings[offer_text]  != blank -%}<p>{{ settings[offer_text] }}</p>{%- endif -%}
+															</div>
+														</div>
+														{%- endif -%}
+														{%- endfor -%}
+													</div>
+												</div>
+											</div>
+											{%- endif-%}
+										</div>
+										{%- if settings.membercard_offer_link != blank -%}
+										<p class="membership-link">Chi tiết xem tại 
+											<a href="{{settings.membercard_offer_link}}">{{settings.membercard_offer_txtlink}} </a></p>
+										{%- endif-%}
+									</div>
+								</div>
+								<div id="hrloyalty-panel-coupons" class="tab-pane fade" 						role="tabpanel" aria-labelledby="hrloyalty-tab-2">
+									<div class="customers-details__membership" >
+										<p class="membership-label"></p>
+										<div class="hrlyt-coupons hrlyt-coupons-buyer">	
+											<div class="hrlyt-coupons-list row">
+												<div class="col-md-6 col-xs-12 col-12 hrlyt-coupons-item clone ">
+													<div class="coupons__inner">
+														<div class="coupons__img"></div>
+														<div class="coupons__info">
+															<button type="button" class="cpi-mdltooltip">
+																<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="20" height="20" viewBox="0 0 20 20"> <defs> <path id="4gg7gqe5ua" d="M8.333 0C3.738 0 0 3.738 0 8.333c0 4.595 3.738 8.334 8.333 8.334 4.595 0 8.334-3.739 8.334-8.334S12.928 0 8.333 0zm0 1.026c4.03 0 7.308 3.278 7.308 7.307 0 4.03-3.278 7.308-7.308 7.308-4.03 0-7.307-3.278-7.307-7.308 0-4.03 3.278-7.307 7.307-7.307zm.096 6.241c-.283 0-.512.23-.512.513v4.359c0 .283.23.513.512.513.284 0 .513-.23.513-.513V7.78c0-.283-.23-.513-.513-.513zm.037-3.114c-.474 0-.858.384-.858.858 0 .473.384.857.858.857s.858-.384.858-.857c0-.474-.384-.858-.858-.858z"></path> </defs> <g> <g> <g> <g> <g> <g transform="translate(-2808 -4528) translate(2708 80) translate(52 4304) translate(48 144) translate(1.667 1.667)"> <use xlink:href="#4gg7gqe5ua"></use> </g> </g> </g> </g> </g> </g> </svg>
+															</button>	
+															<p class="cpi-title"></p>
+															<p class="cpi-name"></p>
+															<div class="cpi-under">
+																<div class="cpi-under--l">
+																	<div class="cpi-code"></div>
+																	<div class="cpi-time"></div>
+																</div>
+																<div class="cpi-under--r"><button  class="cpi-getcode">Sao chép mã</button></div>
+															</div>
+														</div>
+													</div>
+												</div>
+											</div>
+											<div class="hrlyt-coupons-more text-center d-none"><button class="btn-viewpage">Xem thêm ưu đãi	</button></div>
+										</div>
+									</div>
+								</div>
+								<div id="hrloyalty-panel-rewards" class="tab-pane fade"  						role="tabpanel" aria-labelledby="hrloyalty-tab-3">
+									<div class="customers-details__membership" >
+										<div class="hrlyt-coupons hrlyt-coupons-rewards">	
+											<div class="hrlyt-coupons-list row">
+
+											</div>
+											<div class="hrlyt-coupons-more text-center d-none">
+												<button class="btn-viewpage" >Xem thêm chương trình	</button>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="modal fade mdlCustomer-cards" id="mdlLoyalty-detail" tabindex="-1" role="dialog" aria-hidden="false">
+	<div class="modal-dialog modal-dialog-centered">	
+		<div class="modal-content mdlcards-detail">
+			<button type="button" class="close close-modal" data-dismiss="modal" aria-label="Close">
+				<svg viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><line fill="none" stroke-width="1.1" x1="1" y1="1" x2="13" y2="13"></line><line fill="none" stroke-width="1.1" x1="13" y1="1" x2="1" y2="13"></line></svg>
+			</button>
+			<div class="modal-body  mdlcards-detail__body">
+				<div class="mdlcards-block">	
+					<div class="mdlcards-block--header">			
+						<div class="mdlcards--hlight mdl-coupon">
+							<div class="mdl-coupon--img">	
+								<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="72" height="72" rx="8" fill="white"></rect><path d="M44 13C39.667 13 37.211 16.595 36 19.18C34.789 16.595 32.333 13 28 13C25.243 13 23 15.243 23 18C23 20.757 25.243 23 28 23H36H44C46.757 23 49 20.757 49 18C49 15.243 46.757 13 44 13ZM28 21C26.346 21 25 19.654 25 18C25 16.346 26.346 15 28 15C31.745 15 33.786 18.924 34.603 21H28ZM44 21H37.394C38.206 18.925 40.24 15 44 15C45.654 15 47 16.346 47 18C47 19.654 45.654 21 44 21Z" fill="#D1B43D"></path><path d="M55 27H17V57C17 58.105 17.895 59 19 59H53C54.105 59 55 58.105 55 57V27Z" fill="#C94F49"></path><path d="M57 21H15C13.895 21 13 21.895 13 23V29C13 30.105 13.895 31 15 31H57C58.105 31 59 30.105 59 29V23C59 21.895 58.105 21 57 21Z" fill="#E86C60"></path><path d="M41 21H31V31H41V21Z" fill="#EFD358"></path><path d="M41 31H31V59H41V31Z" fill="#D1B43D"></path></svg>
+							</div>	
+							<p class="mdl-coupon--title"></p>
+							<p class="mdl-coupon--name"></p> 
+						</div>
+						<div class="mdlcards--curved"><svg class="bg-inward " xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 63"><path d="M390,0H0V63C132.73,38.18,256.36,25.76,390,25.76S667.27,38.18,800,63V0Z"></path></svg></div>
+					</div>
+					<div class="mdlcards-block--body">
+
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>	
+{%-else-%}
+<script>window.location = "/account"</script>
+{%- endif-%}

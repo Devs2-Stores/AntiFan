@@ -1,0 +1,6 @@
+{% comment %}{%layout none%}{%paginate search.results by settings.collection_pagination_limit %}{{paginate.pages}}{%endpaginate%} {% endcomment %}
+{%-layout none-%}
+{
+	"pages": {%paginate search.results by settings.collection_pagination_limit %}{{paginate.pages}}{%endpaginate%},
+	"products": {{search.results.size}}
+}
