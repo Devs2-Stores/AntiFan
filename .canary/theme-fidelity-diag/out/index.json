@@ -1,7 +1,7 @@
 {
   "kind": "theme-fidelity-verdict-index",
   "mode": "compare",
-  "status": "INCOMPLETE",
+  "status": "COMPLETE",
   "store": "https://phukienmaymoc.com/",
   "reference": {
     "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-diag\\r2mini",
@@ -39,9 +39,9 @@
     {
       "surface": "cart",
       "viewport": "1440x900",
-      "status": "NOT_MEASURABLE",
+      "status": "INCONCLUSIVE",
       "verdict": "INCONCLUSIVE",
-      "mechanism": "SESSION_RENEWAL_FAILED",
+      "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
       "file": "cart__1440x900.json",
       "mismatchPercentage": null,
       "referenceHeight": 1811,
@@ -56,7 +56,7 @@
       "verdict": "PASS",
       "mechanism": "MATCH",
       "file": "search__1440x900.json",
-      "mismatchPercentage": 0.12,
+      "mismatchPercentage": 0,
       "referenceHeight": 2421,
       "subjectHeight": 2421,
       "referencePngSha256": "967b5dac130fc9a6765ea71ed7bac44c95ecdd96ba4779931ff9551cf50b80b1",
@@ -68,7 +68,7 @@
     "pass": 1,
     "fail": 0,
     "inconclusive": 1,
-    "notMeasurable": 1
+    "notMeasurable": 0
   },
   "refusal": null,
   "replayServers": {
@@ -77,7 +77,7 @@
       "root": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-diag\\out\\replay\\reference",
       "stopped": {
         "label": "reference-static-server",
-        "pid": 20612,
+        "pid": 19744,
         "stopped": true,
         "forced": false
       }
@@ -87,27 +87,27 @@
       "root": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-diag\\out\\replay\\subject",
       "stopped": {
         "label": "subject-static-server",
-        "pid": 7096,
+        "pid": 17052,
         "stopped": true,
         "forced": false
       }
     }
   },
   "instance": {
-    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
+    "attachmentId": "attachment-0c583991-15cc-4ef1-a463-5f576684ad3f",
     "bridgePort": 20131,
-    "pid": 21236,
-    "primaryTabId": "d5ca8907-36a7-403e-b925-e907efce4d32",
-    "startedAt": "2026-09-11T00:18:43.203Z",
-    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
-    "attemptId": "attempt-51f0af7b-5c9b-4660-9225-b3d43b0d33d2"
+    "pid": 22088,
+    "primaryTabId": "0c921912-4471-442a-91a3-1ea26d63503b",
+    "startedAt": "2026-09-11T05:55:39.941Z",
+    "runId": "run-2a8e2ad4-2d39-42db-9c6d-c782d7f4251c",
+    "attemptId": "attempt-a9fb7783-b3b9-4ea6-b4a3-5955acc9b9a9"
   },
   "run": {
-    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
-    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
-    "authorityRevision": "rev_7c75c4511737cf692a674d858f6a021d",
-    "mintedAt": "2026-09-11T05:53:54.686Z"
+    "runId": "run-2a8e2ad4-2d39-42db-9c6d-c782d7f4251c",
+    "attachmentId": "attachment-0c583991-15cc-4ef1-a463-5f576684ad3f",
+    "authorityRevision": "rev_51c8bb6eb181bdda35eeecd84a14f89e",
+    "mintedAt": "2026-09-11T06:50:54.120Z"
   },
-  "startedAt": "2026-09-11T05:58:49.159Z",
-  "finishedAt": "2026-09-11T06:00:47.990Z"
+  "startedAt": "2026-09-11T06:55:11.989Z",
+  "finishedAt": "2026-09-11T06:58:39.882Z"
 }

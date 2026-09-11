@@ -151,6 +151,25 @@ export const IMAGE_HYDRATION_EXPR = `(async () => {
   document.querySelectorAll('img[loading="lazy"]').forEach(img => {
     try { img.loading = 'eager'; } catch {}
   });
+  // The storefront's own loader parks a base64 placeholder in the src attribute and keeps the
+  // real source in data-src, so a guard that only fills an empty src never fires and the page
+  // keeps swapping sources after hydration has run — measured as the image-set hash and the
+  // document geometry moving between passes of an unchanged page. Applying the loader's own
+  // contract materialises the image the page intends to show: a declared source or srcset
+  // replaces the placeholder, the declared sizes replaces auto, and the loader's class is
+  // dropped so it cannot re-decide later. Nothing is hidden, both sides are treated alike, and
+  // the loader writing the same values is a no-op.
+  document.querySelectorAll('img[data-src], img[data-srcset], img[data-lazy], img[data-original], img[data-echo]').forEach(img => {
+    const declaredSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy') || img.getAttribute('data-original') || img.getAttribute('data-echo');
+    const declaredSet = img.getAttribute('data-srcset');
+    const declaredSizes = img.getAttribute('data-sizes');
+    try {
+      if (declaredSrc && img.getAttribute('src') !== declaredSrc) img.setAttribute('src', declaredSrc);
+      if (declaredSet && img.getAttribute('srcset') !== declaredSet) img.setAttribute('srcset', declaredSet);
+      if (declaredSizes && declaredSizes !== 'auto' && img.getAttribute('sizes') !== declaredSizes) img.setAttribute('sizes', declaredSizes);
+      if (img.classList) img.classList.remove('lazyload', 'lazyloading');
+    } catch {}
+  });
   await Promise.all(
     Array.from(document.images)
       .filter(i => !i.complete)
@@ -1173,6 +1192,22 @@ async function setViewportAndConfirm(rpc, tabId, viewport) {
 // ── compare ───────────────────────────────────────────────────────────────────
 
 /**
+ * The session a re-mint supersedes. Read before the mint overwrites the session file,
+ * because after the re-mint the superseded run/attempt/attachment are unrecoverable.
+ */
+function readSupersededSession(file = SESSION_FILE) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return null;
+    const { runId, attemptId, attachmentId, secret } = parsed;
+    if (!runId || !attachmentId || !secret) return null;
+    return { runId, attemptId: attemptId ?? null, attachmentId, secret };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Rotate the session between targets, closing the old mint tab first.
  *
  * A session's attachment is bound to the tab it was minted with, and the bridge counts a
@@ -1183,15 +1218,38 @@ async function setViewportAndConfirm(rpc, tabId, viewport) {
  * campaign already uses, one page at a time. The mint tab is closed while its own session
  * still owns it — a later session cannot close it, and leaving it open would trade a quota
  * refusal for an orphan tab in the instance.
+ *
+ * Re-minting alone is not enough: the bindings of a superseded session are returned only
+ * by ending it, and the pool those bindings come from is never swept. A run that only
+ * re-mints therefore spends the pool as it goes and every later pair is refused
+ * `SESSION_RENEWAL_FAILED` by the mint itself. The release runs before the mint, because
+ * the mint needs a binding of its own. The bridge accepts `antifan.cli.endSession` only
+ * from a socket already bound to that same attachment, which is this one, so the release
+ * is strictly self-scoped and cannot reach a session this run does not own.
  */
-async function renewSession(rpc, previousMintTabId) {
+async function renewSession(rpc, previousMintTabId, record = null) {
   if (previousMintTabId) await closeTab(rpc.call, previousMintTabId, null);
+  const superseded = readSupersededSession();
   const minted = await runChild(process.execPath, [SESSION_TOOL, String(rpc.bootstrap.port), SESSION_FILE], {
     timeoutMs: 120_000,
     env: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE ? { ANTIFAN_MCP_BOOTSTRAP_FILE: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE } : {},
   });
   if (minted.code !== 0) {
     throw new NotMeasurable('SESSION_RENEWAL_FAILED', `canary-session.mjs exited ${minted.code ?? 'null'}${minted.timedOut ? ' (timeout)' : ''}: ${minted.stderr.trim().slice(0, 300)}`);
+  }
+  // The release runs after the mint, never before it. The bridge tears a session down
+  // asynchronously, and a mint issued while that teardown is still in flight has its
+  // lifecycle socket reset (`read ECONNRESET`); measured with a probe, the same mint
+  // succeeds once the teardown has settled. It is sent over the socket bound to the old
+  // attachment — the bootstrap in memory, before `reloadBootstrap` adopts the file the mint
+  // just rewrote — because that is the only socket the bridge accepts `endSession` from.
+  if (superseded) {
+    const release = await rpc.rpcCall('antifan.cli.endSession', superseded, 8_000)
+      .then(() => ({ released: true }))
+      .catch((e) => ({ released: false, error: String((e && e.message) || e).slice(0, 200) }));
+    // The session secret authorises the release and is never recorded: the verdict names
+    // the session it ended, not the credential it used.
+    if (record) record.sessionRelease = { runId: superseded.runId, attemptId: superseded.attemptId, attachmentId: superseded.attachmentId, ...release };
   }
   rpc.reloadBootstrap();
   return rpc.bootstrap.tabId ?? null;
@@ -1455,9 +1513,10 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
   let subjectTabId = null;
   try {
     // Two tabs per pair against a session pool of ten bindings, and the pool is never
-    // pruned, so each pair is opened on a freshly minted session; the mint tab it replaces
-    // is closed while its own session still owns it.
-    await renewSession(rpc, rpc.bootstrap.tabId ?? null);
+    // swept, so each pair is opened on a freshly minted session: the superseded session is
+    // ended first, which is what returns its bindings, and the mint tab it replaces is
+    // closed while its own session still owns it.
+    await renewSession(rpc, rpc.bootstrap.tabId ?? null, doc);
     const materialize = async (side, url, tabRecord) => {
       const created = await rpc.call('anti.browser.tabs.create', { url, activate: true }, 60_000);
       const tabId = created?.tabId || created?.result?.tabId || null;

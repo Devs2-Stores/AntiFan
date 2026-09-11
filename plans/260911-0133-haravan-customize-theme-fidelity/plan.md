@@ -6,7 +6,7 @@ priority: P0
 effort: "10h"
 tags: [haravan, liquid, theme, visual-fidelity, customize-workflow, evidence-integrity]
 created: 2026-09-11
-blockedBy: ["260910-2008-clone-campaign-evidence-provenance"]
+blockedBy: ["260910-2008-clone-campaign-evidence-provenance", "260911-0652-antifan-b-lite-v2-subagent-workflow"]
 blocks: []
 ---
 
@@ -178,19 +178,25 @@ measurement path: its own state lives under `.canary/theme-fidelity/`.
 | Reference instability produces misleading verdicts | Reference identity is mandatory and `INCONCLUSIVE` wins over `PASS` by construction |
 | The instance degrades across many surfaces | Restart and re-mint on the proven procedure between batches; the harness already records instance identity per verdict |
 
-## Status — 2026-09-11 (run `.canary/theme-fidelity-run4`)
+## Status — 2026-09-11 (campaign stopped at a clean boundary; handover in the report)
 
-The blocker this plan names is closed, and the run is still not publishable — both for reasons the
-outcome contract allows. Full evidence: `plans/reports/260911-1310-theme-fidelity-run4-verdicts.md`.
+Copy, capture and the harness are repaired and measured; publication is withheld on this plan's own
+stated precondition and on two typed classes. Full evidence and the handover for whoever resumes:
+`plans/reports/260911-1310-theme-fidelity-run4-verdicts.md`.
 
 | Item | State |
 |---|---|
 | Copy serves the local `assets/**` | fixed — the CLI's `collectThemePushAssetKeys` excluded `assets/` by construction; repaired to opt in through `--only`, rebuilt (51/51 tests), and 336 assets uploaded out-of-band (`push-assets.log`: `336 đã push, 0 lỗi, 0 bỏ qua`); `hl-global.css` went 404 → 200 carrying the layout utilities |
 | Subject capture | `COMPLETE` 21/21 (was 14/21); heights, header and nav identical to the live reference on all 21 legs |
-| Compare | 42 verdict documents: 1 PASS, 40 INCONCLUSIVE, 1 `EXECUTION_TIMEOUT`; both sets `INCOMPLETE` because 28 pairs are `content-changed-between-passes` — an in-place visible-text swap (only `textHash`/`textLength` move; geometry, image set and counts identical) that the campaign's doctrine refuses to mask |
-| Report | `INCOMPLETE`, `current.json` withheld; the predicate (`theme-fidelity-run.mjs:1933-1944`) fails only on the two compare sets, so compare measurability is the single publication gate. The 7 inventory `UNRESOLVED_SURFACE` entries appear in `notMeasured` but do not gate publication |
+| Route fidelity | measured on all 21 legs: each side's `targets[].dom.observedUrl` carries its own requested route and its own requested theme, with no `?openLogin=1`-style substitution. The property held because upstream held it — the assertion is still absent from this harness, and belongs here as well as in `fifteen-pages-run.mjs` (`260911-0652` Phase 1) |
+| Settle instrument | fixed — the scroll offset is anchored to a fixed value before the read block, and the image settle now requires identity and document geometry rather than completeness alone; both are recorded as evidence and neither is an input to `decideSettle`, whose fields and tolerances are unchanged |
+| Session rotation | fixed — the superseded session is ended so its bindings return, released after the mint; a 2-pair diag is clean (exit 0, both legs measured). A 4-pair run still exhausts the pool at pair 3 because `antifan.cli.endSession` frequently never replies (`RPC timeout 8000ms`), so a 42-pair run cannot complete from the harness side alone |
+| Image hydration | fixed — the storefront's loader parks a base64 placeholder in `src`, so the previous promotion guard never fired; the loader's own contract is now applied to both sides. In a 4-pair fixture `product__1440x900` went `content-changed-between-passes` to `PASS/MATCH` and `article__1024x900` stopped drifting (docHeight constant 4821, scrollWidth constant 1024) while still swapping image identity |
+| Compare (persisted evidence) | `.canary/theme-fidelity-run4/compare/` holds the retained run — r1-vs-subject 0 pass / 21 inconclusive / 16 notMeasurable, r2-vs-subject 1 pass / 20 inconclusive / 13 notMeasurable, 126/126 sha256 across r1/r2/subject. Two later in-session runs exercised the settle and session fixes; an aborted run overwrote their artifacts, so those intermediate verdicts are not retained and the campaign is re-run after `260911-0652` Phase 1 |
+| Report | `INCOMPLETE`, `current.json` withheld; the predicate (`theme-fidelity-run.mjs:1933-1944`) fails only on the two compare sets. The 7 inventory `UNRESOLVED_SURFACE` entries appear in `notMeasured` but do not gate publication |
 | Safety audit | 12 commands, `foreignThemeIds 0`, `publishDeployPush absent`; the out-of-band push is outside the pipeline's command record by design |
 
-`status` stays `blocked`: nothing publishes until the widget-carriage class and the inventory scope
-are decided by the owner.
+`status` stays `blocked`: publication waits on `260911-0652` Phase 1 (route assertion), on the session
+pool returning its bindings (product side), and on the image-identity class or the owner's typed-refusal
+decision. No run is in flight.
 

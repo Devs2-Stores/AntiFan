@@ -187,3 +187,59 @@ artifacts: `local://ultra-verifier-verdict.json`, `local://fix-candidates-full.j
 3. The 6 dangling `.jpg` references and the 95 undeclared settings are source defects in the theme
    workspace, reported not repaired: declaring settings without defaults would render identically but
    changes the theme, and the six images 404 on the live theme too.
+
+## Handover — fixes, measurements, and what still gates publication
+
+Read together with `plans/260911-0652-antifan-b-lite-v2-subagent-workflow/phase-01-gate-p0-hash-key-integrity.md`;
+that plan declares itself the blocker of this one and states that this campaign's verdicts may only
+be published after its Phase 1 closes. The campaign is stopped here, at a clean boundary.
+
+### Landed and measured (all pushed)
+
+| Fix | Anchor | Measured effect |
+|---|---|---|
+| Scroll anchored to a fixed offset before the settle read block | `.canary/tools/canary-settle.mjs` `SETTLE_SCROLL_ANCHOR_EXPR` | diag `search__1440x900`: `NOT_MEASURABLE` to `PASS/MATCH` |
+| Session rotation ends the superseded session (read before the mint rewrites the file, released after the mint) | `.canary/tools/theme-fidelity.mjs` `renewSession`, `readSupersededSession` | 2-pair diag exit 0: both legs measured (cart `INCONCLUSIVE`/`IDENTITY_DRIFT`, search `PASS`); release recorded redacted, never the secret |
+| lazysizes contract applied in hydration (`data-src`/`data-srcset`/`data-sizes` to `src`/`srcset`/`sizes`, loader class dropped) | `.canary/tools/theme-fidelity.mjs` `IMAGE_HYDRATION_EXPR` | 4-pair fast fixture: `product__1440x900` `content-changed-between-passes` to `PASS/MATCH`; `article__1024x900` `docHeight` 6217/6736/7511 became constant 4821 and `scrollWidth` 1009/1419 constant 1024 |
+| Image identity and document geometry are part of the settle condition, with `imagePanel`/`imageChanges` recorded as evidence | `.canary/tools/canary-settle.mjs` `SETTLE_IMAGES_EXPR` | a page whose images are complete but still swapping can no longer report settled; nothing was dropped from the fingerprint and `decideSettle` is unchanged |
+
+Persisted compare evidence in `.canary/theme-fidelity-run4/compare/`: `r1-vs-subject/index.json` (21 pairs:
+0 pass, 21 inconclusive, 16 notMeasurable) and `r2-vs-subject/index.json` (21 pairs: 1 pass, 20 inconclusive,
+13 notMeasurable); 126/126 sha256 verified across r1/r2/subject. Two later in-session runs exercised the
+settle and session fixes and an aborted run overwrote their artifacts, so those intermediate verdicts are not
+retained — the fixes rest on the diag and the 4-pair fixture above, and the campaign is re-run once
+`260911-0652` Phase 1 lands.
+
+### Route fidelity, measured, before asserting anything
+
+All 21 legs were served their own requested route and their own requested theme: `/cart?themeid=1001512581`,
+`/products/ong-han-laser?themeid=-1`, `/khong-ton-tai-404-probe-xyz?themeid=…` and the rest, per side
+(`targets[].dom.observedUrl` in each side's `index.json`). No `?openLogin=1`-style substitution occurs in
+this campaign. The property held because upstream held it, not because the harness asserted it, so the
+`260911-0652` Phase 1 assertion belongs in this harness as well as in `fifteen-pages-run.mjs`.
+
+### Still blocking publication (typed)
+
+1. **Session pool — product side.** A 4-pair run already exhausts it: pairs 3 and 4 refuse
+   `SESSION_RENEWAL_FAILED` while pairs 1 and 2 measure. `antifan.cli.endSession` frequently never replies
+   (`RPC timeout 8000ms`, recorded as `sessionRelease.released:false`), so the superseded session's bindings
+   are not returned, and `openTab` refuses once `getManagedTabIds(boundTabId).size >= 10`
+   (`src/main/tools/browser-control-port.ts:2055-2080`). A 42-pair run cannot complete until the bridge
+   replies and returns bindings, or the harness stops needing a fresh session per pair.
+2. **Image identity churn.** After hydration, `article__1024x900` holds its geometry but still moves
+   `imageSetHash` between passes. Either a loader contract that covers every case (srcset- and
+   script-driven swaps) or the owner's typed-refusal decision already recorded in the plan's risk table.
+3. **Route assertion** (`260911-0652` Phase 1) — the stated precondition for publishing this campaign.
+
+### Assets for whoever resumes
+
+- Fast validation loop, measured at 4 pairs in 197 s against a 50-minute campaign run: builder script at
+  `C:/Users/Admin/.omp/agent/sessions/--E--Work-apps-AntiFan--/2026-09-09T11-31-20-180Z_01a085ef-cbf4-765d-9a4f-ecf6ff8f7c77/local/build-fast-fixture.mjs`,
+  then `node .canary/tools/theme-fidelity.mjs compare --reference .canary/theme-fidelity-fast/r2mini --subject .canary/theme-fidelity-fast/subjectmini --out <dir>`.
+  `.canary/theme-fidelity-fast/` is scratch, untracked.
+- Costly constraints: never put a backtick inside a page-side template literal (`IMAGE_HYDRATION_EXPR`,
+  `SETTLE_*_EXPR`); one variable per run, so never edit `.canary/tools/**` while a run is in flight;
+  `git add -f` for every `.canary/**` path; never signal-kill the Electron plane — `hub restart antifan-canary`
+  is the lifecycle lever.
+- The ultra wave's five candidates were scored, all five refuted on their named cause, and the applied shape
+  confirmed best: `C:/Users/Admin/.omp/agent/sessions/--E--Work-apps-AntiFan--/2026-09-09T11-31-20-180Z_01a085ef-cbf4-765d-9a4f-ecf6ff8f7c77/local/ultra-verifier-verdict-round2.json`.

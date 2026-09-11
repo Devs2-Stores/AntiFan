@@ -530,8 +530,8 @@
       "geometry": {
         "url": "http://127.0.0.1:7861/search__1440x900.html",
         "docHeight": 2421,
-        "clientWidth": 1425,
-        "scrollWidth": 1425,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
         "overflowX": 0,
         "sectionCount": 3,
         "productCardCount": 0,
@@ -546,11 +546,11 @@
         "headerRect": {
           "x": 0,
           "y": 0,
-          "w": 1425,
+          "w": 1440,
           "h": 166
         },
         "navRect": {
-          "x": 107.5,
+          "x": 115,
           "y": 110,
           "w": 1210,
           "h": 56
@@ -559,13 +559,13 @@
         "mainRect": {
           "x": 0,
           "y": 166,
-          "w": 1425,
+          "w": 1440,
           "h": 1597.72
         },
         "footerRect": {
           "x": 0,
           "y": 1813.72,
-          "w": 1425,
+          "w": 1440,
           "h": 607
         },
         "sections": [
@@ -575,7 +575,7 @@
             "rect": {
               "x": 0,
               "y": 0,
-              "w": 1425,
+              "w": 1440,
               "h": 166
             }
           },
@@ -585,7 +585,7 @@
             "rect": {
               "x": 0,
               "y": 166,
-              "w": 1425,
+              "w": 1440,
               "h": 1597.72
             }
           },
@@ -595,7 +595,7 @@
             "rect": {
               "x": 0,
               "y": 1813.72,
-              "w": 1425,
+              "w": 1440,
               "h": 607
             }
           }
@@ -655,8 +655,8 @@
       "geometry": {
         "url": "http://127.0.0.1:7862/search__1440x900.html",
         "docHeight": 2421,
-        "clientWidth": 1425,
-        "scrollWidth": 1425,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
         "overflowX": 0,
         "sectionCount": 3,
         "productCardCount": 0,
@@ -671,11 +671,11 @@
         "headerRect": {
           "x": 0,
           "y": 0,
-          "w": 1425,
+          "w": 1440,
           "h": 166
         },
         "navRect": {
-          "x": 107.5,
+          "x": 115,
           "y": 110,
           "w": 1210,
           "h": 56
@@ -684,13 +684,13 @@
         "mainRect": {
           "x": 0,
           "y": 166,
-          "w": 1425,
+          "w": 1440,
           "h": 1597.72
         },
         "footerRect": {
           "x": 0,
           "y": 1813.72,
-          "w": 1425,
+          "w": 1440,
           "h": 607
         },
         "sections": [
@@ -700,7 +700,7 @@
             "rect": {
               "x": 0,
               "y": 0,
-              "w": 1425,
+              "w": 1440,
               "h": 166
             }
           },
@@ -710,7 +710,7 @@
             "rect": {
               "x": 0,
               "y": 166,
-              "w": 1425,
+              "w": 1440,
               "h": 1597.72
             }
           },
@@ -720,7 +720,7 @@
             "rect": {
               "x": 0,
               "y": 1813.72,
-              "w": 1425,
+              "w": 1440,
               "h": 607
             }
           }
@@ -787,9 +787,9 @@
     "verdict": null,
     "toolStatus": null,
     "match": true,
-    "mismatchPercentage": 0.12,
+    "mismatchPercentage": 0,
     "dimensionsMatch": true,
-    "diffPixels": 4332,
+    "diffPixels": 72,
     "totalPixels": 3486240,
     "diffBoundingBox": null,
     "mask": {
@@ -868,7 +868,7 @@
           "height": 2421
         },
         "captureMode": "full-page",
-        "timestamp": 1789106446327,
+        "timestamp": 1789109914673,
         "viewportTransaction": {
           "before": {
             "width": 1440,
@@ -903,7 +903,7 @@
           "height": 2421
         },
         "captureMode": "full-page",
-        "timestamp": 1789106447157,
+        "timestamp": 1789109919107,
         "viewportTransaction": {
           "before": {
             "width": 1440,
@@ -926,47 +926,53 @@
     "elapsedMs": null
   },
   "instance": {
-    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
+    "attachmentId": "attachment-0c583991-15cc-4ef1-a463-5f576684ad3f",
     "bridgePort": 20131,
-    "pid": 21236,
-    "primaryTabId": "d5ca8907-36a7-403e-b925-e907efce4d32",
-    "startedAt": "2026-09-11T00:18:43.203Z",
-    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
-    "attemptId": "attempt-51f0af7b-5c9b-4660-9225-b3d43b0d33d2"
+    "pid": 22088,
+    "primaryTabId": "0c921912-4471-442a-91a3-1ea26d63503b",
+    "startedAt": "2026-09-11T05:55:39.941Z",
+    "runId": "run-2a8e2ad4-2d39-42db-9c6d-c782d7f4251c",
+    "attemptId": "attempt-a9fb7783-b3b9-4ea6-b4a3-5955acc9b9a9"
   },
   "run": {
-    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
-    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
-    "authorityRevision": "rev_7c75c4511737cf692a674d858f6a021d",
-    "mintedAt": "2026-09-11T05:53:54.686Z"
+    "runId": "run-2a8e2ad4-2d39-42db-9c6d-c782d7f4251c",
+    "attachmentId": "attachment-0c583991-15cc-4ef1-a463-5f576684ad3f",
+    "authorityRevision": "rev_51c8bb6eb181bdda35eeecd84a14f89e",
+    "mintedAt": "2026-09-11T06:50:54.120Z"
   },
   "tabs": {
     "reference": {
-      "tabId": "c887f8c5-5557-4d3f-b85a-a4b5df5e59e3",
-      "openedAt": "2026-09-11T05:59:27.968Z",
+      "tabId": "5e462036-5f5b-4a6a-9758-fa5c3d952add",
+      "openedAt": "2026-09-11T06:57:15.857Z",
       "hydration": {
-        "captureBytes": 718843,
+        "captureBytes": 718380,
         "docHeight": 2421
       },
       "closed": true,
-      "closedAt": "2026-09-11T06:00:47.950Z",
+      "closedAt": "2026-09-11T06:58:39.861Z",
       "closeError": null
     },
     "subject": {
-      "tabId": "3ae06e8b-6220-42c8-a84b-1ddbdc3b82ca",
-      "openedAt": "2026-09-11T06:00:04.956Z",
+      "tabId": "6b0417fa-c442-4e74-86e0-62a8ec50f07f",
+      "openedAt": "2026-09-11T06:57:48.898Z",
       "hydration": {
-        "captureBytes": 680107,
+        "captureBytes": 717650,
         "docHeight": 2421
       },
       "closed": true,
-      "closedAt": "2026-09-11T06:00:47.988Z",
+      "closedAt": "2026-09-11T06:58:39.880Z",
       "closeError": null
     }
   },
-  "startedAt": "2026-09-11T05:59:10.817Z",
-  "finishedAt": "2026-09-11T06:00:47.988Z",
-  "printLine": "surface=search viewport=1440x900 verdict=PASS mismatch=0.12% referenceHeight=2421px subjectHeight=2421px",
+  "startedAt": "2026-09-11T06:57:01.902Z",
+  "finishedAt": "2026-09-11T06:58:39.880Z",
+  "printLine": "surface=search viewport=1440x900 verdict=PASS mismatch=0% referenceHeight=2421px subjectHeight=2421px",
+  "sessionRelease": {
+    "runId": "run-aaf97f2e-186f-42a7-acc4-5cbeb605821a",
+    "attemptId": "attempt-acb94114-9eae-4768-8ae6-768ce17115e3",
+    "attachmentId": "attachment-1aaaac2e-e517-48d3-9504-6472c7ec88e9",
+    "released": true
+  },
   "release": {
     "reference": {
       "widgets": {
