@@ -202,8 +202,9 @@
       "group": "gate",
       "title": "`verify` typechecks the whole program twice (once directly, once via compile)",
       "severity": "P3",
-      "status": "open",
+      "status": "closed",
       "evidence": "package.json verify = typecheck + test, and test begins with compile",
+      "closedBy": "verify delegates the program type check to the compile step inside npm test, which runs tsc over the same tsconfig",
       "predicate": { "kind": "script-matches", "script": "verify", "pattern": "npm run typecheck" }
     },
     {
