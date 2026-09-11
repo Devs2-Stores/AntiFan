@@ -244,38 +244,54 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    with a 3 s gap — the interval the ordering probe measured as sufficient for a teardown to settle — re-running
    the mint and never a measurement, recording every attempt as `sessionRenewal` and keeping the typed refusal
    unchanged when all attempts fail. Measured on the 4-pair fixture: **0 of 4 legs refused
-   `SESSION_RENEWAL_FAILED`**, with `released: true` on all four, against 2 of 4 in every earlier fixture run and
-   6 of 21 in the post-anchor full run. Campaign scale is 21 legs, so the class is closed at fixture scale only.
+   `SESSION_RENEWAL_FAILED`, with `released: true` on all four, against 2 of 4 in every earlier fixture run and
+   6 of 21 in the post-anchor full run. Two independent post-retry runs needed the retry on two legs each —
+   `sessionRenewal.attempts` recorded article 1, cart 3, home 1, product 2 — so those two legs refuse without
+   it: the retry is what stands between them and `SESSION_RENEWAL_FAILED`. Campaign scale is 21 legs, so the
+   class is closed at fixture scale only.
    The reorder is kept for its failure handling — a failed mint no longer strands the run's tab — and not as a
    demonstrated remedy; `git revert 874060e` is the cheap exit if it proves inert beyond that. One lever remains
    untried: a settle gap between mint completion and the tab close. **Publication is now gated by the other two
    classes rather than by renewal**: the same run refused `article__1024x900` and `home__1440x900` on
    `content-changed-between-passes` and `cart__1440x900` on `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`.
-2. **Image identity churn, and the loader state.** After hydration, `article__1024x900` holds its geometry but
-   still moves `imageSetHash` between passes; the `imagePanel`/`imageChanges` evidence added here exists to name
-   the entry that moved. The replay runs the storefront's own lazysizes
-   (`assets/lazysizes.min.js` declares `lazyClass:"lazyload", loadedClass:"lazyloaded", loadingClass:"lazyloading"`)
-   and this theme keys CSS on the loaded class — `style-all.scss.liquid:237`
-   `img.lazyload:not([src]){visibility:hidden}`, `:239` `.lazyloading{opacity:.3;blur(5px)}`, `:245`
-   `.lazyloaded{opacity:1}`, `style-ldpage-01.scss.liquid:617` `img:not(.lazyloaded){min-height:200px}`,
-   `ll-style-all.scss.liquid:113` — so promoting `data-src` without *adding* `lazyloaded` leaves a mixed loader
-   state that can itself manufacture cross-side drift. Next instrument change: add `lazyloaded` on promotion
-   (keep dropping `lazyload`/`lazyloading`), then re-measure.
+2. **Image identity churn — measured, and not a loader-state artifact.** After hydration, `article__1024x900`
+   and `home__1440x900` hold every other recorded field constant across passes — `imageCount` 37/115,
+   `imageSetSize`, `sectionCount`, `productCardCount`, `docHeight` 4821/5426, `scrollWidth` 1024/1425,
+   `textHash`, `textLength`, `pendingImages` 0, `brokenImages` 0, `chromeProbe` region hashes — while
+   `imageSetHash` takes three distinct values. Widening `imagePanel` from its first 12 images to all of them,
+   and recording the within-pass identity diff, named the movers against that constant document: the second
+   `logo-hlt-2024.png` instance shifts `y` 30 to 52 (article) and 30 to 55 (home), and an image whose truncated
+   basename is `%3E` (300x150) moves `y` 795 to 4675 (article) and 795 to 5321 (home). Same basenames, same
+   natural sizes, same counts, constant document height — a between-pass re-render that re-orders nodes, not an
+   image still loading: the within-pass identity diff is empty on both legs. The loader-state hypothesis was
+   tested and rejected as the mover. `IMAGE_HYDRATION_EXPR` gained `lazyloaded` on promotion (keeping the drop
+   of `lazyload`/`lazyloading`, so no stale loader class survives), the 4-pair fixture reproduced the same four
+   verdicts and the same mechanisms — `article__1024x900` and `home__1440x900` `content-changed-between-passes`,
+   `cart__1440x900` `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`, `product__1440x900` `PASS/MATCH` — and
+   the edit was **reverted**: the promotion itself is the measured-good part and stays. What remains on these
+   two legs is the widget-carriage class this plan refuses to mask — a surface that re-orders its own nodes
+   between two passes of one URL refuses, unchanged in kind, until either the freeze covers the widget or the
+   owner accepts permanent refusal for that surface.
+   The evidence additions stay: a full `imagePanel` and an `imageIdentityChanges` list are recorded, never gate
+   inputs, so the next session can name a mover without re-deriving it.
 3. **Settlement honesty floor.** The strict path requires four consecutive samples with an unchanged image +
    geometry signature and `pendingImages === 0`. The 9 s deadline path returns
    `imagesSettled: pendingImages === 0 && stableSamples >= 2` — about 200 ms of stability — so read
    `imagesSettled: true` from a deadline-path result as a floor, never as proof that the set stopped moving.
-4. **Geometry growth — attribution still open.** `pendingImages: 0` with `imageCount`/`sections`/`cards`/`text`
-   constant while `docHeight`/`scrollWidth` grew does not fit plain image loading. The fixture result after
-   promotion (article `docHeight` constant 4821, `scrollWidth` constant 1024 across three passes) points at the
-   un-promoted lazy images, but the pin-layer alternative is untested: record
-   `document.querySelectorAll('[data-antifan-pinned]').length`, `scrollHeight` and `scrollWidth` immediately
-   before and after the guard block on each pass, and whether `releaseSettleOverrides` runs between passes. If
-   the pin count rises with the document, the fix is an idempotent or restored pin layer, not another wait.
+4. **Geometry growth — closed on the two churn legs, open on mobile.** `pendingImages: 0` with
+   `imageCount`/`sections`/`cards`/`text` constant while `docHeight`/`scrollWidth` grew did not fit plain image
+   loading, and the post-promotion fixture resolved it for `article__1024x900` and `home__1440x900`: all three
+   passes hold `docHeight` 4821 and `scrollWidth` 1024, with the residual move being node re-ordering (item 2),
+   not the document. The pin-layer lever is therefore not indicated for those legs; it remains untested where
+   growth still appears, which after promotion is the `390x844` legs (the clone mobile defect, 4543–4545 px
+   against a 9843 px dump). If the pin count rises with the document there, the fix is an idempotent or
+   restored pin layer, not another wait.
 5. **Route assertion** (`260911-0652` Phase 1). `checkObservedUrl` (`theme-fidelity.mjs:1118-1140`) asserts only
    host and `themeid`; pathname and query are recorded at `targets[].dom.observedUrl` and never compared, which
    is the same unasserted class that plan fixes in `fifteen-pages-run.mjs`. Sibling fix point, and this
-   harness's publication gate is what waits on it.
+   harness's publication gate is what waits on it. As of this handover the fix is in flight but uncommitted in
+   the working tree — `expectedUrl` on the `anti.screenshot.full_page` call plus pathname normalisation in
+   `checkObservedUrl` — so verify and finish it, do not author a second version.
 6. **Reference asymmetry r1 vs r2 — inspect before tuning.** The same subject scored 0 PASS against r1 and 5
    against r2, and r1's extra failures are reference-side (7 legs `REFERENCE_IDENTITY_DRIFT`, including 404@1024
    and 404@1440, with r1 home@1440 recording `referenceHeight` 7532 where r2 records 5426), so part of r1's
@@ -298,6 +314,11 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
   is the lifecycle lever. The plane is now shared with the session that took over `260911-0652`, so confirm it
   is idle before any run: `hub ps` lists hub-managed processes only, and a peer session's in-flight compare
   would not appear there — check `hub list` for peers in this project too, because two concurrent
-  browser-plane runs corrupt both sets of verdicts.
+  browser-plane runs corrupt both sets of verdicts. Those two probes are also blind to a peer's uncommitted
+  edits to `.canary/tools/**`: an in-flight `260911-0652` edit to `theme-fidelity.mjs` (`expectedUrl` on the
+  capture call, pathname identity in `checkObservedUrl`) was in the tree during this session's last fixture
+  run, so that run's route-identity behaviour belongs to that edit and not to this session's changes. Commit
+  `.canary/tools/**` path-scoped, name every path explicitly, and verify the staged set with
+  `git diff --cached --name-only` before committing.
 - The ultra wave's five candidates were scored, all five refuted on their named cause, and the applied shape
   confirmed best: `C:/Users/Admin/.omp/agent/sessions/--E--Work-apps-AntiFan--/2026-09-09T11-31-20-180Z_01a085ef-cbf4-765d-9a4f-ecf6ff8f7c77/local/ultra-verifier-verdict-round2.json`.

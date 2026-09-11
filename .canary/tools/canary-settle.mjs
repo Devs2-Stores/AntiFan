@@ -65,23 +65,42 @@ export const SETTLE_IMAGES_EXPR = `(async () => {
     const list = Array.from(document.images);
     return list.length + '#' + list.map(i => (i.currentSrc || i.src || '') + '@' + i.naturalWidth + 'x' + i.naturalHeight).join(',') + '#' + document.documentElement.scrollHeight + 'x' + document.documentElement.scrollWidth;
   };
-  const panel = () => Array.from(document.images).slice(0, 12).map(i => {
+  const panel = () => Array.from(document.images).slice(0, 200).map(i => {
     const r = i.getBoundingClientRect();
     return { src: String(i.currentSrc || i.src || '').split('/').pop().slice(0, 60), w: i.naturalWidth, h: i.naturalHeight, y: Math.round(r.y) };
   });
+  const identityCounts = () => {
+    const byName = new Map();
+    for (const img of Array.from(document.images)) {
+      const name = String(img.currentSrc || img.src || '').split('/').pop().slice(0, 60);
+      byName.set(name, (byName.get(name) || []).concat(img.naturalWidth + 'x' + img.naturalHeight));
+    }
+    for (const [name, list] of byName) byName.set(name, list.slice().sort().join(','));
+    return byName;
+  };
   let lastSignature = null, stableSamples = 0, imageChanges = 0;
+  let previousIdentities = null;
+  const identityChanges = [];
   for (;;) {
     const list = Array.from(document.images);
     list.forEach(i => { if (i.loading === 'lazy') try { i.loading = 'eager'; } catch {} });
     const pending = list.filter(i => !i.complete);
     const sig = signature();
     if (lastSignature !== null && sig !== lastSignature) imageChanges++;
+    const identities = identityCounts();
+    if (previousIdentities) {
+      for (const [name, after] of identities) {
+        const before = previousIdentities.get(name);
+        if (before !== undefined && before !== after && identityChanges.length < 12) identityChanges.push({ src: name, before, after });
+      }
+    }
+    previousIdentities = identities;
     if (lastSignature !== null && sig === lastSignature && pending.length === 0) {
       stableSamples++;
-      if (stableSamples >= 4) return { fontsSettled, imagesSettled: true, imageCount: list.length, pendingImages: 0, imageChanges, imagePanel: panel(), durationMs: Math.round(performance.now() - t0) };
+      if (stableSamples >= 4) return { fontsSettled, imagesSettled: true, imageCount: list.length, pendingImages: 0, imageChanges, imagePanel: panel(), imageIdentityChanges: identityChanges, durationMs: Math.round(performance.now() - t0) };
     } else stableSamples = 0;
     lastSignature = sig;
-    if (performance.now() > deadline) return { fontsSettled, imagesSettled: pending.length === 0 && stableSamples >= 2, imageCount: list.length, pendingImages: pending.length, imageChanges, imagePanel: panel(), durationMs: Math.round(performance.now() - t0) };
+    if (performance.now() > deadline) return { fontsSettled, imagesSettled: pending.length === 0 && stableSamples >= 2, imageCount: list.length, pendingImages: pending.length, imageChanges, imagePanel: panel(), imageIdentityChanges: identityChanges, durationMs: Math.round(performance.now() - t0) };
     await sleep(100);
   }
 })()`;
@@ -533,6 +552,7 @@ export async function settleAndMeasure(tabId, name) {
     scrollAnchor,
     chromeProbe,
     imagePanel: (images && images.imagePanel) || null,
+    imageIdentityChanges: (images && images.imageIdentityChanges) || null,
     domQuiet: domQuiet.domSettled === true,
     rafStopped,
     rafStopError: rafStopped ? null : (rafStop && rafStop.error) || 'rAF override not applied',
@@ -797,7 +817,7 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
     });
     const decision = decideSettle(passes);
     if (decision.settled) {
-      cur.settle.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, imagePanel: (p.settle && p.settle.imagePanel) || null, counts: p.counts }));
+      cur.settle.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, imagePanel: (p.settle && p.settle.imagePanel) || null, imageIdentityChanges: (p.settle && p.settle.imageIdentityChanges) || null, counts: p.counts }));
       return cur;
     }
     // A page that cannot be frozen is refused as such on the first pass: waiting
@@ -805,7 +825,7 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
     if (decision.refusal) {
       const err = new Error(`Target tab ${tabId} refused at ${label}: ${decision.refusal.code} — ${decision.refusal.reason} (passes: ${passes.map((p, i) => describeSettlePass(i + 1, p)).join(' ')})`);
       err.code = decision.refusal.code;
-      err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, imagePanel: (p.settle && p.settle.imagePanel) || null, counts: p.counts }));
+      err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, imagePanel: (p.settle && p.settle.imagePanel) || null, imageIdentityChanges: (p.settle && p.settle.imageIdentityChanges) || null, counts: p.counts }));
       throw err;
     }
     if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000));
@@ -813,6 +833,6 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
   const decision = decideSettle(passes);
   const err = new Error(`Target tab ${tabId} failed to achieve two consecutive matching settled passes at ${label}: ${decision.reason}${decision.failed.length ? ` (unsatisfied: ${decision.failed.join(',')})` : ''} (passes: ${passes.map((p, i) => describeSettlePass(i + 1, p)).join(' ')})`);
   err.code = decision.reason;
-  err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, imagePanel: (p.settle && p.settle.imagePanel) || null, counts: p.counts }));
+  err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, imagePanel: (p.settle && p.settle.imagePanel) || null, imageIdentityChanges: (p.settle && p.settle.imageIdentityChanges) || null, counts: p.counts }));
   throw err;
 }
