@@ -637,7 +637,10 @@ export async function evaluatePreCaptureQuiescence(
   } else if (!imageIdentityStable) {
     ready = false;
     failingPredicate = 'imageIdentityStable';
-    reason = `imageSetHash moved while geometry held constant: observed class article__1024x900 docHeight ${sample2.docHeight} / scrollWidth ${sample2.scrollWidth} constant, moving witness: ${movingWitness}`;
+    // The only facts measured here are the image identity that moved, the witness
+    // element, and the geometry that held constant: a page-specific class name in the
+    // reason would assert an observation this gate never made for any other page.
+    reason = `imageSetHash moved while geometry held constant: docHeight ${sample2.docHeight} / scrollWidth ${sample2.scrollWidth} constant, moving witness: ${movingWitness}`;
   } else if (!layoutStable) {
     ready = false;
     failingPredicate = 'layoutStable';

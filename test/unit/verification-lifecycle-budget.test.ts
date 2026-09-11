@@ -287,11 +287,10 @@ describe('VerificationEvaluator.failureSignature (the signature production suppl
     assert.strictEqual(deriveFailureSignature(partialResult), undefined);
   });
 
-  it('isolates signature from caller-supplied sample flags (engine-adjudicates invariant)', () => {
-    // Caller supplies passed: false on an obligation that passes according to criteria
+  it('derives the failure signature from the adjudicated violations, not from the sample array', () => {
     const passingClaim: VerificationClaim = {
       id: 'claim-caller-flag',
-      claim: 'Pass with bogus caller passed flag',
+      claim: 'Pass with a caller-supplied evidence sample',
       actor: 'agent',
       scope: { tabId: 'tab-1' },
       proofObligations: [{ id: 'obl-1', metric: 'visual.geometry_within_tolerance', critical: true }],
@@ -302,8 +301,43 @@ describe('VerificationEvaluator.failureSignature (the signature production suppl
       samples: [{ metric: 'visual.geometry_within_tolerance', actual: 0, expected: 0, passed: true }],
     });
     assert.strictEqual(passResult.verdict, 'VERIFIED');
-    // Even if caller passed a sample array with passed: false, evaluate produced VERIFIED, so signature is undefined
     assert.strictEqual(deriveFailureSignature(passResult), undefined);
+
+    // The evaluator reads `passed` when the caller supplies it — that flag is the
+    // evidence channel — so the isolation being asserted is narrower than "the engine
+    // ignores the samples": the signature is computed from the violations the evaluator
+    // itself raised, deduplicated and ordered, which is why the same failing obligations
+    // adjudicate to the same signature across attempts.
+    const rejecting = VerificationEvaluator.evaluate(
+      {
+        id: 'claim-signature-source',
+        claim: 'Two failing obligations',
+        actor: 'agent',
+        scope: { tabId: 'tab-1' },
+        proofObligations: [
+          { id: 'obl-1', metric: 'visual.geometry_within_tolerance', critical: true },
+          { id: 'obl-2', metric: 'visual.cardinality_match', critical: true },
+        ],
+      },
+      {
+        documentGeneration: 1,
+        captureTimestamp: 1,
+        samples: [
+          { metric: 'visual.geometry_within_tolerance', actual: 5, expected: 0, passed: false },
+          { metric: 'visual.cardinality_match', actual: 0, expected: 1, passed: false },
+        ],
+      }
+    );
+    assert.strictEqual(rejecting.verdict, 'REJECTED');
+    assert.strictEqual(deriveFailureSignature(rejecting), 'visual.cardinality_match+visual.geometry_within_tolerance');
+
+    // A result the evaluator did not reject has no signature even when a violation list
+    // is attached, and a rejection with no violations fabricates none.
+    assert.strictEqual(deriveFailureSignature({ ...rejecting, verdict: 'PARTIAL' as const }), undefined);
+    assert.strictEqual(
+      deriveFailureSignature({ ...rejecting, proofProfile: { ...rejecting.proofProfile, violations: [] } }),
+      undefined
+    );
   });
 
   it('trips STALEMATE when the signature production derives repeats across attempts', () => {
