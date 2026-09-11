@@ -473,3 +473,72 @@ and the gitignored `.antifan-data/control-plane-v2/artifacts/…`), and the bund
 depends on `.canary/run3/evidence/**`, which HEAD does not track. Fixing those tests (materialising each
 fixture into a temp artifact root, or a guarded skip naming the missing prerequisite) is the owner's
 declared work and I did not touch it.
+
+## Seventh round: a refusal that would not reproduce, and the loop proven in both directions
+
+**A. The page-02 "10px" was measured to death, and it is not there.** The pinned Phase 5 surface was
+page-02 `/brands` @390 with `deltaGeometry 10` (recorded reference `4270` / header 170, clone `4280` /
+180, main and footer pixel-identical). Five designs re-measured the same clone bytes: a paired capture
+against the live reference in one session (both **4270 / 170**, **0 of 458** header nodes differing,
+11 fonts loaded each side); six full loads (4270 every time); an 84-sample, 25s series at 300ms under
+measured mobile emulation (`...Mobile Safari/537.36`, touch 5, `(max-width:767px)` true) which stayed
+flat at 170 with no late reflow; a viewport sequence 390 -> 1440 -> 1024 -> 390; and the campaign's own
+document order - the clone root's desktop document first at 1440 and 1024, then the mobile entry
+navigated into the same tab, which the harness actually does (`fifteen-pages-run.mjs:871-874, :904,
+:914`) and which no fresh-tab probe can imitate. Every design agreed with the reference, and the
+reference reproduced the campaign's own recorded number exactly, so the instrument is validated rather
+than merely convenient. The recorded 4280 was a property of that capture, not of the clone. The fix
+target is withdrawn in the plan; no `packages/site-clone` edit was made. What remains open, and is
+recorded as an owner decision rather than fixed quietly, is that a *structural refusal was published
+from an unreproducible read*: requiring two consecutive identical structural reads before minting one
+(otherwise `INCONCLUSIVE`) is a behavior change on the same boundary the plan protects.
+
+**B. Advisories were weighed, not obeyed, and the two that mattered were measured first.** (i) The
+fail-closed expectation reader had been widened into a 30-branch ladder that accepted shapes no producer
+emits; it is pruned to **14 sourced branches** (the port's `expectationMarker` / `missingExpectation` /
+`routeAssertion` at `:1866-1868`, `:1929-1931`, `:4521-4524`, `:5353-5354`, the harness's
+`refusal.code` / `causeCode` / `capture.reference|clone` records, and the previously accepted persisted
+shapes), with the marker canonicalized at the producer - `route-identity-gate.test.mjs` 14/14, and the
+test that fails against the pre-change reader is kept. (ii) `auditToolSurface` had been made to refuse a
+non-array declaration, but **FixRequest v2 declares `toolSurface` as an object**
+(`{allowedTools, forbiddenToolPatterns}` while FixResult v2 allows `string[]` or `{usedTools}`), so that
+rule would have refused every schema-valid request - a false refusal introduced into the merge gate.
+Measured after the fix: request object -> `OK`, `{usedTools}` -> `OK`, array -> `OK`, absent -> `OK`,
+`{nope:1}` -> `REFUSED_TOOL_SURFACE` naming the shape; fix-loop suite 16/16. (iii) Rows A, C and D of
+the section-15 table still claimed a FAIL and two PASSes for a page refused before any pipeline work;
+they now read `NOT_RUN` like B/E/F, with a test (5/5). (iv) The launcher's post-acquisition throw path
+exited without revoking, and the same gap exists at HEAD (`8e71915`) - attributed, not assumed; the
+catch now runs `cleanup('failed', ...)` and the signals register at acquisition (13/13, `node --check`
+clean).
+
+**C. Two engine claims of mine were wrong, and are corrected by measurement.** The failure signature had
+been derived from `MetricSample.passed`, a caller-supplied flag that can be empty or claimant-influenced;
+it now comes from the evaluator's own `proofProfile.violations[].metric` for `REJECTED` verdicts only
+(`verification-evaluator.ts:305-318`). And the cross-attempt claim did not hold at all: the previous
+lifecycle was resolved only when `attemptId` matched (`browser-capabilities.ts:3034-3036`), so `previous`
+was never supplied for a new attempt and the breaker's carry branch could not fire. With
+`resolvePreviousLifecycle(claim, runId)` resolving the run's latest lifecycle regardless of attempt, a
+fresh attempt now inherits the prior signature and trips `STALEMATE` at `maxIdenticalFailures = 2`, with
+a test that fails on the old lookup and passes on the new one. Compiled suites 72/72, evaluator 18/18,
+lifecycle 14/14, typecheck 0, `npm run compile` clean.
+
+**D. The loop was proven on a real tree in both directions.** Against a staged copy of `scripts/lib`,
+an edit to a file outside `allowedFiles` returned exit **10 `REFUSED_TOUCHED_PATH`** with the path named;
+the same request's lawful edit returned exit **0 `OK`**; and `merge` into a throwaway target applied the
+change with an `OK` receipt while the real workspace stayed byte-identical. A third run taught a fact
+worth keeping: a request whose `requestedTargets` omitted the touched file was refused with exit **12
+`REFUSED_SCOPE_EXPANSION`** and *"Scope expansion |T \\ R| = 1 exceeds maxScopeExpansion (0)"*, because
+that audit measures against `requestedTargets`, not `allowedFiles`. The refusal was correct and the
+request was malformed - an operator error, not a gate defect.
+
+**E. Operational facts measured the hard way, for the next operator.** The MCP dispatch binding dies
+when the plane restarts; the harness CLI (`lib-rpc.mjs`) keeps working, so probes must go through it.
+`browser.set-viewport` needs `browser.switch-tab` first in this build (without it: `CAPABILITY_NOT_FOUND`
+against a tab that exists), and it rejects `reload: false` with `VIEWPORT_NOT_APPLIED` (observed
+689x1489 for a requested 390x844). A CLI session admits a bounded number of tab creations, and closing
+the tab it was bound to kills the session - so a probe run should mint, create only what it names, close
+it, and mint again rather than sweeping by URL (a sweep closed the session's own anchor and every later
+create was refused). Full `test:canary` now stands at **154 pass / 5 fail**; all five failures are the
+owner's machine-local fixture gap in the `build-report` family ("referenced artifact missing" against
+`.antifan-data/...` and `E:/Work/.antifan-canary/...`, plus the untracked `.canary/run3/evidence/**`),
+which I did not touch.

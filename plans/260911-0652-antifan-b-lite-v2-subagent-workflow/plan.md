@@ -124,7 +124,7 @@ OMP discovery is authoritative, not inferred: sibling capability dirs (`skills/`
 | Domain skill | `.omp/extensions/antifan-fix-guard/skills/antifan-theme/SKILL.md` | Theme surfaces, evidence calls, refusal reporting | Main |
 | Tool-call guard | `.omp/extensions/antifan-fix-guard/hooks/pre/*` (conditional on the probe) | File-scope enforcement at tool-call time, if hooks see child calls | Main |
 | Explicit load | `.omp/config.yml` → `extensions: ["./.omp/extensions/antifan-fix-guard"]` | Makes the package explicitly named, so its sibling roots are eligible | Main |
-| FixRequest v2 / FixResult v2 schema | `plans/260911-0652-…/contract/fix-request.v2.schema.json` (plan-owned) | Machine-readable request and return contract | Main |
+| FixRequest v2 / FixResult v2 schema | `.omp/extensions/antifan-fix-guard/schemas/` | Machine-readable request and return contract | Main |
 | Merge-gate receipt | `.canary/staging/<runId>/receipt.json` | Touched-path audit + budget audit + post-merge verification + decision | Main |
 | Verdict / evidence / lifecycle records | AntiFan run dirs (`.canary/…`) | Adjudication, capture artifacts, run state, repair-attempt accounting | AntiFan engine |
 

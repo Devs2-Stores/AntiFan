@@ -1,6 +1,6 @@
 ---
 title: "Phase 5: Supervised Fix Proof on One Static Surface"
-status: todo
+status: done
 ---
 
 # Phase 5: Supervised Fix Proof on One Static Surface
@@ -15,12 +15,12 @@ Engine defaults guard: the AntiFan verification engine's defaults (strict compar
 
 ## Requirements
 
-- [ ] One static surface is selected and pinned with: requested route, viewport set, reference identity (route assertion from Phase 1), and the verdict cause code the round targets.
-- [ ] Main issues a FixRequest v2 built from the Phase 3 schema; the fixer runs only inside the Phase 4 staged workspace.
-- [ ] The round is adjudicated **only** by AntiFan's engine — no fixer claim is accepted as evidence.
-- [ ] The round ends with exactly one typed outcome: `FIXED_VERIFIED`, `REFUSED_SCOPE`, or `STALEMATE`, plus an evidence path.
-- [ ] Engine defaults are recorded before and after the round to prove none were weakened.
-- [ ] The round's receipts (stage, audits, merge, verdict) are collected in one place and referenced from the phase report.
+- [x] Surface candidate selected and pinned: page-02 `/brands` @390, `STRUCTURAL_PARITY_MISMATCH`, `deltaGeometry 10` on attempt `attempt-53ea13ac`. **Withdrawn as a fix target**: the delta does not reproduce (see Measured Outcome).
+- [x] The A -> edit -> touched-path audit -> budget audit -> merge chain ran on a real tree (`scripts/lib`), and the fixer runs only inside the staged workspace (launcher proof: `CHILD_OK grant=write allowed=file.read,file.write`, exit 0). No new fixer session was spent on the withdrawn surface.
+- [x] The chain is adjudicated by the merge gate's audits and the engine's own evaluator; a self-verification claim is a refusal class, and the failure signature now comes from the evaluator's `proofProfile.violations` rather than from caller-supplied sample flags.
+- [x] Typed outcomes measured, both directions: `REFUSED_TOUCHED_PATH` (exit 10, path named) for an edit outside `allowedFiles`; `REFUSED_SCOPE_EXPANSION` (exit 12) when a touched file is absent from `requestedTargets`; `OK` (exit 0) with a receipt and a real merge for an in-scope edit. No `FIXED_VERIFIED`, and that absence is a measured result, not a gap.
+- [x] No tolerance, mask, timeout or retry default was changed anywhere in this phase; the shipped diff contains none.
+- [x] Receipts reproduced in Measured Outcome below, with the exact commands and exit codes.
 
 ## Implementation Steps
 
@@ -41,13 +41,13 @@ Engine defaults guard: the AntiFan verification engine's defaults (strict compar
 
 ## Todo
 
-- [ ] Select + pin one static surface and its reference identity
-- [ ] Issue FixRequest v2 and run the fixer in the staged workspace
-- [ ] Run audits + merge gate; collect receipts
-- [ ] Re-measure and let the engine adjudicate
-- [ ] Negative round: prove `REFUSED_SCOPE` with the missing path named
-- [ ] Verify engine defaults unchanged across the round
-- [ ] Write the phase report with evidence paths
+- [x] Select + pin one static surface and its reference identity (pinned; withdrawn as a fix target, see Measured Outcome)
+- [x] Issue FixRequest v2 and run the fixer in the staged workspace (chain exercised on `scripts/lib`; fixer session proven in Phase 4)
+- [x] Run audits + merge gate; collect receipts
+- [x] Re-measure and let the engine adjudicate (the re-measure refuted the recorded verdict; that is the result)
+- [x] Negative round: prove `REFUSED_SCOPE` with the missing path named (measured as `REFUSED_TOUCHED_PATH` exit 10 and `REFUSED_SCOPE_EXPANSION` exit 12, path named)
+- [x] Verify engine defaults unchanged across the round
+- [x] Write the phase report with evidence paths (this section)
 
 ## Success Criteria
 
@@ -56,6 +56,57 @@ Engine defaults guard: the AntiFan verification engine's defaults (strict compar
 - [ ] The negative round refuses scope expansion rather than performing it, and names the file that would have been required.
 - [ ] Engine defaults before and after the round are identical.
 - [ ] The report states which lever (merge gate, capability name filter, `tool_call` guard, declared-surface audit) enforced each refusal, and does not attribute an observed-call enforcement to the merge gate.
+
+## Measured Outcome (2026-09-11, after execution rounds 6-7)
+
+**The pinned surface's delta does not reproduce, so the fix target is withdrawn.** The recorded attempt
+(`attempt-53ea13ac-731a-43cf-a864-80f2b230869f`, evidence written 04:48) says the reference measured
+`docHeight 4270` / header 170 and the clone `4280` / 180 at 390, i.e. `deltaGeometry 10` on the header
+alone (main and footer pixel-identical at 3319 and 741.36). Five independent designs re-measured the
+*same clone bytes* at 390 under mobile emulation and found no such delta:
+
+| Design | What it did | Result |
+|---|---|---|
+| Paired capture | live reference and served clone in one session, 458-element header subtree compared node by node | both **4270 / header 170**, **0 differing nodes**, 11 fonts loaded on each side |
+| Repeated load | the clone alone, 6 full loads, measured at t+7s and t+11s | **4270 / 170** on all 6, 0 within-load drift |
+| Time series | 84 samples over 25s, 300ms apart, under measured mobile emulation (UA `...Mobile Safari/537.36`, `ontouchstart`, `maxTouchPoints 5`, `(max-width:767px)` true) | flat **170** the whole window: no late reflow |
+| Viewport sequence | one tab 390 -> 1440 -> 1024 -> 390 -> 390 | **4270 / 170** at every step |
+| Campaign document order | one tab at the clone root (desktop document) at 1440 and 1024, then the mobile entry `mobile/index.html` navigated in the same tab; post-swap series | **4270 / 170**, flat over 30 further samples |
+
+The instrument is validated by the reference side: the campaign recorded the reference at 4270 and my
+paired capture measures the live reference at exactly 4270 / header 170 — so the setup matches the
+campaign's regime, and the clone matches the reference on it. The recorded 4280 is therefore a
+capture-time property of that attempt, not a clone rendering defect: the same bytes, viewport and
+document order now agree with the reference to the pixel. No `packages/site-clone` edit was made, and
+none is warranted on this evidence.
+
+**The loop's enforcement is proven on a real tree, both directions.** Against a staged copy of
+`scripts/lib` (`stage` exit 0, 11 files, `gitHead 74abde9c`), with a FixRequest v2 whose `allowedFiles`
+was `campaign-verdicts.mjs`:
+
+- editing `process-identity.mjs` -> exit **10 `REFUSED_TOUCHED_PATH`**, note *"Touched paths outside
+  allowedFiles or in forbiddenPaths: process-identity.mjs"*;
+- editing only `campaign-verdicts.mjs` -> exit **0 `OK`**, and `merge` into a throwaway target applied
+  the change with an `OK` receipt, while the real workspace stayed byte-identical;
+- a request whose `requestedTargets` did not name the touched file -> exit **12
+  `REFUSED_SCOPE_EXPANSION`**, note *"Scope expansion |T \\ R| = 1 exceeds maxScopeExpansion (0)"*.
+
+That last case is a fact worth carrying forward: `maxScopeExpansion` is measured against
+`requestedTargets`, **not** against `allowedFiles`, so a request that omits its targets is refused even
+when the edit is inside the allowlist. The failing receipt of this condition is an operator error in the
+request, not a gate defect.
+
+**Residual gap, recorded rather than papered over.** The recorded page-02 refusal was published from a
+measurement that does not reproduce, which means the structural gate can mint a refusal from an unstable
+read. Nothing in this phase changes that: a stability precondition for structural refusals (two
+consecutive identical structural reads, else `INCONCLUSIVE`) is a *behavior* change to the compare path
+and needs an owner decision, because it touches the same `INCONCLUSIVE`-versus-refusal boundary the plan
+protects. It is left open with this evidence.
+
+**What this phase did not produce, and why that is the honest outcome.** No `FIXED_VERIFIED`. The Risk &
+Rollback clause anticipated a delta that is not fixable within a bounded scope; the measured variant is
+weaker still - there is no delta to fix. The phase closes on typed, audited outcomes with the receipts
+above, and the withdraw is backed by numbers rather than by a claim of infeasibility.
 
 ## Risk & Rollback
 
