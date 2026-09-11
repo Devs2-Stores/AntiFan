@@ -68,6 +68,20 @@ describe('Artifact Capabilities & Content-Addressed Storage (Phase 04)', () => {
     assert.strictEqual(ref.attemptId, attemptId);
     assert.ok(fs.existsSync(ref.path));
     assert.ok(ref.path.endsWith(`${ref.sha256}.artifact`));
+
+    // Read the committed content-addressed file back: the redaction flag alone is vacuous
+    // unless the persisted bytes actually lack the plaintext secret.
+    const storedBytes = fs.readFileSync(ref.path);
+    assert.ok(storedBytes.byteLength > 0, 'Committed artifact file must be non-empty');
+    const storedText = storedBytes.toString('utf8');
+    assert.ok(
+      !storedText.includes('very_long_secret_token_1234567890_abcdef'),
+      'Plaintext token value must not be persisted in the artifact file'
+    );
+    assert.ok(
+      storedText.includes('"token":"[REDACTED]"'),
+      'Redaction replaces the JSON string value with [REDACTED] while keeping the key'
+    );
   });
 
   it('2. Deduplicates identical blobs within the same run and charges quota only once', () => {

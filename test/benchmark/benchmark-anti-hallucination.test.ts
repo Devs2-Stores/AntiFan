@@ -46,8 +46,11 @@ describe('Benchmark F: Anti-Hallucination Barrier & Authority Verification Suite
     const evalResult = VerificationEvaluator.evaluate(claim, emptyBundle);
 
     // CRITICAL: Confidence 0.99 MUST NOT grant VERIFIED
+    // Zero evaluable evidence resolves to exactly one verdict: INCONCLUSIVE (UNOBSERVABLE),
+    // because the EMPTY-completeness branch precedes the anti-gaming REJECTED branch.
     assert.notStrictEqual(evalResult.verdict, 'VERIFIED');
-    assert.ok(evalResult.verdict === 'INCONCLUSIVE' || evalResult.verdict === 'UNVERIFIED' || evalResult.verdict === 'REJECTED');
+    assert.strictEqual(evalResult.verdict, 'INCONCLUSIVE');
+    assert.strictEqual(evalResult.inconclusiveReason, 'UNOBSERVABLE');
     assert.strictEqual(evalResult.proofProfile.completeness, 'EMPTY');
   });
 

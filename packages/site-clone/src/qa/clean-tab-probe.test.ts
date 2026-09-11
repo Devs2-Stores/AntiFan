@@ -8,6 +8,10 @@ describe('CleanTabProbe - Behavioral Interactive Verification', () => {
   it('1. Executes behavioral probes for tabs, navigation, branch dropdown, and modal', async () => {
     // Mock evaluator simulating successful DOM behavioral responses
     const mockEvaluator = async (expr: string): Promise<unknown> => {
+      // vm.Script throws SyntaxError on any malformed source, so every assembled probe must parse standalone.
+      assert.doesNotThrow(() => {
+        new vm.Script(expr);
+      }, 'Assembled probe expression must be syntactically valid JavaScript');
       if (expr.includes('brand_tabs') || expr.includes('tab-item') || expr.includes('data-antifan-toggle')) {
         return { passed: true, details: { tab2After: true, tab1After: false } };
       }
@@ -51,6 +55,10 @@ describe('CleanTabProbe - Behavioral Interactive Verification', () => {
 
   it('3. verifyCriticalBreaks validates overflow, commercial forms, and zero liquid leak', async () => {
     const mockBreakEvaluator = async (expr: string): Promise<unknown> => {
+      // vm.Script throws SyntaxError on any malformed source, so every assembled probe must parse standalone.
+      assert.doesNotThrow(() => {
+        new vm.Script(expr);
+      }, 'Assembled probe expression must be syntactically valid JavaScript');
       if (expr.includes('scrollWidth') && expr.includes('innerWidth')) {
         return { passed: true, details: 'scrollWidth: 1200px, innerWidth: 1200px, deltaX: 0px' };
       }

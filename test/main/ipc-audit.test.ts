@@ -582,12 +582,14 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       agentGuard,
       'TERMINAL_CHANNELS.START binding must be guarded by explicit agent-plane sender detection'
     );
-    if (startHandlerBlock.includes('bindTerminalAgentAffinity')) {
-      assert.ok(
-        /if \(isAgent && started\)\s*\{[\s\S]{0,400}?bindTerminalAgentAffinity\(sessionId, session\?\.sessionGeneration, senderInfo\.tabId\)/.test(startHandlerBlock),
-        'TERMINAL_CHANNELS.START may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
-      );
-    }
+    assert.ok(
+      startHandlerBlock.includes('bindTerminalAgentAffinity'),
+      'TERMINAL_CHANNELS.START must bind the agent affinity for the sender tab; dropping the binding silently leaves the terminal on the user tab'
+    );
+    assert.ok(
+      /if \(isAgent && started\)\s*\{[\s\S]{0,400}?bindTerminalAgentAffinity\(sessionId, session\?\.sessionGeneration, senderInfo\.tabId\)/.test(startHandlerBlock),
+      'TERMINAL_CHANNELS.START may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
+    );
     assert.ok(
       startHandlerBlock.includes('TerminalManager.getInstance().startTerminal(cwd)'),
       'TERMINAL_CHANNELS.START must invoke startTerminal(cwd) on the terminal manager'
@@ -599,12 +601,14 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const nextSplitIdx = content.indexOf("ipcMain.handle('antifan:terminal:split-session'", newSessionIdx);
     assert.ok(nextSplitIdx !== -1, 'antifan:terminal:split-session boundary must exist');
     const newSessionBlock = content.slice(newSessionIdx, nextSplitIdx);
-    if (newSessionBlock.includes('bindTerminalAgentAffinity')) {
-      assert.ok(
-        /if \(isAgent && id\)\s*\{[\s\S]{0,400}?bindTerminalAgentAffinity\(id, s\?\.sessionGeneration, senderInfo\.tabId\)/.test(newSessionBlock),
-        'antifan:terminal:new-session may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
-      );
-    }
+    assert.ok(
+      newSessionBlock.includes('bindTerminalAgentAffinity'),
+      'antifan:terminal:new-session must bind the agent affinity for the sender tab; dropping the binding silently leaves the terminal on the user tab'
+    );
+    assert.ok(
+      /if \(isAgent && id\)\s*\{[\s\S]{0,400}?bindTerminalAgentAffinity\(id, s\?\.sessionGeneration, senderInfo\.tabId\)/.test(newSessionBlock),
+      'antifan:terminal:new-session may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
+    );
     assert.ok(
       newSessionBlock.includes('TerminalManager.getInstance().createSession(cwd)'),
       'antifan:terminal:new-session must invoke createSession(cwd) on the terminal manager'

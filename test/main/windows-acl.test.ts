@@ -30,7 +30,7 @@ test('resolveCurrentUserSid: returns valid Windows SID format', () => {
 });
 
 test('parseSavedDirectorySddl: does not confuse a D drive path with its SDDL', () => {
-  const savedAcl = 'D:\\Work\\.antifan-data\\runtime\r\nD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;S-1-5-21-1-2-3-1001)\r\n';
+  const savedAcl = 'D:\\Project\\.antifan-data\\runtime\r\nD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;S-1-5-21-1-2-3-1001)\r\n';
   assert.equal(
     parseSavedDirectorySddl(savedAcl),
     'D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;S-1-5-21-1-2-3-1001)'
@@ -161,9 +161,9 @@ test('SID resolution: resolves current user SID or fails closed with platform er
 });
 
 test('atomic replacement contract: produces correct file ACL specs and executes atomicWriteWithDacl', () => {
-  const testSid = 'S-1-5-21-1032163931-1416832417-2285110504-1001';
-  const tempPath = 'C:\\Users\\Admin\\AppData\\Local\\AntiFan\\runtime\\bridge-manifest.tmp';
-  const finalPath = 'C:\\Users\\Admin\\AppData\\Local\\AntiFan\\runtime\\bridge-manifest.json';
+  const testSid = 'S-1-5-21-1000-2000-3000-1001';
+  const tempPath = 'C:\\Users\\TestUser\\AppData\\Local\\AntiFan\\runtime\\bridge-manifest.tmp';
+  const finalPath = 'C:\\Users\\TestUser\\AppData\\Local\\AntiFan\\runtime\\bridge-manifest.json';
 
   // Verify produced ACL script spec for temp file
   const tempScript = buildFileAclScript(tempPath, testSid);

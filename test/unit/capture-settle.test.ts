@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as vm from 'node:vm';
 import {
   CaptureSettleGate,
   buildFontSettleScript,
@@ -129,6 +130,10 @@ describe('Script builders (in-page evaluation scripts)', () => {
     const script = buildFontSettleScript(400);
     assert.ok(script.includes('document.fonts.ready'));
     assert.ok(script.includes('400'));
+    // vm.Script throws SyntaxError on any malformed source, so this fails if the assembled script is invalid.
+    assert.doesNotThrow(() => {
+      new vm.Script(script);
+    }, 'Font settle script must be syntactically valid JavaScript');
   });
 
   it('buildImageDecodeScript generates valid in-region decode script', () => {
@@ -137,6 +142,10 @@ describe('Script builders (in-page evaluation scripts)', () => {
     assert.ok(script.includes('naturalWidth === 0'));
     assert.ok(script.includes('"x":10'));
     assert.ok(script.includes('800'));
+    // vm.Script throws SyntaxError on any malformed source, so this fails if the assembled script is invalid.
+    assert.doesNotThrow(() => {
+      new vm.Script(script);
+    }, 'Image decode script must be syntactically valid JavaScript');
   });
 
   it('buildDomQuietScript generates double-rAF and MutationObserver script with fallback timeout failing closed', () => {
@@ -144,6 +153,10 @@ describe('Script builders (in-page evaluation scripts)', () => {
     assert.ok(script.includes('requestAnimationFrame'));
     assert.ok(script.includes('MutationObserver'));
     assert.ok(script.includes('finish(false)') || script.includes('resolve(false)'));
+    // vm.Script throws SyntaxError on any malformed source, so this fails if the assembled script is invalid.
+    assert.doesNotThrow(() => {
+      new vm.Script(script);
+    }, 'DOM quiet script must be syntactically valid JavaScript');
   });
 });
 

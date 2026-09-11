@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import * as vm from 'node:vm';
 import { MutationQAHarness } from './mutation-qa-harness.js';
 
 describe('MutationQAHarness - Layout & Content Mutation Stress Tests', () => {
@@ -37,6 +38,11 @@ describe('MutationQAHarness - Layout & Content Mutation Stress Tests', () => {
     assert.ok(script.includes('document.documentElement.scrollWidth'), 'Must check scrollWidth');
     assert.ok(script.includes('overflowDeltaX'), 'Must calculate overflow delta');
     assert.ok(script.includes('liquidLeak'), 'Must audit Liquid expression leaks');
+
+    // vm.Script throws SyntaxError on any malformed source, so this fails if the assembled script is invalid.
+    assert.doesNotThrow(() => {
+      new vm.Script(script);
+    }, 'Assembled evaluation script must be syntactically valid JavaScript');
   });
 
   it('3. evaluateMeasurement enforces strict hard blockers', () => {

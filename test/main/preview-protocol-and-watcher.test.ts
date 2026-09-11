@@ -87,6 +87,35 @@ describe('Preview Protocol & Watcher Suite', () => {
       }
     });
 
+    it('returns 403 when a requested directory has no index.html', async () => {
+      const bareDir = path.join(tmpDir, 'bare-dir');
+      fs.mkdirSync(bareDir, { recursive: true });
+      fs.writeFileSync(path.join(bareDir, 'note.txt'), 'no index here', 'utf8');
+
+      const canonicalRoot = fs.realpathSync.native(tmpDir);
+      const res = await safeResolveAndOpenFile(canonicalRoot, 'bare-dir');
+      assert.strictEqual(res.ok, false);
+      if (!res.ok) {
+        assert.strictEqual(res.status, 403);
+        assert.strictEqual(res.message, 'Directory listing is disabled.');
+      }
+    });
+
+    it('refuses a traversal path that escapes the workspace root', async () => {
+      const narrowRoot = path.join(tmpDir, 'escape-root');
+      fs.mkdirSync(narrowRoot, { recursive: true });
+      // A real file outside the narrow root: if containment were dropped this would be served.
+      fs.writeFileSync(path.join(tmpDir, 'escape-target.txt'), 'outside-root payload', 'utf8');
+
+      const canonicalRoot = fs.realpathSync.native(narrowRoot);
+      const res = await safeResolveAndOpenFile(canonicalRoot, '../escape-target.txt');
+      assert.strictEqual(res.ok, false);
+      if (!res.ok) {
+        assert.strictEqual(res.status, 404);
+        assert.strictEqual(res.message, 'File Not Found or Symlink Access Denied');
+      }
+    });
+
     it('returns 404 for non-existent files', async () => {
       const canonicalRoot = fs.realpathSync.native(tmpDir);
       const res = await safeResolveAndOpenFile(canonicalRoot, 'missing-file.html');

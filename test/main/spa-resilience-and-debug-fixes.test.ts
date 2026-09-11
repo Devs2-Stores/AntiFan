@@ -71,6 +71,11 @@ describe('SPA Resilience and Debug Fixes Verification', () => {
     allowEval: true,
   };
 
+  const catalogueOptionsNoEval = {
+    ...catalogueOptions,
+    allowEval: false,
+  };
+
   it('1. anti.browser.evaluate enforces least-privilege: denied under grant: "write", allowed under grant: "eval"', async () => {
     let evaluatedExpression = '';
     const mockHost: BrowserHostPort = {
@@ -100,6 +105,39 @@ describe('SPA Resilience and Debug Fixes Verification', () => {
     assert.ok(result);
     assert.strictEqual(evaluatedExpression, 'document.title');
     assert.strictEqual(result.result, 'Son Tung M-TP - Dung Lam Trai Tim Anh Dau');
+  });
+
+  it('1b. allowEval: false hides anti.browser.evaluate from eval grants and denies dispatch', async () => {
+    let evalRan = false;
+    const mockHost: BrowserHostPort = {
+      getTabList: () => [{ id: 'tab-spa-1' }],
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'base64',
+      evalJs: async () => {
+        evalRan = true;
+        return { result: 'should never execute' };
+      },
+    };
+
+    const catalogue = new CapabilityCatalogue(catalogueOptionsNoEval);
+    const controlPort = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, controlPort);
+
+    // The capability is registered and declared eval-risk; only the allowEval runtime switch gates it.
+    assert.strictEqual(catalogue.getPolicy('anti.browser.evaluate')?.risk, 'eval');
+    const evalGrantNames = catalogue.list({ grant: 'eval' }).map((entry) => entry.name);
+    assert.ok(
+      !evalGrantNames.includes('anti.browser.evaluate'),
+      'allowEval: false must not expose anti.browser.evaluate to an eval grant'
+    );
+
+    await assert.rejects(
+      async () => catalogue.dispatch('anti.browser.evaluate', { expression: 'document.title' }, mockContextEval),
+      (err: { code?: string }) => err.code === 'POLICY_DENIED'
+    );
+    assert.strictEqual(evalRan, false, 'denied dispatch must not reach the host eval port');
   });
 
   it('2. Large DOM extraction (e.g. 2MB YouTube DOM) stages up to 8MB without payload truncation error', async () => {

@@ -85,6 +85,40 @@ describe('OAuthPopupManager Invariants', () => {
     assert.deepEqual(opened, ['https://example.com/docs']);
   });
 
+  it('denies dangerous window-open schemes before the OAuth allow branch', () => {
+    const manager = OAuthPopupManager.getInstance();
+    const opened: string[] = [];
+
+    // These three dangerous-scheme URLs are classified as OAuth by isOAuthUrl, so only the
+    // fail-closed scheme check placed before the OAuth branch keeps them denied.
+    for (const url of [
+      'javascript:/oauth/authorize',
+      'file://accounts.google.com/o/oauth2/v2/auth',
+      'data:/oauth/authorize',
+    ]) {
+      assert.strictEqual(manager.isOAuthUrl(url), true, `expected OAuth-classified masquerade: ${url}`);
+    }
+
+    for (const url of [
+      'javascript:alert(document.cookie)',
+      'javascript:/oauth/authorize',
+      'file:///C:/Windows/System32/drivers/etc/hosts',
+      'file://accounts.google.com/o/oauth2/v2/auth',
+      'data:text/html,<script>alert(1)</script>',
+      'data:/oauth/authorize',
+    ]) {
+      const result = manager.handleWindowOpen(
+        { session: {} } as never,
+        {} as never,
+        { url } as never,
+        { onNewTabRequested: (requestedUrl) => opened.push(requestedUrl) }
+      );
+      assert.strictEqual(result.action, 'deny', `expected dangerous scheme to be denied: ${url}`);
+    }
+
+    assert.deepEqual(opened, []);
+  });
+
   it('identifies OAuth callbacks by parsed pathname without closing ordinary stateful URLs', () => {
     const manager = OAuthPopupManager.getInstance();
 
