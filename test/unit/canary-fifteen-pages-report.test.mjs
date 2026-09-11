@@ -148,3 +148,23 @@ test('a refused-only run renders rows A, C, and D as NOT_RUN and claims no PASS 
   assert.ok(!rowA.includes('0/1 pages passed'), 'row A must not claim 0/1 pages passed');
   assert.match(rowA, /route-refused before build; pipeline never ran/);
 });
+
+test('a refused page beside a failed page renders the report instead of throwing', () => {
+  // The refused page carries no phases. Reading a phase off every page while
+  // listing asset-pipeline failures crashed the whole report for this exact
+  // combination, which is the combination a live batch produces.
+  const failed = {
+    ...page(['1440']),
+    id: 2,
+    name: 'PRODUCT',
+    url: 'https://hoplongtech.com/products/x',
+    status: 'FAILED',
+    phases: { discovery: { ok: true }, cloneGeneration: { ok: false, error: 'clone build exploded' } },
+  };
+  const md = generateReport({ ...base, pageResults: { 1: refusedPage(), 2: failed } });
+  const assetLine = md.split('\n').find((l) => l.includes('Failure nào thuộc Asset Pipeline'));
+
+  assert.ok(assetLine, 'section 14 keeps its asset-pipeline line');
+  assert.match(assetLine, /Page 2: clone build exploded/, 'the failed page is named as the asset-pipeline failure');
+  assert.ok(!assetLine.includes('Page 1'), 'a route-refused page is not an asset-pipeline failure');
+});

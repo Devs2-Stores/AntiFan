@@ -1392,7 +1392,10 @@ export function generateReport(summary) {
     for (const err of p.errors || []) {
       failurePatterns.add(`[${err.phase || 'error'}] ${err.message}`);
     }
-    if (p.phases.cloneGeneration && !p.phases.cloneGeneration.ok) {
+    // A page refuses before the asset pipeline runs, so it may carry no phases at
+    // all: reading through the optional chain keeps a route refusal out of the
+    // failure-pattern list instead of throwing the whole report away.
+    if (p.phases?.cloneGeneration && !p.phases.cloneGeneration.ok) {
       failurePatterns.add(`[cloneGeneration] ${p.phases.cloneGeneration.error}`);
     }
   }
@@ -1501,8 +1504,8 @@ ${TARGET_PAGES.map(p => {
       ? (vps.every(v => v.structure.refCards === v.structure.cloneCards && Math.abs(v.structure.refSections - v.structure.cloneSections) <= 1) ? 'PASS' : 'FAIL')
       : 'INCONCLUSIVE'
   );
-  const assets = pr.phases.cloneGeneration ? (pr.phases.cloneGeneration.ok ? 'PASS' : 'FAIL') : 'NOT_TESTED';
-  const typo = pr.phases.discovery ? (pr.phases.discovery.ok ? 'PASS' : 'FAIL') : 'NOT_TESTED';
+  const assets = pr.phases?.cloneGeneration ? (pr.phases.cloneGeneration.ok ? 'PASS' : 'FAIL') : 'NOT_TESTED';
+  const typo = pr.phases?.discovery ? (pr.phases.discovery.ok ? 'PASS' : 'FAIL') : 'NOT_TESTED';
   const net = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.network?.verdict === 'PASS') ? 'PASS' : (vps.some(v => v.network?.verdict?.startsWith('FAIL')) ? 'FAIL' : 'INCONCLUSIVE'));
   const cap = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.capture?.valid) ? 'PASS' : 'FAIL');
   const vis = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.visual?.verdict === 'PASS') ? 'PASS' : (vps.some(v => v.visual?.verdict === 'FAIL') ? 'FAIL' : 'INCONCLUSIVE'));
@@ -1516,7 +1519,7 @@ ${TARGET_PAGES.map(p => {
 ${TARGET_PAGES.map(p => {
   const pr = summary.pageResults[p.id];
   if (!pr) return `### Page ${p.id}: ${p.name}\n\n*Status: NOT_TESTED in this execution run.*\n`;
-  const d = pr.phases.discovery || {};
+  const d = pr.phases?.discovery || {};
   // One section per viewport, driven by the run's declared scope: an excluded viewport
   // is reported as EXCLUDED, so an unmeasured column can never be read as "tested and
   // failed" or as an empty N/A block.
@@ -1593,7 +1596,7 @@ ${Array.from(fonts).map(f => `- \`${f}\``).join('\n')}
 
 ${executedPages.length === 0 ? '*No structural data collected in this run.*' : executedPages.map(p => {
   const pr = summary.pageResults[p.id];
-  const d = pr.phases.discovery || {};
+  const d = pr.phases?.discovery || {};
   return `- **Page ${p.id} (${p.name})**: Discovery Ref: ${d.sectionsCount || 0} sections, ${d.productCards || 0} product cards, ${d.articles || 0} articles.`;
 }).join('\n')}
 
@@ -1678,8 +1681,8 @@ ${failurePatterns.size === 0 ? '*No cross-page failure patterns detected in exec
 
 1. **Core có ổn định không?**: ${executedPages.length === 0 ? 'CHƯA KIỂM CHỨNG (0 trang được chạy).' : 'CÓ. Electron runtime, RPC bridge, và Chromium tab control phản hồi bình thường qua các ca kiểm thử.'}
 2. **Core có gây failure nào không?**: ${executedPages.length === 0 ? 'CHƯA KIỂM CHỨNG.' : (pages.some(p => p.errors?.some(e => e.phase === 'topLevel')) ? 'CÓ lỗi ngoại lệ top-level trong quá trình chạy.' : 'KHÔNG. Không phát hiện crash hoặc RPC failure từ Core AntiFan.')}
-3. **Failure nào thuộc Asset Pipeline?**: ${pages.filter(p => p.phases.cloneGeneration && !p.phases.cloneGeneration.ok).length > 0 ? pages.filter(p => !p.phases.cloneGeneration.ok).map(p => `Page ${p.id}: ${p.phases.cloneGeneration.error}`).join('; ') : (executedPages.length === 0 ? 'CHƯA KIỂM CHỨNG.' : 'Không phát hiện.')}
-4. **Failure nào thuộc Independent HTML Generator?**: ${pages.some(p => p.phases.cloneGeneration?.error?.includes('sourceBaseUrl')) ? 'Xử lý multi-domain base URL.' : (executedPages.length === 0 ? 'CHƯA KIỂM CHỨNG.' : 'Không phát hiện.')}
+3. **Failure nào thuộc Asset Pipeline?**: ${pages.filter(p => p.phases?.cloneGeneration && !p.phases.cloneGeneration.ok).map(p => `Page ${p.id}: ${p.phases.cloneGeneration.error}`).join('; ') || (executedPages.length === 0 ? 'CHƯA KIỂM CHỨNG.' : 'Không phát hiện.')}
+4. **Failure nào thuộc Independent HTML Generator?**: ${pages.some(p => p.phases?.cloneGeneration?.error?.includes('sourceBaseUrl')) ? 'Xử lý multi-domain base URL.' : (executedPages.length === 0 ? 'CHƯA KIỂM CHỨNG.' : 'Không phát hiện.')}
 5. **Failure nào thuộc CSS/Layout?**: ${executedPages.length === 0 ? 'CHƯA KIỂM CHỨNG.' : (pages.some(p => p.viewports && Object.values(p.viewports).some(v => v.overall !== 'PASS')) ? 'Đang có ca INCONCLUSIVE/FAIL giữa Reference và Clone về layout/visual.' : 'Không phát hiện.')}
 6. **Failure nào thuộc Responsive?**: ${executedPages.length === 0 ? 'CHƯA KIỂM CHỨNG.' : (pages.some(p => p.viewports && Object.values(p.viewports).some(v => v.overall !== 'PASS')) ? 'Chưa đạt PASS: các viewport có kết quả INCONCLUSIVE hoặc FAIL do visual mismatch hoặc độ lệch chiều cao giữa các breakpoint.' : 'Không phát hiện.')}
 7. **Failure nào thuộc Capture?**: ${validatedArtifacts.length === 0 ? 'CHƯA KIỂM CHỨNG (0 artifact).' : (validatedArtifacts.some(a => !a.isPng || !a.hasIend) ? `Phát hiện ${validatedArtifacts.filter(a => !a.isPng || !a.hasIend).length} artifact bị lỗi format.` : 'Toàn bộ artifact được kiểm tra có đủ magic bytes và IEND.')}
