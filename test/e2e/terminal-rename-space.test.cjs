@@ -22,12 +22,17 @@ app.commandLine.appendSwitch('disable-gpu');
 // Electron can recreate profile files while tearing down, so the exit sweep below is best effort;
 // this startup sweep keeps the footprint bounded at one directory per host.
 const tempPrefix = 'antifan-terminal-rename-';
+const processStartedAt = Date.now();
 for (const entry of fs.readdirSync(os.tmpdir())) {
-  if (entry.startsWith(tempPrefix)) {
-    try {
-      fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
-    } catch {}
-  }
+  if (!entry.startsWith(tempPrefix)) continue;
+  const candidate = path.join(os.tmpdir(), entry);
+  try {
+    // Reap only stale directories: a concurrently running lane keeps writing into its own profile,
+    // and deleting it out from under Electron would gut that run.
+    if (fs.statSync(candidate).mtimeMs < processStartedAt) {
+      fs.rmSync(candidate, { recursive: true, force: true });
+    }
+  } catch {}
 }
 const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), tempPrefix));
 app.setPath('userData', tempUserData);
