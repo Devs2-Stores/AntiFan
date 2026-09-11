@@ -237,9 +237,13 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    correlated with session teardown; do not build a pool fix against it. Judge the release by its own record,
    never by a later mint succeeding: `doc.sessionRelease.released === true` is the only evidence it took effect
    (`readSupersededSession` does forward `secret`, the field the bridge names as required, and diag pair 2
-   recorded `released: true`). Next experiment: a bounded transport-only retry on the mint (a mint retry is not
-   a verdict relaxation) and/or isolating each pair's session lifecycle, so one reset cannot cost the pairs
-   that follow.
+   recorded `released: true`). Primary experiment, from the source's own adjacency: `renewSession` closes the
+   previous mint tab (`closeTab(previousMintTabId)`, `theme-fidelity.mjs:1231`) immediately before spawning the
+   mint child (`:1233`), so close the previous tab only after the new session has bound, or insert a settle gap
+   between the two — the same shape as the ordering probe already measured (`gap-0ms` exit 4 vs `gap-3000ms`
+   exit 0). A bounded transport-only retry on the mint is the fallback (a mint retry is not a verdict
+   relaxation), and per-pair lifecycle isolation is the escape hatch so one reset cannot cost the pairs that
+   follow.
 2. **Image identity churn, and the loader state.** After hydration, `article__1024x900` holds its geometry but
    still moves `imageSetHash` between passes; the `imagePanel`/`imageChanges` evidence added here exists to name
    the entry that moved. The replay runs the storefront's own lazysizes

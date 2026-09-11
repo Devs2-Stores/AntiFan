@@ -1219,13 +1219,22 @@ function readSupersededSession(file = SESSION_FILE) {
  * still owns it — a later session cannot close it, and leaving it open would trade a quota
  * refusal for an orphan tab in the instance.
  *
- * Re-minting alone is not enough: the bindings of a superseded session are returned only
- * by ending it, and the pool those bindings come from is never swept. A run that only
- * re-mints therefore spends the pool as it goes and every later pair is refused
- * `SESSION_RENEWAL_FAILED` by the mint itself. The release runs before the mint, because
- * the mint needs a binding of its own. The bridge accepts `antifan.cli.endSession` only
- * from a socket already bound to that same attachment, which is this one, so the release
- * is strictly self-scoped and cannot reach a session this run does not own.
+ * Ending a superseded session is not what makes a later mint succeed. The limit above is per
+ * bound session, so bindings held by a session this run has finished with cannot block a
+ * fresh session's own binding; a failed mint reports `read ECONNRESET` from inside
+ * `canary-session.mjs`'s pairing and lifecycle calls, not a quota refusal, and it failed the
+ * same way before this release existed. What remains untested is the adjacency below: the
+ * previous mint tab is closed immediately before the mint child starts, so a teardown still
+ * in flight is the prime suspect for that reset. Closing the previous tab only after the new
+ * session has bound, or inserting a settle gap between the two, is the experiment to run next.
+ *
+ * The release runs after the mint, never before it. The bridge tears a session down
+ * asynchronously, and a mint issued during that teardown has its lifecycle socket reset
+ * (`read ECONNRESET`); measured with a probe, the same mint succeeds once the teardown has
+ * settled. It is sent over the socket bound to the old attachment — the bootstrap in memory
+ * before `reloadBootstrap` adopts the file the mint rewrote — because that is the only socket
+ * the bridge accepts `endSession` from, so the release cannot reach a session this run does
+ * not own.
  */
 async function renewSession(rpc, previousMintTabId, record = null) {
   if (previousMintTabId) await closeTab(rpc.call, previousMintTabId, null);
