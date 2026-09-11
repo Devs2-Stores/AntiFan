@@ -29,6 +29,7 @@ import {
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId, hashSecret, verifySecret } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
+import { SessionCapabilityFilter, isCapabilityNamePermitted } from '../tools/capability-catalogue';
 import { enforceProtectedDirectoryDacl, enforceProtectedFileDacl, resolveCurrentUserSid } from '../security/windows-acl';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import { deriveCapsulePartition } from '../browser/browser-session-partition';
@@ -192,6 +193,7 @@ export class BridgeServer {
   private readonly socketMobileGrantIds: WeakMap<WebSocket, string> = new WeakMap();
   private readonly socketMobileGrants: WeakMap<WebSocket, MobileSessionGrant> = new WeakMap();
   private readonly socketBridgeTokens: WeakSet<WebSocket> = new WeakSet();
+  private readonly sessionCapabilityFilters: Map<string, SessionCapabilityFilter> = new Map();
   private lanOptIn: boolean = false;
   private pairingQueueDir: string;
   private readonly publishesDiscovery: boolean;
@@ -1769,6 +1771,18 @@ export class BridgeServer {
             const attachmentSecret = String(p.attachmentSecret || claims?.attachmentSecret || claims?.secret || '');
             const authorityRevision = String(p.authorityRevision || claims?.authorityRevision || claims?.revision || '');
 
+            const sessionFilter = (attachmentId && this.sessionCapabilityFilters.get(attachmentId))
+              || (attachmentId && this.controlPlaneRuntime?.capabilities?.getSessionFilter(attachmentId));
+            if (sessionFilter && !isCapabilityNamePermitted(p.name, sessionFilter)) {
+              const code = 'REFUSED_TOOL_SURFACE';
+              const message = `Capability '${p.name}' is forbidden by session tool surface policy`;
+              respond(false, {
+                code,
+                message,
+                details: { capability: p.name, filter: sessionFilter }
+              }, `${code}: ${message}`);
+              break;
+            }
             const intent: ClientInvocationIntent = {
               requestId: p.requestId || (typeof id === 'string' ? id : makeControlPlaneId('request')),
               idempotencyKey: p.idempotencyKey || p.invocationId || claims?.invocationId || makeControlPlaneId('idempotency'),
@@ -1896,6 +1910,25 @@ export class BridgeServer {
             // attachment's binding lives in its own authority record; writing the
             // session's tab onto the process-global automation target would let one
             // session clobber another's bound invocation.
+            const allowedCapabilityNames = Array.isArray(p.allowedCapabilityNames)
+              ? p.allowedCapabilityNames.map(String)
+              : typeof p.allowedCapabilityNames === 'string'
+              ? p.allowedCapabilityNames.split(',').map((s: string) => s.trim()).filter(Boolean)
+              : undefined;
+            const forbiddenCapabilityNames = Array.isArray(p.forbiddenCapabilityNames)
+              ? p.forbiddenCapabilityNames.map(String)
+              : typeof p.forbiddenCapabilityNames === 'string'
+              ? p.forbiddenCapabilityNames.split(',').map((s: string) => s.trim()).filter(Boolean)
+              : undefined;
+            const filterObj = p.capabilityFilter && typeof p.capabilityFilter === 'object' ? p.capabilityFilter as Record<string, unknown> : undefined;
+            const effectiveAllowed = allowedCapabilityNames ?? (Array.isArray(filterObj?.allowedCapabilityNames) ? (filterObj!.allowedCapabilityNames as unknown[]).map(String) : undefined);
+            const effectiveForbidden = forbiddenCapabilityNames ?? (Array.isArray(filterObj?.forbiddenCapabilityNames) ? (filterObj!.forbiddenCapabilityNames as unknown[]).map(String) : undefined);
+            const hasFilter = Boolean((effectiveAllowed && effectiveAllowed.length > 0) || (effectiveForbidden && effectiveForbidden.length > 0));
+            const sessionFilter: SessionCapabilityFilter | undefined = hasFilter ? {
+              allowedCapabilityNames: effectiveAllowed,
+              forbiddenCapabilityNames: effectiveForbidden,
+            } : undefined;
+
             const ownerPid = typeof p.ownerPid === 'number' && p.ownerPid > 0 ? p.ownerPid : undefined;
             const res = await this.controlPlaneRuntime.createCliSession({
               projectId: typeof p.projectId === 'string' ? p.projectId : undefined,
@@ -1908,6 +1941,16 @@ export class BridgeServer {
               ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 86_400_000) : 7_200_000,
               ownerPid,
             });
+            if (sessionFilter) {
+              this.sessionCapabilityFilters.set(res.launch.attachmentId, sessionFilter);
+              if (res.run?.id) this.sessionCapabilityFilters.set(res.run.id, sessionFilter);
+              if (res.attempt?.id) this.sessionCapabilityFilters.set(res.attempt.id, sessionFilter);
+              if (this.controlPlaneRuntime?.capabilities) {
+                this.controlPlaneRuntime.capabilities.setSessionFilter(res.launch.attachmentId, sessionFilter);
+                if (res.run?.id) this.controlPlaneRuntime.capabilities.setSessionFilter(res.run.id, sessionFilter);
+                if (res.attempt?.id) this.controlPlaneRuntime.capabilities.setSessionFilter(res.attempt.id, sessionFilter);
+              }
+            }
             // Master-token sockets retain full authority and may mint multiple CLI
             // sessions; only non-master sockets (attachment/mobile-authenticated) get
             // scoped to the single freshly-minted attachment for subsequent dispatch.
@@ -1926,6 +1969,8 @@ export class BridgeServer {
               host: this.host,
               port: this.port,
               expiresAt: res.launch.expiresAt,
+              allowedCapabilityNames: effectiveAllowed,
+              forbiddenCapabilityNames: effectiveForbidden,
               // Which Electron instance answered. The launcher compares this with
               // its own pinned pid to detect a foreign attach (non-secret).
               runtimePid: process.pid,
@@ -1964,6 +2009,18 @@ export class BridgeServer {
               p.outcome === 'failed' || p.outcome === 'cancelled' ? p.outcome : 'completed',
               p.error
             );
+            if (p.attachmentId) {
+              this.sessionCapabilityFilters.delete(p.attachmentId);
+              this.controlPlaneRuntime?.capabilities?.removeSessionFilter(p.attachmentId);
+            }
+            if (p.runId) {
+              this.sessionCapabilityFilters.delete(p.runId);
+              this.controlPlaneRuntime?.capabilities?.removeSessionFilter(p.runId);
+            }
+            if (p.attemptId) {
+              this.sessionCapabilityFilters.delete(p.attemptId);
+              this.controlPlaneRuntime?.capabilities?.removeSessionFilter(p.attemptId);
+            }
             respond(true, res);
           } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : String(err);

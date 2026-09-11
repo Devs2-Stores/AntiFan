@@ -1741,9 +1741,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         format: { type: 'string', enum: ['png'], description: 'Only PNG is supported: full-page evidence is validated as PNG bytes' },
         quality: { type: 'number' },
         leaseToken: { type: 'string', description: 'Evidence-run artifact lease token from artifact.preflight; required while the run holds an exclusive lease' },
+        expectedUrl: { type: 'string', description: 'Expected route URL for route identity gate assertion' },
       },
     },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string }, context) => {
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string; expectedUrl?: string }, context) => {
       if (params.format === 'jpeg') {
         throw new CapabilityError('INVALID_ARGUMENT', 'anti.screenshot.full_page stages PNG evidence only; jpeg is not supported');
       }
@@ -1753,7 +1754,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         context.attemptId || 'attempt-unbound',
         params.tabId,
         params.paneId,
-        { leaseToken: params.leaseToken, signal: context.signal, timeoutMs: FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS }
+        { leaseToken: params.leaseToken, signal: context.signal, timeoutMs: FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, expectedUrl: params.expectedUrl }
       );
     },
   });
@@ -2363,9 +2364,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         },
         heightTolerance: { type: 'number', description: 'Maximum acceptable height delta ratio (0.0 to 1.0) before triggering STRUCTURAL_TRUNCATION_DETECTED. Default 0.10' },
         allowHeightDrift: { type: 'boolean', description: 'When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation' },
+        expectedUrl: { type: 'string', description: 'Expected route URL for target side' },
+        expectedTargetUrl: { type: 'string', description: 'Expected route URL for target side' },
+        expectedBaselineUrl: { type: 'string', description: 'Expected route URL for baseline side' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean; expectedUrl?: string; expectedTargetUrl?: string; expectedBaselineUrl?: string }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
   });
 
@@ -2421,9 +2425,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         },
         heightTolerance: { type: 'number', description: 'Maximum acceptable height delta ratio (0.0 to 1.0) before triggering STRUCTURAL_TRUNCATION_DETECTED. Default 0.10' },
         allowHeightDrift: { type: 'boolean', description: 'When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation' },
+        expectedUrl: { type: 'string', description: 'Expected route URL for target side' },
+        expectedTargetUrl: { type: 'string', description: 'Expected route URL for target side' },
+        expectedBaselineUrl: { type: 'string', description: 'Expected route URL for baseline side' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean; expectedUrl?: string; expectedTargetUrl?: string; expectedBaselineUrl?: string }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
   });
   catalogue.register({
@@ -3500,12 +3507,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       };
 
       const evalResult = VerificationEvaluator.evaluate(claim, bundle);
+      // The circuit breaker's cross-attempt STALEMATE lever keys on a failure signature. Nothing
+      // else in the engine supplies one, so it is derived here from the evidence this probe just
+      // observed: a second REJECTED attempt on the same failed obligations halts the batch
+      // instead of looping. Non-REJECTED verdicts return no signature and never advance it.
+      const failureSignature = VerificationEvaluator.failureSignature(evalResult, bundle);
       const transition = VerificationCircuitBreaker.getInstance().recordAttempt(
         { runId, attemptId, claimId: claim.id },
         evalResult.verdict,
         evalResult.inconclusiveReason,
         previousLifecycle,
-        invocationId
+        invocationId,
+        failureSignature ? { failureSignature } : undefined
       );
       const updated = IssueRegister.getInstance().updateVerificationVerdict(
         claim.id,

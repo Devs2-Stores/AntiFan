@@ -11,6 +11,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { createRequire } = require('node:module');
 const { WebSocket } = require('ws');
 
 function printUsage() {
@@ -243,6 +244,69 @@ async function performPairingExchange(host, port) {
   return exchange;
 }
 
+const isFixerSession = process.env.ANTIFAN_FIXER_SESSION === 'true' ||
+  process.env.ANTIFAN_FIXER_SESSION === '1' ||
+  process.argv.includes('--fixer');
+
+// The fixer's permitted surface is policy, not a local constant: it lives beside the other B-Lite
+// audits so the launcher, the pre-tool hook and the merge gate cannot drift into three lists.
+// A module that does not yield the list refuses the fixer session outright — an unstated surface
+// would silently widen to whatever the bridge grants, which is the failure this filter exists to stop.
+let fixerToolSurface = null;
+try {
+  fixerToolSurface = createRequire(__filename)('../.canary/tools/fix-loop/audits.mjs').DEFAULT_PERMITTED_TOOLS;
+} catch {}
+if (isFixerSession && (!Array.isArray(fixerToolSurface) || fixerToolSurface.length === 0)) {
+  console.error('TOOL_SURFACE_POLICY_UNLOADABLE: .canary/tools/fix-loop/audits.mjs did not yield DEFAULT_PERMITTED_TOOLS; refusing to launch a fixer session whose permitted tool surface is unstated.');
+  process.exit(1);
+}
+
+function resolveSessionGrant() {
+  if (process.env.ANTIFAN_SESSION_GRANT) {
+    return process.env.ANTIFAN_SESSION_GRANT;
+  }
+  const grantArg = process.argv.find((a) => typeof a === 'string' && a.startsWith('--grant='));
+  if (grantArg) {
+    return grantArg.slice('--grant='.length);
+  }
+  return isFixerSession ? 'write' : 'eval';
+}
+
+function resolveAllowedCapabilities() {
+  if (isFixerSession) {
+    return [...fixerToolSurface];
+  }
+  if (process.env.ANTIFAN_ALLOWED_CAPABILITIES || process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES) {
+    const raw = process.env.ANTIFAN_ALLOWED_CAPABILITIES || process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES;
+    try {
+      if (raw.trim().startsWith('[')) return JSON.parse(raw);
+    } catch {}
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  const allowArg = process.argv.find((a) => typeof a === 'string' && (a.startsWith('--allowed-capabilities=') || a.startsWith('--allow-capabilities=')));
+  if (allowArg) {
+    const val = allowArg.split('=')[1];
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return undefined;
+}
+
+function resolveForbiddenCapabilities() {
+  if (process.env.ANTIFAN_FORBIDDEN_CAPABILITIES || process.env.ANTIFAN_FORBIDDEN_CAPABILITY_NAMES) {
+    const raw = process.env.ANTIFAN_FORBIDDEN_CAPABILITIES || process.env.ANTIFAN_FORBIDDEN_CAPABILITY_NAMES;
+    try {
+      if (raw.trim().startsWith('[')) return JSON.parse(raw);
+    } catch {}
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  const forbidArg = process.argv.find((a) => typeof a === 'string' && a.startsWith('--forbidden-capabilities='));
+  if (forbidArg) {
+    const val = forbidArg.split('=')[1];
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return undefined;
+}
+
 async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
   const errors = [];
   const rawPinnedPid = parseInt(process.env.ANTIFAN_BRIDGE_PID || '', 10);
@@ -304,16 +368,26 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
 
       const rawTerminalId = process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID;
       const rawGen = process.env.ANTIFAN_TERMINAL_AFFINITY_GENERATION || process.env.ANTIFAN_TERMINAL_GENERATION;
-      const session = await rpcCall(ws, 'antifan.cli.startSession', {
+      const targetGrant = resolveSessionGrant();
+      const allowedCaps = resolveAllowedCapabilities();
+      const forbiddenCaps = resolveForbiddenCapabilities();
+      const startParams = {
         backendId: 'cli',
-        grant: 'eval',
+        grant: targetGrant,
         ownerPid: boundPid,
         ttlMs: 3600000,
         tabId: explicitTabId || undefined,
         terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
         terminalGeneration: rawGen ? String(rawGen).trim() : undefined,
         attachmentId: pairedExchange?.attachmentId || undefined,
-      }, 5000);
+      };
+      if (allowedCaps && allowedCaps.length > 0) {
+        startParams.allowedCapabilityNames = allowedCaps;
+      }
+      if (forbiddenCaps && forbiddenCaps.length > 0) {
+        startParams.forbiddenCapabilityNames = forbiddenCaps;
+      }
+      const session = await rpcCall(ws, 'antifan.cli.startSession', startParams, 5000);
       const targetTabId = session?.tabId || explicitTabId;
       if (!session || !session.attachmentId || !session.secret || !session.authorityRevision || !targetTabId) {
         const missing = [
@@ -408,6 +482,14 @@ function parseLauncherArgs(argv) {
       } else {
         throw new Error('--tab requires a non-empty tabId.');
       }
+    } else if (
+      arg === '--fixer' ||
+      arg.startsWith('--grant=') ||
+      arg.startsWith('--allowed-capabilities=') ||
+      arg.startsWith('--allow-capabilities=') ||
+      arg.startsWith('--forbidden-capabilities=')
+    ) {
+      // Launcher flags handled by resolveSessionGrant / resolveAllowedCapabilities / resolveForbiddenCapabilities
     } else {
       commandArgs.push(arg);
     }
@@ -453,6 +535,12 @@ async function main() {
     process.exit(1);
   }
   const { ws, bridgeInfo, session } = bridgeAcquisition;
+  // The grant and the allowed/forbidden name sets are pure functions of env and argv, so resolving
+  // them here yields what acquireBridgeSession started the session with — the child declares the
+  // same surface the attachment was opened under, including the fixer's consolidated policy.
+  const targetGrant = resolveSessionGrant();
+  const allowedCaps = resolveAllowedCapabilities();
+  const forbiddenCaps = resolveForbiddenCapabilities();
   const sanitizedParentEnv = { ...process.env };
   delete sanitizedParentEnv.ANTIFAN_BRIDGE_TOKEN;
   delete sanitizedParentEnv.ANTIFAN_BRIDGE_PORT;
@@ -482,7 +570,14 @@ async function main() {
       tabId: session.tabId || explicitTabId,
       token: session.bridgeToken,
       ownerPid: boundPid,
+      grant: targetGrant,
+      allowedCapabilityNames: allowedCaps,
+      forbiddenCapabilityNames: forbiddenCaps,
     }),
+    ANTIFAN_FIXER_SESSION: isFixerSession ? 'true' : undefined,
+    ANTIFAN_SESSION_GRANT: targetGrant,
+    ANTIFAN_ALLOWED_CAPABILITY_NAMES: allowedCaps ? allowedCaps.join(',') : undefined,
+    ANTIFAN_FORBIDDEN_CAPABILITY_NAMES: forbiddenCaps ? forbiddenCaps.join(',') : undefined,
   };
   const { command, commandArgs } = resolveAgentCommand(args, __dirname);
 

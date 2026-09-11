@@ -29,6 +29,9 @@ import {
   materializeRasterMasks,
   visualCaptureSpaceFromMeasured,
   VerificationCaptureEnvelope,
+  checkRouteIdentity,
+  type RouteAssertionResult,
+  type RouteRefusalCode,
   VerificationCaptureReceipt,
   checkCaptureStateCompatibility,
   verificationCaptureReceipt,
@@ -114,6 +117,11 @@ export interface BrowserHostPort {
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
+  navigateAndWait?(tabId: string, url: string, timeoutMs?: number): Promise<boolean>;
+  getLastNavigationFailure?(tabId: string): { cause: string; message: string; timedOut: boolean } | undefined;
+  getRedirectChain?(tabId: string): string[];
+  getTabUrl?(tabId: string): string;
+  getSemanticDocumentGeneration?(tabId: string, paneId?: 'desktop' | 'mobile'): number;
   reload(tabId: string): Promise<boolean> | boolean;
   reloadAndWait?(tabId: string, timeoutMs?: number): Promise<boolean>;
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
@@ -781,6 +789,9 @@ interface VisualCompareParams {
   heightTolerance?: number;
   /** When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation */
   allowHeightDrift?: boolean;
+  expectedUrl?: string | null;
+  expectedTargetUrl?: string | null;
+  expectedBaselineUrl?: string | null;
 }
 
 /** Bounded visual-compare capture outcome: either settles with a result or asks for another attempt. */
@@ -1226,10 +1237,50 @@ export class BrowserControlPort {
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string): Promise<{ navigated: boolean; target: BrowserTarget }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     if (!url || !/^https?:\/\//i.test(url)) throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL');
-    const navigated = await this.host.navigate(tabId, url);
-    if (!navigated) throw new CapabilityError('TARGET_STALE', 'Navigation failed or timed out before starting');
-    const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
+    const navigated = typeof this.host.navigateAndWait === 'function'
+      ? await this.host.navigateAndWait(tabId, url)
+      : await this.host.navigate(tabId, url);
+    if (!navigated) {
+      const failure = typeof this.host.getLastNavigationFailure === 'function'
+        ? this.host.getLastNavigationFailure(tabId)
+        : undefined;
+      const failureCause = failure?.cause || (failure?.timedOut ? 'NAVIGATION_TIMEOUT' : 'TARGET_STALE');
+      const message = failure?.message || 'Navigation failed or timed out before a load-complete document was available';
+      throw new CapabilityError('TARGET_STALE', `[${failureCause}] ${message}`);
+    }
+    const docGen = typeof this.host.getSemanticDocumentGeneration === 'function'
+      ? this.host.getSemanticDocumentGeneration(tabId)
+      : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1));
     return { navigated: true, target: { ...target, tabId, documentGeneration: docGen } };
+  }
+
+  private async getLiveTabUrl(tabId: string): Promise<string> {
+    if (typeof this.host.getTabUrl === 'function') {
+      const url = this.host.getTabUrl(tabId);
+      if (url) return url;
+    }
+    try {
+      const tabs = typeof this.host.getTabList === 'function' ? this.host.getTabList() : [];
+      const match = Array.isArray(tabs) ? tabs.find((t: unknown) => t && typeof t === 'object' && (t as Record<string, unknown>).id === tabId) : undefined;
+      if (match && typeof (match as Record<string, unknown>).url === 'string' && (match as Record<string, unknown>).url) {
+        return (match as Record<string, unknown>).url as string;
+      }
+    } catch {}
+    try {
+      if (typeof this.host.evalJs === 'function') {
+        const live = await this.host.evalJs('window.location.href', tabId);
+        if (typeof live === 'string' && live) return live;
+      }
+    } catch {}
+    return '';
+  }
+
+  private getTabRedirectChain(tabId: string): string[] {
+    if (typeof this.host.getRedirectChain === 'function') {
+      const chain = this.host.getRedirectChain(tabId);
+      if (Array.isArray(chain)) return chain;
+    }
+    return [];
   }
 
   async reload(target: BrowserTarget, explicitTabId?: string): Promise<{ reloaded: boolean; target: BrowserTarget; urlBefore?: string; urlAfter?: string; redirected?: boolean }> {
@@ -1623,7 +1674,7 @@ export class BrowserControlPort {
     attemptId: string,
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile',
-    options?: { leaseToken?: string; signal?: AbortSignal; timeoutMs?: number }
+    options?: { leaseToken?: string; signal?: AbortSignal; timeoutMs?: number; expectedUrl?: string | null }
   ): Promise<Record<string, unknown>> {
     if (typeof this.host.captureVerificationScreenshot !== 'function') {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
@@ -1644,7 +1695,7 @@ export class BrowserControlPort {
       () =>
         this.passivePool.execute(tabId, async () => {
           try {
-            return await this.captureFullPageEnvelope({ target, tabId, effectivePane, runId, attemptId, budget, leaseToken: options?.leaseToken });
+            return await this.captureFullPageEnvelope({ target, tabId, effectivePane, runId, attemptId, budget, leaseToken: options?.leaseToken, expectedUrl: options?.expectedUrl });
           } catch (err) {
             if (isViewportRestoreFailure(err)) {
               // The capture left the layout viewport where it could not prove it
@@ -1787,8 +1838,18 @@ export class BrowserControlPort {
     attemptId: string;
     budget: CompareBudget;
     leaseToken?: string;
+    expectedUrl?: string | null;
   }): Promise<Record<string, unknown>> {
-    const { target, tabId, effectivePane, runId, attemptId, budget, leaseToken } = args;
+    const { target, tabId, effectivePane, runId, attemptId, budget, leaseToken, expectedUrl } = args;
+    const observedUrl = await this.getLiveTabUrl(tabId);
+    const redirectChain = this.getTabRedirectChain(tabId);
+    const routeCheck = checkRouteIdentity(expectedUrl, observedUrl, redirectChain);
+    if (!routeCheck.ok) {
+      throw new CapabilityError(
+        routeCheck.status,
+        `Route identity assertion failed for full-page capture on tab '${tabId}': ${routeCheck.reason || routeCheck.status} (requested: ${routeCheck.requestedUrl || 'none'}, observed: ${routeCheck.observedUrl}, redirects: ${redirectChain.join(' -> ') || 'none'})`
+      );
+    }
     const bound = Math.max(1, Math.min(budget.remainingMs, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, 60_000));
     const envelope = await budget.run(
       'Page.captureScreenshot(full-page)',
@@ -1800,6 +1861,11 @@ export class BrowserControlPort {
         }),
       bound + 3_000
     );
+    if (envelope) {
+      envelope.expectedUrl = expectedUrl ?? null;
+      envelope.expectationMarker = routeCheck.status === 'URL_EXPECTATION_MISSING' ? 'URL_EXPECTATION_MISSING' : undefined;
+      envelope.routeAssertion = routeCheck;
+    }
     // The capture moves the layout viewport and must put it back. An envelope
     // that admits it could not (or was not allowed to because the transport was
     // draining) is not evidence: the tab's geometry is unproven, so the capture
@@ -1859,6 +1925,9 @@ export class BrowserControlPort {
       receipt,
       sha256,
       byteLength: bytes.length,
+      routeAssertion: routeCheck,
+      ...(expectedUrl !== undefined ? { expectedUrl } : {}),
+      ...(routeCheck.status === 'URL_EXPECTATION_MISSING' ? { expectationMarker: 'URL_EXPECTATION_MISSING' } : {}),
       ...(leaseToken ? { leaseToken } : {}),
     };
   }
@@ -4382,6 +4451,7 @@ export class BrowserControlPort {
       target: BrowserTarget;
       rect?: { x: number; y: number; width: number; height: number };
       fullPage: boolean;
+      expectedUrl?: string | null;
     }
   ): Promise<
     | {
@@ -4393,7 +4463,17 @@ export class BrowserControlPort {
       }
     | { ok: false; reason: string; code: string; quarantine?: TargetRecoveryReceipt }
   > {
-    const { side, tabId, runId, attemptId, target, rect, fullPage } = args;
+    const { side, tabId, runId, attemptId, target, rect, fullPage, expectedUrl } = args;
+    const observedUrl = await this.getLiveTabUrl(tabId);
+    const redirectChain = this.getTabRedirectChain(tabId);
+    const routeCheck = checkRouteIdentity(expectedUrl, observedUrl, redirectChain);
+    if (!routeCheck.ok) {
+      return {
+        ok: false,
+        code: routeCheck.status,
+        reason: `Route identity assertion failed for ${side} tab '${tabId}': ${routeCheck.reason || routeCheck.status} (requested: ${routeCheck.requestedUrl || 'none'}, observed: ${routeCheck.observedUrl}, redirects: ${redirectChain.join(' -> ') || 'none'})`,
+      };
+    }
     const budget = txn.budget;
     const captureBound = () => Math.max(1, Math.min(budget.remainingMs, fullPage ? 60_000 : 55_000));
     let envelope: VerificationCaptureEnvelope | undefined;
@@ -4437,6 +4517,9 @@ export class BrowserControlPort {
         ? failure
         : new CapabilityError('TARGET_STALE', `Failed to capture non-empty ${side} verification screenshot on tab '${tabId}'`);
     }
+    envelope.expectedUrl = expectedUrl ?? null;
+    envelope.expectationMarker = routeCheck.status === 'URL_EXPECTATION_MISSING' ? 'URL_EXPECTATION_MISSING' : undefined;
+    envelope.routeAssertion = routeCheck;
     const buffer = Buffer.from(envelope.data, 'base64');
     if (buffer.length === 0) {
       throw new CapabilityError('TARGET_STALE', `Failed to decode non-empty ${side} verification screenshot buffer on tab '${tabId}'`);
@@ -4716,6 +4799,8 @@ export class BrowserControlPort {
         );
       }
       targetMasksResolved = true;
+      const expectedTargetUrl = params.expectedTargetUrl ?? params.expectedUrl ?? null;
+      const expectedBaselineUrl = params.expectedBaselineUrl ?? null;
       const targetStaged = await this.captureStageSide(txn, {
         side: 'target',
         tabId,
@@ -4724,6 +4809,7 @@ export class BrowserControlPort {
         target,
         rect: targetRect,
         fullPage: Boolean(params.fullPage),
+        expectedUrl: expectedTargetUrl,
       });
       if (!targetStaged.ok) {
         const maskStatus = currentMaskStatus();
@@ -4783,6 +4869,7 @@ export class BrowserControlPort {
           target,
           rect: comparisonRect,
           fullPage: Boolean(params.fullPage),
+          expectedUrl: expectedBaselineUrl,
         });
         if (!compStaged.ok) {
           const maskStatus = currentMaskStatus();
@@ -5223,17 +5310,58 @@ export class BrowserControlPort {
           ? 'Visual comparison passed within tolerance'
           : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`;
 
+      const missingTargetExpectation = targetCapture?.expectationMarker === 'URL_EXPECTATION_MISSING';
+      const missingCompExpectation = compCapture?.expectationMarker === 'URL_EXPECTATION_MISSING';
+      const hasMissingExpectation = missingTargetExpectation || missingCompExpectation;
+
+      if (hasMissingExpectation) {
+        return settled({
+          ok: false,
+          status: 'INCONCLUSIVE',
+          code: 'URL_EXPECTATION_MISSING',
+          reason: 'Cannot publish verdict: capture identity was not asserted against an expected route (URL_EXPECTATION_MISSING)',
+          match: false,
+          mismatchPercentage: 100,
+          totalPixels: diffResult.totalPixels,
+          dimensionsMatch: diffResult.dimensionsMatch,
+          normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
+          maskResolution: {
+            status: 'ok',
+            maskedAreaRatio,
+            target: { maskedAreaRatio: targetMask.maskedAreaRatio },
+            baseline: compTabTarget ? { maskedAreaRatio: compMask.maskedAreaRatio } : undefined,
+          },
+          captureStateCompatible: false,
+          captureReceipts: targetCapture ? { target: targetCapture, baseline: compCapture } : undefined,
+          routeAssertions: {
+            target: targetCapture?.routeAssertion,
+            baseline: compCapture?.routeAssertion,
+          },
+          settle: targetSettle ? { target: targetSettle, comparison: compSettle } : undefined,
+          notes: 'URL_EXPECTATION_MISSING: capture identity was not asserted against an expected route',
+          receipt: createVisualEvidenceReceipt({
+            match: false,
+            mismatchPercentage: 100,
+            dimensionsMatch: diffResult.dimensionsMatch,
+            captureStateCompatible: false,
+            maskResolutionStatus: 'ok',
+            maskedAreaRatio,
+            settleComplete: Boolean(targetSettle?.settleComplete && (!compSettle || compSettle.settleComplete)),
+            metricSamples,
+            expectationMarker: 'URL_EXPECTATION_MISSING',
+            notes: 'URL_EXPECTATION_MISSING: capture identity was not asserted against an expected route',
+          }),
+          metricSamples,
+        });
+      }
+
       return settled({
+        ok: verdictMatch,
+        status: verdictMatch ? 'PASS' : 'FAIL',
         match: verdictMatch,
-        ...(structuralParityFailed ? { verdict: 'STRUCTURAL_PARITY_MISMATCH', reason: structuralReason } : {}),
         mismatchPercentage: diffResult.mismatchPercentage,
-        diffPixels: diffResult.diffPixels,
         totalPixels: diffResult.totalPixels,
         dimensionsMatch: diffResult.dimensionsMatch,
-        tolerance,
-        diffBoundingBoxes: diffResult.diffBoundingBoxes,
-        currentScreenshot: curArtifact,
-        baselineScreenshot: baselineArtifactRef,
         normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
         maskResolution: {
           status: 'ok',
@@ -5252,6 +5380,10 @@ export class BrowserControlPort {
         },
         captureStateCompatible: true,
         captureReceipts: targetCapture ? { target: targetCapture, baseline: compCapture } : undefined,
+        routeAssertions: {
+          target: targetCapture?.routeAssertion,
+          baseline: compCapture?.routeAssertion,
+        },
         coherence: {
           identityCoherent: true,
           captureStateCompatible: true,
@@ -5271,6 +5403,7 @@ export class BrowserControlPort {
           maskedAreaRatio,
           settleComplete: Boolean(targetSettle?.settleComplete && (!compSettle || compSettle.settleComplete)),
           metricSamples,
+          routeAssertion: targetCapture?.routeAssertion,
           notes: verdictNotes,
         }),
         metricSamples,

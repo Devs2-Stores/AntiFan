@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const crypto = require('node:crypto');
+const { createRequire } = require('node:module');
 const http = require('node:http');
 const { WebSocket } = require('ws');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
@@ -295,6 +296,108 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.artifact.stat': 'artifact.stat',
   'artifact_stat': 'artifact.stat',
 });
+
+const isFixerSession = process.env.ANTIFAN_FIXER_SESSION === 'true' ||
+  process.env.ANTIFAN_FIXER_SESSION === '1' ||
+  process.argv.includes('--fixer');
+
+// The fixer's permitted surface is policy, not a local constant: it lives beside the other B-Lite
+// audits so the launcher, the pre-tool hook and the merge gate cannot drift into three lists.
+// A module that does not yield the list refuses the fixer session outright — an unstated surface
+// would silently widen to whatever the bridge grants, which is the failure this filter exists to stop.
+let fixerToolSurface = null;
+try {
+  fixerToolSurface = createRequire(__filename)('../.canary/tools/fix-loop/audits.mjs').DEFAULT_PERMITTED_TOOLS;
+} catch {}
+if (isFixerSession && (!Array.isArray(fixerToolSurface) || fixerToolSurface.length === 0)) {
+  console.error('TOOL_SURFACE_POLICY_UNLOADABLE: .canary/tools/fix-loop/audits.mjs did not yield DEFAULT_PERMITTED_TOOLS; refusing to launch a fixer session whose permitted tool surface is unstated.');
+  process.exit(1);
+}
+
+function resolveSessionGrant() {
+  if (process.env.ANTIFAN_SESSION_GRANT) {
+    return process.env.ANTIFAN_SESSION_GRANT;
+  }
+  const grantArg = process.argv.find((a) => typeof a === 'string' && a.startsWith('--grant='));
+  if (grantArg) {
+    return grantArg.slice('--grant='.length);
+  }
+  return isFixerSession ? 'write' : 'eval';
+}
+
+function resolveAllowedCapabilities() {
+  if (isFixerSession) {
+    return [...fixerToolSurface];
+  }
+  if (process.env.ANTIFAN_ALLOWED_CAPABILITIES || process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES) {
+    const raw = process.env.ANTIFAN_ALLOWED_CAPABILITIES || process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES;
+    try {
+      if (raw.trim().startsWith('[')) return JSON.parse(raw);
+    } catch {}
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  const allowArg = process.argv.find((a) => typeof a === 'string' && (a.startsWith('--allowed-capabilities=') || a.startsWith('--allow-capabilities=')));
+  if (allowArg) {
+    const val = allowArg.split('=')[1];
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return undefined;
+}
+
+function resolveForbiddenCapabilities() {
+  if (process.env.ANTIFAN_FORBIDDEN_CAPABILITIES || process.env.ANTIFAN_FORBIDDEN_CAPABILITY_NAMES) {
+    const raw = process.env.ANTIFAN_FORBIDDEN_CAPABILITIES || process.env.ANTIFAN_FORBIDDEN_CAPABILITY_NAMES;
+    try {
+      if (raw.trim().startsWith('[')) return JSON.parse(raw);
+    } catch {}
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  const forbidArg = process.argv.find((a) => typeof a === 'string' && a.startsWith('--forbidden-capabilities='));
+  if (forbidArg) {
+    const val = forbidArg.split('=')[1];
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return undefined;
+}
+
+function matchCapabilityPattern(name, pattern) {
+  const trimmed = pattern.trim();
+  if (trimmed === '*' || trimmed === name) return true;
+  if (!trimmed.includes('*') && !trimmed.includes('?')) return name === trimmed;
+  const escaped = trimmed
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`^${escaped}$`).test(name);
+}
+
+function isCapabilityPermitted(name, allowedCaps, forbiddenCaps) {
+  const mapped = CAPABILITY_MAP[name];
+  if (forbiddenCaps && forbiddenCaps.length > 0) {
+    for (const pat of forbiddenCaps) {
+      if (matchCapabilityPattern(name, pat)) return false;
+      if (mapped && matchCapabilityPattern(mapped, pat)) return false;
+    }
+  }
+  if (allowedCaps && allowedCaps.length > 0) {
+    let hasPositive = false;
+    let allowedPositive = false;
+    for (const rawPat of allowedCaps) {
+      const pat = rawPat.trim();
+      if (!pat) continue;
+      if (pat.startsWith('!')) {
+        if (matchCapabilityPattern(name, pat.slice(1))) return false;
+        if (mapped && matchCapabilityPattern(mapped, pat.slice(1))) return false;
+      } else {
+        hasPositive = true;
+        if (matchCapabilityPattern(name, pat)) allowedPositive = true;
+        if (mapped && matchCapabilityPattern(mapped, pat)) allowedPositive = true;
+      }
+    }
+    if (hasPositive && !allowedPositive) return false;
+  }
+  return true;
+}
 
 // ─── Client Dispatch Ceiling and Failure Classification (contract §2.6) ─────
 // The server owns the per-capability response budget: policy.timeoutMs is one
@@ -612,17 +715,27 @@ async function autohealSession() {
         ws.on('message', onMsg);
         const rawTerminalId = process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID;
         const rawGeneration = process.env.ANTIFAN_TERMINAL_AFFINITY_GENERATION || process.env.ANTIFAN_TERMINAL_GENERATION;
+        const targetGrant = resolveSessionGrant();
+        const allowedCaps = resolveAllowedCapabilities();
+        const forbiddenCaps = resolveForbiddenCapabilities();
+        const startParams = {
+          backendId: 'cli',
+          grant: targetGrant,
+          cwd: process.cwd(),
+          attachmentId: pairedExchange?.attachmentId || undefined,
+          terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
+          terminalGeneration: rawGeneration ? String(rawGeneration).trim() : undefined,
+        };
+        if (allowedCaps && allowedCaps.length > 0) {
+          startParams.allowedCapabilityNames = allowedCaps;
+        }
+        if (forbiddenCaps && forbiddenCaps.length > 0) {
+          startParams.forbiddenCapabilityNames = forbiddenCaps;
+        }
         ws.send(JSON.stringify({
           id: startId,
           method: 'antifan.cli.startSession',
-          params: {
-            backendId: 'cli',
-            grant: 'eval',
-            cwd: process.cwd(),
-            attachmentId: pairedExchange?.attachmentId || undefined,
-            terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
-            terminalGeneration: rawGeneration ? String(rawGeneration).trim() : undefined,
-          },
+          params: startParams,
         }));
       });
       if (!session || !session.attachmentId || !session.secret || !session.authorityRevision || !session.tabId) {
@@ -756,6 +869,13 @@ async function ensureDispatchSocket(bootstrap) {
 }
 
 async function invoke(method, params = {}, callerRequestId) {
+  const allowedCaps = resolveAllowedCapabilities();
+  const forbiddenCaps = resolveForbiddenCapabilities();
+  if (!isCapabilityPermitted(method, allowedCaps, forbiddenCaps)) {
+    const err = new Error(`REFUSED_TOOL_SURFACE: Capability '${method}' is forbidden by session tool surface policy`);
+    err.code = 'REFUSED_TOOL_SURFACE';
+    throw err;
+  }
   let bootstrap = getBootstrap();
   if (!bootstrap || !bootstrap.secret) {
     try {
@@ -1019,13 +1139,20 @@ function startHeartbeat(bootstrap) {
 // ─── MCP Server Initialization ───────────────────────────────────────────────
 const server = new Server({ name: 'antifan-omp', version: '1.0.0' }, { capabilities: { tools: {} } });
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: definitions.map(([name, description, properties, required]) => ({
-    name,
-    description,
-    inputSchema: { type: 'object', properties, ...(required ? { required } : {}) },
-  })),
-}));
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const allowedCaps = resolveAllowedCapabilities();
+  const forbiddenCaps = resolveForbiddenCapabilities();
+  const filteredDefs = (allowedCaps || forbiddenCaps)
+    ? definitions.filter(([name]) => isCapabilityPermitted(name, allowedCaps, forbiddenCaps))
+    : definitions;
+  return {
+    tools: filteredDefs.map(([name, description, properties, required]) => ({
+      name,
+      description,
+      inputSchema: { type: 'object', properties, ...(required ? { required } : {}) },
+    })),
+  };
+});
 
 server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
   try {

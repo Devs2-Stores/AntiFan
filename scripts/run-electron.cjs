@@ -29,8 +29,28 @@ const stateRecordPath = stateRecordArgIdx !== -1
   : (process.env.ANTIFAN_INSTANCE_RECORD || null);
 const childArgs = stateRecordArgIdx !== -1
   ? rawArgs.filter((_, idx) => idx !== stateRecordArgIdx && idx !== stateRecordArgIdx + 1)
-  : rawArgs;
+  : [...rawArgs];
 
+// Launcher coherence: align with dev.mjs and run-antifan.vbs.
+// Dev starts (--dev, NODE_ENV=development, or ANTIFAN_ALLOW_EVAL=true/1) default to --allow-eval,
+// while production starts (--production, NODE_ENV=production) strictly preserve the secure default.
+// Explicit --no-eval strips the flag and refuses --allow-eval.
+const isProduction = childArgs.includes('--production') || process.env.NODE_ENV === 'production';
+const noEvalIdx = childArgs.indexOf('--no-eval');
+const isExplicitNoEval = noEvalIdx !== -1 || process.env.ANTIFAN_ALLOW_EVAL === 'false';
+if (noEvalIdx !== -1) {
+  childArgs.splice(noEvalIdx, 1);
+}
+if (!isProduction && !isExplicitNoEval) {
+  const hasEval = childArgs.includes('--allow-eval') || childArgs.includes('--mcp-high-risk');
+  const shouldDefaultEval = process.env.ANTIFAN_ALLOW_EVAL === 'true' ||
+    process.env.ANTIFAN_ALLOW_EVAL === '1' ||
+    childArgs.includes('--dev') ||
+    process.env.NODE_ENV === 'development';
+  if (shouldDefaultEval && !hasEval) {
+    childArgs.push('--allow-eval');
+  }
+}
 const script = childArgs[0];
 if (!script) {
   console.error('usage: node scripts/run-electron.cjs <app-dir-or-entry> [...args] [--state-record <path>]');

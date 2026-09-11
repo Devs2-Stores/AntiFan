@@ -18,6 +18,7 @@
 
 import * as zlib from 'node:zlib';
 import type { MetricSample, VisualEvidenceReceipt } from './verification-contract';
+import type { RouteRefusalCode as SharedRouteRefusalCode } from '../../shared/control-plane-contracts';
 import type { GroupStructuralMetrics } from './visual-region';
 
 export interface RasterBox {
@@ -846,6 +847,9 @@ export interface VerificationCaptureEnvelope {
   timestamp: number;
   /** Layout-viewport movement caused by the capture and whether it was restored. */
   viewportTransaction?: CaptureViewportTransaction;
+  expectedUrl?: string | null;
+  expectationMarker?: 'URL_EXPECTATION_MISSING';
+  routeAssertion?: RouteAssertionResult;
 }
 
 /**
@@ -861,6 +865,9 @@ export interface VerificationCaptureReceipt {
   captureMode: CaptureMode;
   timestamp: number;
   viewportTransaction?: CaptureViewportTransaction;
+  expectedUrl?: string | null;
+  expectationMarker?: 'URL_EXPECTATION_MISSING';
+  routeAssertion?: RouteAssertionResult;
 }
 
 export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): VerificationCaptureReceipt {
@@ -874,6 +881,9 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     captureMode: env.captureMode,
     timestamp: env.timestamp,
     ...(env.viewportTransaction ? { viewportTransaction: env.viewportTransaction } : {}),
+    expectedUrl: env.expectedUrl ?? null,
+    ...(env.expectationMarker ? { expectationMarker: env.expectationMarker } : {}),
+    ...(env.routeAssertion ? { routeAssertion: env.routeAssertion } : {}),
   };
 }
 
@@ -910,8 +920,154 @@ export type CaptureFailureCode =
   | 'CAPTURE_SCALE_MISMATCH'
   | 'TARGET_BUSY_DRAINING'
   | 'NO_RENDER_SURFACE'
-  | 'CAPTURE_VIEWPORT_NOT_RESTORED';
+  | 'CAPTURE_VIEWPORT_NOT_RESTORED'
+  | 'CAPTURE_NOT_READY'
+  | 'SETTLE_PREDICATE_FAILED'
+  | 'IMAGE_IDENTITY_UNSTABLE'
+  | 'DOCUMENT_GENERATION_UNSETTLED'
+  | 'URL_HOST_MISMATCH'
+  | 'URL_THEME_MISMATCH'
+  | 'URL_PATH_MISMATCH'
+  | 'URL_EXPECTATION_MISSING';
 
+export type RouteRefusalCode = SharedRouteRefusalCode;
+
+export type RouteAssertionResult =
+  | {
+      ok: true;
+      status: 'MATCH' | 'URL_EXPECTATION_MISSING';
+      requestedUrl: string | null;
+      expectedUrl: string | null;
+      observedUrl: string;
+      redirectChain: string[];
+      code?: 'URL_EXPECTATION_MISSING';
+      reason?: string;
+    }
+  | {
+      ok: false;
+      status: RouteRefusalCode;
+      code: RouteRefusalCode;
+      reason: string;
+      requestedUrl: string | null;
+      expectedUrl: string | null;
+      observedUrl: string;
+      redirectChain: string[];
+    };
+
+export function normalizeRoutePath(pathname: string): string {
+  if (!pathname) return '/';
+  const stripped = pathname.replace(/\/+$/, '');
+  return stripped.length === 0 ? '/' : stripped;
+}
+
+export function checkRouteIdentity(
+  expectedUrl: string | null | undefined,
+  observedUrl: string,
+  redirectChain: string[] = []
+): RouteAssertionResult {
+  const safeObserved = String(observedUrl || '').trim();
+  const safeChain = Array.isArray(redirectChain) ? [...redirectChain] : [];
+
+  if (!expectedUrl || typeof expectedUrl !== 'string' || expectedUrl.trim().length === 0) {
+    return {
+      ok: true,
+      status: 'URL_EXPECTATION_MISSING',
+      requestedUrl: null,
+      expectedUrl: null,
+      observedUrl: safeObserved,
+      redirectChain: safeChain,
+      code: 'URL_EXPECTATION_MISSING',
+      reason: 'No expected URL was supplied for route identity assertion',
+    };
+  }
+
+  const trimmedExpected = expectedUrl.trim();
+  let expectedParsed: URL;
+  let observedParsed: URL;
+  try {
+    expectedParsed = new URL(trimmedExpected);
+  } catch (err) {
+    return {
+      ok: false,
+      status: 'URL_HOST_MISMATCH',
+      code: 'URL_HOST_MISMATCH',
+      requestedUrl: trimmedExpected,
+      expectedUrl: trimmedExpected,
+      observedUrl: safeObserved,
+      redirectChain: safeChain,
+      reason: `Malformed expected URL '${trimmedExpected}': ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  try {
+    observedParsed = new URL(safeObserved);
+  } catch (err) {
+    return {
+      ok: false,
+      status: 'URL_HOST_MISMATCH',
+      code: 'URL_HOST_MISMATCH',
+      requestedUrl: trimmedExpected,
+      expectedUrl: trimmedExpected,
+      observedUrl: safeObserved,
+      redirectChain: safeChain,
+      reason: `Malformed observed URL '${safeObserved}': ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // 1. Host mismatch check
+  if (expectedParsed.host.toLowerCase() !== observedParsed.host.toLowerCase()) {
+    return {
+      ok: false,
+      status: 'URL_HOST_MISMATCH',
+      code: 'URL_HOST_MISMATCH',
+      requestedUrl: trimmedExpected,
+      expectedUrl: trimmedExpected,
+      observedUrl: safeObserved,
+      redirectChain: safeChain,
+      reason: `Requested host '${expectedParsed.host}' does not match observed host '${observedParsed.host}'`,
+    };
+  }
+
+  // 2. Theme mismatch check (when themeid query param is specified in expected URL)
+  const expectedTheme = expectedParsed.searchParams.get('themeid');
+  const observedTheme = observedParsed.searchParams.get('themeid');
+  if (expectedTheme !== null && observedTheme !== expectedTheme) {
+    return {
+      ok: false,
+      status: 'URL_THEME_MISMATCH',
+      code: 'URL_THEME_MISMATCH',
+      requestedUrl: trimmedExpected,
+      expectedUrl: trimmedExpected,
+      observedUrl: safeObserved,
+      redirectChain: safeChain,
+      reason: `Requested themeid '${expectedTheme}' does not match observed themeid '${observedTheme ?? '<none>'}'`,
+    };
+  }
+
+  // 3. Path mismatch check (origin + pathname identity)
+  const expectedPath = normalizeRoutePath(expectedParsed.pathname);
+  const observedPath = normalizeRoutePath(observedParsed.pathname);
+  if (expectedPath !== observedPath) {
+    return {
+      ok: false,
+      status: 'URL_PATH_MISMATCH',
+      code: 'URL_PATH_MISMATCH',
+      requestedUrl: trimmedExpected,
+      expectedUrl: trimmedExpected,
+      observedUrl: safeObserved,
+      redirectChain: safeChain,
+      reason: `Requested pathname '${expectedPath}' does not match observed pathname '${observedPath}'`,
+    };
+  }
+
+  return {
+    ok: true,
+    status: 'MATCH',
+    requestedUrl: trimmedExpected,
+    expectedUrl: trimmedExpected,
+    observedUrl: safeObserved,
+    redirectChain: safeChain,
+  };
+}
 export class CaptureError extends Error {
   constructor(
     public readonly code: CaptureFailureCode,
@@ -1280,16 +1436,23 @@ export function createVisualEvidenceReceipt(params: {
   settleComplete: boolean;
   metricSamples: MetricSample[];
   notes?: string;
+  expectationMarker?: 'URL_EXPECTATION_MISSING';
+  routeAssertion?: RouteAssertionResult;
 }): VisualEvidenceReceipt {
+  const isMissingExpectation = params.expectationMarker === 'URL_EXPECTATION_MISSING'
+    || params.routeAssertion?.status === 'URL_EXPECTATION_MISSING';
+  const notes = isMissingExpectation
+    ? `${params.notes ? `${params.notes}; ` : ''}URL_EXPECTATION_MISSING: capture identity was not asserted against an expected route`
+    : params.notes;
   return {
-    match: params.match,
-    mismatchPercentage: params.mismatchPercentage,
+    match: isMissingExpectation ? false : params.match,
+    mismatchPercentage: isMissingExpectation ? 100 : params.mismatchPercentage,
     dimensionsMatch: params.dimensionsMatch,
     captureStateCompatible: params.captureStateCompatible,
     maskResolutionStatus: params.maskResolutionStatus,
     maskedAreaRatio: params.maskedAreaRatio,
     settleComplete: params.settleComplete,
     metricSamples: params.metricSamples,
-    notes: params.notes,
+    notes,
   };
 }

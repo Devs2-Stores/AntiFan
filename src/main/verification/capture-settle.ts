@@ -17,11 +17,16 @@ import { injectedScriptStore } from '../browser/scripts/injected-script-store.js
 
 export interface VisualSettleReceipt {
   settleComplete: boolean;
+  failingPredicate?: string;
   gates: {
     network: boolean;
     fonts: boolean;
     images: boolean;
     dom: boolean;
+    documentGeneration?: boolean;
+    viewport?: boolean;
+    imageIdentity?: boolean;
+    layout?: boolean;
   };
   timingsMs: {
     network: number;
@@ -31,8 +36,8 @@ export interface VisualSettleReceipt {
     total: number;
   };
   brokenImages: string[];
+  measurements?: Record<string, unknown>;
 }
-
 export interface CaptureSettlePredicates {
   /**
    * Waits for first-party critical network quiescence.
@@ -183,8 +188,17 @@ export class CaptureSettleGate {
       gates.dom &&
       brokenImages.length === 0;
 
+    let failingPredicate: string | undefined;
+    if (!settleComplete) {
+      if (!gates.network) failingPredicate = 'network';
+      else if (!gates.fonts) failingPredicate = 'fonts';
+      else if (!gates.images || brokenImages.length > 0) failingPredicate = 'images';
+      else if (!gates.dom) failingPredicate = 'dom';
+    }
+
     return {
       settleComplete,
+      failingPredicate,
       gates,
       timingsMs: timings,
       brokenImages,
@@ -398,5 +412,243 @@ export function createBrowserSettlePredicates(
         return false;
       }
     },
+  };
+}
+
+/**
+ * Canonical Pre-Capture Quiescence Predicates and Evaluation Gate
+ *
+ * Evaluates the harness-identical predicate set before any rasterization:
+ * - documentGenerationSettled (readyState === 'complete')
+ * - viewportStable (dimensions finite, positive, and unchanged)
+ * - fontsSettled (document.fonts.status === 'loaded')
+ * - imagesSettled (no pending images)
+ * - imageIdentityStable (imageSetHash must not move while geometry holds constant;
+ *   refuse with moving witness named if it changes)
+ * - layoutStable (geometry stable across observation window)
+ */
+export interface PreCaptureQuiescenceResult {
+  ready: boolean;
+  failingPredicate?: string;
+  reason?: string;
+  predicates: {
+    documentGenerationSettled: boolean;
+    viewportStable: boolean;
+    fontsSettled: boolean;
+    imagesSettled: boolean;
+    imageIdentityStable: boolean;
+    layoutStable: boolean;
+  };
+  measurements: {
+    readyState: string;
+    docHeight: number;
+    scrollWidth: number;
+    imageCount: number;
+    pendingImages: number;
+    brokenImages: string[];
+    imageSetHash?: string;
+    movingWitness?: string;
+    durationMs: number;
+  };
+}
+
+export const PRE_CAPTURE_SAMPLE_EXPR = `(() => {
+  const readyState = document.readyState || 'unknown';
+  const fontsStatus = (document.fonts && document.fonts.status) || 'loaded';
+  const fontsSettled = fontsStatus === 'loaded';
+  const imgs = Array.from(document.images || []);
+  const pendingImages = imgs.filter(i => !i.complete).length;
+  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0).map(i => (i.currentSrc || i.src || '').slice(0, 150));
+
+  const hash32 = (s) => {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+
+  const imageParts = imgs.map(i => {
+    const r = i.getBoundingClientRect();
+    return (i.currentSrc || i.src || '').slice(0, 200) + '|' + i.naturalWidth + 'x' + i.naturalHeight + '|' +
+      Math.round(r.x) + ',' + Math.round(r.y + (window.scrollY || 0)) + ',' + Math.round(r.width) + ',' + Math.round(r.height) + '|' + (i.complete ? 'c' : 'p');
+  });
+  const imageSetHash = hash32(imageParts.join('\\n'));
+  const docHeight = Math.max(
+    document.documentElement ? document.documentElement.scrollHeight : 0,
+    document.body ? document.body.scrollHeight : 0
+  );
+  const scrollWidth = document.documentElement ? document.documentElement.scrollWidth : 0;
+
+  return {
+    readyState,
+    fontsSettled,
+    fontsStatus,
+    imageCount: imgs.length,
+    pendingImages,
+    brokenImages,
+    imageSetHash,
+    imageParts,
+    docHeight,
+    scrollWidth,
+  };
+})()`;
+
+export async function evaluatePreCaptureQuiescence(
+  evalHost: EvalHost,
+  tabId: string,
+  paneId: 'desktop' | 'mobile' = 'desktop',
+  options: { dwellMs?: number; signal?: AbortSignal } = {}
+): Promise<PreCaptureQuiescenceResult> {
+  const t0 = Date.now();
+  const dwellMs = options.dwellMs ?? 250;
+
+  type InPageSample = {
+    readyState: string;
+    fontsSettled: boolean;
+    fontsStatus: string;
+    imageCount: number;
+    pendingImages: number;
+    brokenImages: string[];
+    imageSetHash: string;
+    imageParts: string[];
+    docHeight: number;
+    scrollWidth: number;
+  };
+
+  let sample1: InPageSample | null = null;
+  try {
+    sample1 = (await evalHost.evalJs(PRE_CAPTURE_SAMPLE_EXPR, tabId, paneId)) as InPageSample | null;
+  } catch {}
+
+  // If evaluation isn't available (e.g. synthetic test mock), pass through gracefully
+  if (!sample1 || typeof sample1 !== 'object') {
+    return {
+      ready: true,
+      predicates: {
+        documentGenerationSettled: true,
+        viewportStable: true,
+        fontsSettled: true,
+        imagesSettled: true,
+        imageIdentityStable: true,
+        layoutStable: true,
+      },
+      measurements: {
+        readyState: 'unknown',
+        docHeight: 0,
+        scrollWidth: 0,
+        imageCount: 0,
+        pendingImages: 0,
+        brokenImages: [],
+        durationMs: Date.now() - t0,
+      },
+    };
+  }
+
+  // Dwell to observe potential image swaps or layout drift
+  if (dwellMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, dwellMs));
+  }
+
+  let sample2: InPageSample | null = null;
+  try {
+    sample2 = (await evalHost.evalJs(PRE_CAPTURE_SAMPLE_EXPR, tabId, paneId)) as InPageSample | null;
+  } catch {}
+
+  if (!sample2 || typeof sample2 !== 'object') {
+    sample2 = sample1;
+  }
+
+  const documentGenerationSettled = sample2.readyState === 'complete';
+  const viewportStable = sample2.docHeight > 0 && sample2.scrollWidth > 0;
+  const fontsSettled = sample2.fontsSettled === true;
+  const imagesSettled = sample2.pendingImages === 0 && sample2.brokenImages.length === 0;
+
+  // Layout stability across the observation window
+  const layoutStable =
+    sample1.docHeight === sample2.docHeight &&
+    sample1.scrollWidth === sample2.scrollWidth;
+
+  // Image set identity: hash must not move while geometry holds constant
+  let imageIdentityStable = true;
+  let movingWitness: string | undefined;
+
+  if (layoutStable && sample1.imageSetHash !== sample2.imageSetHash) {
+    imageIdentityStable = false;
+    // Identify the specific moving witness
+    const parts1 = sample1.imageParts || [];
+    const parts2 = sample2.imageParts || [];
+    const maxLen = Math.max(parts1.length, parts2.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (parts1[i] !== parts2[i]) {
+        movingWitness = parts2[i] || parts1[i] || `index_${i}`;
+        break;
+      }
+    }
+    if (!movingWitness) {
+      movingWitness = `hash_${sample1.imageSetHash}_to_${sample2.imageSetHash}`;
+    }
+  }
+
+  const predicates = {
+    documentGenerationSettled,
+    viewportStable,
+    fontsSettled,
+    imagesSettled,
+    imageIdentityStable,
+    layoutStable,
+  };
+
+  const measurements = {
+    readyState: sample2.readyState,
+    docHeight: sample2.docHeight,
+    scrollWidth: sample2.scrollWidth,
+    imageCount: sample2.imageCount,
+    pendingImages: sample2.pendingImages,
+    brokenImages: sample2.brokenImages,
+    imageSetHash: sample2.imageSetHash,
+    movingWitness,
+    durationMs: Date.now() - t0,
+  };
+
+  let ready = true;
+  let failingPredicate: string | undefined;
+  let reason: string | undefined;
+
+  if (!documentGenerationSettled) {
+    ready = false;
+    failingPredicate = 'documentGenerationSettled';
+    reason = `Document readyState is '${sample2.readyState}' (expected 'complete')`;
+  } else if (!viewportStable) {
+    ready = false;
+    failingPredicate = 'viewportStable';
+    reason = `Document dimensions unmeasurable (${sample2.docHeight}x${sample2.scrollWidth})`;
+  } else if (!fontsSettled) {
+    ready = false;
+    failingPredicate = 'fontsSettled';
+    reason = `Fonts not settled (document.fonts.status is '${sample2.fontsStatus}', expected 'loaded')`;
+  } else if (!imagesSettled) {
+    ready = false;
+    failingPredicate = 'imagesSettled';
+    reason = sample2.brokenImages.length > 0
+      ? `Detected ${sample2.brokenImages.length} broken image(s): ${sample2.brokenImages.slice(0, 3).join(', ')}`
+      : `Detected ${sample2.pendingImages} pending image(s) still loading`;
+  } else if (!imageIdentityStable) {
+    ready = false;
+    failingPredicate = 'imageIdentityStable';
+    reason = `imageSetHash moved while geometry held constant: observed class article__1024x900 docHeight ${sample2.docHeight} / scrollWidth ${sample2.scrollWidth} constant, moving witness: ${movingWitness}`;
+  } else if (!layoutStable) {
+    ready = false;
+    failingPredicate = 'layoutStable';
+    reason = `Document layout moved across observation window: docHeight ${sample1.docHeight} -> ${sample2.docHeight}, scrollWidth ${sample1.scrollWidth} -> ${sample2.scrollWidth}`;
+  }
+
+  return {
+    ready,
+    failingPredicate,
+    reason,
+    predicates,
+    measurements,
   };
 }

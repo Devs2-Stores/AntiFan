@@ -347,6 +347,8 @@ export interface NativeTabRecord {
   state: AntiFanTab;
   focusedPane?: SplitPaneId;
   customViewport?: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number };
+  redirectChain?: string[];
+  lastNavigationFailure?: { cause: string; message: string; timedOut: boolean };
 }
 
 export class NativeTabHost extends EventEmitter {
@@ -403,6 +405,7 @@ export class NativeTabHost extends EventEmitter {
   public readonly semanticRefRegistry = new SemanticRefRegistry();
   private semanticDocumentGenerations = new Map<string, number>();
   private targetOperationQueues = new Map<string, Promise<void>>();
+  private lastNavigationFailures = new Map<string, { cause: string; message: string; timedOut: boolean }>();
   public agentInputInFlight = 0;
   private viewportGate: ViewportGate | null = null;
 
@@ -490,6 +493,12 @@ export class NativeTabHost extends EventEmitter {
         withTabAgentWorking: (tabId, action) => this.withTabAgentWorking(tabId, action),
         runWithAttachedTabView: (view, action, isMobile) => this.runWithAttachedTabView(view, action, isMobile),
         switchTab: (tabId) => this.switchTab(tabId),
+        getSemanticDocumentGeneration: (tabId, paneId) => this.getSemanticDocumentGeneration(tabId, paneId),
+        getLegacyDocumentGeneration: (tabId) => (this.getDocumentGeneration ? this.getDocumentGeneration(tabId) : (this.documentGenerations?.get(tabId) || 0)),
+        getMutationRevision: (tabId) => (this.mutationRevisions ? (this.mutationRevisions.get(tabId) || 0) : 0),
+        getTabUrl: (tabId) => this.getTabUrl(tabId),
+        getRedirectChain: (tabId) => this.getRedirectChain(tabId),
+        getLastNavigationFailure: (tabId) => this.getLastNavigationFailure(tabId),
       });
     }
     return this.devToolsHost;
@@ -3085,6 +3094,9 @@ export class NativeTabHost extends EventEmitter {
       this.semanticDocumentGenerations.set(semanticKey, (this.semanticDocumentGenerations.get(semanticKey) || 1) + 1);
       this.semanticRefRegistry?.invalidateTarget(id, paneId);
       const currentTab = this.tabs.get(id);
+      if (isMainFrame && !isInPlace && currentTab) {
+        currentTab.redirectChain = [String(navUrl || '')];
+      }
       const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
       if (isMainFrame && !isInPlace && authorityPane === paneId) {
@@ -3108,7 +3120,12 @@ export class NativeTabHost extends EventEmitter {
     wc.on('will-redirect', (event, redirectUrl) => {
       // Fail-closed unified navigation policy on server redirects — a 30x
       // must never escape the same allowlist as direct navigation.
-      if (!isAllowedNavigation(String(redirectUrl || ''))) {
+      const rawRedirect = String(redirectUrl || '');
+      const currentTab = this.tabs.get(id);
+      if (currentTab?.redirectChain) {
+        currentTab.redirectChain.push(rawRedirect);
+      }
+      if (!isAllowedNavigation(rawRedirect)) {
         event.preventDefault();
       }
     });
@@ -3144,6 +3161,11 @@ export class NativeTabHost extends EventEmitter {
     });
 
     wc.on('did-finish-load', () => {
+      const currentTab = this.tabs.get(id);
+      const liveUrl = wc.getURL();
+      if (currentTab?.redirectChain && liveUrl && !currentTab.redirectChain.includes(liveUrl)) {
+        currentTab.redirectChain.push(liveUrl);
+      }
       this.appliedClipRadius.delete(wc);
       wc.session.cookies.flushStore().catch(() => {});
       this.injectAutoJsonViewer(wc);
@@ -3988,9 +4010,15 @@ export class NativeTabHost extends EventEmitter {
     const authorityView = authorityPane === 'mobile' && tab.mobileView ? tab.mobileView : tab.view;
     if (!authorityView || authorityView.webContents.isDestroyed()) return false;
 
-    const waiter = this.createNavigationLifecycleWaiter(authorityView.webContents, timeoutMs, Math.min(3000, timeoutMs));
+    this.lastNavigationFailures.delete(tabId);
+    const waiter = this.createNavigationLifecycleWaiter(authorityView.webContents, timeoutMs, Math.min(3000, timeoutMs), tabId);
     const initiated = this.navigate(tabId, inputUrl);
     if (!initiated) {
+      this.lastNavigationFailures.set(tabId, {
+        cause: 'NAVIGATION_BLOCKED',
+        message: `Navigation to "${cleanUrl}" was blocked or disallowed`,
+        timedOut: false,
+      });
       waiter.cancel();
       return false;
     }
@@ -4132,7 +4160,8 @@ export class NativeTabHost extends EventEmitter {
   private createNavigationLifecycleWaiter(
     wc: Electron.WebContents,
     timeoutMs: number = 8000,
-    startTimeoutMs: number = 3000
+    startTimeoutMs: number = 3000,
+    tabId?: string
   ): { promise: Promise<boolean>; cancel: () => void } {
     let cancelFn: () => void = () => {};
     const promise = new Promise<boolean>((resolve) => {
@@ -4181,12 +4210,18 @@ export class NativeTabHost extends EventEmitter {
       const onFinish = () => {
         // ONLY accept finish after this navigation has started in main-frame (non-in-place)
         if (!settled && navStarted) {
+          if (tabId) {
+            this.lastNavigationFailures.delete(tabId);
+          }
           finish(true);
         }
       };
 
       const onInPage = (_event: unknown, _url: unknown, isMainFrame: boolean) => {
         if (isMainFrame && !settled) {
+          if (tabId) {
+            this.lastNavigationFailures.delete(tabId);
+          }
           finish(true);
         }
       };
@@ -4200,22 +4235,42 @@ export class NativeTabHost extends EventEmitter {
         }
         // ONLY accept real failure after this navigation has started in main-frame
         if (!settled && navStarted) {
+          if (tabId) {
+            this.lastNavigationFailures.set(tabId, {
+              cause: 'LOAD_FAILED',
+              message: `Navigation failed: ${errorDescription || errorCode}`,
+              timedOut: false,
+            });
+          }
           finish(false);
         }
       };
 
       startTimer = setTimeout(() => {
         if (!settled && !navStarted) {
+          if (tabId) {
+            this.lastNavigationFailures.set(tabId, {
+              cause: 'NAVIGATION_START_TIMEOUT',
+              message: `Navigation start timed out after ${Math.min(startTimeoutMs, timeoutMs)}ms`,
+              timedOut: true,
+            });
+          }
           finish(false);
         }
       }, Math.min(startTimeoutMs, timeoutMs));
 
       totalTimer = setTimeout(() => {
         if (!settled) {
+          if (tabId) {
+            this.lastNavigationFailures.set(tabId, {
+              cause: 'NAVIGATION_TIMEOUT',
+              message: `Navigation load completion timed out after ${timeoutMs}ms`,
+              timedOut: true,
+            });
+          }
           finish(false);
         }
       }, timeoutMs);
-
       cancelFn = () => {
         finish(false);
       };
@@ -4227,6 +4282,27 @@ export class NativeTabHost extends EventEmitter {
     });
 
     return { promise, cancel: cancelFn };
+  }
+
+  public getLastNavigationFailure(tabId: string): { cause: string; message: string; timedOut: boolean } | undefined {
+    return this.lastNavigationFailures.get(tabId);
+  }
+
+  public getTabUrl(tabId: string): string {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return '';
+    try {
+      if (tab.view && !tab.view.webContents.isDestroyed()) {
+        const live = tab.view.webContents.getURL();
+        if (live) return live;
+      }
+    } catch {}
+    return tab.state?.url || '';
+  }
+
+  public getRedirectChain(tabId: string): string[] {
+    const tab = this.tabs.get(tabId);
+    return tab?.redirectChain ? [...tab.redirectChain] : [];
   }
 
   public stopLoading(tabId: string): boolean {

@@ -13,6 +13,112 @@ export type AttemptState = 'prepared' | 'dispatching' | 'running' | 'completed' 
 export type CapabilityRisk = 'read' | 'write' | 'execute' | 'eval';
 export type DeliveryState = 'prepared' | 'dispatching' | 'accepted-exact' | 'accepted-active-panel' | 'prompt-observed' | 'response-observed' | 'failed' | 'unknown' | 'unavailable';
 
+
+/**
+ * ============================================================================
+ * AntiFan B-Lite v2 Loop Lifecycle & Ownership Split Contract
+ * ============================================================================
+ *
+ * Epistemic & Architectural Boundary:
+ * 1. Verification Engine Ownership:
+ *    - The AntiFan verification engine owns evidence, artifact, and lifecycle state ONLY.
+ *    - Adjudicates verdicts against deterministic & semantic evidence.
+ *    - Has NO SOURCE-FILE ROLLBACK PATH inside the verification engine.
+ *
+ * 2. Workspace Mutation & Recovery Ownership (Main):
+ *    - The ONLY writer to the workspace is Main's merge gate (after staging & audit).
+ *    - Workspace recovery is strictly Main's path-scoped restore (restoring pre-merge bytes
+ *      of named files from real disk snapshots).
+ *    - Repo-wide destructive git commands (git checkout -- ., git clean -fd, git reset --hard)
+ *      are forbidden by invariant.
+ *
+ * 3. Pre-existing Capability Exception:
+ *    - `theme.qa_repair.begin` and `theme.qa_repair.verify` are pre-existing write-class
+ *      capabilities in AntiFan that snapshot and can roll back the workspace to R0.
+ *    - EXCEPTION STATUS: These capabilities are OUTSIDE the fixer allowlist (which admits
+ *      only file.read and file.write in the staged workspace) and are NEVER invoked by
+ *      this B-Lite v2 fix loop. Recorded here explicitly so this legacy capability does
+ *      not silently contradict the strict ownership split.
+ *
+ * 4. SCOPE_DISCOVERY Contract:
+ *    - SCOPE_DISCOVERY is a returned class (a fix that cannot proceed inside `allowedFiles`),
+ *      consumed by Main to evaluate and issue a new FixRequest.
+ *    - It must NEVER expand scope in place within the staged or real workspace.
+ * ============================================================================
+ */
+
+/** Typed decision enum for fixer audit results */
+export type FixDecision =
+  | 'OK'
+  | 'REFUSED_TOUCHED_PATH'
+  | 'REFUSED_DIFF_BUDGET'
+  | 'REFUSED_SCOPE_EXPANSION'
+  | 'REFUSED_DRIFT'
+  | 'REFUSED_TOOL_SURFACE'
+  | 'REFUSED_SELF_VERIFICATION';
+
+/** Route-refusal codes for reference identity assertions */
+export type RouteRefusalCode =
+  | 'URL_HOST_MISMATCH'
+  | 'URL_THEME_MISMATCH'
+  | 'URL_PATH_MISMATCH'
+  | 'URL_EXPECTATION_MISSING';
+
+/** Lifecycle states for B-Lite v2 fix loop rounds */
+export type FixLifecycleState =
+  | 'FIXED_VERIFIED'
+  | 'REFUSED_SCOPE'
+  | 'STALEMATE'
+  | 'SCOPE_DISCOVERY';
+
+/** Diff budget bounding changed files and bytes */
+export interface FixDiffBudget {
+  maxFiles: number;
+  maxBytes: number;
+}
+
+/** FixRequest v2 specification passed to builder-fixer subagent */
+export interface FixRequestV2 {
+  runId: string;
+  fixId: string;
+  surfaceId: string;
+  stagedRoot: string;
+  baseManifestHash: string;
+  allowedFiles: string[];
+  forbiddenPaths: string[];
+  diffBudget: FixDiffBudget;
+  maxScopeExpansion: number;
+  requestedTargets: string[];
+  evidenceRefs: string[];
+  targetCauseCode: string;
+  returnShape: string;
+}
+
+/** FixResult v2 returned by builder-fixer subagent */
+export interface FixResultV2 {
+  decision: FixDecision;
+  touchedPaths: string[];
+  budgets: {
+    files: number;
+    bytes: number;
+  };
+  expandedPaths: string[];
+  missingPaths: string[];
+  toolSurface: string;
+  selfVerificationClaimed: boolean;
+  notes?: string;
+}
+
+/** Receipt payload for a SCOPE_DISCOVERY terminal outcome */
+export interface ScopeDiscoveryReceipt {
+  runId: string;
+  fixId?: string;
+  missingPaths: string[];
+  requestedTargets: string[];
+  notes?: string;
+  evidencePath?: string;
+  timestamp: number;
+}
 export interface ProjectRecord {
   id: string;
   name: string;
@@ -584,7 +690,12 @@ export type CapabilityErrorCode =
   | 'NO_RENDER_SURFACE'
   | 'VIEWPORT_NOT_APPLIED'
   | 'CAPTURE_VIEWPORT_NOT_RESTORED'
-  | 'REFERENCE_MATERIALIZATION_INCOMPLETE';
+  | 'REFERENCE_MATERIALIZATION_INCOMPLETE'
+  | 'REFUSED_TOOL_SURFACE'
+  | 'URL_HOST_MISMATCH'
+  | 'URL_THEME_MISMATCH'
+  | 'URL_PATH_MISMATCH'
+  | 'URL_EXPECTATION_MISSING';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;

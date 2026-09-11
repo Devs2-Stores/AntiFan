@@ -30,6 +30,7 @@ import {
   type RenderSurfaceSnapshot,
   type VerificationCaptureEnvelope,
 } from '../verification/visual-capture';
+import { evaluatePreCaptureQuiescence } from '../verification/capture-settle';
 
 const delay = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -54,6 +55,12 @@ export interface TabDevToolsContext {
   withTabAgentWorking: <T>(tabId: string, action: () => Promise<T>) => Promise<T>;
   runWithAttachedTabView?: <T>(view: Electron.WebContentsView | null | undefined, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
   switchTab?: (tabId: string) => boolean;
+  getSemanticDocumentGeneration?: (tabId: string, paneId?: SplitPaneId) => number;
+  getLegacyDocumentGeneration?: (tabId: string) => number;
+  getMutationRevision?: (tabId: string) => number;
+  getTabUrl?: (tabId: string) => string;
+  getRedirectChain?: (tabId: string) => string[];
+  getLastNavigationFailure?: (tabId: string) => { cause: string; message: string; timedOut: boolean } | undefined;
 }
 export interface TabDevToolsStats {
   attachedWebContentsCount: number;
@@ -1367,7 +1374,7 @@ export class TabDevToolsHost {
     rect?: Rectangle,
     tabId?: string,
     paneId?: SplitPaneId,
-    options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }
+    options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number; skipQuiescence?: boolean }
   ): Promise<VerificationCaptureEnvelope> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
@@ -1482,6 +1489,31 @@ export class TabDevToolsHost {
           }
           const dpr = surface.dpr;
           const cssViewport = { width: surface.vw, height: surface.vh };
+          if (!options?.skipQuiescence) {
+            const quiescence = await evaluatePreCaptureQuiescence(
+              {
+                evalJs: (script: string, tId?: string, pId?: 'desktop' | 'mobile') =>
+                  this.evalJs(script, tId || targetId, pId || effectivePane),
+              },
+              targetId,
+              effectivePane
+            );
+            if (!quiescence.ready) {
+              // `evaluatePreCaptureQuiescence` reports the failing predicate as one of
+              // 'documentGenerationSettled' | 'viewportStable' | 'fontsSettled' | 'imagesSettled' |
+              // 'imageIdentityStable' | 'layoutStable'; map the two with dedicated capture codes so
+              // they stay distinguishable from a generic readiness failure.
+              const code = quiescence.failingPredicate === 'imageIdentityStable'
+                ? 'IMAGE_IDENTITY_UNSTABLE'
+                : quiescence.failingPredicate === 'documentGenerationSettled'
+                ? 'DOCUMENT_GENERATION_UNSETTLED'
+                : 'CAPTURE_NOT_READY';
+              throw new CaptureError(
+                code,
+                `Pre-capture quiescence predicate '${quiescence.failingPredicate}' failed on tab '${targetId}' pane '${effectivePane}': ${quiescence.reason || 'quiescence not reached'}`
+              );
+            }
+          }
 
           await this.sendCdpCommand(wc, 'Page.enable');
           await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride', {

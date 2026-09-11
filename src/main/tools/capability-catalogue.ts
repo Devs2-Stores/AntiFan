@@ -14,6 +14,62 @@ import {
 } from '../../shared/control-plane-contracts';
 import { WorkspaceRegistry } from '../project/workspace-registry';
 
+export interface SessionCapabilityFilter {
+  allowedCapabilityNames?: string[];
+  forbiddenCapabilityNames?: string[];
+}
+
+export function matchCapabilityPattern(name: string, pattern: string): boolean {
+  const trimmed = pattern.trim();
+  if (trimmed === '*' || trimmed === name) return true;
+  if (!trimmed.includes('*') && !trimmed.includes('?')) return name === trimmed;
+  const escaped = trimmed
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`^${escaped}$`).test(name);
+}
+
+export function isCapabilityNamePermitted(name: string, filter?: SessionCapabilityFilter): boolean {
+  if (!filter) return true;
+  const { allowedCapabilityNames, forbiddenCapabilityNames } = filter;
+  if (!allowedCapabilityNames && !forbiddenCapabilityNames) return true;
+
+  if (forbiddenCapabilityNames && forbiddenCapabilityNames.length > 0) {
+    for (const pat of forbiddenCapabilityNames) {
+      if (matchCapabilityPattern(name, pat)) {
+        return false;
+      }
+    }
+  }
+
+  if (allowedCapabilityNames && allowedCapabilityNames.length > 0) {
+    let hasPositiveRule = false;
+    let allowedByPositiveRule = false;
+
+    for (const rawPat of allowedCapabilityNames) {
+      const pat = rawPat.trim();
+      if (!pat) continue;
+      if (pat.startsWith('!')) {
+        if (matchCapabilityPattern(name, pat.slice(1))) {
+          return false;
+        }
+      } else {
+        hasPositiveRule = true;
+        if (matchCapabilityPattern(name, pat)) {
+          allowedByPositiveRule = true;
+        }
+      }
+    }
+
+    if (hasPositiveRule && !allowedByPositiveRule) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export interface CapabilityCatalogueOptions {
   runtime: RuntimeFeatureSwitch;
   projectId: string;
@@ -30,6 +86,7 @@ export interface CapabilityCatalogueOptions {
 
 export class CapabilityCatalogue {
   private readonly definitions = new Map<string, RegisteredCapability>();
+  private readonly sessionFilters = new Map<string, SessionCapabilityFilter>();
   private runtime: RuntimeFeatureSwitch;
   private revisionCounter = 1;
 
@@ -153,8 +210,22 @@ export class CapabilityCatalogue {
 
   get(name: string): RegisteredCapability | undefined { return this.definitions.get(name); }
 
-  list(context?: Pick<CapabilityRequestContext, 'grant'>): Array<{ name: string; description: string; risk: string; inputSchema: Record<string, unknown> }> {
-    return Array.from(this.definitions.values()).filter((definition) => this.isVisible(definition, context?.grant)).map((definition) => ({ name: definition.name, description: definition.description, risk: definition.risk, inputSchema: definition.inputSchema }));
+  list(context?: (Pick<CapabilityRequestContext, 'grant'> & {
+    attachmentId?: string;
+    runId?: string;
+    attemptId?: string;
+    allowedCapabilityNames?: string[];
+    forbiddenCapabilityNames?: string[];
+  })): Array<{ name: string; description: string; risk: string; inputSchema: Record<string, unknown> }> {
+    const sessionFilter = this.resolveSessionFilter(context);
+    return Array.from(this.definitions.values())
+      .filter((definition) => this.isVisible(definition, context?.grant, sessionFilter))
+      .map((definition) => ({
+        name: definition.name,
+        description: definition.description,
+        risk: definition.risk,
+        inputSchema: definition.inputSchema
+      }));
   }
 
   listAll(): Array<{ name: string; description: string; risk: string; inputSchema: Record<string, unknown> }> {
@@ -199,9 +270,19 @@ export class CapabilityCatalogue {
       throw new CapabilityError('RUNTIME_MISMATCH', 'Capability request Runtime does not match the active control plane');
     }
 
+    const sessionFilter = this.resolveSessionFilter(context);
+    if (sessionFilter && !isCapabilityNamePermitted(name, sessionFilter)) {
+      throw new CapabilityError('REFUSED_TOOL_SURFACE', `Capability '${name}' is forbidden by session tool surface policy`);
+    }
+
     const definition = this.definitions.get(name);
     if (!definition) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown capability: ${name}`);
-    if (!this.isVisible(definition, context.grant)) throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
+    if (!this.isVisible(definition, context.grant, sessionFilter)) {
+      if (sessionFilter && !isCapabilityNamePermitted(name, sessionFilter)) {
+        throw new CapabilityError('REFUSED_TOOL_SURFACE', `Capability '${name}' is forbidden by session tool surface policy`);
+      }
+      throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
+    }
 
     if (definition.requiresBrowserTarget) {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
@@ -231,9 +312,19 @@ export class CapabilityCatalogue {
       throw new CapabilityError('RUNTIME_MISMATCH', 'Capability request Runtime does not match the active control plane');
     }
 
+    const sessionFilter = this.resolveSessionFilter(context);
+    if (sessionFilter && !isCapabilityNamePermitted(name, sessionFilter)) {
+      throw new CapabilityError('REFUSED_TOOL_SURFACE', `Capability '${name}' is forbidden by session tool surface policy`);
+    }
+
     const definition = this.definitions.get(name);
     if (!definition) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown capability: ${name}`);
-    if (!this.isVisible(definition, context.grant)) throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
+    if (!this.isVisible(definition, context.grant, sessionFilter)) {
+      if (sessionFilter && !isCapabilityNamePermitted(name, sessionFilter)) {
+        throw new CapabilityError('REFUSED_TOOL_SURFACE', `Capability '${name}' is forbidden by session tool surface policy`);
+      }
+      throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
+    }
 
     if (definition.requiresBrowserTarget) {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
@@ -258,13 +349,56 @@ export class CapabilityCatalogue {
   switchToLegacy(): void { this.runtime = { mode: 'legacy', lifecycle: 'legacy' }; }
   getLifecycle(): RuntimeFeatureSwitch { return { ...this.runtime }; }
 
-  private isVisible(definition: CapabilityDefinition, grant?: CapabilityRequestContext['grant']): boolean {
+  public isVisible(
+    definition: CapabilityDefinition,
+    grant?: CapabilityRequestContext['grant'],
+    filter?: SessionCapabilityFilter
+  ): boolean {
+    if (filter && !isCapabilityNamePermitted(definition.name, filter)) return false;
     if (definition.risk === 'read') return true;
     if (this.runtime.mode !== 'standalone') return false;
     if (grant === 'write') return definition.risk === 'write';
     if (grant === 'execute') return definition.risk === 'execute';
     if (grant === 'eval') return this.options.allowEval === true && (definition.risk === 'eval' || definition.risk === 'write');
     return false;
+  }
+
+  public setSessionFilter(sessionIdOrAttachmentId: string, filter: SessionCapabilityFilter): void {
+    this.sessionFilters.set(sessionIdOrAttachmentId, filter);
+  }
+
+  public removeSessionFilter(sessionIdOrAttachmentId: string): void {
+    this.sessionFilters.delete(sessionIdOrAttachmentId);
+  }
+
+  public getSessionFilter(sessionIdOrAttachmentId: string): SessionCapabilityFilter | undefined {
+    return this.sessionFilters.get(sessionIdOrAttachmentId);
+  }
+
+  public resolveSessionFilter(
+    context?: unknown
+  ): SessionCapabilityFilter | undefined {
+    if (!context || typeof context !== 'object') return undefined;
+    const ctx = context as Record<string, unknown>;
+    if (Array.isArray(ctx.allowedCapabilityNames) || Array.isArray(ctx.forbiddenCapabilityNames)) {
+      return {
+        allowedCapabilityNames: Array.isArray(ctx.allowedCapabilityNames) ? ctx.allowedCapabilityNames.map(String) : undefined,
+        forbiddenCapabilityNames: Array.isArray(ctx.forbiddenCapabilityNames) ? ctx.forbiddenCapabilityNames.map(String) : undefined,
+      };
+    }
+    if (typeof ctx.attachmentId === 'string' && ctx.attachmentId) {
+      const filter = this.sessionFilters.get(ctx.attachmentId);
+      if (filter) return filter;
+    }
+    if (typeof ctx.runId === 'string' && ctx.runId) {
+      const filter = this.sessionFilters.get(ctx.runId);
+      if (filter) return filter;
+    }
+    if (typeof ctx.attemptId === 'string' && ctx.attemptId) {
+      const filter = this.sessionFilters.get(ctx.attemptId);
+      if (filter) return filter;
+    }
+    return undefined;
   }
 
   private authorizeAndResolveEffectiveTarget(

@@ -272,4 +272,25 @@ export class VerificationEvaluator {
       summary: `Verification VERIFIED: All ${passedMetricsCount} obligations met deterministic proof criteria.`,
     };
   }
+
+  /**
+   * Stable failure signature for the circuit breaker.
+   *
+   * Derived from what the probe actually observed: the sorted, de-duplicated set of proof
+   * obligations that failed in this bundle. Two attempts that fail on the same evidence produce
+   * the same signature, which is what lets a repeated cause trip STALEMATE instead of looping.
+   * Returns undefined for anything that is not a REJECTED verdict — a resample or a pass has no
+   * failure cause to carry, so it must not advance the identical-failure counter.
+   */
+  public static failureSignature(result: EvaluationResult, bundle: EvidenceSampleBundle): string | undefined {
+    if (result.verdict !== 'REJECTED') {
+      return undefined;
+    }
+    const failed = (bundle.samples || [])
+      .filter((sample) => sample.passed === false)
+      .map((sample) => sample.obligationId || sample.metric)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    const unique = Array.from(new Set(failed)).sort();
+    return unique.length > 0 ? unique.join('+') : undefined;
+  }
 }

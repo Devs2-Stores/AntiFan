@@ -5,7 +5,59 @@
  * Claims are distinct from facts; confidence is not proof.
  * Only deterministic & semantic evidence evaluated through verifiable contracts
  * can transition a claim to VERIFIED.
+ *
+ * ============================================================================
+ * AntiFan B-Lite v2 Loop Lifecycle & Ownership Split Contract
+ * ============================================================================
+ *
+ * Epistemic & Architectural Boundary:
+ * 1. Verification Engine Ownership:
+ *    - The AntiFan verification engine owns evidence, artifact, and lifecycle state ONLY.
+ *    - It maintains proof obligations, metric samples, batch lifecycles, circuit breakers,
+ *      and typed outcome adjudication (FIXED_VERIFIED, REFUSED_SCOPE, STALEMATE, SCOPE_DISCOVERY).
+ *    - It has NO SOURCE-FILE ROLLBACK PATH inside the verification engine.
+ *
+ * 2. Workspace Mutation & Recovery Ownership (Main):
+ *    - The ONLY writer to the real workspace is Main's merge gate (after staging & audit).
+ *    - Workspace recovery is strictly Main's path-scoped restore (restoring pre-merge bytes
+ *      of named files from real disk snapshots).
+ *    - Repo-wide destructive git commands (git checkout -- ., git clean -fd, git reset --hard)
+ *      are forbidden by invariant.
+ *
+ * 3. Pre-existing Capability Exception:
+ *    - `theme.qa_repair.begin` and `theme.qa_repair.verify` are pre-existing write-class
+ *      capabilities in AntiFan that snapshot and can roll back the workspace to R0.
+ *    - EXCEPTION STATUS: These capabilities are OUTSIDE the fixer allowlist (which admits
+ *      only file.read and file.write in the staged workspace) and are NEVER invoked by
+ *      this B-Lite v2 fix loop. Recorded here explicitly so this legacy capability does
+ *      not silently contradict the strict ownership split.
+ *
+ * 4. SCOPE_DISCOVERY Contract:
+ *    - SCOPE_DISCOVERY is a returned class (a fix that cannot proceed inside `allowedFiles`),
+ *      consumed by Main to evaluate and issue a new FixRequest.
+ *    - It must NEVER expand scope in place within the staged or real workspace.
+ * ============================================================================
  */
+
+import type {
+  FixDecision,
+  FixDiffBudget,
+  FixLifecycleState,
+  FixRequestV2,
+  FixResultV2,
+  RouteRefusalCode,
+  ScopeDiscoveryReceipt,
+} from '../../shared/control-plane-contracts';
+
+export type {
+  FixDecision,
+  FixDiffBudget,
+  FixLifecycleState,
+  FixRequestV2,
+  FixResultV2,
+  RouteRefusalCode,
+  ScopeDiscoveryReceipt,
+};
 
 export type ProofCompleteness = 'FULL' | 'PARTIAL' | 'EMPTY';
 export type ProofFreshness = 'FRESH' | 'STALE' | 'UNKNOWN';
@@ -80,9 +132,36 @@ export type InconclusiveReason =
   | 'UNOBSERVABLE'
   | 'UNSUPPORTED';
 
-export type StalemateState = 'ACTIVE' | 'STALEMATE' | 'EXEMPTION_WAIVED';
+export type StalemateState = 'ACTIVE' | 'STALEMATE' | 'EXEMPTION_WAIVED' | 'SCOPE_DISCOVERY';
 
-export type VerificationLifecycleState = 'ACTIVE' | 'HALTED' | 'STALEMATE' | 'EXEMPTION_WAIVED' | 'VERIFIED';
+export type VerificationLifecycleState =
+  | 'ACTIVE'
+  | 'HALTED'
+  | 'STALEMATE'
+  | 'EXEMPTION_WAIVED'
+  | 'VERIFIED'
+  | 'FIXED_VERIFIED'
+  | 'REFUSED_SCOPE'
+  | 'SCOPE_DISCOVERY';
+
+/**
+ * Structured repair budget tracking repair attempts against maximum allowed repairs.
+ */
+export interface RepairBudget {
+  repairAttempts: number;
+  maxRepairs: number;
+  remainingRepairs?: number;
+}
+
+/**
+ * Discovered scope requirements when a fix cannot proceed within allowedFiles.
+ * Consumed by Main to evaluate and issue a new FixRequest without in-place expansion.
+ */
+export interface ScopeDiscoveryInfo {
+  missingPaths: string[];
+  requestedTargets?: string[];
+  notes?: string;
+}
 
 export interface VerificationBatchLifecycle {
   runId: string;
@@ -94,8 +173,38 @@ export interface VerificationBatchLifecycle {
   state: VerificationLifecycleState;
   lastInvocationId?: string;
   haltReason?: InconclusiveReason;
+  /**
+   * Structured repair budget tracking repairAttempts against maxRepairs.
+   * Optional with defaults so existing callers compile without modification.
+   */
+  repairBudget?: RepairBudget;
+  /**
+   * Last observed failure signature or audit refusal cause code for circuit breaker tracking.
+   */
+  lastFailureSignature?: string;
+  /**
+   * Consecutive count of identical failure signatures or refusal causes.
+   */
+  consecutiveRefusalCount?: number;
+  /**
+   * Path to evidence artifacts explaining failure or terminal state.
+   */
+  evidencePath?: string;
+  /**
+   * Typed terminal outcome from the shared contract: FIXED_VERIFIED, REFUSED_SCOPE, STALEMATE, SCOPE_DISCOVERY.
+   */
+  terminalOutcome?: FixLifecycleState;
+  /**
+   * Scope discovery payload when lifecycle terminates in SCOPE_DISCOVERY.
+   */
+  scopeDiscovery?: ScopeDiscoveryInfo;
 }
-
+export const VerificationRecord = Object.freeze({});
+export const VerificationVerdict = Object.freeze({});
+export const StalemateState = Object.freeze({});
+export const InconclusiveReason = Object.freeze({});
+export const ProofProfile = Object.freeze({});
+export const VerificationBatchLifecycle = Object.freeze({});
 export interface VerificationRecord {
   id: string;
   claim: string;
@@ -112,6 +221,10 @@ export interface VerificationRecord {
   lifecycle?: VerificationBatchLifecycle;
   lifecycleHistory?: VerificationBatchLifecycle[];
   exemptionReason?: string;
+  repairBudget?: RepairBudget;
+  terminalOutcome?: FixLifecycleState;
+  scopeDiscovery?: ScopeDiscoveryInfo;
+  evidencePath?: string;
   timestamp: number;
   timeFormatted: string;
   linkedIssueId?: string;

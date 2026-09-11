@@ -24,11 +24,18 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-// Forward extra CLI args (e.g. `npm run dev -- --allow-eval`) to Electron so the
-// documented dev entrypoint matches run-antifan.vbs and `npm start -- --allow-eval`.
-// Without this, `--allow-eval` is silently dropped, ALLOW_EVAL stays false, and every
-// write/eval capability is denied for eval-grant agent sessions.
+// Forward extra CLI args to Electron. Coherent with run-antifan.vbs:
+// npm run dev defaults to --allow-eval, matching the desktop background launcher,
+// while allowing explicit opt-out with --no-eval.
 const EXTRA_ELECTRON_ARGS = resolveElectronArgs(process.argv);
+const isExplicitNoEval = EXTRA_ELECTRON_ARGS.includes('--no-eval') || process.argv.includes('--no-eval') || process.env.ANTIFAN_ALLOW_EVAL === 'false';
+const hasExplicitEval = EXTRA_ELECTRON_ARGS.includes('--allow-eval') || EXTRA_ELECTRON_ARGS.includes('--mcp-high-risk');
+if (isExplicitNoEval) {
+  const noEvalIdx = EXTRA_ELECTRON_ARGS.indexOf('--no-eval');
+  if (noEvalIdx !== -1) EXTRA_ELECTRON_ARGS.splice(noEvalIdx, 1);
+} else if (!hasExplicitEval) {
+  EXTRA_ELECTRON_ARGS.push('--allow-eval');
+}
 
 const cdpDir = path.join(ROOT, 'scripts', 'cdp');
 if (!fs.existsSync(cdpDir)) {
