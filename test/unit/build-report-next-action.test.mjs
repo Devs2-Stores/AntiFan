@@ -11,7 +11,7 @@ describe('build-report next action interpolation and gating', () => {
     try {
       execFileSync(
         process.execPath,
-        ['scripts/lib/build-report.mjs', '.canary/run3', '--out', tempOut],
+        ['scripts/lib/build-report.mjs', 'test/fixtures/canary-run', '--out', tempOut],
         {
           cwd: process.cwd(),
           encoding: 'utf8',
@@ -43,7 +43,7 @@ describe('build-report next action interpolation and gating', () => {
         );
       }
       for (const action of emitted) {
-        const doc = JSON.parse(fs.readFileSync(path.join(process.cwd(), '.canary', 'run3', 'evidence', `${action.label}.json`), 'utf8'));
+        const doc = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'test', 'fixtures', 'canary-run', 'evidence', `${action.label}.json`), 'utf8'));
         assert.strictEqual(action.w, String(doc.viewport.width), 'action width must come from that viewport document');
         assert.strictEqual(action.h, String(doc.viewport.height), 'action height must come from that viewport document');
       }
@@ -60,10 +60,10 @@ describe('build-report next action interpolation and gating', () => {
     fs.mkdirSync(tempEvidence, { recursive: true });
 
     try {
-      // Copy run3 evidence files into tempDir
-      const run3Evidence = path.join(process.cwd(), '.canary/run3/evidence');
-      for (const file of fs.readdirSync(run3Evidence)) {
-        fs.copyFileSync(path.join(run3Evidence, file), path.join(tempEvidence, file));
+      // Copy the tracked fixture evidence into tempDir
+      const fixtureEvidence = path.join(process.cwd(), 'test/fixtures/canary-run/evidence');
+      for (const file of fs.readdirSync(fixtureEvidence)) {
+        fs.copyFileSync(path.join(fixtureEvidence, file), path.join(tempEvidence, file));
       }
 
       // Mutate run3-390.json in tempEvidence so it is completely clean of compare blockers

@@ -1,0 +1,1919 @@
+{
+  "input": {
+    "path": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\reference\\reference.html",
+    "bytes": 833581,
+    "sha256": "e92cfe802f15934d2688a66ab607d03d9f1b35c1775efba7fa243994649ff808"
+  },
+  "blueprints": [
+    {
+      "id": "section_site-header_1",
+      "type": "header",
+      "name": "Site Header",
+      "className": "site-header",
+      "rawHtmlBytes": 90119,
+      "heading": null
+    },
+    {
+      "id": "section_home-title_1",
+      "type": "custom-content",
+      "name": "Công ty Cổ phần Công nghệ Hợp Long",
+      "className": "home-title",
+      "rawHtmlBytes": 72,
+      "heading": "Công ty Cổ phần Công nghệ Hợp Long"
+    },
+    {
+      "id": "section_slide_2",
+      "type": "hero-slider",
+      "name": "Slide",
+      "className": "slide",
+      "rawHtmlBytes": 94423,
+      "heading": null
+    },
+    {
+      "id": "section_category-list_3",
+      "type": "category-grid",
+      "name": "Category List",
+      "className": "category-list",
+      "rawHtmlBytes": 5685,
+      "heading": null
+    },
+    {
+      "id": "section_section-4_4",
+      "type": "custom-content",
+      "name": "Section 4",
+      "className": "section-4",
+      "rawHtmlBytes": 743,
+      "heading": null
+    },
+    {
+      "id": "section_banner-category_5",
+      "type": "hero-slider",
+      "name": "Banner Category",
+      "className": "banner-category",
+      "rawHtmlBytes": 2463,
+      "heading": null
+    },
+    {
+      "id": "section_block-category_6",
+      "type": "featured-products",
+      "name": "Contactor",
+      "className": "block-category",
+      "rawHtmlBytes": 69220,
+      "heading": "Contactor"
+    },
+    {
+      "id": "section_block-category_7",
+      "type": "featured-products",
+      "name": "Biến tần NiSTRO",
+      "className": "block-category",
+      "rawHtmlBytes": 82908,
+      "heading": "Biến tần NiSTRO"
+    },
+    {
+      "id": "section_block-category_8",
+      "type": "featured-products",
+      "name": "Biến tần VEICHI",
+      "className": "block-category",
+      "rawHtmlBytes": 81778,
+      "heading": "Biến tần VEICHI"
+    },
+    {
+      "id": "section_block-category_9",
+      "type": "featured-products",
+      "name": "Biến áp",
+      "className": "block-category",
+      "rawHtmlBytes": 64536,
+      "heading": "Biến áp"
+    },
+    {
+      "id": "section_block-category_10",
+      "type": "featured-products",
+      "name": "Cảm biến",
+      "className": "block-category",
+      "rawHtmlBytes": 76375,
+      "heading": "Cảm biến"
+    },
+    {
+      "id": "section_home-form_11",
+      "type": "quote-form",
+      "name": "Home Form",
+      "className": "home-form",
+      "rawHtmlBytes": 11560,
+      "heading": null
+    },
+    {
+      "id": "section_accessory_12",
+      "type": "accessory-showcase",
+      "name": "Cầu đấu khối",
+      "className": "accessory",
+      "rawHtmlBytes": 18860,
+      "heading": "Cầu đấu khối"
+    },
+    {
+      "id": "section_news_13",
+      "type": "news",
+      "name": "Công tắc hành trình GGL-804 Giga Electric bền bỉ và ổn định",
+      "className": "news",
+      "rawHtmlBytes": 24129,
+      "heading": "Công tắc hành trình GGL-804 Giga Electric bền bỉ và ổn định"
+    },
+    {
+      "id": "section_partner_14",
+      "type": "partner-carousel",
+      "name": "Partner",
+      "className": "partner",
+      "rawHtmlBytes": 14310,
+      "heading": null
+    },
+    {
+      "id": "section_site-footer_w-100_15",
+      "type": "footer",
+      "name": "Site Footer",
+      "className": "site-footer w-100",
+      "rawHtmlBytes": 37353,
+      "heading": null
+    },
+    {
+      "id": "section_section-15_15",
+      "type": "custom-content",
+      "name": "Section 15",
+      "className": "section-15",
+      "rawHtmlBytes": 2256,
+      "heading": null
+    },
+    {
+      "id": "section_section-16_16",
+      "type": "custom-content",
+      "name": "Section 16",
+      "className": "section-16",
+      "rawHtmlBytes": 627,
+      "heading": null
+    },
+    {
+      "id": "section_notice-cart_17",
+      "type": "custom-content",
+      "name": "Notice Cart",
+      "className": "notice-cart",
+      "rawHtmlBytes": 743,
+      "heading": null
+    },
+    {
+      "id": "section_loading-box_18",
+      "type": "custom-content",
+      "name": "Loading Box",
+      "className": "loading-box",
+      "rawHtmlBytes": 116,
+      "heading": null
+    }
+  ],
+  "normalizedData": {
+    "products": 6,
+    "categories": 0,
+    "articles": 4,
+    "siteTitle": "Hoplongtech.com"
+  },
+  "a0": {
+    "assetsDir": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\a0-assets",
+    "stylesheets": 2,
+    "javascripts": 4,
+    "images": 102,
+    "fonts": 0,
+    "total": 108,
+    "stylesheetUrls": [
+      "https://hoplongtech.com/build/assets/app-DCc2d3nB.css",
+      "https://hoplongtech.com/build/assets/home-CW7DK4JA.css"
+    ],
+    "fontUrls": [],
+    "scriptUrls": [
+      "https://hoplongtech.com/assets/libs/jquery.min.js",
+      "https://hoplongtech.com/build/assets/app-C8sMbhuE.js",
+      "https://hoplongtech.com/build/assets/slide-B2PwPmCC.js",
+      "/livewire/livewire.min.js?id=40a765a4"
+    ],
+    "imageSample": [
+      "https://img.hoplongtech.com/hoplong/uploads/logo-hlt-2024.png",
+      "https://hoplongtech.com/assets/images/default_image.png.webp",
+      "https://img.hoplongtech.com/hoplong/icon/icon.png",
+      "https://img.hoplongtech.com/hoplong/uploads/icon-01.png",
+      "https://img.hoplongtech.com/hoplong/uploads/icon-02.png",
+      "https://img.hoplongtech.com/hoplong/uploads/icon-03.png",
+      "https://img.hoplongtech.com/hoplong/uploads/icon-04.png",
+      "https://img.hoplongtech.com/hoplong/uploads/icon-05.png",
+      "https://img.hoplongtech.com/hoplong/uploads/icon-06.png",
+      "https://img.hoplongtech.com/hoplong/uploads/flash-sales-2-1.png"
+    ],
+    "imageHosts": [
+      [
+        "img.hoplongtech.com",
+        100
+      ],
+      [
+        "hoplongtech.com",
+        2
+      ]
+    ],
+    "unresolvedRelative": 1,
+    "byArchetype": {
+      "header": 1,
+      "custom_section": 9,
+      "hero_slider": 2,
+      "collection_list": 1,
+      "product_grid": 5,
+      "rich_text": 1,
+      "footer": 1
+    }
+  },
+  "irSections": [
+    {
+      "id": "section_site-header_1",
+      "name": "Site Header",
+      "archetype": "header",
+      "layoutType": "flex",
+      "className": "site-header",
+      "rawHtmlBytes": 90119,
+      "blockCount": 0
+    },
+    {
+      "id": "section_home-title_1",
+      "name": "Công ty Cổ phần Công nghệ Hợp Long",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "home-title",
+      "rawHtmlBytes": 72,
+      "blockCount": 0
+    },
+    {
+      "id": "section_slide_2",
+      "name": "Slide",
+      "archetype": "hero_slider",
+      "layoutType": "scroll_snap_carousel",
+      "className": "slide",
+      "rawHtmlBytes": 94423,
+      "blockCount": 10
+    },
+    {
+      "id": "section_category-list_3",
+      "name": "Category List",
+      "archetype": "collection_list",
+      "layoutType": "grid",
+      "className": "category-list",
+      "rawHtmlBytes": 5685,
+      "blockCount": 0
+    },
+    {
+      "id": "section_section-4_4",
+      "name": "Section 4",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "section-4",
+      "rawHtmlBytes": 743,
+      "blockCount": 0
+    },
+    {
+      "id": "section_banner-category_5",
+      "name": "Banner Category",
+      "archetype": "hero_slider",
+      "layoutType": "scroll_snap_carousel",
+      "className": "banner-category",
+      "rawHtmlBytes": 2463,
+      "blockCount": 0
+    },
+    {
+      "id": "section_block-category_6",
+      "name": "Contactor",
+      "archetype": "product_grid",
+      "layoutType": "grid",
+      "className": "block-category",
+      "rawHtmlBytes": 69220,
+      "blockCount": 0
+    },
+    {
+      "id": "section_block-category_7",
+      "name": "Biến tần NiSTRO",
+      "archetype": "product_grid",
+      "layoutType": "grid",
+      "className": "block-category",
+      "rawHtmlBytes": 82908,
+      "blockCount": 0
+    },
+    {
+      "id": "section_block-category_8",
+      "name": "Biến tần VEICHI",
+      "archetype": "product_grid",
+      "layoutType": "grid",
+      "className": "block-category",
+      "rawHtmlBytes": 81778,
+      "blockCount": 0
+    },
+    {
+      "id": "section_block-category_9",
+      "name": "Biến áp",
+      "archetype": "product_grid",
+      "layoutType": "grid",
+      "className": "block-category",
+      "rawHtmlBytes": 64536,
+      "blockCount": 0
+    },
+    {
+      "id": "section_block-category_10",
+      "name": "Cảm biến",
+      "archetype": "product_grid",
+      "layoutType": "grid",
+      "className": "block-category",
+      "rawHtmlBytes": 76375,
+      "blockCount": 0
+    },
+    {
+      "id": "section_home-form_11",
+      "name": "Home Form",
+      "archetype": "rich_text",
+      "layoutType": "column",
+      "className": "home-form",
+      "rawHtmlBytes": 11560,
+      "blockCount": 0
+    },
+    {
+      "id": "section_accessory_12",
+      "name": "Cầu đấu khối",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "accessory",
+      "rawHtmlBytes": 18860,
+      "blockCount": 0
+    },
+    {
+      "id": "section_news_13",
+      "name": "Công tắc hành trình GGL-804 Giga Electric bền bỉ và ổn định",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "news",
+      "rawHtmlBytes": 24129,
+      "blockCount": 0
+    },
+    {
+      "id": "section_partner_14",
+      "name": "Partner",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "partner",
+      "rawHtmlBytes": 14310,
+      "blockCount": 0
+    },
+    {
+      "id": "section_site-footer_w-100_15",
+      "name": "Site Footer",
+      "archetype": "footer",
+      "layoutType": "flex",
+      "className": "site-footer w-100",
+      "rawHtmlBytes": 37353,
+      "blockCount": 0
+    },
+    {
+      "id": "section_section-15_15",
+      "name": "Section 15",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "section-15",
+      "rawHtmlBytes": 2256,
+      "blockCount": 0
+    },
+    {
+      "id": "section_section-16_16",
+      "name": "Section 16",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "section-16",
+      "rawHtmlBytes": 627,
+      "blockCount": 0
+    },
+    {
+      "id": "section_notice-cart_17",
+      "name": "Notice Cart",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "notice-cart",
+      "rawHtmlBytes": 743,
+      "blockCount": 0
+    },
+    {
+      "id": "section_loading-box_18",
+      "name": "Loading Box",
+      "archetype": "custom_section",
+      "layoutType": "flow",
+      "className": "loading-box",
+      "rawHtmlBytes": 116,
+      "blockCount": 0
+    }
+  ],
+  "generation": {
+    "elapsedMs": 19419,
+    "result": {
+      "success": true,
+      "entryHtmlPath": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\index.html",
+      "filesWritten": [
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\index.html",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\app-DCc2d3nB.css",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\home-CW7DK4JA.css",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\jquery-min.js",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\app-C8sMbhuE.js",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\slide-B2PwPmCC.js",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\livewire-min.js",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-hlt-2024.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\default_image-png.webp",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\icon.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\icon-01.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\icon-02.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\icon-03.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\icon-04.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\icon-05.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\icon-06.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\flash-sales-2-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\04-best-workplace-in-asia-2025-at-15x.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\02fast500.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\vnr500.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\03-top-50-vietnam-best-growth.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\se-1.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\ur.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\omron.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\siemens.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\frecon-1.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\hanyoung.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\hop-long.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\bien-tan-se.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\nut-nhan-giga.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\mccb-cau-dao-tu-dong-siemen.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\cong-tac-o-cam-se-1.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\cam-bien-tiem-can-omzon.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\miluz-e.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\bien-ap-giga-electric-1.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\bien-tan-nistro-3.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\gv2me326-new.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\schneider-lc1d09-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\schneider-lc1d12-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\schneider-a9c2-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\schneider-lc1d32-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\schneider-lc1d188-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\bien-tan-nistro-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\ga27-65-nistro-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\ga27-main-hlt.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\nistro-ga20-65-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\veichi-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\veichi-ac310-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\veichi-ac10-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\veichi-ac01-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\vi20-veichi-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\bien-ap-giga.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\giga-ggk-25.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\giga-ggk-50.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\giga-ggk-100.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\giga-ggk-150.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\giga-ggk-200.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\cam-bien-autonics.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\autonics-brqm-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\omron-e3z-ls81-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\autonics-bup-30-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\autonics-pr12-2aodn-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\autonics-ben-main.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\dsc04523-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\cau-dau-khoi-hanyoung.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\cau-dau-ghep-gan-din-ray-hanyoung.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\din-ray-hanyoung.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\dien-tro-say-tu-dien-leipole.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\quat-thong-gio-tu-dien-leipole.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\vo-cau-chi-ruot-cau-chi-schneider.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\dieu-hoa-tu-dien-schneider.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\mang-nhua-giga-electric.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\cong-tac-hanh-trinh-ggl-804-giga-electric-ben-bi-va-on-dinh-5.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\agibot-can-quet-dai-hoi-robot-hinh-nguoi-the-gioi-2026-mang-ve-18-huy-chuong-vang-va-dan-dau-bang-tong-xep-hang-6.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\robot-hinh-nguoi-agibot-a3-tu-dong-choi-bong-ban-so-tai-cung-nha-vo-dich-olympic-ding-ning-1.jpg",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\robot-hinh-nguoi-superman-cua-unitree-chay-nhanh-hon-usain-bolt-va-nhay-cao-2-met-8.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-02-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-23.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-24.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-25.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-26.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-27.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-28.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-29.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-38.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-40.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-30.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-31.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-32.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-33.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-34.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-35.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-36.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-37.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-41.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-web-39.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\bocongthuong.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-hoplong-hang-author-04-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-01.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-hoplong-hang-author-06-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-hoplong-hang-author-05-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-hoplong-hang-author-08-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-hoplong-hang-author-07-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-hoplong-hang-author-10-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-hoplong-hang-author-09-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-02.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-03-1.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-04.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\logo-05.png",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-Black-Bkgh9aIH.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-BlackItalic-BWhkBe1Z.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-Bold-BnxJmI4l.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-BoldItalic-V8G0xK0_.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-Medium-Pi4wemCf.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-MediumItalic-Cz9lehx7.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-Regular-B22Zl-NA.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-Thin-CxxL7hmv.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-ThinItalic-2gGGiCc3.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\assets\\Roboto-Italic-D9ftZr8b.ttf",
+        "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\manifest.json"
+      ],
+      "productCount": 6,
+      "articleCount": 4
+    },
+    "error": null
+  },
+  "bundle": {
+    "entryHtmlPath": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\index.html",
+    "entryBytes": 673025,
+    "entrySha256": "54c4faba7a8334433c87fb030155f6be7050dc693f89ad7e7d17bb99440e517c",
+    "assetFiles": 118,
+    "assetBytes": 36671943,
+    "assetNames": [
+      "02fast500.jpg",
+      "03-top-50-vietnam-best-growth.jpg",
+      "04-best-workplace-in-asia-2025-at-15x.jpg",
+      "agibot-can-quet-dai-hoi-robot-hinh-nguoi-the-gioi-2026-mang-ve-18-huy-chuong-vang-va-dan-dau-bang-tong-xep-hang-6.jpg",
+      "app-C8sMbhuE.js",
+      "app-DCc2d3nB.css",
+      "autonics-ben-main.jpg",
+      "autonics-brqm-main.jpg",
+      "autonics-bup-30-main.jpg",
+      "autonics-pr12-2aodn-main.jpg",
+      "bien-ap-giga-electric-1.jpg",
+      "bien-ap-giga.png",
+      "bien-tan-nistro-1.png",
+      "bien-tan-nistro-3.jpg",
+      "bien-tan-se.jpg",
+      "bocongthuong.png",
+      "cam-bien-autonics.png",
+      "cam-bien-tiem-can-omzon.jpg",
+      "cau-dau-ghep-gan-din-ray-hanyoung.png",
+      "cau-dau-khoi-hanyoung.png",
+      "cong-tac-hanh-trinh-ggl-804-giga-electric-ben-bi-va-on-dinh-5.jpg",
+      "cong-tac-o-cam-se-1.jpg",
+      "default_image-png.webp",
+      "dien-tro-say-tu-dien-leipole.png",
+      "dieu-hoa-tu-dien-schneider.png",
+      "din-ray-hanyoung.png",
+      "dsc04523-1.png",
+      "flash-sales-2-1.png",
+      "frecon-1.jpg",
+      "ga27-65-nistro-main.jpg",
+      "ga27-main-hlt.jpg",
+      "giga-ggk-100.jpg",
+      "giga-ggk-150.jpg",
+      "giga-ggk-200.jpg",
+      "giga-ggk-25.jpg",
+      "giga-ggk-50.jpg",
+      "gv2me326-new.png",
+      "hanyoung.jpg",
+      "home-CW7DK4JA.css",
+      "hop-long.jpg",
+      "icon-01.png",
+      "icon-02.png",
+      "icon-03.png",
+      "icon-04.png",
+      "icon-05.png",
+      "icon-06.png",
+      "icon.png",
+      "jquery-min.js",
+      "livewire-min.js",
+      "logo-01.png",
+      "logo-02.png",
+      "logo-03-1.png",
+      "logo-04.png",
+      "logo-05.png",
+      "logo-hlt-2024.png",
+      "logo-hoplong-hang-author-04-1.png",
+      "logo-hoplong-hang-author-05-1.png",
+      "logo-hoplong-hang-author-06-1.png",
+      "logo-hoplong-hang-author-07-1.png",
+      "logo-hoplong-hang-author-08-1.png",
+      "logo-hoplong-hang-author-09-1.png",
+      "logo-hoplong-hang-author-10-1.png",
+      "logo-web-02-1.png",
+      "logo-web-23.png",
+      "logo-web-24.png",
+      "logo-web-25.png",
+      "logo-web-26.png",
+      "logo-web-27.png",
+      "logo-web-28.png",
+      "logo-web-29.png",
+      "logo-web-30.png",
+      "logo-web-31.png",
+      "logo-web-32.png",
+      "logo-web-33.png",
+      "logo-web-34.png",
+      "logo-web-35.png",
+      "logo-web-36.png",
+      "logo-web-37.png",
+      "logo-web-38.png",
+      "logo-web-39.png",
+      "logo-web-40.png",
+      "logo-web-41.png",
+      "mang-nhua-giga-electric.png",
+      "mccb-cau-dao-tu-dong-siemen.jpg",
+      "miluz-e.jpg",
+      "nistro-ga20-65-main.jpg",
+      "nut-nhan-giga.jpg",
+      "omron-e3z-ls81-main.jpg",
+      "omron.jpg",
+      "quat-thong-gio-tu-dien-leipole.png",
+      "robot-hinh-nguoi-agibot-a3-tu-dong-choi-bong-ban-so-tai-cung-nha-vo-dich-olympic-ding-ning-1.jpg",
+      "robot-hinh-nguoi-superman-cua-unitree-chay-nhanh-hon-usain-bolt-va-nhay-cao-2-met-8.png",
+      "Roboto-Black-Bkgh9aIH.ttf",
+      "Roboto-BlackItalic-BWhkBe1Z.ttf",
+      "Roboto-Bold-BnxJmI4l.ttf",
+      "Roboto-BoldItalic-V8G0xK0_.ttf",
+      "Roboto-Italic-D9ftZr8b.ttf",
+      "Roboto-Medium-Pi4wemCf.ttf",
+      "Roboto-MediumItalic-Cz9lehx7.ttf",
+      "Roboto-Regular-B22Zl-NA.ttf",
+      "Roboto-Thin-CxxL7hmv.ttf",
+      "Roboto-ThinItalic-2gGGiCc3.ttf",
+      "schneider-a9c2-main.jpg",
+      "schneider-lc1d09-main.jpg",
+      "schneider-lc1d12-main.jpg",
+      "schneider-lc1d188-main.jpg",
+      "schneider-lc1d32-main.jpg",
+      "se-1.jpg",
+      "siemens.jpg",
+      "slide-B2PwPmCC.js",
+      "ur.jpg",
+      "veichi-1.png",
+      "veichi-ac01-main.jpg",
+      "veichi-ac10-main.jpg",
+      "veichi-ac310-main.jpg",
+      "vi20-veichi-main.jpg",
+      "vnr500.jpg",
+      "vo-cau-chi-ruot-cau-chi-schneider.png"
+    ],
+    "productCount": 6,
+    "articleCount": 4,
+    "remoteSubresources": [],
+    "remoteNavigationCount": 120,
+    "remoteNavigationSample": [
+      "https://hoplongtech.com",
+      "https://hoplongtech.com/products/fr150a-2s-22b-h",
+      "https://hoplongtech.com/products/mvs16n3mf2l",
+      "https://hoplongtech.com/lien-he?branch=1",
+      "https://hoplongtech.com/lien-he?branch=2",
+      "https://hoplongtech.com/lien-he?branch=8",
+      "https://hoplongtech.com/lien-he?branch=5",
+      "https://hoplongtech.com/lien-he?branch=7",
+      "https://hoplongtech.com/lien-he?branch=4",
+      "https://hoplongtech.com/lien-he?branch=9"
+    ]
+  },
+  "assetIntegrity": [
+    {
+      "file": "02fast500.jpg",
+      "bytes": 1158408,
+      "sha256": "e6e4d0c743e14d89502dedf06b211abfbca67c2d738de03a1417a541c4430239",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "03-top-50-vietnam-best-growth.jpg",
+      "bytes": 1882274,
+      "sha256": "e864a28ab5c2e9f3eb9750a89a2fd3c51e1014dac16eae6c8238c66eeab081da",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "04-best-workplace-in-asia-2025-at-15x.jpg",
+      "bytes": 2992566,
+      "sha256": "6ac1c357b90bb6487ce9e1fd31c57e1f668a65d58201767f12a749c0bc9ee091",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "agibot-can-quet-dai-hoi-robot-hinh-nguoi-the-gioi-2026-mang-ve-18-huy-chuong-vang-va-dan-dau-bang-tong-xep-hang-6.jpg",
+      "bytes": 324356,
+      "sha256": "e3d0eb9069372f1c556e41c77323550861e165f1ff9286eabf02dd06d1ff9b5a",
+      "magic": "ffd8ffe100bc457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "app-C8sMbhuE.js",
+      "bytes": 2260,
+      "sha256": "b48c988ad4e035beb315a3db4fae76c2fff647cf361b397f9cfd8d627787180f",
+      "magic": "646f63756d656e742e616464",
+      "decoded": null
+    },
+    {
+      "file": "app-DCc2d3nB.css",
+      "bytes": 47342,
+      "sha256": "f3391d4bc68ed4b5a07f51fbd79ef259ce3287af3b933684df9a076c573d4bec",
+      "magic": "406368617273657420225554",
+      "decoded": null
+    },
+    {
+      "file": "autonics-ben-main.jpg",
+      "bytes": 43762,
+      "sha256": "00bc5d954d2ad89fbbab0486609fc4bcda4d97fe3c89151c8dc97e10f2fc536e",
+      "magic": "ffd8ffe11427457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "autonics-brqm-main.jpg",
+      "bytes": 57067,
+      "sha256": "96f6d941f6d252fb433a103dff9fc851be5d67e6f0c6bf60712d34f9e5a86eb7",
+      "magic": "ffd8ffe000104a4649460001",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "autonics-bup-30-main.jpg",
+      "bytes": 38675,
+      "sha256": "386632a5efb04e23ab728a06cfc5ebd2768f06dbb07e9337f29c69d76cb36f18",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "autonics-pr12-2aodn-main.jpg",
+      "bytes": 43497,
+      "sha256": "c4c1ea0e62a1729ae10538f56222a650719f12f1c20d2784ebc66d311a4ef25e",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "bien-ap-giga-electric-1.jpg",
+      "bytes": 85440,
+      "sha256": "b266a6a7a827ab8666a5714119e12af14f4df72b191040aabb5d5aa70d0b556f",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "bien-ap-giga.png",
+      "bytes": 1021076,
+      "sha256": "3fa5bfb954b0bb7f7b11fdabc054e6b75f619044caf9d2238200741916e2d731",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 1500,
+        "h": 1800
+      }
+    },
+    {
+      "file": "bien-tan-nistro-1.png",
+      "bytes": 38728,
+      "sha256": "9f45bbecee84e41e288ff0cd845ad89905dc1f7875d5a18cc765e701555049d3",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 254,
+        "h": 396
+      }
+    },
+    {
+      "file": "bien-tan-nistro-3.jpg",
+      "bytes": 74450,
+      "sha256": "17c63385038cbf81e38a9f4b35285f6da6ca6d2eb562389d7b2b6da1476b28ec",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "bien-tan-se.jpg",
+      "bytes": 383352,
+      "sha256": "d8a6f3d4f6e715797bfd217aa3a1c6d56d1a086bd67327a955004a515cee308c",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "bocongthuong.png",
+      "bytes": 30108,
+      "sha256": "5c8895700373e00d730ad9843c93451d9fdfa65472760a6b98a7ae3f05ac5a53",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 578,
+        "h": 176
+      }
+    },
+    {
+      "file": "cam-bien-autonics.png",
+      "bytes": 1339218,
+      "sha256": "17e1717215759204b6a26b30c420943c201ddf6097f1ff9ec61e23a356c26582",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 1500,
+        "h": 1800
+      }
+    },
+    {
+      "file": "cam-bien-tiem-can-omzon.jpg",
+      "bytes": 461126,
+      "sha256": "ed2c11c54bcdb47f8ec8730206d6f7db0b0dc10e6e74193ccd29439807ef6eea",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "cau-dau-ghep-gan-din-ray-hanyoung.png",
+      "bytes": 85168,
+      "sha256": "8ac10f9562fdf7626540d3ed1f099f846fa5c2e273cef26d0469f727a2b9ed1e",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 500,
+        "h": 535
+      }
+    },
+    {
+      "file": "cau-dau-khoi-hanyoung.png",
+      "bytes": 86477,
+      "sha256": "15243adad42c710a416416a0121779bfcf0813b75907d10081c15f2824de2596",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 500,
+        "h": 535
+      }
+    },
+    {
+      "file": "cong-tac-hanh-trinh-ggl-804-giga-electric-ben-bi-va-on-dinh-5.jpg",
+      "bytes": 211671,
+      "sha256": "fb8c2f0793a4157d3d420d92f3d06fdd3a3c90f8cd04e501f99b74f7435e1d68",
+      "magic": "ffd8ffe100bc457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "cong-tac-o-cam-se-1.jpg",
+      "bytes": 284475,
+      "sha256": "d74b55dd9fef5707126545e4d288d845121a4fc5b277f4f84195faca62b3321f",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "default_image-png.webp",
+      "bytes": 848,
+      "sha256": "fa52511dc5861955557a75046890f75e0a7f379c2c7af7d0fb17d324190fb99e",
+      "magic": "524946464803000057454250",
+      "decoded": {
+        "format": "other",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "dien-tro-say-tu-dien-leipole.png",
+      "bytes": 162243,
+      "sha256": "c74f7d082ac768a2a85a0d0c4032c41a3368028fd05a9594026f7f255ba977bb",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 500,
+        "h": 535
+      }
+    },
+    {
+      "file": "dieu-hoa-tu-dien-schneider.png",
+      "bytes": 81188,
+      "sha256": "ca0a0a100ef1a3160af339a836120fdfb4d7e91207c3fc339639345a4cbc0b3d",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 500,
+        "h": 535
+      }
+    },
+    {
+      "file": "din-ray-hanyoung.png",
+      "bytes": 140496,
+      "sha256": "4bc883382e753dd1206e77ba4cd9dd5a9989be949189c229668d0656c0bdfc56",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 500,
+        "h": 535
+      }
+    },
+    {
+      "file": "dsc04523-1.png",
+      "bytes": 13978061,
+      "sha256": "6ab19c10447472f56955fb59da8e1377ccbe7489f0aa7cef7a8d235e6e6318e9",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 3600,
+        "h": 4307
+      }
+    },
+    {
+      "file": "flash-sales-2-1.png",
+      "bytes": 2396,
+      "sha256": "0a9df7d9a8ecc7434d3c340a497c2b8b7399715e6c5df65f9b44844d72c2805d",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 25,
+        "h": 26
+      }
+    },
+    {
+      "file": "frecon-1.jpg",
+      "bytes": 413548,
+      "sha256": "b0cf8c17ef5260192d49a404539ae5a833b475b696e7c145a5ca15d2cc8c03ef",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "ga27-65-nistro-main.jpg",
+      "bytes": 42796,
+      "sha256": "0c651801214b382ec2e43fda1db6bcaf5eb8599c225e1249ac932cb2d782abfd",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "ga27-main-hlt.jpg",
+      "bytes": 87918,
+      "sha256": "b34d4e949cc7a93ce6c355720d1c758a4d46d334280b4c3d818dc43c1580ca92",
+      "magic": "ffd8ffe000104a4649460001",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "giga-ggk-100.jpg",
+      "bytes": 64978,
+      "sha256": "86d35d9a8834dde05761b4bc893790573eb1797cbaf55ab95543ad3372a01849",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "giga-ggk-150.jpg",
+      "bytes": 63305,
+      "sha256": "7eb2daef2548863021f2670ac15ac181506c6274bfbd4f03925400dabc49aa4c",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "giga-ggk-200.jpg",
+      "bytes": 59595,
+      "sha256": "c8e99e95c082c148f971ebfe97af38805fff15022622d26640c5019f0e281d7b",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "giga-ggk-25.jpg",
+      "bytes": 68757,
+      "sha256": "32fe896c90a52567f44b3f2293e86ab6dedbe0e342e36cf89dbe77b96c37b5f8",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "giga-ggk-50.jpg",
+      "bytes": 65079,
+      "sha256": "162908626dbd11931ed5d0f93a9c804ae8fe01fe05c6f42ead9fd4458d907991",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "gv2me326-new.png",
+      "bytes": 883862,
+      "sha256": "de34b021ee30db771ad1aec1bb8c3acabc574ff8c9c81c1ad6a740def31f265c",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 1500,
+        "h": 1800
+      }
+    },
+    {
+      "file": "hanyoung.jpg",
+      "bytes": 335348,
+      "sha256": "061e8cf56ee0cdcc34364172544e2830ec671290c1e2be9a6a7338450930946b",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "home-CW7DK4JA.css",
+      "bytes": 26629,
+      "sha256": "7665b659625cdbd1383e6ec2ff50d1007dd42259df615807868f7780aafcda36",
+      "magic": "406368617273657420225554",
+      "decoded": null
+    },
+    {
+      "file": "hop-long.jpg",
+      "bytes": 232563,
+      "sha256": "32014ddc22073153972ff51f56b306e74ac276f375b9c768196162e13f747022",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "icon-01.png",
+      "bytes": 1919,
+      "sha256": "76d834ad4b7f37a59a3f01a6d5651f15fb5427dcab87d19a8145edca657a75ce",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 100,
+        "h": 100
+      }
+    },
+    {
+      "file": "icon-02.png",
+      "bytes": 1551,
+      "sha256": "d88dc9708c8a9fcbc86ef6c87773be7eca3fdb271ba9388cd73dc9b986a769c9",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 100,
+        "h": 100
+      }
+    },
+    {
+      "file": "icon-03.png",
+      "bytes": 2093,
+      "sha256": "1fb2464214b8a6351d6f58d983688ee8677c8575261a51888f95898d5c9f1857",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 100,
+        "h": 100
+      }
+    },
+    {
+      "file": "icon-04.png",
+      "bytes": 1688,
+      "sha256": "048f200caa2b54af4cfb8f2e0bcf9e1adafa2e826233cf920ca10c32b184485a",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 100,
+        "h": 100
+      }
+    },
+    {
+      "file": "icon-05.png",
+      "bytes": 1823,
+      "sha256": "0c077b890a2e13ebca036e6430febcc6eee1437eb52967b10c65a3706ac25140",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 100,
+        "h": 100
+      }
+    },
+    {
+      "file": "icon-06.png",
+      "bytes": 1299,
+      "sha256": "c258dead706a55ca4c5ac1ee71d09401ac84fb5aa9e2730fd7a4f97c757d8b9f",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 100,
+        "h": 100
+      }
+    },
+    {
+      "file": "icon.png",
+      "bytes": 5613,
+      "sha256": "c1cd38f67e673f60dc1776d2d221d1fd63527a7b6c6139b8bc196f5d1355d2f8",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 417,
+        "h": 418
+      }
+    },
+    {
+      "file": "jquery-min.js",
+      "bytes": 87444,
+      "sha256": "6620e5186e37684dc6134c29733826afd03653fb2708fcc09387e0eef2b5fbe0",
+      "magic": "2166756e6374696f6e28652c",
+      "decoded": null
+    },
+    {
+      "file": "livewire-min.js",
+      "bytes": 152726,
+      "sha256": "00c4233d8242107a1bef09085ad042deca32e4244f2fa074d01e6b9913d910b8",
+      "magic": "2828293d3e7b766172206c6c",
+      "decoded": null
+    },
+    {
+      "file": "logo-01.png",
+      "bytes": 50751,
+      "sha256": "6648e80273b0633d41ad3e26fa97ba0b48ea6afb062f3f1582fdb68dc3caec42",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 3750,
+        "h": 1250
+      }
+    },
+    {
+      "file": "logo-02.png",
+      "bytes": 36219,
+      "sha256": "a8d879dd74cb59e5d8def414904b7e11e35b340bfc677333ac4efb0f264edf0e",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 3750,
+        "h": 1250
+      }
+    },
+    {
+      "file": "logo-03-1.png",
+      "bytes": 62280,
+      "sha256": "bd5cfbbecf64050350d07c61f184d02af5005cc32adf9a26fb2f9c40d2289c57",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 3750,
+        "h": 1250
+      }
+    },
+    {
+      "file": "logo-04.png",
+      "bytes": 95162,
+      "sha256": "73fe8ba6e9cb6fed409f740f918467645e9b82f5cbc6a3caba56550b0529225a",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 3750,
+        "h": 1250
+      }
+    },
+    {
+      "file": "logo-05.png",
+      "bytes": 48710,
+      "sha256": "4504dd96b26eb520aa258bd55476108ef07e0eeffc26fea0686f16ff30fcdb02",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 3750,
+        "h": 1250
+      }
+    },
+    {
+      "file": "logo-hlt-2024.png",
+      "bytes": 27416,
+      "sha256": "1a3fd6ab059379d5b5b48a01f099b4977314bb8e45a6c817f2b2ac4aa31b716f",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 1235,
+        "h": 281
+      }
+    },
+    {
+      "file": "logo-hoplong-hang-author-04-1.png",
+      "bytes": 1654,
+      "sha256": "64aa17fb655d4813d89454b2c2b882273fcde65df834c784ce4d929c38158e11",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 108,
+        "h": 50
+      }
+    },
+    {
+      "file": "logo-hoplong-hang-author-05-1.png",
+      "bytes": 2277,
+      "sha256": "1746e5c4329f32378ebd20f77a60818bdb431ec279922bcba6bcf399bca8bd37",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 50
+      }
+    },
+    {
+      "file": "logo-hoplong-hang-author-06-1.png",
+      "bytes": 1977,
+      "sha256": "7b078a7f132549891928e3f52daf4d843a2067c21b7ada6f55ea2be33a5b7b99",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 154,
+        "h": 50
+      }
+    },
+    {
+      "file": "logo-hoplong-hang-author-07-1.png",
+      "bytes": 1883,
+      "sha256": "b24f5758277ef5f46830ca2df1d9b0e39a8712e60684b42a0139d01a809bec6f",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 145,
+        "h": 50
+      }
+    },
+    {
+      "file": "logo-hoplong-hang-author-08-1.png",
+      "bytes": 2352,
+      "sha256": "aa700a53d5f4f4424064686939c3a6a50268dc010ec2858341e85b677a2db4f9",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 178,
+        "h": 50
+      }
+    },
+    {
+      "file": "logo-hoplong-hang-author-09-1.png",
+      "bytes": 2355,
+      "sha256": "7499bff638adb404d9a976d3ed139ce63268a3401fade7ae423ba990b645fed0",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 192,
+        "h": 50
+      }
+    },
+    {
+      "file": "logo-hoplong-hang-author-10-1.png",
+      "bytes": 2498,
+      "sha256": "9d8248771a4b47365de28d3a35c4c9baf5909aa978e0101e35f3a2d51101db4b",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 192,
+        "h": 50
+      }
+    },
+    {
+      "file": "logo-web-02-1.png",
+      "bytes": 1963,
+      "sha256": "69f3076282b80703056a6e54e6d95c255d60f9798d43712f161c6fcba97663b9",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 134,
+        "h": 105
+      }
+    },
+    {
+      "file": "logo-web-23.png",
+      "bytes": 2893,
+      "sha256": "bb0e97ec14807505378f157e32705c207ac0893bcf86ce1307720de9a777d1f5",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-24.png",
+      "bytes": 2937,
+      "sha256": "9a90b8ef5f78a035b53277ce989f951f03d91e96128fdfe13b2e513c805f38f4",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-25.png",
+      "bytes": 1993,
+      "sha256": "51603e24af2a7d4ce8b08fe5b9d4544f7e888eb1343cc86b41cc1ac8d3272aa9",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-26.png",
+      "bytes": 1730,
+      "sha256": "f286d33b7a7a43a0d4c18aae6590194ab6e4a41449c6a3f4a15ecb585093e184",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-27.png",
+      "bytes": 1760,
+      "sha256": "1ffa203e522393540ebf380afe78beebd528a23529040c73f77a626a1af823fe",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-28.png",
+      "bytes": 2091,
+      "sha256": "713e8b6b6fb2451a04dc969076352f403587c3b1250347642b69fee445d7e933",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-29.png",
+      "bytes": 1798,
+      "sha256": "53f54c5cf8a1b61746136e1d00703233719113d17fcc5c64897341a60ac2b7c0",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-30.png",
+      "bytes": 2362,
+      "sha256": "f747fda6a62559e005b8f6f9c14a3a2d33bf93323147c48a8fae39611ba13c39",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-31.png",
+      "bytes": 2235,
+      "sha256": "728480fed1920c677e45a414e4f7f53ba66a8c147989500109b233885e162d70",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-32.png",
+      "bytes": 3229,
+      "sha256": "6c7af2b2662ab2f5650c714b170e9d2a1a9510aed86b3348dbc7df99c72623be",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-33.png",
+      "bytes": 2101,
+      "sha256": "8ce00f3e4c11b67db7cc965e3d38cb3c2ef359ccb876cfc1af90db6805397fb3",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-34.png",
+      "bytes": 5074,
+      "sha256": "ad75decc7ee48d18dcf64f41b904ce76df3b5ed3fd6bd8decc50eeb290cb5e0f",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-35.png",
+      "bytes": 2648,
+      "sha256": "48ce476efbd7575ac877ced6b21e09bd8b701ad3295802c202074e9d4329c779",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-36.png",
+      "bytes": 1434,
+      "sha256": "fdc4cb5ae02779a6ef7f79fd4f422625e7f5a748f6a60529a6d37b14ba357bbd",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-37.png",
+      "bytes": 2195,
+      "sha256": "f0e882c1731b2c668ff562964ee42b2cebfb301fa07ce27b240ca88d9b3a85f9",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-38.png",
+      "bytes": 1633,
+      "sha256": "0df038d079ddbcf011f7db02538a95b7662736c44ca1fbb65456a7289118c113",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-39.png",
+      "bytes": 3216,
+      "sha256": "9630f7fc0ac96ababefc36b2ec73e5f759053155d755505e6d64fefa02db535c",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-40.png",
+      "bytes": 2433,
+      "sha256": "96ad4686ffa84be0516caa6724d2ce001b2b995a149ffbffddd639087cc97883",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "logo-web-41.png",
+      "bytes": 2609,
+      "sha256": "b1af795561d6e4b8f964c5dc4faaba3fa650cc24505a083158011b05c2889856",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 171,
+        "h": 109
+      }
+    },
+    {
+      "file": "mang-nhua-giga-electric.png",
+      "bytes": 77108,
+      "sha256": "3b6f3c1cd19d5c2abd3b729e3c5f376849cabb1a5608d5444e6a611b15852f18",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 500,
+        "h": 535
+      }
+    },
+    {
+      "file": "mccb-cau-dao-tu-dong-siemen.jpg",
+      "bytes": 499120,
+      "sha256": "c2edbe3c4d4b1ecfb0073a39fe9ae29db5720e884f8150d1da9b8ba86ca96672",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "miluz-e.jpg",
+      "bytes": 141891,
+      "sha256": "dc27700dcc630debde77e667b3a1701d4984fac778d0e27f60b640edd86c2029",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "nistro-ga20-65-main.jpg",
+      "bytes": 47303,
+      "sha256": "0d8d41997167044fcd3f7c6ebcdb008afb18b72d7502ee6c0bc6672db053a221",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "nut-nhan-giga.jpg",
+      "bytes": 488289,
+      "sha256": "356b08ee43126a33c3f6d6fea5c9d01d59b3b11c15d138037101c8dacebfc6e1",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "omron-e3z-ls81-main.jpg",
+      "bytes": 37493,
+      "sha256": "4754893133a5b421b229e76121cf50f38b810232cf2207994a1f4515dd63e76d",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "omron.jpg",
+      "bytes": 341091,
+      "sha256": "84c370717db8a40139c288f9ed906a02cded7db85913a1e2ce49410773546dd2",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "quat-thong-gio-tu-dien-leipole.png",
+      "bytes": 161461,
+      "sha256": "95c3980d7b5eaf72881a4427a392a7b0a08793a014ae45a4d69227320914b609",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 500,
+        "h": 535
+      }
+    },
+    {
+      "file": "robot-hinh-nguoi-agibot-a3-tu-dong-choi-bong-ban-so-tai-cung-nha-vo-dich-olympic-ding-ning-1.jpg",
+      "bytes": 240120,
+      "sha256": "184314f67bf43cbd5c9d16e299c83be1b1f7e43a9a83108d77f700c9e1200294",
+      "magic": "ffd8ffe100bc457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "robot-hinh-nguoi-superman-cua-unitree-chay-nhanh-hon-usain-bolt-va-nhay-cao-2-met-8.png",
+      "bytes": 2279854,
+      "sha256": "c275d0d11a7ba24011bd58bc5cce57b86bdb33888e962a62b893c58ae4024113",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 1536,
+        "h": 1024
+      }
+    },
+    {
+      "file": "Roboto-Black-Bkgh9aIH.ttf",
+      "bytes": 127948,
+      "sha256": "7c84d57fb2c5c2ce5f35ac53363812e96c81f5435c2a49a13e7220d5169b8b53",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-BlackItalic-BWhkBe1Z.ttf",
+      "bytes": 134716,
+      "sha256": "60f24a2dd5f5644ce956b55ff81de7097ce30294136361932f22293c9fa36c1b",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-Bold-BnxJmI4l.ttf",
+      "bytes": 127744,
+      "sha256": "594d74a49e307be7cc9e1ee5f1023684e6820cf11bcc968bee590391e1ad5a5a",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-BoldItalic-V8G0xK0_.ttf",
+      "bytes": 134556,
+      "sha256": "a27331edc886189e2173ca46bd13111a9e32ef4659ee46c66d20b9e2890f44e6",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-Italic-D9ftZr8b.ttf",
+      "bytes": 132440,
+      "sha256": "e2c8e730897857197e5c97a04b534a36a59665edabfb736aef581082cb15ec1a",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-Medium-Pi4wemCf.ttf",
+      "bytes": 127488,
+      "sha256": "6e2ec5c5f89e4ce302bb93b46cb7cc336236501de17348e284878914c5e0e723",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-MediumItalic-Cz9lehx7.ttf",
+      "bytes": 134312,
+      "sha256": "4eab76b2b5cb055ee4d8c77d0b2ef9c39cf53df7b277946d5f59e7e5c7a43318",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-Regular-B22Zl-NA.ttf",
+      "bytes": 126072,
+      "sha256": "bde8a188e37aa936b167aecc5e5a3da40262f6e51fd54c584f2cf2b6b99d96ca",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-Thin-CxxL7hmv.ttf",
+      "bytes": 127584,
+      "sha256": "db1d464343bf795307bc90da83d65b93c841fb20f38662f92f1e5e2c5a1d2ec5",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "Roboto-ThinItalic-2gGGiCc3.ttf",
+      "bytes": 132860,
+      "sha256": "a747d227409dea227193fc31a06dbf48b737b3a46ce06cd92d3f9e54132203c8",
+      "magic": "00010000000e008000030060",
+      "decoded": null
+    },
+    {
+      "file": "schneider-a9c2-main.jpg",
+      "bytes": 34781,
+      "sha256": "d0cafa65ee30fedac9e5487948f9b056e91a194ff23824607e5771e6fb30a2ec",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "schneider-lc1d09-main.jpg",
+      "bytes": 44320,
+      "sha256": "17deede984fe031307803923d198380b93b2c32bf94da0d3990612447b2c7441",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "schneider-lc1d12-main.jpg",
+      "bytes": 67900,
+      "sha256": "2116c193bb1890d1b3e2a4f25527161fe92dc7cf5d33dec43c2172258ee087da",
+      "magic": "ffd8ffe11307457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "schneider-lc1d188-main.jpg",
+      "bytes": 48774,
+      "sha256": "0c3b506096c4f4b69acd08d1c4fd081617d8d5057749ede8c2215a7286be5d38",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "schneider-lc1d32-main.jpg",
+      "bytes": 48405,
+      "sha256": "0e0a662214d3b8ec3a7a2a3ca3a45365c0509a00e1a5a441c724e2ffcb48b357",
+      "magic": "ffd8ffe10018457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "se-1.jpg",
+      "bytes": 403842,
+      "sha256": "e9d5a75f62e9b98179ce2c33e6eaecab9b40c71917af673a83ff19fffde532ca",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "siemens.jpg",
+      "bytes": 398264,
+      "sha256": "eb68b94ea25b7a67cb79575565e8977df91febb2073bca99ee00f825e9b8bddc",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "slide-B2PwPmCC.js",
+      "bytes": 10017,
+      "sha256": "97b369eb2409a6f035cf67a5aa4358b4d7c100b9805a970129a4a48b397daaa5",
+      "magic": "66756e6374696f6e2076286c",
+      "decoded": null
+    },
+    {
+      "file": "ur.jpg",
+      "bytes": 335512,
+      "sha256": "ad9a18154dc0f1576fcb906d86772dd2737f4cb7318d36878e921f53cd16b3d6",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "veichi-1.png",
+      "bytes": 755250,
+      "sha256": "db07ca92ffdb7502ffe87826399f6d8d79190fe62580af285307197d18945482",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 1058,
+        "h": 1650
+      }
+    },
+    {
+      "file": "veichi-ac01-main.jpg",
+      "bytes": 94931,
+      "sha256": "584bf8d4147a48503b1a9ea891955c92cc6c73dc8b78f0f2a508a07c2d19877d",
+      "magic": "ffd8ffe000104a4649460001",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "veichi-ac10-main.jpg",
+      "bytes": 110861,
+      "sha256": "de5a9b99dfe625c1ca1456c6615fd1a4f353ac75ddccb935e33e5a3c2545aed4",
+      "magic": "ffd8ffe000104a4649460001",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "veichi-ac310-main.jpg",
+      "bytes": 91496,
+      "sha256": "c8b26e2e856a13b3e852482fc1f4f6afde83cf82a1b0b4b924ecc5d6b43de679",
+      "magic": "ffd8ffe000104a4649460001",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "vi20-veichi-main.jpg",
+      "bytes": 94807,
+      "sha256": "7e3656fb99408676cbe87f70e8d92e2c021535702adb80da0eeae2c6384ea5e8",
+      "magic": "ffd8ffe000104a4649460001",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "vnr500.jpg",
+      "bytes": 400108,
+      "sha256": "316690d7f22a62eed59f406744d3fe18c6adea467f6be85672f64c5927fe3450",
+      "magic": "ffd8ffe1004e457869660000",
+      "decoded": {
+        "format": "jpeg",
+        "w": null,
+        "h": null
+      }
+    },
+    {
+      "file": "vo-cau-chi-ruot-cau-chi-schneider.png",
+      "bytes": 72095,
+      "sha256": "cb29424e1b10734a0e7c4a84c29d49c1e0ddeb8bc162ca45b5b75b58c1e6dbab",
+      "magic": "89504e470d0a1a0a0000000d",
+      "decoded": {
+        "format": "png",
+        "w": 500,
+        "h": 535
+      }
+    }
+  ]
+}

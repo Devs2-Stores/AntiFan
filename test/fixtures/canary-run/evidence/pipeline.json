@@ -1,0 +1,1338 @@
+{
+  "startedAt": "2026-09-10T07:47:27.831Z",
+  "runDir": "E:\\Work\\apps\\AntiFan\\.canary\\run3",
+  "clonePort": 7852,
+  "referenceUrl": "https://hoplongtech.com/",
+  "viewports": [
+    "1440x900",
+    "1024x900",
+    "390x844"
+  ],
+  "bootstrap": {
+    "port": 20131,
+    "attachmentId": "attachment-75b86cb5-ba4a-474a-9622-7b852e295f9e",
+    "runId": "run-45fa6a36-2d29-406c-a093-25ab48e7e1bd",
+    "primaryTabId": "0ee6f539-7093-4134-89ec-a08bf8a1b157"
+  },
+  "steps": {
+    "preservationBefore": {
+      ".canary/run1": {
+        "exists": true,
+        "files": 255,
+        "bytes": 74395934,
+        "treeHash": "9338b3c295b9d5e43615c3be3208c7d0634b2ecc27ac3ccf1b917fe7638c2c17"
+      },
+      ".canary/run2": {
+        "exists": true,
+        "files": 125,
+        "bytes": 37821578,
+        "treeHash": "6cf3eca81f280c5db9f27e8e52d55a3e112369d53a84971765fa4c2a36eab6db"
+      }
+    },
+    "preflight": {
+      "runId": "run-45fa6a36-2d29-406c-a093-25ab48e7e1bd",
+      "request": {
+        "artifactBytes": 25165824,
+        "aggregateBytes": 805306368,
+        "leaseTtlMs": 14400000
+      },
+      "result": {
+        "runId": "run-45fa6a36-2d29-406c-a093-25ab48e7e1bd",
+        "limits": {
+          "maxArtifactBytes": 25165824,
+          "maxRunBytes": 1073741824
+        },
+        "committedBytes": 25170125,
+        "availableRunBytes": 1048571699,
+        "granted": true,
+        "leaseToken": "00000000-0000-4000-8000-000000000000"
+      }
+    },
+    "evidenceRun": {
+      "evidenceRunId": "7e524abd-3dbf-401d-88eb-9e3caba1f453"
+    },
+    "layout": {
+      "created": [
+        "a0-assets",
+        "clone",
+        "diff",
+        "evidence",
+        "reference",
+        "REPORT.md",
+        "sections"
+      ],
+      "cleared": [
+        "reference/reference-mobile.html",
+        "reference/reference.html",
+        "clone/a0-assets",
+        "clone/assets",
+        "clone/index.html",
+        "clone/manifest.json",
+        "clone/mobile",
+        "evidence/asset-audit.json",
+        "evidence/build-mobile.log",
+        "evidence/build-telemetry-mobile.json",
+        "evidence/build-telemetry.json",
+        "evidence/build.log",
+        "evidence/pipeline.json",
+        "evidence/reference-dump-mobile.json",
+        "evidence/reference-dump-validated.json",
+        "evidence/reference-floors.json",
+        "evidence/run3-1024.json",
+        "evidence/run3-1024.log",
+        "evidence/run3-1440-clone.png",
+        "evidence/run3-1440-reference.png",
+        "evidence/run3-1440-standalone-clone.png",
+        "evidence/run3-1440-standalone-reference.png",
+        "evidence/run3-1440.json",
+        "evidence/run3-1440.log",
+        "evidence/run3-390.json",
+        "evidence/run3-390.log",
+        "evidence/summary.json"
+      ]
+    },
+    "referenceCapture": {
+      "tabId": "96f38b84-fea9-4a27-9e49-7b4697399e3c",
+      "desktop": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "path": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\reference\\reference.html",
+        "bytes": 833581,
+        "sha256": "e92cfe802f15934d2688a66ab607d03d9f1b35c1775efba7fa243994649ff808",
+        "sectionCount": 15,
+        "cardCount": 83,
+        "images": 105,
+        "removed": [
+          "antifan:STYLE#__antifan_freeze_media_style",
+          "secret-meta:META",
+          "secret-value:INPUT[_token]",
+          "secret-attr:SCRIPT",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-main.js]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-vendor.js]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-ven]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-com]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-runtime.j]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-app.js]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/5f34df50b7f44f406e9476a6/1hiir2bkg]",
+          "third-party-script:SCRIPT[https://www.googletagmanager.com/gtm.js?id=GTM-5F6MFQRB]",
+          "third-party-script:SCRIPT[https://www.googletagmanager.com/gtag/js?id=G-PCKJ8F8PNS]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d0]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d2]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d0]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-3ea]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d0]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-4fe]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-794]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-628]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d0]",
+          "third-party-inline:SCRIPT",
+          "third-party-inline:SCRIPT",
+          "third-party-inline:SCRIPT",
+          "third-party-noscript:NOSCRIPT",
+          "injected-iframe:IFRAME#sbac2tetjfqo1789026452793[about:blank]",
+          "injected-iframe:IFRAME#qjm75ffmvohg1789026452849",
+          "injected-iframe:IFRAME#ldf6o415hakc1789026452836[about:blank]",
+          "injected-iframe:IFRAME#kugg55bumh281789026452821[about:blank]",
+          "injected-iframe:IFRAME#k1pdh8f3agmo1789026452801[about:blank]",
+          "injected-random-id:DIV#xlld5v16g4bo1789026452780",
+          "injected-style:STYLE",
+          "injected-style:STYLE"
+        ],
+        "settled": {
+          "freeze": {
+            "frozen": true,
+            "mediaCount": 0,
+            "tabId": "96f38b84-fea9-4a27-9e49-7b4697399e3c"
+          },
+          "mediaFrozen": true,
+          "fontsSettled": true,
+          "imagesSettled": true,
+          "domSettled": true,
+          "visualStable": true,
+          "timedOut": false,
+          "imageCount": 105,
+          "pendingImages": 0,
+          "brokenImages": [],
+          "structuralMutations": 0,
+          "settlementDuration": 2885,
+          "readyState": "complete",
+          "fontsStatus": "loaded",
+          "phases": {
+            "images": {
+              "fontsSettled": true,
+              "imagesSettled": true,
+              "imageCount": 105,
+              "pendingImages": 0,
+              "durationMs": 431
+            },
+            "domQuiet": {
+              "domSettled": true,
+              "structuralMutations": 0,
+              "durationMs": 1603
+            },
+            "visual": {
+              "visualStable": true,
+              "durationMs": 851,
+              "imageCount": 105,
+              "pendingImages": 0,
+              "brokenImages": [],
+              "readyState": "complete",
+              "fontsStatus": "loaded"
+            }
+          }
+        }
+      },
+      "mobile": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "path": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\reference\\reference-mobile.html",
+        "bytes": 592572,
+        "sha256": "4f0ef626227d3c3f61006185ddf87c4bc92869585e0de7561ccd1a00400d01dc",
+        "sectionCount": 14,
+        "cardCount": 83,
+        "images": 98,
+        "removed": [
+          "antifan:STYLE#__antifan_freeze_media_style",
+          "secret-meta:META",
+          "secret-value:INPUT[_token]",
+          "secret-value:INPUT[_token]",
+          "secret-attr:SCRIPT",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-main.js]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-vendor.js]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-ven]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-com]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-runtime.j]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-app.js]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/5f34df50b7f44f406e9476a6/1hiir2bkg]",
+          "third-party-script:SCRIPT[https://www.googletagmanager.com/gtm.js?id=GTM-5F6MFQRB]",
+          "third-party-script:SCRIPT[https://www.googletagmanager.com/gtag/js?id=G-PCKJ8F8PNS]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d0]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d2]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-3ea]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d0]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-4fe]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-794]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-628]",
+          "third-party-script:SCRIPT[https://embed.tawk.to/_s/v4/app/6a910db6dca/js/twk-chunk-2d0]",
+          "third-party-inline:SCRIPT",
+          "third-party-inline:SCRIPT",
+          "third-party-inline:SCRIPT",
+          "third-party-noscript:NOSCRIPT",
+          "injected-iframe:IFRAME#wpcbl2on6kcg1789026486399[about:blank]",
+          "injected-iframe:IFRAME#atkk4mqtmuj41789026486423",
+          "injected-iframe:IFRAME#ypgcrvrpoqkg1789026486407[about:blank]",
+          "injected-random-id:DIV#tc1erb2g18nc1789026486382",
+          "injected-style:STYLE",
+          "injected-style:STYLE"
+        ],
+        "settled": {
+          "freeze": {
+            "frozen": true,
+            "mediaCount": 0,
+            "tabId": "96f38b84-fea9-4a27-9e49-7b4697399e3c"
+          },
+          "mediaFrozen": true,
+          "fontsSettled": true,
+          "imagesSettled": true,
+          "domSettled": true,
+          "visualStable": true,
+          "timedOut": false,
+          "imageCount": 98,
+          "pendingImages": 0,
+          "brokenImages": [],
+          "structuralMutations": 0,
+          "settlementDuration": 2884,
+          "readyState": "complete",
+          "fontsStatus": "loaded",
+          "phases": {
+            "images": {
+              "fontsSettled": true,
+              "imagesSettled": true,
+              "imageCount": 98,
+              "pendingImages": 0,
+              "durationMs": 425
+            },
+            "domQuiet": {
+              "domSettled": true,
+              "structuralMutations": 0,
+              "durationMs": 1608
+            },
+            "visual": {
+              "visualStable": true,
+              "durationMs": 851,
+              "imageCount": 98,
+              "pendingImages": 0,
+              "brokenImages": [],
+              "readyState": "complete",
+              "fontsStatus": "loaded"
+            }
+          }
+        }
+      }
+    },
+    "readinessFloors": {
+      "run3-1440": {
+        "width": 1440,
+        "height": 900,
+        "minSections": 15,
+        "minCards": 83
+      },
+      "run3-1024": {
+        "width": 1024,
+        "height": 900,
+        "minSections": 15,
+        "minCards": 83
+      },
+      "run3-390": {
+        "width": 390,
+        "height": 844,
+        "minSections": 14,
+        "minCards": 83
+      }
+    },
+    "build": {
+      "code": 0,
+      "elapsedMs": 22246,
+      "stdout": "{\n  \"ok\": true,\n  \"error\": null,\n  \"blueprints\": 20,\n  \"a0\": {\n    \"stylesheets\": 2,\n    \"javascripts\": 4,\n    \"images\": 102,\n    \"fonts\": 0,\n    \"total\": 108\n  },\n  \"normalized\": {\n    \"products\": 6,\n    \"categories\": 0,\n    \"articles\": 4,\n    \"siteTitle\": \"Hoplongtech.com\"\n  },\n  \"bundle\": {\n    \"assetFiles\": 118,\n    \"assetBytes\": 36671943,\n    \"productCount\": 6,\n    \"remoteSubresources\": 0,\n    \"remoteNavigation\": 120\n  }\n}\n",
+      "stderr": "(node:244600) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 connect listeners added to [TLSSocket]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:244600) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 connect listeners added to [TLSSocket]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n(node:244600) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 connect listeners added to [TLSSocket]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n(node:244600) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 connect listeners added to [TLSSocket]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n"
+    },
+    "buildMobile": {
+      "code": 0,
+      "elapsedMs": 8812,
+      "stdout": "{\n  \"ok\": true,\n  \"error\": null,\n  \"blueprints\": 19,\n  \"a0\": {\n    \"stylesheets\": 4,\n    \"javascripts\": 6,\n    \"images\": 95,\n    \"fonts\": 0,\n    \"total\": 105\n  },\n  \"normalized\": {\n    \"products\": 5,\n    \"categories\": 0,\n    \"articles\": 4,\n    \"siteTitle\": \"Hoplongtech.com\"\n  },\n  \"bundle\": {\n    \"assetFiles\": 115,\n    \"assetBytes\": 18454841,\n    \"productCount\": 5,\n    \"remoteSubresources\": 0,\n    \"remoteNavigation\": 98\n  }\n}\n",
+      "stderr": "(node:47516) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 connect listeners added to [TLSSocket]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47516) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 connect listeners added to [TLSSocket]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n(node:47516) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 connect listeners added to [TLSSocket]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n(node:47516) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 connect listeners added to [TLSSocket]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n"
+    },
+    "bundleMobile": {
+      "entry": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\mobile\\index.html",
+      "entrySha256": "04000c89827b5842c7c4c90d13d89c8402797ec20034d702a836edf9ec294bf2",
+      "tree": {
+        "exists": true,
+        "files": 117,
+        "bytes": 18886874,
+        "treeHash": "3f3127aad2904cff5fcbf8af7eda4a3dff3e6456c562886d81711743afd0daf0"
+      }
+    },
+    "bundle": {
+      "entry": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone\\index.html",
+      "entrySha256": "54c4faba7a8334433c87fb030155f6be7050dc693f89ad7e7d17bb99440e517c",
+      "tree": {
+        "exists": true,
+        "files": 120,
+        "bytes": 37346870,
+        "treeHash": "c4ff7caeed57decaa9708b546d5b18577a38b553c053bacff741da37bb296fd5"
+      }
+    },
+    "server": {
+      "port": 7852,
+      "root": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\clone",
+      "ready": true
+    },
+    "tabs": {
+      "referenceTabId": "96f38b84-fea9-4a27-9e49-7b4697399e3c",
+      "cloneTabId": "787a1e30-e171-4822-ab5e-d8612be9bc33",
+      "cloneUrl": "http://127.0.0.1:7852/"
+    },
+    "assetAudit": {
+      "file": "asset-audit.json",
+      "referenceOriginVisualCount": 0,
+      "referenceOriginCount": 0,
+      "brokenImages": 0,
+      "remoteSubresources": 0,
+      "overflowX": 0
+    },
+    "preservationAfter": {
+      ".canary/run1": {
+        "exists": true,
+        "files": 255,
+        "bytes": 74395934,
+        "treeHash": "9338b3c295b9d5e43615c3be3208c7d0634b2ecc27ac3ccf1b917fe7638c2c17"
+      },
+      ".canary/run2": {
+        "exists": true,
+        "files": 125,
+        "bytes": 37821578,
+        "treeHash": "6cf3eca81f280c5db9f27e8e52d55a3e112369d53a84971765fa4c2a36eab6db"
+      }
+    },
+    "preservation": {
+      "preserved": true,
+      "before": {
+        ".canary/run1": "9338b3c295b9d5e43615c3be3208c7d0634b2ecc27ac3ccf1b917fe7638c2c17",
+        ".canary/run2": "6cf3eca81f280c5db9f27e8e52d55a3e112369d53a84971765fa4c2a36eab6db"
+      },
+      "after": {
+        ".canary/run1": "9338b3c295b9d5e43615c3be3208c7d0634b2ecc27ac3ccf1b917fe7638c2c17",
+        ".canary/run2": "6cf3eca81f280c5db9f27e8e52d55a3e112369d53a84971765fa4c2a36eab6db"
+      }
+    },
+    "leaseRelease": {
+      "released": true
+    }
+  },
+  "viewportRuns": [
+    {
+      "label": "run3-1440",
+      "viewport": "1440x900",
+      "exitCode": 2,
+      "elapsedMs": 102243,
+      "evidenceFile": "evidence/run3-1440.json",
+      "status": "INCONCLUSIVE_SELF_DRIFT",
+      "readiness": {
+        "reference": {
+          "ok": true,
+          "reasons": []
+        },
+        "clone": {
+          "ok": true,
+          "reasons": []
+        }
+      },
+      "authoritative": {
+        "match": null,
+        "mismatchPercentage": null,
+        "verdict": null,
+        "toolVerdict": null,
+        "toolStatus": null,
+        "reason": null,
+        "dimensionsMatch": null,
+        "maskRatio": null
+      },
+      "selfDrift": {
+        "status": "SELF_DRIFT_ERROR",
+        "error": "TARGET_BUSY_DRAINING: Target '96f38b84-fea9-4a27-9e49-7b4697399e3c' is quarantined: Page.captureScreenshot did not settle within its bound on full-page tab '96f38b84-fea9-4a27-9e49-7b4697399e3c'; recovery in progress. Retry after the recovery receipt."
+      },
+      "standalone": {
+        "reference": {
+          "status": "STANDALONE_CAPTURE_ERROR",
+          "artifactId": null,
+          "byteLength": null,
+          "fetchedBytes": null,
+          "sha256": null,
+          "fetchedSha256": null,
+          "byteForByte": false,
+          "fetchError": null,
+          "captureMode": null
+        },
+        "clone": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-3bcedf33-c45d-424d-9b78-f5b9e2c61a50",
+          "byteLength": 2322753,
+          "fetchedBytes": 2322753,
+          "sha256": "f3c9fc67f27cdf47281038225ff98ac7b5455d63e99f18b6957fe57519aed923",
+          "fetchedSha256": "f3c9fc67f27cdf47281038225ff98ac7b5455d63e99f18b6957fe57519aed923",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        }
+      },
+      "pairPersisted": {
+        "reference": {
+          "status": "NO_ARTIFACT",
+          "raw": "null"
+        },
+        "clone": {
+          "status": "NO_ARTIFACT",
+          "raw": "null"
+        }
+      },
+      "structural": {
+        "docHeight": {
+          "reference": 5422,
+          "clone": 5422,
+          "delta": 0,
+          "ratio": 1
+        },
+        "overflowX": {
+          "reference": 0,
+          "clone": 0
+        },
+        "sectionCount": {
+          "reference": 15,
+          "clone": 15,
+          "delta": 0
+        },
+        "productCardCount": {
+          "reference": 83,
+          "clone": 83,
+          "delta": 0
+        },
+        "articleCardCount": {
+          "reference": 4,
+          "clone": 4,
+          "delta": 0
+        },
+        "navItemCount": {
+          "reference": 8,
+          "clone": 8,
+          "delta": 0
+        },
+        "linkCount": {
+          "reference": 249,
+          "clone": 249,
+          "delta": 0
+        },
+        "imageCount": {
+          "reference": 105,
+          "clone": 105,
+          "delta": 0
+        },
+        "brokenImages": {
+          "reference": 0,
+          "clone": 0
+        },
+        "header": {
+          "dh": 0,
+          "dy": 0,
+          "dw": 15
+        },
+        "main": {
+          "dh": 0,
+          "dy": 0,
+          "dw": 15
+        },
+        "footer": {
+          "dh": 0,
+          "dy": 0,
+          "dw": 15
+        },
+        "sections": [
+          {
+            "cls": "site-header",
+            "reference": {
+              "y": 0,
+              "h": 163
+            },
+            "clone": {
+              "y": 0,
+              "h": 163
+            },
+            "dh": 0
+          },
+          {
+            "cls": "main",
+            "reference": {
+              "y": 163,
+              "h": 4652
+            },
+            "clone": {
+              "y": 163,
+              "h": 4652
+            },
+            "dh": 0
+          },
+          {
+            "cls": "slide",
+            "reference": {
+              "y": 163,
+              "h": 445
+            },
+            "clone": {
+              "y": 163,
+              "h": 445
+            },
+            "dh": 0
+          },
+          {
+            "cls": "category-list",
+            "reference": {
+              "y": 628,
+              "h": 120
+            },
+            "clone": {
+              "y": 628,
+              "h": 120
+            },
+            "dh": 0
+          },
+          {
+            "cls": "banner-category",
+            "reference": {
+              "y": 748,
+              "h": 165
+            },
+            "clone": {
+              "y": 748,
+              "h": 165
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 933,
+              "h": 419
+            },
+            "clone": {
+              "y": 933,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1372,
+              "h": 419
+            },
+            "clone": {
+              "y": 1372,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1811,
+              "h": 419
+            },
+            "clone": {
+              "y": 1811,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2250,
+              "h": 419
+            },
+            "clone": {
+              "y": 2250,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2689,
+              "h": 419
+            },
+            "clone": {
+              "y": 2689,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "home-form",
+            "reference": {
+              "y": 3253,
+              "h": 369
+            },
+            "clone": {
+              "y": 3253,
+              "h": 369
+            },
+            "dh": 0
+          },
+          {
+            "cls": "accessory",
+            "reference": {
+              "y": 3767,
+              "h": 351
+            },
+            "clone": {
+              "y": 3767,
+              "h": 351
+            },
+            "dh": 0
+          },
+          {
+            "cls": "news",
+            "reference": {
+              "y": 4138,
+              "h": 436
+            },
+            "clone": {
+              "y": 4138,
+              "h": 436
+            },
+            "dh": 0
+          },
+          {
+            "cls": "partner",
+            "reference": {
+              "y": 4594,
+              "h": 222
+            },
+            "clone": {
+              "y": 4594,
+              "h": 222
+            },
+            "dh": 0
+          },
+          {
+            "cls": "site-footer",
+            "reference": {
+              "y": 4816,
+              "h": 607
+            },
+            "clone": {
+              "y": 4816,
+              "h": 607
+            },
+            "dh": 0
+          }
+        ]
+      },
+      "sectionCount": 0,
+      "compareStatus": "COMPARE_ERROR",
+      "compareError": "TARGET_BUSY_DRAINING: Target '96f38b84-fea9-4a27-9e49-7b4697399e3c' is quarantined: Page.captureScreenshot did not settle within its bound on full-page tab '96f38b84-fea9-4a27-9e49-7b4697399e3c'; recovery in progress. Retry after the recovery receipt."
+    },
+    {
+      "label": "run3-1024",
+      "viewport": "1024x900",
+      "exitCode": 2,
+      "elapsedMs": 174272,
+      "evidenceFile": "evidence/run3-1024.json",
+      "status": "INCONCLUSIVE_SELF_DRIFT",
+      "readiness": {
+        "reference": {
+          "ok": true,
+          "reasons": []
+        },
+        "clone": {
+          "ok": true,
+          "reasons": []
+        }
+      },
+      "authoritative": {
+        "match": false,
+        "mismatchPercentage": 27.54,
+        "verdict": "STRUCTURAL_PARITY_MISMATCH",
+        "toolVerdict": "STRUCTURAL_PARITY_MISMATCH",
+        "toolStatus": null,
+        "reason": "Structural parity mismatch (cardinalityMatch=true, deltaCardinality=0, geometryWithinTolerance=false, deltaGeometry=176px) — structural mismatch cannot pass through masks or a low pixel diff",
+        "dimensionsMatch": false,
+        "maskRatio": 0
+      },
+      "selfDrift": {
+        "status": "MEASURED",
+        "mismatchPercentage": 100,
+        "dimensionsMatch": null,
+        "maskedAreaRatio": 0,
+        "note": "diagnostic only — never subtracted from the candidate mismatch"
+      },
+      "standalone": {
+        "reference": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-3137dcf8-5bc0-4196-a1c4-63e748e97c2e",
+          "byteLength": 1984203,
+          "fetchedBytes": 1984203,
+          "sha256": "3554df718482b3f8bda00e9703284ef82b41a83a2c67249563d9a813eda545c0",
+          "fetchedSha256": "3554df718482b3f8bda00e9703284ef82b41a83a2c67249563d9a813eda545c0",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        },
+        "clone": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-530d2b40-d5e4-4971-b961-7d8c06590056",
+          "byteLength": 1732383,
+          "fetchedBytes": 1732383,
+          "sha256": "626ddfa96bbd8871ed90fc2caf64e32ed7d9db545d370734454c3d51558d0115",
+          "fetchedSha256": "626ddfa96bbd8871ed90fc2caf64e32ed7d9db545d370734454c3d51558d0115",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        }
+      },
+      "pairPersisted": {
+        "reference": {
+          "status": "PERSISTED",
+          "artifactId": "artifact-81e1f48c-d777-4b32-bbcb-ae3393f27044",
+          "file": "run3-1024-reference.png",
+          "bytes": 1941178,
+          "sha256": "25ee65411dffc6c4a0d2ddb65fd844d775df6e811da434c57c8f1dec69b0bff3",
+          "authoritative": true,
+          "declaredBytes": 1941178,
+          "declaredSha": "25ee65411dffc6c4a0d2ddb65fd844d775df6e811da434c57c8f1dec69b0bff3",
+          "byteForByte": true
+        },
+        "clone": {
+          "status": "PERSISTED",
+          "artifactId": "artifact-b654836b-af9e-4533-a2dd-7eb5f8851b63",
+          "file": "run3-1024-clone.png",
+          "bytes": 1740947,
+          "sha256": "dc7ccc0910b1a5d692272327c9d48328711cd2e45957f7c4fa29682e7ef316e1",
+          "authoritative": true,
+          "declaredBytes": 1740947,
+          "declaredSha": "dc7ccc0910b1a5d692272327c9d48328711cd2e45957f7c4fa29682e7ef316e1",
+          "byteForByte": true
+        }
+      },
+      "structural": {
+        "docHeight": {
+          "reference": 6756,
+          "clone": 5546,
+          "delta": -1210,
+          "ratio": 0.821
+        },
+        "overflowX": {
+          "reference": 0,
+          "clone": 0
+        },
+        "sectionCount": {
+          "reference": 15,
+          "clone": 15,
+          "delta": 0
+        },
+        "productCardCount": {
+          "reference": 83,
+          "clone": 83,
+          "delta": 0
+        },
+        "articleCardCount": {
+          "reference": 4,
+          "clone": 4,
+          "delta": 0
+        },
+        "navItemCount": {
+          "reference": 8,
+          "clone": 8,
+          "delta": 0
+        },
+        "linkCount": {
+          "reference": 249,
+          "clone": 249,
+          "delta": 0
+        },
+        "imageCount": {
+          "reference": 105,
+          "clone": 105,
+          "delta": 0
+        },
+        "brokenImages": {
+          "reference": 0,
+          "clone": 0
+        },
+        "header": {
+          "dh": 15,
+          "dy": 0,
+          "dw": -176
+        },
+        "main": {
+          "dh": 105,
+          "dy": 15,
+          "dw": -176
+        },
+        "footer": {
+          "dh": 0,
+          "dy": 120,
+          "dw": -176
+        },
+        "sections": [
+          {
+            "cls": "site-header",
+            "reference": {
+              "y": 0,
+              "h": 159
+            },
+            "clone": {
+              "y": 0,
+              "h": 174
+            },
+            "dh": 15
+          },
+          {
+            "cls": "main",
+            "reference": {
+              "y": 159,
+              "h": 4620
+            },
+            "clone": {
+              "y": 174,
+              "h": 4725
+            },
+            "dh": 105
+          },
+          {
+            "cls": "slide",
+            "reference": {
+              "y": 159,
+              "h": 442
+            },
+            "clone": {
+              "y": 174,
+              "h": 442
+            },
+            "dh": 0
+          },
+          {
+            "cls": "category-list",
+            "reference": {
+              "y": 621,
+              "h": 130
+            },
+            "clone": {
+              "y": 636,
+              "h": 145
+            },
+            "dh": 15
+          },
+          {
+            "cls": "banner-category",
+            "reference": {
+              "y": 751,
+              "h": 125
+            },
+            "clone": {
+              "y": 781,
+              "h": 125
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 896,
+              "h": 419
+            },
+            "clone": {
+              "y": 926,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1335,
+              "h": 419
+            },
+            "clone": {
+              "y": 1380,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1774,
+              "h": 419
+            },
+            "clone": {
+              "y": 1834,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2213,
+              "h": 419
+            },
+            "clone": {
+              "y": 2288,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2652,
+              "h": 419
+            },
+            "clone": {
+              "y": 2742,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "home-form",
+            "reference": {
+              "y": 3216,
+              "h": 369
+            },
+            "clone": {
+              "y": 3321,
+              "h": 369
+            },
+            "dh": 0
+          },
+          {
+            "cls": "accessory",
+            "reference": {
+              "y": 3730,
+              "h": 351
+            },
+            "clone": {
+              "y": 3835,
+              "h": 351
+            },
+            "dh": 0
+          },
+          {
+            "cls": "news",
+            "reference": {
+              "y": 4101,
+              "h": 436
+            },
+            "clone": {
+              "y": 4206,
+              "h": 451
+            },
+            "dh": 15
+          },
+          {
+            "cls": "partner",
+            "reference": {
+              "y": 4557,
+              "h": 222
+            },
+            "clone": {
+              "y": 4677,
+              "h": 222
+            },
+            "dh": 0
+          },
+          {
+            "cls": "site-footer",
+            "reference": {
+              "y": 4779,
+              "h": 647
+            },
+            "clone": {
+              "y": 4899,
+              "h": 647
+            },
+            "dh": 0
+          }
+        ]
+      },
+      "sectionCount": 12,
+      "compareStatus": null,
+      "compareError": null
+    },
+    {
+      "label": "run3-390",
+      "viewport": "390x844",
+      "exitCode": 2,
+      "elapsedMs": 168658,
+      "evidenceFile": "evidence/run3-390.json",
+      "status": "INCONCLUSIVE_SELF_DRIFT",
+      "readiness": {
+        "reference": {
+          "ok": true,
+          "reasons": []
+        },
+        "clone": {
+          "ok": true,
+          "reasons": []
+        }
+      },
+      "authoritative": {
+        "match": false,
+        "mismatchPercentage": 0.99,
+        "verdict": "FAIL",
+        "toolVerdict": "STRUCTURAL_PARITY_MISMATCH",
+        "toolStatus": null,
+        "reason": "Structural parity mismatch (cardinalityMatch=true, deltaCardinality=0, geometryWithinTolerance=false, deltaGeometry=10px) — structural mismatch cannot pass through masks or a low pixel diff",
+        "dimensionsMatch": true,
+        "maskRatio": 0
+      },
+      "selfDrift": {
+        "status": "MEASURED",
+        "mismatchPercentage": 100,
+        "dimensionsMatch": null,
+        "maskedAreaRatio": 0,
+        "note": "diagnostic only — never subtracted from the candidate mismatch"
+      },
+      "standalone": {
+        "reference": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-36bb1921-9bd6-4493-aa0a-b200106de5d6",
+          "byteLength": 743524,
+          "fetchedBytes": 743524,
+          "sha256": "33174229ed97445dce9e38cfd9ab4ef9bbcc53c3ca62e314b8d182afc12c637f",
+          "fetchedSha256": "33174229ed97445dce9e38cfd9ab4ef9bbcc53c3ca62e314b8d182afc12c637f",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        },
+        "clone": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-fff4b9ef-b900-485d-9826-db1dc52f8968",
+          "byteLength": 740175,
+          "fetchedBytes": 740175,
+          "sha256": "e7703cf942f1cb3db14385c5d9f1c147aca402a2b4e35b54af1c06d33d2511c6",
+          "fetchedSha256": "e7703cf942f1cb3db14385c5d9f1c147aca402a2b4e35b54af1c06d33d2511c6",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        }
+      },
+      "pairPersisted": {
+        "reference": {
+          "status": "PERSISTED",
+          "artifactId": "artifact-2bd1c5bc-0fd1-4802-b1ad-5b5d14bbc240",
+          "file": "run3-390-reference.png",
+          "bytes": 743526,
+          "sha256": "e0e2957d51e7a101ba9985cd617f7549c61e773dee1ffbe5dbb68f8a9b90949b",
+          "authoritative": true,
+          "declaredBytes": 743526,
+          "declaredSha": "e0e2957d51e7a101ba9985cd617f7549c61e773dee1ffbe5dbb68f8a9b90949b",
+          "byteForByte": true
+        },
+        "clone": {
+          "status": "PERSISTED",
+          "artifactId": "artifact-5208ce27-b75b-4555-9000-96401afd3d59",
+          "file": "run3-390-clone.png",
+          "bytes": 740175,
+          "sha256": "e7703cf942f1cb3db14385c5d9f1c147aca402a2b4e35b54af1c06d33d2511c6",
+          "authoritative": true,
+          "declaredBytes": 740175,
+          "declaredSha": "e7703cf942f1cb3db14385c5d9f1c147aca402a2b4e35b54af1c06d33d2511c6",
+          "byteForByte": true
+        }
+      },
+      "structural": {
+        "docHeight": {
+          "reference": 4481,
+          "clone": 4521,
+          "delta": 40,
+          "ratio": 1.009
+        },
+        "overflowX": {
+          "reference": 0,
+          "clone": 0
+        },
+        "sectionCount": {
+          "reference": 14,
+          "clone": 14,
+          "delta": 0
+        },
+        "productCardCount": {
+          "reference": 83,
+          "clone": 83,
+          "delta": 0
+        },
+        "articleCardCount": {
+          "reference": 4,
+          "clone": 4,
+          "delta": 0
+        },
+        "navItemCount": {
+          "reference": 81,
+          "clone": 81,
+          "delta": 0
+        },
+        "linkCount": {
+          "reference": 230,
+          "clone": 230,
+          "delta": 0
+        },
+        "imageCount": {
+          "reference": 98,
+          "clone": 98,
+          "delta": 0
+        },
+        "brokenImages": {
+          "reference": 0,
+          "clone": 0
+        },
+        "header": {
+          "dh": 10,
+          "dy": 0,
+          "dw": 0
+        },
+        "main": {
+          "dh": 0,
+          "dy": 10,
+          "dw": 0
+        },
+        "footer": {
+          "dh": 0,
+          "dy": 10,
+          "dw": 0
+        },
+        "sections": [
+          {
+            "cls": "site-header",
+            "reference": {
+              "y": 0,
+              "h": 170
+            },
+            "clone": {
+              "y": 0,
+              "h": 180
+            },
+            "dh": 10
+          },
+          {
+            "cls": "main",
+            "reference": {
+              "y": 170,
+              "h": 3520
+            },
+            "clone": {
+              "y": 180,
+              "h": 3520
+            },
+            "dh": 0
+          },
+          {
+            "cls": "slide",
+            "reference": {
+              "y": 170,
+              "h": 323
+            },
+            "clone": {
+              "y": 180,
+              "h": 323
+            },
+            "dh": 0
+          },
+          {
+            "cls": "category-list",
+            "reference": {
+              "y": 493,
+              "h": 65
+            },
+            "clone": {
+              "y": 503,
+              "h": 65
+            },
+            "dh": 0
+          },
+          {
+            "cls": "banner-category",
+            "reference": {
+              "y": 578,
+              "h": 156
+            },
+            "clone": {
+              "y": 588,
+              "h": 156
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 754,
+              "h": 341
+            },
+            "clone": {
+              "y": 764,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1115,
+              "h": 341
+            },
+            "clone": {
+              "y": 1125,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1476,
+              "h": 341
+            },
+            "clone": {
+              "y": 1486,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1837,
+              "h": 341
+            },
+            "clone": {
+              "y": 1847,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2198,
+              "h": 341
+            },
+            "clone": {
+              "y": 2208,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "accessory",
+            "reference": {
+              "y": 2559,
+              "h": 315
+            },
+            "clone": {
+              "y": 2569,
+              "h": 315
+            },
+            "dh": 0
+          },
+          {
+            "cls": "news",
+            "reference": {
+              "y": 2914,
+              "h": 618
+            },
+            "clone": {
+              "y": 2924,
+              "h": 618
+            },
+            "dh": 0
+          },
+          {
+            "cls": "partner",
+            "reference": {
+              "y": 3562,
+              "h": 128
+            },
+            "clone": {
+              "y": 3572,
+              "h": 128
+            },
+            "dh": 0
+          },
+          {
+            "cls": "site-footer",
+            "reference": {
+              "y": 3720,
+              "h": 741
+            },
+            "clone": {
+              "y": 3730,
+              "h": 741
+            },
+            "dh": 0
+          }
+        ]
+      },
+      "sectionCount": 4,
+      "compareStatus": null,
+      "compareError": null
+    }
+  ],
+  "status": "PARTIAL_EVIDENCE",
+  "finishedAt": "2026-09-10T07:57:02.527Z"
+}

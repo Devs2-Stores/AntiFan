@@ -1,0 +1,23 @@
+{
+  "refSha256": "e92cfe802f15934d2688a66ab607d03d9f1b35c1775efba7fa243994649ff808",
+  "floors": {
+    "run3-1440": {
+      "width": 1440,
+      "height": 900,
+      "minSections": 15,
+      "minCards": 83
+    },
+    "run3-1024": {
+      "width": 1024,
+      "height": 900,
+      "minSections": 15,
+      "minCards": 83
+    },
+    "run3-390": {
+      "width": 390,
+      "height": 844,
+      "minSections": 14,
+      "minCards": 83
+    }
+  }
+}

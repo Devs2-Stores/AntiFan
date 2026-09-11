@@ -1,0 +1,984 @@
+{
+  "status": "PARTIAL_EVIDENCE",
+  "runId": "run-45fa6a36-2d29-406c-a093-25ab48e7e1bd",
+  "referenceUrl": "https://hoplongtech.com/",
+  "viewports": [
+    {
+      "label": "run3-1440",
+      "viewport": "1440x900",
+      "exitCode": 2,
+      "elapsedMs": 102243,
+      "evidenceFile": "evidence/run3-1440.json",
+      "status": "INCONCLUSIVE_SELF_DRIFT",
+      "readiness": {
+        "reference": {
+          "ok": true,
+          "reasons": []
+        },
+        "clone": {
+          "ok": true,
+          "reasons": []
+        }
+      },
+      "authoritative": {
+        "match": null,
+        "mismatchPercentage": null,
+        "verdict": null,
+        "toolVerdict": null,
+        "toolStatus": null,
+        "reason": null,
+        "dimensionsMatch": null,
+        "maskRatio": null
+      },
+      "selfDrift": {
+        "status": "SELF_DRIFT_ERROR",
+        "error": "TARGET_BUSY_DRAINING: Target '96f38b84-fea9-4a27-9e49-7b4697399e3c' is quarantined: Page.captureScreenshot did not settle within its bound on full-page tab '96f38b84-fea9-4a27-9e49-7b4697399e3c'; recovery in progress. Retry after the recovery receipt."
+      },
+      "standalone": {
+        "reference": {
+          "status": "STANDALONE_CAPTURE_ERROR",
+          "artifactId": null,
+          "byteLength": null,
+          "fetchedBytes": null,
+          "sha256": null,
+          "fetchedSha256": null,
+          "byteForByte": false,
+          "fetchError": null,
+          "captureMode": null
+        },
+        "clone": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-3bcedf33-c45d-424d-9b78-f5b9e2c61a50",
+          "byteLength": 2322753,
+          "fetchedBytes": 2322753,
+          "sha256": "f3c9fc67f27cdf47281038225ff98ac7b5455d63e99f18b6957fe57519aed923",
+          "fetchedSha256": "f3c9fc67f27cdf47281038225ff98ac7b5455d63e99f18b6957fe57519aed923",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        }
+      },
+      "pairPersisted": {
+        "reference": {
+          "status": "NO_ARTIFACT",
+          "raw": "null"
+        },
+        "clone": {
+          "status": "NO_ARTIFACT",
+          "raw": "null"
+        }
+      },
+      "structural": {
+        "docHeight": {
+          "reference": 5422,
+          "clone": 5422,
+          "delta": 0,
+          "ratio": 1
+        },
+        "overflowX": {
+          "reference": 0,
+          "clone": 0
+        },
+        "sectionCount": {
+          "reference": 15,
+          "clone": 15,
+          "delta": 0
+        },
+        "productCardCount": {
+          "reference": 83,
+          "clone": 83,
+          "delta": 0
+        },
+        "articleCardCount": {
+          "reference": 4,
+          "clone": 4,
+          "delta": 0
+        },
+        "navItemCount": {
+          "reference": 8,
+          "clone": 8,
+          "delta": 0
+        },
+        "linkCount": {
+          "reference": 249,
+          "clone": 249,
+          "delta": 0
+        },
+        "imageCount": {
+          "reference": 105,
+          "clone": 105,
+          "delta": 0
+        },
+        "brokenImages": {
+          "reference": 0,
+          "clone": 0
+        },
+        "header": {
+          "dh": 0,
+          "dy": 0,
+          "dw": 15
+        },
+        "main": {
+          "dh": 0,
+          "dy": 0,
+          "dw": 15
+        },
+        "footer": {
+          "dh": 0,
+          "dy": 0,
+          "dw": 15
+        },
+        "sections": [
+          {
+            "cls": "site-header",
+            "reference": {
+              "y": 0,
+              "h": 163
+            },
+            "clone": {
+              "y": 0,
+              "h": 163
+            },
+            "dh": 0
+          },
+          {
+            "cls": "main",
+            "reference": {
+              "y": 163,
+              "h": 4652
+            },
+            "clone": {
+              "y": 163,
+              "h": 4652
+            },
+            "dh": 0
+          },
+          {
+            "cls": "slide",
+            "reference": {
+              "y": 163,
+              "h": 445
+            },
+            "clone": {
+              "y": 163,
+              "h": 445
+            },
+            "dh": 0
+          },
+          {
+            "cls": "category-list",
+            "reference": {
+              "y": 628,
+              "h": 120
+            },
+            "clone": {
+              "y": 628,
+              "h": 120
+            },
+            "dh": 0
+          },
+          {
+            "cls": "banner-category",
+            "reference": {
+              "y": 748,
+              "h": 165
+            },
+            "clone": {
+              "y": 748,
+              "h": 165
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 933,
+              "h": 419
+            },
+            "clone": {
+              "y": 933,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1372,
+              "h": 419
+            },
+            "clone": {
+              "y": 1372,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1811,
+              "h": 419
+            },
+            "clone": {
+              "y": 1811,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2250,
+              "h": 419
+            },
+            "clone": {
+              "y": 2250,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2689,
+              "h": 419
+            },
+            "clone": {
+              "y": 2689,
+              "h": 419
+            },
+            "dh": 0
+          },
+          {
+            "cls": "home-form",
+            "reference": {
+              "y": 3253,
+              "h": 369
+            },
+            "clone": {
+              "y": 3253,
+              "h": 369
+            },
+            "dh": 0
+          },
+          {
+            "cls": "accessory",
+            "reference": {
+              "y": 3767,
+              "h": 351
+            },
+            "clone": {
+              "y": 3767,
+              "h": 351
+            },
+            "dh": 0
+          },
+          {
+            "cls": "news",
+            "reference": {
+              "y": 4138,
+              "h": 436
+            },
+            "clone": {
+              "y": 4138,
+              "h": 436
+            },
+            "dh": 0
+          },
+          {
+            "cls": "partner",
+            "reference": {
+              "y": 4594,
+              "h": 222
+            },
+            "clone": {
+              "y": 4594,
+              "h": 222
+            },
+            "dh": 0
+          },
+          {
+            "cls": "site-footer",
+            "reference": {
+              "y": 4816,
+              "h": 607
+            },
+            "clone": {
+              "y": 4816,
+              "h": 607
+            },
+            "dh": 0
+          }
+        ]
+      },
+      "sectionCount": 0,
+      "compareStatus": "COMPARE_ERROR",
+      "compareError": "TARGET_BUSY_DRAINING: Target '96f38b84-fea9-4a27-9e49-7b4697399e3c' is quarantined: Page.captureScreenshot did not settle within its bound on full-page tab '96f38b84-fea9-4a27-9e49-7b4697399e3c'; recovery in progress. Retry after the recovery receipt."
+    },
+    {
+      "label": "run3-1024",
+      "viewport": "1024x900",
+      "exitCode": 2,
+      "elapsedMs": 174272,
+      "evidenceFile": "evidence/run3-1024.json",
+      "status": "INCONCLUSIVE_SELF_DRIFT",
+      "readiness": {
+        "reference": {
+          "ok": true,
+          "reasons": []
+        },
+        "clone": {
+          "ok": true,
+          "reasons": []
+        }
+      },
+      "authoritative": {
+        "match": false,
+        "mismatchPercentage": 27.54,
+        "verdict": "STRUCTURAL_PARITY_MISMATCH",
+        "toolVerdict": "STRUCTURAL_PARITY_MISMATCH",
+        "toolStatus": null,
+        "reason": "Structural parity mismatch (cardinalityMatch=true, deltaCardinality=0, geometryWithinTolerance=false, deltaGeometry=176px) — structural mismatch cannot pass through masks or a low pixel diff",
+        "dimensionsMatch": false,
+        "maskRatio": 0
+      },
+      "selfDrift": {
+        "status": "MEASURED",
+        "mismatchPercentage": 100,
+        "dimensionsMatch": null,
+        "maskedAreaRatio": 0,
+        "note": "diagnostic only — never subtracted from the candidate mismatch"
+      },
+      "standalone": {
+        "reference": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-3137dcf8-5bc0-4196-a1c4-63e748e97c2e",
+          "byteLength": 1984203,
+          "fetchedBytes": 1984203,
+          "sha256": "3554df718482b3f8bda00e9703284ef82b41a83a2c67249563d9a813eda545c0",
+          "fetchedSha256": "3554df718482b3f8bda00e9703284ef82b41a83a2c67249563d9a813eda545c0",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        },
+        "clone": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-530d2b40-d5e4-4971-b961-7d8c06590056",
+          "byteLength": 1732383,
+          "fetchedBytes": 1732383,
+          "sha256": "626ddfa96bbd8871ed90fc2caf64e32ed7d9db545d370734454c3d51558d0115",
+          "fetchedSha256": "626ddfa96bbd8871ed90fc2caf64e32ed7d9db545d370734454c3d51558d0115",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        }
+      },
+      "pairPersisted": {
+        "reference": {
+          "status": "PERSISTED",
+          "artifactId": "artifact-81e1f48c-d777-4b32-bbcb-ae3393f27044",
+          "file": "run3-1024-reference.png",
+          "bytes": 1941178,
+          "sha256": "25ee65411dffc6c4a0d2ddb65fd844d775df6e811da434c57c8f1dec69b0bff3",
+          "authoritative": true,
+          "declaredBytes": 1941178,
+          "declaredSha": "25ee65411dffc6c4a0d2ddb65fd844d775df6e811da434c57c8f1dec69b0bff3",
+          "byteForByte": true
+        },
+        "clone": {
+          "status": "PERSISTED",
+          "artifactId": "artifact-b654836b-af9e-4533-a2dd-7eb5f8851b63",
+          "file": "run3-1024-clone.png",
+          "bytes": 1740947,
+          "sha256": "dc7ccc0910b1a5d692272327c9d48328711cd2e45957f7c4fa29682e7ef316e1",
+          "authoritative": true,
+          "declaredBytes": 1740947,
+          "declaredSha": "dc7ccc0910b1a5d692272327c9d48328711cd2e45957f7c4fa29682e7ef316e1",
+          "byteForByte": true
+        }
+      },
+      "structural": {
+        "docHeight": {
+          "reference": 6756,
+          "clone": 5546,
+          "delta": -1210,
+          "ratio": 0.821
+        },
+        "overflowX": {
+          "reference": 0,
+          "clone": 0
+        },
+        "sectionCount": {
+          "reference": 15,
+          "clone": 15,
+          "delta": 0
+        },
+        "productCardCount": {
+          "reference": 83,
+          "clone": 83,
+          "delta": 0
+        },
+        "articleCardCount": {
+          "reference": 4,
+          "clone": 4,
+          "delta": 0
+        },
+        "navItemCount": {
+          "reference": 8,
+          "clone": 8,
+          "delta": 0
+        },
+        "linkCount": {
+          "reference": 249,
+          "clone": 249,
+          "delta": 0
+        },
+        "imageCount": {
+          "reference": 105,
+          "clone": 105,
+          "delta": 0
+        },
+        "brokenImages": {
+          "reference": 0,
+          "clone": 0
+        },
+        "header": {
+          "dh": 15,
+          "dy": 0,
+          "dw": -176
+        },
+        "main": {
+          "dh": 105,
+          "dy": 15,
+          "dw": -176
+        },
+        "footer": {
+          "dh": 0,
+          "dy": 120,
+          "dw": -176
+        },
+        "sections": [
+          {
+            "cls": "site-header",
+            "reference": {
+              "y": 0,
+              "h": 159
+            },
+            "clone": {
+              "y": 0,
+              "h": 174
+            },
+            "dh": 15
+          },
+          {
+            "cls": "main",
+            "reference": {
+              "y": 159,
+              "h": 4620
+            },
+            "clone": {
+              "y": 174,
+              "h": 4725
+            },
+            "dh": 105
+          },
+          {
+            "cls": "slide",
+            "reference": {
+              "y": 159,
+              "h": 442
+            },
+            "clone": {
+              "y": 174,
+              "h": 442
+            },
+            "dh": 0
+          },
+          {
+            "cls": "category-list",
+            "reference": {
+              "y": 621,
+              "h": 130
+            },
+            "clone": {
+              "y": 636,
+              "h": 145
+            },
+            "dh": 15
+          },
+          {
+            "cls": "banner-category",
+            "reference": {
+              "y": 751,
+              "h": 125
+            },
+            "clone": {
+              "y": 781,
+              "h": 125
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 896,
+              "h": 419
+            },
+            "clone": {
+              "y": 926,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1335,
+              "h": 419
+            },
+            "clone": {
+              "y": 1380,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1774,
+              "h": 419
+            },
+            "clone": {
+              "y": 1834,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2213,
+              "h": 419
+            },
+            "clone": {
+              "y": 2288,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2652,
+              "h": 419
+            },
+            "clone": {
+              "y": 2742,
+              "h": 434
+            },
+            "dh": 15
+          },
+          {
+            "cls": "home-form",
+            "reference": {
+              "y": 3216,
+              "h": 369
+            },
+            "clone": {
+              "y": 3321,
+              "h": 369
+            },
+            "dh": 0
+          },
+          {
+            "cls": "accessory",
+            "reference": {
+              "y": 3730,
+              "h": 351
+            },
+            "clone": {
+              "y": 3835,
+              "h": 351
+            },
+            "dh": 0
+          },
+          {
+            "cls": "news",
+            "reference": {
+              "y": 4101,
+              "h": 436
+            },
+            "clone": {
+              "y": 4206,
+              "h": 451
+            },
+            "dh": 15
+          },
+          {
+            "cls": "partner",
+            "reference": {
+              "y": 4557,
+              "h": 222
+            },
+            "clone": {
+              "y": 4677,
+              "h": 222
+            },
+            "dh": 0
+          },
+          {
+            "cls": "site-footer",
+            "reference": {
+              "y": 4779,
+              "h": 647
+            },
+            "clone": {
+              "y": 4899,
+              "h": 647
+            },
+            "dh": 0
+          }
+        ]
+      },
+      "sectionCount": 12,
+      "compareStatus": null,
+      "compareError": null
+    },
+    {
+      "label": "run3-390",
+      "viewport": "390x844",
+      "exitCode": 2,
+      "elapsedMs": 168658,
+      "evidenceFile": "evidence/run3-390.json",
+      "status": "INCONCLUSIVE_SELF_DRIFT",
+      "readiness": {
+        "reference": {
+          "ok": true,
+          "reasons": []
+        },
+        "clone": {
+          "ok": true,
+          "reasons": []
+        }
+      },
+      "authoritative": {
+        "match": false,
+        "mismatchPercentage": 0.99,
+        "verdict": "FAIL",
+        "toolVerdict": "STRUCTURAL_PARITY_MISMATCH",
+        "toolStatus": null,
+        "reason": "Structural parity mismatch (cardinalityMatch=true, deltaCardinality=0, geometryWithinTolerance=false, deltaGeometry=10px) — structural mismatch cannot pass through masks or a low pixel diff",
+        "dimensionsMatch": true,
+        "maskRatio": 0
+      },
+      "selfDrift": {
+        "status": "MEASURED",
+        "mismatchPercentage": 100,
+        "dimensionsMatch": null,
+        "maskedAreaRatio": 0,
+        "note": "diagnostic only — never subtracted from the candidate mismatch"
+      },
+      "standalone": {
+        "reference": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-36bb1921-9bd6-4493-aa0a-b200106de5d6",
+          "byteLength": 743524,
+          "fetchedBytes": 743524,
+          "sha256": "33174229ed97445dce9e38cfd9ab4ef9bbcc53c3ca62e314b8d182afc12c637f",
+          "fetchedSha256": "33174229ed97445dce9e38cfd9ab4ef9bbcc53c3ca62e314b8d182afc12c637f",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        },
+        "clone": {
+          "status": "CAPTURED",
+          "artifactId": "artifact-fff4b9ef-b900-485d-9826-db1dc52f8968",
+          "byteLength": 740175,
+          "fetchedBytes": 740175,
+          "sha256": "e7703cf942f1cb3db14385c5d9f1c147aca402a2b4e35b54af1c06d33d2511c6",
+          "fetchedSha256": "e7703cf942f1cb3db14385c5d9f1c147aca402a2b4e35b54af1c06d33d2511c6",
+          "byteForByte": true,
+          "fetchError": null,
+          "captureMode": "full-page"
+        }
+      },
+      "pairPersisted": {
+        "reference": {
+          "status": "PERSISTED",
+          "artifactId": "artifact-2bd1c5bc-0fd1-4802-b1ad-5b5d14bbc240",
+          "file": "run3-390-reference.png",
+          "bytes": 743526,
+          "sha256": "e0e2957d51e7a101ba9985cd617f7549c61e773dee1ffbe5dbb68f8a9b90949b",
+          "authoritative": true,
+          "declaredBytes": 743526,
+          "declaredSha": "e0e2957d51e7a101ba9985cd617f7549c61e773dee1ffbe5dbb68f8a9b90949b",
+          "byteForByte": true
+        },
+        "clone": {
+          "status": "PERSISTED",
+          "artifactId": "artifact-5208ce27-b75b-4555-9000-96401afd3d59",
+          "file": "run3-390-clone.png",
+          "bytes": 740175,
+          "sha256": "e7703cf942f1cb3db14385c5d9f1c147aca402a2b4e35b54af1c06d33d2511c6",
+          "authoritative": true,
+          "declaredBytes": 740175,
+          "declaredSha": "e7703cf942f1cb3db14385c5d9f1c147aca402a2b4e35b54af1c06d33d2511c6",
+          "byteForByte": true
+        }
+      },
+      "structural": {
+        "docHeight": {
+          "reference": 4481,
+          "clone": 4521,
+          "delta": 40,
+          "ratio": 1.009
+        },
+        "overflowX": {
+          "reference": 0,
+          "clone": 0
+        },
+        "sectionCount": {
+          "reference": 14,
+          "clone": 14,
+          "delta": 0
+        },
+        "productCardCount": {
+          "reference": 83,
+          "clone": 83,
+          "delta": 0
+        },
+        "articleCardCount": {
+          "reference": 4,
+          "clone": 4,
+          "delta": 0
+        },
+        "navItemCount": {
+          "reference": 81,
+          "clone": 81,
+          "delta": 0
+        },
+        "linkCount": {
+          "reference": 230,
+          "clone": 230,
+          "delta": 0
+        },
+        "imageCount": {
+          "reference": 98,
+          "clone": 98,
+          "delta": 0
+        },
+        "brokenImages": {
+          "reference": 0,
+          "clone": 0
+        },
+        "header": {
+          "dh": 10,
+          "dy": 0,
+          "dw": 0
+        },
+        "main": {
+          "dh": 0,
+          "dy": 10,
+          "dw": 0
+        },
+        "footer": {
+          "dh": 0,
+          "dy": 10,
+          "dw": 0
+        },
+        "sections": [
+          {
+            "cls": "site-header",
+            "reference": {
+              "y": 0,
+              "h": 170
+            },
+            "clone": {
+              "y": 0,
+              "h": 180
+            },
+            "dh": 10
+          },
+          {
+            "cls": "main",
+            "reference": {
+              "y": 170,
+              "h": 3520
+            },
+            "clone": {
+              "y": 180,
+              "h": 3520
+            },
+            "dh": 0
+          },
+          {
+            "cls": "slide",
+            "reference": {
+              "y": 170,
+              "h": 323
+            },
+            "clone": {
+              "y": 180,
+              "h": 323
+            },
+            "dh": 0
+          },
+          {
+            "cls": "category-list",
+            "reference": {
+              "y": 493,
+              "h": 65
+            },
+            "clone": {
+              "y": 503,
+              "h": 65
+            },
+            "dh": 0
+          },
+          {
+            "cls": "banner-category",
+            "reference": {
+              "y": 578,
+              "h": 156
+            },
+            "clone": {
+              "y": 588,
+              "h": 156
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 754,
+              "h": 341
+            },
+            "clone": {
+              "y": 764,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1115,
+              "h": 341
+            },
+            "clone": {
+              "y": 1125,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1476,
+              "h": 341
+            },
+            "clone": {
+              "y": 1486,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 1837,
+              "h": 341
+            },
+            "clone": {
+              "y": 1847,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "block-category",
+            "reference": {
+              "y": 2198,
+              "h": 341
+            },
+            "clone": {
+              "y": 2208,
+              "h": 341
+            },
+            "dh": 0
+          },
+          {
+            "cls": "accessory",
+            "reference": {
+              "y": 2559,
+              "h": 315
+            },
+            "clone": {
+              "y": 2569,
+              "h": 315
+            },
+            "dh": 0
+          },
+          {
+            "cls": "news",
+            "reference": {
+              "y": 2914,
+              "h": 618
+            },
+            "clone": {
+              "y": 2924,
+              "h": 618
+            },
+            "dh": 0
+          },
+          {
+            "cls": "partner",
+            "reference": {
+              "y": 3562,
+              "h": 128
+            },
+            "clone": {
+              "y": 3572,
+              "h": 128
+            },
+            "dh": 0
+          },
+          {
+            "cls": "site-footer",
+            "reference": {
+              "y": 3720,
+              "h": 741
+            },
+            "clone": {
+              "y": 3730,
+              "h": 741
+            },
+            "dh": 0
+          }
+        ]
+      },
+      "sectionCount": 4,
+      "compareStatus": null,
+      "compareError": null
+    }
+  ],
+  "assetAudit": {
+    "file": "asset-audit.json",
+    "referenceOriginVisualCount": 0,
+    "referenceOriginCount": 0,
+    "brokenImages": 0,
+    "remoteSubresources": 0,
+    "overflowX": 0
+  },
+  "preservation": {
+    "preserved": true,
+    "before": {
+      ".canary/run1": "9338b3c295b9d5e43615c3be3208c7d0634b2ecc27ac3ccf1b917fe7638c2c17",
+      ".canary/run2": "6cf3eca81f280c5db9f27e8e52d55a3e112369d53a84971765fa4c2a36eab6db"
+    },
+    "after": {
+      ".canary/run1": "9338b3c295b9d5e43615c3be3208c7d0634b2ecc27ac3ccf1b917fe7638c2c17",
+      ".canary/run2": "6cf3eca81f280c5db9f27e8e52d55a3e112369d53a84971765fa4c2a36eab6db"
+    }
+  }
+}

@@ -7,14 +7,15 @@ import os from 'node:os';
 
 describe('build-report embedded selfDrift handling', () => {
   it('does not crash when selfDrift is embedded without an external drift document and exceeds limit', () => {
-    // We have .canary/run3 where run3-390.json has embedded selfDrift with mismatchPercentage: 100
-    // and no standalone drift document.
+    // The tracked fixture is a real 15-page canary run: run3-390.json has embedded selfDrift with
+    // mismatchPercentage: 100 and no standalone drift document. It lives in test/fixtures so the
+    // lane runs from a clean clone instead of depending on untracked .canary state.
     const tempOut = path.join(os.tmpdir(), `test-report-${Date.now()}.md`);
 
     try {
       const stdout = execFileSync(
         process.execPath,
-        ['scripts/lib/build-report.mjs', '.canary/run3', '--out', tempOut, '--json'],
+        ['scripts/lib/build-report.mjs', 'test/fixtures/canary-run', '--out', tempOut, '--json'],
         {
           cwd: process.cwd(),
           encoding: 'utf8',

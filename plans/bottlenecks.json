@@ -167,7 +167,8 @@
       "group": "reproducibility",
       "title": "`test:canary` still drives the untracked `.canary/run3` fixture directory",
       "severity": "P2",
-      "status": "open",
+      "status": "closed",
+      "closedBy": "Both canary report tests now drive a tracked fixture: test/fixtures/canary-run/evidence/ holds the real run3 evidence documents (11 JSON files, 647 KiB, PNGs excluded) and the tests pass it as the run directory, so the lane works from a clean clone. Verified by the same assertions that ran against .canary/run3 (verdict INCONCLUSIVE, EXCESSIVE_REFERENCE_DRIFT blocker, interpolated Section 16 actions bound to each viewport document) — 3/3 pass — with the fixture byte-identical after the run (md5sum -c OK), so nothing rewrites it. The dead leaseToken in pipeline.json was redacted to a fixed placeholder before committing.",
       "evidence": "test/unit/build-report-embedded-drift.test.mjs and build-report-next-action.test.mjs run scripts/lib/build-report.mjs against `.canary/run3`. Only `.canary/run3/REPORT.md` is tracked; the rest of the run directory (evidence documents, attempt pointers) is untracked, and the suite rewrites REPORT.md on every run. So the canary suites' modules are tracked but their fixtures are not.",
       "predicate": { "kind": "file-regex", "file": "test/unit/build-report-next-action.test.mjs", "pattern": "\\.canary/run3" }
     },

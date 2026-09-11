@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-09-10T07:57:01.523Z",
+  "cloneTabId": "787a1e30-e171-4822-ab5e-d8612be9bc33",
+  "runtime": {
+    "href": "http://127.0.0.1:7852/mobile/",
+    "refHost": "hoplongtech.com",
+    "resourceCount": 107,
+    "byHost": {
+      "127.0.0.1:7852": 107
+    },
+    "referenceOriginCount": 0,
+    "referenceOriginVisualCount": 0,
+    "referenceOriginVisual": [],
+    "referenceOriginSample": [],
+    "images": {
+      "total": 98,
+      "broken": [],
+      "pending": 0,
+      "pendingLazy": 0,
+      "zeroArea": 0
+    },
+    "cssUrlCount": 13,
+    "externalCssUrls": [],
+    "externalCssRefOrigin": [],
+    "documentOverflowX": 0
+  },
+  "bundle": {
+    "entrySha256": "54c4faba7a8334433c87fb030155f6be7050dc693f89ad7e7d17bb99440e517c",
+    "assetFiles": 118,
+    "assetBytes": 36671943,
+    "productCount": 6,
+    "articleCount": 4,
+    "remoteSubresources": [],
+    "remoteNavigationCount": 120,
+    "a0": {
+      "assetsDir": "E:\\Work\\apps\\AntiFan\\.canary\\run3\\a0-assets",
+      "stylesheets": 2,
+      "javascripts": 4,
+      "images": 102,
+      "fonts": 0,
+      "total": 108,
+      "stylesheetUrls": [
+        "https://hoplongtech.com/build/assets/app-DCc2d3nB.css",
+        "https://hoplongtech.com/build/assets/home-CW7DK4JA.css"
+      ],
+      "fontUrls": [],
+      "scriptUrls": [
+        "https://hoplongtech.com/assets/libs/jquery.min.js",
+        "https://hoplongtech.com/build/assets/app-C8sMbhuE.js",
+        "https://hoplongtech.com/build/assets/slide-B2PwPmCC.js",
+        "/livewire/livewire.min.js?id=40a765a4"
+      ],
+      "imageSample": [
+        "https://img.hoplongtech.com/hoplong/uploads/logo-hlt-2024.png",
+        "https://hoplongtech.com/assets/images/default_image.png.webp",
+        "https://img.hoplongtech.com/hoplong/icon/icon.png",
+        "https://img.hoplongtech.com/hoplong/uploads/icon-01.png",
+        "https://img.hoplongtech.com/hoplong/uploads/icon-02.png",
+        "https://img.hoplongtech.com/hoplong/uploads/icon-03.png",
+        "https://img.hoplongtech.com/hoplong/uploads/icon-04.png",
+        "https://img.hoplongtech.com/hoplong/uploads/icon-05.png",
+        "https://img.hoplongtech.com/hoplong/uploads/icon-06.png",
+        "https://img.hoplongtech.com/hoplong/uploads/flash-sales-2-1.png"
+      ],
+      "imageHosts": [
+        [
+          "img.hoplongtech.com",
+          100
+        ],
+        [
+          "hoplongtech.com",
+          2
+        ]
+      ],
+      "unresolvedRelative": 1,
+      "byArchetype": {
+        "header": 1,
+        "custom_section": 9,
+        "hero_slider": 2,
+        "collection_list": 1,
+        "product_grid": 5,
+        "rich_text": 1,
+        "footer": 1
+      }
+    },
+    "assetIntegrity": {
+      "files": 118,
+      "zeroByte": [],
+      "undecoded": [
+        "default_image-png.webp"
+      ]
+    }
+  }
+}
