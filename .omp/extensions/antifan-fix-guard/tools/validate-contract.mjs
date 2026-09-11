@@ -18,6 +18,7 @@ import {
   auditTouchedPaths,
   auditDiffBudget,
   auditScopeExpansion,
+  DEFAULT_FORBIDDEN_PATHS,
   DEFAULT_FORBIDDEN_TOOLS,
   DEFAULT_PERMITTED_TOOLS,
 } from "../../../../.canary/tools/fix-loop/audits.mjs";
@@ -60,26 +61,29 @@ function auditContract(request, result, context = {}) {
   }
 
   // Gate 4: Touched paths audit (touchedPaths ⊆ allowedFiles, no forbiddenPaths)
+  // The default forbidden set is policy and a request may only add to it: an omitted
+  // or empty `forbiddenPaths` must never un-forbid src/**, package.json, or the
+  // manifest itself.
   const touchedRes = auditTouchedPaths(
     result.touchedPaths || [],
     request.allowedFiles || [],
-    request.forbiddenPaths || []
+    [...new Set([...DEFAULT_FORBIDDEN_PATHS, ...(request.forbiddenPaths || [])])]
   );
   if (touchedRes.decision !== DECISION_CODES.OK) {
     return touchedRes.decision;
   }
 
-  // Gate 5: Diff budget audit (|T| <= maxFiles, bytes <= maxBytes)
+  // Gate 5: Diff budget audit — auditDiffBudget(touchedPaths, totalBytesChanged, diffBudget).
+  // The byte total is the fixer's declared change volume and the file count the touched
+  // list; one call enforces both ceilings, so there is no second, weaker check to
+  // disagree with it.
   const diffBudgetRes = auditDiffBudget(
     result.touchedPaths || [],
-    request.diffBudget,
-    result.budgets?.bytes ?? 0
+    result.budgets?.bytes ?? 0,
+    request.diffBudget
   );
   if (diffBudgetRes.decision !== DECISION_CODES.OK) {
     return diffBudgetRes.decision;
-  }
-  if (request.diffBudget && result.budgets?.files > request.diffBudget.maxFiles) {
-    return DECISION_CODES.REFUSED_DIFF_BUDGET;
   }
 
   // Gate 6: Scope expansion audit (|T \ R| <= maxScopeExpansion)
@@ -207,6 +211,8 @@ function main() {
   const invalidCases = [
     { file: "refused-touched-path.json", expected: DECISION_CODES.REFUSED_TOUCHED_PATH },
     { file: "refused-diff-budget.json", expected: DECISION_CODES.REFUSED_DIFF_BUDGET },
+    { file: "refused-diff-budget-bytes.json", expected: DECISION_CODES.REFUSED_DIFF_BUDGET },
+    { file: "refused-forbidden-default.json", expected: DECISION_CODES.REFUSED_TOUCHED_PATH },
     { file: "refused-scope-expansion.json", expected: DECISION_CODES.REFUSED_SCOPE_EXPANSION },
     { file: "refused-drift.json", expected: DECISION_CODES.REFUSED_DRIFT },
     { file: "refused-tool-surface.json", expected: DECISION_CODES.REFUSED_TOOL_SURFACE },

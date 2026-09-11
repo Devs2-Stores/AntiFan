@@ -1,0 +1,52 @@
+{
+  "description": "Fixer stayed inside the file-count ceiling but exceeded the byte ceiling, so only the byte half of the budget can refuse this request",
+  "expectedDecision": "REFUSED_DIFF_BUDGET",
+  "request": {
+    "runId": "run-20260911-006",
+    "fixId": "fix-006",
+    "surfaceId": "product-gallery",
+    "stagedRoot": ".canary/staging/run-20260911-006/theme",
+    "baseManifestHash": "sha256-c3d4e5f6a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789a",
+    "allowedFiles": [
+      "sections/product-gallery.liquid",
+      "assets/theme.css"
+    ],
+    "forbiddenPaths": [
+      ".antifan-data/**",
+      "src/**",
+      "package.json"
+    ],
+    "diffBudget": {
+      "maxFiles": 2,
+      "maxBytes": 1024
+    },
+    "maxScopeExpansion": 1,
+    "requestedTargets": [
+      "sections/product-gallery.liquid"
+    ],
+    "evidenceRefs": [
+      ".canary/evidence/run-20260911-006/viewport-390-diff.png"
+    ],
+    "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+    "returnShape": "FixResult.v2"
+  },
+  "result": {
+    "decision": "OK",
+    "touchedPaths": [
+      "sections/product-gallery.liquid",
+      "assets/theme.css"
+    ],
+    "budgets": {
+      "files": 2,
+      "bytes": 5120
+    },
+    "expandedPaths": [],
+    "missingPaths": [],
+    "toolSurface": [
+      "file.read",
+      "file.write"
+    ],
+    "selfVerificationClaimed": false,
+    "notes": "Touched 2 files (budget max 2) with 5120 bytes changed (budget max 1024)."
+  }
+}

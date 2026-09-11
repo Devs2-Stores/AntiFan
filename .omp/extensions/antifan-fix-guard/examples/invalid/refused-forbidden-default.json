@@ -1,0 +1,46 @@
+{
+  "description": "Request declares an empty forbiddenPaths list and an allowlist that names package.json: the default forbidden set must still refuse the touch",
+  "expectedDecision": "REFUSED_TOUCHED_PATH",
+  "request": {
+    "runId": "run-20260911-007",
+    "fixId": "fix-007",
+    "surfaceId": "build-config",
+    "stagedRoot": ".canary/staging/run-20260911-007/theme",
+    "baseManifestHash": "sha256-d4e5f6a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789ab",
+    "allowedFiles": [
+      "package.json"
+    ],
+    "forbiddenPaths": [],
+    "diffBudget": {
+      "maxFiles": 2,
+      "maxBytes": 4096
+    },
+    "maxScopeExpansion": 0,
+    "requestedTargets": [
+      "package.json"
+    ],
+    "evidenceRefs": [
+      ".canary/evidence/run-20260911-007/viewport-1024-diff.png"
+    ],
+    "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+    "returnShape": "FixResult.v2"
+  },
+  "result": {
+    "decision": "OK",
+    "touchedPaths": [
+      "package.json"
+    ],
+    "budgets": {
+      "files": 1,
+      "bytes": 120
+    },
+    "expandedPaths": [],
+    "missingPaths": [],
+    "toolSurface": [
+      "file.read",
+      "file.write"
+    ],
+    "selfVerificationClaimed": false,
+    "notes": "Touched package.json, which the request's own allowlist names."
+  }
+}
