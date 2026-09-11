@@ -63,9 +63,10 @@ No synthetic substitute, no screenshot editing, no image construction of any kin
 
 - **Never publish, never push to the live theme, never touch the live theme's content.**
   The live theme is `1001510509`, discovered by probing an invalid `themeid` (see fact 6);
-  it is a read-only reference and no command may address it. The only permitted remote
-  write is `hrv theme dev` onto `theme_id 1001512581`. Any command whose resolved theme id
-  is not `1001512581` is refused before it runs, and the refusal is recorded. Because the
+  it is a read-only reference: reads are expected (the reference capture resolves `themeid=-1`
+  to it and its assets are probed for comparison), and no write may address it. The only
+  permitted remote write is `hrv theme dev` onto `theme_id 1001512581`. Any command whose
+  resolved theme id is not `1001512581` is refused before it runs, and the refusal is recorded. Because the
   platform answers HTTP 200 while silently serving a *different* theme, every capture also
   asserts the theme it was actually served (`cdn.hstatic.net/themes/<org>/<themeid>/`) and
   refuses when that id does not match the one it requested.

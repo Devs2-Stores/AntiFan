@@ -151,7 +151,10 @@ vendored. The checker is advisory by construction (`theme-fidelity-run.mjs:1472-
 `foreignThemeIds.count 0`, `publishDeployPush {absent: true, matches: []}`, `remoteWrites` names the
 serve stage's dev session only. The out-of-band asset push is not in `commands.jsonl` by design and
 is recorded in `push-assets.log`. Nothing published, deployed or pushed a theme from inside the
-pipeline; theme `1001510509` was never requested or written.
+pipeline. The live theme `1001510509` was **read** — `themeid=-1` resolves to it and is the live
+reference capture, its `livePreviewReads` are recorded in the same audit block, and the CDN probes
+above fetched its `hl-global.css` — and it was **never written**: no command in the run addressed it
+for a write.
 
 ## Best-of-5 fix-plan comparison (ultra)
 
