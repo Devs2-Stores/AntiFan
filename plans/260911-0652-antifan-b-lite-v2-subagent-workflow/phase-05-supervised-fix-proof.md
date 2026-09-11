@@ -18,7 +18,7 @@ Engine defaults guard: the AntiFan verification engine's defaults (strict compar
 - [x] Surface candidate selected and pinned: page-02 `/brands` @390, `STRUCTURAL_PARITY_MISMATCH`, `deltaGeometry 10` on attempt `attempt-53ea13ac`. **Withdrawn as a fix target**: the delta does not reproduce (see Measured Outcome).
 - [x] The A -> edit -> touched-path audit -> budget audit -> merge chain ran on a real tree (`scripts/lib`), and the fixer runs only inside the staged workspace (launcher proof: `CHILD_OK grant=write allowed=file.read,file.write`, exit 0). No new fixer session was spent on the withdrawn surface.
 - [x] The chain is adjudicated by the merge gate's audits and the engine's own evaluator; a self-verification claim is a refusal class, and the failure signature now comes from the evaluator's `proofProfile.violations` rather than from caller-supplied sample flags.
-- [x] Typed outcomes measured, both directions: `REFUSED_TOUCHED_PATH` (exit 10, path named) for an edit outside `allowedFiles`; `REFUSED_SCOPE_EXPANSION` (exit 12) when a touched file is absent from `requestedTargets`; `OK` (exit 0) with a receipt and a real merge for an in-scope edit. No `FIXED_VERIFIED`, and that absence is a measured result, not a gap.
+- [x] Typed outcomes measured, both directions: `REFUSED_TOUCHED_PATH` (exit 10, path named) for an edit outside `allowedFiles`; `REFUSED_SCOPE_EXPANSION` (exit 12) when a touched file is absent from `requestedTargets`; `OK` (exit 0) with a receipt and a real merge for an in-scope edit. The **clone** surface yields no `FIXED_VERIFIED` because its delta was measured away; the `FIXED_VERIFIED` outcome comes from the real supervised round on the verdict-reader subject, recorded below.
 - [x] No tolerance, mask, timeout or retry default was changed anywhere in this phase; the shipped diff contains none.
 - [x] Receipts reproduced in Measured Outcome below, with the exact commands and exit codes.
 
@@ -57,7 +57,7 @@ Engine defaults guard: the AntiFan verification engine's defaults (strict compar
 - [x] Identical: no tolerance, mask, timeout or retry default was touched by the round or by any fix in this phase.
 - [x] Stated per refusal: the merge gate enforced the touched-path and scope-expansion refusals; the capability name filter and the `tool_call` guard own the capability-surface refusals; the declared-surface audit only reads a declared surface; and no observed-call enforcement is attributed to the merge gate, which sees file effects only.
 
-## Measured Outcome (2026-09-11, after execution rounds 6-7)
+## Measured Outcome (2026-09-11, after execution rounds 1-8)
 
 **The pinned surface's delta does not reproduce, so the fix target is withdrawn.** The recorded attempt
 (`attempt-53ea13ac-731a-43cf-a864-80f2b230869f`, evidence written 04:48) says the reference measured
@@ -141,10 +141,12 @@ consecutive identical structural reads, else `INCONCLUSIVE`) is a *behavior* cha
 and needs an owner decision, because it touches the same `INCONCLUSIVE`-versus-refusal boundary the plan
 protects. It is left open with this evidence.
 
-**What this phase did not produce, and why that is the honest outcome.** No `FIXED_VERIFIED`. The Risk &
-Rollback clause anticipated a delta that is not fixable within a bounded scope; the measured variant is
-weaker still - there is no delta to fix. The phase closes on typed, audited outcomes with the receipts
-above, and the withdraw is backed by numbers rather than by a claim of infeasibility.
+**What the withdrawn clone surface did not produce, and why that is the honest outcome.** On that surface,
+no `FIXED_VERIFIED`: the Risk & Rollback clause anticipated a delta that is not fixable within a bounded
+scope, and the measured variant is weaker still - there is no delta to fix there. That withdraw is backed
+by numbers rather than by a claim of infeasibility. The phase's typed outcome, in contrast, is produced and
+recorded: the real supervised round above ends in `FIXED_VERIFIED` on the verdict-reader subject, with
+audit, merge and confirmation receipts. The two statements concern different subjects and do not conflict.
 
 ## Risk & Rollback
 

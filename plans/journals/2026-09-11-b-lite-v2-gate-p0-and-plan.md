@@ -455,7 +455,7 @@ launcher/grant matrix and its drift test, live in-page-swap ordering, the shared
 renewal residual). Phase 5 — the supervised fix proof on one static surface — is not run: its diagnosis
 and re-measure need the shared browser plane, and the owner's campaign re-run needs the same plane, so
 running both concurrently would corrupt both verdict sets. It must be serialized, and I have not
-started it. Phase 7 is untouched. Two throwaway proof scripts from earlier rounds are gone from
+started it. *(Superseded: Phase 5 did not stay unrun — the clone target was withdrawn by measurement and a real supervised round ending `FIXED_VERIFIED` closed the phase; see the seventh and eighth rounds.)* Phase 7 is untouched. Two throwaway proof scripts from earlier rounds are gone from
 `.canary/staging/` (the harness cleans its staging root); their measured results are what the phase
 files and this journal record.
 
