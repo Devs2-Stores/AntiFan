@@ -439,6 +439,79 @@ test('the diff budget counts the bytes actually rewritten, not the net size delt
   assert.equal(surgicalAudit.decision, DECISIONS.OK, 'a small edit measures as its own bytes');
 });
 
+test('the merge prices a rewrite the same way the audit does, and refuses it', () => {
+  const runId = 'test-merge-byte-volume';
+  const staged = stageWorkspace({
+    runId,
+    sourceDir: mockTarget,
+    stagingParentDir: TEST_SANDBOX,
+    allowedFiles: ['assets/**'],
+    requestedTargets: ['assets/theme.css'],
+  });
+  const stagedCss = path.join(staged.stagedRoot, 'assets', 'theme.css');
+  const original = fs.readFileSync(stagedCss, 'utf8');
+  const targetCss = path.join(mockTarget, 'assets', 'theme.css');
+  const before = fs.readFileSync(targetCss, 'utf8');
+
+  // One byte longer than the original: the size delta prices this at 1 byte, the measured
+  // volume prices it at the whole file. The merge is where the write happens, so the ceiling
+  // has to hold there and not only in the standalone audit.
+  fs.writeFileSync(stagedCss, 'x'.repeat(original.length + 1));
+
+  const mergeResult = mergeStagedWorkspace({
+    stagingDir: staged.stagingDir,
+    targetDir: mockTarget,
+    request: {
+      allowedFiles: ['assets/**'],
+      requestedTargets: ['assets/theme.css'],
+      diffBudget: { maxFiles: 2, maxBytes: 20 },
+      maxScopeExpansion: 0,
+    },
+    attemptId: 'attempt-merge-byte-volume-1',
+  });
+
+  assert.equal(mergeResult.decision, DECISIONS.REFUSED_DIFF_BUDGET);
+  assert.equal(mergeResult.ok, false);
+  assert.equal(mergeResult.receipt.budgets.bytes > 20, true, `measured bytes: ${mergeResult.receipt.budgets.bytes}`);
+  assert.equal(fs.readFileSync(targetCss, 'utf8'), before, 'a refused merge writes nothing to the target');
+});
+
+test('a file whose bytes cannot be compared is priced at its whole larger side', () => {
+  const runId = 'test-unreadable-volume';
+  const staged = stageWorkspace({
+    runId,
+    sourceDir: mockTarget,
+    stagingParentDir: TEST_SANDBOX,
+    allowedFiles: ['assets/**'],
+    requestedTargets: ['assets/theme.css'],
+  });
+  const stagedCss = path.join(staged.stagedRoot, 'assets', 'theme.css');
+  const original = fs.readFileSync(stagedCss, 'utf8');
+
+  // NUL-bearing and one byte longer: the line measure has nothing to compare, the size delta
+  // says 1 byte. Charging the larger side keeps the ceiling meaningful instead of letting an
+  // unreadable rewrite choose its own price.
+  fs.writeFileSync(stagedCss, `${'x'.repeat(original.length)}\u0000`);
+
+  const unreadableAudit = auditStagedWorkspace({
+    stagingDir: staged.stagingDir,
+    targetDir: null,
+    request: {
+      allowedFiles: ['assets/**'],
+      requestedTargets: ['assets/theme.css'],
+      diffBudget: { maxFiles: 2, maxBytes: 20 },
+      maxScopeExpansion: 0,
+    },
+    fixerResult: { toolSurface: ['file.write'], selfVerificationClaimed: false },
+  });
+  assert.equal(unreadableAudit.decision, DECISIONS.REFUSED_DIFF_BUDGET);
+  assert.equal(
+    unreadableAudit.budgets.bytes >= Buffer.byteLength(`${'x'.repeat(original.length)}\u0000`),
+    true,
+    `measured bytes: ${unreadableAudit.budgets.bytes}`
+  );
+});
+
 test('In-scope edit merges cleanly and mints success receipt', () => {
   const runId = 'test-in-scope';
   const staged = stageWorkspace({

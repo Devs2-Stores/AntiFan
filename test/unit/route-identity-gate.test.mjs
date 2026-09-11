@@ -342,6 +342,10 @@ test('a route-refused case is tallied ROUTE_REFUSED and never counts as a pass',
         evidenceRoot: 'evidence/attempt-1',
         viewports: {
           '1440x900': {
+            // PASS-shaped on purpose, and in the field the tally reads: a leg the harness
+            // refused must not be publishable by whatever else stamped a verdict on it. The
+            // INCONCLUSIVE spelling this fixture used to carry could not catch that leak.
+            overall: 'PASS',
             verdict: 'INCONCLUSIVE',
             refusal: { code: 'URL_PATH_MISMATCH', reason: 'cart capture served from the homepage' },
             capture: { valid: true },
@@ -352,6 +356,13 @@ test('a route-refused case is tallied ROUTE_REFUSED and never counts as a pass',
   });
   assert.equal(index.tally.PASS, 0);
   assert.equal(index.tally.ROUTE_REFUSED, 1);
+  assert.equal(index.tally.INCONCLUSIVE + index.tally.FAIL, 0, 'a refused leg is counted once, under its own class');
   assert.equal(index.routeRefusals.length, 1);
   assert.equal(index.executiveVerdict, 'INCONCLUSIVE');
+
+  // The hub derives its counts from the case verdicts; the tally from the same field. One
+  // fact, one reading: the refused case is neither a measurement nor a pass.
+  const hub = renderHubHtml(index, { viewportLabels: ['1440x900'] });
+  assert.match(hub, /0 PASS \/ 0 FAIL \/ 0 INCONCLUSIVE/);
+  assert.match(hub, /ROUTE_REFUSED/);
 });
