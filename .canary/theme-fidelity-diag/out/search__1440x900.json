@@ -1,10 +1,10 @@
 {
   "kind": "theme-fidelity-verdict",
   "mode": "compare",
-  "status": "NOT_MEASURABLE",
-  "verdict": "INCONCLUSIVE",
-  "mechanism": "SESSION_RENEWAL_FAILED",
-  "reason": "canary-session.mjs exited 1: (node:13772) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\nnode:internal/modules/run_main:107\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nError: read ECONNRESET\r\n\u001b[90m    at TCP.onStreamRead (node:i",
+  "status": "PASS",
+  "verdict": "PASS",
+  "mechanism": "MATCH",
+  "reason": null,
   "store": "https://phukienmaymoc.com/",
   "surface": {
     "name": "search",
@@ -423,34 +423,620 @@
       "bytes": 1025635
     }
   },
-  "identity": null,
-  "measurement": {
-    "reference": null,
-    "subject": null
+  "identity": {
+    "fields": [
+      "device",
+      "ua",
+      "innerWidth",
+      "innerHeight",
+      "dpr",
+      "docHeight",
+      "sections",
+      "widgetNodes"
+    ],
+    "tolerancePx": 2,
+    "reference": {
+      "pinned": {
+        "href": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2421,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "measured": {
+        "href": "http://127.0.0.1:7861/search__1440x900.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2421,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "agree": true,
+      "unmeasurable": null,
+      "tolerancePx": 2,
+      "differences": []
+    },
+    "subject": {
+      "pinned": {
+        "href": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2421,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "measured": {
+        "href": "http://127.0.0.1:7862/search__1440x900.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2421,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "agree": true,
+      "unmeasurable": null,
+      "tolerancePx": 2,
+      "differences": []
+    },
+    "deviceClass": {
+      "reference": null,
+      "subject": null,
+      "pinnedReference": null,
+      "pinnedSubject": null,
+      "agree": true
+    }
   },
-  "compare": null,
+  "measurement": {
+    "reference": {
+      "tabIdentity": {
+        "href": "http://127.0.0.1:7861/search__1440x900.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2421,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "geometry": {
+        "url": "http://127.0.0.1:7861/search__1440x900.html",
+        "docHeight": 2421,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 257,
+        "imageCount": 53,
+        "brokenImageCount": 0,
+        "textNodes": 126,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 1597.72
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1813.72,
+          "w": 1425,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 1597.72
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1813.72,
+              "w": 1425,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "30px",
+            "weight": "600",
+            "lineHeight": "39px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "16px",
+            "weight": "600",
+            "lineHeight": "20.8px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "docHeight": 2421
+    },
+    "subject": {
+      "tabIdentity": {
+        "href": "http://127.0.0.1:7862/search__1440x900.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2421,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "geometry": {
+        "url": "http://127.0.0.1:7862/search__1440x900.html",
+        "docHeight": 2421,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 261,
+        "imageCount": 53,
+        "brokenImageCount": 0,
+        "textNodes": 130,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 1597.72
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1813.72,
+          "w": 1425,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 1597.72
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1813.72,
+              "w": 1425,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "30px",
+            "weight": "600",
+            "lineHeight": "39px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "16px",
+            "weight": "600",
+            "lineHeight": "20.8px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "docHeight": 2421
+    }
+  },
+  "compare": {
+    "params": {
+      "fullPage": true,
+      "tolerance": 2,
+      "normalizeScroll": true,
+      "allowHeightDrift": false,
+      "useDefaultWidgetMasks": false,
+      "userMasks": [],
+      "trackedSelectors": [
+        "body",
+        "header.site-header",
+        "main",
+        ".site-footer",
+        "section",
+        ".product-list__item",
+        ".slide",
+        ".news-item"
+      ]
+    },
+    "status": "COMPLETED",
+    "error": null,
+    "verdict": null,
+    "toolStatus": null,
+    "match": true,
+    "mismatchPercentage": 0.12,
+    "dimensionsMatch": true,
+    "diffPixels": 4332,
+    "totalPixels": 3486240,
+    "diffBoundingBox": null,
+    "mask": {
+      "status": "ok",
+      "maskedAreaRatio": 0,
+      "optionalUnmatched": [],
+      "target": {
+        "entries": [],
+        "maskedAreaRatio": 0
+      },
+      "baseline": {
+        "entries": [],
+        "maskedAreaRatio": 0
+      }
+    },
+    "layout": null,
+    "dimensions": null,
+    "coherence": {
+      "identityCoherent": true,
+      "captureStateCompatible": true,
+      "resampleCount": 0,
+      "target": {
+        "preInject": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "postInject": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "afterCapture": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "identity": "COHERENT",
+        "mutation": "COHERENT"
+      },
+      "baseline": {
+        "preInject": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "postInject": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "afterCapture": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "identity": "COHERENT",
+        "mutation": "COHERENT"
+      }
+    },
+    "captureReceipts": {
+      "target": {
+        "backend": "cdp",
+        "dpr": 1,
+        "zoom": 1,
+        "cssViewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "cssCaptureSize": {
+          "width": 1440,
+          "height": 2421
+        },
+        "rasterSize": {
+          "width": 1440,
+          "height": 2421
+        },
+        "captureMode": "full-page",
+        "timestamp": 1789106446327,
+        "viewportTransaction": {
+          "before": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "after": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "restored": true,
+          "attempts": 1
+        }
+      },
+      "baseline": {
+        "backend": "cdp",
+        "dpr": 1,
+        "zoom": 1,
+        "cssViewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "cssCaptureSize": {
+          "width": 1440,
+          "height": 2421
+        },
+        "rasterSize": {
+          "width": 1440,
+          "height": 2421
+        },
+        "captureMode": "full-page",
+        "timestamp": 1789106447157,
+        "viewportTransaction": {
+          "before": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "after": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "restored": true,
+          "attempts": 1
+        }
+      }
+    },
+    "reason": null,
+    "elapsedMs": null
+  },
   "instance": {
-    "attachmentId": "attachment-64404f41-cc8a-487a-a9cd-d414f3a0aef9",
+    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
     "bridgePort": 20131,
     "pid": 21236,
-    "primaryTabId": "06f0d8f2-82da-4c63-b42e-b3908ceeea64",
+    "primaryTabId": "d5ca8907-36a7-403e-b925-e907efce4d32",
     "startedAt": "2026-09-11T00:18:43.203Z",
-    "runId": "run-a66a9a1f-cf02-44e0-a129-aa2013de223a",
-    "attemptId": "attempt-9a6585df-719b-43da-98ae-d3d1b04ad636"
+    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
+    "attemptId": "attempt-51f0af7b-5c9b-4660-9225-b3d43b0d33d2"
   },
   "run": {
-    "runId": "run-a66a9a1f-cf02-44e0-a129-aa2013de223a",
-    "attachmentId": "attachment-64404f41-cc8a-487a-a9cd-d414f3a0aef9",
-    "authorityRevision": "rev_01490b38a603390e506a1c4e8c3372db",
-    "mintedAt": "2026-09-11T05:28:29.076Z"
+    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
+    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
+    "authorityRevision": "rev_7c75c4511737cf692a674d858f6a021d",
+    "mintedAt": "2026-09-11T05:53:54.686Z"
   },
   "tabs": {
-    "reference": null,
-    "subject": null
+    "reference": {
+      "tabId": "c887f8c5-5557-4d3f-b85a-a4b5df5e59e3",
+      "openedAt": "2026-09-11T05:59:27.968Z",
+      "hydration": {
+        "captureBytes": 718843,
+        "docHeight": 2421
+      },
+      "closed": true,
+      "closedAt": "2026-09-11T06:00:47.950Z",
+      "closeError": null
+    },
+    "subject": {
+      "tabId": "3ae06e8b-6220-42c8-a84b-1ddbdc3b82ca",
+      "openedAt": "2026-09-11T06:00:04.956Z",
+      "hydration": {
+        "captureBytes": 680107,
+        "docHeight": 2421
+      },
+      "closed": true,
+      "closedAt": "2026-09-11T06:00:47.988Z",
+      "closeError": null
+    }
   },
-  "startedAt": "2026-09-11T05:35:50.031Z",
-  "finishedAt": "2026-09-11T05:36:02.146Z",
-  "printLine": "surface=search viewport=1440x900 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=2421px subjectHeight=2421px",
-  "settlePasses": null,
-  "tabsClosed": {}
+  "startedAt": "2026-09-11T05:59:10.817Z",
+  "finishedAt": "2026-09-11T06:00:47.988Z",
+  "printLine": "surface=search viewport=1440x900 verdict=PASS mismatch=0.12% referenceHeight=2421px subjectHeight=2421px",
+  "release": {
+    "reference": {
+      "widgets": {
+        "slickPaused": 0,
+        "swiperPaused": 0
+      },
+      "freezeReleased": true,
+      "timerSweep": {
+        "clearedIntervalIdsTo": 200000,
+        "clearedTimeoutIdsTo": 200000
+      },
+      "motion": {
+        "widgetsSampled": 0,
+        "windowMs": 2500,
+        "sampleBefore": "898edd06",
+        "sampleAfter": "898edd06",
+        "stable": true
+      }
+    },
+    "subject": {
+      "widgets": {
+        "slickPaused": 0,
+        "swiperPaused": 0
+      },
+      "freezeReleased": true,
+      "timerSweep": {
+        "clearedIntervalIdsTo": 200000,
+        "clearedTimeoutIdsTo": 200000
+      },
+      "motion": {
+        "widgetsSampled": 0,
+        "windowMs": 2500,
+        "sampleBefore": "898edd06",
+        "sampleAfter": "898edd06",
+        "stable": true
+      }
+    }
+  },
+  "postCompareIdentity": {
+    "reference": {
+      "href": "http://127.0.0.1:7861/search__1440x900.html",
+      "device": null,
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+      "innerWidth": 1440,
+      "innerHeight": 900,
+      "dpr": 1,
+      "docHeight": 2421,
+      "bodyClass": "mainBody-theme  template-search",
+      "sections": 0,
+      "widgetNodes": 0,
+      "images": 53,
+      "completeImages": 53
+    },
+    "subject": {
+      "href": "http://127.0.0.1:7862/search__1440x900.html",
+      "device": null,
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+      "innerWidth": 1440,
+      "innerHeight": 900,
+      "dpr": 1,
+      "docHeight": 2421,
+      "bodyClass": "mainBody-theme  template-search",
+      "sections": 0,
+      "widgetNodes": 0,
+      "images": 53,
+      "completeImages": 53
+    }
+  },
+  "tabsClosed": {
+    "reference": true,
+    "subject": true
+  }
 }

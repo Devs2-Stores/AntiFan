@@ -155,6 +155,64 @@ export const SETTLE_STATE_EXPR = `(async () => {
   return { renderStateStable: equalPairs >= 2, samples, durationMs: Math.round(performance.now() - t0), fingerprint: prev, first: seen[0] || null };
 })()`;
 
+/**
+ * Per-pass chrome probe. Evidence only: it is recorded beside the settle verdict and is never
+ * an input to the fingerprint or to decideSettle, so it cannot change the gate. It exists to
+ * name which runtime-injected region owns a text-only fingerprint move.
+ */
+export const SETTLE_CHROME_PROBE_EXPR = `(() => {
+  const hash32 = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, '0'); };
+  const region = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return { selector: sel, present: false };
+    const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return {
+      selector: sel,
+      present: true,
+      textHash: hash32(text),
+      textLen: text.length,
+      head: text.slice(0, 48),
+      display: cs.display,
+      position: cs.position,
+      rect: [Math.round(r.x), Math.round(r.y + window.scrollY), Math.round(r.width), Math.round(r.height)],
+    };
+  };
+  return {
+    scrollY: Math.round(window.scrollY),
+    bodyTextLen: (document.body.innerText || '').replace(/\\s+/g, ' ').trim().length,
+    regions: [
+      region('#haravan-notification'),
+      region('#fake-order-popup'),
+      region('#popup-name'),
+      region('#popup-product'),
+      region('#popup-time'),
+      region('#google_translate_element'),
+    ],
+    scripts: Array.from(document.scripts).map(s => s.getAttribute('src') || '').filter(s => /notification|sale-popup|translate|cwv/.test(s)).map(s => s.replace(/^https?:\\/\\//, '')),
+  };
+})()`;
+
+/**
+ * Scroll anchor. The progressive scroll walk warms lazy content but leaves the page at a
+ * surface-dependent offset, and the fingerprint hashes image rectangles whose viewport term
+ * moves with it, so two passes of an unchanged page could never agree. Sampling from a fixed
+ * anchor makes the measured state a function of the page rather than of where the walk stopped:
+ * nothing is dropped from the fingerprint and nothing is hidden. Applied to both sides alike.
+ */
+export const SETTLE_SCROLL_ANCHOR_EXPR = `(async () => {
+  const sleep = (ms) => new Promise(r => (window.__antifanRealSetTimeout || setTimeout)(r, ms));
+  const before = Math.round(window.scrollY);
+  let attempts = 0;
+  for (; attempts < 20; attempts++) {
+    window.scrollTo(0, 0);
+    if (window.scrollY === 0) break;
+    await sleep(100);
+  }
+  return { before, after: Math.round(window.scrollY), anchored: window.scrollY === 0, attempts };
+})()`;
+
 export const METRICS_EXPR = `(() => {
   const px = (v) => Math.round(v * 100) / 100;
   const rectOf = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: px(r.x), y: px(r.y + window.scrollY), w: px(r.width), h: px(r.height) }; };
@@ -439,7 +497,11 @@ export async function settleAndMeasure(tabId, name) {
     if (images.imagesSettled === true) break;
     if (pass < 2) await new Promise(r => setTimeout(r, 1000));
   }
+  // Anchor the scroll before anything is read: see SETTLE_SCROLL_ANCHOR_EXPR.
+  const scrollAnchor = await evalOn(tabId, SETTLE_SCROLL_ANCHOR_EXPR, 15000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
   const domQuiet = await evalOn(tabId, SETTLE_DOM_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
+  // Evidence only; never a gate input. Recorded so a text-only fingerprint move names its owner.
+  const chromeProbe = await evalOn(tabId, SETTLE_CHROME_PROBE_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
   images = await evalOn(tabId, SETTLE_IMAGES_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
   const visual = await evalOn(tabId, SETTLE_VISUAL_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
   const state = await evalOn(tabId, SETTLE_STATE_EXPR, 20000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
@@ -452,6 +514,9 @@ export async function settleAndMeasure(tabId, name) {
     fingerprint: settleFingerprintHash(state),
     fingerprintFields: state && !state.error ? state.fingerprint || null : null,
     // Raw churn stays evidence: it is recorded, never a gate input.
+    // Evidence only; never a gate input.
+    scrollAnchor,
+    chromeProbe,
     domQuiet: domQuiet.domSettled === true,
     rafStopped,
     rafStopError: rafStopped ? null : (rafStop && rafStop.error) || 'rAF override not applied',
@@ -716,7 +781,7 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
     });
     const decision = decideSettle(passes);
     if (decision.settled) {
-      cur.settle.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, counts: p.counts }));
+      cur.settle.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, counts: p.counts }));
       return cur;
     }
     // A page that cannot be frozen is refused as such on the first pass: waiting
@@ -724,7 +789,7 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
     if (decision.refusal) {
       const err = new Error(`Target tab ${tabId} refused at ${label}: ${decision.refusal.code} — ${decision.refusal.reason} (passes: ${passes.map((p, i) => describeSettlePass(i + 1, p)).join(' ')})`);
       err.code = decision.refusal.code;
-      err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, counts: p.counts }));
+      err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, counts: p.counts }));
       throw err;
     }
     if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000));
@@ -732,6 +797,6 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
   const decision = decideSettle(passes);
   const err = new Error(`Target tab ${tabId} failed to achieve two consecutive matching settled passes at ${label}: ${decision.reason}${decision.failed.length ? ` (unsatisfied: ${decision.failed.join(',')})` : ''} (passes: ${passes.map((p, i) => describeSettlePass(i + 1, p)).join(' ')})`);
   err.code = decision.reason;
-  err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, counts: p.counts }));
+  err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, scrollAnchor: (p.settle && p.settle.scrollAnchor) || null, chromeProbe: (p.settle && p.settle.chromeProbe) || null, counts: p.counts }));
   throw err;
 }

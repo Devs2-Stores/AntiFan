@@ -41,7 +41,7 @@
       "viewport": "1440x900",
       "status": "NOT_MEASURABLE",
       "verdict": "INCONCLUSIVE",
-      "mechanism": "content-changed-between-passes",
+      "mechanism": "SESSION_RENEWAL_FAILED",
       "file": "cart__1440x900.json",
       "mismatchPercentage": null,
       "referenceHeight": 1811,
@@ -52,11 +52,11 @@
     {
       "surface": "search",
       "viewport": "1440x900",
-      "status": "NOT_MEASURABLE",
-      "verdict": "INCONCLUSIVE",
-      "mechanism": "SESSION_RENEWAL_FAILED",
+      "status": "PASS",
+      "verdict": "PASS",
+      "mechanism": "MATCH",
       "file": "search__1440x900.json",
-      "mismatchPercentage": null,
+      "mismatchPercentage": 0.12,
       "referenceHeight": 2421,
       "subjectHeight": 2421,
       "referencePngSha256": "967b5dac130fc9a6765ea71ed7bac44c95ecdd96ba4779931ff9551cf50b80b1",
@@ -65,10 +65,10 @@
   ],
   "totals": {
     "pairs": 2,
-    "pass": 0,
+    "pass": 1,
     "fail": 0,
-    "inconclusive": 2,
-    "notMeasurable": 2
+    "inconclusive": 1,
+    "notMeasurable": 1
   },
   "refusal": null,
   "replayServers": {
@@ -77,7 +77,7 @@
       "root": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-diag\\out\\replay\\reference",
       "stopped": {
         "label": "reference-static-server",
-        "pid": 18540,
+        "pid": 20612,
         "stopped": true,
         "forced": false
       }
@@ -87,27 +87,27 @@
       "root": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-diag\\out\\replay\\subject",
       "stopped": {
         "label": "subject-static-server",
-        "pid": 21852,
+        "pid": 7096,
         "stopped": true,
         "forced": false
       }
     }
   },
   "instance": {
-    "attachmentId": "attachment-64404f41-cc8a-487a-a9cd-d414f3a0aef9",
+    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
     "bridgePort": 20131,
     "pid": 21236,
-    "primaryTabId": "06f0d8f2-82da-4c63-b42e-b3908ceeea64",
+    "primaryTabId": "d5ca8907-36a7-403e-b925-e907efce4d32",
     "startedAt": "2026-09-11T00:18:43.203Z",
-    "runId": "run-a66a9a1f-cf02-44e0-a129-aa2013de223a",
-    "attemptId": "attempt-9a6585df-719b-43da-98ae-d3d1b04ad636"
+    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
+    "attemptId": "attempt-51f0af7b-5c9b-4660-9225-b3d43b0d33d2"
   },
   "run": {
-    "runId": "run-a66a9a1f-cf02-44e0-a129-aa2013de223a",
-    "attachmentId": "attachment-64404f41-cc8a-487a-a9cd-d414f3a0aef9",
-    "authorityRevision": "rev_01490b38a603390e506a1c4e8c3372db",
-    "mintedAt": "2026-09-11T05:28:29.076Z"
+    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
+    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
+    "authorityRevision": "rev_7c75c4511737cf692a674d858f6a021d",
+    "mintedAt": "2026-09-11T05:53:54.686Z"
   },
-  "startedAt": "2026-09-11T05:33:59.655Z",
-  "finishedAt": "2026-09-11T05:36:02.147Z"
+  "startedAt": "2026-09-11T05:58:49.159Z",
+  "finishedAt": "2026-09-11T06:00:47.990Z"
 }

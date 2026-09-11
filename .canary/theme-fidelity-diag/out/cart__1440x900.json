@@ -3,8 +3,8 @@
   "mode": "compare",
   "status": "NOT_MEASURABLE",
   "verdict": "INCONCLUSIVE",
-  "mechanism": "content-changed-between-passes",
-  "reason": "Target tab 847988ee-2fc1-4f18-ad35-c48abefba7be failed to achieve two consecutive matching settled passes at subject:cart@1440x900: content-changed-between-passes (passes: #1{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=3,cards=0,docHeight=1811,fp=92432e53} #2{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=3,cards=0,docHeight=1811,fp=de84b366} #3{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=tru",
+  "mechanism": "SESSION_RENEWAL_FAILED",
+  "reason": "canary-session.mjs exited 1: (node:4920) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\nnode:internal/modules/run_main:107\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nError: read ECONNRESET\r\n\u001b[90m    at TCP.onStreamRead (node:in",
   "store": "https://phukienmaymoc.com/",
   "surface": {
     "name": "cart",
@@ -456,130 +456,27 @@
   },
   "compare": null,
   "instance": {
-    "attachmentId": "attachment-64404f41-cc8a-487a-a9cd-d414f3a0aef9",
+    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
     "bridgePort": 20131,
     "pid": 21236,
-    "primaryTabId": "06f0d8f2-82da-4c63-b42e-b3908ceeea64",
+    "primaryTabId": "d5ca8907-36a7-403e-b925-e907efce4d32",
     "startedAt": "2026-09-11T00:18:43.203Z",
-    "runId": "run-a66a9a1f-cf02-44e0-a129-aa2013de223a",
-    "attemptId": "attempt-9a6585df-719b-43da-98ae-d3d1b04ad636"
+    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
+    "attemptId": "attempt-51f0af7b-5c9b-4660-9225-b3d43b0d33d2"
   },
   "run": {
-    "runId": "run-a66a9a1f-cf02-44e0-a129-aa2013de223a",
-    "attachmentId": "attachment-64404f41-cc8a-487a-a9cd-d414f3a0aef9",
-    "authorityRevision": "rev_01490b38a603390e506a1c4e8c3372db",
-    "mintedAt": "2026-09-11T05:28:29.076Z"
+    "runId": "run-0779bad7-7e0b-4ac1-853c-252b26e9b634",
+    "attachmentId": "attachment-b6b16b84-ca69-4109-92d5-bffc68acf882",
+    "authorityRevision": "rev_7c75c4511737cf692a674d858f6a021d",
+    "mintedAt": "2026-09-11T05:53:54.686Z"
   },
   "tabs": {
-    "reference": {
-      "tabId": "93e01cff-025b-435d-ad44-a6e111a6a8a0",
-      "openedAt": "2026-09-11T05:34:11.117Z",
-      "hydration": {
-        "captureBytes": 304925,
-        "docHeight": 1811
-      },
-      "closed": true,
-      "closedAt": "2026-09-11T05:35:50.008Z",
-      "closeError": null
-    },
-    "subject": {
-      "tabId": "847988ee-2fc1-4f18-ad35-c48abefba7be",
-      "openedAt": "2026-09-11T05:34:59.783Z"
-    }
+    "reference": null,
+    "subject": null
   },
-  "startedAt": "2026-09-11T05:34:00.064Z",
-  "finishedAt": "2026-09-11T05:35:50.008Z",
+  "startedAt": "2026-09-11T05:58:50.048Z",
+  "finishedAt": "2026-09-11T05:59:10.785Z",
   "printLine": "surface=cart viewport=1440x900 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=1811px subjectHeight=1811px",
-  "settlePasses": [
-    {
-      "pass": 1,
-      "mediaFrozen": true,
-      "fontsSettled": true,
-      "imagesSettled": true,
-      "visualStable": true,
-      "renderStateStable": true,
-      "settled": true,
-      "fingerprint": "92432e53d62b8208",
-      "fingerprintFields": {
-        "sectionCount": 3,
-        "productCardCount": 0,
-        "docHeight": 1811,
-        "scrollWidth": 1425,
-        "imageCount": 30,
-        "pendingImages": 0,
-        "brokenImages": 0,
-        "imageSetHash": "99364391",
-        "imageSetSize": 30,
-        "textHash": "955db9da",
-        "textLength": 1978
-      },
-      "counts": {
-        "sections": 3,
-        "cards": 0,
-        "docHeight": 1811,
-        "images": 30
-      }
-    },
-    {
-      "pass": 2,
-      "mediaFrozen": true,
-      "fontsSettled": true,
-      "imagesSettled": true,
-      "visualStable": true,
-      "renderStateStable": true,
-      "settled": true,
-      "fingerprint": "de84b366806d27c5",
-      "fingerprintFields": {
-        "sectionCount": 3,
-        "productCardCount": 0,
-        "docHeight": 1811,
-        "scrollWidth": 1425,
-        "imageCount": 30,
-        "pendingImages": 0,
-        "brokenImages": 0,
-        "imageSetHash": "99364391",
-        "imageSetSize": 30,
-        "textHash": "1643a1e2",
-        "textLength": 1889
-      },
-      "counts": {
-        "sections": 3,
-        "cards": 0,
-        "docHeight": 1811,
-        "images": 30
-      }
-    },
-    {
-      "pass": 3,
-      "mediaFrozen": true,
-      "fontsSettled": true,
-      "imagesSettled": true,
-      "visualStable": true,
-      "renderStateStable": true,
-      "settled": true,
-      "fingerprint": "ea6baf94c422840a",
-      "fingerprintFields": {
-        "sectionCount": 3,
-        "productCardCount": 0,
-        "docHeight": 1811,
-        "scrollWidth": 1425,
-        "imageCount": 30,
-        "pendingImages": 0,
-        "brokenImages": 0,
-        "imageSetHash": "d9942ecb",
-        "imageSetSize": 30,
-        "textHash": "0fe33812",
-        "textLength": 1978
-      },
-      "counts": {
-        "sections": 3,
-        "cards": 0,
-        "docHeight": 1811,
-        "images": 30
-      }
-    }
-  ],
-  "tabsClosed": {
-    "reference": true
-  }
+  "settlePasses": null,
+  "tabsClosed": {}
 }
