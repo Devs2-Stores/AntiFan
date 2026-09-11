@@ -143,3 +143,15 @@ percentage). A byte-equality assertion on the clone entry would fail every run b
 the site mints new Livewire ids on every render; the invariants that can move a verdict are the recorded
 ones. Gate state and per-side identity live in `attempts/<id>/evidence/<viewport>.json`, never in the
 page-level `evidence/` mirror, which can be a stale rollup of an older attempt.
+
+## The gutters, attributed (from the clone's own stylesheets)
+
+The clone ships scrollbar rules for inner elements only — `.category-navigation__list ul`,
+`.search-popular`, `.filter-list__button ...`, `.view-list .list .column-scroll{display:none}` — and
+nothing for `html`/`body` (20 rules in `app-DCc2d3nB.css`, 9 in `product-BeRhNqqG.css`, all scoped).
+So the clone's 15px root gutter was the browser default and the reference's `clientWidth == innerWidth`
+at 1440 was the anomaly. The symmetric regime as shipped is `none` on both, which removes the
+reference-side artifact without fabricating a FAIL, but it also removes the regime a real user gets and
+blinds `LAYOUT_WIDTH_ASYMMETRY`. `overflow-y:scroll;scrollbar-gutter:stable` on both, applied before
+either side materializes and with the floor re-measured, is the faithful version — a child change, so a
+full 15-page re-run, not a patch to the published set. Per-side width readings stay in every case file.

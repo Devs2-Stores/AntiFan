@@ -101,3 +101,31 @@ reference measured 2780 and the clone 2766. So the PASS/FAIL flips tracked the p
 pin era, not run noise or the bundle; after the regime was made symmetric and the pin reverted, page 3
 returns PASS 0.08%, reproducing batch 1b. Table and categories in
 `plans/journals/2026-09-11-campaign-phase-3-gates-and-attribution.md`.
+
+## Disclosed methodology limit: the symmetric scrollbar regime is `none` on both sides
+
+The published dataset was captured with `SCROLLBAR_REGIME_CSS = html{scrollbar-width:none}
+html::-webkit-scrollbar{display:none}` applied to both tabs, and that is a methodology choice
+that has to be read with the evidence, not as neutral.
+
+Measured on the retained page-3 bundle: the clone's own stylesheets carry scrollbar rules only for
+inner elements — `.category-navigation__list ul::-webkit-scrollbar`, `.search-popular::-webkit-scrollbar`,
+`.filter-list__button ...`, `.view-list .list .column-scroll::-webkit-scrollbar{display:none}` — and
+**none for `html` or `body`**. So the clone's 15px root gutter (`clientWidth 1425` against
+`innerWidth 1440`) was the browser's default, i.e. what a real user sees, while the reference measured
+`clientWidth == innerWidth == 1440` with a still-scrollable document — the signature of a root that is
+overflow-hidden or scroll-locked at measure time, which is the anomaly.
+
+Consequences, stated plainly:
+
+- Forcing `none` on both sides removes a reference-side artifact, so no FAIL is fabricated by it: the
+  differences it removed were the reference's own state, not a clone defect.
+- But it compares under a gutter regime no real user gets, and with both sides clamped it makes
+  `LAYOUT_WIDTH_ASYMMETRY` — the refusal written to catch exactly this asymmetry — unable to fire in
+  the delivered dataset. The per-side `clientWidth`/`scrollWidth` readings and `evidence.scrollbarRegime`
+  are still recorded per case, so a reader can see the choice.
+- The faithful normalization is `html{overflow-y:scroll;scrollbar-gutter:stable}` on both, applied
+  before either side is materialized and measured, with the identity floor re-measured afterwards.
+  That is a change to the child, i.e. a methodology change, so it requires all 15 pages re-run on one
+  code version — it cannot be folded into the delivered set without invalidating the single-version
+  property the cumulative aggregate depends on.
