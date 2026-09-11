@@ -1,0 +1,40 @@
+{
+  "decision": "OK",
+  "ok": true,
+  "touchedPaths": [
+    "campaign-verdicts.mjs"
+  ],
+  "budgets": {
+    "files": 1,
+    "bytes": 413,
+    "maxFiles": 1
+  },
+  "receipt": {
+    "attemptId": "attempt-1789116405",
+    "runId": "fixround-20260911-154329",
+    "surfaceId": "default",
+    "stagedRoot": "E:\\Work\\apps\\AntiFan\\.canary\\staging\\fixround-20260911-154329\\staged",
+    "resolvedTargetRoot": "E:\\Work\\apps\\AntiFan\\scripts\\lib",
+    "touchedPaths": [
+      "campaign-verdicts.mjs"
+    ],
+    "appliedPaths": [
+      "campaign-verdicts.mjs"
+    ],
+    "deletedPaths": [],
+    "budgets": {
+      "files": 1,
+      "bytes": 413,
+      "maxFiles": 1
+    },
+    "expandedPaths": [],
+    "postMergeVerification": {
+      "verified": true,
+      "verifiedPaths": [
+        "campaign-verdicts.mjs"
+      ]
+    },
+    "decision": "OK",
+    "mintedAt": "2026-09-11T08:46:45.450Z"
+  }
+}

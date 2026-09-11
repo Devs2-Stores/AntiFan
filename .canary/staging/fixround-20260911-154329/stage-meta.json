@@ -1,0 +1,18 @@
+{
+  "runId": "fixround-20260911-154329",
+  "surfaceId": "default",
+  "sourceRoot": "E:\\Work\\apps\\AntiFan\\scripts\\lib",
+  "stagedRoot": "E:\\Work\\apps\\AntiFan\\.canary\\staging\\fixround-20260911-154329\\staged",
+  "stagingDir": "E:\\Work\\apps\\AntiFan\\.canary\\staging\\fixround-20260911-154329",
+  "storedContentDir": "E:\\Work\\apps\\AntiFan\\.canary\\staging\\fixround-20260911-154329\\stored-content",
+  "gitHead": "c68111e8959320bc968d958a0bc888a4ae830057",
+  "baseManifestHash": "913d50303c4b0b9315bf6dfb0049c9bb8da602fca73bd6c1b1c8052e28deccfb",
+  "allowedFiles": [
+    "campaign-verdicts.mjs"
+  ],
+  "env": {
+    "THEME_WORKSPACE_ROOT": "E:\\Work\\apps\\AntiFan\\.canary\\staging\\fixround-20260911-154329\\staged",
+    "ANTIFAN_WORKSPACE_ROOT": "E:\\Work\\apps\\AntiFan\\.canary\\staging\\fixround-20260911-154329\\staged"
+  },
+  "stagedAt": "2026-09-11T08:43:29.766Z"
+}

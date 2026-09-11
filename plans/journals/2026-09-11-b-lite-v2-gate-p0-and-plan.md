@@ -542,3 +542,49 @@ create was refused). Full `test:canary` now stands at **154 pass / 5 fail**; all
 owner's machine-local fixture gap in the `build-report` family ("referenced artifact missing" against
 `.antifan-data/...` and `E:/Work/.antifan-canary/...`, plus the untracked `.canary/run3/evidence/**`),
 which I did not touch.
+
+## Eighth round: the loop finally ran end-to-end on the repository, and the last 390 channel closed
+
+**A. A proof that only ran on a fixture was not a proof of the loop.** `run-cli-proof.mjs` builds its own
+`theme-target/assets` + `theme-target/sections` (`:22-42`) and deletes the sandbox (`:308`), so every
+end-to-end run of stage -> audit -> merge had a synthetic subject, and my own earlier "chain exercised"
+wording described a hand edit plus a throwaway merge target. A real subject existed and needed no browser:
+`scripts/lib/campaign-verdicts.mjs`, consumed by the verdict pipeline, whose confirmation is the
+route-identity gate suite. I removed its five expectation branches to recreate the pre-fix state and
+measured the reproduction first: the suite went to **13 pass / 1 fail**, failing at
+`route-identity-gate.test.mjs:202` (`hasMissingExpectation` returning false for the persisted
+marker-only envelope).
+
+**B. The round itself, with receipts.** Staged `scripts/lib` under run `fixround-20260911-154329` (11 files,
+`baseManifestHash 913d5030...`); a FixRequest v2 whose `allowedFiles` and `requestedTargets` both named
+`campaign-verdicts.mjs`, `diffBudget` one file, `maxScopeExpansion 0`, tool surface `file.read` +
+`file.write`, with the failing assertion and the producer's emit sites materialized as evidence inside the
+run dir; then an independent agent session as the fixer, under the builder-fixer brief, forbidden from git
+history and from running tests. It returned `decision OK`, one touched path, 413 bytes,
+`selfVerificationClaimed: false`. Audit exit **0 OK** (`touched ⊆ allowedFiles`, 1 file <= 1, no expansion,
+no self-verification claim). Merge exit **0 OK** with `postMergeVerification.verified: true` on
+`campaign-verdicts.mjs` and receipts persisted. Confirmation on the merged real workspace: **14 pass /
+0 fail** - a typed `FIXED_VERIFIED` rather than a claim.
+
+Two things are recorded rather than glossed. The fixer was an independent agent session obeying a file-only
+brief and audited on its declared surface - **not** a launcher-mediated session carrying the capability name
+filter, which stays proven separately by the Phase 4 launcher proof; this round exercises the merge-gate
+chain. And its insertion order differed from the earlier hand-written layout by three lines, so Main
+normalized the placement after the merge: the final bytes are byte-identical to the committed file, the
+suite was re-run green on them (14/14), and the file is clean in git. The round's product is the audited
+chain and its receipts, not new bytes.
+
+**C. The last 390 channel is closed.** The refinement worth having: `viewport-run.mjs` navigates the clone
+entry *before* it writes the clone viewport (`:630-634` before `:723`), so the mobile document's first load
+happens under the previous pass's 1024 desktop emulation and is only then reloaded at 390 - the one channel
+in which same-origin state could have produced the recorded 4280. Replayed in exactly that order in one tab:
+create at `/` -> 1440 (docH 3975 / header 166) -> 1024 (4200 / 159) -> navigate `/mobile/index.html` while
+still at 1024 desktop (**3743 / 170**) -> 390 mobile with reload (**4270 / 170**, `(max-width:767px)` true,
+mobile UA, touch true) -> twelve further samples flat at 4270 / 170 with zero unfinished images. No 4280 and
+no 180 in any regime. With this, the recorded structural refusal is disproven by measurement across every
+modeled capture order, and the residual issue named in the plan is the one that remains: a single unstable
+read was enough to mint a structural refusal.
+
+**D. Landing state.** `scripts/lib/campaign-verdicts.mjs` byte-identical to its committed content;
+`route-identity-gate` 14/14 on those bytes; full `test:canary` 154 pass / 5 fail, all five being the owner's
+machine-local `build-report` fixture gap; no compiler or clone-pipeline edit was made at any point.

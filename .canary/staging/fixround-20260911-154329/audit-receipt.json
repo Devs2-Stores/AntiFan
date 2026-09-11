@@ -1,0 +1,84 @@
+{
+  "decision": "OK",
+  "ok": true,
+  "touchedPaths": [
+    "campaign-verdicts.mjs"
+  ],
+  "budgets": {
+    "files": 1,
+    "bytes": 413,
+    "maxFiles": 1
+  },
+  "expandedPaths": [],
+  "missingPaths": [],
+  "toolSurface": [
+    "file.read",
+    "file.write"
+  ],
+  "selfVerificationClaimed": false,
+  "offendingPaths": [],
+  "notes": "All audits passed.",
+  "details": {
+    "drift": {
+      "decision": "OK",
+      "offendingPaths": []
+    },
+    "touched": {
+      "decision": "OK",
+      "offendingPaths": [],
+      "allowed": true
+    },
+    "budget": {
+      "decision": "OK",
+      "offendingPaths": [],
+      "measured": {
+        "files": 1,
+        "bytes": 413,
+        "maxFiles": 1
+      }
+    },
+    "expansion": {
+      "decision": "OK",
+      "offendingPaths": [],
+      "expandedPaths": [],
+      "measured": {
+        "expandedFiles": 0,
+        "maxScopeExpansion": 0
+      }
+    },
+    "toolSurface": {
+      "decision": "OK",
+      "offendingTools": []
+    },
+    "selfVerification": {
+      "decision": "OK"
+    },
+    "diff": {
+      "touchedPaths": [
+        "campaign-verdicts.mjs"
+      ],
+      "addedPaths": [],
+      "modifiedPaths": [
+        "campaign-verdicts.mjs"
+      ],
+      "deletedPaths": [],
+      "unchangedPaths": [
+        "atomic-record.mjs",
+        "build-report.mjs",
+        "bundle-integrity.mjs",
+        "campaign-lock.mjs",
+        "canary-floors.mjs",
+        "evidence-provenance.mjs",
+        "process-identity.mjs",
+        "settle-contract.mjs",
+        "theme-checks.mjs",
+        "viewport-geometry.mjs"
+      ],
+      "totalFilesChanged": 1,
+      "totalBytesChanged": 413,
+      "byteDeltas": {
+        "campaign-verdicts.mjs": 413
+      }
+    }
+  }
+}

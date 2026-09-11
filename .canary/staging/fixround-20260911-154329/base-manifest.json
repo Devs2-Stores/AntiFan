@@ -1,0 +1,114 @@
+{
+  "runId": "fixround-20260911-154329",
+  "surfaceId": "default",
+  "sourceRoot": "E:\\Work\\apps\\AntiFan\\scripts\\lib",
+  "stagedRoot": "E:\\Work\\apps\\AntiFan\\.canary\\staging\\fixround-20260911-154329\\staged",
+  "gitHead": "c68111e8959320bc968d958a0bc888a4ae830057",
+  "manifestHash": "913d50303c4b0b9315bf6dfb0049c9bb8da602fca73bd6c1b1c8052e28deccfb",
+  "totalFiles": 11,
+  "totalBytes": 237342,
+  "stagedAt": "2026-09-11T08:43:29.766Z",
+  "files": {
+    "atomic-record.mjs": {
+      "sha256": "fbb65b4cc6ef4deb3b05b66890d4edacca6022ab12788d1cdb177948de35d107",
+      "size": 3168
+    },
+    "build-report.mjs": {
+      "sha256": "e3cf16b82a301a3e4097d372cd88fe07283858bcd736adad0b7ff6b4ee49fabd",
+      "size": 146965
+    },
+    "bundle-integrity.mjs": {
+      "sha256": "648371ff5dde914ebc85cb9f9533207b8b3db4d7d4248b7b11d8409b57b1de7f",
+      "size": 2711
+    },
+    "campaign-lock.mjs": {
+      "sha256": "d8bee0b5fb4317fbec38c8062ba27ab3da00ba5a1e99981f645229e4b6e5034d",
+      "size": 8404
+    },
+    "campaign-verdicts.mjs": {
+      "sha256": "4061f3ce0b314a912351232a7043ace5b4aa9ca0bcf2dd8a3791b7f9cd120ebc",
+      "size": 25998
+    },
+    "canary-floors.mjs": {
+      "sha256": "aa50bf55acc1addb3d453e0ae73390f848d093e07c16241e0814e8b1edfdcc9c",
+      "size": 4024
+    },
+    "evidence-provenance.mjs": {
+      "sha256": "d0c5cba1448041ea2bcb5319fe2790719219f64e81ff21c93726a62e13cd7bb3",
+      "size": 8257
+    },
+    "process-identity.mjs": {
+      "sha256": "092c823b2487f11eac2eb2328642d2425388e167f0b9ac2235febf521eb292f9",
+      "size": 8607
+    },
+    "settle-contract.mjs": {
+      "sha256": "ce75eafff455c75dd920a64fa54b271c7fe54240ee63321575a4abce8917c95c",
+      "size": 4281
+    },
+    "theme-checks.mjs": {
+      "sha256": "c0a2c06db5c6ae69b60f29cacb08c939345022b1b297f88d208d12cff83e5719",
+      "size": 22719
+    },
+    "viewport-geometry.mjs": {
+      "sha256": "3192723cf8121e9a65ed9c46abfd3c2d985dda56db83ab927c60f154f847873d",
+      "size": 2208
+    }
+  },
+  "fileList": [
+    {
+      "path": "atomic-record.mjs",
+      "sha256": "fbb65b4cc6ef4deb3b05b66890d4edacca6022ab12788d1cdb177948de35d107",
+      "size": 3168
+    },
+    {
+      "path": "build-report.mjs",
+      "sha256": "e3cf16b82a301a3e4097d372cd88fe07283858bcd736adad0b7ff6b4ee49fabd",
+      "size": 146965
+    },
+    {
+      "path": "bundle-integrity.mjs",
+      "sha256": "648371ff5dde914ebc85cb9f9533207b8b3db4d7d4248b7b11d8409b57b1de7f",
+      "size": 2711
+    },
+    {
+      "path": "campaign-lock.mjs",
+      "sha256": "d8bee0b5fb4317fbec38c8062ba27ab3da00ba5a1e99981f645229e4b6e5034d",
+      "size": 8404
+    },
+    {
+      "path": "campaign-verdicts.mjs",
+      "sha256": "4061f3ce0b314a912351232a7043ace5b4aa9ca0bcf2dd8a3791b7f9cd120ebc",
+      "size": 25998
+    },
+    {
+      "path": "canary-floors.mjs",
+      "sha256": "aa50bf55acc1addb3d453e0ae73390f848d093e07c16241e0814e8b1edfdcc9c",
+      "size": 4024
+    },
+    {
+      "path": "evidence-provenance.mjs",
+      "sha256": "d0c5cba1448041ea2bcb5319fe2790719219f64e81ff21c93726a62e13cd7bb3",
+      "size": 8257
+    },
+    {
+      "path": "process-identity.mjs",
+      "sha256": "092c823b2487f11eac2eb2328642d2425388e167f0b9ac2235febf521eb292f9",
+      "size": 8607
+    },
+    {
+      "path": "settle-contract.mjs",
+      "sha256": "ce75eafff455c75dd920a64fa54b271c7fe54240ee63321575a4abce8917c95c",
+      "size": 4281
+    },
+    {
+      "path": "theme-checks.mjs",
+      "sha256": "c0a2c06db5c6ae69b60f29cacb08c939345022b1b297f88d208d12cff83e5719",
+      "size": 22719
+    },
+    {
+      "path": "viewport-geometry.mjs",
+      "sha256": "3192723cf8121e9a65ed9c46abfd3c2d985dda56db83ab927c60f154f847873d",
+      "size": 2208
+    }
+  ]
+}

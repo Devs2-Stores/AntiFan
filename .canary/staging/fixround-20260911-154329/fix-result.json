@@ -1,0 +1,18 @@
+{
+  "decision": "OK",
+  "touchedPaths": [
+    "campaign-verdicts.mjs"
+  ],
+  "budgets": {
+    "files": 1,
+    "bytes": 398
+  },
+  "expandedPaths": [],
+  "missingPaths": [],
+  "toolSurface": [
+    "file.read",
+    "file.write"
+  ],
+  "selfVerificationClaimed": false,
+  "notes": "Repaired hasMissingExpectation to detect missing expectation envelopes emitted by the production capture path when expectedUrl is missing or null, including top-level and capture-nested missingExpectation === true, expectationMarker === 'URL_EXPECTATION_MISSING', and routeAssertion.status === 'URL_EXPECTATION_MISSING'."
+}

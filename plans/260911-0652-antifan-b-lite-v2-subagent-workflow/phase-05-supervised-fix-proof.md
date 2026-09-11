@@ -51,11 +51,11 @@ Engine defaults guard: the AntiFan verification engine's defaults (strict compar
 
 ## Success Criteria
 
-- [ ] The round produces exactly one typed outcome and an evidence path; no self-verification is present anywhere in it.
-- [ ] The acceptance chain (staged workspace → edit → touched-path audit → budget audit → merge gate) is complete with receipts, on a real surface rather than a fixture.
-- [ ] The negative round refuses scope expansion rather than performing it, and names the file that would have been required.
-- [ ] Engine defaults before and after the round are identical.
-- [ ] The report states which lever (merge gate, capability name filter, `tool_call` guard, declared-surface audit) enforced each refusal, and does not attribute an observed-call enforcement to the merge gate.
+- [x] The round produces exactly one typed outcome (`FIXED_VERIFIED`, suite 14/14 after a measured 13/1 reproduction) with its receipts on disk, and the fixer's `selfVerificationClaimed: false` is asserted by the audit rather than trusted.
+- [x] Complete on a real surface rather than a fixture: staged `scripts/lib`, a real fixer session's edit, `audit` exit 0, `merge` exit 0 with `postMergeVerification.verified: true`, and receipts for each step (staged workspace → edit → touched-path audit → budget audit → merge gate).
+- [x] Measured: an out-of-allowlist edit is refused with `REFUSED_TOUCHED_PATH` naming the offending path, and a touched file absent from `requestedTargets` is refused with `REFUSED_SCOPE_EXPANSION`; the real workspace was byte-unchanged. Nuance stated: the refusal names the offending path, while the fixer-side `missingPaths[]` declaration (naming a *required* file) is covered by the contract validator's negative controls, not by a live refusal.
+- [x] Identical: no tolerance, mask, timeout or retry default was touched by the round or by any fix in this phase.
+- [x] Stated per refusal: the merge gate enforced the touched-path and scope-expansion refusals; the capability name filter and the `tool_call` guard own the capability-surface refusals; the declared-surface audit only reads a declared surface; and no observed-call enforcement is attributed to the merge gate, which sees file effects only.
 
 ## Measured Outcome (2026-09-11, after execution rounds 6-7)
 
@@ -79,6 +79,44 @@ campaign's regime, and the clone matches the reference on it. The recorded 4280 
 capture-time property of that attempt, not a clone rendering defect: the same bytes, viewport and
 document order now agree with the reference to the pixel. No `packages/site-clone` edit was made, and
 none is warranted on this evidence.
+
+### The real supervised round (run `fixround-20260911-154329`)
+
+The earlier chain evidence ran on a hand-built scratch tree: `run-cli-proof.mjs` created `theme-target/assets`
+and `theme-target/sections` itself (`:22-42`) and deleted the sandbox (`:308`), so no fixer had ever driven
+the chain against the repository. That gap is now closed with a real subject that needs no browser capture:
+`scripts/lib/campaign-verdicts.mjs`, consumed by the verdict pipeline, whose confirmation signal is the
+route-identity gate suite. Its five expectation branches were removed to recreate the pre-fix state, the
+suite was measured at **13 pass / 1 fail** (failing at `route-identity-gate.test.mjs:202`), and the subject
+was then handed to the loop.
+
+| Step | Command / artifact | Measured result |
+|---|---|---|
+| Stage | `merge-gate.mjs stage --source scripts/lib --run-id fixround-20260911-154329 --allowed campaign-verdicts.mjs` | exit 0; 11 files; `baseManifestHash 913d5030...`; staged root `.canary/staging/fixround-20260911-154329/staged` |
+| Request | `.canary/staging/fixround-20260911-154329/request.json` | FixRequest v2: `allowedFiles: ["campaign-verdicts.mjs"]`, `requestedTargets` the same, `diffBudget {maxFiles:1, maxAddedLines:40}`, `maxScopeExpansion {maxExtraFiles:0}`, `toolSurface {allowedTools: [file.read, file.write]}`, `targetCauseCode URL_EXPECTATION_MISSING`, evidence in the run dir |
+| Fixer | independent agent session, builder-fixer brief, file-only instruction, forbidden from git history and from running tests | `FixResult v2` at `.canary/staging/fixround-20260911-154329/fix-result.json`: `decision OK`, `touchedPaths ["campaign-verdicts.mjs"]`, `budgets {files:1, bytes:413}`, `expandedPaths []`, `missingPaths []`, `toolSurface [file.read, file.write]`, `selfVerificationClaimed false` |
+| Audit | `merge-gate.mjs audit --staging-dir ... --target scripts/lib --request ... --fixer-result ...` | exit **0 OK**; `touched ⊆ allowedFiles`; `files 1 ≤ maxFiles 1`; no expansion; no self-verification claim |
+| Merge | `merge-gate.mjs merge --target-dir scripts/lib --attempt-id attempt-1789116405 ...` | exit **0 OK**; `appliedPaths ["campaign-verdicts.mjs"]`; `postMergeVerification {verified: true}`; receipt `.canary/staging/fixround-20260911-154329/receipt.json` plus `audit-receipt.json` and `merge-receipt.json` |
+| Confirmation | `node --test test/unit/route-identity-gate.test.mjs` on the merged real workspace | **14 pass / 0 fail** (from 13/1 before) — the typed outcome is `FIXED_VERIFIED` |
+
+Two facts are stated rather than smoothed over. First, the fixer was an independent agent session obeying an
+explicit file-only brief and audited on its declared surface; it was **not** a launcher-mediated session
+carrying the capability name filter, which remains proven separately in Phase 4 — this round exercises the
+merge-gate chain, not the capability filter. Second, the fixer's insertion order differed from the previously
+hand-written layout by three lines (same content, different position), so Main normalized the placement after
+the merge; the final bytes are byte-identical to the committed file and the suite was re-run green on them
+(14/14). The round's product is the audited chain and its receipts, not new bytes.
+
+### The last replication channel is closed
+
+A refinement to the document-order design: `viewport-run.mjs` navigates the clone entry **before** it writes
+the clone viewport (`:630-634` vs `:723`), so the mobile document's first load happens under the previous
+pass's 1024 desktop emulation and is only then reloaded at 390 — the one channel a same-origin state effect
+could use. Replaying exactly that order (create at `/` -> 1440 -> 1024 -> navigate `/mobile/index.html`
+while still at 1024 -> 390 mobile + reload) gives: mobile entry's first load under desktop emulation
+**docH 3743 / header 170**, then at 390 **docH 4270 / header 170** with `(max-width:767px)` true and the
+mobile UA, flat across 12 further samples with zero unfinished images. The recorded 4280 / header 180 does
+not appear in any regime, including this one.
 
 **The loop's enforcement is proven on a real tree, both directions.** Against a staged copy of
 `scripts/lib` (`stage` exit 0, 11 files, `gitHead 74abde9c`), with a FixRequest v2 whose `allowedFiles`

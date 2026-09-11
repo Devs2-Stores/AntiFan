@@ -1,0 +1,46 @@
+{
+  "runId": "fixround-20260911-154329",
+  "fixId": "fix-missing-expectation",
+  "surfaceId": "campaign-verdicts",
+  "stagedRoot": "E:\\Work\\apps\\AntiFan\\.canary\\staging\\fixround-20260911-154329\\staged",
+  "baseManifestHash": "913d50303c4b0b9315bf6dfb0049c9bb8da602fca73bd6c1b1c8052e28deccfb",
+  "allowedFiles": [
+    "campaign-verdicts.mjs"
+  ],
+  "forbiddenPaths": [
+    ".antifan-data",
+    ".canary/tools",
+    "src",
+    "package.json"
+  ],
+  "diffBudget": {
+    "maxFiles": 1,
+    "maxAddedLines": 40,
+    "maxRemovedLines": 10
+  },
+  "maxScopeExpansion": {
+    "maxExtraFiles": 0
+  },
+  "requestedTargets": [
+    "campaign-verdicts.mjs"
+  ],
+  "evidenceRefs": [
+    ".canary/staging/fixround-20260911-154329/evidence/missing-expectation.txt",
+    "test/unit/route-identity-gate.test.mjs"
+  ],
+  "targetCauseCode": "URL_EXPECTATION_MISSING",
+  "returnShape": "FixResult.v2",
+  "toolSurface": {
+    "allowedTools": [
+      "file.read",
+      "file.write"
+    ],
+    "forbiddenToolPatterns": [
+      "risk:eval*",
+      "anti.*",
+      "browser.*",
+      "theme.*"
+    ]
+  },
+  "fixerResultPath": ".canary/staging/fixround-20260911-154329/fix-result.json"
+}
