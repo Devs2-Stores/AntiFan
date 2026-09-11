@@ -101,12 +101,14 @@ describe('Preview Protocol & Watcher Suite', () => {
       }
     });
 
-    it('refuses a traversal path that escapes the workspace root', async () => {
+    it('refuses a traversal segment before realpath resolution can leave the workspace root', async () => {
       const narrowRoot = path.join(tmpDir, 'escape-root');
       fs.mkdirSync(narrowRoot, { recursive: true });
       // A real file outside the narrow root: if containment were dropped this would be served.
       fs.writeFileSync(path.join(tmpDir, 'escape-target.txt'), 'outside-root payload', 'utf8');
 
+      // The segment walk rejects '..' before the canonical realpath containment check runs, so
+      // the observed 404 is the segment refusal, not the containment refusal.
       const canonicalRoot = fs.realpathSync.native(narrowRoot);
       const res = await safeResolveAndOpenFile(canonicalRoot, '../escape-target.txt');
       assert.strictEqual(res.ok, false);
