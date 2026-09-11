@@ -25,6 +25,7 @@ import {
   normalizePath,
   matchPathPattern,
   computeManifestDiff,
+  measureChangedBytes,
   auditTouchedPaths,
   auditDiffBudget,
   auditScopeExpansion,
@@ -120,8 +121,19 @@ test('auditTouchedPaths enforces subset and rejects forbidden paths', () => {
   assert.deepEqual(res3.offendingPaths, ['package.json', 'src/main/index.ts']);
 });
 
+test('measureChangedBytes counts the differing lines and never reports an unattributable change as zero', () => {
+  assert.equal(measureChangedBytes('a\nb\n', 'a\nb\n', 4, 4), 0, 'identical text is not a change');
+  // Removed 'world' (6 bytes with its newline) plus added 'there' (6): the line diff, not
+  // the file size (13).
+  assert.equal(measureChangedBytes('hello\nworld\n', 'hello\nthere\n', 13, 13), 12);
+  // An added empty line is a one-byte change, not nothing.
+  assert.equal(measureChangedBytes('a\n', 'a\n\n', 2, 3), 1);
+  // Same line multiset, different bytes (a reorder): the measure cannot attribute the
+  // change, so the whole file counts rather than zero.
+  assert.equal(measureChangedBytes('a\nbb\n', 'bb\na\n', 5, 5), 5);
+});
+
 test('auditDiffBudget enforces maxFiles and maxBytes independently', () => {
-  // Pass
   const res1 = auditDiffBudget(['a.css', 'b.css'], 500, { maxFiles: 3, maxBytes: 1000 });
   assert.equal(res1.decision, DECISIONS.OK);
 
@@ -287,12 +299,49 @@ test('auditToolSurface accepts request object, request array, and result usedToo
   assert.deepEqual(auditResNoFixer.toolSurface, []);
 });
 
+test('the default forbidden paths and tools survive a request that declares its own list', () => {
+  // A round may forbid more than the defaults, never less: an empty or narrow
+  // declaration must not re-permit the manifest or the evaluate-class tools.
+  const manifestPair = (p) => ({
+    baseManifest: [{ path: p, sha256: 'a1', bytes: 10 }],
+    postManifest: [{ path: p, sha256: 'a2', bytes: 12 }],
+  });
+
+  const pathRes = runAllAudits({
+    ...manifestPair('package.json'),
+    request: {
+      allowedFiles: ['package.json'],
+      forbiddenPaths: [],
+      requestedTargets: ['package.json'],
+      diffBudget: { maxFiles: 2, maxBytes: 1000 },
+      toolSurface: { allowedTools: ['file.read', 'file.write'] },
+    },
+    fixerResult: { toolSurface: ['file.read'], selfVerificationClaimed: false },
+  });
+  assert.equal(
+    pathRes.decision,
+    DECISIONS.REFUSED_TOUCHED_PATH,
+    'an empty forbiddenPaths list must not un-forbid package.json'
+  );
+});
+
 test('auditSelfVerification rejects claimed verdicts', () => {
   const res1 = auditSelfVerification(false);
   assert.equal(res1.decision, DECISIONS.OK);
+  assert.equal(auditSelfVerification(undefined).decision, DECISIONS.OK, 'an absent field makes no claim');
 
   const res2 = auditSelfVerification(true);
   assert.equal(res2.decision, DECISIONS.REFUSED_SELF_VERIFICATION);
+
+  // No schema validator runs over the contract, so the gate itself must own the
+  // invariant: a truthy spelling of the claim is still a claim.
+  for (const spelling of ['true', 1, 'yes']) {
+    assert.equal(
+      auditSelfVerification(spelling).decision,
+      DECISIONS.REFUSED_SELF_VERIFICATION,
+      `selfVerificationClaimed=${JSON.stringify(spelling)} is a claim`
+    );
+  }
 });
 
 // ── 2. Staging & Confinement Tests ─────────────────────────────────────────────
@@ -342,6 +391,52 @@ test('stageWorkspace creates staged workspace copy and base manifest', () => {
 
   assert.equal(staged.env.THEME_WORKSPACE_ROOT, staged.stagedRoot);
   assert.equal(staged.env.ANTIFAN_WORKSPACE_ROOT, staged.stagedRoot);
+});
+
+test('the diff budget counts the bytes actually rewritten, not the net size delta', () => {
+  const runId = 'test-byte-volume';
+  const staged = stageWorkspace({
+    runId,
+    sourceDir: mockTarget,
+    stagingParentDir: TEST_SANDBOX,
+    allowedFiles: ['assets/**'],
+    requestedTargets: ['assets/theme.css'],
+  });
+  const stagedCss = path.join(staged.stagedRoot, 'assets', 'theme.css');
+  const original = fs.readFileSync(stagedCss, 'utf8');
+
+  // Rewrite the file with content one byte longer than the original: the manifest's size
+  // delta reports 1 byte changed and would clear any byte ceiling.
+  fs.writeFileSync(stagedCss, 'x'.repeat(original.length + 1));
+  const rewrittenAudit = auditStagedWorkspace({
+    stagingDir: staged.stagingDir,
+    targetDir: null,
+    request: {
+      allowedFiles: ['assets/**'],
+      requestedTargets: ['assets/theme.css'],
+      diffBudget: { maxFiles: 2, maxBytes: 20 },
+      maxScopeExpansion: 0,
+    },
+    fixerResult: { toolSurface: ['file.write'], selfVerificationClaimed: false },
+  });
+  assert.equal(rewrittenAudit.decision, DECISIONS.REFUSED_DIFF_BUDGET, 'a rewrite cannot hide behind a one-byte size delta');
+  assert.equal(rewrittenAudit.budgets.bytes > 20, true, `measured bytes: ${rewrittenAudit.budgets.bytes}`);
+
+  // A surgical insertion in the same large file still counts as its own bytes, so a
+  // legitimate small fix is not priced as a whole-file rewrite.
+  fs.writeFileSync(stagedCss, `${original}\n/* one line */\n`);
+  const surgicalAudit = auditStagedWorkspace({
+    stagingDir: staged.stagingDir,
+    targetDir: null,
+    request: {
+      allowedFiles: ['assets/**'],
+      requestedTargets: ['assets/theme.css'],
+      diffBudget: { maxFiles: 2, maxBytes: 64 },
+      maxScopeExpansion: 0,
+    },
+    fixerResult: { toolSurface: ['file.write'], selfVerificationClaimed: false },
+  });
+  assert.equal(surgicalAudit.decision, DECISIONS.OK, 'a small edit measures as its own bytes');
 });
 
 test('In-scope edit merges cleanly and mints success receipt', () => {

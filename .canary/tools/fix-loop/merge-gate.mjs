@@ -29,6 +29,7 @@ import {
   normalizePath,
   normalizeManifestMap,
   computeManifestDiff,
+  measureChangedBytes,
   runAllAudits,
   auditDrift,
 } from './audits.mjs';
@@ -107,12 +108,34 @@ export function auditStagedWorkspace({
     currentBaseManifest = mintManifest(targetDir);
   }
 
+  // Both versions of every staged file are on disk (the staged copy, and the pre-merge
+  // content the stage step stored), so the diff budget can count the bytes actually
+  // changed instead of inferring them from the size delta. A file that cannot be read as
+  // text (or that is binary) leaves the callback with nothing to measure: it returns
+  // null and the manifest delta is used, which is also all a manifest-only caller knows.
+  const readText = (filePath) => {
+    try {
+      return fs.readFileSync(filePath, 'utf8');
+    } catch {
+      return null;
+    }
+  };
+  const changedBytesFor = (p, baseEntry, postEntry) => {
+    const baseText = readText(path.join(absStaging, 'stored-content', p));
+    const postText = readText(path.join(stagedRoot, p));
+    if (baseText === null || postText === null) return null;
+    if (baseText.includes('\u0000') || postText.includes('\u0000')) return null;
+    const bytes = measureChangedBytes(baseText, postText, baseEntry?.size ?? 0, postEntry?.size ?? 0);
+    return Number.isFinite(bytes) ? bytes : null;
+  };
+
   const auditResult = runAllAudits({
     baseManifest,
     postManifest,
     request,
     currentBaseManifest,
     fixerResult,
+    changedBytesFor,
   });
 
   return auditResult;
@@ -158,7 +181,9 @@ export function mergeStagedWorkspace({
   const mergedRequest = {
     ...request,
     allowedFiles: request.allowedFiles || stageMeta.allowedFiles || [],
-    forbiddenPaths: request.forbiddenPaths || [],
+    // No `forbiddenPaths` default here: `...request` carries a declared list, and an
+    // omission must fall through to the audit's default set rather than being filled
+    // with an empty array that would read as "nothing is forbidden".
     diffBudget: request.diffBudget || {},
     maxScopeExpansion: request.maxScopeExpansion ?? 0,
     requestedTargets: request.requestedTargets || [],

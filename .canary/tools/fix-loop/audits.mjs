@@ -188,9 +188,58 @@ export function normalizeManifestMap(manifest) {
 }
 
 /**
+ * Bytes that differ between two versions of one file, for the budget's unit
+ * ("bytes changed"). Lines one side carries more often than the other count by their own
+ * byte length; a file whose line multiset is unchanged but whose bytes differ (a reorder,
+ * or a change the multiset cannot localize) counts in full, because a change volume this
+ * measure cannot attribute must not be reported as zero and slip under maxBytes.
+ *
+ * Pure: text in, bytes out. `baseSize`/`postSize` are the manifest sizes, used only for
+ * that unattributable fallback.
+ *
+ * @param {string} baseText
+ * @param {string} postText
+ * @param {number} baseSize
+ * @param {number} postSize
+ * @returns {number}
+ */
+export function measureChangedBytes(baseText, postText, baseSize, postSize) {
+  if (baseText === postText) return 0;
+  const tally = (text) => {
+    const counts = new Map();
+    for (const line of String(text).split('\n')) counts.set(line, (counts.get(line) || 0) + 1);
+    return counts;
+  };
+  const baseLines = tally(baseText);
+  const postLines = tally(postText);
+  // The newline each line carried is part of what changed, and counting it keeps an
+  // added empty line from measuring as nothing.
+  const bytesOf = (line) => Buffer.byteLength(line, 'utf8') + 1;
+
+  let changed = 0;
+  for (const [line, count] of postLines) {
+    const before = baseLines.get(line) || 0;
+    if (count > before) changed += (count - before) * bytesOf(line);
+  }
+  for (const [line, count] of baseLines) {
+    const after = postLines.get(line) || 0;
+    if (count > after) changed += (count - after) * bytesOf(line);
+  }
+  return changed > 0 ? changed : Math.max(Number(baseSize) || 0, Number(postSize) || 0);
+}
+
+/**
  * Computes difference between base manifest and post manifest.
+ *
+ * `changedBytesFor(path, baseEntry, postEntry)` is optional and returns the exact bytes
+ * changed in one modified file. A caller with both file contents on disk supplies it, and
+ * the budget then measures real change volume instead of the net size delta — a rewrite
+ * that keeps the size nearly constant otherwise measures as a few bytes. Without it the
+ * net delta is used, which is all a manifest-only caller can know.
+ *
  * @param {any} baseManifest
  * @param {any} postManifest
+ * @param {((path: string, baseEntry: any, postEntry: any) => number|null)} [changedBytesFor]
  * @returns {{
  *   touchedPaths: string[],
  *   addedPaths: string[],
@@ -202,7 +251,7 @@ export function normalizeManifestMap(manifest) {
  *   byteDeltas: Record<string, number>
  * }}
  */
-export function computeManifestDiff(baseManifest, postManifest) {
+export function computeManifestDiff(baseManifest, postManifest, changedBytesFor = null) {
   const baseMap = normalizeManifestMap(baseManifest);
   const postMap = normalizeManifestMap(postManifest);
 
@@ -235,8 +284,15 @@ export function computeManifestDiff(baseManifest, postManifest) {
       if (baseMap[p].sha256 !== postMap[p].sha256) {
         modifiedPaths.push(p);
         touchedPaths.push(p);
-        const delta = Math.abs(postMap[p].size - baseMap[p].size);
-        const changeVolume = delta === 0 ? postMap[p].size : delta;
+        const measured = typeof changedBytesFor === 'function'
+          ? changedBytesFor(p, baseMap[p], postMap[p])
+          : null;
+        const changeVolume = typeof measured === 'number' && measured >= 0
+          ? measured
+          : (() => {
+              const delta = Math.abs(postMap[p].size - baseMap[p].size);
+              return delta === 0 ? postMap[p].size : delta;
+            })();
         byteDeltas[p] = changeVolume;
         totalBytesChanged += changeVolume;
       } else {
@@ -588,22 +644,25 @@ export function auditToolSurface(
 
 /**
  * Audits self-verification claims by the fixer.
- * The fixer is forbidden from asserting verification verdicts.
+ * The fixer is forbidden from asserting verification verdicts, so only an explicit
+ * `false` (or an absent field) clears the gate: a truthy spelling such as "true",
+ * "yes", or 1 is a claim, and a value this audit cannot read as "the fixer made no
+ * claim" must not be read as one.
  *
- * @param {boolean} [selfVerificationClaimed]
+ * @param {unknown} [selfVerificationClaimed]
  * @returns {{
  *   decision: 'OK' | 'REFUSED_SELF_VERIFICATION',
  *   reason?: string
  * }}
  */
 export function auditSelfVerification(selfVerificationClaimed) {
-  if (selfVerificationClaimed === true) {
-    return {
-      decision: DECISIONS.REFUSED_SELF_VERIFICATION,
-      reason: 'Fixer claimed self-verification. Only AntiFan evidence engine may adjudicate verdicts.',
-    };
+  if (selfVerificationClaimed === false || selfVerificationClaimed === undefined || selfVerificationClaimed === null) {
+    return { decision: DECISIONS.OK };
   }
-  return { decision: DECISIONS.OK };
+  return {
+    decision: DECISIONS.REFUSED_SELF_VERIFICATION,
+    reason: `Fixer declared selfVerificationClaimed=${JSON.stringify(selfVerificationClaimed)}. Only AntiFan evidence engine may adjudicate verdicts.`,
+  };
 }
 
 /**
@@ -686,12 +745,16 @@ export function runAllAudits({
   request = {},
   currentBaseManifest = null,
   fixerResult = {},
+  changedBytesFor = null,
 }) {
-  const diff = computeManifestDiff(baseManifest, postManifest);
+  const diff = computeManifestDiff(baseManifest, postManifest, changedBytesFor);
   const { touchedPaths, totalBytesChanged, deletedPaths } = diff;
 
   const allowedFiles = request.allowedFiles || [];
-  const forbiddenPaths = request.forbiddenPaths || DEFAULT_FORBIDDEN_PATHS;
+  // The default forbidden set is policy, not a request parameter: a request may add
+  // paths to it, never remove one. Substituting a declared list (or an empty one) for
+  // the defaults silently un-forbids the sources and the manifest.
+  const forbiddenPaths = [...new Set([...DEFAULT_FORBIDDEN_PATHS, ...(request.forbiddenPaths || [])])];
   const diffBudget = request.diffBudget || {};
   const maxScopeExpansion = request.maxScopeExpansion ?? 0;
   const requestedTargets = request.requestedTargets || [];
@@ -703,7 +766,9 @@ export function runAllAudits({
   const toolPolicy = request.toolSurface && typeof request.toolSurface === 'object' && !Array.isArray(request.toolSurface)
     ? request.toolSurface
     : null;
-  const selfVerifyReported = Boolean(fixerResult.selfVerificationClaimed);
+  // The raw value is adjudicated (a string "true" is a claim, not a boolean to coerce
+  // away) and recorded as declared, so the receipt and the gate cannot disagree.
+  const selfVerifyReported = fixerResult.selfVerificationClaimed ?? false;
 
   // 1. Audit Drift if current base manifest provided
   let driftAudit = { decision: DECISIONS.OK, offendingPaths: [] };
@@ -727,9 +792,15 @@ export function runAllAudits({
     : { decision: DECISIONS.OK, offendingTools: [] };
 
   if (toolAudit.decision === DECISIONS.OK) {
-    const effectiveForbidden = Array.isArray(toolPolicy?.forbiddenToolPatterns)
-      ? toolPolicy.forbiddenToolPatterns
-      : DEFAULT_FORBIDDEN_TOOLS;
+    // Same rule for tools: a round may forbid more than the defaults, never less.
+    // Replacing the default list let a round declare one narrow pattern and thereby
+    // re-permit evaluate/execute-style tools the plane forbids outright.
+    const effectiveForbidden = [
+      ...new Set([
+        ...DEFAULT_FORBIDDEN_TOOLS,
+        ...(Array.isArray(toolPolicy?.forbiddenToolPatterns) ? toolPolicy.forbiddenToolPatterns : []),
+      ]),
+    ];
     const effectivePermitted = Array.isArray(toolPolicy?.allowedTools)
       ? toolPolicy.allowedTools
       : (Array.isArray(request.toolSurface) ? request.toolSurface : DEFAULT_PERMITTED_TOOLS);
