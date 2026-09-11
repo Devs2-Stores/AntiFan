@@ -59,6 +59,7 @@
     "smoke:parity": "npm run compile && node scripts/run-electron.cjs scripts/smoke-playwright-parity.cjs",
     "smoke:terminal": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-recovery-smoke.cjs && node scripts/run-electron.cjs test/e2e/terminal-renderer-smoke.cjs && node scripts/run-electron.cjs test/e2e/terminal-split-hydration-probe.cjs",
     "test:terminal-transport": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-transport-sync.cjs",
+    "test:terminal-rename": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-rename-space.test.cjs",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs",
     "certify:dual-plane": "node scripts/smoke-dual-plane-cutover-runner.cjs"
   },
