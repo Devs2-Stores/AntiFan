@@ -119,3 +119,14 @@ Phát hiện khi kiểm tra tính trung thực của mirror; ghi lại đầy đ
 - **Giảm tiếp xúc API**: chỉ lấy `attachment` cho khoá thật sự cần, tránh quét toàn theme nhiều lần trong thời gian ngắn, cho tới khi biết chắc đọc có kích hoạt tối ưu hay không.
 - 4 asset `sidebartwo_*` cần người dùng xử lý **phía Haravan** (upload lại), không sửa được từ phía mirror.
 - Trạng thái mirror hiện tại: 241 khoá, phần lớn lấy từ `attachment` sau burst; `share_fb_home.png` được ghi lại lúc 18:12:22Z; 4 khoá hỏng giữ bản cũ từ 17:0x.
+
+## 10. Trạng thái deliverable A–Z sau khi đổi đích (đo tại HEAD, 2026-09-13)
+
+Kế hoạch cũ `plans/260912-1731-haravan-az-implementation-plan/` **đã bị xoá** (commit `3a45c11`) cùng đích `1001512581`, nên các mục A–Z dưới đây được đối chiếu lại theo **thứ còn thật sự ở HEAD**:
+
+- **08A — knowledge/contract: ĐÃ GIAO.** 10 tài liệu `docs/haravan/*.md` (routes/handles, liquid objects, admin & merchant workflows, API capabilities & scopes, CLI ops & guards, data lifecycle, platform topology, pattern mining, base theme contract, README) cộng `specs/base-theme-contract.json`. Không phụ thuộc đích theme.
+- **Tooling đã dựng + mutation-chứng minh nhưng KHÔNG ở HEAD**: `scripts/run-haravan-verification-loop.mjs`, `scripts/lib/theme-identity-attestation.mjs`, `scripts/lib/png-raster.mjs` và các verifier cũ nằm trong `stash@{0}` (`haravan-az-old-target-1001512581`). **Không dùng nguyên trạng** — 4 lỗ hổng fail-open ở §5 phải sửa trước.
+- **08B — WCAG/CWV/functional receipts: CHƯA DỰNG**, và phải làm theo kế hoạch của phiên mới (số CWV hiện vẫn `INCONCLUSIVE`, xem báo cáo tổng hợp §5).
+- **Vòng kiểm chứng storefront + verdict artifacts: CHƯA chạy cho đích mới.** Bản cũ đã chạy 27 ca và niêm phong ledger trên `1001512581`; chạy lại cho `1001514194` cần quyết định về id của harness canary (§3).
+- **Enforce theme attestation + viewport đo được + phủ toàn trang: CHƯA áp cho đích mới** (cơ chế đã có, đang ở stash như trên).
+- **Việc của phiên này đã giao**: công cụ pull (an toàn theo theme id, guard thư mục có watcher, ghi chú cấp khoá, đối chiếu nội dung theo API), tài liệu đích mới, và các bản sửa fail-open ở tầng pull.
