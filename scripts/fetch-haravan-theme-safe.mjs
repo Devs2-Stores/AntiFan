@@ -14,6 +14,10 @@ const EXPLICIT_DIR = process.env.HARAVAN_THEME_DIR || '';
 const DEFAULT_DIR = path.join('themes', `haravan-${THEME_ID}`);
 const FORCE_REFRESH = process.env.HARAVAN_FORCE_REFRESH === '1';
 const ALLOW_DUPLICATE_MIRROR = process.env.HARAVAN_ALLOW_DUPLICATE_MIRROR === '1';
+// Re-reads every asset's authoritative content and compares hashes. The stamp and
+// the size field can stay frozen while the server re-encodes an asset, so this is
+// the only check that can catch a mirror that has been superseded.
+const VERIFY_PARITY = process.env.HARAVAN_VERIFY_PARITY === '1';
 
 const BIND_FILE = '.haravan-cli_local.json';
 const MANIFEST_FILE = '.haravan-cli_pull-manifest.json';
@@ -153,6 +157,19 @@ function isTextAsset(key) {
     key.startsWith('locales/');
 }
 
+// A remote asset can carry a URL that no host serves (observed: a hostname with
+// the path segment fused into it). Trying it produces a DNS error that says
+// nothing about the theme, so the shape is checked before the request.
+function isMirrorableUrl(url) {
+  if (typeof url !== 'string' || url.length === 0) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && parsed.hostname === 'cdn.hstatic.net';
+  } catch {
+    return false;
+  }
+}
+
 function sha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
@@ -204,18 +221,23 @@ async function main() {
     const destPath = path.join(TARGET_DIR, asset.key);
     const text = isTextAsset(asset.key);
     let action = 'fetch';
+    let fromAttachment = false;
 
     if (fs.existsSync(destPath) && fs.statSync(destPath).size > 0) {
       const localSize = fs.statSync(destPath).size;
       const recorded = previousManifest[asset.key];
       const localHash = sha256(destPath);
+      // `size` tracks the upload, not the stored asset, so for a binary it is a
+      // drift signal only until the mirror holds authoritative attachment bytes;
+      // after that the stamp alone decides.
+      const lengthSignal = text || !(recorded && recorded.attachmentBytes != null);
       action = decidePullAction({
         exists: true,
         localSize,
         localHash,
         recorded,
         isText: text,
-        remoteSize: typeof asset.size === 'number' ? asset.size : null,
+        remoteSize: lengthSignal && typeof asset.size === 'number' ? asset.size : null,
         remoteUpdatedAt: asset.updated_at || null,
         forceRefresh: FORCE_REFRESH,
       });
@@ -250,19 +272,40 @@ async function main() {
           failedKeys.push({ key: asset.key, reason: 'API returned no value for a text asset' });
           continue;
         }
-      } else if (asset.public_url) {
-        await downloadBinary(asset.public_url, destPath);
       } else {
-        failCount++;
-        failedKeys.push({ key: asset.key, reason: 'binary asset without a public URL' });
-        continue;
+        // A binary's authoritative content is the base64 `attachment` the API
+        // hands out; public_url may answer with a converted or cached variant
+        // whose bytes are not the stored asset. Take the attachment when it is
+        // there, and fall back to the CDN only when it is not.
+        const detail = await apiRequestWithRetry(`/web/themes/${THEME_ID}/assets.json?asset[key]=${encodeURIComponent(asset.key)}`);
+        const attachment = detail && detail.asset ? detail.asset.attachment : null;
+        if (typeof attachment === 'string' && attachment.length > 0) {
+          fs.mkdirSync(path.dirname(destPath), { recursive: true });
+          fs.writeFileSync(destPath, Buffer.from(attachment, 'base64'));
+          fromAttachment = true;
+        } else if (isMirrorableUrl(asset.public_url)) {
+          await downloadBinary(asset.public_url, destPath);
+        } else {
+          failCount++;
+          failedKeys.push({
+            key: asset.key,
+            reason: asset.public_url
+              ? `the remote public_url is not a cdn.hstatic.net URL: ${asset.public_url.slice(0, 120)}`
+              : 'binary asset without an attachment or public URL',
+          });
+          continue;
+        }
       }
       if (action === 'refresh') { refreshedCount++; refreshedKeys.push(asset.key); }
       else fetchedCount++;
       const writtenBytes = fs.statSync(destPath).size;
       const entry = { bytes: writtenBytes, sha256: sha256(destPath), updated_at: asset.updated_at || null };
-      if (!text && typeof asset.size === 'number' && writtenBytes !== asset.size) {
-        // The download came back as a converted variant rather than the stored
+      if (!text && fromAttachment) {
+        // Authoritative bytes: the API's own length, which `size` does not
+        // describe for every asset, so later runs compare the stamp alone.
+        entry.attachmentBytes = writtenBytes;
+      } else if (!text && typeof asset.size === 'number' && writtenBytes !== asset.size) {
+        // The CDN answered with a converted variant rather than the stored
         // asset. Recorded so the length signal stops firing for this key instead
         // of downloading it on every run.
         entry.variantRepresentation = true;
@@ -316,10 +359,45 @@ async function main() {
     }
   }
   if (variantDiffs.length > 0) {
-    console.log(`[INFO] ${variantDiffs.length} asset(s) whose local bytes differ from the API-declared stored size (the mirror holds a CDN variant):`);
+    console.log(`[INFO] ${variantDiffs.length} asset(s) whose local bytes differ from the API-declared size (expected: size describes the upload, the mirror holds the API attachment bytes):`);
     for (const line of variantDiffs.slice(0, 10)) console.log(`  - ${line}`);
   } else {
     console.log('[OK] Every local asset matches the API-declared stored byte size.');
+  }
+
+  if (VERIFY_PARITY) {
+    const mismatches = [];
+    const unreadable = [];
+    for (const asset of assets) {
+      const detail = await apiRequestWithRetry(`/web/themes/${THEME_ID}/assets.json?asset[key]=${encodeURIComponent(asset.key)}`);
+      const authoritative = detail && detail.asset ? detail.asset : null;
+      let expected = null;
+      if (authoritative && typeof authoritative.value === 'string') {
+        expected = crypto.createHash('sha256').update(Buffer.from(authoritative.value, 'utf8')).digest('hex');
+      } else if (authoritative && typeof authoritative.attachment === 'string' && authoritative.attachment.length > 0) {
+        expected = crypto.createHash('sha256').update(Buffer.from(authoritative.attachment, 'base64')).digest('hex');
+      }
+      const local = nextManifest[asset.key];
+      if (!expected) {
+        // Some assets currently carry no content on the remote at all; that is
+        // a remote defect reported by the failure ledger, not a stale mirror.
+        unreadable.push(asset.key);
+      } else if (!local || local.sha256 !== expected) {
+        mismatches.push(`${asset.key}: local ${local ? local.sha256.slice(0, 12) : '<absent>'} vs api ${expected.slice(0, 12)}`);
+      }
+      await new Promise(r => setTimeout(r, 80));
+    }
+    if (unreadable.length > 0) {
+      console.warn(`[WARN] ${unreadable.length} asset(s) have no readable content on the remote (neither value nor attachment):`);
+      for (const key of unreadable.slice(0, 10)) console.warn(`  - ${key}`);
+    }
+    if (mismatches.length > 0) {
+      console.error(`[FAIL] ${mismatches.length} asset(s) differ from the API's authoritative content; re-run with HARAVAN_FORCE_REFRESH=1 to take the current bytes:`);
+      for (const line of mismatches.slice(0, 20)) console.error(`  - ${line}`);
+      process.exitCode = 1;
+    } else {
+      console.log(`[OK] Every local asset matches the API's authoritative content (${assets.length} keys).`);
+    }
   }
 
   if (failedKeys.length > 0) {

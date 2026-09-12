@@ -82,3 +82,29 @@ Hai điểm còn lại cần quyết khi tái dùng:
 - Đã dừng: `taskkill` nhẹ bị từ chối ("can only be terminated forcefully") → dừng cưỡng bức `/F` cho 4 pid trên; còn lại không có tiến trình `theme dev` nào. Sau đó thư mục mirror xoá được.
 - **Nguồn của watcher**: `.canary/tools/theme-fidelity-run.mjs:115` khai `DEV_COMMAND = { command: 'hrv', args: ['theme','dev'] }` và spawn nó với `cwd: themeDir` ở dòng 1213-1214 — comment trong file gọi đây là "the one remote-writing command this pipeline may spawn". Hai tiến trình `hrv theme dev` trần (pid 25780, 23088) khớp đúng lệnh này ⇒ nhiều khả năng là **giám sát còn sót của lần chạy canary cũ** (cwd = mirror cũ), và chính nó lan truyền việc xoá. Kết luận: khi xoá một mirror, phải dừng watcher của harness trước.
 - **Rủi ro còn treo**: bất kỳ ai chạy lại `hrv theme dev` trong repo khi `15092026/` đang là mirror **sẽ tự động đẩy nội dung qua remote** (đúng tính năng của `theme dev`, nhưng trái luật "không ghi remote" của phiên này). Chỉ chạy khi chủ đích muốn push.
+
+## 9. Sự việc: theme đích bị **ghi lại** giữa phiên (2026-09-13, 18:03–18:10Z)
+
+Phát hiện khi kiểm tra tính trung thực của mirror; ghi lại đầy đủ vì nó ảnh hưởng mọi kết luận về "khớp byte".
+
+**Đo được**
+- `GET /web/themes/1001514194/assets.json` lúc 18:12Z: **toàn bộ 241 stamp `updated_at` nằm trong khoảng 18:03:06Z–18:10:21Z** (trước đó là 17:02:03Z/17:35:2x/17:44:45Z). Histogram không còn stamp cũ nào ⇒ cả theme đã được ghi lại trong ~7 phút, nhịp ~1 asset/1,5–3 s.
+- Tham số phiên bản CDN nhảy `?v=9` → `?v=101`.
+- Nội dung lưu trữ bị **mã hoá lại nhỏ hơn**: `attachment` (base64) giải mã ra 45.507 B cho `hera_index_hero_1_mobile.jpg` trong khi `size` 55.681; 87/241 khoá có độ dài `attachment` ≠ `size` (ví dụ 497.510 → 264.494; 14.580 → 8.292; 1.031.377 → 595.776).
+- **4 asset hỏng phía remote**: `assets/shop_social_sidebartwo_item_image_{1..4}.png` có `public_url` sai host — `https://cdn.hstatic.netmes/...` (thiếu `/themes`) — và `attachment` **rỗng**; `size` 393–487 B. Chúng không tải được từ CDN (`ENOTFOUND cdn.hstatic.netmes`) và không có nội dung để lấy qua API.
+
+**Đã loại trừ (có bằng chứng)**
+- **Không phải CLI push từ mirror**: `.haravan-cli_remote.json` trong `15092026/` giữ nguyên mtime 00:06 (CLI ghi lại tệp này mỗi lần push/pull) và **không có** `.hrv-sync-state.json` trong `15092026/`; quét `E:/Work` cũng không thấy sync-state nào mới. Mirror chỉ được **đọc**, không được đẩy lên.
+- **Không phải thao tác ghi của tôi**: mọi lệnh tôi chạy tới Haravan đều là `GET` (listing/detail). Không chạy `hrv theme push`, `hrv theme dev`.
+- **Đọc không làm đổi theme trong cửa sổ kiểm chứng**: 3 pha cách nhau 60 s — (1) chỉ listing rồi im lặng, (2) đúng **một** detail GET cho `share_fb_home.png`, (3) đúng **một** detail GET cho `hera_index_atelier_1.jpg` — cả ba đều cho **0 stamp thay đổi**, stamp lớn nhất đứng yên ở 18:10:21Z.
+
+**Chưa xác định được nguyên nhân ([INFERENCE], ứng viên mạnh nhất)**
+- Giả thuyết khớp dữ liệu nhất: **pipeline tối ưu ảnh phía server chạy khi asset được đọc/liệt kê** — lượt force-refresh 241 detail call lúc 18:03 là mốc bắt đầu đúng lúc burst khởi phát (stamp đầu 18:03:06Z), mọi asset đều bị mã hoá lại nhỏ hơn, `?v` nhảy, 4 asset hỏng là dấu vết của batch đó; sau khi batch xả xong (18:10:21Z) đọc lại **không** làm gì đổi nữa (đã tối ưu hết).
+- Ứng viên thay thế: một app/admin action của người dùng ghi theme đúng lúc đó (không loại trừ được từ phía tôi).
+- **PID 14156** (`node … haravan-theme-ops-cli … theme dev`, sinh 00:44 giờ本地) là con của **Electron AntiFan** qua `winpty-agent` → một terminal do app mở; **không** giết, và không có bằng chứng nó đẩy gì (xem mục loại trừ ở trên).
+
+**Hệ quả cho phiên sau**
+- Mirror là **ảnh chụp**, không phải bản sao được chứng nhận: nguồn đã bị ghi lại giữa phiên và có thể bị ghi lại nữa. Muốn biết lệch hay không thì dùng `HARAVAN_VERIFY_PARITY=1` (đọc lại nội dung uỷ nhiệm của API rồi so hash, exit 1 khi lệch) — nhưng **mỗi lượt là 241 lời gọi đọc**, nên chỉ chạy khi cần.
+- **Giảm tiếp xúc API**: chỉ lấy `attachment` cho khoá thật sự cần, tránh quét toàn theme nhiều lần trong thời gian ngắn, cho tới khi biết chắc đọc có kích hoạt tối ưu hay không.
+- 4 asset `sidebartwo_*` cần người dùng xử lý **phía Haravan** (upload lại), không sửa được từ phía mirror.
+- Trạng thái mirror hiện tại: 241 khoá, phần lớn lấy từ `attachment` sau burst; `share_fb_home.png` được ghi lại lúc 18:12:22Z; 4 khoá hỏng giữ bản cũ từ 17:0x.
