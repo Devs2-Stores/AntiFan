@@ -1,9 +1,11 @@
 /**
  * AntiFan Browser Desktop — In-Memory Slope Math & Telemetry Schema Unit Test
- * 
+ *
  * NOTE: This test file verifies the mathematical linear regression slope formula
- * and SoakBenchmarkReport schema in memory (< 100ms).
- * 
+ * and SoakBenchmarkReport schema in memory (< 100ms). It simulates load; it does not
+ * observe a real soak, and it derives every reported field from the samples it measured
+ * instead of declaring a verdict.
+ *
  * AUTHORITATIVE OS RELEASE GATES:
  * - Standalone Recovery (30m): `scripts/benchmark-standalone-recovery.cjs`
  * - Production Soak (8h): `scripts/benchmark-real-soak-8h.cjs`
@@ -19,6 +21,11 @@ export interface MemorySample {
   rssBytes: number;
   heapUsedBytes?: number;
 }
+/** The simulated run must record at least this many samples to describe a trend. */
+const REQUIRED_SAMPLES = 10;
+/** Slope ceiling (MB/min) above which the simulated run reports itself as failed. */
+const SOAK_SLOPE_LIMIT_MB_PER_MIN = 5;
+
 export interface SoakBenchmarkReport {
   timestamp: number;
   durationMs: number;
@@ -87,9 +94,12 @@ describe('Automated 4-Stage Soak Test Suite (Phase 4)', () => {
     assert.strictEqual(Math.abs(risingSlope - 2.0) < 0.01, true, 'Rising memory slope must equal 2 MB/min');
   });
 
-  it('runs automated 4-stage soak endurance simulation with zero process leak', async () => {
+  it('derives the soak report fields from the samples it measured', async () => {
     const samples: MemorySample[] = [];
     const startTime = Date.now();
+    // This simulation spawns no child process, so it can report the child count it actually
+    // owns instead of a literal zero.
+    const spawnedChildProcesses = 0;
 
     // Sample initial baseline
     samples.push({
@@ -165,12 +175,32 @@ describe('Automated 4-Stage Soak Test Suite (Phase 4)', () => {
         stage3MixedThrash: { durationMs: stage3Duration, tabSwitches, qaRuns },
         stage4Endurance: { durationMs: stage4Duration, reloads, picks, qaValidations },
       },
-      orphanProcessesCount: 0,
-      passed: true,
+      orphanProcessesCount: spawnedChildProcesses,
+      passed: Math.abs(slope) <= SOAK_SLOPE_LIMIT_MB_PER_MIN && samples.length >= REQUIRED_SAMPLES,
     };
 
-    assert.ok(report.samplesCount >= 10, 'Must record at least 10 telemetry samples');
-    assert.strictEqual(report.orphanProcessesCount, 0, 'Orphan process count must be 0');
-    assert.strictEqual(report.passed, true);
+    // Every assertion below re-derives its expectation from the recorded samples, so a report
+    // that carried a declared value instead of a measured one fails here.
+    assert.strictEqual(report.samplesCount, samples.length, 'sample count must come from the recorded samples');
+    assert.ok(report.samplesCount >= REQUIRED_SAMPLES, `Must record at least ${REQUIRED_SAMPLES} telemetry samples`);
+    assert.ok(
+      samples.every((s, i) => i === 0 || s.timestamp >= samples[i - 1]!.timestamp),
+      'sample timestamps must be monotonic',
+    );
+    assert.ok(report.peakRssMB >= report.baselineRssMB, 'peak RSS cannot be below the baseline');
+    assert.ok(report.peakRssMB >= report.finalRssMB, 'peak RSS cannot be below the final sample');
+    assert.strictEqual(report.memorySlopeMBPerMin, slope, 'reported slope must be the slope of the measured samples');
+    assert.strictEqual(
+      report.stageResults.stage2Streaming.ptyBytesSent,
+      report.stageResults.stage2Streaming.chunkCount * 10 * 1024,
+      'bytes sent must equal chunk count × chunk size',
+    );
+    assert.strictEqual(report.stageResults.stage3MixedThrash.tabSwitches, 5 * 2, 'stage 3 switches must be the ticks × 2');
+    assert.strictEqual(report.stageResults.stage4Endurance.qaValidations, 10, 'stage 4 validations must be the tick count');
+    assert.strictEqual(
+      report.orphanProcessesCount,
+      spawnedChildProcesses,
+      'the report may only count children this simulation actually spawned',
+    );
   });
 });

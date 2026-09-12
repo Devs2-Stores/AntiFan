@@ -1,80 +1,112 @@
 /**
- * Capsule partition naming, ephemeral-vs-persistent isolation, and RFC 6265bis
- * ingestion semantics (pure unit coverage).
+ * Capsule partition isolation: RFC 6265bis ingestion semantics plus the production
+ * partition lifecycle that keeps a disposable run from reusing persistent capsule state.
  *
- * The HTTP endpoint `/api/cookies/import` was REMOVED (delta-sync architecture
- * eliminated — see plan winner-C), so the endpoint-based cross-partition
- * integration cases are gone by contract change. Partition disjointness is
- * still asserted structurally via `deriveCapsulePartition` + mock cookie
- * stores below.
+ * `POST /api/cookies/import` is retained and authenticated (covered by
+ * bridge-cookie-import-endpoint-removed.test.ts); the endpoint removed by the
+ * native-messaging cutover was `GET /api/extension/handshake`.
+ *
+ * The partition tests drive `configureBrowserSessionPartition` and its siblings against a
+ * stubbed Electron `session` boundary, so they assert what production does to a session —
+ * which partition it configures, what policy it applies, and which policies it forgets.
  */
-import { describe, it } from 'node:test';
+import { describe, it, before, beforeEach, after } from 'node:test';
 import * as assert from 'node:assert';
 import { extensionCookieImportSetDetails } from '../../src/main/browser/chrome-profile-sync';
-import { deriveCapsulePartition } from '../../src/main/browser/browser-session-partition';
+import type * as PartitionModule from '../../src/main/browser/browser-session-partition';
 
-class MockCookieStore {
-  public cookies: Map<string, Record<string, unknown>> = new Map();
-  public flushed = false;
+type PartitionApi = typeof PartitionModule;
 
-  public async set(details: Record<string, unknown>): Promise<void> {
-    const key = `${details.domain || ''}|${details.path || '/'}|${details.name}`;
-    this.cookies.set(key, { ...details });
-  }
+const ELECTRON_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) AntiFan/1.0.0 Electron/43.4.0 Chrome/140.0.0.0 Safari/537.36';
+const CLEAN_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
 
-  public async remove(url: string, name: string): Promise<void> {
-    let targetHost = '';
-    let targetPath = '/';
-    try {
-      const u = new URL(url);
-      targetHost = u.hostname.toLowerCase();
-      targetPath = u.pathname || '/';
-    } catch {
-      // Fail closed on invalid URL
-      return;
-    }
-    if (!targetHost) return;
-
-    for (const [key, c] of Array.from(this.cookies.entries())) {
-      if (c.name !== name) continue;
-      const cDomain = String(c.domain || '').toLowerCase().replace(/^\./, '');
-      const cPath = String(c.path || '/');
-
-      // RFC 6265 Section 5.1.3: Domain Matching
-      const domainMatches = Boolean(cDomain && (targetHost === cDomain || targetHost.endsWith('.' + cDomain)));
-
-      // RFC 6265 Section 5.1.4: Path Matching
-      const pathMatches =
-        targetPath === cPath ||
-        (cPath.endsWith('/') && targetPath.startsWith(cPath)) ||
-        targetPath.startsWith(cPath + (cPath.endsWith('/') ? '' : '/'));
-
-      if (domainMatches && pathMatches) {
-        this.cookies.delete(key);
-      }
-    }
-  }
-
-  public async get(query: { name?: string; domain?: string; path?: string }): Promise<Array<Record<string, unknown>>> {
-    const res: Array<Record<string, unknown>> = [];
-    for (const c of this.cookies.values()) {
-      if (query.name && c.name !== query.name) continue;
-      if (query.domain) {
-        const qDomain = query.domain.replace(/^\./, '');
-        const cDomain = String(c.domain || '').replace(/^\./, '');
-        if (cDomain !== qDomain && !cDomain.endsWith(`.${qDomain}`)) continue;
-      }
-      if (query.path && c.path !== query.path) continue;
-      res.push(c);
-    }
-    return res;
-  }
-  public async flushStore(): Promise<void> {
-    this.flushed = true;
-  }
+interface FakeSessionRecord {
+  partition: string;
+  userAgent: string;
+  setUserAgentCalls: string[];
+  hintInterceptorInstalls: number;
 }
 
-describe('Capsule Partition Isolation & RFC 6265bis Ingestion Suite (unit)', () => {
+interface FakeSession {
+  readonly partition: string;
+  readonly record: FakeSessionRecord;
+  getUserAgent(): string;
+  setUserAgent(ua: string): void;
+  webRequest: { onBeforeSendHeaders(filter: unknown, handler: unknown): void };
+}
+
+function makeFakeSession(partition: string): FakeSession {
+  const record: FakeSessionRecord = {
+    partition,
+    userAgent: ELECTRON_UA,
+    setUserAgentCalls: [],
+    hintInterceptorInstalls: 0,
+  };
+  return {
+    partition,
+    record,
+    getUserAgent: () => record.userAgent,
+    setUserAgent: (ua: string) => {
+      record.setUserAgentCalls.push(ua);
+      record.userAgent = ua;
+    },
+    webRequest: {
+      onBeforeSendHeaders: () => {
+        record.hintInterceptorInstalls += 1;
+      },
+    },
+  };
+}
+
+const sessionsByPartition = new Map<string, FakeSession>();
+const fromPartitionCalls: string[] = [];
+const defaultSession = makeFakeSession('default');
+
+function installElectronSessionStub(): void {
+  const resolved = require.resolve('electron');
+  if (!require.cache[resolved]) require(resolved);
+  const entry = require.cache[resolved];
+  if (!entry) throw new Error('electron module could not be resolved for the session stub');
+  entry.exports = {
+    session: {
+      fromPartition: (partition: string) => {
+        fromPartitionCalls.push(partition);
+        let sess = sessionsByPartition.get(partition);
+        if (!sess) {
+          sess = makeFakeSession(partition);
+          sessionsByPartition.set(partition, sess);
+        }
+        return sess;
+      },
+      defaultSession,
+    },
+  } as unknown as typeof entry.exports;
+}
+
+let partitions: PartitionApi;
+
+before(() => {
+  installElectronSessionStub();
+  // Required after the stub is installed: the production module captures the electron export
+  // when it loads, so a stub installed afterwards would never be observed.
+  partitions = require('../../src/main/browser/browser-session-partition') as PartitionApi;
+});
+
+beforeEach(() => {
+  partitions.clearBrowserSessionPartitionPolicies();
+  sessionsByPartition.clear();
+  fromPartitionCalls.length = 0;
+});
+
+const partitionRecord = (partition: string): FakeSessionRecord => {
+  const sess = sessionsByPartition.get(partition);
+  assert.ok(sess, `no session was created for partition ${partition}`);
+  return sess.record;
+};
+
+describe('Capsule partition isolation & RFC 6265bis ingestion suite (unit)', () => {
   it('enforces RFC 6265bis host-only, __Host- prefix, and expiration rules', () => {
     // 1. __Host- cookie forces no domain attribute
     const hostPrefixed = extensionCookieImportSetDetails({
@@ -100,66 +132,90 @@ describe('Capsule Partition Isolation & RFC 6265bis Ingestion Suite (unit)', () 
     assert.strictEqual(expired, null);
   });
 
-  it('MockCookieStore enforces strict RFC 6265 domain and path boundaries on removal', async () => {
-    const store = new MockCookieStore();
-    await store.set({ name: 'auth', value: '1', domain: '.example.com', path: '/foo' });
+  it('derives one persistent partition per capsule and a unique ephemeral partition per disposable run', () => {
+    const persistent = partitions.deriveCapsulePartition('store-prod', 'clean');
+    const persistentNative = partitions.deriveCapsulePartition('store-prod', 'native');
+    const ephemeralA = partitions.deriveCapsulePartition('store-prod', 'clean', true);
+    const ephemeralB = partitions.deriveCapsulePartition('store-prod', 'clean', true);
 
-    // 1. Suffix without leading dot must NOT match (notexample.com != example.com)
-    await store.remove('https://notexample.com/foo', 'auth');
-    const remaining1 = await store.get({ name: 'auth' });
-    assert.strictEqual(remaining1.length, 1, 'notexample.com must NOT delete .example.com cookie');
-
-    // 2. Sibling path prefix must NOT match (/foobar does not match /foo)
-    await store.remove('https://example.com/foobar', 'auth');
-    const remaining2 = await store.get({ name: 'auth' });
-    assert.strictEqual(remaining2.length, 1, '/foobar must NOT delete /foo cookie');
-
-    // 3. Invalid URL fails closed
-    await store.remove('invalid-url-string', 'auth');
-    const remaining3 = await store.get({ name: 'auth' });
-    assert.strictEqual(remaining3.length, 1, 'Invalid URL must fail closed without deleting');
-
-    // 4. Valid subdomain and subpath matches and deletes
-    await store.remove('https://sub.example.com/foo/bar', 'auth');
-    const remaining4 = await store.get({ name: 'auth' });
-    assert.strictEqual(remaining4.length, 0, 'sub.example.com/foo/bar must delete .example.com/foo cookie');
+    assert.strictEqual(persistent, 'persist:capsule-store-prod');
+    assert.strictEqual(persistentNative, 'persist:capsule-store-prod-native');
+    assert.strictEqual(ephemeralA.startsWith('ephemeral-store-prod-'), true);
+    assert.strictEqual(ephemeralA.includes('persist:'), false);
+    assert.notStrictEqual(ephemeralA, ephemeralB, 'Each ephemeral partition must have a unique non-persistent nonce');
   });
 
-  it('guarantees zero cookie pollution from ephemeral disposable partitions to persistent capsule partitions', async () => {
-    const persistentPart = deriveCapsulePartition('store-prod', 'clean');
-    const ephemeralPartA = deriveCapsulePartition('store-prod', 'clean', true);
-    const ephemeralPartB = deriveCapsulePartition('store-prod', 'clean', true);
+  it('configures the session of the requested partition and applies the clean user agent there', () => {
+    const partition = partitions.deriveCapsulePartition('store-prod', 'clean');
+    const sess = partitions.configureBrowserSessionPartition(partition, 'clean');
 
-    assert.strictEqual(persistentPart, 'persist:capsule-store-prod');
-    assert.strictEqual(ephemeralPartA.startsWith('ephemeral-store-prod-'), true);
-    assert.strictEqual(ephemeralPartA.includes('persist:'), false);
-    assert.notStrictEqual(ephemeralPartA, ephemeralPartB, 'Each ephemeral partition must have a unique non-persistent nonce');
-
-    // Simulate mock cookie stores bound to each partition
-    const stores = new Map<string, MockCookieStore>();
-    const getStore = (part: string): MockCookieStore => {
-      if (!stores.has(part)) stores.set(part, new MockCookieStore());
-      return stores.get(part)!;
-    };
-
-    // 1. Inject test mutant cookie in Ephemeral A (Tier 3 Behavioral Mutation)
-    const storeA = getStore(ephemeralPartA);
-    await storeA.set({ name: 'cart_token', value: 'mutant-token-12345', domain: '.thienfarm.vn', path: '/' });
-
-    // 2. Persistent store must NOT have this cookie
-    const storePersistent = getStore(persistentPart);
-    const persistentCookies = await storePersistent.get({ name: 'cart_token' });
-    assert.strictEqual(persistentCookies.length, 0, 'Persistent capsule partition must remain completely untouched by ephemeral mutation');
-
-    // 3. Ephemeral B must also be completely isolated from Ephemeral A
-    const storeB = getStore(ephemeralPartB);
-    const bCookies = await storeB.get({ name: 'cart_token' });
-    assert.strictEqual(bCookies.length, 0, 'Different ephemeral partitions must NOT share cookies across disposable runs');
-
-    // 4. Verify original cookie exists in A
-    const aCookies = await storeA.get({ name: 'cart_token' });
-    const firstCookie = aCookies[0];
-    assert.ok(firstCookie);
-    assert.strictEqual(firstCookie.value, 'mutant-token-12345');
+    assert.deepStrictEqual(fromPartitionCalls, [partition], 'production must configure the derived capsule partition');
+    assert.strictEqual(sess, sessionsByPartition.get(partition), 'the returned session is the partition session');
+    const record = partitionRecord(partition);
+    assert.deepStrictEqual(record.setUserAgentCalls, [CLEAN_UA], 'clean mode must strip the Electron and app tokens');
+    assert.strictEqual(record.hintInterceptorInstalls, 1, 'clean mode installs one client-hints interceptor');
+    assert.strictEqual(partitions.getBrowserSessionUserAgentMode(sess), 'clean');
   });
+
+  it('keeps authentic headers in native mode and never installs a client-hints interceptor', () => {
+    const partition = partitions.deriveCapsulePartition('store-prod', 'native');
+    const sess = partitions.configureBrowserSessionPartition(partition, 'native');
+
+    const record = partitionRecord(partition);
+    assert.deepStrictEqual(record.setUserAgentCalls, [], 'native mode must not rewrite the user agent');
+    assert.strictEqual(record.hintInterceptorInstalls, 0, 'native mode must not tamper with request headers');
+    assert.strictEqual(record.userAgent, ELECTRON_UA);
+    assert.strictEqual(partitions.getBrowserSessionUserAgentMode(sess), 'native');
+  });
+
+  it('re-applies policy only after the partition is forgotten, so a disposable run reconfigures while a capsule keeps its session', () => {
+    const persistent = partitions.deriveCapsulePartition('store-prod', 'clean');
+    partitions.configureBrowserSessionPartition(persistent, 'clean');
+    partitions.configureBrowserSessionPartition(persistent, 'clean');
+    assert.strictEqual(
+      partitionRecord(persistent).hintInterceptorInstalls,
+      1,
+      'a partition that is already configured is not configured again',
+    );
+    assert.strictEqual(
+      partitionRecord(persistent).setUserAgentCalls.length,
+      1,
+      're-configuring must not rewrite a user agent that is already clean',
+    );
+
+    const ephemeral = partitions.deriveCapsulePartition('store-prod', 'clean', true);
+    partitions.configureBrowserSessionPartition(ephemeral, 'clean');
+    const ephemeralSession = sessionsByPartition.get(ephemeral);
+    assert.ok(ephemeralSession && ephemeralSession !== sessionsByPartition.get(persistent), 'a disposable run gets its own session');
+    assert.strictEqual(partitionRecord(ephemeral).hintInterceptorInstalls, 1);
+
+    // The disposable run ends: only its own policy is dropped.
+    partitions.unconfigureBrowserSessionPartition(ephemeral);
+    partitions.configureBrowserSessionPartition(ephemeral, 'clean');
+    assert.strictEqual(
+      partitionRecord(ephemeral).hintInterceptorInstalls,
+      2,
+      'a forgotten ephemeral partition is configured again',
+    );
+    assert.strictEqual(
+      partitionRecord(persistent).hintInterceptorInstalls,
+      1,
+      'forgetting an ephemeral run must not touch the persistent capsule session',
+    );
+
+    // The persistent capsule keeps its policy until it is explicitly reset.
+    partitions.clearBrowserSessionPartitionPolicies(persistent);
+    partitions.configureBrowserSessionPartition(persistent, 'clean');
+    assert.strictEqual(partitionRecord(persistent).hintInterceptorInstalls, 2);
+  });
+
+  it('falls back to the default session when no partition is requested', () => {
+    const sess = partitions.configureBrowserSessionPartition('', 'clean');
+    assert.strictEqual(sess, defaultSession, 'an empty partition configures the default session');
+    assert.strictEqual(defaultSession.record.setUserAgentCalls.length, 1);
+  });
+});
+
+after(() => {
+  partitions.clearBrowserSessionPartitionPolicies();
 });

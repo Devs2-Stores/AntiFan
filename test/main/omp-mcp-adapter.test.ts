@@ -3,6 +3,17 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+/**
+ * Bound the stdio handshakes below. The proxy writes newline-delimited JSON-RPC, so a child
+ * that never emits the awaited id would otherwise leave the test awaiting forever; the lane
+ * only force-exits *after* every test settles, so an unbounded await hangs the whole run.
+ */
+const withDeadline = <T>(promise: Promise<T>, label: string, ms = 10_000): Promise<T> => {
+  const guard = Promise.withResolvers<never>();
+  const timer = setTimeout(() => guard.reject(new Error(`${label} did not settle within ${ms}ms`)), ms);
+  return Promise.race([promise, guard.promise]).finally(() => clearTimeout(timer));
+};
+
 describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => {
   it('wires persistent heartbeat renewal to the stdio lifecycle (same-terminal MCP sessions never expire while alive)', () => {
     const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
@@ -108,7 +119,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       },
     });
 
-    const res = await responsePromise;
+    const res = await withDeadline(responsePromise, 'stdio response');
     child.kill();
 
     assert.ok(res.result.isError, 'Tool call must return isError: true when bootstrap is absent');
@@ -270,7 +281,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
         },
       });
 
-      const res = await responsePromise;
+      const res = await withDeadline(responsePromise, 'stdio response id=2');
       assert.strictEqual(res.result.isError, undefined);
       assert.ok(dispatchReceived, 'Dispatch must be received on WebSocket');
       assert.strictEqual(dispatchReceived.authorityRevision, 'rev-initial-1');
@@ -374,7 +385,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
         },
       });
 
-      const res = await responsePromise;
+      const res = await withDeadline(responsePromise, 'stdio response id=10');
       assert.strictEqual(res.result.isError, undefined);
       assert.ok(dispatchReceived, 'Dispatch must be received on WebSocket');
       assert.strictEqual(dispatchReceived.name, 'artifact.read');
@@ -457,7 +468,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
         params: { name: 'anti.browser.tabs.list', arguments: {} },
       });
 
-      const res = await responsePromise;
+      const res = await withDeadline(responsePromise, 'stdio response id=11');
       assert.strictEqual(res.result.isError, undefined);
       assert.ok(dispatchReceived, 'Dispatch must be received on WebSocket');
       assert.strictEqual(dispatchReceived.name, 'anti.browser.tabs.list');
@@ -552,7 +563,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
         },
       });
 
-      const res = await responsePromise;
+      const res = await withDeadline(responsePromise, 'stdio response id=20');
       assert.strictEqual(res.result.isError, undefined);
       const textContent = res.result.content[0].text;
       const parsedRef = JSON.parse(textContent);
@@ -662,7 +673,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
         },
       });
 
-      const res = await responsePromise;
+      const res = await withDeadline(responsePromise, 'stdio response id=30');
       assert.strictEqual(res.result.isError, undefined);
       const textContent = res.result.content[0].text;
       const parsedStat = JSON.parse(textContent);
@@ -775,7 +786,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
         },
       });
 
-      const res = await responsePromise;
+      const res = await withDeadline(responsePromise, 'stdio response id=40');
       assert.strictEqual(res.result.isError, undefined);
       assert.ok(evaluateReceivedParams, 'Evaluate capability must be dispatched');
       assert.strictEqual(evaluateReceivedParams.tabId, 'tab-agent-background');

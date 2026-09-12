@@ -1,3 +1,9 @@
+---
+title: "Terminal Process Tree Kill (Windows) & Click-to-Open Web Links Addon"
+status: superseded
+created: 2026-08-22
+---
+
 # Plan: Terminal Process Tree Kill (Windows) & Click-to-Open Web Links Addon
 
 ## Overview

@@ -80,8 +80,8 @@
       "severity": "P1",
       "status": "closed",
       "evidence": "test/unit/*.test.mjs matched by no glob in package.json and never compiled (no allowJs)",
-      "closedBy": "`npm run test:canary` wired into the `test` chain; 40 tests across 12 suites, all passing",
-      "predicate": { "kind": "script-matches", "script": "test", "pattern": "test:canary", "negate": true }
+      "closedBy": "`test:canary` is lane 2 of `scripts/run-test-pipeline.mjs`, which the `test` script invokes without short-circuiting; 40 tests across 12 suites, all passing",
+      "predicate": { "kind": "file-absent-regex", "file": "scripts/run-test-pipeline.mjs", "pattern": "test:canary" }
     },
     {
       "id": "B9",

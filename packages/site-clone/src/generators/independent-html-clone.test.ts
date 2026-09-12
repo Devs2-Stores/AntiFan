@@ -6,6 +6,42 @@ import * as os from 'node:os';
 import { IndependentHtmlCloneGenerator } from './independent-html-clone-generator.js';
 import type { ComponentContractIR } from '../models/clone-ir.js';
 
+/**
+ * Independent oracle for the zero-remote-hotlink invariant.
+ *
+ * A single `src=`/`href=` pattern cannot see the contexts that actually hotlink: `srcset` and
+ * `imagesrcset` carry comma-separated candidate lists, `poster`/`formaction`/`data-src` are
+ * separate attributes, and CSS reaches the network through `url()` and `@import`. Each value is
+ * therefore split into candidate URLs and tested on its own.
+ */
+const remoteResourceUrls = (html: string): string[] => {
+  const remote = (url: string): boolean => /^(?:https?:)?\/\//i.test(url.trim());
+  const found: string[] = [];
+
+  const attrPattern = /\b(src|href|action|poster|formaction|data-src|data-srcset|srcset|imagesrcset)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+  for (const match of html.matchAll(attrPattern)) {
+    const name = match[1].toLowerCase();
+    const value = match[2] ?? match[3] ?? '';
+    const candidates = /srcset$/.test(name) ? value.split(',') : [value];
+    for (const candidate of candidates) {
+      const url = candidate.trim().split(/\s+/)[0] ?? '';
+      if (remote(url)) found.push(`${name}=${url}`);
+    }
+  }
+
+  for (const match of html.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*))\s*\)/gi)) {
+    const url = (match[1] ?? match[2] ?? match[3] ?? '').trim();
+    if (remote(url)) found.push(`url(${url})`);
+  }
+
+  for (const match of html.matchAll(/@import\s+(?:"([^"]*)"|'([^']*)')/gi)) {
+    const url = (match[1] ?? match[2] ?? '').trim();
+    if (remote(url)) found.push(`@import ${url}`);
+  }
+
+  return found;
+};
+
 describe('IndependentHtmlCloneGenerator - Standalone Bundle & Cardinality Bounds', () => {
   let tempDir: string;
 
@@ -29,7 +65,7 @@ describe('IndependentHtmlCloneGenerator - Standalone Bundle & Cardinality Bounds
     // Generate 20 product cards inside product_grid rawHtml
     const productCards = Array.from({ length: 20 }, (_, i) => `
       <div class="product-item col-3" data-id="${i + 1}">
-        <a href="/product/${i + 1}"><img src="https://example.com/banner.jpg" class="lazy"></a>
+        <a href="/product/${i + 1}"><img src="https://example.com/banner.jpg" srcset="https://example.com/banner.jpg 1x, https://example.com/banner.jpg 2x" class="lazy"></a>
         <h3>Product ${i + 1}</h3>
         <span class="price">${(i + 1) * 10000} VND</span>
       </div>
@@ -110,15 +146,38 @@ describe('IndependentHtmlCloneGenerator - Standalone Bundle & Cardinality Bounds
     assert.ok(matches, 'Must have product items');
     assert.strictEqual(matches.length, 12, 'Must bound product cards to exactly 12');
 
-    // Verify Zero Remote Hotlinks Invariant across all resource attributes and CSS url/@import
-    const remoteResourcePattern = /(?:src|href|action)\s*=\s*["']https?:\/\/[^"']+["']|url\(\s*["']?https?:\/\/[^"')]+["']?\s*\)|@import\s+["']https?:\/\/[^"']+["']/gi;
-    const remoteMatches = html.match(remoteResourcePattern);
-    assert.strictEqual(remoteMatches, null, 'Standalone bundle must contain zero remote resource hotlinks');
+    // Zero Remote Hotlinks Invariant: every sub-resource attribute the fixture carries
+    // (including the srcset candidate list) must have been rewritten to a local target.
+    assert.deepStrictEqual(
+      remoteResourceUrls(html),
+      [],
+      'Standalone bundle must contain zero remote resource hotlinks'
+    );
     // Verify manifest was produced
     const manifestPath = path.join(outDir, 'manifest.json');
     assert.ok(fs.existsSync(manifestPath), 'manifest.json must exist');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
     assert.strictEqual(manifest.representativeData.productCount, 12);
+  });
+
+  it('detects remote resources hidden in srcset, poster and CSS url() contexts', () => {
+    const html = [
+      '<img srcset="https://cdn.example/a.jpg 1x, /assets/b.jpg 2x">',
+      '<img imagesrcset="//cdn.example/c.jpg 1x">',
+      '<video poster="https://cdn.example/p.jpg"></video>',
+      '<form action="https://cdn.example/submit"></form>',
+      '<div style="background:url(\'https://cdn.example/bg.png\')"></div>',
+      '<style>@import "https://cdn.example/s.css";</style>',
+      '<img src="/assets/local.jpg" srcset="/assets/local.jpg 1x">',
+    ].join('\n');
+    assert.deepStrictEqual(remoteResourceUrls(html), [
+      'srcset=https://cdn.example/a.jpg',
+      'imagesrcset=//cdn.example/c.jpg',
+      'poster=https://cdn.example/p.jpg',
+      'action=https://cdn.example/submit',
+      'url(https://cdn.example/bg.png)',
+      '@import https://cdn.example/s.css',
+    ]);
   });
 
   it('bounds article cards in blog/news sections to maxArticles (6) and prunes excess cards', async () => {

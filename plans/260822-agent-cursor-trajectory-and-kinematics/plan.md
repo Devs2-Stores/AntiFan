@@ -1,3 +1,9 @@
+---
+title: "Agent Cursor Trajectory & In-Page Bézier Kinematics Engine"
+status: completed
+created: 2026-08-22
+---
+
 # Plan: Agent Cursor Trajectory & In-Page Bézier Kinematics Engine
 
 ## Status: IMPLEMENTATION_COMPLETE (15/15 Unit Tests Passing; Live MCP Verification Blocked on Host Broker Reload)

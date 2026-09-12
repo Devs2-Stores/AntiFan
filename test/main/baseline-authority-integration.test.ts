@@ -44,6 +44,11 @@ const defaultProjectId = makeControlPlaneId('project');
 const defaultWorkspaceId = makeControlPlaneId('workspace');
 const defaultLease = issueRuntimeLease(defaultProjectId, defaultWorkspaceId, 60_000, 1);
 
+// visual_compare asserts route identity: without an expected URL a comparison settles
+// INCONCLUSIVE (URL_EXPECTATION_MISSING) instead of diffing, so tests that assert a diff must
+// declare the route their fixture tabs report.
+const ROUTE_URL = 'https://store.example.com/product';
+
 function createTestContext(opts: {
   workspaceId?: string;
   projectId?: string;
@@ -140,6 +145,7 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
       evalLog,
       hasTab: () => true,
       getTabList: () => [{ id: 'tab-a' }, { id: 'tab-b' }],
+      getTabUrl: (_tabId?: string) => ROUTE_URL,
       getNetworkTracker: () => ({
         isAttached: () => true,
         isSettled: () => true,
@@ -266,6 +272,8 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
 
       const res = (await catalogue.dispatch('browser.visual_compare', {
         baselineRef: baseRef.id,
+        expectedTargetUrl: ROUTE_URL,
+        expectedBaselineUrl: ROUTE_URL,
       }, ctxAttemptB)) as any;
 
       assert.equal(res.match, true);
@@ -382,6 +390,8 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
         });
         const res = (await catalogue.dispatch('browser.visual_compare', {
           baselineRef: baseRef.id,
+          expectedTargetUrl: ROUTE_URL,
+          expectedBaselineUrl: ROUTE_URL,
           normalizeScroll: true,
         }, ctxRun)) as any;
         results.push(res);

@@ -3,8 +3,9 @@
  * Plan registry gate: every `plans/&#42;&#42;/plan.md` declares a status this repository recognizes.
  *
  * The `status:` field was consumed by nothing across ~58 plans, so finished work and abandoned
- * work were indistinguishable. This consumer makes the field load-bearing: an unrecognized
- * spelling fails the gate, and the bucket summary is the number reports quote.
+ * work were indistinguishable. This consumer makes the field load-bearing: a plan with no
+ * frontmatter, or with an unrecognized `status:` spelling, fails the gate, and the bucket
+ * summary is the number reports quote.
  *
  * Usage: node scripts/check-plans.mjs [--root plans] [--json]
  */
@@ -79,7 +80,7 @@ function main(argv) {
   const files = collectPlanFiles(options.root);
   const buckets = {};
   const unknown = [];
-  let withoutFrontmatter = 0;
+  const missingFrontmatter = [];
 
   for (const file of files) {
     let text;
@@ -91,7 +92,7 @@ function main(argv) {
     }
     const fields = parseFrontmatter(text);
     if (!fields) {
-      withoutFrontmatter += 1;
+      missingFrontmatter.push(file);
       continue;
     }
     const status = fields.status ?? '';
@@ -108,8 +109,8 @@ function main(argv) {
   const summary = {
     root: options.root,
     plans: files.length,
-    classified: files.length - withoutFrontmatter - unknown.length,
-    withoutFrontmatter,
+    classified: files.length - missingFrontmatter.length - unknown.length,
+    withoutFrontmatter: missingFrontmatter.length,
     buckets,
     unknown,
   };
@@ -121,12 +122,15 @@ function main(argv) {
       .sort((a, b) => b[1].count - a[1].count)
       .map(([bucket, entry]) => `${bucket}=${entry.count}`);
     process.stdout.write(`plans=${summary.plans} classified=${summary.classified} no-frontmatter=${summary.withoutFrontmatter} ${parts.join(' ')}\n`);
+    for (const file of missingFrontmatter) {
+      process.stdout.write(`missing status frontmatter in ${file}\n`);
+    }
     for (const entry of unknown) {
       process.stdout.write(`unknown status ${JSON.stringify(entry.status)} in ${entry.file}\n`);
     }
   }
 
-  return unknown.length === 0 ? 0 : 1;
+  return unknown.length === 0 && missingFrontmatter.length === 0 ? 0 : 1;
 }
 
 try {

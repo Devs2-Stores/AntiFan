@@ -3,15 +3,24 @@ import * as assert from 'node:assert';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 import { AsyncThemeQaQueue } from '../../src/main/qa/async-qa-job-queue';
 
-function deferred<T = void>() {
-  let resolve!: (val: T | PromiseLike<T>) => void;
-  let reject!: (err: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
+/** Mirrors the stale-work error the QA queue recognises by code. */
+class StaleTargetError extends Error {
+  public readonly code = 'TARGET_STALE';
 }
+
+/** Yield to the event loop so queued job continuations can run. */
+const settle = (): Promise<void> => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setImmediate(resolve);
+  return promise;
+};
+
+/** Real timer wait: the queue schedules background tasks on the event loop. */
+const wait = (ms: number): Promise<void> => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+};
 
 describe('Low-Spec Hardware Optimization', () => {
   it('configures constrained disk and media cache boundaries', () => {
@@ -24,44 +33,60 @@ describe('Low-Spec Hardware Optimization', () => {
     assert.ok(gpuCacheDir.includes('gpu'));
   });
 
-  it('keeps event loop latency bounded under simulated cooperative yields', async () => {
-    const start = performance.now();
-    const yieldsCount = 10;
-    for (let i = 0; i < yieldsCount; i++) {
-      const { promise, resolve } = deferred<void>();
-      setImmediate(resolve);
-      await promise;
-    }
-    const elapsed = performance.now() - start;
-    // 10 cooperative yields on node event loop should finish in under 200ms
-    assert.ok(elapsed < 200, `Cooperative yields took too long: ${elapsed}ms`);
+  it('supersedes an in-flight job synchronously and keeps the newer generation active', { timeout: 5000 }, async () => {
+    const queue = new AsyncThemeQaQueue();
+    const started = Promise.withResolvers<void>();
+    const staleGate = Promise.withResolvers<void>();
+    const currentGate = Promise.withResolvers<void>();
+    let staleSignal: AbortSignal | undefined;
+
+    queue.enqueue('tab-supersede', 1, async (signal) => {
+      staleSignal = signal;
+      started.resolve();
+      await staleGate.promise;
+      throw new StaleTargetError('superseded');
+    });
+    await started.promise;
+
+    queue.enqueue('tab-supersede', 2, async () => {
+      await currentGate.promise;
+    });
+
+    assert.strictEqual(staleSignal?.aborted, true, 'superseding must abort the running generation during enqueue');
+    assert.strictEqual(queue.getActiveJob('tab-supersede')?.generation, 2);
+
+    // The superseded task settling later must not evict the generation that replaced it.
+    staleGate.resolve();
+    await settle();
+    assert.strictEqual(queue.getActiveJob('tab-supersede')?.generation, 2, 'a stale job must not clear its replacement');
+    assert.strictEqual(queue.isRunning('tab-supersede'), true);
+
+    currentGate.resolve();
+    await settle();
+    assert.strictEqual(queue.isRunning('tab-supersede'), false, 'the current job clears itself once it settles');
   });
 
-  it('handles rapid task enqueue and cleanup on AsyncThemeQaQueue without memory leaks', async () => {
+  it('keeps only the newest generation of rapid enqueues running', async () => {
     const queue = new AsyncThemeQaQueue();
     let executedCount = 0;
 
     for (let gen = 1; gen <= 10; gen++) {
       queue.enqueue('tab-test-1', gen, async (signal) => {
-        const { promise, resolve } = deferred<void>();
-        setTimeout(resolve, 50);
-        await promise;
+        await wait(50);
         if (signal.aborted) {
-          const err = new Error('aborted');
-          (err as unknown as { code: string }).code = 'TARGET_STALE';
-          throw err;
+          throw new StaleTargetError('aborted');
         }
         executedCount++;
       });
     }
 
     assert.strictEqual(queue.isRunning('tab-test-1'), true);
-    // Wait for the final active task to finish
-    const { promise, resolve } = deferred<void>();
-    setTimeout(resolve, 100);
-    await promise;
+    const deadline = Date.now() + 2000;
+    while (queue.isRunning('tab-test-1') && Date.now() < deadline) {
+      await settle();
+    }
 
-    assert.strictEqual(executedCount, 1);
+    assert.strictEqual(executedCount, 1, 'only the newest generation may complete');
     assert.strictEqual(queue.isRunning('tab-test-1'), false);
   });
 });

@@ -1,3 +1,9 @@
+---
+title: "AntiFan MCP Sensory Engine & Quality Gate Overhaul"
+status: completed
+created: 2026-09-03
+---
+
 # Plan: AntiFan MCP Sensory Engine & Quality Gate Overhaul
 
 **ID:** `260903-1830-antifan-mcp-sensory-and-quality-gate-overhaul`  

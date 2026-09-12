@@ -110,25 +110,7 @@ describe('Terminal Process Tree Kill & Web Links Addon Contracts', () => {
     assert.match(preloadContent, /openExternal:\s*\(url\?:\s*string\)\s*=>\s*ipcRenderer\.invoke\('antifan:toolbar:open-external',\s*url\)/);
   });
 
-  it('verifies standalone.js implements attachWebLinksAddon and wires click-to-open AntiFan tab', () => {
-    const jsPath = path.join(ROOT, 'src/renderer/standalone.js');
-    assert.ok(fs.existsSync(jsPath));
-    const jsContent = fs.readFileSync(jsPath, 'utf8');
-
-    // 1. Function attachWebLinksAddon definition
-    assert.match(jsContent, /function\s+attachWebLinksAddon\s*\(\s*term\s*\)/);
-    assert.match(jsContent, /WebLinksAddon/);
-
-    // 2. Link handler routing: priority to createTab (new browser tab), fallback to openExternal
-    assert.match(jsContent, /api\?\.createTab/);
-    assert.match(jsContent, /api\?\.openExternal/);
-
-    // 3. Main pane and split pane load web links addon
-    assert.match(jsContent, /webLinksAddon\s*=\s*attachWebLinksAddon/);
-    assert.match(jsContent, /splitWebLinksAddon\s*=\s*attachWebLinksAddon/);
-
-    // 4. Proper cleanup on disposal
-    assert.match(jsContent, /item\.webLinksAddon\?\.dispose\(\)/);
-    assert.match(jsContent, /splitWebLinksAddon\?\.dispose\(\)/);
-  });
+  // Hyperlink routing (attachWebLinksAddon, its createTab/openExternal precedence, and the
+  // disposal wiring) is covered behaviourally in
+  // test/renderer/terminal-split-behaviour.test.ts, which drives the shipped handler.
 });

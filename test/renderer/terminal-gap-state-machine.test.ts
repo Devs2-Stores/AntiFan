@@ -1,213 +1,224 @@
-import { describe, it } from 'node:test';
+/**
+ * Phase T1.B: renderer gap state machine & bounded liveQueue.
+ *
+ * `src/renderer/standalone.js` is a plain renderer script, so these cases load it through the
+ * shared vm harness (stubbed DOM, xterm, and preload bridge) and drive the shipped
+ * `processIncomingChunk`. The transitions, queue bounds, delta requests, and pane writes
+ * asserted here are the ones the renderer performs — no local re-implementation.
+ *
+ * The bounds are read back from the loaded script (`MAX_RECOVERY_QUEUE_BYTES`,
+ * `MAX_RECOVERY_QUEUE_CHUNKS`), so a bound change in the renderer cannot silently pass.
+ */
+import { describe, it, before, beforeEach } from 'node:test';
 import * as assert from 'node:assert';
+import { loadStandalone, createViewState, deltaChunks, FakeElement, FakeTerm, type StandaloneHarness, type Chunk, type DeltaResult } from './standalone-harness';
+
+interface ViewState {
+  id: string;
+  term: FakeTerm;
+  paneEl: FakeElement;
+  lastRenderedSeq: number;
+  sessionGeneration: number;
+  liveQueue: Chunk[];
+  syncState: string;
+  isFetchingDelta: boolean;
+  pendingWriteAckSeq: number;
+  gapCount: number;
+  resyncCount: number;
+  degradedCount: number;
+  activeHydratingEpoch: number | null;
+}
 
 describe('Phase T1.B: Renderer Gap State Machine & Bounded liveQueue', () => {
-  const MAX_RECOVERY_QUEUE_BYTES = 1024 * 1024; // 1 MiB
-  const MAX_RECOVERY_QUEUE_CHUNKS = 2048;
+  let harness: StandaloneHarness;
+  let processChunk: (viewState: ViewState, chunk: Chunk, isSplit: boolean) => Promise<void>;
+  let deltaCalls: Array<{ sessionId: string; generation: number; fromSeq: number }>;
 
-  interface MockViewState {
-    id: string;
-    lastRenderedSeq: number;
-    sessionGeneration: number;
-    syncState: 'READY' | 'GAPPED' | 'RESYNCING' | 'DEGRADED';
-    liveQueue: Array<{ seq: number; generation: number; data: string }>;
-    gapCount: number;
-    resyncCount: number;
-    degradedCount: number;
-    renderedChunks: string[];
-    isFetchingDelta: boolean;
-    pendingWriteAckSeq: number;
-  }
+  const view = (overrides: Partial<ViewState> = {}): ViewState =>
+    createViewState(overrides as Record<string, unknown>) as unknown as ViewState;
 
-  function createMockViewState(sessionId = 'test-s1'): MockViewState {
-    return {
-      id: sessionId,
-      lastRenderedSeq: 0,
-      sessionGeneration: 1,
-      syncState: 'READY',
-      liveQueue: [],
-      gapCount: 0,
-      resyncCount: 0,
-      degradedCount: 0,
-      renderedChunks: [],
-      isFetchingDelta: false,
-      pendingWriteAckSeq: 0,
-    };
-  }
-
-  async function processChunkSim(
-    viewState: MockViewState,
-    chunk: { seq: number; generation: number; data: string },
-    deltaProvider: (fromSeq: number) => Promise<Array<{ seq: number; data: string }> | null>
-  ) {
-    const chunkSeq = chunk.seq;
-    const chunkData = chunk.data;
-
-    if (viewState.syncState === 'DEGRADED') {
-      return;
-    }
-
-    // Dedup
-    if (chunkSeq > 0 && chunkSeq <= viewState.lastRenderedSeq) {
-      return;
-    }
-
-    // In-order contiguous (next sequential chunk, or first chunk of fresh view)
-    if (chunkSeq === viewState.lastRenderedSeq + 1 || (viewState.lastRenderedSeq === 0 && chunkSeq === 1)) {
-      viewState.lastRenderedSeq = chunkSeq;
-      viewState.pendingWriteAckSeq = chunkSeq;
-      viewState.renderedChunks.push(chunkData);
-      return;
-    }
-
-    // Gap detected
-    viewState.gapCount++;
-    const chunkBytes = Buffer.byteLength(chunkData, 'utf8');
-    const currentQueueBytes = viewState.liveQueue.reduce((acc, c) => acc + Buffer.byteLength(c.data, 'utf8'), 0);
-
-    if (
-      currentQueueBytes + chunkBytes > MAX_RECOVERY_QUEUE_BYTES ||
-      viewState.liveQueue.length >= MAX_RECOVERY_QUEUE_CHUNKS
-    ) {
-      viewState.syncState = 'DEGRADED';
-      viewState.degradedCount++;
-      viewState.liveQueue = [];
-      return;
-    }
-
-    viewState.liveQueue.push(chunk);
-
-    if (viewState.isFetchingDelta) {
-      return;
-    }
-
-    viewState.isFetchingDelta = true;
-    viewState.syncState = 'GAPPED';
-
-    try {
-      const fromSeq = viewState.lastRenderedSeq + 1;
-      const deltaChunks = await deltaProvider(fromSeq);
-      if (deltaChunks === null) {
-        viewState.syncState = 'DEGRADED';
-        viewState.degradedCount++;
-        viewState.liveQueue = [];
-        return;
-      }
-
-      viewState.syncState = 'RESYNCING';
-      for (const dc of deltaChunks) {
-        if (dc.seq === viewState.lastRenderedSeq + 1) {
-          viewState.lastRenderedSeq = dc.seq;
-          viewState.pendingWriteAckSeq = dc.seq;
-          viewState.renderedChunks.push(dc.data);
-        }
-      }
-
-      // Drain liveQueue
-      viewState.liveQueue.sort((a, b) => a.seq - b.seq);
-      while (viewState.liveQueue.length > 0) {
-        const next = viewState.liveQueue[0];
-        if (next && next.seq <= viewState.lastRenderedSeq) {
-          viewState.liveQueue.shift();
-        } else if (next && next.seq === viewState.lastRenderedSeq + 1) {
-          viewState.liveQueue.shift();
-          viewState.lastRenderedSeq = next.seq;
-          viewState.pendingWriteAckSeq = next.seq;
-          viewState.renderedChunks.push(next.data);
-        } else {
-          break;
-        }
-      }
-
-      if (viewState.liveQueue.length === 0) {
-        viewState.syncState = 'READY';
-        viewState.resyncCount++;
-      }
-    } finally {
-      viewState.isFetchingDelta = false;
-    }
-  }
-
-  it('COMMIT 5 (Contiguous Stream): renders without gaps or queueing', async () => {
-    const view = createMockViewState();
-    const provider = async () => [];
-
-    await processChunkSim(view, { seq: 1, generation: 1, data: 'line 1\n' }, provider);
-    await processChunkSim(view, { seq: 2, generation: 1, data: 'line 2\n' }, provider);
-    await processChunkSim(view, { seq: 3, generation: 1, data: 'line 3\n' }, provider);
-
-    assert.strictEqual(view.lastRenderedSeq, 3);
-    assert.strictEqual(view.syncState, 'READY');
-    assert.strictEqual(view.gapCount, 0);
-    assert.strictEqual(view.renderedChunks.length, 3);
+  before(() => {
+    harness = loadStandalone();
+    processChunk = harness.processIncomingChunk as unknown as typeof processChunk;
   });
 
-  it('COMMIT 5 (Sequence Jump & Delta Recovery): recovers from seq 100 to 150 gap', async () => {
-    const view = createMockViewState();
-    view.lastRenderedSeq = 100;
+  beforeEach(() => {
+    deltaCalls = [];
+    // The renderer captured the bridge object at load time; overrides land on the same instance.
+    harness.api.getTerminalDelta = async () => null;
+  });
 
-    // Simulate journal providing chunks 101 through 149
-    const missingChunks: Array<{ seq: number; data: string }> = [];
-    for (let i = 101; i <= 149; i++) {
-      missingChunks.push({ seq: i, data: `recovered ${i}\n` });
-    }
+  it('renders a contiguous stream without queueing', async () => {
+    const viewState = view();
+    await processChunk(viewState, { seq: 1, generation: 1, data: 'a' }, false);
+    await processChunk(viewState, { seq: 2, generation: 1, data: 'b' }, false);
+    await processChunk(viewState, { seq: 3, generation: 1, data: 'c' }, false);
 
-    const provider = async (fromSeq: number) => {
-      return missingChunks.filter(c => c.seq >= fromSeq);
+    assert.strictEqual(viewState.lastRenderedSeq, 3);
+    assert.strictEqual(viewState.pendingWriteAckSeq, 3);
+    assert.strictEqual(viewState.syncState, 'READY');
+    assert.strictEqual(viewState.gapCount, 0);
+    assert.strictEqual(viewState.liveQueue.length, 0);
+    assert.deepStrictEqual(viewState.term.writes, ['a', 'b', 'c']);
+    assert.strictEqual(viewState.term.resetCount, 0);
+  });
+
+  it('drops duplicate and already-rendered sequences', async () => {
+    const viewState = view();
+    await processChunk(viewState, { seq: 1, generation: 1, data: 'a' }, false);
+    await processChunk(viewState, { seq: 2, generation: 1, data: 'b' }, false);
+    await processChunk(viewState, { seq: 2, generation: 1, data: 'b-replayed' }, false);
+    await processChunk(viewState, { seq: 1, generation: 1, data: 'a-replayed' }, false);
+
+    assert.deepStrictEqual(viewState.term.writes, ['a', 'b']);
+    assert.strictEqual(viewState.lastRenderedSeq, 2);
+    assert.strictEqual(viewState.gapCount, 0);
+  });
+
+  it('buffers every chunk while a hydration epoch is active and renders none of them', async () => {
+    const viewState = view({ activeHydratingEpoch: 1 });
+    await processChunk(viewState, { seq: 1, generation: 1, data: 'a' }, false);
+    await processChunk(viewState, { seq: 2, generation: 1, data: 'b' }, false);
+
+    assert.strictEqual(viewState.term.writes.length, 0);
+    assert.strictEqual(viewState.liveQueue.length, 2);
+    assert.strictEqual(viewState.lastRenderedSeq, 0);
+  });
+
+  it('resets the pane and clears the queue when the PTY generation leaps', async () => {
+    const viewState = view({ lastRenderedSeq: 7, syncState: 'DEGRADED' });
+    viewState.liveQueue.push({ seq: 99, generation: 1, data: 'stale' });
+    viewState.paneEl.appendChild(new FakeElement('div')).className = 'terminal-degraded-banner';
+
+    await processChunk(viewState, { seq: 1, generation: 2, data: 'new shell' }, false);
+
+    assert.strictEqual(viewState.sessionGeneration, 2);
+    assert.strictEqual(viewState.lastRenderedSeq, 1);
+    assert.strictEqual(viewState.syncState, 'READY');
+    assert.strictEqual(viewState.liveQueue.length, 0);
+    assert.strictEqual(viewState.term.resetCount, 1, 'the stale transcript must be cleared from the pane');
+    assert.deepStrictEqual(viewState.term.writes, ['new shell']);
+    assert.strictEqual(
+      viewState.paneEl.querySelectorAll('.terminal-degraded-banner').length,
+      0,
+      'a recovered pane must not keep the degraded banner',
+    );
+  });
+
+  it('recovers a sequence gap through the delta API and drains the buffered chunk in order', async () => {
+    const viewState = view({ sessionGeneration: 3, lastRenderedSeq: 100 });
+    harness.api.getTerminalDelta = async (sessionId, generation, fromSeq) => {
+      deltaCalls.push({ sessionId, generation, fromSeq });
+      return { status: 'OK', chunks: deltaChunks(101, 150) };
     };
 
-    // Arrives chunk 150 -> triggers gap detection and resolution
-    await processChunkSim(view, { seq: 150, generation: 1, data: 'live 150\n' }, provider);
+    await processChunk(viewState, { seq: 150, generation: 3, data: 'delta-150' }, false);
 
-    assert.strictEqual(view.lastRenderedSeq, 150);
-    assert.strictEqual(view.syncState, 'READY');
-    assert.strictEqual(view.gapCount, 1);
-    assert.strictEqual(view.resyncCount, 1);
-    // All 49 recovered + 1 live chunk = 50 chunks rendered in exact sequential order
-    assert.strictEqual(view.renderedChunks.length, 50);
-    assert.strictEqual(view.renderedChunks[0], 'recovered 101\n');
-    assert.strictEqual(view.renderedChunks[48], 'recovered 149\n');
-    assert.strictEqual(view.renderedChunks[49], 'live 150\n');
+    assert.deepStrictEqual(deltaCalls, [{ sessionId: 'test-s1', generation: 3, fromSeq: 101 }]);
+    assert.strictEqual(viewState.gapCount, 1);
+    assert.strictEqual(viewState.resyncCount, 1);
+    assert.strictEqual(viewState.syncState, 'READY');
+    assert.strictEqual(viewState.lastRenderedSeq, 150);
+    assert.strictEqual(viewState.liveQueue.length, 0);
+    assert.strictEqual(viewState.term.writes[0], 'delta-101');
+    assert.strictEqual(viewState.term.writes[viewState.term.writes.length - 1], 'delta-150');
+    assert.strictEqual(viewState.term.writes.length, 50);
   });
 
-  it('COMMIT 5 (Bounded Queue Overflow): rapid flood beyond 1 MiB halts queue and transitions to DEGRADED', async () => {
-    const view = createMockViewState();
-    view.lastRenderedSeq = 10;
+  it('reaches the preload bridge for a gap without mutating global active-session state', async () => {
+    deltaCalls.length = 0;
+    const viewState = view({ lastRenderedSeq: 100 });
 
-    // Delta provider hangs or is disabled
-    const provider = async () => null;
+    harness.apiCalls.length = 0;
+    await processChunk(viewState, { seq: 140, generation: 1, data: 'gap-140' }, false);
 
-    // Send a 1.2 MiB burst chunk with seq gap (seq 20)
-    const largeChunkData = 'B'.repeat(1024 * 1024 + 2048);
-    await processChunkSim(view, { seq: 20, generation: 1, data: largeChunkData }, provider);
-
-    assert.strictEqual(view.syncState, 'DEGRADED');
-    assert.strictEqual(view.degradedCount, 1);
-    assert.strictEqual(view.liveQueue.length, 0, 'Buffer must be cleared to prevent OOM');
+    assert.ok(
+      harness.apiCalls.includes('getTerminalDelta'),
+      `a gap must ask the bridge for the missing range, got: ${harness.apiCalls.join(', ')}`
+    );
+    // The singleton active tab must not be repointed by a popout renderer's own traffic.
+    assert.strictEqual(harness.apiCalls.includes('setActiveTerminalSession'), false);
   });
 
-  it('COMMIT 5 (Cold Start Gap): fresh view (lastRenderedSeq=0) receiving chunk 5 heals gap 1..4 via delta and settles at 5', async () => {
-    const view = createMockViewState();
-    view.lastRenderedSeq = 0;
+  it('issues a single delta fetch and queues a repeated gap chunk once', async () => {
+    const viewState = view({ lastRenderedSeq: 100 });
 
-    const missingChunks = [
-      { seq: 1, data: 'cold 1\n' },
-      { seq: 2, data: 'cold 2\n' },
-      { seq: 3, data: 'cold 3\n' },
-      { seq: 4, data: 'cold 4\n' },
-    ];
+    const deltaGate = Promise.withResolvers<DeltaResult>();
+    harness.api.getTerminalDelta = () => {
+      deltaCalls.push({ sessionId: 'test-s1', generation: 1, fromSeq: 101 });
+      return deltaGate.promise;
+    };
 
-    const provider = async (fromSeq: number) => missingChunks.filter(c => c.seq >= fromSeq);
+    const pending = processChunk(viewState, { seq: 150, generation: 1, data: 'delta-150' }, false);
+    await processChunk(viewState, { seq: 150, generation: 1, data: 'delta-150' }, false);
 
-    // Arrives chunk 5 directly on fresh view
-    await processChunkSim(view, { seq: 5, generation: 1, data: 'live 5\n' }, provider);
+    assert.strictEqual(deltaCalls.length, 1, 'a chunk arriving during a fetch must not start a second fetch');
+    assert.strictEqual(viewState.liveQueue.length, 1, 'the same sequence must not be queued twice');
+    assert.strictEqual(viewState.gapCount, 2);
 
-    assert.strictEqual(view.lastRenderedSeq, 5);
-    assert.strictEqual(view.syncState, 'READY');
-    assert.strictEqual(view.gapCount, 1);
-    assert.strictEqual(view.renderedChunks.length, 5);
-    assert.strictEqual(view.renderedChunks[0], 'cold 1\n');
-    assert.strictEqual(view.renderedChunks[3], 'cold 4\n');
-    assert.strictEqual(view.renderedChunks[4], 'live 5\n');
+    deltaGate.resolve({ status: 'OK', chunks: deltaChunks(101, 150) });
+    await pending;
+    assert.strictEqual(viewState.liveQueue.length, 0);
+    assert.strictEqual(viewState.lastRenderedSeq, 150);
+    assert.strictEqual(viewState.syncState, 'READY');
+  });
+
+  it('halts rendering and reports DEGRADED when a gap chunk exceeds the queue bound', async () => {
+    const viewState = view({ lastRenderedSeq: 100 });
+    const oversized = 'x'.repeat(harness.maxQueueBytes + 1);
+
+    let deltaFetches = 0;
+    harness.api.getTerminalDelta = async () => {
+      deltaFetches += 1;
+      return null;
+    };
+
+    await processChunk(viewState, { seq: 150, generation: 1, data: oversized }, false);
+
+    assert.strictEqual(viewState.syncState, 'DEGRADED');
+    assert.strictEqual(viewState.degradedCount, 1);
+    assert.strictEqual(viewState.liveQueue.length, 0);
+    assert.strictEqual(viewState.term.writes.length, 0, 'a degraded pane renders nothing');
+    assert.strictEqual(deltaFetches, 0, 'an oversized chunk must not trigger a delta fetch');
+    assert.strictEqual(
+      viewState.paneEl.querySelectorAll('.terminal-degraded-banner').length,
+      1,
+      'the pane must surface exactly one degraded banner',
+    );
+
+    await processChunk(viewState, { seq: 151, generation: 1, data: 'later' }, false);
+    assert.strictEqual(viewState.liveQueue.length, 0);
+    assert.strictEqual(viewState.term.writes.length, 0);
+  });
+
+  it('drains the buffer when no delta is available instead of degrading', async () => {
+    const viewState = view();
+    await processChunk(viewState, { seq: 5, generation: 1, data: 'chunk-5' }, false);
+
+    assert.strictEqual(viewState.syncState, 'READY');
+    assert.strictEqual(viewState.degradedCount, 0);
+    assert.strictEqual(viewState.lastRenderedSeq, 5);
+    assert.deepStrictEqual(viewState.term.writes, ['chunk-5']);
+  });
+
+  it('adopts the authoritative generation on GENERATION_MISMATCH and degrades on DELTA_EXPIRED', async () => {
+    const mismatchState = view({ lastRenderedSeq: 100 });
+    harness.api.getTerminalDelta = async () => ({ status: 'GENERATION_MISMATCH', currentGeneration: 9 });
+
+    await processChunk(mismatchState, { seq: 150, generation: 1, data: 'gap' }, false);
+
+    assert.strictEqual(mismatchState.sessionGeneration, 9);
+    assert.strictEqual(mismatchState.lastRenderedSeq, 0);
+    assert.strictEqual(mismatchState.syncState, 'READY');
+    assert.strictEqual(mismatchState.liveQueue.length, 0);
+
+    const expiredState = view({ lastRenderedSeq: 100 });
+    harness.api.getTerminalDelta = async () => ({ status: 'DELTA_EXPIRED' });
+
+    await processChunk(expiredState, { seq: 150, generation: 1, data: 'gap' }, false);
+
+    assert.strictEqual(expiredState.syncState, 'DEGRADED');
+    assert.strictEqual(expiredState.degradedCount, 1);
+    assert.strictEqual(expiredState.liveQueue.length, 0);
   });
 });

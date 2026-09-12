@@ -1,3 +1,9 @@
+---
+title: "Multi-Terminal Windows (Multi-Monitor Workspace)"
+status: completed
+created: 2026-08-22
+---
+
 # Implementation Plan - Multi-Terminal Windows (Multi-Monitor Workspace)
 
 ## Overview

@@ -20,36 +20,21 @@ export class AntiFanMcpClient {
   async connect() {
     if (this.mcpProc) return;
 
-    const sessionPath = path.resolve('.canary/state/canary-session.json');
-    if (!fs.existsSync(sessionPath)) {
-      throw new Error(`Canary session record missing at ${sessionPath}`);
-    }
-
-    const sessionData = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
-    const bootstrapObj = {
-      port: sessionData.port,
-      secret: sessionData.secret,
-      token: sessionData.secret,
-      attachmentId: sessionData.attachmentId,
-      authorityRevision: sessionData.authorityRevision,
-      runId: sessionData.runId,
-      attemptId: sessionData.attemptId,
-      projectId: sessionData.projectId,
-      workspaceId: sessionData.workspaceId,
-      tabId: sessionData.tabId,
-      ownerPid: sessionData.instancePid,
-    };
+    const session = this.resolveSession();
+    const bootstrapObj = session.bootstrap;
 
     const env = {
       ...process.env,
       ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrapObj),
-      ANTIFAN_ATTACHMENT_ID: sessionData.attachmentId,
-      ANTIFAN_ATTACHMENT_SECRET: sessionData.secret,
-      ANTIFAN_AUTHORITY_REVISION: sessionData.authorityRevision,
-      ANTIFAN_MCP_PORT: String(sessionData.port),
+      ANTIFAN_ATTACHMENT_ID: session.attachmentId,
+      ANTIFAN_ATTACHMENT_SECRET: session.secret,
+      ANTIFAN_AUTHORITY_REVISION: session.authorityRevision,
+      ANTIFAN_MCP_PORT: String(session.port),
     };
 
-    const mcpScript = path.resolve('scripts/antifan-omp-mcp.cjs');
+    const mcpScript = this.options.mcpScript
+      ? path.resolve(this.options.mcpScript)
+      : path.resolve('scripts/antifan-omp-mcp.cjs');
     this.mcpProc = spawn(process.execPath, [mcpScript], {
       env,
       stdio: ['pipe', 'pipe', 'inherit'],
@@ -95,6 +80,49 @@ export class AntiFanMcpClient {
     this.initialized = true;
   }
 
+  /**
+   * Live runs read the canary session record; a caller that supplies an explicit bootstrap
+   * (tests, alternate harnesses) skips that read so it does not depend on ambient state.
+   */
+  resolveSession() {
+    if (this.options.bootstrap) {
+      const bootstrap = this.options.bootstrap;
+      return {
+        bootstrap,
+        port: bootstrap.port,
+        secret: bootstrap.secret,
+        attachmentId: bootstrap.attachmentId ?? null,
+        authorityRevision: bootstrap.authorityRevision ?? null,
+      };
+    }
+
+    const sessionPath = path.resolve('.canary/state/canary-session.json');
+    if (!fs.existsSync(sessionPath)) {
+      throw new Error(`Canary session record missing at ${sessionPath}`);
+    }
+
+    const sessionData = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    return {
+      port: sessionData.port,
+      secret: sessionData.secret,
+      attachmentId: sessionData.attachmentId,
+      authorityRevision: sessionData.authorityRevision,
+      bootstrap: {
+        port: sessionData.port,
+        secret: sessionData.secret,
+        token: sessionData.secret,
+        attachmentId: sessionData.attachmentId,
+        authorityRevision: sessionData.authorityRevision,
+        runId: sessionData.runId,
+        attemptId: sessionData.attemptId,
+        projectId: sessionData.projectId,
+        workspaceId: sessionData.workspaceId,
+        tabId: sessionData.tabId,
+        ownerPid: sessionData.instancePid,
+      },
+    };
+  }
+
   sendRaw(method, params = {}) {
     if (!this.mcpProc) {
       throw new Error('MCP client is not connected');
@@ -123,13 +151,24 @@ export class AntiFanMcpClient {
     if (res && res.content && Array.isArray(res.content)) {
       const textItem = res.content.find(c => c.type === 'text');
       if (textItem && typeof textItem.text === 'string') {
+        // A failed tool call is an error, not a result: returning the message as
+        // data hides the cause behind whatever shape the caller expected next.
+        if (res.isError) {
+          throw new Error(`MCP tool '${name}' failed: ${textItem.text}`);
+        }
         try {
           return JSON.parse(textItem.text);
         } catch {
           return textItem.text;
         }
       }
+      if (res.isError) {
+        throw new Error(`MCP tool '${name}' failed: ${JSON.stringify(res.content)}`);
+      }
       return res.content;
+    }
+    if (res && res.isError) {
+      throw new Error(`MCP tool '${name}' failed: ${JSON.stringify(res)}`);
     }
     return res;
   }

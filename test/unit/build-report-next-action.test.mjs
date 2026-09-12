@@ -4,9 +4,20 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { assessCanaryReplay } from '../fixtures/canary-run/replay-precondition.mjs';
+
+// Generation against this fixture is fail-closed on the artifact bytes and clone entries the
+// persisted run produced, so the replay is only executable where those bytes still exist.
+function canReplay(t) {
+  const replay = assessCanaryReplay();
+  if (replay.available) return true;
+  t.skip(replay.reason);
+  return false;
+}
 
 describe('build-report next action interpolation and gating', () => {
-  it('interpolates real metrics for viewports with compare blockers and does not throw on m.viewport.width', () => {
+  it('interpolates real metrics for viewports with compare blockers and does not throw on m.viewport.width', (t) => {
+    if (!canReplay(t)) return;
     const tempOut = path.join(os.tmpdir(), `test-report-action-${Date.now()}.md`);
     try {
       execFileSync(
@@ -54,7 +65,8 @@ describe('build-report next action interpolation and gating', () => {
     }
   });
 
-  it('emits no mobile defect claim in Section 16 when mobile model has no compare blockers', () => {
+  it('emits no mobile defect claim in Section 16 when mobile model has no compare blockers', (t) => {
+    if (!canReplay(t)) return;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-test-'));
     const tempEvidence = path.join(tempDir, 'evidence');
     fs.mkdirSync(tempEvidence, { recursive: true });

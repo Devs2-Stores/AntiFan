@@ -39,6 +39,24 @@ interface EvalLogEntry {
   tabId?: string;
 }
 
+// visual_compare asserts route identity: a comparison that omits the expected URL settles
+// INCONCLUSIVE with URL_EXPECTATION_MISSING instead of diffing. This suite therefore declares the
+// route its mock tabs report and routes every comparison through it, so an assertion about the
+// pixel diff can only pass when the diff actually ran.
+const ROUTE_URL = 'https://store.example.com/product';
+
+function createRoutePort(host: unknown, artifactSink?: unknown): BrowserControlPort {
+  const port = new BrowserControlPort(host as any, artifactSink as any);
+  const baseVisualCompare = port.visualCompare.bind(port);
+  port.visualCompare = ((target, runId, attemptId, params = {}) =>
+    baseVisualCompare(target, runId, attemptId, {
+      expectedTargetUrl: ROUTE_URL,
+      expectedBaselineUrl: ROUTE_URL,
+      ...params,
+    })) as typeof port.visualCompare;
+  return port;
+}
+
 interface MaskRow {
   selector: string;
   error: string | null;
@@ -95,6 +113,7 @@ function buildMockHost(opts: MockHostOptions) {
   const host = {
     hasTab: () => true,
     getTabList: () => [{ id: 'tab-a' }, { id: 'tab-b' }],
+    getTabUrl: () => ROUTE_URL,
     evalJs: async (script: string, tabId?: string): Promise<unknown> => {
       opts.evalLog.push({ script, tabId });
       if (script.includes('__antifan_compare_txn__')) {
@@ -318,7 +337,7 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
   it('V-11: normalizeScroll style is injected before capture and verified-removed after success', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const result = await port.visualCompare(
       dummyTarget,
@@ -392,7 +411,7 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
   it('V-12: cleanup runs (verified restore) when capture throws', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog, captureThrowsFor: 'tab-a' });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     await assert.rejects(
       () =>
@@ -414,7 +433,7 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
       evalLog,
       maskRows: () => [{ selector: '.never-present', error: null, boxes: [] }],
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const result = await port.visualCompare(
       dummyTarget,
@@ -443,7 +462,7 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
         { selector: '.maybe-gone', error: null, boxes: [] },
       ],
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const result = await port.visualCompare(
       dummyTarget,
@@ -470,7 +489,7 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
   it('owned style that fails verified restore returns NORMALIZATION_RESTORE_FAILED, not a clean run', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog, restoreFailsFor: new Set(['tab-a']) });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const result = await port.visualCompare(
       dummyTarget,
@@ -560,7 +579,7 @@ describe('visualCompare capture coherence transaction', () => {
         }
       },
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
     assert.strictEqual(res.match, true);
     assert.strictEqual(res.coherence.identityCoherent, true);
@@ -583,7 +602,7 @@ describe('visualCompare capture coherence transaction', () => {
         if (t === 'tab-a') revA += 1;
       },
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' })) as any;
     assert.strictEqual(res.ok, false);
     assert.strictEqual(res.status, 'INCONCLUSIVE');
@@ -602,7 +621,7 @@ describe('visualCompare capture coherence transaction', () => {
         if (t === 'tab-a') genA = 2;
       },
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     await assert.rejects(
       port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' }),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
@@ -612,7 +631,7 @@ describe('visualCompare capture coherence transaction', () => {
   it('cancels the pixel diff with INCONCLUSIVE when comparison-side normalization fails to inject', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog, injectThrowsFor: new Set(['tab-b']) });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
     assert.strictEqual(res.ok, false);
     assert.strictEqual(res.status, 'INCONCLUSIVE');
@@ -629,7 +648,7 @@ describe('visualCompare capture coherence transaction', () => {
       evalLog,
       injectResultFor: (t) => (t === 'tab-b' ? { owned: false, present: true } : true),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
     assert.strictEqual(res.status, 'INCONCLUSIVE');
     assert.strictEqual(res.normalization.comparison.owned, false);
@@ -641,7 +660,7 @@ describe('visualCompare capture coherence transaction', () => {
   it('carries identityCoherent receipts for both sides on settled comparison', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
     assert.strictEqual(res.coherence.identityCoherent, true);
     assert.strictEqual(res.coherence.captureStateCompatible, true);
@@ -657,7 +676,7 @@ describe('visualCompare pair lock serializes capture transactions', () => {
   it('two concurrent compares on the same tab pair serialize inject/restore transactions', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const [a, b] = await Promise.all([
       port.visualCompare(dummyTarget, 'run1', 'att1', { comparisonTabId: 'tab-b', normalizeScroll: true }),
       port.visualCompare(dummyTarget, 'run2', 'att2', { comparisonTabId: 'tab-b', normalizeScroll: true }),
@@ -698,7 +717,7 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
   it('projects canonical CDP backend capture receipts across settled result (V-19)', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
 
     assert.strictEqual(res.match, true);
@@ -722,7 +741,7 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
       evalLog,
       captureBackendFor: (id) => (id === 'tab-a' ? 'cdp' : 'offscreen'),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     await assert.rejects(
       () => port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' }),
       (err: unknown) => err instanceof CapabilityError && err.code === 'CAPTURE_BACKEND_SWITCH'
@@ -735,7 +754,7 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
       evalLog,
       dprFor: (id) => (id === 'tab-a' ? 1.0 : 2.0),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
 
     assert.strictEqual(res.ok, false);
@@ -753,7 +772,7 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
       evalLog,
       zoomFor: (id) => (id === 'tab-a' ? 1.0 : 1.25),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
 
     assert.strictEqual(res.ok, false);
@@ -768,7 +787,7 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
       evalLog,
       viewportFor: (id) => (id === 'tab-a' ? { width: 800, height: 600 } : { width: 1024, height: 768 }),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
 
     assert.strictEqual(res.ok, false);
@@ -780,7 +799,7 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
   it('settles INCONCLUSIVE for stored baseline artifact pending Phase 6 baseline authority (R3/R4)', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', { baselineScreenshotRef: 'art-stored-1' })) as any;
 
     assert.strictEqual(res.ok, false);
@@ -795,7 +814,7 @@ describe('visualCompare composed settle barrier (Phase 4 V-16, V-17, V-18)', () 
   it('enforces execution order: normalization -> settle -> metrics -> masks -> capture', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', {
       comparisonTabId: 'tab-b',
       normalizeScroll: true,
@@ -829,7 +848,7 @@ describe('visualCompare composed settle barrier (Phase 4 V-16, V-17, V-18)', () 
       evalLog,
       fontsReadyFor: (id) => id !== 'tab-a',
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', {
       comparisonTabId: 'tab-b',
       normalizeScroll: true,
@@ -848,7 +867,7 @@ describe('visualCompare composed settle barrier (Phase 4 V-16, V-17, V-18)', () 
       evalLog,
       imagesSettledFor: (id) => id !== 'tab-a',
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', {
       comparisonTabId: 'tab-b',
       normalizeScroll: true,
@@ -868,7 +887,7 @@ describe('visualCompare composed settle barrier (Phase 4 V-16, V-17, V-18)', () 
       evalLog,
       brokenImagesFor: (id) => (id === 'tab-b' ? [missingImg] : []),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     await assert.rejects(
       async () => {
@@ -892,7 +911,7 @@ describe('visualCompare composed settle barrier (Phase 4 V-16, V-17, V-18)', () 
       evalLog,
       networkSettledFor: (id) => id !== 'tab-a',
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
     const res = (await port.visualCompare(dummyTarget, 'run', 'att', {
       comparisonTabId: 'tab-b',
       normalizeScroll: true,
@@ -908,7 +927,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
   it('returns canonical metricSamples and receipt conforming to VisualEvidenceReceipt on successful comparison', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-5', 'att-5', {
       comparisonTabId: 'tab-b',
@@ -960,7 +979,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
         return true;
       },
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-struct', 'att-struct', {
       comparisonTabId: 'tab-b',
@@ -1021,7 +1040,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
         return true;
       },
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-p4-iso', 'att-p4-iso', {
       comparisonTabId: 'tab-b',
@@ -1068,7 +1087,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
         return true;
       },
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-p4-mutA', 'att-p4-mutA', {
       comparisonTabId: 'tab-b',
@@ -1105,7 +1124,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
         return true;
       },
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-p4-mutB', 'att-p4-mutB', {
       comparisonTabId: 'tab-b',
@@ -1131,7 +1150,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
       evalLog,
       fontsReadyFor: () => false,
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-settle-fail', 'att-1', {
       comparisonTabId: 'tab-b',
@@ -1159,7 +1178,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
       evalLog,
       fontsReadyFor: () => false,
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-settle-mask-fail', 'att-1', {
       comparisonTabId: 'tab-b',
@@ -1184,7 +1203,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
       evalLog,
       dprFor: (id) => (id === 'tab-a' ? 2 : 1),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-mismatch', 'att-2', {
       comparisonTabId: 'tab-b',
@@ -1208,7 +1227,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
       evalLog,
       maskRows: () => [{ selector: '.missing', error: null, boxes: [] }],
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const res = (await port.visualCompare(dummyTarget, 'run-mask-fail', 'att-3', {
       comparisonTabId: 'tab-b',
@@ -1229,7 +1248,7 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
       evalLog,
       brokenImagesFor: () => ['https://cdn.example.com/broken.jpg'],
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     await assert.rejects(
       async () => {
@@ -1371,7 +1390,7 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
 
   it('visualCompare rejects missing baseline sources with INVALID_ARGUMENT', async () => {
     const host = buildMockHost({ evalLog: [] });
-    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    const port = createRoutePort(host as unknown as BrowserHostPort);
     await assert.rejects(
       async () => {
         await port.visualCompare(dummyTarget, 'run-1', 'att-1', {});
@@ -1382,7 +1401,7 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
 
   it('visualCompare rejects conflicting baseline sources with INVALID_ARGUMENT', async () => {
     const host = buildMockHost({ evalLog: [] });
-    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    const port = createRoutePort(host as unknown as BrowserHostPort);
     await assert.rejects(
       async () => {
         await port.visualCompare(dummyTarget, 'run-1', 'att-1', {
@@ -1396,7 +1415,7 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
 
   it('visualCompare rejects baselineRef without workspace context with WORKSPACE_UNBOUND', async () => {
     const host = buildMockHost({ evalLog: [] });
-    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    const port = createRoutePort(host as unknown as BrowserHostPort);
     const unboundTarget = { ...dummyTarget, workspaceId: '' };
     await assert.rejects(
       async () => {
@@ -1413,7 +1432,7 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
       getTabList: () => [{ id: 'tab-a' }, { id: 'tab-b' }],
       isCurrentTarget: () => true,
     };
-    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    const port = createRoutePort(host as unknown as BrowserHostPort);
     await assert.rejects(
       async () => {
         await port.visualCompare(dummyTarget, 'run-1', 'att-1', {
@@ -1438,7 +1457,7 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
         return true;
       },
     });
-    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    const port = createRoutePort(host as unknown as BrowserHostPort);
     const res = (await port.visualCompare(dummyTarget, 'run-spec', 'att-spec', {
       comparisonTabId: 'tab-b',
       trackedSelectors: ['.product-card', '[data-test-card]'],
@@ -1528,7 +1547,7 @@ describe('visualCompare structural height drift & truncation controls', () => {
       evalLog,
       pngDimensionsForTab: (tabId) => (tabId === 'tab-a' ? { width: 800, height: 1000 } : { width: 800, height: 600 }),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const result = await port.visualCompare(
       dummyTarget,
@@ -1552,7 +1571,7 @@ describe('visualCompare structural height drift & truncation controls', () => {
       evalLog,
       pngDimensionsForTab: (tabId) => (tabId === 'tab-a' ? { width: 800, height: 780 } : { width: 800, height: 600 }),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const result = await port.visualCompare(
       dummyTarget,
@@ -1575,7 +1594,7 @@ describe('visualCompare structural height drift & truncation controls', () => {
       evalLog,
       pngDimensionsForTab: (tabId) => (tabId === 'tab-a' ? { width: 800, height: 1200 } : { width: 800, height: 600 }),
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     const result = await port.visualCompare(
       dummyTarget,
@@ -1597,7 +1616,7 @@ describe('visualCompare structural height drift & truncation controls', () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
     const { sink, staged } = buildArtifactSink();
-    const port = new BrowserControlPort(host as any, sink);
+    const port = createRoutePort(host as any, sink);
 
     const result = await port.visualCompare(
       dummyTarget,
@@ -1624,7 +1643,7 @@ describe('visualCompare structural height drift & truncation controls', () => {
       evalLog,
       isTargetDrainingFor: () => false, // Host no longer draining
     });
-    const port = new BrowserControlPort(host as any);
+    const port = createRoutePort(host as any);
 
     // Manually inject a quarantine entry whose recovery completed with ok: false
     const quarantineMap = (port as any).targetQuarantine as Map<string, any>;

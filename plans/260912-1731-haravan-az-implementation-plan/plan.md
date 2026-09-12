@@ -1,3 +1,9 @@
+---
+title: "Kế hoạch triển khai Haravan A–Z"
+status: pending
+created: 2026-09-12
+---
+
 # Kế hoạch triển khai Haravan A–Z
 
 **Trạng thái: kế hoạch đã soạn và kiểm tra liên kết; chưa triển khai.** Kiểm tra Node: 11 tài liệu, 0 liên kết nội bộ hỏng. Hai reviewer đã nêu các mâu thuẫn; controller sửa scoring chung Liquid, dependency 08A, settings mode, historical immutability và rollback. Không có build/test ứng dụng hoặc storefront campaign trong bước lập kế hoạch này.

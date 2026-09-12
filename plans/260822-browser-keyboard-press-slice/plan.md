@@ -1,3 +1,9 @@
+---
+title: "Browser Native Keyboard Press Slice"
+status: completed
+created: 2026-08-22
+---
+
 # Implementation Plan: Browser Native Keyboard Press Slice
 
 **Status:** COMPLETED

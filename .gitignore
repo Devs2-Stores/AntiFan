@@ -16,6 +16,7 @@ probe.js
 smoke-result*.json
 trees_all.txt
 .antifan/
+.antifan-data/
 *.png
 !assets/icon.png
 !extension/icons/*.png

@@ -5559,6 +5559,11 @@ export class BrowserControlPort {
         status: verdictMatch ? 'PASS' : 'FAIL',
         match: verdictMatch,
         mismatchPercentage: diffResult.mismatchPercentage,
+        // The raw differing-pixel count is part of the published compare evidence: the report layer
+        // cross-checks mismatchPercentage against diffPixels/totalPixels, and the canary evidence
+        // writer records it per section. It is emitted only on a verdict-bearing result, never on a
+        // settled non-verdict (INCONCLUSIVE), where no diff may be read as evidence.
+        diffPixels: diffResult.diffPixels,
         totalPixels: diffResult.totalPixels,
         dimensionsMatch: diffResult.dimensionsMatch,
         normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },

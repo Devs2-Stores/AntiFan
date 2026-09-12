@@ -1,3 +1,9 @@
+---
+title: "Lean Annotation Context Engine & High-SNR Token Optimization"
+status: completed
+created: 2026-08-31
+---
+
 # Plan: Lean Annotation Context Engine & High-SNR Token Optimization
 
 ## Overview

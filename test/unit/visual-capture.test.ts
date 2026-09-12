@@ -874,7 +874,7 @@ describe('validateJpegBuffer (JPEG integrity gate)', () => {
     assert.deepStrictEqual(res, { ok: true, width: 64, height: 48 });
   });
 
-  it('rejects an empty payload with CAPTURE_EMPTY_PAYLOAD', () => {
+  it('rejects an empty JPEG payload with CAPTURE_EMPTY_PAYLOAD', () => {
     const res = validateJpegBuffer(Buffer.alloc(0));
     assert.strictEqual(res.ok, false);
     assert.strictEqual(res.code, 'CAPTURE_EMPTY_PAYLOAD');

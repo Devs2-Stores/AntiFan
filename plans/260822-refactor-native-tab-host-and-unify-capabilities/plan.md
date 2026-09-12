@@ -1,3 +1,9 @@
+---
+title: "Refactor NativeTabHost & Unify CapabilityCatalogue"
+status: in-progress
+created: 2026-08-22
+---
+
 # Plan: Refactor NativeTabHost & Unify CapabilityCatalogue
 
 ## Overview

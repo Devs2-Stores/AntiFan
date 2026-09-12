@@ -1,3 +1,12 @@
+/**
+ * Terminal Split Hardened 10-Round Verification Suite (main process).
+ *
+ * Rounds 2, 3, 7, 9, and 10 exercise TerminalManager directly. Rounds 1, 4, 6, and 8 described
+ * renderer behaviour (context-menu labels, key chords, toggle debounce, split geometry) and are
+ * covered behaviourally in test/renderer/terminal-split-behaviour.test.ts, where the shipped
+ * renderer runs against a stubbed platform. Round 5 asserts the stylesheet rules that style the
+ * focused pane; CSS has no runtime under Node, so the asset text is the observable.
+ */
 import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
@@ -69,15 +78,7 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     } catch {}
   });
 
-  // Round 1: Target session split routing on context menu & background tabs
-  it('Round 1: context menu split routing and state synchronization', () => {
-    const jsPath = path.join(ROOT, 'src/renderer/standalone.js');
-    const js = fs.readFileSync(jsPath, 'utf8');
-    assert.match(js, /const isTargetSplit = Boolean\(targetSession\?\.splitSessionId\)/);
-    assert.match(js, /textSpan\.textContent = 'Đóng chia đôi \(Unsplit\)'/);
-    assert.match(js, /textSpan\.textContent = 'Chia đôi tab \(Split\)'/);
-    assert.match(js, /if \(targetId !== activeId\) \{/);
-  });
+  // Round 1 lives in test/renderer/terminal-split-behaviour.test.ts.
 
   // Round 2: Split session closing by both parent ID and split ID
   it('Round 2: closeSplitSession resolves by parentId or direct splitId without leak', async () => {
@@ -117,17 +118,7 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     await tm.closeSession(p2);
   });
 
-  // Round 4: Keyboard shortcut toggling and pane navigation
-  it('Round 4: keyboard shortcut contracts for split toggle and focus navigation', () => {
-    const jsPath = path.join(ROOT, 'src/renderer/standalone.js');
-    const js = fs.readFileSync(jsPath, 'utf8');
-    assert.match(js, /Ctrl\+Shift\+D/);
-    assert.match(js, /splitButton\?\.click\(\)/);
-    assert.match(js, /Alt\+Up/);
-    assert.match(js, /Alt\+Down/);
-    assert.match(js, /focusMainPane\(\)/);
-    assert.match(js, /focusSplitPane\(\)/);
-  });
+  // Round 4 lives in test/renderer/terminal-split-behaviour.test.ts.
 
   // Round 5: Active vs Inactive focus classes & visual borders
   it('Round 5: visual focus classes and styling contracts', () => {
@@ -138,13 +129,7 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     assert.match(css, /#terminal-split\.focused-pane/);
   });
 
-  // Round 6: Rapid split toggle button click debounce & concurrency guards
-  it('Round 6: split button click handler prevents duplicate in-flight triggers', () => {
-    const jsPath = path.join(ROOT, 'src/renderer/standalone.js');
-    const js = fs.readFileSync(jsPath, 'utf8');
-    assert.match(js, /splitButton\.disabled = true;/);
-    assert.match(js, /finally \{\s*splitButton\.disabled = false;\s*\}/);
-  });
+  // Round 6 lives in test/renderer/terminal-split-behaviour.test.ts.
 
   // Round 7: Multi-tab switching with independent split terminals
   it('Round 7: multi-tab switching isolates split states and preserves independent buffers', async () => {
@@ -172,22 +157,8 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     await tm.closeSession(tabB);
   });
 
-  // Round 8: Bounded resize math under extreme window dimensions
-  it('Round 8: bounded resize math guarantees minimum rows and valid split geometry', () => {
-    const testHeights = [100, 200, 400, 800, 1600];
-    for (const totalHeight of testHeights) {
-      const dividerTotal = 11;
-      const usable = Math.max(0, totalHeight - dividerTotal);
-      const paneMin = Math.min(60, Math.floor(usable * 0.15));
-      const rawMain = Math.round(usable * 0.8);
-      const clampedMain = Math.max(paneMin, Math.min(usable - paneMin, rawMain));
-      const clampedLower = Math.max(0, usable - clampedMain);
-
-      assert.ok(clampedMain >= paneMin);
-      assert.ok(clampedLower >= paneMin);
-      assert.strictEqual(clampedMain + clampedLower, usable);
-    }
-  });
+  // Round 8 lives in test/renderer/terminal-split-behaviour.test.ts, where the split geometry
+  // is computed by the shipped getSplitGeometry/applySplitRatio instead of local arithmetic.
 
   // Round 9: Persistence, disk roundtrip, and restart recovery with multiple split sessions
   it('Round 9: full state persistence and clean disk restoration of split sessions', async () => {

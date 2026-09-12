@@ -20,12 +20,26 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { assessCanaryReplay } from '../fixtures/canary-run/replay-precondition.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const RUN_DIR = path.join(REPO_ROOT, '.canary', 'run3');
 const EVIDENCE_DIR = path.join(RUN_DIR, 'evidence');
 const DESKTOP_BUNDLE = path.join(RUN_DIR, 'clone', 'index.html');
 const DESKTOP_ASSET_COUNT = 118;
+
+/**
+ * The replay copies `.canary/run3/evidence` and expects generation to resolve the artifact
+ * bytes and clone entries those documents name. Those bytes live in a rotating machine-local
+ * store, so a machine that no longer holds them reports the absent prerequisite instead of a
+ * report defect. `t.skip` keeps the gap visible in the run summary; it is never a pass.
+ */
+function canReplay(t) {
+  const assessment = assessCanaryReplay({ evidenceDir: EVIDENCE_DIR });
+  if (assessment.available) return true;
+  t.skip(assessment.reason);
+  return false;
+}
 
 function buildRunDir(name, naming) {
   const dir = path.join(REPO_ROOT, '.canary', 'state', name);
@@ -63,7 +77,8 @@ function assertCoherent(result) {
   assert.match(result.report, /FINAL VERDICT: (PASS|FAIL|INCONCLUSIVE)/);
 }
 
-test('desktop telemetry verifies against the desktop bundle when the mobile bundle sorts first', () => {
+test('desktop telemetry verifies against the desktop bundle when the mobile bundle sorts first', (t) => {
+  if (!canReplay(t)) return;
   // Mobile documents sort before every desktop document.
   const dir = buildRunDir('report-ordering-mobile-first', (file) => {
     if (file === 'build-telemetry-mobile.json') return 'a-build-telemetry-mobile.json';
@@ -78,7 +93,8 @@ test('desktop telemetry verifies against the desktop bundle when the mobile bund
   }
 });
 
-test('desktop telemetry verifies against the desktop bundle when the desktop bundle sorts first', () => {
+test('desktop telemetry verifies against the desktop bundle when the desktop bundle sorts first', (t) => {
+  if (!canReplay(t)) return;
   const dir = buildRunDir('report-ordering-desktop-first', (file) => {
     if (file === 'build-telemetry.json') return 'a-build-telemetry.json';
     if (file === 'run3-390.json') return 'z-run3-390.json';

@@ -4,12 +4,19 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { assessCanaryReplay } from '../fixtures/canary-run/replay-precondition.mjs';
 
 describe('build-report embedded selfDrift handling', () => {
-  it('does not crash when selfDrift is embedded without an external drift document and exceeds limit', () => {
-    // The tracked fixture is a real 15-page canary run: run3-390.json has embedded selfDrift with
-    // mismatchPercentage: 100 and no standalone drift document. It lives in test/fixtures so the
-    // lane runs from a clean clone instead of depending on untracked .canary state.
+  it('does not crash when selfDrift is embedded without an external drift document and exceeds limit', (t) => {
+    // The tracked fixture is a copy of a real 15-page canary run: run3-390.json has embedded selfDrift with
+    // mismatchPercentage: 100 and no standalone drift document. The documents still name the artifact bytes and
+    // clone tree that run produced, so generation is only executable where those bytes survive; elsewhere the
+    // replay reports the missing prerequisites instead of a report defect.
+    const replay = assessCanaryReplay();
+    if (!replay.available) {
+      t.skip(replay.reason);
+      return;
+    }
     const tempOut = path.join(os.tmpdir(), `test-report-${Date.now()}.md`);
 
     try {

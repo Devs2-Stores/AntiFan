@@ -1,3 +1,9 @@
+---
+title: "AntiFan Roadmap Implementation"
+status: in-progress
+created: 2026-08-21
+---
+
 # AntiFan Roadmap Implementation
 
 ## Outcome

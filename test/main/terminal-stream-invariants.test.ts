@@ -1,21 +1,90 @@
-import { describe, it, before, after } from 'node:test';
+/**
+ * Phase T0: Terminal stream invariants & telemetry.
+ *
+ * These cases drive the real `TerminalManager.spawn` and its data path against a stubbed
+ * `node-pty` boundary, so the sequence numbers, generation leaps, delivery journal, and
+ * diagnostics asserted below are the ones production produces — not values a local mock
+ * recomputed. Only PTY process creation is faked; everything above it is the shipped code.
+ */
+import { describe, it, before, beforeEach, after } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 
-interface MockSession {
-  id: string;
-  name: string;
-  cwd: string;
-  pty: unknown;
-  buffer: string;
-  splitOf?: string;
-  capsuleId: string;
-  disposed: boolean;
-  lastSeq: number;
+const SCRATCH_DATA_ROOT = path.join(os.tmpdir(), `antifan-terminal-invariants-${process.pid}`);
+
+interface DataEvent {
+  sessionId: string;
+  data: string;
+  seq: number;
+  generation: number;
+}
+
+interface ExitEvent {
+  sessionId: string;
   sessionGeneration: number;
-  state: 'running';
-  dataSubscription?: { dispose: () => void };
-  exitSubscription?: { dispose: () => void };
+  exitCode: number;
+  lastSeq: number;
+}
+
+class FakePty {
+  public cols: number;
+  public rows: number;
+  public readonly pid = 99999;
+  public readonly writes: string[] = [];
+  public killed = false;
+  public readonly options: Record<string, unknown>;
+  private dataListeners: Array<(data: string) => void> = [];
+  private exitListeners: Array<(event: { exitCode: number; signal?: number }) => void> = [];
+
+  constructor(public readonly shell: string, options: Record<string, unknown>) {
+    this.options = options;
+    this.cols = Number(options.cols) || 120;
+    this.rows = Number(options.rows) || 30;
+  }
+
+  onData(cb: (data: string) => void): { dispose: () => void } {
+    this.dataListeners.push(cb);
+    return {
+      dispose: () => {
+        this.dataListeners = this.dataListeners.filter(listener => listener !== cb);
+      },
+    };
+  }
+
+  onExit(cb: (event: { exitCode: number; signal?: number }) => void): { dispose: () => void } {
+    this.exitListeners.push(cb);
+    return {
+      dispose: () => {
+        this.exitListeners = this.exitListeners.filter(listener => listener !== cb);
+      },
+    };
+  }
+
+  kill(): void {
+    this.killed = true;
+  }
+
+  write(input: string): void {
+    this.writes.push(input);
+  }
+
+  resize(cols: number, rows: number): void {
+    this.cols = cols;
+    this.rows = rows;
+  }
+
+  /** Drive the production `child.onData` handler with a chunk. */
+  emitData(chunk: string): void {
+    for (const listener of [...this.dataListeners]) listener(chunk);
+  }
+
+  /** Drive the production `child.onExit` handler. */
+  emitExit(exitCode: number, signal?: number): void {
+    for (const listener of [...this.exitListeners]) listener({ exitCode, signal });
+  }
 }
 
 interface TerminalManagerPrivates {
@@ -27,210 +96,212 @@ interface TerminalManagerPrivates {
     initialRows?: number,
     minimumRows?: number,
     parentSessionId?: string,
-    parentGeneration?: number
-  ) => MockSession;
-  sessions: Map<string, MockSession>;
+    parentGeneration?: number,
+    reservedGeneration?: number,
+  ) => { id: string; lastSeq: number; buffer: string; sessionGeneration: number; state: string; dataSubscription?: { dispose: () => void } };
+  sessions: Map<string, { id: string; lastSeq: number; buffer: string; sessionGeneration: number; state: string; dataSubscription?: { dispose: () => void } }>;
   sessionGenerations: Map<string, number>;
-  lastCols?: number;
-  lastRows?: number;
-  currentCapsuleId?: string;
+  persistTimer?: NodeJS.Timeout | null;
+}
+
+const spawnedPtys: FakePty[] = [];
+
+function installPtyStub(): void {
+  const ptyModule = require('node-pty') as unknown as { spawn: (shell: string, args: string[], options: Record<string, unknown>) => FakePty };
+  const realSpawn = ptyModule.spawn;
+  ptyModule.spawn = (shell: string, _args: string[], options: Record<string, unknown>) => {
+    const pty = new FakePty(shell, options);
+    spawnedPtys.push(pty);
+    return pty;
+  };
+  if (ptyModule.spawn === realSpawn) {
+    throw new Error('node-pty spawn stub was not installed; the lane would exercise the real PTY');
+  }
 }
 
 describe('Phase T0: Terminal Stream Invariants & Telemetry', () => {
   let tm: TerminalManager;
   let privates: TerminalManagerPrivates;
-  let originalSpawn: TerminalManagerPrivates['spawn'];
-  const ptyWriters: Map<string, (data: string) => void> = new Map();
+  let previousDataRoot: string | undefined;
+
+  const latestPty = (): FakePty => {
+    const pty = spawnedPtys[spawnedPtys.length - 1];
+    assert.ok(pty, 'a PTY must have been spawned through the stubbed node-pty boundary');
+    return pty;
+  };
 
   before(() => {
+    previousDataRoot = process.env.ANTIFAN_DATA_ROOT;
+    process.env.ANTIFAN_DATA_ROOT = SCRATCH_DATA_ROOT;
+    installPtyStub();
     tm = TerminalManager.getInstance();
     privates = tm as unknown as TerminalManagerPrivates;
-    originalSpawn = privates.spawn.bind(tm);
+  });
 
-    // Mock spawn to deterministically control PTY output events without native node-pty dependency in unit tests
-    privates.spawn = function (
-      id: string,
-      cwd: string,
-      restoredBuffer = '',
-      initialCols?: number,
-      initialRows?: number,
-      minimumRows = 4,
-      parentSessionId?: string,
-      _parentGeneration?: number
-    ): MockSession {
-      const cols = Math.max(40, initialCols || privates.lastCols || 120);
-      const rows = Math.max(minimumRows, initialRows || privates.lastRows || 30);
-      const currentGen = (privates.sessionGenerations.get(id) || 0) + 1;
-      privates.sessionGenerations.set(id, currentGen);
-
-      let ptyDataListener: ((data: string) => void) | null = null;
-      const mockPty = {
-        pid: 99999,
-        cols,
-        rows,
-        onData: (cb: (data: string) => void) => {
-          ptyDataListener = cb;
-          return { dispose: () => { ptyDataListener = null; } };
-        },
-        onExit: (_cb?: () => void) => ({ dispose: () => {} }),
-        kill: () => {},
-        write: (_input: string) => {},
-        resize: (newCols: number, newRows: number) => {
-          mockPty.cols = newCols;
-          mockPty.rows = newRows;
-        },
-      };
-
-      ptyWriters.set(id, (chunk: string) => {
-        if (ptyDataListener) {
-          ptyDataListener(chunk);
-        }
-      });
-
-      const s: MockSession = {
-        id,
-        name: `Terminal ${id}`,
-        cwd: cwd || 'E:\\Work',
-        pty: mockPty,
-        buffer: restoredBuffer,
-        splitOf: parentSessionId,
-        capsuleId: privates.currentCapsuleId || 'default',
-        disposed: false,
-        lastSeq: 0,
-        sessionGeneration: currentGen,
-        state: 'running' as const,
-        dataSubscription: mockPty.onData((data: string) => {
-          s.lastSeq = (s.lastSeq || 0) + 1;
-          s.buffer += data;
-          tm.emit('data', {
-            sessionId: id,
-            data,
-            seq: s.lastSeq,
-            generation: s.sessionGeneration,
-          });
-        }),
-        exitSubscription: mockPty.onExit(() => {}),
-      };
-
-      privates.sessions.set(id, s);
-      return s;
-    };
+  beforeEach(() => {
+    for (const session of privates.sessions.values()) {
+      session.dataSubscription?.dispose();
+    }
+    privates.sessions.clear();
+    privates.sessionGenerations.clear();
+    spawnedPtys.length = 0;
   });
 
   after(() => {
-    privates.spawn = originalSpawn;
+    if (privates.persistTimer) clearTimeout(privates.persistTimer);
+    for (const session of privates.sessions.values()) {
+      session.dataSubscription?.dispose();
+    }
     privates.sessions.clear();
+    if (previousDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+    else process.env.ANTIFAN_DATA_ROOT = previousDataRoot;
+    fs.rmSync(SCRATCH_DATA_ROOT, { recursive: true, force: true });
   });
 
-  it('INVARIANT 1 (Monotonicity): sequence numbers strictly increase within one generation', async () => {
+  it('INVARIANT 1 (Monotonicity): sequence numbers strictly increase within one generation', () => {
     const sessionId = 'test-session-mono';
-    privates.spawn(sessionId, 'E:\\Work');
-    const writer = ptyWriters.get(sessionId);
-    assert.ok(writer, 'PTY writer must be registered');
+    const session = privates.spawn(sessionId, 'E:\\Work');
+    const pty = latestPty();
 
-    const emittedSeqs: number[] = [];
-    const onData = (payload: { sessionId: string; seq: number; generation: number }) => {
-      if (payload.sessionId === sessionId) {
-        emittedSeqs.push(payload.seq);
-      }
+    const emitted: DataEvent[] = [];
+    const onData = (payload: DataEvent) => {
+      if (payload.sessionId === sessionId) emitted.push(payload);
     };
     tm.on('data', onData);
 
     try {
-      writer('chunk 1');
-      writer('chunk 2');
-      writer('chunk 3');
-      writer('chunk 4');
-
-      assert.strictEqual(emittedSeqs.length, 4, 'Must have received 4 events');
-      for (let i = 1; i < emittedSeqs.length; i++) {
-        const current = emittedSeqs[i];
-        const prev = emittedSeqs[i - 1];
-        assert.ok(typeof current === 'number' && typeof prev === 'number');
-        assert.ok(current > prev, `seq(${current}) must be strictly greater than seq(${prev})`);
-        assert.strictEqual(current, prev + 1, 'seq must increment contiguously without gaps at emitter level');
-      }
+      pty.emitData('chunk 1');
+      pty.emitData('chunk 2');
+      pty.emitData('chunk 3');
+      pty.emitData('chunk 4');
     } finally {
       tm.removeListener('data', onData);
     }
+
+    assert.strictEqual(emitted.length, 4, 'every PTY chunk must reach the data emitter');
+    assert.deepStrictEqual(
+      emitted.map(event => event.seq),
+      [1, 2, 3, 4],
+      'seq must increment contiguously without gaps',
+    );
+    assert.strictEqual(session.lastSeq, 4, 'the session record must count the appended chunks');
+    assert.strictEqual(session.buffer, 'chunk 1chunk 2chunk 3chunk 4', 'the transcript is appended in order');
+    assert.ok(
+      emitted.every(event => event.generation === session.sessionGeneration),
+      'every emitted chunk carries its own session generation',
+    );
   });
 
-  it('INVARIANT 2 (Generational Leap): respawning increments generation and resets seq to 0', async () => {
+  it('INVARIANT 2 (Generational Leap): respawning increments generation and starts the new record at seq 0', () => {
     const sessionId = 'test-session-gen';
-    const s1 = privates.spawn(sessionId, 'E:\\Work');
-    const gen1 = s1.sessionGeneration;
-    const writer1 = ptyWriters.get(sessionId);
-    assert.ok(writer1);
-    writer1('data gen 1');
-    assert.strictEqual(s1.lastSeq, 1);
+    const first = privates.spawn(sessionId, 'E:\\Work');
+    const firstPty = latestPty();
+    firstPty.emitData('data gen 1');
+    assert.strictEqual(first.lastSeq, 1);
 
-    // Respawn session with same ID
-    const s2 = privates.spawn(sessionId, 'E:\\Work');
-    const gen2 = s2.sessionGeneration;
+    const second = privates.spawn(sessionId, 'E:\\Work');
+    const secondPty = latestPty();
+    assert.notStrictEqual(secondPty, firstPty);
+    assert.ok(second.sessionGeneration > first.sessionGeneration, 'generation must leap forward on respawn');
+    assert.strictEqual(second.lastSeq, 0, 'a new generation starts its own sequence');
 
-    assert.ok(gen2 > gen1, `Generation must increment: ${gen2} > ${gen1}`);
-    assert.strictEqual(s2.lastSeq, 0, 'Sequence must reset to 0 in new generation');
-
-    const writer2 = ptyWriters.get(sessionId);
-    assert.ok(writer2);
-    writer2('data gen 2');
-    assert.strictEqual(s2.lastSeq, 1, 'First chunk of new generation must be seq 1');
+    secondPty.emitData('data gen 2');
+    assert.strictEqual(second.lastSeq, 1, 'the first chunk of the new generation is seq 1');
+    assert.strictEqual(second.buffer, 'data gen 2', 'the new record does not inherit the previous transcript');
+    const spawnedEnv = secondPty.options.env as Record<string, string>;
+    assert.strictEqual(
+      spawnedEnv.ANTIFAN_TERMINAL_GENERATION,
+      String(second.sessionGeneration),
+      'the spawned PTY environment must advertise the generation of its own record',
+    );
+    assert.strictEqual(spawnedEnv.ANTIFAN_TERMINAL_SESSION_ID, sessionId);
   });
 
-  it('INVARIANT 3 (Generation Fencing): receiver can identify and reject stale generation chunks', async () => {
+  it('INVARIANT 3 (Generation Fencing): a superseded PTY cannot advance the live transcript', () => {
     const sessionId = 'test-session-fence';
-    const s1 = privates.spawn(sessionId, 'E:\\Work');
-    const gen1 = s1.sessionGeneration;
+    const first = privates.spawn(sessionId, 'E:\\Work');
+    const firstPty = latestPty();
+    firstPty.emitData('live chunk');
+    assert.strictEqual(first.lastSeq, 1);
 
-    // Simulate renderer state currently bound to gen1
-    const rendererReceiver = {
-      boundGeneration: gen1,
-      renderedChunks: [] as string[],
-      rejectedStaleChunks: 0,
-      receive(chunk: { generation: number; data: string; seq: number }) {
-        if (chunk.generation !== this.boundGeneration) {
-          this.rejectedStaleChunks++;
-          return false;
-        }
-        this.renderedChunks.push(chunk.data);
-        return true;
-      },
+    const second = privates.spawn(sessionId, 'E:\\Work');
+    const secondPty = latestPty();
+    assert.ok(second.sessionGeneration > first.sessionGeneration);
+
+    const emitted: DataEvent[] = [];
+    const onData = (payload: DataEvent) => {
+      if (payload.sessionId === sessionId) emitted.push(payload);
     };
+    tm.on('data', onData);
+    try {
+      // A chunk the shell wrote before the respawn arrives late.
+      firstPty.emitData('stale delayed chunk');
+    } finally {
+      tm.removeListener('data', onData);
+    }
 
-    // Receive valid gen1 chunk
-    const accepted1 = rendererReceiver.receive({ generation: gen1, data: 'live chunk', seq: 1 });
-    assert.strictEqual(accepted1, true);
+    assert.strictEqual(second.lastSeq, 0, 'a stale chunk must never advance the live session sequence');
+    assert.strictEqual(second.buffer, '', 'a stale chunk must never enter the live transcript');
+    assert.deepStrictEqual(
+      emitted.map(event => event.generation),
+      [first.sessionGeneration],
+      'the late chunk is emitted under the generation that produced it, so a receiver bound to the new generation rejects it',
+    );
 
-    // Now session respawns to gen2, and renderer updates its subscription to gen2
-    const s2 = privates.spawn(sessionId, 'E:\\Work');
-    const gen2 = s2.sessionGeneration;
-    assert.ok(gen2 > gen1);
-    rendererReceiver.boundGeneration = gen2;
+    secondPty.emitData('fresh chunk');
+    assert.strictEqual(second.lastSeq, 1);
+    assert.strictEqual(second.buffer, 'fresh chunk');
 
-    // An old delayed chunk from gen1 arrives
-    const acceptedOld = rendererReceiver.receive({ generation: gen1, data: 'stale delayed chunk', seq: 2 });
-    assert.strictEqual(acceptedOld, false, 'Delayed chunk from previous generation must be rejected');
-    assert.strictEqual(rendererReceiver.rejectedStaleChunks, 1);
+    const diagnostics = tm.getDiagnostics();
+    const live = diagnostics.sessions.filter(entry => entry.sessionId === sessionId);
+    assert.strictEqual(live.length, 1, 'only the current generation is reported for a session id');
+    assert.strictEqual(live[0]!.generation, second.sessionGeneration);
+    assert.strictEqual(live[0]!.lastSeq, 1);
   });
 
-  it('TELEMETRY (Commit 1 Verification): getDiagnostics returns complete structured stream metadata', () => {
+  it('TELEMETRY: getDiagnostics reports the restored transcript and measured stream state', () => {
     const sessionId = 'test-session-diag';
-    privates.spawn(sessionId, 'E:\\Work', 'restored_text');
-    const writer = ptyWriters.get(sessionId);
-    assert.ok(writer);
-    writer('diag output 1');
-    writer('diag output 2');
+    const session = privates.spawn(sessionId, 'E:\\Work', 'restored_text');
+    const pty = latestPty();
+    pty.emitData('diag output 1');
+    pty.emitData('diag output 2');
 
     const report = tm.getDiagnostics();
-    assert.ok(report.timestamp > 0, 'Timestamp must be positive');
-    assert.ok(report.sessionCount >= 1, 'Session count must be >= 1');
+    assert.ok(report.timestamp > 0, 'timestamp must be positive');
+    assert.ok(report.sessionCount >= 1, 'session count must include the spawned session');
 
-    const sessionDiag = report.sessions.find(s => s.sessionId === sessionId);
-    assert.ok(sessionDiag, 'Target session must be in diagnostics');
-    assert.strictEqual(sessionDiag?.sessionId, sessionId);
-    assert.ok(sessionDiag.generation > 0, 'Generation must be positive');
-    assert.strictEqual(sessionDiag.lastSeq, 2, 'lastSeq must be 2 after 2 writes');
-    assert.ok(sessionDiag.bufferBytes > 0, 'bufferBytes must be > 0');
-    assert.strictEqual(sessionDiag.state, 'running');
+    const entry = report.sessions.find(row => row.sessionId === sessionId);
+    assert.ok(entry, 'the spawned session must be reported');
+    assert.strictEqual(entry!.generation, session.sessionGeneration);
+    assert.strictEqual(entry!.lastSeq, 2, 'lastSeq counts the chunks appended after the restore');
+    assert.strictEqual(entry!.bufferBytes, Buffer.byteLength(session.buffer, 'utf8'));
+    assert.ok(entry!.bufferBytes > Buffer.byteLength('restored_text', 'utf8'), 'the restored transcript grew');
+    assert.strictEqual(entry!.state, 'running');
+  });
+
+  it('records the exit of a PTY as a final transcript chunk and an exit event', () => {
+    const sessionId = 'test-session-exit';
+    const session = privates.spawn(sessionId, 'E:\\Work');
+    const pty = latestPty();
+    pty.emitData('before exit');
+
+    const exits: ExitEvent[] = [];
+    const onExit = (payload: ExitEvent) => {
+      if (payload.sessionId === sessionId) exits.push(payload);
+    };
+    tm.on('exit', onExit);
+    try {
+      pty.emitExit(7);
+    } finally {
+      tm.removeListener('exit', onExit);
+    }
+
+    assert.strictEqual(session.state, 'exited');
+    assert.strictEqual(session.lastSeq, 2, 'the exit notice is appended as a chunk');
+    assert.match(session.buffer, /\[Process exited with code 7\]/);
+    assert.strictEqual(exits.length, 1);
+    assert.strictEqual(exits[0]!.exitCode, 7);
+    assert.strictEqual(exits[0]!.sessionGeneration, session.sessionGeneration);
+    assert.strictEqual(exits[0]!.lastSeq, 2);
   });
 });

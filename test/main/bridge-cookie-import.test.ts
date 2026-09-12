@@ -1,11 +1,12 @@
 /**
  * RFC 6265bis ingestion semantics for Chrome cookie payloads.
  *
- * The HTTP endpoint `/api/cookies/import` was REMOVED (delta-sync architecture
- * eliminated — see plan winner-C): cookie hydration is now local-only via CDP
- * one-shot / session vault. The transformer `extensionCookieImportSetDetails`
- * still backs the local ingestion engine (LocalSessionVault CDP path), so its
- * contract is covered here as a pure unit test.
+ * The retired delta-sync pair went away with the extension handshake; the HTTP
+ * endpoint `/api/cookies/import` is still served by BridgeServer and is covered
+ * by `bridge-cookie-import-endpoint-removed.test.ts`. Cookie hydration is also
+ * local via the CDP one-shot / session vault path, whose transformer
+ * `extensionCookieImportSetDetails` backs the ingestion engine, so its contract
+ * is covered here as a pure unit test.
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
