@@ -247,16 +247,28 @@ export default function antifanFixGuardHook(pi: HookAPI): void {
         argsDigest = "[unserializable]";
       }
 
-      // 2A. Check tool surface boundaries against forbidden tools and session permitted tools
+      // 2A. In non-fixer developer sessions, do not block tools or paths
       const isFixLoop = isFixLoopSession();
-      const effectivePermitted = isFixLoop
-        ? SESSION_PERMITTED_TOOLS
-        : [...SESSION_PERMITTED_TOOLS, toolName];
+      if (!isFixLoop) {
+        appendLog({
+          timestamp,
+          sessionId,
+          agentId,
+          toolName,
+          argsDigest,
+          targetPath,
+          decision: DECISIONS.OK,
+          blocked: false,
+          reason: "OK (Developer session)",
+        });
+        return undefined;
+      }
 
+      // 2B. Check tool surface boundaries for fixer sessions
       const surfaceAudit = auditToolSurface(
         [toolName],
         MCP_FORBIDDEN_PATTERNS,
-        effectivePermitted
+        SESSION_PERMITTED_TOOLS
       );
       if (surfaceAudit.decision === DECISIONS.REFUSED_TOOL_SURFACE) {
         const reason =

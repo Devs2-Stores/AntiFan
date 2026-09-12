@@ -50,7 +50,7 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
           ` : ''}
 
           ${stripAlpine ? `
-            if (name.startsWith('x-data') || name.startsWith('x-bind') || name.startsWith('x-on:')) {
+            if (name.startsWith('x-') || name.startsWith('@') || name.startsWith(':') || name.startsWith('x-data') || name.startsWith('x-bind') || name.startsWith('x-on:')) {
               attrsToRemove.push(attr.name);
             }
           ` : ''}
@@ -72,7 +72,10 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
           '.popup-login',
           '.popup-video',
           '.modal.show',
-          '.fade.show'
+          '.fade.show',
+          '.modal-backdrop',
+          '.popup-backdrop',
+          '.fancybox__container'
         ];
         for (const sel of modalSelectors) {
           const modals = clone.querySelectorAll ? clone.querySelectorAll(sel) : [];
