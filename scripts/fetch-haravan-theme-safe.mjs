@@ -18,6 +18,8 @@ const ALLOW_DUPLICATE_MIRROR = process.env.HARAVAN_ALLOW_DUPLICATE_MIRROR === '1
 // the size field can stay frozen while the server re-encodes an asset, so this is
 // the only check that can catch a mirror that has been superseded.
 const VERIFY_PARITY = process.env.HARAVAN_VERIFY_PARITY === '1';
+const ALLOW_WATCHED_DIR = process.env.HARAVAN_ALLOW_WATCHED_DIR === '1';
+const WATCH_STATE_FILE = '.hrv-sync-state.json';
 
 const BIND_FILE = '.haravan-cli_local.json';
 const MANIFEST_FILE = '.haravan-cli_pull-manifest.json';
@@ -103,7 +105,9 @@ async function apiRequestWithRetry(urlPath, retries = 6) {
               try {
                 resolve(JSON.parse(data));
               } catch (e) {
-                resolve(data);
+                // A 2xx body that does not parse is a truncated or empty answer, not
+                // an answer: retrying it is the only way to tell the two apart.
+                reject(new Error('NON_JSON_RESPONSE'));
               }
             } else {
               reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 300)}`));
@@ -114,7 +118,13 @@ async function apiRequestWithRetry(urlPath, retries = 6) {
         req.end();
       });
     } catch (err) {
-      if (err.message === 'RATE_LIMITED' || attempt < retries) {
+      if (err.message === 'RATE_LIMITED' || err.message === 'NON_JSON_RESPONSE' || attempt < retries) {
+        if (attempt >= retries) {
+          // Exhausting the retries resolved `undefined` here, which read downstream
+          // as "the API has no content for this key" and let a rate-limited asset be
+          // written from the CDN instead. A failed read must stay a failure.
+          throw new Error(`${err.message} after ${retries} attempts`);
+        }
         const waitMs = attempt * 1200;
         await new Promise(r => setTimeout(r, waitMs));
       } else {
@@ -194,6 +204,14 @@ async function main() {
 
   const listRes = await apiRequestWithRetry(`/web/themes/${THEME_ID}/assets.json`);
   const assets = listRes.assets || [];
+  if (fs.existsSync(path.join(TARGET_DIR, WATCH_STATE_FILE)) && !ALLOW_WATCHED_DIR) {
+    console.error(
+      `[SAFETY] ${TARGET_DIR} holds a ${WATCH_STATE_FILE}, so a \`hrv theme dev\` watcher is bound to it and a write here can be pushed to the remote theme.`
+    );
+    console.error('Stop the watcher (or set HARAVAN_ALLOW_WATCHED_DIR=1 to write anyway).');
+    process.exit(1);
+  }
+
   console.log(`[OK] Found ${assets.length} total assets.`);
 
   fs.mkdirSync(TARGET_DIR, { recursive: true });
@@ -250,6 +268,10 @@ async function main() {
       // next run treat the same variant as fresh drift.
       const kept = {};
       if (prior.variantRepresentation === true) kept.variantRepresentation = true;
+      // Without this the next run stops knowing the file came from the API's own
+      // bytes, falls back to comparing against `size`, and re-downloads every
+      // binary whose stored length differs from it — on every other run.
+      if (typeof prior.attachmentBytes === 'number') kept.attachmentBytes = prior.attachmentBytes;
       if (action === 'skip') {
         skippedCount++;
         nextManifest[asset.key] = { bytes: fs.statSync(destPath).size, sha256: sha256(destPath), updated_at: asset.updated_at || null, ...kept };
@@ -277,6 +299,9 @@ async function main() {
         // hands out; public_url may answer with a converted or cached variant
         // whose bytes are not the stored asset. Take the attachment when it is
         // there, and fall back to the CDN only when it is not.
+        // A throw here lands in the failure ledger: an unreadable detail tells us
+        // nothing about whether the asset has API content, so the CDN answer must
+        // not be written in its place.
         const detail = await apiRequestWithRetry(`/web/themes/${THEME_ID}/assets.json?asset[key]=${encodeURIComponent(asset.key)}`);
         const attachment = detail && detail.asset ? detail.asset.attachment : null;
         if (typeof attachment === 'string' && attachment.length > 0) {
@@ -396,7 +421,9 @@ async function main() {
       for (const line of mismatches.slice(0, 20)) console.error(`  - ${line}`);
       process.exitCode = 1;
     } else {
-      console.log(`[OK] Every local asset matches the API's authoritative content (${assets.length} keys).`);
+      console.log(
+        `[OK] Every asset the API exposes content for matches the mirror (${assets.length - unreadable.length}/${assets.length}; text via value, binary via base64 attachment, no CDN fallback).`
+      );
     }
   }
 
