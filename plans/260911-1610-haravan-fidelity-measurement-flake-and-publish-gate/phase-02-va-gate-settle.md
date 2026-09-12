@@ -1,6 +1,6 @@
 ---
 title: "Phase 2: Vá gate settle (V1–V4)"
-status: pending
+status: complete
 ---
 
 # Phase 2: Vá gate settle (V1–V4)
@@ -11,11 +11,11 @@ Sửa đúng cơ chế đã được chứng minh ở Phase 1, cộng hai việc
 
 ## Requirements
 
-- [ ] V1: `doc.reason` không còn cắt ngang pass #3; `settlePasses` xuất hiện trong artifact sau lần compare kế tiếp.
-- [ ] V2: đúng **một** trong hai cơ chế được chọn bằng số đo Phase 1, không làm cả hai.
-- [ ] V3: guard `pinned` không còn tái tạo mỗi pass khi bộ đo tự sửa trang (chỉ khi Phase 1 chỉ ra `styleWrites > 0`).
-- [ ] V4: drift **đối xứng** không còn làm leg rớt; drift **bất đối xứng** giữ nguyên hành vi từ chối.
-- [ ] Không đổi ngữ nghĩa `mismatchPercentage`, `POST_COMPARE_MOTION`, `checkServedTheme`.
+- [x] V1: `doc.reason` không còn cắt ngang pass #3; `settlePasses` xuất hiện trong artifact sau lần compare kế tiếp.
+- [x] V2: đúng **một** trong hai cơ chế được chọn bằng số đo Phase 1, không làm cả hai.
+- [x] V3: guard `pinned` không còn tái tạo mỗi pass khi bộ đo tự sửa trang (chỉ khi Phase 1 chỉ ra `styleWrites > 0`).
+- [x] V4: drift **đối xứng** không còn làm leg rớt; drift **bất đối xứng** giữ nguyên hành vi từ chối.
+- [x] Không đổi ngữ nghĩa `mismatchPercentage`, `POST_COMPARE_MOTION`, `checkServedTheme`.
 
 ## Implementation Steps
 
@@ -33,7 +33,7 @@ Sửa đúng cơ chế đã được chứng minh ở Phase 1, cộng hai việc
 - [x] V4 symmetric/asymmetric + crossSideIdentity (agent `V4Identity`)
 - [x] V2: **không sửa** — đo được là không cần (xem dưới)
 - [x] V3: dựng `pinned` một lần cho mỗi document
-- [ ] Unit test `decideSettle` xanh
+- [x] Unit test `decideSettle` xanh
 
 ## V2 — đo rồi mới quyết, và kết luận là không sửa
 

@@ -1,6 +1,6 @@
 ---
 title: "Phase 3: Custody và cổng publish (V5, V6, epoch)"
-status: pending
+status: complete
 ---
 
 # Phase 3: Custody và cổng publish (V5, V6, epoch)
@@ -18,12 +18,12 @@ Việc này đổi thứ mà campaign tuyên bố là publishable; nó có thể
 
 ## Requirements
 
-- [ ] V6: `checks.status === 'REFUSED'` ⇒ `complete === false` và `status` cuối không phải `COMPLETE`/`INCOMPLETE` trơ (dùng `REFUSED_STRUCTURAL` hoặc tương đương).
-- [ ] V6: `gaps` không còn rỗng khi có refusal cấu trúc.
-- [ ] Epoch: `report.json.instrument = { revision, epoch, files[] }`; `revision` là hash của tập hash các file instrument; file thiếu ⇒ `sha256: null`, không throw.
-- [ ] Epoch: khối instrument có mặt ở mọi artifact JSON run tự sinh (tối thiểu `report.json`, `compare-index.json`, `compare/*/index.json`).
-- [ ] V5: `sha256Text` chuẩn hoá CRLF→LF, dùng ở các chỗ ghim sha256 artifact JSON; `sha256Buffer`/`sha256File` giữ nguyên cho consumer khác.
-- [ ] V5: không thêm `.gitattributes`, không renormalize `.canary/**`.
+- [x] V6: `checks.status === 'REFUSED'` ⇒ `complete === false` và `status` cuối không phải `COMPLETE`/`INCOMPLETE` trơ (dùng `REFUSED_STRUCTURAL` hoặc tương đương).
+- [x] V6: `gaps` không còn rỗng khi có refusal cấu trúc.
+- [x] Epoch: `report.json.instrument = { revision, epoch, files[] }`; `revision` là hash của tập hash các file instrument; file thiếu ⇒ `sha256: null`, không throw.
+- [x] Epoch: khối instrument có mặt ở mọi artifact JSON run tự sinh (tối thiểu `report.json`, `compare-index.json`, `compare/*/index.json`).
+- [x] V5: `sha256Text` chuẩn hoá CRLF→LF, dùng ở các chỗ ghim sha256 artifact JSON; `sha256Buffer`/`sha256File` giữ nguyên cho consumer khác.
+- [x] V5: không thêm `.gitattributes`, không renormalize `.canary/**`.
 
 ## Implementation Steps
 
@@ -48,10 +48,10 @@ Cổng publish: `report.json` của run4 có `structuralFindings.refused = true`
 
 ## Todo
 
-- [ ] Vị từ `isPublishComplete` + test lật (`V6PublishGate`)
-- [ ] `gaps` phản ánh refusal (`V6PublishGate`)
-- [ ] Khối `instrument` + test (`V6PublishGate`)
-- [ ] `sha256Text` + test CRLF/LF (`V6PublishGate`)
+- [x] Vị từ `isPublishComplete` + test lật (`V6PublishGate`)
+- [x] `gaps` phản ánh refusal (`V6PublishGate`)
+- [x] Khối `instrument` + test (`V6PublishGate`)
+- [x] `sha256Text` + test CRLF/LF (`V6PublishGate`)
 
 ## Success Criteria
 

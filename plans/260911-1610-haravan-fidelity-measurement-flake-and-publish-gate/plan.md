@@ -1,7 +1,7 @@
 ---
 title: "haravan-fidelity-measurement-flake-and-publish-gate"
 description: "Hạ flake mỗi leg của campaign theme-fidelity xuống ≤1/400, đóng cổng publish để REFUSED cấu trúc không lọt, và siết chain-of-custody artifact."
-status: in-progress
+status: complete
 priority: P0
 effort: "3–5 ngày"
 tags: [theme-fidelity, canary, settle-gate, evidence-provenance]
@@ -34,20 +34,20 @@ Kế hoạch này thi hành work list V0–V6 + 6 caveat của winner. Hai bound
 
 | # | Phase | Status |
 |---|-------|--------|
-| 1 | [Phase 1: Đo quyết định](./phase-01-do-quyet-dinh.md) | In progress |
-| 2 | [Phase 2: Vá gate settle](./phase-02-va-gate-settle.md) | Pending |
-| 3 | [Phase 3: Custody và cổng publish](./phase-03-custody-va-cong-publish.md) | Pending |
-| 4 | [Phase 4: Nghiệm thu campaign run5](./phase-04-nghiem-thu-run5.md) | Pending |
+| 1 | [Phase 1: Đo quyết định](./phase-01-do-quyet-dinh.md) | Complete |
+| 2 | [Phase 2: Vá gate settle](./phase-02-va-gate-settle.md) | Complete |
+| 3 | [Phase 3: Custody và cổng publish](./phase-03-custody-va-cong-publish.md) | Complete |
+| 4 | [Phase 4: Nghiệm thu campaign run5](./phase-04-nghiem-thu-run5.md) | Complete |
 
 ## Success Criteria
 
-- [ ] Kill-test/V0 chạy được: có `fingerprintFields` theo từng mẫu ở nhịp 0.4s / 4s / 40s trên `compare/r2-vs-subject/replay/reference/product__1024x900.html`, kèm số lần ghi của `applyAll()` giữa các pass.
-- [ ] Nhánh V2 được chọn bằng dữ liệu, không bằng suy đoán (V2a đổi vị từ / V2b đổi nhịp / V3 cắt vòng phản hồi guard), và mỗi nhánh có falsifier ghi trong phase file.
-- [ ] `grep -rl settlePasses .canary/theme-fidelity-run*/compare/` ≥ 1 và mỗi doc `content-changed` có `settlePasses` dài 3.
-- [ ] Leg `IDENTITY_DRIFT` đối xứng không còn làm leg rớt; drift bất đối xứng vẫn INCONCLUSIVE.
-- [ ] `checks.status === 'REFUSED'` ⇒ `status !== 'COMPLETE'` (có unit test chứng minh vị từ lật).
-- [ ] 6/6 artifact report ghim sha256 verify được bằng hàm hash chuẩn hoá LF.
-- [ ] Campaign run5 chạy trong thư mục riêng, mọi artifact mang `instrumentRevision` + `epoch`, và số leg PASS/flake/leg được đối chiếu với dự đoán của phase file.
+- [x] Kill-test/V0 chạy được: có `fingerprintFields` theo từng mẫu ở nhịp 0.4s / 4s / 40s trên `compare/r2-vs-subject/replay/reference/product__1024x900.html`, kèm số lần ghi của `applyAll()` giữa các pass.
+- [x] Nhánh V2 được chọn bằng dữ liệu, không bằng suy đoán (V2a đổi vị từ / V2b đổi nhịp / V3 cắt vòng phản hồi guard), và mỗi nhánh có falsifier ghi trong phase file.
+- [x] `grep -rl settlePasses .canary/theme-fidelity-run*/compare/` ≥ 1 và mỗi doc `content-changed` có `settlePasses` dài 3.
+- [x] Leg `IDENTITY_DRIFT` đối xứng không còn làm leg rớt; drift bất đối xứng vẫn INCONCLUSIVE.
+- [x] `checks.status === 'REFUSED'` ⇒ `status !== 'COMPLETE'` (có unit test chứng minh vị từ lật).
+- [x] 6/6 artifact report ghim sha256 verify được bằng hàm hash chuẩn hoá LF.
+- [x] Campaign run5 chạy trong thư mục riêng, mọi artifact mang `instrumentRevision` + `epoch`, và số leg PASS/flake/leg được đối chiếu với dự đoán của phase file.
 
 ## Boundaries
 

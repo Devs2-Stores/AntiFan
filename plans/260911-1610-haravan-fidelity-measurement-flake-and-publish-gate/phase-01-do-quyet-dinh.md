@@ -1,6 +1,6 @@
 ---
 title: "Phase 1: Đo quyết định (kill-test V0)"
-status: in-progress
+status: complete
 ---
 
 # Phase 1: Đo quyết định (kill-test V0)
@@ -11,11 +11,11 @@ Chốt thủ phạm của `content-changed-between-passes` bằng **một** phé
 
 ## Requirements
 
-- [ ] Bridge canary sống trên port 20131 và session mint được (`.canary/state/canary-session.json`).
-- [ ] Fixture replay `product__1024x900.html` phục vụ từ `serve-static.mjs` ở port 7861.
-- [ ] Probe `.canary/tools/probe-fingerprint-cycle.mjs` chạy xong, ghi `.canary/state/probe-fingerprint-cycle.json`.
-- [ ] Mỗi mẫu lưu đủ 11 khoá fingerprint + số lần ghi `style`/`class` của trang giữa các mẫu.
-- [ ] Nhánh V2a / V2b / V3 được chọn và ghi lại kèm số đo.
+- [x] Bridge canary sống trên port 20131 và session mint được (`.canary/state/canary-session.json`).
+- [x] Fixture replay `product__1024x900.html` phục vụ từ `serve-static.mjs` ở port 7861.
+- [x] Probe `.canary/tools/probe-fingerprint-cycle.mjs` chạy xong, ghi `.canary/state/probe-fingerprint-cycle.json`.
+- [x] Mỗi mẫu lưu đủ 11 khoá fingerprint + số lần ghi `style`/`class` của trang giữa các mẫu.
+- [x] Nhánh V2a / V2b / V3 được chọn và ghi lại kèm số đo.
 
 ## Implementation Steps
 
@@ -29,8 +29,8 @@ Chốt thủ phạm của `content-changed-between-passes` bằng **một** phé
 
 - [x] Viết probe `.canary/tools/probe-fingerprint-cycle.mjs`
 - [x] Mint session + serve fixture
-- [ ] Chạy probe và thu JSON
-- [ ] Chốt nhánh V2a / V2b / V3 kèm số đo
+- [x] Chạy probe và thu JSON
+- [x] Chốt nhánh V2a / V2b / V3 kèm số đo
 
 ## Decision Table (bắt buộc dùng, không thay bằng cảm tính)
 

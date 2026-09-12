@@ -1,6 +1,6 @@
 ---
 title: "Phase 4: Nghiệm thu campaign run5"
-status: pending
+status: complete
 ---
 
 # Phase 4: Nghiệm thu campaign run5
@@ -11,11 +11,11 @@ Chạy lại campaign vào **thư mục mới** (`run5`) với instrument đã v
 
 ## Requirements
 
-- [ ] Run mới ghi vào `.canary/theme-fidelity-run5/` (hoặc thư mục riêng tương đương), không ghi đè run4.
-- [ ] Mọi artifact mang `instrument.revision` + `epoch`; hai thế hệ không thể lẫn mà không lộ.
-- [ ] Mỗi leg có `settlePasses` (khi rớt settle) với đủ 3 pass và `fingerprintFields` thật.
-- [ ] Số leg theo `mechanism` được đối chiếu với dự đoán của Phase 1–2; mọi lệch phải giải thích được.
-- [ ] Không có hành động nào chạm theme live `1001510509`.
+- [x] Run mới ghi vào `.canary/theme-fidelity-run5/` (hoặc thư mục riêng tương đương), không ghi đè run4.
+- [x] Mọi artifact mang `instrument.revision` + `epoch`; hai thế hệ không thể lẫn mà không lộ.
+- [x] Mỗi leg có `settlePasses` (khi rớt settle) với đủ 3 pass và `fingerprintFields` thật.
+- [x] Số leg theo `mechanism` được đối chiếu với dự đoán của Phase 1–2; mọi lệch phải giải thích được.
+- [x] Không có hành động nào chạm theme live `1001510509`.
 
 ## Implementation Steps
 
@@ -27,10 +27,10 @@ Chạy lại campaign vào **thư mục mới** (`run5`) với instrument đã v
 
 ## Todo
 
-- [ ] Chạy campaign run5 (bridge + session + serve)
-- [ ] Histogram mechanism + totals từng set
-- [ ] Đối chiếu dự đoán Phase 1–2, ghi lệch
-- [ ] Tính flake/leg và ghi khoảng cách tới mục tiêu
+- [x] Chạy campaign run5 (bridge + session + serve)
+- [x] Histogram mechanism + totals từng set
+- [x] Đối chiếu dự đoán Phase 1–2, ghi lệch
+- [x] Tính flake/leg và ghi khoảng cách tới mục tiêu
 
 ## Falsifiers
 
