@@ -792,6 +792,23 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
     execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
+  catalogue.register({
+    name: 'browser.get-viewport',
+    description: 'Get browser viewport dimensions, DPR, device preset, and layout surface state without applying overrides',
+    risk: 'read',
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string', description: 'Optional tab ID to inspect (defaults to active tab)' } } },
+    execute: (params: { tabId?: string }, context) => browser.getViewport(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'anti.browser.get_viewport',
+    description: 'Get browser viewport dimensions, DPR, device preset, and layout surface state without applying overrides',
+    risk: 'read',
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string', description: 'Optional tab ID to inspect (defaults to active tab)' } } },
+    execute: (params: { tabId?: string }, context) => browser.getViewport(params, context.browserTarget),
+  });
 
   catalogue.register({
     name: 'browser.set-device-preset',
@@ -1191,6 +1208,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, required: ['width', 'height'] },
     execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
+  });
+  catalogue.register({
+    name: 'antifan_get_viewport',
+    description: 'Alias for browser.get-viewport',
+    risk: 'read',
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+    execute: (params: { tabId?: string }, context) => browser.getViewport(params, context.browserTarget),
   });
 
   catalogue.register({
@@ -2425,12 +2450,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         },
         heightTolerance: { type: 'number', description: 'Maximum acceptable height delta ratio (0.0 to 1.0) before triggering STRUCTURAL_TRUNCATION_DETECTED. Default 0.10' },
         allowHeightDrift: { type: 'boolean', description: 'When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation' },
+        maxGeometryDeltaPx: { type: 'number', description: 'Maximum acceptable structural component geometry shift in pixels. On responsive mobile/tablet, defaults to 16px when pixel diff matches' },
         expectedUrl: { type: 'string', description: 'Expected route URL for target side' },
         expectedTargetUrl: { type: 'string', description: 'Expected route URL for target side' },
         expectedBaselineUrl: { type: 'string', description: 'Expected route URL for baseline side' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean; expectedUrl?: string; expectedTargetUrl?: string; expectedBaselineUrl?: string }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean; maxGeometryDeltaPx?: number; expectedUrl?: string; expectedTargetUrl?: string; expectedBaselineUrl?: string }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
   });
   catalogue.register({

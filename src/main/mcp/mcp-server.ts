@@ -383,6 +383,16 @@ export class AntiFanMcpServer {
         inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
       },
       {
+        name: 'antifan_get_viewport',
+        description: 'Get browser viewport dimensions, DPR, device preset, and layout surface state without applying overrides',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tabId: { type: 'string', description: 'Optional target tab ID (defaults to active tab)' },
+          },
+        },
+      },
+      {
         name: 'antifan_set_viewport',
         description: 'Set browser responsive viewport dimensions (Playwright setViewportSize parity) with width, height, and mobile emulation',
         inputSchema: {
@@ -558,6 +568,8 @@ export class AntiFanMcpServer {
       'anti.agent.cursor.move': 'antifan_agent_hover',
       'anti.agent.cursor.trajectory': 'antifan_agent_trajectory',
       'anti.browser.trajectory': 'antifan_agent_trajectory',
+      'anti.browser.viewport.get': 'antifan_get_viewport',
+      'anti.browser.get_viewport': 'antifan_get_viewport',
       'anti.browser.viewport.set': 'antifan_set_viewport',
       'anti.browser.set_device': 'antifan_set_device_preset',
       'anti.browser.set_device_preset': 'antifan_set_device_preset',
@@ -782,6 +794,7 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_agent_highlight') generated.push({ ...item, name: 'anti.browser.highlight' }, { ...item, name: 'anti.agent.cursor.highlight' });
     if (item.name === 'antifan_agent_clear') generated.push({ ...item, name: 'anti.browser.clear' }, { ...item, name: 'anti.agent.cursor.clear' });
     if (item.name === 'antifan_agent_trajectory') generated.push({ ...item, name: 'anti.browser.trajectory' }, { ...item, name: 'anti.agent.cursor.trajectory' });
+    if (item.name === 'antifan_get_viewport') generated.push({ ...item, name: 'anti.browser.viewport.get' }, { ...item, name: 'anti.browser.get_viewport', description: 'Get browser viewport dimensions, DPR, device preset, and layout surface state without applying overrides' });
     if (item.name === 'antifan_set_viewport') generated.push({ ...item, name: 'anti.browser.viewport.set' }, { ...item, name: 'anti.browser.set_viewport', description: 'Set browser responsive viewport dimensions and prove the tab measured them' });
     if (item.name === 'antifan_set_device_preset') generated.push({ ...item, name: 'anti.browser.set_device' }, { ...item, name: 'anti.browser.viewport.set_preset' }, { ...item, name: 'anti.browser.set_device_preset' });
     if (item.name === 'antifan_list_device_presets') generated.push({ ...item, name: 'anti.browser.viewport.list_presets' });
