@@ -12,10 +12,12 @@ Nguồn: 3 scout read-only + tự kiểm lại ở controller. Số nào do scou
 
 Đo bằng `GET https://apis.haravan.com/web/themes.json` và `/web/themes/1001514194.json` (Bearer, token không in ra log).
 
-## 2. Bản pull `15092026/` — đầy đủ 100%
+## 2. Bản pull `15092026/` — khớp khoá 100%, nội dung khớp trừ 5 ảnh khác biến thể CDN
 
 - 241 tệp / 241 khoá remote: khớp 241, thiếu 0, thừa 0. `.haravan-cli_remote.json` khớp 241/241.
 - Controller tự kiểm lại: 241 khoá manifest ↔ 241 tệp local, 0 lệch; sha256 của `templates/index.liquid`, `layout/theme.liquid`, `snippets/footer.liquid` khớp manifest 3/3.
+- **Đối chiếu byte với remote (đo 2026-09-13)**: 143 tệp văn bản — **0 lệch** kích thước so với `size` mà API khai. Ảnh nhị phân — **5 tệp lệch**, và đây **không phải tệp hỏng**: trang render `https://phukienmaymoc.com/?themeid=1001514194` phát ra `hera_index_hero_1_mobile.jpg?v=2` (45.507 byte, sha256 `cd5d8c93…`), còn `?v=3` trả 55.681 byte **đúng bằng `size` API khai**. Bản local giữ đúng biến thể mà theme phục vụ ⇒ **không dùng `size` API làm tiêu chí đủ/thiếu cho ảnh**, phải so với URL trang render phát ra. Danh sách: `hera_index_hero_1_mobile.jpg` 45.507/55.681, `hera_index_hero_2_mobile.jpg` 98.904/120.262, `shop_coupon_item_image_2.png` 1.653/2.140, `shop_social_sidebar_item_image_1.png` 1.288/1.542, `shop_social_sidebar_item_image_5.png` 4.736/5.091.
+- Rác CLI còn lại: `15092026/.hrv_tmp_pull-<pid>-<ts>/assets/` — 6 tệp (5 bản `?v=3` của nhóm trên + 1 tệp **0 byte**), không thuộc nội dung theme.
 - Phân bố: `templates/` 43, `snippets/` 65, `assets/` 129, `layout/` 1, `config/` 3.
 
 ## 3. Hình dạng nền tảng: sạch kiểu Haravan phẳng
@@ -42,8 +44,7 @@ Nguồn: 3 scout read-only + tự kiểm lại ở controller. Số nào do scou
 
 ## 6. Dấu vết nền tảng khác (quan trọng cho kế hoạch)
 
-- Theme gốc là **Hera Jewelry chuyển từ Sapo/Bizweb sang Haravan**: `sapo`/`bizweb` xuất hiện ở `templates/page.instruct.liquid`, `templates/password.liquid`, `snippets/product-item-compare.liquid`, `assets/product.scss.liquid`; `assets/product.scss.liquid:759` còn class `.sapo-buyxgety-module-detail-v2`.
-- Không thấy dấu vết lỗi convert nặng: `| slice` 0, `line_item.product.url` 0, `article_comments` 0, `postcontact` 0, `.bwt` 0.
+- **Chỉ ghi nhận dấu vết chuỗi, không kết luận nguồn gốc**: `sapo` 12 lần / `bizweb` 1 lần (đếm không phân biệt hoa thường trên `*.liquid` + `*.json`), toàn bộ là tên class CSS / khoá setting (`assets/product.scss.liquid:759` còn `.sapo-buyxgety-module-detail-v2`; `snippets/product-item-compare.liquid:17` có `sapo-product-reviews-badge`), không có nhánh logic Sapo nào. Tên theme trong `settings_data.json` là "Hera Jewelry". Danh sách bẫy convert Shopify→Haravan đã quét đều **0 hit**: `| slice`, `line_item.product.url`, `article_comments`, `/postcontact`, `.bwt`. ⇒ Bằng chứng chỉ đủ để nói "còn vài dấu vết chuỗi gốc Sapo trong CSS/template"; session mới tự kiểm danh sách bẫy trên theme thay vì thừa hưởng kết luận.
 - Theme **đã có sẵn cơ chế noPS/StartOptimize**: `var f1genzPS = true;` trong `layout/theme.liquid:20`, `snippets/optimize_head.liquid` hoãn `data-src` → `src`, `nosrc` xuất hiện trong `assets/*.js.liquid` (`main`, `cart`, `product`, `article`, `blog`, `404`, `page`) và `snippets/shop-modal-required.liquid`, `snippets/footer-scripts.liquid`. Không thấy `ps.f1genz.dev` trong snippet.
 
 ## 7. Báo cáo chi tiết

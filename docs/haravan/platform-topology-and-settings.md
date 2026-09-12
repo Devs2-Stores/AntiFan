@@ -199,7 +199,7 @@ rendered values with `setting-id` / `setting-type` attributes on storefront mark
 |---|---|---|---|---|
 | `config/settings_data.json` is the sole persistence store for settings values. | `VERIFIED` | `customizes/*` (30/30 themes); `Haravan CLI/src/helper/theme-asset-patterns.ts`. | None. | None. |
 | In dual-mode themes, Admin settings editor prioritizes `settings_schema.json` over `settings.html`. | `UNKNOWN` | None. Observed in 24 themes, but execution precedence is undocumented. | Some themes maintain identical keys in both files. | Probe BQ-02: deploy test theme with conflicting default values and inspect Admin editor. |
-| Haravan Admin automatically populates `<select class="collection">` options in `settings.html`. | `VERIFIED` | `C:/Users/Admin/.claude/skills/haravan-theme/references/settings-html.md:118` (2026-07-05). | None. Documented admin feature. | None. |
+| Haravan Admin automatically populates `<select class="collection">` options in `settings.html`. | `VERIFIED` | `skill://haravan-theme/references/settings-html.md:118` (2026-07-05). | None. Documented admin feature. | None. |
 | Liquid template rendering accesses settings values via `settings.{key}` or `settings['{key}']`. | `VERIFIED` | `https://themes.haravan.com/pages/cheat-sheet` (2026-09-12); `customizes/*`. | None. Core platform object. | None. |
 | `settings.html` cannot parse or execute Liquid code. | `VERIFIED` | Haravan Admin Settings Editor Specification (2026-07-05). | None. | None. |
 | 24 of 30 commercial customer themes in `customizes/` contain both `settings.html` and `settings_schema.json`. | `OBSERVED` | `E:/Work/customizes` corpus audit (2026-09-12). | None. Factual corpus census. | None. |
