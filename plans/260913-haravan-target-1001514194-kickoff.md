@@ -44,7 +44,7 @@ Công việc của phiên trước (vòng kiểm chứng, chứng thực danh t�
 Hai điểm còn lại cần quyết khi tái dùng:
 
 - Vai trò theme **đo được** qua `GET /web/themes.json` (`role`: `main`/`unpublished`) ⇒ nên truyền vào như bằng chứng quan sát, thay vì để người gọi tự khai (`manifest.store.themeRole`) hoặc hardcode. Guard containment phải từ chối mọi `role === "main"` và nhận id đích từ manifest, không hardcode `1001512581`.
-- `scripts/fetch-haravan-theme-safe.mjs:8` hardcode `C:/Users/Admin/.haravan-cli.json` (repo PUBLIC) ⇒ đọc `HARAVAN_CLI_CONFIG` với mặc định tương đương; đồng thời hàm này đang `failCount++` rồi vẫn in `[DONE]` và thoát 0, không lưu danh sách key lỗi ⇒ bản sao local có thể thiếu file mà không ai biết. Ghi lại key lỗi và thoát khác 0.
+- `scripts/fetch-haravan-theme-safe.mjs:8` hardcode đường dẫn cấu hình CLI cá nhân (repo PUBLIC) ⇒ đọc `HARAVAN_CLI_CONFIG` với mặc định tương đương; đồng thời hàm này đang `failCount++` rồi vẫn in `[DONE]` và thoát 0, không lưu danh sách key lỗi ⇒ bản sao local có thể thiếu file mà không ai biết. Ghi lại key lỗi và thoát khác 0.
 - `.canary/tools/lib-png.mjs` vẫn giữ decoder PNG riêng (có hỗ trợ palette, ném lỗi thay vì trả `null`) — hợp nhất vào `scripts/lib/png-raster.mjs` chỉ khi chấp nhận đổi hành vi đó.
 
 ## 7. Chặn hạ tầng đang có
