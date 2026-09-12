@@ -7,8 +7,8 @@ EXECUTIVE VERDICT : FAIL
 SCOPE             : 1440/1024/390 measured
 FINAL DECISION    : NEEDS_TARGETED_FIXES
 PAGES EXECUTED    : 15 / 15 (ALL 15 PAGES TESTED)
-RENDER CASES RUN  : 45 / 45 (PASS: 8 | FAIL: 17 | INCONCLUSIVE: 20)
-COMPLETION DATE   : 2026-09-11T00:18:04.503Z
+RENDER CASES RUN  : 45 / 45 (PASS: 10 | FAIL: 17 | INCONCLUSIVE: 18)
+COMPLETION DATE   : 2026-09-12T06:53:50.161Z
 ```
 
 ---
@@ -17,7 +17,7 @@ COMPLETION DATE   : 2026-09-11T00:18:04.503Z
 
 | # | Name | URL | Domain | Status |
 |---|------|-----|--------|--------|
-| 1 | TRANG CHỦ | [https://hoplongtech.com/](https://hoplongtech.com/) | `hoplongtech.com` | **INCONCLUSIVE** |
+| 1 | TRANG CHỦ | [https://hoplongtech.com/](https://hoplongtech.com/) | `hoplongtech.com` | **PASS** |
 | 2 | DANH MỤC THƯƠNG HIỆU | [https://hoplongtech.com/brands](https://hoplongtech.com/brands) | `hoplongtech.com` | **FAIL** |
 | 3 | NHÓM KHÔNG FILTER | [https://hoplongtech.com/category/cam-bien](https://hoplongtech.com/category/cam-bien) | `hoplongtech.com` | **FAIL** |
 | 4 | TRANG NHÓM SẢN PHẨM | [https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127](https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127) | `hoplongtech.com` | **FAIL** |
@@ -51,7 +51,7 @@ Executed in Batch  : 15 pages (45 cases)
 
 | Page | URL | 1440 | 1024 | 390 | Structure | Assets | Typography | Network | Capture | Visual | Overall |
 |------|-----|------|------|------|-----------|--------|------------|---------|---------|--------|---------|
-| 1. TRANG CHỦ | `https://hoplongtech.com/...` | PASS | INCONCLUSIVE | INCONCLUSIVE | PASS | PASS | PASS | PASS | FAIL | INCONCLUSIVE | **INCONCLUSIVE** |
+| 1. TRANG CHỦ | `https://hoplongtech.com/...` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
 | 2. DANH MỤC THƯƠNG HIỆU | `https://hoplongtech.com/brands...` | PASS | INCONCLUSIVE | FAIL | PASS | PASS | PASS | PASS | PASS | FAIL | **FAIL** |
 | 3. NHÓM KHÔNG FILTER | `https://hoplongtech.com/category...` | PASS | INCONCLUSIVE | FAIL | PASS | PASS | PASS | PASS | PASS | FAIL | **FAIL** |
 | 4. TRANG NHÓM SẢN PHẨM | `https://hoplongtech.com/category...` | PASS | INCONCLUSIVE | FAIL | PASS | PASS | PASS | PASS | PASS | FAIL | **FAIL** |
@@ -76,7 +76,7 @@ Executed in Batch  : 15 pages (45 cases)
 - **Initial URL**: `https://hoplongtech.com/`
 - **Final URL**: `https://hoplongtech.com/`
 - **Special Requirements**: Hero, banner, category, product, brand, news, partner, footer, responsive.
-- **Discovery Metrics**: 15 sections, 83 product cards, 4 articles, 105 images, document dimensions: `1440x5422`, overflowX: `false`.
+- **Discovery Metrics**: 15 sections, 83 product cards, 4 articles, 105 images, document dimensions: `1425x5422`, overflowX: `false`.
 
 #### 1440px (Desktop)
 - **Navigation**: OK
@@ -84,8 +84,8 @@ Executed in Batch  : 15 pages (45 cases)
 - **Assets**: PASS (Local)
 - **Typography**: Verified
 - **Network**: PASS (Ref visual requests: 0)
-- **Capture**: PASS (Ref: 2344979B, Clone: 2369482B)
-- **Visual**: PASS (1.81% mismatch)
+- **Capture**: PASS (Ref: 2334593B, Clone: 2351536B)
+- **Visual**: PASS (1.83% mismatch)
 - **Overall**: **PASS**
 
 #### 1024px (Tablet)
@@ -94,9 +94,9 @@ Executed in Batch  : 15 pages (45 cases)
 - **Assets**: PASS (Local)
 - **Typography**: Verified
 - **Network**: PASS (Ref visual requests: 0)
-- **Capture**: PASS (Ref: 1768789B, Clone: 1761298B)
-- **Visual**: STRUCTURAL_PARITY_MISMATCH (2.21% mismatch)
-- **Overall**: **INCONCLUSIVE**
+- **Capture**: PASS (Ref: 1772007B, Clone: 1769328B)
+- **Visual**: PASS (0.04% mismatch)
+- **Overall**: **PASS**
 
 #### 390px (Mobile)
 - **Navigation**: OK
@@ -104,9 +104,9 @@ Executed in Batch  : 15 pages (45 cases)
 - **Assets**: PASS (Local)
 - **Typography**: Verified
 - **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **INCONCLUSIVE**
+- **Capture**: PASS (Ref: 660795B, Clone: 666102B)
+- **Visual**: PASS (0.11% mismatch)
+- **Overall**: **PASS**
 
 **Failures**: None
 
@@ -696,6 +696,7 @@ Executed in Batch  : 15 pages (45 cases)
 - All executed clone bundles generated without pipeline halt.
 
 
+
 ---
 
 ## 7. Runtime Network Audit
@@ -743,10 +744,10 @@ Executed in Batch  : 15 pages (45 cases)
 
 ## 10. Responsive Results
 
-- **Page 1 (TRANG CHỦ)**: Status: **INCONCLUSIVE (Visual or structural divergence across viewports)**
+- **Page 1 (TRANG CHỦ)**: Status: **PASS**
   * 1440px DocHeight: Ref=5422px, Clone=5422px (OverflowX: Ref=0, Clone=0)
-  * 1024px DocHeight: Ref=5426px, Clone=5546px (OverflowX: Ref=0, Clone=0)
-  * 390px DocHeight: Ref=3156px, Clone=4491px (OverflowX: Ref=0, Clone=0)
+  * 1024px DocHeight: Ref=5546px, Clone=5426px (OverflowX: Ref=0, Clone=0)
+  * 390px DocHeight: Ref=4481px, Clone=4481px (OverflowX: Ref=0, Clone=0)
 - **Page 2 (DANH MỤC THƯƠNG HIỆU)**: Status: **INCONCLUSIVE (Visual or structural divergence across viewports)**
   * 1440px DocHeight: Ref=3975px, Clone=3975px (OverflowX: Ref=0, Clone=0)
   * 1024px DocHeight: Ref=4200px, Clone=4230px (OverflowX: Ref=0, Clone=0)
@@ -808,19 +809,21 @@ Executed in Batch  : 15 pages (45 cases)
 ## 11. Capture Integrity
 
 
-- **Total PNG Files Inspected on Disk**: 84.
-- **Valid PNG Magic Bytes (`89 50 4E 47 0D 0A 1A 0A`)**: 84 / 84.
-- **Valid IEND Trailer Bytes**: 84 / 84.
+- **Total PNG Files Inspected on Disk**: 86.
+- **Valid PNG Magic Bytes (`89 50 4E 47 0D 0A 1A 0A`)**: 86 / 86.
+- **Valid IEND Trailer Bytes**: 86 / 86.
 - **Corrupted or Truncated PNGs**: 0.
 
 ### Inspected Artifacts Table
 
 | Page | Viewport | Kind | Bytes | Valid PNG | SHA256 (First 16 chars) |
 |------|----------|------|-------|-----------|-------------------------|
-| P1. TRANG CHỦ | 1024 | reference | 1768789 | true | `5bee8cb60cbcb5af...` |
-| P1. TRANG CHỦ | 1024 | clone | 1761298 | true | `a80ad892d3c03754...` |
-| P1. TRANG CHỦ | 1440 | reference | 2344979 | true | `27ece4e84ef6c10c...` |
-| P1. TRANG CHỦ | 1440 | clone | 2369482 | true | `fe7cc0280838b625...` |
+| P1. TRANG CHỦ | 390 | reference | 660795 | true | `478645e4abac2afe...` |
+| P1. TRANG CHỦ | 390 | clone | 666102 | true | `24be35f991aa9242...` |
+| P1. TRANG CHỦ | 1024 | reference | 1772007 | true | `a30988582e111b09...` |
+| P1. TRANG CHỦ | 1024 | clone | 1769328 | true | `4b3ab57007633abc...` |
+| P1. TRANG CHỦ | 1440 | reference | 2334593 | true | `8cc6cc58eb17b0e0...` |
+| P1. TRANG CHỦ | 1440 | clone | 2351536 | true | `218ab37b5fd46060...` |
 | P2. DANH MỤC THƯƠNG HIỆU | 390 | reference | 193351 | true | `7893b90ebf828d59...` |
 | P2. DANH MỤC THƯƠNG HIỆU | 390 | clone | 192963 | true | `112b34f8ed0ca62f...` |
 | P2. DANH MỤC THƯƠNG HIỆU | 1024 | reference | 303501 | true | `ee8fdb910c16d0a9...` |
@@ -908,13 +911,12 @@ Executed in Batch  : 15 pages (45 cases)
 ## 12. Visual Compare Results
 
 - **Executed Comparisons**: 45.
-- **Pass Cases**: 8.
+- **Pass Cases**: 10.
 - **Fail Cases**: 17.
-- **Inconclusive Cases**: 20.
-- **Widget-mask sensitivity (non-binding)**: 42 of 45 legs re-compared with the default widget masks on, under the same lease. The verdict moved on 0 of them. Mismatch change ranged -0.28pp to +0.29pp, with the masks covering at most 2.7615% of the canvas. The binding policy remains masks-off, so a mask cannot pass a leg that the masks-off comparison fails.
-- **Height-drift experiment**: 1024 natural difference 120px — allowHeightDrift=false: STRUCTURAL_PARITY_MISMATCH (2.21%, dimsMatch=false), allowHeightDrift=true: STRUCTURAL_PARITY_MISMATCH (2.21%, dimsMatch=false); 1440 natural difference 0px — allowHeightDrift=false: null (1.81%, dimsMatch=true), allowHeightDrift=true: null (1.81%, dimsMatch=true).
+- **Inconclusive Cases**: 18.
+- **Widget-mask sensitivity (non-binding)**: 43 of 45 legs re-compared with the default widget masks on, under the same lease. The verdict moved on 3 of them (390: PASS → FAIL, 1024: PASS → FAIL, 1440: PASS → FAIL). Mismatch change ranged -99.96pp to +0.29pp, with the masks covering at most 2.7615% of the canvas. The binding policy remains masks-off, so a mask cannot pass a leg that the masks-off comparison fails.
 
-- **Page 1 (TRANG CHỦ)**: 390: INCONCLUSIVE (null%) | 1024: STRUCTURAL_PARITY_MISMATCH (2.21%) | 1440: PASS (1.81%)
+- **Page 1 (TRANG CHỦ)**: 390: PASS (0.11%) | 1024: PASS (0.04%) | 1440: PASS (1.83%)
 - **Page 2 (DANH MỤC THƯƠNG HIỆU)**: 390: FAIL (0.01%) | 1024: STRUCTURAL_PARITY_MISMATCH (0.77%) | 1440: PASS (0.05%)
 - **Page 3 (NHÓM KHÔNG FILTER)**: 390: FAIL (0.01%) | 1024: STRUCTURAL_PARITY_MISMATCH (0.63%) | 1440: PASS (0.08%)
 - **Page 4 (TRANG NHÓM SẢN PHẨM)**: 390: FAIL (0.01%) | 1024: STRUCTURAL_PARITY_MISMATCH (0.59%) | 1440: PASS (0.07%)
@@ -947,7 +949,7 @@ Executed in Batch  : 15 pages (45 cases)
 5. **Failure nào thuộc CSS/Layout?**: Đang có ca INCONCLUSIVE/FAIL giữa Reference và Clone về layout/visual.
 6. **Failure nào thuộc Responsive?**: Chưa đạt PASS: các viewport có kết quả INCONCLUSIVE hoặc FAIL do visual mismatch hoặc độ lệch chiều cao giữa các breakpoint.
 7. **Failure nào thuộc Capture?**: Toàn bộ artifact được kiểm tra có đủ magic bytes và IEND.
-8. **Failure nào thuộc Visual Compare?**: Có 20 ca INCONCLUSIVE và 17 ca FAIL trên tổng số 45 ca chạy.
+8. **Failure nào thuộc Visual Compare?**: Có 18 ca INCONCLUSIVE và 17 ca FAIL trên tổng số 45 ca chạy.
 9. **Failure nào là vấn đề của Reference Site?**: Không phát hiện dị thường.
 10. **Có cần sửa Core không?**: KHÔNG. Core runtime hoạt động đúng hợp đồng.
 
@@ -966,7 +968,7 @@ Executed in Batch  : 15 pages (45 cases)
 | G. CSS/Layout | FAIL | Layout comparison across viewports |
 | H. Responsive | FAIL | Multi-viewport responsiveness (1440/1024/390) |
 | I. Chromium Runtime | PASS | Real Chromium rendering |
-| J. Capture | PASS | 84/84 valid PNGs |
+| J. Capture | PASS | 86/86 valid PNGs |
 | K. Visual Compare | FAIL | Bounded comparison evaluation |
 | L. Settle | PASS | Bounded hydration and image promotion |
 | M. Network | PASS | 45/45 viewports clean |

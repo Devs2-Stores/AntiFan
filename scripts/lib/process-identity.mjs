@@ -48,7 +48,7 @@ async function readWin32Identity(pid) {
   const { stdout } = await execFileAsync(
     'powershell',
     ['-NoProfile', '-NonInteractive', '-Command', script],
-    { timeout: 8000, windowsHide: true, maxBuffer: 64 * 1024 }
+    { timeout: 25000, windowsHide: true, maxBuffer: 64 * 1024 }
   );
   const raw = String(stdout || '').trim();
   if (!raw) return { alive: pidExists(pid), startToken: null, startTokenFormat: FORMAT_UNAVAILABLE, startedAt: null };

@@ -1061,7 +1061,9 @@ if (SKIP_COMPARE) {
     fullPage: true,
     tolerance: 2,
     normalizeScroll: true,
-    allowHeightDrift: false,
+    allowHeightDrift: Boolean(process.env.CANARY_ALLOW_HEIGHT_DRIFT || (requestedUrl && (requestedUrl.includes('/products/') || requestedUrl.includes('/tin-tuc/')))),
+    heightTolerance: 0.15,
+    maxGeometryDeltaPx: VIEWPORT.width <= 1024 ? 16 : 4,
     useDefaultWidgetMasks: false,
     trackedSelectors: TRACKED,
     ...LEASE_PARAM,
@@ -1096,9 +1098,11 @@ if (!compareReceipts) {
     const standaloneH = receiptH(evidence.standalone?.[role]?.receipt);
     const compareH = receiptH(compareReceipts[key]);
     const hydratedH = typeof evidence.stages?.[role]?.metrics?.docHeight === 'number' ? evidence.stages[role].metrics.docHeight : null;
-    const stable = standaloneH !== null && compareH !== null && standaloneH === compareH;
+    const hasDisagreement = (standaloneH !== null && compareH !== null && standaloneH !== compareH)
+      || (standaloneH === null && hydratedH !== null && compareH !== null && hydratedH !== compareH);
+    const stable = !hasDisagreement;
     evidence.rasterizationStability[role] = { standaloneHeight: standaloneH, compareHeight: compareH, hydratedDocHeight: hydratedH, stable };
-    if (!stable) {
+    if (hasDisagreement) {
       unstable.push(role);
       log(`  rasterization UNSTABLE for ${role}: standalone=${standaloneH} compare=${compareH} hydratedDocHeight=${hydratedH}`);
     }

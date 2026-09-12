@@ -648,6 +648,26 @@ export async function settleAndMeasure(tabId, name) {
  * contract so the returned metrics are the post-mount state.
  */
 export async function hydrateToCapturedState(tabId, label, params = {}, captureTimeoutMs = 240_000, maxAttempts = 3) {
+  // Prime lazy images and scroll full height before capture so imagesSettled pre-capture predicate passes
+  await evalOn(tabId, `(async () => {
+    try {
+      for (const img of document.images) {
+        if (img.loading === 'lazy') img.loading = 'eager';
+      }
+      const maxScroll = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0);
+      for (let y = 0; y <= maxScroll; y += 1500) {
+        window.scrollTo(0, y);
+        await new Promise(r => setTimeout(r, 100));
+      }
+      window.scrollTo(0, 0);
+      const t0 = Date.now();
+      while (Date.now() - t0 < 15_000) {
+        const p = Array.from(document.images).filter(i => !i.complete).length;
+        if (p === 0) break;
+        await new Promise(r => setTimeout(r, 300));
+      }
+    } catch {}
+  })()`, 30_000).catch(() => null);
   const capture = await call('anti.screenshot.full_page', { tabId, ...params }, captureTimeoutMs);
   const settled = await requireDoubleSettledMetrics(tabId, label, maxAttempts);
   return { capture, settled };

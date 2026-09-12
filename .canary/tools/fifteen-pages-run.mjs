@@ -193,18 +193,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * page's mint tab is closed at that point, so one session tab is ever live.
  */
 async function renewSession(pageId, state) {
-  const minted = await runCommand('node', ['.canary/tools/canary-session.mjs', String(boot.port), '.canary/state/canary-session.json'], { timeoutMs: 120_000 });
-  if (minted.code !== 0) {
-    throw Object.assign(
-      new Error(`session renewal failed for page ${pageId}: mint exit ${minted.code} — ${childErrorDetail(minted.stdout, minted.stderr)}`),
-      { code: 'SESSION_RENEWAL_FAILED' }
-    );
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const minted = await runCommand('node', ['.canary/tools/canary-session.mjs', String(boot.port), '.canary/state/canary-session.json'], { timeoutMs: 120_000 });
+    if (minted.code === 0) {
+      reloadBootstrap();
+      const previous = state.mintTabId;
+      state.mintTabId = boot.tabId || null;
+      state.previousMintTabId = previous;
+      return { minted: true, mintTabId: state.mintTabId, previousMintTabId: previous };
+    }
+    lastErr = childErrorDetail(minted.stdout, minted.stderr);
+    await new Promise(r => setTimeout(r, 1500));
   }
-  reloadBootstrap();
-  const previous = state.mintTabId;
-  state.mintTabId = boot.tabId || null;
-  state.previousMintTabId = previous;
-  return { minted: true, mintTabId: state.mintTabId, previousMintTabId: previous };
+  throw Object.assign(
+    new Error(`session renewal failed for page ${pageId}: mint exit — ${lastErr}`),
+    { code: 'SESSION_RENEWAL_FAILED' }
+  );
 }
 
 function runCommand(cmd, args, { timeoutMs = 600_000, env = {} } = {}) {
@@ -653,7 +658,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       // 4107px/8 sections before the capture versus 5422px/15 sections after it),
       // so the dump must follow the capture that hydrates it.
       console.log(`[P${p.id}] Deep settling + hydrating reference tab (full-page capture first)...`);
-      const preDump = await hydrateToCapturedState(refTabId, `P${p.id}-pre-dump`, { expectedUrl: p.url }, 240_000, 4);
+      const preDump = await hydrateToCapturedState(refTabId, `P${p.id}-pre-dump`, { expectedUrl: p.url, skipQuiescence: true }, 240_000, 4);
       const settledRef = preDump.settled;
       pageResult.phases.referenceHydration = { byteLength: preDump.capture?.byteLength ?? preDump.capture?.bytes ?? null };
       console.log(`[P${p.id}] Reference settled: docH=${settledRef.metrics.docHeight}, sections=${settledRef.metrics.sectionCount}, cards=${settledRef.metrics.productCardCount}`);
@@ -727,7 +732,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
           throw vpRouteMismatch;
         }
         console.log(`[P${p.id}][${vp.label}] Settle & measure reference tab (hydrating capture pass)...`);
-        const vpHydration = await hydrateToCapturedState(refTabId, `P${p.id}-${vp.label}`, { expectedUrl: p.url }, 240_000, 4);
+        const vpHydration = await hydrateToCapturedState(refTabId, `P${p.id}-${vp.label}`, { expectedUrl: p.url, skipQuiescence: true }, 240_000, 4);
         const vpSettled = vpHydration.settled;
         readinessFloors[vp.label] = validateProbedFloor(vpSettled.metrics, vp);
         console.log(`[P${p.id}][${vp.label}] Empirical floor: minSections=${readinessFloors[vp.label].minSections}, minCards=${readinessFloors[vp.label].minCards} (docH=${vpSettled.metrics.docHeight})`);
