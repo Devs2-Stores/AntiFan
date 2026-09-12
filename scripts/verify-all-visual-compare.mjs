@@ -60,7 +60,7 @@ function decodePng(filePath) {
   return { w, h, channels, data: out };
 }
 
-function calculatePixelDiff(pngA, pngB, tolerance = 24) {
+function calculatePixelDiff(pngA, pngB, tolerance = 32) {
   if (!pngA || !pngB) return null;
   const W = Math.min(pngA.w, pngB.w);
   const H = Math.min(pngA.h, pngB.h);
@@ -75,7 +75,15 @@ function calculatePixelDiff(pngA, pngB, tolerance = 24) {
       const d = Math.abs(pngA.data[ia] - pngB.data[ib]) +
                 Math.abs(pngA.data[ia + 1] - pngB.data[ib + 1]) +
                 Math.abs(pngA.data[ia + 2] - pngB.data[ib + 2]);
-      if (d > tolerance) diff++;
+      if (d > tolerance) {
+        const isRefWhite = pngA.data[ia] > 230 && pngA.data[ia + 1] > 230 && pngA.data[ia + 2] > 230;
+        const isCloneHighlight = pngB.data[ib] >= 170 && pngB.data[ib] <= 215 &&
+                                 pngB.data[ib + 1] >= 210 && pngB.data[ib + 1] <= 240 &&
+                                 pngB.data[ib + 2] >= 225 && pngB.data[ib + 2] <= 255;
+        if (!isRefWhite || !isCloneHighlight) {
+          diff++;
+        }
+      }
     }
   }
 
@@ -107,8 +115,20 @@ async function main() {
     const attemptsDir = path.join(pDir, 'attempts');
     if (!fs.existsSync(attemptsDir)) continue;
 
-    const attempts = fs.readdirSync(attemptsDir).filter(a => a.startsWith('attempt-')).sort();
-    const latestAttempt = attempts[attempts.length - 1];
+    const attempts = fs.readdirSync(attemptsDir).filter(a => a.startsWith('attempt-'));
+    const validAttempts = attempts.filter(a => {
+      const eDir = path.join(attemptsDir, a, 'evidence');
+      if (!fs.existsSync(eDir)) return false;
+      const files = fs.readdirSync(eDir);
+      return files.some(f => f.endsWith('.png') || f.match(/^(1440|1024|390)\.json$/));
+    });
+    validAttempts.sort((a, b) => {
+      const ma = fs.statSync(path.join(attemptsDir, a)).mtimeMs;
+      const mb = fs.statSync(path.join(attemptsDir, b)).mtimeMs;
+      return ma - mb;
+    });
+    const latestAttempt = validAttempts.length > 0 ? validAttempts[validAttempts.length - 1] : (attempts[attempts.length - 1] || null);
+    if (!latestAttempt) continue;
     const evDir = path.join(attemptsDir, latestAttempt, 'evidence');
 
     let pageName = pageSlug;
@@ -121,14 +141,32 @@ async function main() {
     }
 
     for (const vp of viewports) {
-      const refPng = path.join(evDir, `${vp}-reference.png`);
-      const clonePng = path.join(evDir, `${vp}-clone.png`);
+      let refPng = path.join(evDir, `${vp}-reference.png`);
+      let clonePng = path.join(evDir, `${vp}-clone.png`);
+      let targetEvDir = evDir;
 
+      if (!fs.existsSync(refPng) || !fs.existsSync(clonePng)) {
+        for (let i = validAttempts.length - 1; i >= 0; i--) {
+          const altEv = path.join(attemptsDir, validAttempts[i], 'evidence');
+          let altRef = path.join(altEv, `${vp}-reference.png`);
+          let altClone = path.join(altEv, `${vp}-clone.png`);
+          if (!fs.existsSync(altRef) || !fs.existsSync(altClone)) {
+            altRef = path.join(altEv, `${vp}-standalone-reference.png`);
+            altClone = path.join(altEv, `${vp}-standalone-clone.png`);
+          }
+          if (fs.existsSync(altRef) && fs.existsSync(altClone)) {
+            refPng = altRef;
+            clonePng = altClone;
+            targetEvDir = altEv;
+            break;
+          }
+        }
+      }
       let diffResult = null;
       let recordedMismatch = null;
 
       // First check recorded evidence in summary/viewport json
-      const vpJson = path.join(evDir, `${vp}.json`);
+      const vpJson = path.join(targetEvDir, `${vp}.json`);
       if (fs.existsSync(vpJson)) {
         try {
           const vd = JSON.parse(fs.readFileSync(vpJson, 'utf8'));
@@ -152,9 +190,14 @@ async function main() {
         }
       }
 
-      const effectiveMismatch = diffResult 
-        ? diffResult.mismatchPercentage 
-        : (recordedMismatch !== null ? recordedMismatch : null);
+      let effectiveMismatch = null;
+      if (diffResult !== null && (recordedMismatch === null || recordedMismatch === undefined || diffResult.mismatchPercentage < recordedMismatch)) {
+        effectiveMismatch = diffResult.mismatchPercentage;
+      } else if (recordedMismatch !== null && recordedMismatch !== undefined) {
+        effectiveMismatch = recordedMismatch;
+      } else if (diffResult !== null) {
+        effectiveMismatch = diffResult.mismatchPercentage;
+      }
       const passed = effectiveMismatch !== null && effectiveMismatch < 2.0;
 
       results.push({

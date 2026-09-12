@@ -152,10 +152,14 @@ export function computeStructuralMetrics(
   baselineBundle: VisualRegionBundle,
   options: {
     maxGeometryDeltaPx?: number;
+    maxGeometryDeltaXPx?: number;
+    maxGeometryDeltaYPx?: number;
     trackedSelectors?: string[];
   } = {}
 ): StructuralMetricsResult {
   const maxTol = options.maxGeometryDeltaPx ?? 2;
+  const maxTolX = options.maxGeometryDeltaXPx ?? maxTol;
+  const maxTolY = options.maxGeometryDeltaYPx ?? maxTol;
   const targetRegions = targetBundle.regions;
   const baselineRegions = baselineBundle.regions;
 
@@ -209,7 +213,7 @@ export function computeStructuralMetrics(
   let sumBaselineCount = 0;
   let sumDeltaCardinality = 0;
   let allGroupsMatch = true;
-
+  let allGeometryMatch = true;
   for (const selector of allSelectors) {
     const bList = baselineGroups.get(selector) ?? [];
     const tList = targetGroups.get(selector) ?? [];
@@ -249,12 +253,16 @@ export function computeStructuralMetrics(
       const dy = Math.abs(tr.bounds.y - br.bounds.y);
       const dw = Math.abs(tr.bounds.width - br.bounds.width);
       const dh = Math.abs(tr.bounds.height - br.bounds.height);
+      const shiftX = Math.max(dx, dw);
+      const shiftY = Math.max(dy, dh);
       const shift = Math.max(dx, dy, dw, dh);
       if (shift > groupMaxDelta) {
         groupMaxDelta = shift;
       }
+      if (shiftX > maxTolX || shiftY > maxTolY) {
+        allGeometryMatch = false;
+      }
     }
-
     groups[selector] = {
       selector,
       targetCount: tCount,
@@ -290,7 +298,7 @@ export function computeStructuralMetrics(
   const cardinalityMatch = allGroupsMatch && sumDeltaCardinality === 0 && hasTrackedElements;
 
   return {
-    geometryWithinTolerance: hasTrackedElements && maxDelta <= maxTol,
+    geometryWithinTolerance: hasTrackedElements && allGeometryMatch,
     deltaGeometry: maxDelta,
     cardinalityMatch,
     deltaCardinality: sumDeltaCardinality,
