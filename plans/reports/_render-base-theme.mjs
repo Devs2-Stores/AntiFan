@@ -1,6 +1,9 @@
-// Throwaway verification: executes the real Liquid source of the base theme's
-// swatch snippet and list-collections template through LiquidJS (the engine the
-// session's render harness already uses), with the platform-only tags stubbed.
+// Reproducible render harness: executes the real Liquid source of the base
+// theme (swatch snippet, list-collections, footer, 404) through LiquidJS, the
+// engine the session's render harness already uses, with Haravan-only tags
+// (form, paginate) stubbed. It verifies Liquid structure and binding, not
+// Haravan's renderer: the stubs supply the platform objects the templates
+// consume, so a stub defect shows up as a harness defect, not a theme defect.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
@@ -10,6 +13,17 @@ const require = createRequire(LIQUID_PACKAGE);
 const { Liquid } = require('liquidjs');
 
 const THEME = new URL('../../themes/universal-haravan-base', import.meta.url).pathname.replace(/^\//, '');
+
+const readCtx = (ctx, name) => {
+  if (!name) return undefined;
+  try {
+    return ctx.getSync([name]);
+  } catch {
+    return undefined;
+  }
+};
+
+const platformCalls = [];
 
 function buildEngine() {
   const engine = new Liquid({
@@ -21,9 +35,15 @@ function buildEngine() {
 
   engine.registerFilter('img_url', (value, size) => (value ? `/cdn/${size}/${value}` : ''));
   engine.registerFilter('asset_url', (value) => `/assets/${value}`);
+  engine.registerFilter('default_errors', (errors) => {
+    if (!errors) return '';
+    const messages = Object.values(errors.messages ?? {}).flat();
+    return messages.length ? `<span class="form-error-item">${messages.join(' ')}</span>` : '';
+  });
 
   engine.registerTag('form', {
     parse(token, remainTokens) {
+      this.tagArgs = token.args;
       this.templates = [];
       const stream = this.liquid.parser.parseStream(remainTokens);
       stream.on('tag:endform', () => stream.stop()).on('template', (tpl) => this.templates.push(tpl)).on('end', () => {
@@ -32,12 +52,19 @@ function buildEngine() {
       stream.start();
     },
     *render(ctx, emitter) {
+      // The platform hands the template a `form` object; the fixture models the
+      // success and error shapes the theme branches on.
+      platformCalls.push(this.tagArgs ?? '');
+      const fixture = readCtx(ctx, 'formFixture');
+      ctx.push({ form: fixture ?? { 'posted_successfully?': false, errors: null } });
       yield this.liquid.renderer.renderTemplates(this.templates, ctx, emitter);
+      ctx.pop();
     },
   });
 
   engine.registerTag('paginate', {
     parse(token, remainTokens) {
+      this.args = token.args;
       this.templates = [];
       const stream = this.liquid.parser.parseStream(remainTokens);
       stream.on('tag:endpaginate', () => stream.stop()).on('template', (tpl) => this.templates.push(tpl)).on('end', () => {
@@ -46,7 +73,35 @@ function buildEngine() {
       stream.start();
     },
     *render(ctx, emitter) {
-      ctx.push({ paginate: { pages: 1, page: 1, items: 0 }, current_page: 1 });
+      // Emulates `{% paginate <array> by <n> %}`: narrows the array to the
+      // current page and exposes the paginate drop, so the pagination snippet's
+      // multi-page branch is genuinely executed instead of short-circuited.
+      const match = /^(.+?)\s+by\s+(.+)$/.exec((this.args ?? '').trim());
+      const name = match ? match[1].trim() : '';
+      const raw = match ? readCtx(ctx, name) : [];
+      const items = Array.isArray(raw) ? raw : [];
+      const sizeArg = match ? match[2].trim() : '';
+      const perPage = /^\d+$/.test(sizeArg) ? Number(sizeArg) : (readCtx(ctx, sizeArg) ?? (items.length || 1));
+      const page = Math.max(1, Number(readCtx(ctx, 'paginatePage') ?? 1));
+      const total = items.length;
+      const pages = Math.max(1, Math.ceil(total / perPage));
+      const parts = [];
+      for (let p = 1; p <= pages; p += 1) {
+        parts.push({ is_link: p !== page, title: String(p), url: `/collections?page=${p}` });
+      }
+      const pushed = {
+        paginate: {
+          pages,
+          page,
+          items: total,
+          parts,
+          previous: page > 1 ? { url: `/collections?page=${page - 1}` } : null,
+          next: page < pages ? { url: `/collections?page=${page + 1}` } : null,
+        },
+        current_page: page,
+      };
+      if (name) pushed[name] = items.slice((page - 1) * perPage, page * perPage);
+      ctx.push(pushed);
       yield this.liquid.renderer.renderTemplates(this.templates, ctx, emitter);
       ctx.pop();
     },
@@ -106,17 +161,32 @@ async function renderSwatch(product, optionName) {
   return engine.parseAndRender(src, { product, swatch: optionName, settings });
 }
 
-async function renderListCollections(collections) {
+async function renderListCollections(collections, options = {}) {
   const engine = buildEngine();
   const src = fs.readFileSync(path.join(THEME, 'templates', 'list-collections.liquid'), 'utf8');
-  return engine.parseAndRender(src, { collections, settings, paginate: { pages: 1, page: 1, items: collections.length } });
+  return engine.parseAndRender(src, {
+    collections,
+    settings,
+    paginatePage: options.page ?? 1,
+  });
 }
 
-const hrefs = (html, groupMarker) => {
-  const start = html.indexOf(groupMarker);
-  const slice = start < 0 ? html : html.slice(start, html.indexOf('swatch-group', start + 10));
-  return [...slice.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
-};
+async function renderFooter(formFixture, settingsOverride) {
+  const engine = buildEngine();
+  const src = fs.readFileSync(path.join(THEME, 'snippets', 'footer.liquid'), 'utf8');
+  return engine.parseAndRender(src, {
+    settings: settingsOverride ? { ...settings, ...settingsOverride } : settings,
+    formFixture,
+    shop: { name: 'Cửa hàng thử nghiệm', email: 'shop@example.test' },
+    linklists: {},
+  });
+}
+
+async function render404() {
+  const engine = buildEngine();
+  const src = fs.readFileSync(path.join(THEME, 'templates', '404.liquid'), 'utf8');
+  return engine.parseAndRender(src, { settings, shop: { name: 'Cửa hàng thử nghiệm' } });
+}
 
 async function main() {
   // 1. Swatch: from Xanh/S, the size group must target Xanh/M, not Đỏ/M.
@@ -150,9 +220,14 @@ async function main() {
   const missingHrefs = [...missingCombination.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
   check('swatch_missing_combination_falls_back_to_available', missingHrefs[1] === '/products/ao-thun?variant=2' && !/\(Hết hàng\)/.test(missingCombination), missingHrefs.join(' | '));
 
-  // 3. Every variant of a value unavailable -> pass 3 links it and labels it sold out.
-  const allMOut = await renderSwatch(makeProduct({ activeId: 3, availability: { 2: false, 4: false } }), 'Kích thước');
-  check('swatch_all_unavailable_labelled', /\(Hết hàng\)/.test(allMOut) && /is-unavailable/.test(allMOut), allMOut.replace(/\s+/g, ' ').slice(0, 0) || 'label present');
+  // 2c. No variant carrying the value is available and the combination with the
+  //     rendered other option does not exist -> pass 3 is the only path left, and
+  //     it must still link a real variant (id 2), labelled sold out.
+  const allMOut = await renderSwatch(makeProduct({ activeId: 3, removeVariants: [4], availability: { 2: false } }), 'Kích thước');
+  const allMOutFlat = allMOut.replace(/\s+/g, ' ');
+  const allMOutHrefs = [...allMOut.slice(allMOut.indexOf('aria-label="Kích thước"')).matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  check('swatch_all_unavailable_targets_real_variant', allMOutHrefs[1] === '/products/ao-thun?variant=2', allMOutHrefs.join(' | '));
+  check('swatch_all_unavailable_labelled', /href="\/products\/ao-thun\?variant=2"\s+title="M \(Hết hàng\)"/.test(allMOutFlat) && /is-unavailable/.test(allMOutFlat), allMOutFlat.slice(allMOutFlat.indexOf('swatch-options'), allMOutFlat.length).slice(0, 240));
 
   // 4. Single-option product: pass 1 matches trivially, no other dimension needed.
   const single = {
@@ -187,6 +262,50 @@ async function main() {
   // 7. Empty catalog renders the empty state and no grid.
   const emptyHtml = await renderListCollections([]);
   check('collections_empty_state', /Chưa có danh mục nào/.test(emptyHtml) && !/<article class="product-card collection-card">/.test(emptyHtml), '');
+
+  // 8. A catalog longer than one page narrows to the page and renders the
+  //    pagination snippet's multi-page branch (`paginate.pages > 1`).
+  const many = Array.from({ length: 26 }, (_, i) => collectionStub(i + 1));
+  const pageOne = await renderListCollections(many);
+  const pageOneTiles = [...pageOne.matchAll(/<article class="product-card collection-card">/g)].length;
+  check('collections_pagination_slices_page', pageOneTiles === 12, String(pageOneTiles));
+  check('collections_pagination_nav_rendered', /pagination-nav/.test(pageOne) && /pagination-link/.test(pageOne) && pageOne.includes('href="/collections?page=2"') && pageOne.includes('href="/collections?page=3"'), '');
+  check('collections_pagination_no_previous_on_first_page', !/aria-label="Trang trước"/.test(pageOne), '');
+  const pageTwo = await renderListCollections(many, { page: 2 });
+  const pageTwoTiles = [...pageTwo.matchAll(/<article class="product-card collection-card">/g)].length;
+  check('collections_pagination_second_page', pageTwoTiles === 12 && /Danh mục 13/.test(pageTwo) && !/Danh mục 1</.test(pageTwo), String(pageTwoTiles));
+  check('collections_pagination_previous_on_later_page', /aria-label="Trang trước"/.test(pageTwo) && pageTwo.includes('href="/collections?page=1"'), '');
+  const pageThree = await renderListCollections(many, { page: 3 });
+  const pageThreeTiles = [...pageThree.matchAll(/<article class="product-card collection-card">/g)].length;
+  check('collections_pagination_last_page_remainder', pageThreeTiles === 2 && /Danh mục 26/.test(pageThree), String(pageThreeTiles));
+  const singlePageList = await renderListCollections([collectionStub(1)]);
+  check('collections_single_page_hides_nav', !/pagination-nav/.test(singlePageList), '');
+
+  // 9. Footer newsletter: the customer form mechanism and its three states.
+  const callsBeforeFooter = platformCalls.length;
+  const footerDefault = await renderFooter({ 'posted_successfully?': false, errors: null });
+  const customerFormCalls = platformCalls.slice(callsBeforeFooter).filter((args) => /customer/.test(args)).length;
+  check('footer_no_liquid_error', !/Liquid error/i.test(footerDefault) && !/\{\{|\{%/.test(footerDefault));
+  check('footer_newsletter_form_mechanism', customerFormCalls === 1 && /name="contact\[tags\]"\s+value="newsletter"/.test(footerDefault) && /name="contact\[email\]"/.test(footerDefault) && /type="submit"/.test(footerDefault), `customer form tags: ${customerFormCalls}`);
+  const callsBeforeDisabled = platformCalls.length;
+  const footerWithoutNewsletter = await renderFooter(undefined, { footer_newsletter_enable: false });
+  check('footer_newsletter_disabled_skips_form', !/name="contact\[email\]"/.test(footerWithoutNewsletter) && platformCalls.slice(callsBeforeDisabled).filter((args) => /customer/.test(args)).length === 0, '');
+  check('footer_newsletter_default_hides_states', !/alert-success/.test(footerDefault) && !/form-errors/.test(footerDefault), '');
+  const footerSuccess = await renderFooter({ 'posted_successfully?': true, errors: null });
+  check('footer_newsletter_success_state', /class="alert alert-success"[^>]*role="alert"/.test(footerSuccess) && /Cảm ơn bạn đã đăng ký nhận tin/.test(footerSuccess), '');
+  const footerError = await renderFooter({
+    'posted_successfully?': false,
+    errors: { count: 1, messages: { email: ['Email không hợp lệ'] } },
+  });
+  check('footer_newsletter_error_state', /class="form-errors alert alert-danger" role="alert"/.test(footerError) && /form-error-item/.test(footerError) && /Email không hợp lệ/.test(footerError), '');
+  const footerDisabled = await renderFooter(undefined);
+  check('footer_newsletter_renders_without_fixture', /name="contact\[email\]"/.test(footerDisabled) && !/Liquid error/i.test(footerDisabled), '');
+
+  // 10. 404: the search form targets /search with no pre-filled query value.
+  const notFound = await render404();
+  check('notfound_no_liquid_error', !/Liquid error/i.test(notFound) && !/\{\{|\{%/.test(notFound));
+  check('notfound_search_form', /action="\/search"/.test(notFound) && /role="search"/.test(notFound) && /name="q"/.test(notFound), '');
+  check('notfound_search_not_prefilled', !/name="q"[^>]*value=/.test(notFound) && !/value="\{\{/.test(notFound), '');
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

@@ -236,7 +236,7 @@
       "id": "ROUTE_LIST_COLLECTIONS",
       "path": "/collections",
       "template": "templates/list-collections.liquid",
-      "requiredLiquidObjects": ["collections"],
+      "requiredLiquidObjects": ["collections", "paginate"],
       "queryParameters": ["page", "themeid"],
       "previewBehavior": "Addressable via ?themeid={id}",
       "description": "Catalog index listing all visible collections, paginated.",
@@ -815,9 +815,9 @@
       "behavior": "Disable quantity selectors and submit button."
     },
     "variantUnavailable": {
-      "predicate": "selected_variant == nil",
-      "buttonState": { "disabled": true, "text": "Không khả dụng" },
-      "behavior": "Alert consumer that selected option combination does not exist."
+      "predicate": "the requested ?variant={id} does not exist, so product.selected_or_first_available_variant resolves to a real variant",
+      "buttonState": { "disabled": true, "text": "Hết hàng" },
+      "behavior": "In the shipped zero-JS architecture every swatch chip targets a real variant id, so a non-existent option combination is never linked. An unavailable target renders the product page of that sold-out variant: the submit button is disabled with the label 'Hết hàng'. The theme has no separate 'Không khả dụng' state; how Haravan resolves an unknown variant id query parameter to selected_or_first_available_variant is not measured."
     },
     "formErrors": {
       "predicate": "form.errors != blank",
@@ -870,7 +870,7 @@
         "Displayed price, compare-at price and availability reflect the requested variant because the server renders it, not because client state was patched",
         "Featured image shows the variant image when the variant has one, else the first product image",
         "Following a chip in the second option group keeps the first option value that is currently rendered: the chip targets the variant whose other option dimensions match the rendered variant (pass 1), including when that variant is sold out — the chip is then labelled (Hết hàng) instead of being redirected to another value; fallback to another available variant carrying that value (pass 2) happens only when the combination does not exist at all, and pass 3 links any variant carrying the value",
-        "A value whose variants are all unavailable is linked to its first variant and labelled (Hết hàng) in the title attribute"
+        "A value whose variants are all unavailable is linked to the variant that preserves the currently rendered other options, and only to its first variant carrying that value when no such combination exists, labelled (Hết hàng) in the title attribute"
       ],
       "verificationEvidence": "Rendered swatch anchors carry the variant query parameter; the select on the same page marks the requested variant `selected`; responsive layout keeps both swatch groups usable at 390/768/1440",
       "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 38/45 roots ship snippets/swatch.liquid. Variant query parameter VERIFIED in docs/haravan/routes-and-handles.md:17."
@@ -879,19 +879,20 @@
       "id": "SCENARIO_03_UNAVAILABLE_VARIANTS",
       "name": "Multi-Option Unavailable and Out-of-Stock Variants",
       "route": "/products/{handle}",
-      "prerequisites": ["Product contains at least 1 sold-out variant (inventory = 0) and 1 non-existent combination"],
+      "prerequisites": ["Product contains at least 1 sold-out variant (inventory = 0)"],
       "actions": [
-        "Select the sold-out option combination",
-        "Observe Add to Cart button state",
-        "Select the non-existent option combination"
+        "From a rendered variant, follow the chip of a value whose combination with the current options is sold out",
+        "Observe the rendered product page and the Add to Cart button state",
+        "Follow a chip of a value whose combination with the current options does not exist"
       ],
       "expectedResults": [
-        "Sold-out variant: button is disabled, button text switches to 'Hết hàng'",
-        "Non-existent combination: button is disabled, button text switches to 'Không khả dụng'",
-        "No uncaught JavaScript errors in browser console during option transitions"
+        "Sold-out combination: the page renders that variant and the submit button is disabled with the text 'Hết hàng'",
+        "The chip that led there is marked unavailable and states (Hết hàng), because the zero-JS swatch links the combination rather than silently switching another option",
+        "A value whose combination with the current options does not exist is linked to another available variant carrying that value, so the request always resolves to a real variant; the theme has no 'Không khả dụng' state",
+        "No uncaught JavaScript errors, because option selection performs a navigation rather than client-side state patching"
       ],
-      "verificationEvidence": "Button element has disabled attribute; form submission blocked",
-      "evidenceSource": "Base theme states contract §states.productSoldOut and §states.variantUnavailable"
+      "verificationEvidence": "Rendered product page carries the requested variant id; the submit button has disabled and reads 'Hết hàng'; the swatch anchor for that value carries is-unavailable",
+      "evidenceSource": "Shipped templates/product.liquid:1 (current_variant never nil) and :122-127 (only 'Thêm vào giỏ hàng' / 'Hết hàng'), snippets/swatch.liquid three-pass selection, base theme states contract §states.productSoldOut and §states.variantUnavailable"
     },
     {
       "id": "SCENARIO_04_POPULATED_COLLECTION",

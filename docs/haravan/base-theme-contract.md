@@ -215,15 +215,15 @@ Base Theme định nghĩa rõ ràng trải nghiệm người dùng khi dữ li�
 2. **Tìm kiếm không có kết quả (`emptySearch`):** Khi `search.performed` là `true` nhưng `search.results_count == 0`, hiển thị `div.search-empty-state` thông báo không tìm thấy kết quả cho từ khóa `{search.terms}`, giữ lại từ khóa trong ô nhập liệu để người dùng sửa đổi.
 3. **Giỏ hàng rỗng (`emptyCart`):** Khi `cart.item_count == 0`, ẩn bảng sản phẩm, hiển thị thông báo "Giỏ hàng của bạn đang trống" kèm liên kết "Tiếp tục mua sắm".
 4. **Biến thể hết hàng (`productSoldOut`):** Khi `variant.available == false`, vô hiệu hóa nút Submit (`disabled`), đổi nhãn thành "Hết hàng", hiển thị badge "Hết hàng" trên thẻ sản phẩm.
-5. **Biến thể không tồn tại (`variantUnavailable`):** Khi tổ hợp option không hợp lệ (`variant == nil`), vô hiệu hóa nút Submit, đổi nhãn thành "Không khả dụng".
+5. **Biến thể không tồn tại (`variantUnavailable`):** Kiến trúc swatch zero-JS chỉ liên kết tới `?variant={id}` thật, nên tổ hợp không tồn tại không bao giờ được trỏ tới; một biến thể hết hàng render trang của chính nó với nút Submit `disabled` và nhãn "Hết hàng". Theme không có trạng thái "Không khả dụng".
 6. **Lỗi xác thực form (`formErrors`):** Khi `form.errors` có giá trị, render khối `div.form-errors.alert.alert-danger[role="alert"]` sử dụng filter chuẩn `{{ form.errors | default_errors }}`.
 7. **Trang 404 (`notFound404`):** Hiển thị khối thông báo rõ ràng kèm thanh tìm kiếm và nút "Quay về trang chủ".
 
 ---
 
-## 9. 12 Kịch bản Nghiệm thu Khách hàng (Consumer-Visible Acceptance Scenarios)
+## 9. 13 Kịch bản Nghiệm thu Khách hàng (Consumer-Visible Acceptance Scenarios)
 
-Mọi thay đổi trên Base Theme và Project Theme bắt buộc phải vượt qua 12 kịch bản nghiệm thu chức năng:
+Mọi thay đổi trên Base Theme và Project Theme bắt buộc phải vượt qua 13 kịch bản nghiệm thu chức năng:
 
 ### Kịch bản 01: Simple Product (Single Default Variant)
 - **Route:** `/products/{handle}`
@@ -235,13 +235,13 @@ Mọi thay đổi trên Base Theme và Project Theme bắt buộc phải vượt
 - **Route:** `/products/{handle}`
 - **Điều kiện tiên quyết:** Sản phẩm có ≥2 nhóm tuỳ chọn (Màu sắc, Kích thước) và ≥3 biến thể.
 - **Hành động:** Theo liên kết swatch của một màu phụ, sau khi trang tải lại thì theo tiếp một liên kết kích thước khác.
-- **Kết quả kỳ vọng:** `href` của swatch là `/products/{handle}?variant={id}`; server render đúng biến thể đó qua `product.selected_or_first_available_variant`, nên giá, giá so sánh và tình trạng còn hàng luôn khớp giá trị vừa chọn; ảnh đại diện dùng ảnh biến thể nếu biến thể có ảnh, ngược lại dùng ảnh đầu tiên của sản phẩm; `<select>` trên cùng trang đánh dấu `selected` đúng biến thể.
+- **Kết quả kỳ vọng:** `href` của swatch là `/products/{handle}?variant={id}`; server render đúng biến thể đó qua `product.selected_or_first_available_variant`, nên giá, giá so sánh và tình trạng còn hàng luôn khớp giá trị vừa chọn; ảnh đại diện dùng ảnh biến thể nếu biến thể có ảnh, ngược lại dùng ảnh đầu tiên của sản phẩm; `<select>` trên cùng trang đánh dấu `selected` đúng biến thể. Liên kết ở nhóm tuỳ chọn thứ hai giữ nguyên giá trị đang render của nhóm thứ nhất: biến thể đích là biến thể khớp mọi tuỳ chọn còn lại (lượt 1, **không xét tồn kho** — combo hết hàng vẫn được trỏ đúng và gắn nhãn `(Hết hàng)`); chỉ khi tổ hợp đó không tồn tại mới rơi về một biến thể còn hàng mang giá trị đó (lượt 2), rồi tới biến thể bất kỳ (lượt 3).
 
 ### Kịch bản 03: Multi-Option Unavailable & Out-of-Stock Variants
 - **Route:** `/products/{handle}`
 - **Điều kiện tiên quyết:** Sản phẩm có ít nhất 1 biến thể tồn kho = 0.
-- **Hành động:** Theo liên kết swatch của một giá trị mà mọi biến thể đều hết hàng.
-- **Kết quả kỳ vọng:** Liên kết đó trỏ tới biến thể đầu tiên của giá trị và ghi chú "(Hết hàng)" trong thuộc tính `title`; trang render nút "Hết hàng" ở trạng thái `disabled`. Không phát sinh lỗi JavaScript console.
+- **Hành động:** Từ một biến thể đang render, theo liên kết swatch của một giá trị mà tổ hợp với các tuỳ chọn còn lại đang hết hàng; sau đó theo liên kết của một giá trị mà tổ hợp đó không tồn tại.
+- **Kết quả kỳ vọng:** Liên kết đó trỏ tới biến thể giữ nguyên các tuỳ chọn còn lại đang render (chỉ rơi về biến thể đầu tiên mang giá trị đó khi tổ hợp không tồn tại), gắn `is-unavailable` và ghi chú "(Hết hàng)" trong thuộc tính `title`; trang render đúng biến thể đó với nút "Hết hàng" ở trạng thái `disabled`. Giá trị mà tổ hợp với tuỳ chọn hiện tại không tồn tại thì được trỏ sang một biến thể còn hàng mang giá trị đó, nên yêu cầu luôn phân giải về biến thể thật; theme không có trạng thái "Không khả dụng". Không phát sinh lỗi JavaScript console vì chọn tuỳ chọn là điều hướng trang, không phải vá state phía client.
 
 ### Kịch bản 04: Populated Collection with Filter, Sort, and Pagination
 - **Route:** `/collections/{handle}`
@@ -297,6 +297,12 @@ Mọi thay đổi trên Base Theme và Project Theme bắt buộc phải vượt
 - **Hành động:** Điền email sai định dạng và mật khẩu ngắn hơn 6 ký tự; nhấn Đăng ký.
 - **Kết quả kỳ vọng:** Server Haravan từ chối đăng ký; trang tải lại với `form.errors`; hiển thị hộp thông báo lỗi màu đỏ liệt kê chi tiết các lỗi cần khắc phục; các trường dữ liệu người dùng đã nhập (ngoại trừ mật khẩu) được giữ lại.
 
+### Kịch bản 13: Catalog Index Listing All Collections
+- **Route:** `/collections`
+- **Điều kiện tiên quyết:** Cửa hàng có ít nhất một danh mục hiển thị và ít hơn 12 danh mục để vừa một trang phân trang.
+- **Hành động:** Mở `/collections`; kiểm tra lưới thẻ danh mục; theo liên kết tiêu đề của một thẻ.
+- **Kết quả kỳ vọng:** Trang render qua `templates/list-collections.liquid` (không rơi vào trạng thái rỗng của trang danh mục đơn); mỗi thẻ hiển thị ảnh bìa (`collection.image`, ngược lại ảnh sản phẩm đầu tiên, ngược lại `assets/no-image.png`), tiêu đề có liên kết và `all_products_count`; theo liên kết tới đúng `/collections/{handle}`; khi không có danh mục nào thì hiện khối thông báo thay vì lưới rỗng.
+
 ---
 
 ## 10. Sổ Đăng Ký Vấn Đề Chưa Giải Quyết (Unresolved Blockers Register)
@@ -310,6 +316,7 @@ Mọi vấn đề chưa thể chứng minh chắc chắn từ tài liệu chính
 | `UNRESOLVED_03_MENU_REST_API_LIMITATION` | **VERIFIED** | Endpoint REST `/web/link_lists.json` trả về 404 trên Omni API, không thể tự động tạo hoặc kiểm tra menu qua REST scripts. | **Chặn Phase 08B:** Chặn module tạo menu demo tự động; bắt buộc phải cấu hình menu thủ công trên Admin hoặc fallback qua setting theme. | Khảo sát Haravan Commerce GraphQL API để tìm kiếm mutation quản lý navigation linklists. |
 | `UNRESOLVED_04_PRODUCT_MEDIA_AVAILABILITY` | **UNKNOWN** | Chuẩn Haravan 1.0 dùng `product.images`. Một số theme mới dùng `product.media` (video/3D), nhưng tính khả dụng trên toàn bộ gói cửa hàng Haravan chưa được xác thực. | **Chặn Phase 06:** Chặn quyết định viết gallery sản phẩm theo chuẩn phổ quát `product.images` hay nâng cao `product.media`. | Thử nghiệm đối tượng `product.media` trên store `phukienmaymoc.com` với sản phẩm có gắn video. |
 | `UNRESOLVED_05_SENTINEL_MINUS_ONE_SEMANTICS` | **VERIFIED** | Tệp lịch sử `.canary/state/subset-r2.json` chứa allowlist `-1` dẫn tới việc đo nhầm live theme (Defect D11). Ý nghĩa nguồn gốc của giá trị `-1` chưa rõ. | **Chặn Phase 01:** Chặn bộ phân tích kết quả cũ không được công nhận các record mang themeId `-1`. | Khóa regex kiểm tra `themeId` trong mọi verifier, chỉ chấp nhận số nguyên dương hợp lệ, fail-closed khi gặp `-1`. |
+| `UNRESOLVED_06_NEWSLETTER_FORM_MECHANISM` | **OBSERVED (cơ chế) — UNVERIFIED (đích lưu)** | `{% form 'customer' %}` là cơ chế newsletter chuẩn của corpus (79 file thuộc 40/45 root đo được), nhưng form type `customer` không có trong danh sách form type được tài liệu hoá và không đo được nơi Haravan lưu địa chỉ đã gửi. | **Chặn Phase 06:** Không được giới thiệu khối newsletter như tính năng đăng ký đã kiểm chứng cho tới khi có round-trip thật. | Gửi form một lần trên theme staging chưa publish `1001512581` với địa chỉ kiểm soát, quan sát HTTP response và bản ghi customer/contact tương ứng. |
 
 ---
 

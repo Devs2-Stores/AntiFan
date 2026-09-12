@@ -35,15 +35,17 @@
           </p>
           {%- form 'customer' -%}
             {%- if form.posted_successfully? -%}
-              <p class="form-success" role="status">Cảm ơn bạn đã đăng ký nhận tin.</p>
-            {%- endif -%}
-            {%- if form.errors -%}
-              <div class="form-error" role="alert">
-                {%- for field in form.errors -%}
-                  {{ form.errors.messages[field] }}
-                {%- endfor -%}
+              <div class="alert alert-success" style="background-color: #F0FFF4; border: 1px solid #9AE6B4; color: #22543D; padding: 1rem; border-radius: var(--border-radius); margin-bottom: 1rem;" role="alert">
+                Cảm ơn bạn đã đăng ký nhận tin!
               </div>
             {%- endif -%}
+
+            {%- if form.errors -%}
+              <div class="form-errors alert alert-danger" role="alert">
+                {{ form.errors | default_errors }}
+              </div>
+            {%- endif -%}
+
             <input type="hidden" name="contact[tags]" value="newsletter" />
             <div style="display: flex; gap: 0.5rem;">
               <input
