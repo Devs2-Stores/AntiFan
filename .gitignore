@@ -48,3 +48,6 @@ plans/reports/.store-fixture-cache/
 plans/reports/_corpus-*.json
 plans/reports/_render-diagnostic.html
 plans/reports/haravan-live-store-fixture.json
+
+# Bản pull theme Haravan theo ngày (12 MB, không commit)
+/15092026/
