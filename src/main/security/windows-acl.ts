@@ -14,10 +14,15 @@ export interface FileDaclResult {
   reason?: string;
 }
 
+let cachedUserSid: string | null = null;
 
 export function resolveCurrentUserSid(): string {
   if (process.platform !== 'win32') {
     throw new Error('[AntiFan Security] Windows ACL enforcement is only supported on Windows (win32).');
+  }
+
+  if (cachedUserSid) {
+    return cachedUserSid;
   }
 
   const output = execFileSync('whoami', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' }).trim();
@@ -26,6 +31,7 @@ export function resolveCurrentUserSid(): string {
   if (rawSid) {
     const sid = rawSid.replace(/"/g, '').trim();
     if (/^S-1-5-\d+(-\d+)+$/.test(sid)) {
+      cachedUserSid = sid;
       return sid;
     }
   }
@@ -165,8 +171,48 @@ export function buildFileAclScript(filePath: string, userSid: string): string {
   `;
 }
 
-export function enforceProtectedFileDacl(
-  filePath: string,
+export function buildPathsAclScript(paths: string[], userSid: string): string {
+  const formattedPaths = paths
+    .map((p) => `'${p.replace(/'/g, "''")}'`)
+    .join(',\n      ');
+
+  return `
+    $ErrorActionPreference = 'Stop';
+    $userSid = New-Object System.Security.Principal.SecurityIdentifier('${userSid}');
+    $systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18');
+
+    $fileUserRule = New-Object System.Security.AccessControl.FileSystemAccessRule($userSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow);
+    $fileSystemRule = New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow);
+
+    $dirUserRule = New-Object System.Security.AccessControl.FileSystemAccessRule($userSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit', [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow);
+    $dirSystemRule = New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit', [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow);
+
+    $paths = @(
+      ${formattedPaths}
+    );
+
+    foreach ($p in $paths) {
+      if ([System.IO.Directory]::Exists($p)) {
+        $acl = New-Object System.Security.AccessControl.DirectorySecurity;
+        $acl.SetAccessRuleProtection($true, $false);
+        $acl.AddAccessRule($dirUserRule);
+        $acl.AddAccessRule($dirSystemRule);
+        [System.IO.Directory]::SetAccessControl($p, $acl);
+      } elseif ([System.IO.File]::Exists($p)) {
+        $acl = New-Object System.Security.AccessControl.FileSecurity;
+        $acl.SetAccessRuleProtection($true, $false);
+        $acl.AddAccessRule($fileUserRule);
+        $acl.AddAccessRule($fileSystemRule);
+        [System.IO.File]::SetAccessControl($p, $acl);
+      } else {
+        throw "Path does not exist: $p";
+      }
+    }
+  `;
+}
+
+export function enforceProtectedPathsDacl(
+  paths: string[],
   userSid?: string
 ): FileDaclResult {
   if (process.platform !== 'win32') {
@@ -177,44 +223,76 @@ export function enforceProtectedFileDacl(
     };
   }
 
-  const effectiveSid = userSid || resolveCurrentUserSid();
-  if (!filePath || typeof filePath !== 'string') {
-    throw new Error('[AntiFan Security] Invalid file path provided for DACL enforcement.');
-  }
-  if (!/^S-1-5-\d+(-\d+)+$/.test(effectiveSid)) {
-    throw new Error(`[AntiFan Security] Invalid Windows User SID provided for file DACL enforcement: ${effectiveSid}`);
-  }
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`[AntiFan Security] File does not exist for DACL enforcement: ${filePath}`);
-  }
-
-  if (hasProtectedFileDacl(filePath, effectiveSid)) {
+  if (!Array.isArray(paths) || paths.length === 0) {
     return {
       enforced: true,
       platform: 'win32',
     };
   }
 
-  // Fail-closed repair path: replace inherited ACLs with exactly two explicit ACEs.
-  const psScript = buildFileAclScript(filePath, effectiveSid);
-  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { stdio: 'pipe' });
-  if (!hasProtectedFileDacl(filePath, effectiveSid)) {
-    throw new Error(`[AntiFan Security] File DACL verification failed after repair: ${filePath}`);
+  const effectiveSid = userSid || resolveCurrentUserSid();
+  if (!/^S-1-5-\d+(-\d+)+$/.test(effectiveSid)) {
+    throw new Error(`[AntiFan Security] Invalid Windows User SID provided for file DACL enforcement: ${effectiveSid}`);
   }
+
+  for (const p of paths) {
+    if (!p || typeof p !== 'string') {
+      throw new Error('[AntiFan Security] Invalid file path provided for DACL enforcement.');
+    }
+    if (!fs.existsSync(p)) {
+      throw new Error(`[AntiFan Security] File does not exist for DACL enforcement: ${p}`);
+    }
+  }
+
+  const needingRepair: string[] = [];
+  for (const p of paths) {
+    const isDir = fs.statSync(p).isDirectory();
+    const isProtected = isDir ? hasProtectedDirectoryDacl(p, effectiveSid) : hasProtectedFileDacl(p, effectiveSid);
+    if (!isProtected) {
+      needingRepair.push(p);
+    }
+  }
+
+  if (needingRepair.length === 0) {
+    return {
+      enforced: true,
+      platform: 'win32',
+    };
+  }
+
+  const psScript = buildPathsAclScript(needingRepair, effectiveSid);
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { stdio: 'pipe' });
+
+  for (const p of needingRepair) {
+    const isDir = fs.statSync(p).isDirectory();
+    const isProtected = isDir ? hasProtectedDirectoryDacl(p, effectiveSid) : hasProtectedFileDacl(p, effectiveSid);
+    if (!isProtected) {
+      throw new Error(`[AntiFan Security] File DACL verification failed after repair: ${p}`);
+    }
+  }
+
   return {
     enforced: true,
     platform: 'win32',
   };
 }
 
-export function applyProtectedFileDacl(filePath: string): void {
+export function enforceProtectedFileDacl(
+  filePath: string,
+  userSid?: string
+): FileDaclResult {
+  return enforceProtectedPathsDacl([filePath], userSid);
+}
+
+export function applyProtectedPathsDacl(paths: string[]): void {
   if (process.platform !== 'win32') return;
-  try {
-    const sid = resolveCurrentUserSid();
-    enforceProtectedFileDacl(filePath, sid);
-  } catch {
-    // Non-fatal in non-elevated or mock test environments
-  }
+  if (!Array.isArray(paths) || paths.length === 0) return;
+  const sid = resolveCurrentUserSid();
+  enforceProtectedPathsDacl(paths, sid);
+}
+
+export function applyProtectedFileDacl(filePath: string): void {
+  applyProtectedPathsDacl([filePath]);
 }
 
 export function atomicWriteWithDacl(targetPath: string, content: string): void {
@@ -223,8 +301,30 @@ export function atomicWriteWithDacl(targetPath: string, content: string): void {
     fs.mkdirSync(parentDir, { recursive: true });
   }
   const tempPath = `${targetPath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
-  fs.writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o600 });
-  applyProtectedFileDacl(tempPath);
-  fs.renameSync(tempPath, targetPath);
-  applyProtectedFileDacl(targetPath);
+  fs.writeFileSync(tempPath, '', { encoding: 'utf8', mode: 0o600 });
+  try {
+    applyProtectedFileDacl(tempPath);
+    fs.writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o600 });
+    try {
+      fs.renameSync(tempPath, targetPath);
+    } catch {
+      try {
+        if (!fs.existsSync(targetPath)) {
+          fs.writeFileSync(targetPath, '', { encoding: 'utf8', mode: 0o600 });
+        }
+        applyProtectedFileDacl(targetPath);
+        fs.writeFileSync(targetPath, content, { encoding: 'utf8', mode: 0o600 });
+        try { fs.unlinkSync(tempPath); } catch {}
+      } catch (fallbackErr) {
+        try { fs.unlinkSync(targetPath); } catch {}
+        try { fs.unlinkSync(tempPath); } catch {}
+        throw fallbackErr;
+      }
+    }
+    applyProtectedFileDacl(targetPath);
+  } finally {
+    if (fs.existsSync(tempPath)) {
+      try { fs.unlinkSync(tempPath); } catch {}
+    }
+  }
 }
