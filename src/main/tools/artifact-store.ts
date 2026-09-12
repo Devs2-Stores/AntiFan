@@ -63,6 +63,7 @@ export class ArtifactStore {
   private readonly artifacts = new Map<string, ArtifactRef>();
   private readonly leases = new Map<string, EvidenceRunLease>();
   private readonly hotDataCache = new Map<string, Buffer>();
+  private readonly runArtifactsCache = new Map<string, ArtifactRef[]>();
   private readonly MAX_HOT_CACHE_ITEMS = 32;
   constructor(private readonly options: ArtifactStoreOptions) {
     this.maxArtifactBytes = options.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES;
@@ -77,19 +78,46 @@ export class ArtifactStore {
     return path.join(this.options.root, runId, 'index.json');
   }
 
+  private getRunArtifacts(runId: string): ArtifactRef[] {
+    const cached = this.runArtifactsCache.get(runId);
+    if (cached) return cached;
+    const runArtifacts = [...this.artifacts.values()].filter((a) => a.runId === runId);
+    this.runArtifactsCache.set(runId, runArtifacts);
+    return runArtifacts;
+  }
+
   private persistRunIndex(runId: string): void {
     try {
       const runDir = path.join(this.options.root, runId);
       fs.mkdirSync(runDir, { recursive: true });
-      const runArtifacts = [...this.artifacts.values()].filter((a) => a.runId === runId);
+      const runArtifacts = this.getRunArtifacts(runId);
       const indexFile = this.getIndexFilePath(runId);
-      const tempPath = `${indexFile}.tmp-${Date.now()}`;
-      fs.writeFileSync(tempPath, JSON.stringify(runArtifacts, null, 2), 'utf8');
+      const tempPath = `${indexFile}.tmp-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+      const payload = JSON.stringify(runArtifacts, null, 2);
+      fs.writeFileSync(tempPath, payload, 'utf8');
       try {
         fs.renameSync(tempPath, indexFile);
       } catch {
-        fs.writeFileSync(indexFile, JSON.stringify(runArtifacts, null, 2), 'utf8');
+        fs.writeFileSync(indexFile, payload, 'utf8');
         try { fs.unlinkSync(tempPath); } catch {}
+      }
+    } catch {}
+  }
+
+  private async persistRunIndexAsync(runId: string): Promise<void> {
+    try {
+      const runDir = path.join(this.options.root, runId);
+      await fs.promises.mkdir(runDir, { recursive: true });
+      const runArtifacts = this.getRunArtifacts(runId);
+      const indexFile = this.getIndexFilePath(runId);
+      const tempPath = `${indexFile}.tmp-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+      const payload = JSON.stringify(runArtifacts, null, 2);
+      await fs.promises.writeFile(tempPath, payload, 'utf8');
+      try {
+        await fs.promises.rename(tempPath, indexFile);
+      } catch {
+        await fs.promises.writeFile(indexFile, payload, 'utf8');
+        try { await fs.promises.unlink(tempPath); } catch {}
       }
     } catch {}
   }
@@ -103,33 +131,42 @@ export class ArtifactStore {
         const runId = entry.name;
         const runDir = path.join(this.options.root, runId);
         let runTotalBytes = 0;
-        try {
-          const files = fs.readdirSync(runDir);
-          for (const f of files) {
-            if (f.endsWith('.artifact')) {
-              try {
-                const st = fs.statSync(path.join(runDir, f));
-                runTotalBytes += st.size;
-              } catch {}
-            }
-          }
-        } catch {}
-        this.runBytes.set(runId, runTotalBytes);
-
         const indexFile = this.getIndexFilePath(runId);
         if (fs.existsSync(indexFile)) {
           try {
             const raw = fs.readFileSync(indexFile, 'utf8');
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) {
+              const runList: ArtifactRef[] = [];
+              const seenSha = new Set<string>();
               for (const item of parsed) {
                 if (item && typeof item.id === 'string' && typeof item.path === 'string') {
-                  this.artifacts.set(item.id, item as ArtifactRef);
+                  const ref = item as ArtifactRef;
+                  this.artifacts.set(ref.id, ref);
+                  runList.push(ref);
+                  if (ref.sha256 && !seenSha.has(ref.sha256)) {
+                    seenSha.add(ref.sha256);
+                    runTotalBytes += ref.byteLength || 0;
+                  }
                 }
+              }
+              this.runArtifactsCache.set(runId, runList);
+            }
+          } catch {}
+        } else {
+          try {
+            const files = fs.readdirSync(runDir);
+            for (const f of files) {
+              if (f.endsWith('.artifact')) {
+                try {
+                  const st = fs.statSync(path.join(runDir, f));
+                  runTotalBytes += st.size;
+                } catch {}
               }
             }
           } catch {}
         }
+        this.runBytes.set(runId, runTotalBytes);
       }
     } catch {}
   }
@@ -391,7 +428,137 @@ export class ArtifactStore {
       retentionPolicy: input.retentionPolicy,
     };
     this.artifacts.set(ref.id, ref);
+    const cachedRunList = this.runArtifactsCache.get(runId);
+    if (cachedRunList) {
+      cachedRunList.push(ref);
+    } else {
+      this.runArtifactsCache.set(runId, [ref]);
+    }
     this.persistRunIndex(runId);
+    if (storedData.byteLength <= 512 * 1024) {
+      if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
+        const firstKey = this.hotDataCache.keys().next().value;
+        if (firstKey) this.hotDataCache.delete(firstKey);
+      }
+      this.hotDataCache.set(ref.id, storedData);
+    }
+    recordBenchmark({ surface: 'artifact', name: 'stage', value: performance.now() - stageStartMs, extra: { kind: input.kind, mime: input.mime, inputBytes: raw.byteLength, storedBytes: stored, truncated, redacted: ref.redacted } });
+    return ref;
+  }
+
+  async stageAsync(input: {
+    kind: ArtifactRef['kind'];
+    mime: string;
+    data: string | Buffer;
+    runId: string;
+    attemptId: string;
+    projectId: string;
+    workspaceId: string;
+    maxBytes?: number;
+    /** Required when the run currently holds an exclusive evidence lease. */
+    leaseToken?: string;
+    /** Defaults to 'truncate' (historical behavior); 'reject' fails closed before any bytes are written. */
+    overflowMode?: ArtifactOverflowMode;
+    /** Declared by the caller; `permanent` exempts the artifact from the retention sweep. */
+    retentionPolicy?: ArtifactRef['retentionPolicy'];
+  }): Promise<ArtifactRef> {
+    const runId = this.assertValidRunId(input.runId);
+    const overflowMode: ArtifactOverflowMode = input.overflowMode ?? 'truncate';
+    if (overflowMode !== 'truncate' && overflowMode !== 'reject') {
+      throw new CapabilityError('INVALID_ARGUMENT', `Invalid overflowMode '${String(input.overflowMode)}': expected 'truncate' or 'reject'`);
+    }
+    const lease = this.resolveLeaseForStage(runId, input.leaseToken);
+    if (input.attemptId && (typeof input.attemptId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(input.attemptId))) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Invalid attemptId '${input.attemptId}': must contain only alphanumeric characters, underscores, and dashes`);
+    }
+    if (!input.projectId || typeof input.projectId !== 'string' || input.projectId.trim().length === 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Valid projectId is required for artifact staging');
+    }
+    if (!input.workspaceId || typeof input.workspaceId !== 'string' || input.workspaceId.trim().length === 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Valid workspaceId is required for artifact staging');
+    }
+    const stageStartMs = performance.now();
+    const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
+    const artifactCeiling = lease ? Math.min(lease.maxArtifactBytes, this.maxArtifactBytes) : this.maxArtifactBytes;
+    const max = Math.min(input.maxBytes ?? artifactCeiling, artifactCeiling);
+    if (overflowMode === 'reject' && raw.byteLength > max) {
+      throw new CapabilityError('ARTIFACT_TOO_LARGE', `Artifact payload of ${raw.byteLength} bytes exceeds the ${max} byte ceiling for run '${runId}'`, { runId, requestedBytes: raw.byteLength, maxArtifactBytes: max });
+    }
+    const truncated = raw.byteLength > max;
+    const data = raw.subarray(0, max);
+    const binary = !isTextLike(input.mime);
+    const { data: storedData, redacted } = binary ? { data, redacted: false } : redactSecrets(data);
+    const sha256 = crypto.createHash('sha256').update(storedData).digest('hex');
+    const artifactPath = path.join(this.options.root, runId, `${sha256}.artifact`);
+    await fs.promises.mkdir(path.dirname(artifactPath), { recursive: true });
+
+    let validExisting = false;
+    let stored = 0;
+    try {
+      const stat = await fs.promises.stat(artifactPath);
+      if (stat.size === storedData.byteLength) {
+        const existingData = await fs.promises.readFile(artifactPath);
+        const existingSha = crypto.createHash('sha256').update(existingData).digest('hex');
+        if (existingSha === sha256) {
+          validExisting = true;
+          stored = stat.size;
+        }
+      }
+    } catch {}
+    if (!validExisting) {
+      try {
+        await fs.promises.unlink(artifactPath);
+      } catch {}
+    }
+
+    if (!validExisting) {
+      const committedBytes = lease ? this.refreshRunBytesFromDisk(runId) : (this.runBytes.get(runId) || 0);
+      const runCeiling = lease ? Math.min(lease.maxRunBytes, this.maxRunBytes) : this.maxRunBytes;
+      if (committedBytes + storedData.byteLength > runCeiling) {
+        throw new CapabilityError('ARTIFACT_TOO_LARGE', 'Run artifact budget exceeded', { runId, committedBytes, requestedBytes: storedData.byteLength, maxRunBytes: runCeiling });
+      }
+      const tmpPath = path.join(path.dirname(artifactPath), `.${sha256}.${Date.now()}.${crypto.randomUUID()}.tmp`);
+      try {
+        await fs.promises.writeFile(tmpPath, storedData);
+        try {
+          await fs.promises.rename(tmpPath, artifactPath);
+        } catch (renameErr) {
+          try { await fs.promises.unlink(artifactPath); } catch {}
+          await fs.promises.rename(tmpPath, artifactPath);
+        }
+      } catch (err) {
+        try {
+          await fs.promises.unlink(tmpPath);
+        } catch {}
+        throw err;
+      }
+      stored = (await fs.promises.stat(artifactPath)).size;
+      this.runBytes.set(runId, committedBytes + stored);
+    }
+    const ref: ArtifactRef = {
+      id: `artifact-${crypto.randomUUID()}`,
+      runId,
+      attemptId: input.attemptId,
+      projectId: input.projectId,
+      workspaceId: input.workspaceId,
+      kind: input.kind,
+      path: artifactPath,
+      byteLength: stored,
+      sha256,
+      mime: input.mime,
+      truncated,
+      redacted,
+      createdAt: Date.now(),
+      retentionPolicy: input.retentionPolicy,
+    };
+    this.artifacts.set(ref.id, ref);
+    const cachedRunList = this.runArtifactsCache.get(runId);
+    if (cachedRunList) {
+      cachedRunList.push(ref);
+    } else {
+      this.runArtifactsCache.set(runId, [ref]);
+    }
+    await this.persistRunIndexAsync(runId);
     if (storedData.byteLength <= 512 * 1024) {
       if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
         const firstKey = this.hotDataCache.keys().next().value;

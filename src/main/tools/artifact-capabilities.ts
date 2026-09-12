@@ -196,7 +196,7 @@ export function registerArtifactCapabilities(
         kind: { type: 'string' },
       },
     },
-    execute: (
+    execute: async (
       params: { name?: string; params?: unknown; data?: unknown; mime?: string; kind?: ArtifactRef['kind'] },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
@@ -225,7 +225,7 @@ export function registerArtifactCapabilities(
             2
           );
 
-      const art = artifacts.stage({
+      const art = await artifacts.stageAsync({
         kind: params.kind || 'report',
         mime: params.mime || 'application/json',
         data: reportPayload,
