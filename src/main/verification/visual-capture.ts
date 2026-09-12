@@ -718,8 +718,8 @@ export interface RenderSurfaceSnapshot {
 }
 
 export const RENDER_SURFACE_PROBE_EXPRESSION =
-  '({ vw: window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 0, ' +
-  'vh: window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 0, ' +
+  '({ vw: (document.documentElement && document.documentElement.clientWidth > 0 ? document.documentElement.clientWidth : window.innerWidth) || 0, ' +
+  'vh: (document.documentElement && document.documentElement.clientHeight > 0 ? document.documentElement.clientHeight : window.innerHeight) || 0, ' +
   'dpr: window.devicePixelRatio || 1, ' +
   'scrollX: window.scrollX || 0, scrollY: window.scrollY || 0, ' +
   'docH: Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), ' +

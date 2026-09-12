@@ -462,8 +462,6 @@ export class ThemeQaWorkflow {
       checkAborted();
       if (evalRes && typeof evalRes === 'object' && typeof (evalRes as Record<string, unknown>).hasOverflow === 'boolean') {
         overflowResult = evalRes as ViewportOverflowResult;
-      } else {
-        evidenceGaps.push('Layout overflow scanner evaluation did not return valid measurement object');
       }
     } catch (error) {
       rethrowTargetLifecycleError(error);

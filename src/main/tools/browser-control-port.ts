@@ -2719,7 +2719,7 @@ export class BrowserControlPort {
             if (surface && Number.isFinite(surface.vw) && Number.isFinite(surface.vh)) return { vw: surface.vw, vh: surface.vh };
           }
           if (typeof this.host.evalJs !== 'function') return null;
-          const metrics = (await this.host.evalJs('({ innerWidth: window.innerWidth, innerHeight: window.innerHeight })', effectiveTabId)) as { innerWidth?: number; innerHeight?: number } | null;
+          const metrics = (await this.host.evalJs('({ innerWidth: (document.documentElement && document.documentElement.clientWidth > 0 ? document.documentElement.clientWidth : window.innerWidth), innerHeight: (document.documentElement && document.documentElement.clientHeight > 0 ? document.documentElement.clientHeight : window.innerHeight) })', effectiveTabId)) as { innerWidth?: number; innerHeight?: number } | null;
           if (!metrics || typeof metrics.innerWidth !== 'number' || typeof metrics.innerHeight !== 'number') return null;
           return { vw: metrics.innerWidth, vh: metrics.innerHeight };
         })().catch(() => null),

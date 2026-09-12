@@ -94,6 +94,19 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
           img.setAttribute('loading', 'eager');
         } catch {}
       }
+      // Strip Livewire and runtime backend scripts that fail or hang offline
+      ${stripLivewire ? `
+        const livewireScripts = clone.querySelectorAll ? clone.querySelectorAll('script[src*="livewire"], script[data-csrf], script[data-update-uri]') : [];
+        for (const s of Array.from(livewireScripts)) {
+          try { s.remove(); } catch {}
+        }
+      ` : ''}
+
+      // Neutralize autoplay sliders so offline viewports and captures are deterministic
+      const autoplaySliders = clone.querySelectorAll ? clone.querySelectorAll('[data-autoplay="1"], [data-autoplay="true"]') : [];
+      for (const s of Array.from(autoplaySliders)) {
+        try { s.setAttribute('data-autoplay', '0'); } catch {}
+      }
 
       // Sanitize root element itself
       if (clone.nodeType === Node.ELEMENT_NODE) {

@@ -197,7 +197,7 @@ export class InjectedScriptStore {
           if (!styleEl) {
             styleEl = document.createElement('style');
             styleEl.id = freezeStyleId;
-            styleEl.textContent = '*:not([class*="menu"], [class*="menu"] *, [class*="nav"], [class*="nav"] *, [class*="dropdown"], [class*="dropdown"] *, [role="menu"], [role="menu"] *, [role="dialog"], [role="dialog"] *) { animation-play-state: paused !important; }';
+            styleEl.textContent = '*:not([class*="menu"], [class*="menu"] *, [class*="nav"], [class*="nav"] *, [class*="dropdown"], [class*="dropdown"] *, [role="menu"], [role="menu"] *, [role="dialog"], [role="dialog"] *) { animation-play-state: paused !important; transition: none !important; }';
             document.head.appendChild(styleEl);
           }
           if (!window.__antifanOriginalRAF) {
