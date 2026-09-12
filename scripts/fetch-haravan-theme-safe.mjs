@@ -21,6 +21,9 @@ const VERIFY_PARITY = process.env.HARAVAN_VERIFY_PARITY === '1';
 const ALLOW_WATCHED_DIR = process.env.HARAVAN_ALLOW_WATCHED_DIR === '1';
 const WATCH_STATE_FILE = '.hrv-sync-state.json';
 
+/** Manifest notes that describe a key rather than one download, and so survive a skip or an edit. */
+const CARRIED_ENTRY_NOTES = ['variantRepresentation', 'attachmentBytes', 'cdnSourced'];
+
 const BIND_FILE = '.haravan-cli_local.json';
 const MANIFEST_FILE = '.haravan-cli_pull-manifest.json';
 const FAILURE_FILE = '.haravan-cli_fetch-failures.json';
@@ -265,15 +268,16 @@ async function main() {
 
     if (action === 'skip' || action === 'edited') {
       const prior = previousManifest[asset.key] || {};
-      // A representation note describes the key, not one download, so it
-      // outlives the run that recorded it: dropping it here would make the
-      // next run treat the same variant as fresh drift.
+      // Every note here describes the key, not one download, so each outlives
+      // the run that recorded it: a dropped note makes the next run re-derive
+      // the key's state from weaker evidence, which for a length note means
+      // downloading the file again, and for a source note means no longer
+      // knowing the bytes came from the CDN rather than from the API.
+      // A new note belongs in this list and nowhere else.
       const kept = {};
-      if (prior.variantRepresentation === true) kept.variantRepresentation = true;
-      // Without this the next run stops knowing the file came from the API's own
-      // bytes, falls back to comparing against `size`, and re-downloads every
-      // binary whose stored length differs from it — on every other run.
-      if (typeof prior.attachmentBytes === 'number') kept.attachmentBytes = prior.attachmentBytes;
+      for (const flag of CARRIED_ENTRY_NOTES) {
+        if (prior[flag] === true || typeof prior[flag] === 'number') kept[flag] = prior[flag];
+      }
       if (action === 'skip') {
         skippedCount++;
         nextManifest[asset.key] = { bytes: fs.statSync(destPath).size, sha256: sha256(destPath), updated_at: asset.updated_at || null, ...kept };
