@@ -8,7 +8,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as http from 'http';
-import { spawn, execSync, type ChildProcess } from 'child_process';
+import { spawn, execSync, execFile, type ChildProcess } from 'child_process';
+import { promisify } from 'util';
+const execFileAsync = promisify(execFile);
 import { LocalSessionVault } from './local-session-vault';
 export interface ChromeProfileInfo {
   id: string; // 'Default', 'Profile 1', etc.
@@ -184,7 +186,10 @@ export class ChromeProfileSyncManager {
   public activeProfileId: string = 'Default';
   private cachedProfiles: ChromeProfileInfo[] | null = null;
   private cacheTimestamp: number = 0;
-  private readonly CACHE_TTL_MS = 5000;
+  private readonly CACHE_TTL_MS = 30000;
+  private chromeRunningCache: { value: boolean; timestamp: number } | null = null;
+  private readonly CHROME_RUNNING_CACHE_TTL_MS = 3000;
+  private inFlightChromeCheck: Promise<boolean> | null = null;
 
   private constructor() {
     this.chromeUserDataPath = path.join(
@@ -316,20 +321,45 @@ export class ChromeProfileSyncManager {
   }
 
   /**
-   * Checks if Chrome is actively running on the machine
+   * Fast synchronous check using last cached result (zero main-thread blocking).
    */
-  public isChromeRunning(): boolean {
-    if (process.platform === 'win32') {
-      try {
-        const out = execSync('tasklist /FI "IMAGENAME eq chrome.exe" /NH', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-        return out.toLowerCase().includes('chrome.exe');
-      } catch {
-        return false;
-      }
-    }
-    return false;
+  public isChromeRunningSync(): boolean {
+    return this.chromeRunningCache?.value ?? false;
   }
 
+  /**
+   * Checks if Chrome is actively running on the machine asynchronously without blocking the main event loop.
+   * Caches result for 3 seconds to avoid process spawn storms.
+   */
+  public async isChromeRunning(): Promise<boolean> {
+    const now = Date.now();
+    if (this.chromeRunningCache && now - this.chromeRunningCache.timestamp < this.CHROME_RUNNING_CACHE_TTL_MS) {
+      return this.chromeRunningCache.value;
+    }
+    if (this.inFlightChromeCheck) {
+      return this.inFlightChromeCheck;
+    }
+    this.inFlightChromeCheck = (async () => {
+      if (process.platform === 'win32') {
+        try {
+          const { stdout } = await execFileAsync('tasklist', ['/FI', 'IMAGENAME eq chrome.exe', '/NH'], {
+            windowsHide: true,
+            timeout: 2000,
+          });
+          const isRunning = stdout.toLowerCase().includes('chrome.exe');
+          this.chromeRunningCache = { value: isRunning, timestamp: Date.now() };
+          return isRunning;
+        } catch {
+          this.chromeRunningCache = { value: false, timestamp: Date.now() };
+          return false;
+        }
+      }
+      return false;
+    })().finally(() => {
+      this.inFlightChromeCheck = null;
+    });
+    return this.inFlightChromeCheck;
+  }
 
   /**
    * Copies just enough of a Chrome profile for a one-shot cookie pull into an
@@ -424,7 +454,7 @@ export class ChromeProfileSyncManager {
     profilePath: string,
     targetSession: Electron.Session
   ): Promise<{ count: number; message: string }> {
-    if (this.isChromeRunning()) {
+    if (await this.isChromeRunning()) {
       return { count: 0, message: 'Chrome đang chạy — app không đụng profile đang mở. Hãy đóng hẳn Chrome rồi đồng bộ lại.' };
     }
     const chromeExe = this.getChromeExecutablePath();

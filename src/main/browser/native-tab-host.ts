@@ -499,6 +499,9 @@ export class NativeTabHost extends EventEmitter {
         getTabUrl: (tabId) => this.getTabUrl(tabId),
         getRedirectChain: (tabId) => this.getRedirectChain(tabId),
         getLastNavigationFailure: (tabId) => this.getLastNavigationFailure(tabId),
+        updateLayout: () => this.updateLayout(),
+        applyTabDeviceEmulation: (tabId: string) => this.applyTabDeviceEmulationForTab(tabId),
+        isTabViewAttached: (view) => this.isTabViewAttached(view),
       });
     }
     return this.devToolsHost;
@@ -844,7 +847,13 @@ export class NativeTabHost extends EventEmitter {
     }
     if (this.activeTabId) {
       const tab = this.tabs.get(this.activeTabId);
-      if (tab) {
+      if (tab && tab.view && !tab.state.offscreen && !tab.state.ephemeral) {
+        if (!this.isTabViewAttached(tab.view)) {
+          try { this.attachTabView(tab.view, false); } catch {}
+        }
+        if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed() && !this.isTabViewAttached(tab.mobileView)) {
+          try { this.attachTabView(tab.mobileView, true); } catch {}
+        }
         this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
       }
     }
@@ -2631,22 +2640,25 @@ export class NativeTabHost extends EventEmitter {
     // Check if relative order already matches
     let needsReorder = false;
     let lastSeenIndex = -1;
+    let firstOutOfOrderIdx = -1;
     for (let i = 0; i < desiredOrder.length; i++) {
       const v = desiredOrder[i]!;
       const idx = children.indexOf(v);
       if (idx === -1 || idx < lastSeenIndex) {
         needsReorder = true;
+        firstOutOfOrderIdx = i;
         break;
       }
       lastSeenIndex = idx;
     }
 
-    if (!needsReorder) return;
+    if (!needsReorder || firstOutOfOrderIdx === -1) return;
 
-    // Re-stack by safely removing and re-adding from bottom to top
-    // In Electron, addChildView pushes the view to topmost, so sequential
-    // addChildView calls establish bottom-to-top order [0, 1, 2, ... N-1]
-    for (let i = 0; i < desiredOrder.length; i++) {
+    // Only detach and re-add views from firstOutOfOrderIdx to the end of desiredOrder.
+    // Views prior to firstOutOfOrderIdx are already at their correct relative index
+    // at the bottom and MUST NOT be detached, preserving DirectComposition swapchains
+    // and avoiding iGPU frame drops.
+    for (let i = firstOutOfOrderIdx; i < desiredOrder.length; i++) {
       const v = desiredOrder[i]!;
       try {
         if (typeof contentView.removeChildView === 'function') {
@@ -2736,7 +2748,13 @@ export class NativeTabHost extends EventEmitter {
         const tab = this.tabs.get(id);
         if (!tab) return undefined;
         if (tab.state.offscreen === true || tab.state.ephemeral === true) return undefined;
-        return { ...tab.state, isAgentControlled: id === this.automationTabId };
+        const isAttached = Boolean(tab.view && this.isTabViewAttached(tab.view));
+        return {
+          ...tab.state,
+          customViewport: tab.customViewport,
+          attached: isAttached,
+          isAgentControlled: id === this.automationTabId,
+        } as AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean };
       })
       .filter(Boolean) as AntiFanTab[];
   }
@@ -2756,10 +2774,13 @@ export class NativeTabHost extends EventEmitter {
     for (const id of owned) {
       const tab = this.tabs.get(id);
       if (!tab) continue;
+      const isAttached = Boolean(tab.view && this.isTabViewAttached(tab.view));
       records.push({
         ...tab.state,
+        customViewport: tab.customViewport,
+        attached: isAttached,
         isAgentControlled: tab.state.ephemeral === true || tab.state.offscreen === true || id === this.automationTabId,
-      });
+      } as AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean });
     }
     return records;
   }
@@ -3067,6 +3088,18 @@ export class NativeTabHost extends EventEmitter {
         state.canGoBack = this.getCanGoBack(wc);
         state.canGoForward = this.getCanGoForward(wc);
       }
+      if (id === this.activeTabId) {
+        const tab = this.tabs.get(id);
+        if (tab && tab.view && !tab.state.offscreen && !tab.state.ephemeral) {
+          if (!this.isTabViewAttached(tab.view)) {
+            try { this.attachTabView(tab.view, false); } catch {}
+          }
+          this.updateLayout();
+          if (tab.view.webContents && typeof tab.view.webContents.invalidate === 'function') {
+            try { tab.view.webContents.invalidate(); } catch {}
+          }
+        }
+      }
       this.broadcastState();
     });
     wc.on('console-message', (event: any, ...legacyArgs: any[]) => {
@@ -3188,7 +3221,16 @@ export class NativeTabHost extends EventEmitter {
         this.applyDeviceCornerClipping(wc, clipRadius, true);
       }
       if (id === this.activeTabId) {
+        const tab = this.tabs.get(id);
+        if (tab && tab.view && !tab.state.offscreen && !tab.state.ephemeral) {
+          if (!this.isTabViewAttached(tab.view)) {
+            try { this.attachTabView(tab.view, false); } catch {}
+          }
+        }
         this.updateLayout();
+        if (tab?.view?.webContents && typeof tab.view.webContents.invalidate === 'function') {
+          try { tab.view.webContents.invalidate(); } catch {}
+        }
       }
       if (this.isRulerActive && id === this.activeTabId) {
         wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
@@ -3534,7 +3576,7 @@ export class NativeTabHost extends EventEmitter {
         backgroundThrottling: isOffscreen ? false : undefined,
       }),
     });
-    try { view.setBackgroundColor('#ffffff'); } catch {}
+    try { view.setBackgroundColor('#080c14'); } catch {}
     const isBlankUrl = !url || url === 'about:blank';
     const state: AntiFanTab = {
       id,
@@ -3618,13 +3660,15 @@ export class NativeTabHost extends EventEmitter {
     if (activate && !isAgentTab) {
       this.switchTab(id);
     } else {
-      try {
-        // Offscreen agent tabs must keep painting continuously so capturePage always
-        // has a fresh compositor frame; re-throttling would stall their rendering.
-        if (!isOffscreen) {
-          wc.setBackgroundThrottling(true);
-        }
-      } catch {}
+      if (!isOffscreen && !isAgentTab) {
+        wc.once('did-stop-loading', () => {
+          if (!wc.isDestroyed() && this.tabs.has(id) && this.activeTabId !== id) {
+            try {
+              wc.setBackgroundThrottling(true);
+            } catch {}
+          }
+        });
+      }
       this.updateLayout();
       this.broadcastState();
     }
@@ -3642,13 +3686,15 @@ export class NativeTabHost extends EventEmitter {
       if (target.state.offscreen === true || target.state.ephemeral === true) return false;
       const switchStartMs = performance.now();
 
-      // Guard against destroyed WebContents/WebContentsView
-      if (!target.view || target.view.webContents.isDestroyed()) {
-        console.warn(`[native-tab-host] Target tab ${targetId} webContents is destroyed; recreating view`);
+      // Guard against destroyed WebContents/WebContentsView or crashed renderer
+      const isTargetDestroyed = !target.view || target.view.webContents.isDestroyed();
+      const isTargetCrashed = !isTargetDestroyed && (target.state.crashed === true || (typeof target.view.webContents.isCrashed === 'function' && target.view.webContents.isCrashed()));
+      if (isTargetDestroyed || isTargetCrashed) {
+        console.warn(`[native-tab-host] Target tab ${targetId} webContents is ${isTargetCrashed ? 'crashed' : 'destroyed'}; recreating view`);
         target.view = new WebContentsView({
           webPreferences: getSecureWebPreferences(target.state.partition),
         });
-        try { target.view.setBackgroundColor('#ffffff'); } catch {}
+        try { target.view.setBackgroundColor('#080c14'); } catch {}
         target.state.crashed = false;
         this.setSafeUserAgent(target.view.webContents, this.defaultUserAgent);
         const isBlank = !target.state.url || target.state.url === 'about:blank';
@@ -3669,6 +3715,29 @@ export class NativeTabHost extends EventEmitter {
         }
       } else if (!target.state.url || target.state.url === 'about:blank') {
         target.state.isLoading = false;
+      } else if (
+        target.view &&
+        target.state.url &&
+        target.state.url !== 'about:blank' &&
+        typeof target.view.webContents.getURL === 'function'
+      ) {
+        const currentUrl = target.view.webContents.getURL();
+        if (!currentUrl || currentUrl === 'about:blank') {
+          target.state.isLoading = true;
+          if (isAllowedNavigation(target.state.url)) {
+            target.view.webContents.loadURL(target.state.url).catch((err: unknown) => {
+              if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
+                const code = 'code' in err ? String(err.code) : '';
+                const errno = 'errno' in err ? Number(err.errno) : 0;
+                if (code === 'ERR_ABORTED' || errno === -3) {
+                  return;
+                }
+              }
+              target.state.isLoading = false;
+              this.broadcastState();
+            });
+          }
+        }
       }
 
       const previousTabId = this.activeTabId;
@@ -3711,6 +3780,10 @@ export class NativeTabHost extends EventEmitter {
             }
           }
         }
+        // Assert target view is attached after inactive clean-up
+        if (target.view && !this.isTabViewAttached(target.view)) {
+          try { this.window.contentView.addChildView(target.view); } catch {}
+        }
       }
 
       this.updateLayout();
@@ -3741,6 +3814,16 @@ export class NativeTabHost extends EventEmitter {
       return true;
     } catch (err) {
       console.error('[native-tab-host] switchTab unexpected error:', err);
+      try {
+        if (this.activeTabId && this.tabs.has(this.activeTabId)) {
+          const fallbackTab = this.tabs.get(this.activeTabId);
+          if (fallbackTab?.view && !fallbackTab.state.offscreen && !fallbackTab.state.ephemeral) {
+            this.attachTabView(fallbackTab.view, false);
+          }
+        }
+        this.updateLayout();
+        this.broadcastState();
+      } catch {}
       return false;
     }
   }
@@ -4650,6 +4733,16 @@ export class NativeTabHost extends EventEmitter {
     } catch (err) {
       console.error('[native-tab-host] applyTabDeviceEmulation error:', err);
     }
+  }
+  public applyTabDeviceEmulationForTab(tabId: string): void {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    if (!this.window || typeof this.window.getContentBounds !== 'function') return;
+    const { width, height } = this.window.getContentBounds();
+    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
+    const toolbarHeight = this.getToolbarHeight();
+    const availableHeight = Math.max(0, height - toolbarHeight);
+    this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
   }
   public setZoom(tabId: string, zoomFactor: number): boolean {
     const tab = this.tabs.get(tabId);
@@ -5766,12 +5859,22 @@ export class NativeTabHost extends EventEmitter {
     return path.join(userData, 'saved-tabs.json');
   }
   private isDisposed = false;
+  private isPersistingTabs = false;
+  private hasPendingPersist = false;
+  private broadcastStatePending = false;
+  private broadcastMicrotaskQueued = false;
+  private broadcastTimer?: NodeJS.Timeout;
+  private broadcastDeadline = 0;
+  private readonly BROADCAST_MIN_INTERVAL_MS = 200; // 5 Hz ceiling
 
   private schedulePersist(): void {
     if (this.isDisposed) return;
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
-      this.persistTabs();
+      this.persistTimer = null;
+      this.persistTabsAsync().catch((err) => {
+        console.warn('[native-tab-host] Failed to persist tabs async:', err);
+      });
     }, 400);
   }
 
@@ -5801,122 +5904,164 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public persistTabs(): void {
-    if (this.isDisposed) return;
-    try {
-      const filePath = this.getTabsStoragePath();
-      const tabList = this.tabOrder.map((id) => {
-        const tab = this.tabs.get(id);
-        if (!tab) return null;
-        if (tab.state.ephemeral === true || tab.state.offscreen === true) return null;
-        return sanitizeTabForPersistence(tab.state);
-      }).filter(Boolean);
+  private buildPersistData(): Record<string, unknown> {
+    const tabList = this.tabOrder.map((id) => {
+      const tab = this.tabs.get(id);
+      if (!tab) return null;
+      if (tab.state.ephemeral === true || tab.state.offscreen === true) return null;
+      return sanitizeTabForPersistence(tab.state);
+    }).filter(Boolean);
 
-      const openTerminalWindows: Array<{
-        sessionId?: string;
-        bounds: {
-          x?: number;
-          y?: number;
-          width: number;
-          height: number;
-          isMaximized: boolean;
-        };
-        isPopout?: boolean;
-      }> = [];
-
-      for (const [winId, win] of this.terminalWindows.entries()) {
-        if (win && !win.isDestroyed()) {
-          let bounds = win.getBounds();
-          if ('getNormalBounds' in win && typeof (win as any).getNormalBounds === 'function') {
-            try {
-              bounds = (win as any).getNormalBounds();
-            } catch {}
-          }
-          const isMaximized = win.isMaximized();
-          const meta = this.terminalWindowMeta.get(winId);
-          openTerminalWindows.push({
-            sessionId: meta?.sessionId || undefined,
-            isPopout: win === this.popoutWindow,
-            bounds: {
-              x: bounds.x,
-              y: bounds.y,
-              width: bounds.width,
-              height: bounds.height,
-              isMaximized,
-            },
-          });
-        }
-      }
-
-      const persistedAffinities: Array<{
-        terminalId: string;
-        primaryTabId: string;
-        managedTabIds: string[];
-      }> = [];
-
-      if (this.terminalAgentAffinity) {
-        const isAgentTabId = (id?: string) => {
-          if (!id) return false;
-          const t = this.tabs.get(id);
-          return t ? (t.state.ephemeral === true || t.state.offscreen === true) : false;
-        };
-
-        const seenTerminals = new Set<string>();
-        for (const [key, entry] of this.terminalAgentAffinity.entries()) {
-          const terminalId = key.split('@')[0];
-          if (!terminalId || seenTerminals.has(terminalId) || entry.closedAt) continue;
-          seenTerminals.add(terminalId);
-
-          const rawPrimaryTabId = entry.primaryTabId || entry.tabId;
-          if (isAgentTabId(rawPrimaryTabId) || isAgentTabId(entry.tabId)) {
-            continue;
-          }
-
-          const rawManaged = Array.from(entry.managedTabIds || [entry.tabId]);
-          const filteredManaged = rawManaged.filter((id) => !isAgentTabId(id));
-
-          if (filteredManaged.length === 0 && (!rawPrimaryTabId || isAgentTabId(rawPrimaryTabId))) {
-            continue;
-          }
-
-          persistedAffinities.push({
-            terminalId,
-            primaryTabId: rawPrimaryTabId,
-            managedTabIds: filteredManaged.length > 0 ? filteredManaged : (rawPrimaryTabId ? [rawPrimaryTabId] : []),
-          });
-        }
-      }
-
-      let persistedActiveTabId: string | undefined = this.activeTabId;
-      if (persistedActiveTabId) {
-        const activeTab = this.tabs.get(persistedActiveTabId);
-        if (!activeTab || activeTab.state.ephemeral === true || activeTab.state.offscreen === true) {
-          persistedActiveTabId = undefined;
-        }
-      }
-
-      const data = {
-        activeTabId: persistedActiveTabId,
-        tabs: tabList,
-        bookmarks: this.bookmarks,
-        activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
-        sidebarWidth: this.sidebarWidth,
-        isSidebarOpen: this.isSidebarOpen,
-        isTerminalPopoutOpen: Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed()),
-        wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
-        popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
-        terminalWindows: openTerminalWindows,
-        terminalAffinities: persistedAffinities,
-        updatedAt: Date.now(),
+    const openTerminalWindows: Array<{
+      sessionId?: string;
+      bounds: {
+        x?: number;
+        y?: number;
+        width: number;
+        height: number;
+        isMaximized: boolean;
       };
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-      console.log('[native-tab-host] Persisted tabs to:', filePath);
+      isPopout?: boolean;
+    }> = [];
+
+    for (const [winId, win] of this.terminalWindows.entries()) {
+      if (win && !win.isDestroyed()) {
+        let bounds = win.getBounds();
+        if ('getNormalBounds' in win && typeof (win as any).getNormalBounds === 'function') {
+          try {
+            bounds = (win as any).getNormalBounds();
+          } catch {}
+        }
+        const isMaximized = win.isMaximized();
+        const meta = this.terminalWindowMeta.get(winId);
+        openTerminalWindows.push({
+          sessionId: meta?.sessionId || undefined,
+          isPopout: win === this.popoutWindow,
+          bounds: {
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+            isMaximized,
+          },
+        });
+      }
+    }
+
+    const persistedAffinities: Array<{
+      terminalId: string;
+      primaryTabId: string;
+      managedTabIds: string[];
+    }> = [];
+
+    if (this.terminalAgentAffinity) {
+      const isAgentTabId = (id?: string) => {
+        if (!id) return false;
+        const t = this.tabs.get(id);
+        return t ? (t.state.ephemeral === true || t.state.offscreen === true) : false;
+      };
+
+      const seenTerminals = new Set<string>();
+      for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+        const terminalId = key.split('@')[0];
+        if (!terminalId || seenTerminals.has(terminalId) || entry.closedAt) continue;
+        seenTerminals.add(terminalId);
+
+        const rawPrimaryTabId = entry.primaryTabId || entry.tabId;
+        if (isAgentTabId(rawPrimaryTabId) || isAgentTabId(entry.tabId)) {
+          continue;
+        }
+
+        const rawManaged = Array.from(entry.managedTabIds || [entry.tabId]);
+        const filteredManaged = rawManaged.filter((id) => !isAgentTabId(id));
+
+        if (filteredManaged.length === 0 && (!rawPrimaryTabId || isAgentTabId(rawPrimaryTabId))) {
+          continue;
+        }
+
+        persistedAffinities.push({
+          terminalId,
+          primaryTabId: rawPrimaryTabId,
+          managedTabIds: filteredManaged.length > 0 ? filteredManaged : (rawPrimaryTabId ? [rawPrimaryTabId] : []),
+        });
+      }
+    }
+
+    let persistedActiveTabId: string | undefined = this.activeTabId;
+    if (persistedActiveTabId) {
+      const activeTab = this.tabs.get(persistedActiveTabId);
+      if (!activeTab || activeTab.state.ephemeral === true || activeTab.state.offscreen === true) {
+        persistedActiveTabId = undefined;
+      }
+    }
+
+    return {
+      activeTabId: persistedActiveTabId,
+      tabs: tabList,
+      bookmarks: this.bookmarks,
+      activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
+      sidebarWidth: this.sidebarWidth,
+      isSidebarOpen: this.isSidebarOpen,
+      isTerminalPopoutOpen: Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed()),
+      wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
+      popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
+      terminalWindows: openTerminalWindows,
+      terminalAffinities: persistedAffinities,
+      updatedAt: Date.now(),
+    };
+  }
+
+  public async persistTabsAsync(): Promise<void> {
+    if (this.isDisposed) return;
+    if (this.isPersistingTabs) {
+      this.hasPendingPersist = true;
+      return;
+    }
+    this.isPersistingTabs = true;
+    try {
+      do {
+        this.hasPendingPersist = false;
+        const filePath = this.getTabsStoragePath();
+        const data = this.buildPersistData();
+        const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+        const json = JSON.stringify(data, null, 2);
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.promises.writeFile(tempPath, json, 'utf8');
+        await fs.promises.rename(tempPath, filePath);
+        console.log('[native-tab-host] Persisted tabs async to:', filePath);
+      } while (this.hasPendingPersist && !this.isDisposed);
     } catch (err) {
-      console.warn('[native-tab-host] Failed to persist tabs:', err);
+      console.warn('[native-tab-host] Failed to persist tabs async:', err);
+    } finally {
+      this.isPersistingTabs = false;
     }
   }
 
-  public restoreTabs(fallbackUrl?: string): void {
+  public persistTabs(): void {
+    this.persistSync();
+  }
+
+  public persistSync(): void {
+    if (this.isDisposed) return;
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    try {
+      const filePath = this.getTabsStoragePath();
+      const data = this.buildPersistData();
+      const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+      const json = JSON.stringify(data, null, 2);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(tempPath, json, 'utf8');
+      fs.renameSync(tempPath, filePath);
+      console.log('[native-tab-host] Persisted tabs sync to:', filePath);
+    } catch (err) {
+      console.warn('[native-tab-host] Failed to persist tabs sync:', err);
+    }
+  }
+
+  public restoreTabs(fallbackUrl?: string, options?: { safeStart?: boolean }): void {
     try {
       const filePath = this.getTabsStoragePath();
       if (fs.existsSync(filePath)) {
@@ -5953,6 +6098,16 @@ export class NativeTabHost extends EventEmitter {
           if (Array.isArray(data.tabs) && data.tabs.length > 0) {
             let restoredActiveId = data.activeTabId;
             const oldIdToNewId = new Map<string, string>();
+
+            // Identify target active tab ID from persisted session
+            let targetActiveOldId = typeof data.activeTabId === 'string' ? data.activeTabId : undefined;
+            if (!targetActiveOldId || !data.tabs.some((t: Record<string, unknown> | null) => t && (t.id === targetActiveOldId || (t.state as Record<string, unknown> | undefined)?.id === targetActiveOldId))) {
+              const firstValid = data.tabs.find((t: Record<string, unknown> | null) => t && !t.ephemeral && !t.offscreen);
+              if (firstValid && typeof firstValid.id === 'string') {
+                targetActiveOldId = firstValid.id;
+              }
+            }
+
             for (const rawTab of data.tabs) {
               if (rawTab && typeof rawTab === 'object') {
                 if (rawTab.ephemeral === true || rawTab.offscreen === true) {
@@ -5966,7 +6121,10 @@ export class NativeTabHost extends EventEmitter {
                 }
               }
               const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
-              const id = this.createTab(safeUrl, false, {
+              const isTargetActive = (rawTab && rawTab.id === targetActiveOldId) || (migrated && migrated.id === targetActiveOldId);
+              const isUnloadedStub = options?.safeStart === true && !isTargetActive;
+              const initialTabUrl = isUnloadedStub ? 'about:blank' : safeUrl;
+              const id = this.createTab(initialTabUrl, false, {
                 capsuleId: migrated.capsuleId,
                 userAgentMode: migrated.userAgentMode,
               });
@@ -5978,6 +6136,10 @@ export class NativeTabHost extends EventEmitter {
               }
               const tab = this.tabs.get(id);
               if (tab) {
+                tab.state.url = safeUrl;
+                if (isUnloadedStub) {
+                  tab.state.isLoading = false;
+                }
                 if (migrated.title) tab.state.title = migrated.title;
                 if (migrated.devicePresetId) this.setDevicePreset(id, migrated.devicePresetId);
                 if (typeof migrated.zoomFactor === 'number') tab.state.zoomFactor = migrated.zoomFactor;
@@ -6070,7 +6232,44 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().viewPageSource(tabId);
   }
 
-  public broadcastState(): void {
+  public broadcastState(immediate = false): void {
+    if (this.isDisposed) return;
+    this.broadcastStatePending = true;
+
+    if (immediate) {
+      this.flushBroadcastState();
+      return;
+    }
+
+    if (!this.broadcastMicrotaskQueued) {
+      this.broadcastMicrotaskQueued = true;
+      queueMicrotask(() => {
+        this.broadcastMicrotaskQueued = false;
+        if (!this.broadcastStatePending || this.isDisposed) return;
+        const now = Date.now();
+        if (now >= this.broadcastDeadline) {
+          this.flushBroadcastState();
+        } else if (!this.broadcastTimer) {
+          this.broadcastTimer = setTimeout(() => {
+            this.broadcastTimer = undefined;
+            if (this.broadcastStatePending && !this.isDisposed) {
+              this.flushBroadcastState();
+            }
+          }, this.broadcastDeadline - now);
+        }
+      });
+    }
+  }
+
+  public flushBroadcastState(): void {
+    if (this.isDisposed) return;
+    if (this.broadcastTimer) {
+      clearTimeout(this.broadcastTimer);
+      this.broadcastTimer = undefined;
+    }
+    this.broadcastStatePending = false;
+    this.broadcastDeadline = Date.now() + this.BROADCAST_MIN_INTERVAL_MS;
+
     const payload = {
       tabs: this.getTabList(),
       activeTabId: this.activeTabId,
@@ -6778,6 +6977,12 @@ export class NativeTabHost extends EventEmitter {
 
   public dispose(): void {
     if (this.isDisposed) return;
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    clearTimeout(this.broadcastTimer);
+    this.broadcastStatePending = false;
     this.persistTabs();
     this.flushAllSessions().catch(() => {});
     this.isDisposed = true;

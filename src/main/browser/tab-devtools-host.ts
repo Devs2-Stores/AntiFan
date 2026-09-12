@@ -61,6 +61,9 @@ export interface TabDevToolsContext {
   getTabUrl?: (tabId: string) => string;
   getRedirectChain?: (tabId: string) => string[];
   getLastNavigationFailure?: (tabId: string) => { cause: string; message: string; timedOut: boolean } | undefined;
+  updateLayout?: () => void;
+  applyTabDeviceEmulation?: (tabId: string) => void;
+  isTabViewAttached?: (view: Electron.WebContentsView | null | undefined) => boolean;
 }
 export interface TabDevToolsStats {
   attachedWebContentsCount: number;
@@ -1171,33 +1174,51 @@ export class TabDevToolsHost {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
-    const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
+    const effectivePane = paneId || target.focusedPane;
+    const isMobile = effectivePane === 'mobile';
+    const targetPaneView = isMobile ? (target.mobileView || target.view) : target.view;
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) return '';
-    if (target.view && typeof target.view.getBounds === 'function') {
-      const bounds = target.view.getBounds();
+    if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
+      if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
+        targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+      }
+    } else if (targetPaneView && typeof targetPaneView.getBounds === 'function') {
+      const bounds = targetPaneView.getBounds();
       if (!bounds || bounds.width === 0 || bounds.height === 0) {
         const ctxAny = this.ctx as unknown as { getTabContentBounds?: (id: string, pane?: SplitPaneId) => { width: number; height: number } };
-        const mainBounds = ctxAny.getTabContentBounds ? ctxAny.getTabContentBounds(targetId, paneId || target.focusedPane) : { width: 1200, height: 800 };
-        target.view.setBounds({ x: 0, y: 0, width: mainBounds.width || 1200, height: mainBounds.height || 800 });
+        const mainBounds = ctxAny.getTabContentBounds ? ctxAny.getTabContentBounds(targetId, effectivePane) : { width: 1200, height: 800 };
+        targetPaneView.setBounds({ x: 0, y: 0, width: mainBounds.width || 1200, height: mainBounds.height || 800 });
       }
     }
     const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
     const rawQuality = typeof options?.quality === 'number' ? options.quality : 80;
     const quality = Math.max(1, Math.min(100, Math.round(rawQuality <= 1 && rawQuality > 0 ? rawQuality * 100 : rawQuality)));
-    // When the target tab is in the background, activate it for the duration of
-    // the capture. A detached WebContentsView has no composited offscreen surface
-    // on Windows, so Page.captureScreenshot would otherwise capture the active tab.
+    // When the target tab is in the background, attach it in place if supported.
+    // Detached WebContentsViews have no composited offscreen surface on Windows,
+    // so Page.captureScreenshot would otherwise capture the active tab.
+    // When attach-in-place is unavailable, fall back to switch-and-restore.
     // (Dual-Plane: offscreen agent tabs already have an offscreen compositor surface,
     // so they are captured directly without a foreground swap — no view hijack.)
     const isOffscreenTarget = target.state?.offscreen === true;
     const activeBeforeCapture = this.ctx.getActiveTabId();
     const switchTabForCapture = this.ctx.switchTab;
-    if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
-      switchTabForCapture(targetId);
-      try {
-        await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, paneId || target.focusedPane);
-        await new Promise((r) => setTimeout(r, 120));
-      } catch {}
+    const canAttachForCapture = Boolean(this.ctx.runWithAttachedTabView && targetPaneView);
+    let didSwitchTabForCapture = false;
+    if (!isOffscreenTarget && targetId !== activeBeforeCapture) {
+      if (!canAttachForCapture && typeof switchTabForCapture === 'function') {
+        didSwitchTabForCapture = true;
+        switchTabForCapture(targetId);
+        if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
+          if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
+            targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+          }
+        }
+        try {
+          await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
+          await delay(120);
+        } catch {}
+      }
     }
     const isForeground = targetId === this.ctx.getActiveTabId();
     return this.ctx.withTabAgentWorking(targetId, async () => {
@@ -1217,7 +1238,7 @@ export class TabDevToolsHost {
               }
             })()`,
             targetId,
-            paneId
+            effectivePane
           );
           maskStyleInjected = true;
         } catch {}
@@ -1231,7 +1252,7 @@ export class TabDevToolsHost {
             if (ov) ov.classList.add('suppressed');
           })()`,
           targetId,
-          paneId
+          effectivePane
         );
       } catch {}
       try {
@@ -1334,15 +1355,25 @@ export class TabDevToolsHost {
         return '';
       };
 
-      const isMobile = (paneId || target.focusedPane) === 'mobile';
-      const targetPaneView = isMobile ? (target.mobileView || target.view) : target.view;
-      let result = '';
-      if (this.ctx.runWithAttachedTabView && targetPaneView) {
-        result = await this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
-      } else {
-        result = await captureAction();
+      if (!isForeground && !isOffscreenTarget && this.ctx.runWithAttachedTabView && targetPaneView) {
+        return await this.ctx.runWithAttachedTabView(
+          targetPaneView,
+          async () => {
+            if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
+              if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
+                targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+              }
+            }
+            try {
+              await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
+              await delay(120);
+            } catch {}
+            return await captureAction();
+          },
+          isMobile
+        );
       }
-      return result;
+      return await captureAction();
     } finally {
       try {
         await this.evalJs(
@@ -1351,7 +1382,7 @@ export class TabDevToolsHost {
             if (ov) ov.classList.remove('suppressed');
           })()`,
           targetId,
-          paneId
+          effectivePane
         );
       } catch {}
       if (maskStyleInjected) {
@@ -1359,12 +1390,15 @@ export class TabDevToolsHost {
           await this.evalJs(
             `(() => { const el = document.getElementById('${maskStyleId}'); if (el) el.remove(); })()`,
             targetId,
-            paneId
+            effectivePane
           );
         } catch {}
       }
-      if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
+      if (didSwitchTabForCapture && typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
         switchTabForCapture(activeBeforeCapture);
+        try {
+          this.ctx.updateLayout?.();
+        } catch {}
       }
     }
   });
@@ -1436,17 +1470,22 @@ export class TabDevToolsHost {
     // offscreen target is rejected above, never degraded to capturePage.)
     const activeBeforeCapture = this.ctx.getActiveTabId();
     const switchTabForCapture = this.ctx.switchTab;
-    if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
-      switchTabForCapture(targetId);
-      if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
-        if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
-          targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+    const canAttachForCapture = Boolean(this.ctx.runWithAttachedTabView && targetPaneView);
+    let didSwitchTabForCapture = false;
+    if (!isOffscreenTarget && targetId !== activeBeforeCapture) {
+      if (!canAttachForCapture && typeof switchTabForCapture === 'function') {
+        didSwitchTabForCapture = true;
+        switchTabForCapture(targetId);
+        if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
+          if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
+            targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+          }
         }
+        try {
+          await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
+          await delay(120);
+        } catch {}
       }
-      try {
-        await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
-        await delay(120);
-      } catch {}
     }
     const isForeground = targetId === this.ctx.getActiveTabId();
 
@@ -1617,7 +1656,22 @@ export class TabDevToolsHost {
         };
 
         if (!isForeground && !isOffscreenTarget && this.ctx.runWithAttachedTabView && targetPaneView) {
-          return await this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
+          return await this.ctx.runWithAttachedTabView(
+            targetPaneView,
+            async () => {
+              if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
+                if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
+                  targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+                }
+              }
+              try {
+                await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
+                await delay(120);
+              } catch {}
+              return await captureAction();
+            },
+            isMobile
+          );
         }
         return await captureAction();
       });
@@ -1634,9 +1688,29 @@ export class TabDevToolsHost {
           effectivePane
         );
       } catch {}
-      await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride').catch(() => {});
-      if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
+      // Guaranteed white background override clear with drain bypass
+      try {
+        const sendDirectBgClear = async () => {
+          if (!wc.isDestroyed() && wc.debugger && wc.debugger.isAttached()) {
+            await wc.debugger.sendCommand('Emulation.setDefaultBackgroundColorOverride', {}).catch(() => {});
+          }
+        };
+        if (this.isWebContentsDraining(wc)) {
+          await sendDirectBgClear();
+        } else {
+          await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride').catch(async () => {
+            await sendDirectBgClear();
+          });
+        }
+      } catch {}
+      if (didSwitchTabForCapture && typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
         switchTabForCapture(activeBeforeCapture);
+      }
+      // Unconditionally restore real layout for the active tab view
+      try {
+        this.ctx.updateLayout?.();
+      } catch (err) {
+        console.warn('[tab-devtools-host] Layout restore failed in captureVerificationScreenshot finally:', err);
       }
     }
     const transportDraining = this.isWebContentsDraining(wc);
@@ -1690,6 +1764,20 @@ export class TabDevToolsHost {
     }
     if (viewportTransaction) captureEnvelope.viewportTransaction = viewportTransaction;
     return captureEnvelope;
+  }
+
+  /**
+   * True when the target tab pane view can be attached in place for capture without
+   * switching active tabs.
+   */
+  public canAttachForCapture(tabId?: string, paneId?: SplitPaneId): boolean {
+    const targetId = tabId || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) return false;
+    const effectivePane = paneId || target.focusedPane;
+    const isMobile = effectivePane === 'mobile';
+    const targetPaneView = isMobile ? (target.mobileView || target.view) : target.view;
+    return Boolean(this.ctx.runWithAttachedTabView && targetPaneView);
   }
 
   /**
@@ -1768,15 +1856,17 @@ export class TabDevToolsHost {
             mobile: false,
           });
         }
+        const isAttached = (this.ctx.isTabViewAttached && this.ctx.isTabViewAttached(args.targetPaneView)) || args.targetId === this.ctx.getActiveTabId();
         if (args.customViewport && args.customViewport.width > 0 && args.customViewport.height > 0) {
-          if (args.targetPaneView && typeof args.targetPaneView.setBounds === 'function') {
-            args.targetPaneView.setBounds({
-              x: 0,
-              y: 0,
-              width: args.customViewport.width,
-              height: args.customViewport.height,
-            });
+          if (isAttached) {
+            if (args.targetId === this.ctx.getActiveTabId()) {
+              this.ctx.updateLayout?.();
+            } else {
+              this.ctx.applyTabDeviceEmulation?.(args.targetId);
+            }
           }
+        } else if (isAttached) {
+          this.ctx.updateLayout?.();
         }
         await this.sendCdpCommand(
           args.wc,

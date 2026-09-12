@@ -127,6 +127,9 @@ export interface BrowserHostPort {
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
   captureVerificationScreenshot?(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }): Promise<VerificationCaptureEnvelope>;
+  /** True when the host can attach the target tab in place for capture without switching active tabs. */
+  canAttachForCapture?(tabId?: string, paneId?: 'desktop' | 'mobile'): boolean;
+  supportsAttachInPlaceCapture?: boolean;
   /** Session-owned tab records, including agent-plane tabs the strip never shows. */
   getSessionTabList?(boundTabId: string): unknown[];
   /** True while the target holds a timed-out in-flight CDP command. */
@@ -228,8 +231,23 @@ export interface BrowserWaitResult {
   details?: Record<string, unknown>;
 }
 
+export interface BrowserArtifactStageInput {
+  kind: ArtifactRef['kind'];
+  mime: string;
+  data: string | Buffer;
+  runId: string;
+  attemptId: string;
+  projectId: string;
+  workspaceId: string;
+  maxBytes?: number;
+  leaseToken?: string;
+  overflowMode?: 'truncate' | 'reject';
+}
+
 export interface BrowserArtifactSink {
-  stage(input: { kind: ArtifactRef['kind']; mime: string; data: string | Buffer; runId: string; attemptId: string; projectId: string; workspaceId: string; maxBytes?: number; leaseToken?: string; overflowMode?: 'truncate' | 'reject' }): Promise<ArtifactRef> | ArtifactRef;
+  stage(input: BrowserArtifactStageInput): Promise<ArtifactRef> | ArtifactRef;
+  /** Preferred when implemented: stages without blocking the main thread on large buffers. */
+  stageAsync?(input: BrowserArtifactStageInput): Promise<ArtifactRef>;
   readBytesById?(artifactId: string, context?: { runId?: string; attemptId?: string; projectId?: string; workspaceId?: string }): { ref: ArtifactRef; data: Buffer };
 }
 
@@ -789,6 +807,9 @@ interface VisualCompareParams {
   heightTolerance?: number;
   /** When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation */
   allowHeightDrift?: boolean;
+  maxGeometryDeltaPx?: number;
+  maxGeometryDeltaXPx?: number;
+  maxGeometryDeltaYPx?: number;
   expectedUrl?: string | null;
   expectedTargetUrl?: string | null;
   expectedBaselineUrl?: string | null;
@@ -1221,6 +1242,14 @@ export class BrowserControlPort {
       return true;
     });
   }
+  /**
+   * Stages through the sink's async path when it has one: capture buffers reach
+   * several megabytes, and the synchronous store write blocks the main thread.
+   */
+  private async stageArtifact(input: BrowserArtifactStageInput): Promise<ArtifactRef> {
+    if (!this.artifacts) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'artifact sink unavailable');
+    return this.artifacts.stageAsync ? this.artifacts.stageAsync(input) : this.artifacts.stage(input);
+  }
   listTabs(context: { target?: BrowserTarget }): unknown[] {
     if (context.target) assertTarget(context.target);
     const boundTabId = context.target?.tabId;
@@ -1403,7 +1432,7 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
       const html = await this.host.getDom(selector, tabId, paneId);
-      return this.artifacts ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(html, 8 * 1024 * 1024);
+      return this.artifacts ? await this.stageArtifact({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(html, 8 * 1024 * 1024);
     });
   }
   async dumpDom(
@@ -1606,7 +1635,7 @@ export class BrowserControlPort {
         `${operation} cannot run on tab '${tabId}' pane '${paneId ?? 'desktop'}': the tab reports no laid-out surface (${snapshot.vw}x${snapshot.vh} CSS px, readyState '${snapshot.readyState}', hidden ${snapshot.hidden}, cause ${classifyRenderSurfaceCause(snapshot)})` +
           (known ? `, and re-applying its verified ${known.width}x${known.height} geometry did not restore one` : '') +
           (offscreen === true ? '; this tab renders offscreen and is never laid out in the window' : '') +
-          '. Size the tab with anti.browser.set_viewport or navigate it to a real page.',
+          '. To inspect this tab, first read its live viewport with anti.browser.get_viewport on an attached tab. Note that anti.browser.set_viewport applies a persistent device-emulation override (use it only when a specific device size is genuinely required).',
         {
           tabId,
           paneId,
@@ -1637,6 +1666,20 @@ export class BrowserControlPort {
   ): Promise<RenderSurfaceSnapshot | undefined> {
     const known = this.verifiedTabGeometry.get(tabId);
     if (!known || typeof this.host.setViewportSize !== 'function' || typeof this.host.readRenderSurface !== 'function') return undefined;
+
+    // Gate re-application on the tab not having positively left custom mode: only a
+    // reported preset that is not `custom-<w>x<h>` (e.g. the user picked a real device
+    // preset or Responsive) invalidates the cached geometry. A host that reports no
+    // preset id keeps the legacy heal instead of losing the recovery path.
+    const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(tabId) : [];
+    const records = sessionRecords.length > 0 ? sessionRecords : (this.host.getTabList ? this.host.getTabList() : []);
+    const tab = (records || []).find((t: unknown) => isTabRecord(t) && t.id === tabId) as (AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean }) | undefined;
+    const presetId = tab?.devicePresetId;
+    const isCustom = typeof presetId !== 'string' || presetId.length === 0 || /^custom-\d+x\d+$/.test(presetId);
+    if (!isCustom) {
+      this.verifiedTabGeometry.delete(tabId);
+      return undefined;
+    }
     try {
       await this.host.setViewportSize({ width: known.width, height: known.height, mobile: known.mobile, tabId });
       const healed = await this.host.readRenderSurface(tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS);
@@ -1723,7 +1766,7 @@ export class BrowserControlPort {
       const receipt = verificationCaptureReceipt(envelope);
       const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
       const artifactRef = this.artifacts
-        ? await this.artifacts.stage({
+        ? await this.stageArtifact({
             kind: 'screenshot',
             mime,
             data: buffer,
@@ -2094,12 +2137,12 @@ export class BrowserControlPort {
       const resultComponents: BrowserObserveResult['components'] = {};
       if (buffered.dom !== undefined) {
         resultComponents.dom = this.artifacts
-          ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: buffered.dom, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
+          ? await this.stageArtifact({ kind: 'dom', mime: 'text/html', data: buffered.dom, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
           : limit(buffered.dom, 512 * 1024);
       }
       if (buffered.screenshot !== undefined) {
         resultComponents.screenshot = this.artifacts
-          ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffered.screenshot, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
+          ? await this.stageArtifact({ kind: 'screenshot', mime: 'image/png', data: buffered.screenshot, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
           : limit(buffered.screenshot.toString('base64'), 512 * 1024);
       }
       if (buffered.snapshot !== undefined) resultComponents.snapshot = buffered.snapshot;
@@ -2711,6 +2754,65 @@ export class BrowserControlPort {
       ...(options.reload !== undefined ? { reloaded } : {}),
       ...(observed ? { observedWidth: observed.vw, observedHeight: observed.vh } : {}),
       verified: Boolean(observed),
+    };
+  }
+  async getViewport(
+    options: { tabId?: string } = {},
+    target?: BrowserTarget
+  ): Promise<{
+    tabId: string;
+    presetId?: string;
+    customViewport: { width: number; height: number; mobile?: boolean } | null;
+    width: number;
+    height: number;
+    dpr: number;
+    attached: boolean;
+    active: boolean;
+    cause?: string;
+    detached?: boolean;
+  }> {
+    const effectiveTabId = this.resolveTargetTab(target, options.tabId);
+    const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(effectiveTabId) : [];
+    const records = sessionRecords.length > 0 ? sessionRecords : (this.host.getTabList ? this.host.getTabList() : []);
+    const tab = (records || []).find((t: unknown) => isTabRecord(t) && t.id === effectiveTabId) as (AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean }) | undefined;
+    const activeTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : undefined;
+    const isActive = Boolean(activeTabId && activeTabId === effectiveTabId);
+    const isAttached = Boolean(tab?.attached ?? isActive);
+    const presetId = tab?.devicePresetId ?? undefined;
+    const customViewport = tab?.customViewport ?? null;
+
+    let surface: RenderSurfaceSnapshot | undefined;
+    if (typeof this.host.readRenderSurface === 'function') {
+      try {
+        surface = await this.host.readRenderSurface(effectiveTabId, undefined, RENDER_SURFACE_PROBE_BOUND_MS);
+      } catch {}
+    }
+
+    if (surface && Number.isFinite(surface.vw) && Number.isFinite(surface.vh) && surface.vw >= 1 && surface.vh >= 1) {
+      return {
+        tabId: effectiveTabId,
+        presetId,
+        customViewport,
+        width: surface.vw,
+        height: surface.vh,
+        dpr: surface.dpr || 1,
+        attached: isAttached,
+        active: isActive,
+      };
+    }
+
+    const cause = classifyRenderSurfaceCause(surface);
+    return {
+      tabId: effectiveTabId,
+      presetId,
+      customViewport,
+      width: 0,
+      height: 0,
+      dpr: surface?.dpr || 1,
+      attached: isAttached,
+      active: isActive,
+      cause: cause || 'The tab has no attached laid-out surface',
+      detached: !isAttached,
     };
   }
 
@@ -4055,7 +4157,7 @@ export class BrowserControlPort {
       throw new CapabilityError('RESOURCE_FAILURE', 'Artifact store unavailable for staging promoted baseline');
     }
 
-    const staged = await this.artifacts.stage({
+    const staged = await this.stageArtifact({
       kind: 'screenshot',
       mime: 'image/png',
       data: buf,
@@ -4384,10 +4486,13 @@ export class BrowserControlPort {
     // Offscreen agent tabs render to an offscreen compositor surface; foregrounding
     // them would break the dual-plane model and is unnecessary for CDP capture.
     const isOffscreen = this.host.isTabOffscreen ? this.host.isTabOffscreen(tabId) : false;
-    if (typeof this.host.switchTab === 'function' && !isOffscreen && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
+    const canAttachInPlace = typeof this.host.canAttachForCapture === 'function'
+      ? this.host.canAttachForCapture(tabId, txn.paneId)
+      : (this.host.supportsAttachInPlaceCapture ?? (typeof this.host.captureVerificationScreenshot === 'function'));
+    if (!canAttachInPlace && typeof this.host.switchTab === 'function' && !isOffscreen && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
       await budget.run(`foreground ${tabId}`, async () => {
         this.host.switchTab!(tabId);
-        await new Promise((r) => setTimeout(r, 150));
+        await budget.sleep(150, `foreground stabilization (${tabId})`);
       }, FOREGROUND_BOUND_MS);
     }
     let scroll: { x: number; y: number } | null = null;
@@ -5353,7 +5458,23 @@ export class BrowserControlPort {
           const trackedList = hasTracked
             ? params.trackedSelectors!.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
             : undefined;
-          const structRes = computeStructuralMetrics(targetRegions, compRegions, { trackedSelectors: trackedList });
+          const isMobileOrTablet = (compMetrics?.vw ?? targetMetrics?.vw ?? 1440) <= 1024;
+          const effectiveMaxTolY = typeof params.maxGeometryDeltaYPx === 'number'
+            ? params.maxGeometryDeltaYPx
+            : typeof params.maxGeometryDeltaPx === 'number'
+            ? params.maxGeometryDeltaPx
+            : (isMobileOrTablet && diffResult.match ? 16 : undefined);
+          const effectiveMaxTolX = typeof params.maxGeometryDeltaXPx === 'number'
+            ? params.maxGeometryDeltaXPx
+            : typeof params.maxGeometryDeltaPx === 'number'
+            ? params.maxGeometryDeltaPx
+            : undefined;
+          const structRes = computeStructuralMetrics(targetRegions, compRegions, {
+            trackedSelectors: trackedList,
+            maxGeometryDeltaPx: params.maxGeometryDeltaPx,
+            maxGeometryDeltaXPx: effectiveMaxTolX,
+            maxGeometryDeltaYPx: effectiveMaxTolY,
+          });
           structuralMetrics = {
             geometryWithinTolerance: structRes.geometryWithinTolerance,
             deltaGeometry: structRes.deltaGeometry,

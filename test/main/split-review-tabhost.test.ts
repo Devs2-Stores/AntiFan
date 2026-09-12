@@ -101,6 +101,7 @@ function createTestHost() {
   host.semanticDocumentGenerations = new Map();
   host.semanticRefRegistry = new SemanticRefRegistry();
   host.targetOperationQueues = new Map();
+  host.lastNavigationFailures = new Map();
   host.networkTracker = new FirstPartyNetworkTracker();
   host.previewWatcherPool = { clear: () => {} };
   host.persistTabs = () => {};
