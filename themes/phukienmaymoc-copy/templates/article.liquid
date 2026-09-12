@@ -1,6 +1,14 @@
 <link rel="preload" href="{{ 'style-blog.scss.css' | asset_url }}" as="style">
 <link rel="stylesheet" href="{{ 'style-blog.scss.css' | asset_url }}">
 <script fetchpriority="low" type="text/javascript" defer src="{{ 'blog.js' | asset_url }}"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  const tocs = document.querySelectorAll("#toc-lists");
+  if (tocs.length > 1) {
+    for (let i = 1; i < tocs.length; i++) tocs[i].remove();
+  }
+});
+</script>
 <div  class="layout-article" id="article">
 	{%- include 'breadcrumb' -%}
 	{%-comment-%}

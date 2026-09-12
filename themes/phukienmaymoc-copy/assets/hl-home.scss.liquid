@@ -505,6 +505,205 @@ body, main, section, footer {
     height: auto !important;
     border-radius: 8px !important;
   }
+
+  /* Accessory Section Mobile Responsive */
+  section.accessory {
+    height: auto !important;
+    margin-bottom: 24px !important;
+  }
+  section.accessory .accessory-block {
+    padding: 16px 12px !important;
+    border-radius: 8px !important;
+  }
+  section.accessory .accessory-header {
+    height: auto !important;
+    margin-bottom: 14px !important;
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+  section.accessory .accessory-header .left p {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    margin: 0 !important;
+  }
+  section.accessory .accessory-header .right {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+  section.accessory .accessory-content {
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  section.accessory .accessory-content__list {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+  section.accessory .accessory-content__item {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: none !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 120px !important;
+    padding: 10px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    text-align: center !important;
+  }
+  section.accessory .accessory-content__item .thumbnail {
+    flex: none !important;
+    margin: 0 0 6px 0 !important;
+    line-height: 0 !important;
+  }
+  section.accessory .accessory-content__item .thumbnail img {
+    width: 60px !important;
+    height: 60px !important;
+    object-fit: contain !important;
+  }
+  section.accessory .accessory-content__item .content {
+    flex: none !important;
+    width: 100% !important;
+  }
+  section.accessory .accessory-content__item .content h3 {
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+    margin: 0 !important;
+    max-height: 32px !important;
+    overflow: hidden !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+  }
+  section.accessory .accessory-content__item .content p {
+    display: none !important;
+  }
+
+  /* News Section Mobile Responsive */
+  section.news {
+    height: auto !important;
+    margin-bottom: 24px !important;
+  }
+  section.news .news-block {
+    padding: 16px 12px !important;
+    border-radius: 8px !important;
+  }
+  section.news .news-header {
+    height: auto !important;
+    margin-bottom: 14px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+  section.news .news-header .left p {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    margin: 0 !important;
+    color: #22343e !important;
+  }
+  section.news .news-header .right .right-view-all {
+    font-size: 13px !important;
+    padding: 6px 12px !important;
+    border-radius: 4px !important;
+  }
+  section.news .news-content {
+    padding: 0 !important;
+  }
+  section.news .news-content .s-wrap {
+    width: 100% !important;
+    overflow: visible !important;
+  }
+  section.news .news-content .s-content {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    width: 100% !important;
+    overflow: visible !important;
+    transform: none !important;
+  }
+  section.news .news-content .article-item {
+    display: flex !important;
+    flex-direction: row !important;
+    flex: 0 0 100% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    background: #fff !important;
+    box-sizing: border-box !important;
+  }
+  section.news .news-content .article-item__thumbnail {
+    flex: 0 0 120px !important;
+    width: 120px !important;
+    max-width: 120px !important;
+    height: 90px !important;
+    line-height: 0 !important;
+    overflow: hidden !important;
+    border-radius: 0 !important;
+  }
+  section.news .news-content .article-item__thumbnail a {
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  section.news .news-content .article-item__thumbnail a img {
+    width: 120px !important;
+    height: 90px !important;
+    max-height: 90px !important;
+    object-fit: cover !important;
+    border-radius: 0 !important;
+  }
+  section.news .news-content .article-item__content {
+    flex: 1 1 calc(100% - 120px) !important;
+    padding: 8px 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    min-height: auto !important;
+  }
+  section.news .news-content .article-item__content .category {
+    display: block !important;
+    margin-bottom: 2px !important;
+  }
+  section.news .news-content .article-item__content .category a {
+    font-size: 11px !important;
+    color: #3590ce !important;
+    font-weight: 500 !important;
+    text-decoration: none !important;
+  }
+  section.news .news-content .article-item__content h3 {
+    font-size: 13px !important;
+    line-height: 1.35 !important;
+    font-weight: 600 !important;
+    margin: 0 !important;
+    max-height: 36px !important;
+    overflow: hidden !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+  }
+  section.news .news-content .article-item__content h3 a {
+    color: #22343e !important;
+    text-decoration: none !important;
+  }
+  section.news .news-content .article-item__content p {
+    display: none !important;
+  }
 }
 
 /* Global Popup and Tooltip Guards */

@@ -1,0 +1,16 @@
+<style>
+.rotate-text .text-years { font-family: "Inter", -apple-system, sans-serif !important; writing-mode: vertical-lr !important; font-size: 5.5em !important; font-weight: 700 !important; color: #dddddd !important; letter-spacing: normal !important; }
+.timeline__nav .col-inner { transition: none !important; }
+.img-inner.image-cover img { position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; object-fit: cover !important; }
+html, * { scrollbar-width: none !important; }
+*::-webkit-scrollbar { display: none !important; }
+</style>
+{% include 'breadcrumb' %}
+<div class="page-lich-su w-100" style="padding: 40px 0;">
+    <div class="container container-fuild">
+        <h1 style="font-size: 28px; font-weight: bold; margin-bottom: 20px;">{{ page.title | default: 'Lịch sử hình thành và phát triển' }}</h1>
+        <div class="page-content" style="line-height: 1.8; font-size: 15px; color: #333;">
+            {{ page.content }}
+        </div>
+    </div>
+</div>
