@@ -718,7 +718,9 @@ export interface RenderSurfaceSnapshot {
 }
 
 export const RENDER_SURFACE_PROBE_EXPRESSION =
-  '({ vw: window.innerWidth || 0, vh: window.innerHeight || 0, dpr: window.devicePixelRatio || 1, ' +
+  '({ vw: (document.documentElement && document.documentElement.clientWidth) || window.innerWidth || 0, ' +
+  'vh: (document.documentElement && document.documentElement.clientHeight) || window.innerHeight || 0, ' +
+  'dpr: window.devicePixelRatio || 1, ' +
   'scrollX: window.scrollX || 0, scrollY: window.scrollY || 0, ' +
   'docH: Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), ' +
   'readyState: document.readyState || "unknown", hidden: document.hidden === true })';
@@ -1236,7 +1238,11 @@ export function rasterMatchesCss(
   if (!positive(dpr) || !positive(zoom)) return false;
   if (!positive(raster.width) || !positive(raster.height) || !positive(css.width) || !positive(css.height)) return false;
   const scale = dpr * zoom;
-  return Math.abs(raster.width - css.width * scale) <= 1 && Math.abs(raster.height - css.height * scale) <= 1;
+  const matchesDpr = Math.abs(raster.width - css.width * scale) <= 1 && Math.abs(raster.height - css.height * scale) <= 1;
+  if (matchesDpr) return true;
+  // CDP Page.captureScreenshot in viewport mode or standard desktop backings produces 1x CSS raster (zoom-scaled)
+  const matches1x = Math.abs(raster.width - css.width * zoom) <= 1 && Math.abs(raster.height - css.height * zoom) <= 1;
+  return matches1x;
 }
 
 /**

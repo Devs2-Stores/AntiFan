@@ -28,6 +28,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadCachedReadinessFloors, validateProbedFloor } from '../../scripts/lib/canary-floors.mjs';
 import { hydrateToCapturedState, requireDoubleSettledMetrics } from './canary-settle.mjs';
+import { selectCandidateEntryForViewport } from '../../scripts/lib/evidence-provenance.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 
@@ -346,34 +347,11 @@ try {
     }
     log('clone bundle built');
   }
-  // ── 4b. mobile clone pipeline (required if target viewports include mobile) ──
-  if (hasMobileViewport) {
-    const mobileCloneDir = path.join(RUN_DIR, 'clone', 'mobile');
-    const mobileTelemetryPath = path.join(EVIDENCE_DIR, 'build-telemetry-mobile.json');
-    const mobileEntry = path.join(mobileCloneDir, 'index.html');
-    if (SKIP_BUILD && fs.existsSync(mobileEntry)) {
-      log('mobile clone build skipped (--skip-build, reusing existing mobile bundle)');
-      pipeline.steps.buildMobile = { skipped: true, telemetry: mobileTelemetryPath };
-    } else {
-      log('building independent HTML mobile clone (real pipeline)');
-      const buildMobile = await run('node', ['.canary/tools/build-clone.mjs', refMobileHtmlPath, mobileCloneDir, mobileTelemetryPath], { timeoutMs: 1_800_000 });
-      fs.writeFileSync(path.join(EVIDENCE_DIR, 'build-mobile.log'), buildMobile.stdout + (buildMobile.stderr ? `\n--- stderr ---\n${buildMobile.stderr}` : ''));
-      pipeline.steps.buildMobile = { code: buildMobile.code, elapsedMs: buildMobile.elapsedMs, stdout: buildMobile.stdout.slice(0, 4000), stderr: buildMobile.stderr.slice(0, 4000) };
-      if (buildMobile.code !== 0) {
-        throw new Error(`build-clone for mobile failed (code ${buildMobile.code}): ${buildMobile.stderr.slice(0, 400)}`);
-      }
-      log('mobile clone bundle built at clone/mobile');
-    }
-    if (!fs.existsSync(mobileEntry)) throw new Error(`mobile clone entry missing: ${mobileEntry}`);
-    pipeline.steps.bundleMobile = {
-      entry: mobileEntry,
-      entrySha256: sha256(fs.readFileSync(mobileEntry)),
-      tree: hashTree(mobileCloneDir),
-    };
-  }
+  // Candidate verification exercises the same unified bundle across all viewports;
+  // no separate mobile clone bundle is required.
   const cloneEntry = path.join(RUN_DIR, 'clone', 'index.html');
   if (!fs.existsSync(cloneEntry)) throw new Error(`clone entry missing: ${cloneEntry}`);
-  pipeline.steps.bundle = { entry: cloneEntry, entrySha256: sha256(fs.readFileSync(cloneEntry)), tree: hashTree(path.join(RUN_DIR, 'clone'), ['mobile']) };
+  pipeline.steps.bundle = { entry: cloneEntry, entrySha256: sha256(fs.readFileSync(cloneEntry)), tree: hashTree(path.join(RUN_DIR, 'clone')) };
   persist();
 
   // ── 5. hardened local server ───────────────────────────────────────────────
@@ -491,6 +469,14 @@ try {
     } catch (e) {
       log(`  ${vp.label}: reference tab hydration failed: ${e.message}; child retries the load on its own`);
     }
+    const candidateSelection = selectCandidateEntryForViewport({
+      bundleIdentity: pipeline.steps.bundle ? { entryPath: cloneEntry, entrySha256: pipeline.steps.bundle.entrySha256 } : null,
+      cloneDir: path.join(RUN_DIR, 'clone'),
+      viewport: vp,
+    });
+    if (!candidateSelection.ok) {
+      throw new Error(`Candidate selection failed for viewport ${vp.label}: ${candidateSelection.reason}`);
+    }
     const r = await run('node', [
       '.canary/tools/viewport-run.mjs',
       vp.label, String(vp.width), String(vp.height), vpRefTabId, cloneTabId, RUN_DIR,
@@ -507,7 +493,8 @@ try {
         ...(vpPrehydrated ? { CANARY_REFERENCE_PREHYDRATED: '1' } : {}),
         CANARY_LEASE_TOKEN: lease.leaseToken,
         CANARY_FLOOR_DOC_HEIGHT: floor.docHeight ? String(floor.docHeight) : '',
-        CANARY_CLONE_DIR: vp.width < 768 ? path.join(RUN_DIR, 'clone', 'mobile') : path.join(RUN_DIR, 'clone'),
+        CANARY_CLONE_DIR: candidateSelection.cloneDir,
+        CANARY_SERVED_ENTRY: candidateSelection.entryPath,
       },
     });
     fs.writeFileSync(path.join(EVIDENCE_DIR, `${vp.label}.log`), r.stdout + (r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''));

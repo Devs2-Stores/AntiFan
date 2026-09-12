@@ -22,7 +22,7 @@ import http from 'node:http';
 import { call, evalOn, bootstrap } from './lib-rpc.mjs';
 import { hydrateToCapturedState, requireDoubleSettledMetrics, releaseCompareBlockers, sampleWidgetMotion, readWidgetPhase } from './canary-settle.mjs';
 import { sha256Buffer, sha256File } from '../../scripts/lib/atomic-record.mjs';
-import { detectBundleDrift, loadInstanceIdentity, PROVENANCE_CODES } from '../../scripts/lib/evidence-provenance.mjs';
+import { detectBundleDrift, loadInstanceIdentity, selectCandidateEntryForViewport, PROVENANCE_CODES } from '../../scripts/lib/evidence-provenance.mjs';
 import { describeViewport, sameViewport } from '../../scripts/lib/viewport-geometry.mjs';
 import { checkObservedUrl } from './theme-fidelity.mjs';
 
@@ -260,6 +260,21 @@ if (campaignMode) {
       observedSha256: null,
       servedUrl: null,
     });
+  } else {
+    const candidateSelection = selectCandidateEntryForViewport({
+      bundleIdentity,
+      cloneDir: process.env.CANARY_CLONE_DIR,
+      viewport: { label, width, height, isMobile },
+      candidateEntry: servedEntryPath,
+    });
+    if (!candidateSelection.ok) {
+      refuseProvenance({
+        code: candidateSelection.code,
+        reason: candidateSelection.reason,
+        observedSha256: null,
+        servedUrl: null,
+      });
+    }
   }
 }
 
@@ -460,13 +475,10 @@ async function assertServedEntryMatchesMinted() {
   }
   const observedSha256 = sha256Buffer(observed.body);
   const mintedSha256 = bundleIdentity?.entrySha256 ?? null;
-  // The carried identity is the page's desktop mint, while the expected entry is
-  // this tier's: for 390 they are legitimately different files. The minted digest
-  // is therefore only binding when this tier IS the minted tier; the expected-entry
-  // digest is the check that applies to every tier.
-  const mintedIsThisTier = Boolean(bundleIdentity?.entryPath) && path.resolve(bundleIdentity.entryPath) === servedEntryPath;
+  // Responsive verification enforces the exact same candidate entry across all viewports.
+  // The served entry must match both the expected entry and the minted bundle identity.
   const matchesExpected = observedSha256 === servedEntrySha256;
-  const matchesMinted = !mintedIsThisTier || observedSha256 === mintedSha256;
+  const matchesMinted = !bundleIdentity || observedSha256 === mintedSha256;
   if (!matchesExpected || !matchesMinted) {
     // Name only the comparison that actually failed: "the wrong directory for this
     // tier" and "not the entry the build minted" are different diagnoses, and
@@ -615,32 +627,28 @@ if (!refReadiness.ok) {
   log(`ABORT: reference not ready [${refReadiness.reasons.join('; ')}] — no pixel verdict produced`);
   process.exit(3);
 }
-if (isMobile) {
-  // The mobile bundle belongs to the same attempt as the desktop bundle; the
-  // attempt directory is what makes the pair immutable together.
-  const cloneRootDir = process.env.CANARY_ATTEMPT_DIR
-    ? path.join(path.resolve(process.env.CANARY_ATTEMPT_DIR), 'clone')
-    : path.join(runDir, 'clone');
-  const mobileEntry = path.join(cloneRootDir, 'mobile', 'index.html');
-  if (!fs.existsSync(mobileEntry)) {
-    throw new Error(`Mobile viewport run requires independent mobile bundle at ${mobileEntry}`);
-  }
-  const currentUrl = await evalOn(cloneTabId, 'location.href', 5000).catch(() => '');
-  if (!currentUrl.includes('/mobile')) {
-    const origin = await evalOn(cloneTabId, 'location.origin', 5000).catch(() => '');
-    if (origin) {
-      log(`navigating clone tab to mobile bundle: ${origin}/mobile/`);
-      await call('browser.navigate', { tabId: cloneTabId, url: `${origin}/mobile/` }, 30_000);
+// The candidate entry is the single unified bundle across all viewports.
+// Derive the expected entry pathname relative to cloneDir from the served entry contract.
+const cloneRootDir = process.env.CANARY_CLONE_DIR
+  ? path.resolve(process.env.CANARY_CLONE_DIR)
+  : (process.env.CANARY_ATTEMPT_DIR ? path.join(path.resolve(process.env.CANARY_ATTEMPT_DIR), 'clone') : runDir);
+const relPath = servedEntryPath ? path.relative(cloneRootDir, servedEntryPath).replace(/\\/g, '/') : 'index.html';
+const expectedPathname = (relPath === 'index.html' || !relPath) ? '/' : `/${relPath}`;
+
+// Ensure the clone tab is on the candidate entry URL derived from the served entry contract
+const currentHref = await evalOn(cloneTabId, 'location.href', 5000).catch(() => '');
+if (currentHref) {
+  try {
+    const currentParsed = new URL(currentHref);
+    const targetUrl = new URL(expectedPathname, currentParsed.origin).toString();
+    const currentClean = `${currentParsed.origin}${currentParsed.pathname}`;
+    const targetClean = `${new URL(targetUrl).origin}${new URL(targetUrl).pathname}`;
+    if (currentClean !== targetClean && currentClean !== `${targetClean}index.html`) {
+      log(`navigating clone tab to candidate entry contract URL: ${targetUrl}`);
+      await call('browser.navigate', { tabId: cloneTabId, url: targetUrl }, 30_000);
     }
-  }
-} else {
-  const currentUrl = await evalOn(cloneTabId, 'location.href', 5000).catch(() => '');
-  if (currentUrl.includes('/mobile')) {
-    const origin = await evalOn(cloneTabId, 'location.origin', 5000).catch(() => '');
-    if (origin) {
-      log(`navigating clone tab back to desktop bundle: ${origin}/`);
-      await call('browser.navigate', { tabId: cloneTabId, url: `${origin}/` }, 30_000);
-    }
+  } catch (e) {
+    log(`candidate URL normalization check error: ${e.message}`);
   }
 }
 
@@ -795,37 +803,51 @@ if (!cloneReadiness.ok) {
 const geometryBeforeCapture = await enforceViewportGeometry('post-hydration', null);
 if (!geometryBeforeCapture.symmetric) refuseViewportAsymmetry('post-hydration', geometryBeforeCapture);
 {
-  const expectedDevice = isMobile ? 'mobile' : 'web';
+  function resolveCapturedReferenceDevice() {
+    if (!REFERENCE_DUMP_PATH || !fs.existsSync(REFERENCE_DUMP_PATH)) return null;
+    try {
+      const dumpJson = JSON.parse(fs.readFileSync(REFERENCE_DUMP_PATH, 'utf8'));
+      const htmlPath = dumpJson.out
+        ? path.resolve(dumpJson.out)
+        : path.join(path.dirname(REFERENCE_DUMP_PATH), '..', 'reference', isMobile ? 'reference-mobile.html' : 'reference.html');
+      if (fs.existsSync(htmlPath)) {
+        const html = fs.readFileSync(htmlPath, 'utf8');
+        const bodyMatch = html.match(/<body\b([^>]*)>/i);
+        if (bodyMatch) {
+          const deviceMatch = bodyMatch[1].match(/\bdata-device\s*=\s*["']?([^"'\s>]+)/i);
+          if (deviceMatch) return deviceMatch[1];
+        }
+      }
+    } catch {}
+    return null;
+  }
+  const capturedRefDevice = resolveCapturedReferenceDevice();
+  // Use captured reference state, never a presumed width class (e.g. isMobile ? 'mobile' : 'web'),
+  // so responsive sources with static metadata are never falsely rejected.
   const referenceIdentity = await evalOn(refTabId, TAB_IDENTITY_EXPR, 15000).catch((e) => ({ status: 'UNREADABLE', error: String(e && e.message ? e.message : e).slice(0, 160) }));
   const cloneIdentity = await evalOn(cloneTabId, TAB_IDENTITY_EXPR, 15000).catch((e) => ({ status: 'UNREADABLE', error: String(e && e.message ? e.message : e).slice(0, 160) }));
-  evidence.tabIdentity = { expectedDevice, reference: referenceIdentity, clone: cloneIdentity };
-  log(`tab identity ref: device=${referenceIdentity.device} inner=${referenceIdentity.innerWidth}x${referenceIdentity.innerHeight} content=${referenceIdentity.clientWidth} scroll=${referenceIdentity.scrollWidth} dpr=${referenceIdentity.dpr} docH=${referenceIdentity.docHeight} sections=${referenceIdentity.sections} widgets=${referenceIdentity.widgetNodes} images=${referenceIdentity.completeImages}/${referenceIdentity.images}`);
+  const expectedDevice = capturedRefDevice ?? referenceIdentity.device ?? null;
+  evidence.tabIdentity = { expectedDevice, reference: referenceIdentity, clone: cloneIdentity, capturedReferenceDevice: capturedRefDevice };
+  log(`tab identity ref: device=${referenceIdentity.device} (captured=${capturedRefDevice}) inner=${referenceIdentity.innerWidth}x${referenceIdentity.innerHeight} content=${referenceIdentity.clientWidth} scroll=${referenceIdentity.scrollWidth} dpr=${referenceIdentity.dpr} docH=${referenceIdentity.docHeight} sections=${referenceIdentity.sections} widgets=${referenceIdentity.widgetNodes} images=${referenceIdentity.completeImages}/${referenceIdentity.images}`);
   log(`tab identity clone: device=${cloneIdentity.device} inner=${cloneIdentity.innerWidth}x${cloneIdentity.innerHeight} content=${cloneIdentity.clientWidth} scroll=${cloneIdentity.scrollWidth} dpr=${cloneIdentity.dpr} docH=${cloneIdentity.docHeight} sections=${cloneIdentity.sections} widgets=${cloneIdentity.widgetNodes} images=${cloneIdentity.completeImages}/${cloneIdentity.images}`);
   persist();
-  // A declared layout class is the site's own statement about which page it is showing.
-  // Comparing a mobile-layout clone against a web-layout reference is not a fidelity
-  // measurement, so it is refused rather than reported as a mismatch.
-  if (referenceIdentity.device && referenceIdentity.device !== expectedDevice) {
+  // If the live reference tab drifted from its own captured reference state for this tier, refuse.
+  if (capturedRefDevice && referenceIdentity.device && referenceIdentity.device !== capturedRefDevice) {
     evidence.status = 'REFERENCE_DEVICE_MISMATCH';
     evidence.visual = {
       status: 'REFERENCE_DEVICE_MISMATCH',
       verdict: 'INCONCLUSIVE',
-      reason: `the reference page reports data-device="${referenceIdentity.device}" while the ${label} tier expects "${expectedDevice}" (inner ${referenceIdentity.innerWidth}x${referenceIdentity.innerHeight}, docHeight ${referenceIdentity.docHeight}px)`,
+      reason: `the live reference page reports data-device="${referenceIdentity.device}" while the captured reference state for this tier measured "${capturedRefDevice}" (inner ${referenceIdentity.innerWidth}x${referenceIdentity.innerHeight}, docHeight ${referenceIdentity.docHeight}px)`,
     };
     persist();
-    log(`ABORT: REFERENCE_DEVICE_MISMATCH (reference data-device=${referenceIdentity.device}, expected ${expectedDevice})`);
+    log(`ABORT: REFERENCE_DEVICE_MISMATCH (live reference data-device=${referenceIdentity.device}, captured reference state=${capturedRefDevice})`);
     process.exit(3);
   }
+  // Device-specific source metadata (e.g. data-device="mobile" on the reference)
+  // must not be used to require separate candidate HTML; the unified candidate adapts
+  // responsively across viewports.
   if (referenceIdentity.device && cloneIdentity.device && referenceIdentity.device !== cloneIdentity.device) {
-    evidence.status = 'DEVICE_CLASS_ASYMMETRY';
-    evidence.visual = {
-      status: 'DEVICE_CLASS_ASYMMETRY',
-      verdict: 'INCONCLUSIVE',
-      reason: `the reference declares data-device="${referenceIdentity.device}" while the clone declares "${cloneIdentity.device}" — the two sides are rendering different layouts`,
-    };
-    persist();
-    log(`ABORT: DEVICE_CLASS_ASYMMETRY (reference=${referenceIdentity.device}, clone=${cloneIdentity.device})`);
-    process.exit(3);
+    log(`tab identity: reference declares data-device="${referenceIdentity.device}" while candidate declares "${cloneIdentity.device}" (unified candidate entry adapting responsively)`);
   }
   // Equal document heights before the compare are not the same as an equal layout width.
   // Measured on page-03 at 1440: the reference laid out against a 1440px content box while

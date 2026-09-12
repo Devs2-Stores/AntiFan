@@ -61,6 +61,8 @@ const definitions = [
   ['anti.inspect.responsive_matrix', 'Probe document and target overflow at the five standard responsive widths.', { selector: { type: 'string' }, tabId: { type: 'string' } }],
   ['anti.verification.record_claim', 'Record a live verification claim as UNVERIFIED with explicit proof obligations.', { claim: { type: 'string' }, category: { type: 'string', enum: ['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM'] }, actor: { type: 'string', enum: ['agent', 'user'] }, tabId: { type: 'string' }, selector: { type: 'string' }, expectedHeight: { type: 'number' }, expectedSections: { type: 'number' }, tolerance: { type: 'number' }, proofObligations: { type: 'array', maxItems: 50, items: { type: 'object', properties: { id: { type: 'string' }, metric: { type: 'string', description: 'Obligation metric identifier (required)' }, tolerance: { type: 'number' }, critical: { type: 'boolean' }, expected: {} }, required: ['metric'] } }, linkedIssueId: { type: 'string' } }, ['claim', 'tabId', 'category']],
   ['anti.verification.verify_claim', 'Evaluate a recorded claim against fresh live browser evidence and persist an authoritative receipt.', { claimId: { type: 'string' }, witnessObservation: { type: 'string' }, semanticFailureObservation: { type: 'string' } }, ['claimId']],
+  ['anti.theme.export_clean', 'Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath']],
+  ['anti.browser.dump_dom', 'Stream clean or raw page DOM directly to a workspace file with zero MCP transport truncation and Windows-safe atomic writes.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath']],
   ['anti.verification.list', 'List recorded verification claims and their current verdicts.', { verdict: { type: 'string' }, category: { type: 'string' } }],
 ];
 
@@ -298,6 +300,8 @@ const CAPABILITY_MAP = Object.freeze({
   'artifact_read': 'artifact.read',
   'anti.artifact.stat': 'artifact.stat',
   'artifact_stat': 'artifact.stat',
+  'anti.theme.export_clean': 'browser.dump_dom',
+  'anti.browser.dump_dom': 'browser.dump_dom',
 });
 
 const isFixerSession = process.env.ANTIFAN_FIXER_SESSION === 'true' ||
@@ -325,7 +329,7 @@ function resolveSessionGrant() {
   if (grantArg) {
     return grantArg.slice('--grant='.length);
   }
-  return isFixerSession ? 'write' : 'eval';
+  return 'eval';
 }
 
 function resolveAllowedCapabilities() {

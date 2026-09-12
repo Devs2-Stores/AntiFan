@@ -7,6 +7,8 @@ import {
   buildImageDecodeScript,
   buildDomQuietScript,
   createBrowserSettlePredicates,
+  buildPreCaptureSampleExpr,
+  PRE_CAPTURE_SAMPLE_EXPR,
   type VisualSettleReceipt,
   type CaptureSettlePredicates,
 } from '../../src/main/verification/capture-settle';
@@ -471,4 +473,53 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
     });
     assert.strictEqual(res, false);
   });
+
+describe('buildPreCaptureSampleExpr (quiescence sample expressions)', () => {
+  it('viewport mode ignores offscreen lazy images and display:none images', () => {
+    const script = buildPreCaptureSampleExpr({ fullPage: false });
+    const sample = runScriptInDom(script, {
+      window: { innerWidth: 1000, innerHeight: 500, scrollY: 0 },
+      document: {
+        readyState: 'complete',
+        fonts: { status: 'loaded' },
+        documentElement: { scrollHeight: 3000, scrollWidth: 1000 },
+        images: [
+          // Visible in-viewport loaded image
+          { complete: true, naturalWidth: 100, naturalHeight: 100, src: 'https://ex.com/v.png', offsetParent: {}, offsetWidth: 100, offsetHeight: 100, getBoundingClientRect: () => ({ x: 0, y: 100, width: 100, height: 100, top: 100, bottom: 200 }) },
+          // Hidden display:none image (must be ignored)
+          { complete: false, naturalWidth: 0, naturalHeight: 0, src: 'https://ex.com/hidden.png', offsetParent: null, offsetWidth: 0, offsetHeight: 0, getBoundingClientRect: () => ({ x: 0, y: 0, width: 0, height: 0, top: 0, bottom: 0 }) },
+          // Offscreen lazy image at y=2500 (must be ignored in viewport mode)
+          { complete: false, naturalWidth: 0, naturalHeight: 0, loading: 'lazy', src: 'https://ex.com/offscreen-lazy.png', offsetParent: {}, offsetWidth: 100, offsetHeight: 100, getBoundingClientRect: () => ({ x: 0, y: 2500, width: 100, height: 100, top: 2500, bottom: 2600 }) },
+        ],
+      },
+    });
+
+    assert.strictEqual(sample.pendingImages, 0, 'Offscreen lazy and hidden images must not count as pending');
+    assert.strictEqual(sample.imageParts.length, 1, 'Only visible in-viewport image must be in imageParts');
+    assert.ok(sample.imageParts[0].includes('https://ex.com/v.png'));
+  });
+
+  it('full-page mode ignores display:none images but includes offscreen lazy images', () => {
+    const script = buildPreCaptureSampleExpr({ fullPage: true });
+    const sample = runScriptInDom(script, {
+      window: { innerWidth: 1000, innerHeight: 500, scrollY: 0 },
+      document: {
+        readyState: 'complete',
+        fonts: { status: 'loaded' },
+        documentElement: { scrollHeight: 3000, scrollWidth: 1000 },
+        images: [
+          // Visible in-viewport loaded image
+          { complete: true, naturalWidth: 100, naturalHeight: 100, src: 'https://ex.com/v.png', offsetParent: {}, offsetWidth: 100, offsetHeight: 100, getBoundingClientRect: () => ({ x: 0, y: 100, width: 100, height: 100, top: 100, bottom: 200 }) },
+          // Hidden display:none image (must still be ignored in full-page)
+          { complete: false, naturalWidth: 0, naturalHeight: 0, src: 'https://ex.com/hidden.png', offsetParent: null, offsetWidth: 0, offsetHeight: 0, getBoundingClientRect: () => ({ x: 0, y: 0, width: 0, height: 0, top: 0, bottom: 0 }) },
+          // Offscreen lazy image at y=2500 (must NOT be ignored in full-page mode)
+          { complete: false, naturalWidth: 0, naturalHeight: 0, loading: 'lazy', src: 'https://ex.com/offscreen-lazy.png', offsetParent: {}, offsetWidth: 100, offsetHeight: 100, getBoundingClientRect: () => ({ x: 0, y: 2500, width: 100, height: 100, top: 2500, bottom: 2600 }) },
+        ],
+      },
+    });
+
+    assert.strictEqual(sample.pendingImages, 0, 'Offscreen lazy image must NOT count as pending in full-page mode to prevent capture deadlock');
+    assert.strictEqual(sample.imageParts.length, 2, 'Visible and offscreen lazy image must be tracked in full-page identity hash');
+  });
+});
 });

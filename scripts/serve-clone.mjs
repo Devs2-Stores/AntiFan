@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const PORT = 20199;
+const PORT = parseInt(process.env.PORT || '3300', 10);
 const baseDir = path.resolve('clone/hoplongtech');
 
 const mimeTypes = {

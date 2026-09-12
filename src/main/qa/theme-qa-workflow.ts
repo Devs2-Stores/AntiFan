@@ -348,6 +348,13 @@ export class ThemeQaWorkflow {
     let settleReceipt: VisualSettleReceipt | undefined;
     let settleMissingCapability = false;
     try {
+      if (typeof this.ports.browser.freezeMedia === 'function') {
+        try {
+          await this.ports.browser.freezeMedia(activeTarget, { freeze: true, normalizeSliders: true });
+        } catch {
+          // Best effort freeze before settle barrier
+        }
+      }
       if (typeof this.ports.browser.settleCapture === 'function') {
         settleReceipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { signal: input.signal });
         if (!settleReceipt || !settleReceipt.settleComplete) {
@@ -429,6 +436,15 @@ export class ThemeQaWorkflow {
         liquidResult = LiquidErrorScanner.scanHtmlString(rawHtml);
       }
     }
+    // Separate evidence incompleteness from observed failure (do not inject into diagnosticIssues)
+    const evidenceGaps: string[] = [];
+    if (settleMissingCapability) {
+      evidenceGaps.push('Authoritative settlement capability missing (browser.settleCapture is not available on host); cannot certify authoritative PASS');
+    }
+
+    if (mutationMissingBarrier && mutationBarrierError) {
+      evidenceGaps.push(mutationBarrierError);
+    }
 
     // 6. Layout Overflow Engine (RT-06 sub-pixel deadband & RT-04 container limiting)
     let overflowResult: ViewportOverflowResult = {
@@ -444,28 +460,54 @@ export class ThemeQaWorkflow {
       checkAborted();
       const evalRes = await this.ports.browser.eval(activeTarget, LayoutOverflowEngine.getBrowserScanScript('active'));
       checkAborted();
-      if (evalRes && typeof evalRes === 'object' && 'hasOverflow' in evalRes) {
+      if (evalRes && typeof evalRes === 'object' && typeof (evalRes as Record<string, unknown>).hasOverflow === 'boolean') {
         overflowResult = evalRes as ViewportOverflowResult;
+      } else {
+        evidenceGaps.push('Layout overflow scanner evaluation did not return valid measurement object');
       }
     } catch (error) {
       rethrowTargetLifecycleError(error);
-      // Retain clean fallback
+      evidenceGaps.push(`Layout overflow scanner evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (input.multiBreakpoint) {
       try {
         const responsive = await this.ports.browser.responsiveCheck(activeTarget.tabId);
+        const isOk = !responsive || typeof responsive !== 'object' || (responsive as Record<string, unknown>).ok !== false;
         const breakpoints = responsive && typeof responsive === 'object' ? (responsive as Record<string, unknown>).breakpoints : undefined;
-        if (breakpoints && typeof breakpoints === 'object') {
-          const overflowBreakpoints = Object.values(breakpoints).filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && 'hasHorizontalOverflow' in item));
-          const failing = overflowBreakpoints.filter((item) => item.hasHorizontalOverflow === true);
+        if (!isOk) {
+          const errMsg = (responsive as Record<string, unknown>).error;
+          evidenceGaps.push(`Responsive multi-breakpoint sweep failed: ${typeof errMsg === 'string' ? errMsg : 'host returned ok: false'}`);
+        } else if (!breakpoints || typeof breakpoints !== 'object' || Object.keys(breakpoints).length === 0) {
+          evidenceGaps.push('Responsive multi-breakpoint sweep returned no breakpoint measurements');
+        } else {
+          const bpEntries = Object.entries(breakpoints);
+          let hasMalformedBreakpoint = false;
+          const failing: Record<string, unknown>[] = [];
+          for (const [, bp] of bpEntries) {
+            if (!bp || typeof bp !== 'object' || typeof (bp as Record<string, unknown>).hasHorizontalOverflow !== 'boolean') {
+              hasMalformedBreakpoint = true;
+            } else {
+              const bpObj = bp as Record<string, unknown>;
+              if (bpObj.hasHorizontalOverflow === true) {
+                failing.push(bpObj);
+              }
+            }
+          }
+          if (hasMalformedBreakpoint) {
+            evidenceGaps.push('Responsive multi-breakpoint sweep contained malformed or incomplete breakpoint measurements');
+          }
           if (failing.length > 0) {
             const first = failing[0];
             if (!first) throw new Error('Responsive overflow result missing');
+            const vpWidth = typeof first.width === 'number' ? first.width : overflowResult.viewport.width;
+            const isMobile = Boolean(first.mobile) || vpWidth < 768;
+            const isTablet = !isMobile && vpWidth <= 1024;
+            const vpName: 'mobile' | 'tablet' | 'desktop' = isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop';
             overflowResult = {
               ...overflowResult,
               viewport: {
-                name: first.mobile ? 'mobile' : first.width === 820 ? 'tablet' : 'desktop',
-                width: typeof first.width === 'number' ? first.width : overflowResult.viewport.width,
+                name: vpName,
+                width: vpWidth,
                 height: typeof first.height === 'number' ? first.height : overflowResult.viewport.height,
               },
               hasOverflow: true,
@@ -477,7 +519,7 @@ export class ThemeQaWorkflow {
         }
       } catch (error) {
         rethrowTargetLifecycleError(error);
-        // Active viewport result remains authoritative when the optional sweep is unavailable.
+        evidenceGaps.push(`Responsive multi-breakpoint sweep failed or unsupported: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -513,15 +555,6 @@ export class ThemeQaWorkflow {
     const diagnosticIssues: DiagnosticIssue[] = diagResult.criticalIssues;
     const diagnosticWarnings: DiagnosticIssue[] = diagResult.warnings;
 
-    // Separate evidence incompleteness from observed failure (do not inject into diagnosticIssues)
-    const evidenceGaps: string[] = [];
-    if (settleMissingCapability) {
-      evidenceGaps.push('Authoritative settlement capability missing (browser.settleCapture is not available on host); cannot certify authoritative PASS');
-    }
-
-    if (mutationMissingBarrier && mutationBarrierError) {
-      evidenceGaps.push(mutationBarrierError);
-    }
     // Pre-reload diagnostics classification (audit-only evidence)
     const preReloadDiagResult = classifyDiagnostics(preReloadDiagnostics, preReloadContextUrl);
     const preReloadCritical: DiagnosticIssue[] = preReloadDiagResult.criticalIssues;
@@ -677,13 +710,29 @@ export class ThemeQaWorkflow {
         message: e.message,
         details: { type: e.type, location: e.location, selector: e.selector },
       })),
-      ...overflowResult.culprits.map((c): ThemeQaIssueItem => ({
-        category: 'overflow',
-        signature: `overflow:${c.selector || 'window'}:${Math.round(c.deltaX || 0)}`,
-        severity: 'critical',
-        message: `Layout horizontal overflow: deltaX ${c.deltaX}px on ${c.selector}`,
-        details: { selector: c.selector, deltaX: c.deltaX },
-      })),
+      ...(overflowResult.culprits.length > 0
+        ? overflowResult.culprits.map((c): ThemeQaIssueItem => ({
+            category: 'overflow',
+            signature: `overflow:${c.selector || 'window'}:${Math.round(c.deltaX || 0)}`,
+            severity: 'critical',
+            message: `Layout horizontal overflow: deltaX ${c.deltaX}px on ${c.selector}`,
+            details: { selector: c.selector, deltaX: c.deltaX },
+          }))
+        : overflowResult.hasOverflow
+          ? [
+              {
+                category: 'overflow' as const,
+                signature: `overflow:${overflowResult.viewport.name}:${Math.round(overflowResult.deltaX || 0)}`,
+                severity: 'critical' as const,
+                message: `Horizontal overflow detected on ${overflowResult.viewport.name} viewport (${overflowResult.viewport.width}px): deltaX ${overflowResult.deltaX}px`,
+                details: {
+                  viewport: overflowResult.viewport.name,
+                  width: overflowResult.viewport.width,
+                  deltaX: overflowResult.deltaX,
+                },
+              },
+            ]
+          : []),
       ...assetResult.brokenAssets.map((a): ThemeQaIssueItem => ({
         category: 'broken_asset',
         signature: `broken_asset:${a.type}:${a.url}:${a.reason}`,
@@ -734,7 +783,7 @@ export class ThemeQaWorkflow {
     // 10. Compute authoritative checklist statuses (owned strictly by the engine).
     const checklist: ThemeQaReport['checklist'] = {
       layout: !overflowResult.hasOverflow,
-      responsive: overflowResult.culprits.length === 0,
+      responsive: !overflowResult.hasOverflow,
       overflow: !overflowResult.hasOverflow,
       interactions: hsResult.passed,
       diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets && !serverCrashResult.hasCrash && diagnosticIssues.length === 0,
@@ -759,9 +808,10 @@ export class ThemeQaWorkflow {
       activeChecklistEntries.push(...Object.values(checklist));
     }
 
+    const overflowIssueCount = overflowResult.culprits.length > 0 ? overflowResult.culprits.length : (overflowResult.hasOverflow ? 1 : 0);
     const totalIssues =
       liquidResult.errors.length +
-      overflowResult.culprits.length +
+      overflowIssueCount +
       assetResult.brokenAssets.length +
       hsResult.totalViolations +
       serverCrashResult.errorsCount +
@@ -772,7 +822,7 @@ export class ThemeQaWorkflow {
     const checkParticipates = (key: keyof ThemeQaChecklist): boolean => !enabled || enabled[key] !== false;
     const hasObservedFailure =
       (checkParticipates('liquidClean') && liquidResult.hasErrors) ||
-      (checkParticipates('layout') && overflowResult.hasOverflow) ||
+      ((checkParticipates('layout') || checkParticipates('responsive') || checkParticipates('overflow')) && overflowResult.hasOverflow) ||
       (checkParticipates('assetsValid') && assetResult.hasBrokenAssets) ||
       (checkParticipates('hsCompliant') && hsResult.errorsCount > 0) ||
       serverCrashResult.hasCrash ||
@@ -792,7 +842,7 @@ export class ThemeQaWorkflow {
       passed: summaryVerdict === 'PASS',
       verdict: summaryVerdict,
       totalIssues,
-      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowResult.culprits.length + assetResult.brokenAssets.length,
+      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length,
     };
 
     const findings: ThemeQaDetailedFindings = {

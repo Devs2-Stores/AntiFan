@@ -452,13 +452,39 @@ export interface PreCaptureQuiescenceResult {
   };
 }
 
-export const PRE_CAPTURE_SAMPLE_EXPR = `(() => {
-  const readyState = document.readyState || 'unknown';
-  const fontsStatus = (document.fonts && document.fonts.status) || 'loaded';
+export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}): string {
+  const fullPage = Boolean(options.fullPage);
+  return `(() => {
+  const readyState = document.readyState;
+  const fontsStatus = document.fonts ? document.fonts.status : 'loaded';
   const fontsSettled = fontsStatus === 'loaded';
   const imgs = Array.from(document.images || []);
-  const pendingImages = imgs.filter(i => !i.complete).length;
-  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0).map(i => (i.currentSrc || i.src || '').slice(0, 150));
+  const isCannotLoad = (img) => {
+    if (!img) return false;
+    if (img.offsetParent === null && img.offsetWidth === 0 && img.offsetHeight === 0) {
+      return true;
+    }
+    if (img.loading === 'lazy') {
+      const r = img.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return true;
+      const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 0) || 0;
+      return (r.top > vh * 2 || r.bottom < -vh);
+    }
+    return false;
+  };
+  const isIgnorableIdentityImage = (img) => {
+    if (!img) return true;
+    if (img.offsetParent === null && img.offsetWidth === 0 && img.offsetHeight === 0) {
+      return true;
+    }
+    const r = img.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return true;
+    ${fullPage ? '' : `const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 0) || 0;
+    if (img.loading === 'lazy' && (r.top > vh * 2 || r.bottom < -vh)) return true;`}
+    return false;
+  };
+  const pendingImages = imgs.filter(i => !i.complete && !isCannotLoad(i)).length;
+  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0 && !isCannotLoad(i)).map(i => (i.currentSrc || i.src || '').slice(0, 150));
 
   const hash32 = (s) => {
     let h = 0x811c9dc5;
@@ -469,7 +495,7 @@ export const PRE_CAPTURE_SAMPLE_EXPR = `(() => {
     return h.toString(16).padStart(8, '0');
   };
 
-  const imageParts = imgs.map(i => {
+  const imageParts = imgs.filter(i => !isIgnorableIdentityImage(i)).map(i => {
     const r = i.getBoundingClientRect();
     return (i.currentSrc || i.src || '').slice(0, 200) + '|' + i.naturalWidth + 'x' + i.naturalHeight + '|' +
       Math.round(r.x) + ',' + Math.round(r.y + (window.scrollY || 0)) + ',' + Math.round(r.width) + ',' + Math.round(r.height) + '|' + (i.complete ? 'c' : 'p');
@@ -494,15 +520,19 @@ export const PRE_CAPTURE_SAMPLE_EXPR = `(() => {
     scrollWidth,
   };
 })()`;
+}
+
+export const PRE_CAPTURE_SAMPLE_EXPR = buildPreCaptureSampleExpr({ fullPage: false });
 
 export async function evaluatePreCaptureQuiescence(
   evalHost: EvalHost,
   tabId: string,
   paneId: 'desktop' | 'mobile' = 'desktop',
-  options: { dwellMs?: number; signal?: AbortSignal } = {}
+  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean } = {}
 ): Promise<PreCaptureQuiescenceResult> {
   const t0 = Date.now();
   const dwellMs = options.dwellMs ?? 250;
+  const sampleExpr = buildPreCaptureSampleExpr({ fullPage: options.fullPage });
 
   type InPageSample = {
     readyState: string;
@@ -519,7 +549,7 @@ export async function evaluatePreCaptureQuiescence(
 
   let sample1: InPageSample | null = null;
   try {
-    sample1 = (await evalHost.evalJs(PRE_CAPTURE_SAMPLE_EXPR, tabId, paneId)) as InPageSample | null;
+    sample1 = (await evalHost.evalJs(sampleExpr, tabId, paneId)) as InPageSample | null;
   } catch {}
 
   // If evaluation isn't available (e.g. synthetic test mock), pass through gracefully
@@ -553,7 +583,7 @@ export async function evaluatePreCaptureQuiescence(
 
   let sample2: InPageSample | null = null;
   try {
-    sample2 = (await evalHost.evalJs(PRE_CAPTURE_SAMPLE_EXPR, tabId, paneId)) as InPageSample | null;
+    sample2 = (await evalHost.evalJs(sampleExpr, tabId, paneId)) as InPageSample | null;
   } catch {}
 
   if (!sample2 || typeof sample2 !== 'object') {

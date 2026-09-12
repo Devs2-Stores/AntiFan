@@ -40,6 +40,7 @@ const {
   readPagePointer,
   loadInstanceIdentity,
   canonicalVerdict,
+  selectCandidateEntryForViewport,
   PROVENANCE_CODES,
 } = await import('../../scripts/lib/evidence-provenance.mjs');
 const { readRecord, writeRecordAtomic } = await import('../../scripts/lib/atomic-record.mjs');
@@ -775,7 +776,6 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       fs.writeFileSync(path.join(evDir, 'build.log'), buildRes.stdout + (buildRes.stderr ? `\n--- stderr ---\n${buildRes.stderr}` : ''));
 
       let cloneBuilt = false;
-      let mobileBundleBuilt = false;
       let bundleIdentity = null;
       const cloneEntry = path.join(cloneDir, 'index.html');
       if (buildRes.code === 0 && fs.existsSync(cloneEntry)) {
@@ -786,7 +786,6 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
         const lostLayoutSwitches = contamination.length === 0 ? detectLostLayoutSwitch(refHtmlPath, cloneEntry) : [];
         if (contamination.length || lostLayoutSwitches.length) {
           cloneBuilt = false;
-          mobileBundleBuilt = false;
           const code = contamination.length ? 'CONTAMINATED_BUNDLE' : 'LAYOUT_SWITCH_LOST';
           const message = contamination.length
             ? `harness residue in bundle: ${contamination.join(', ')}`
@@ -813,36 +812,8 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
             attemptId,
           };
           console.log(`[P${p.id}] Clone bundle generated successfully (attempt ${attemptId}).`);
-          if (fs.existsSync(refMobileHtmlPath)) {
-            const mobileTelemetryPath = path.join(evDir, 'build-telemetry-mobile.json');
-            const mobileBuild = await runCommand(
-              'node',
-              ['.canary/tools/build-clone.mjs', refMobileHtmlPath, mobileCloneDir, mobileTelemetryPath, 'undefined', 'undefined', baseDomain],
-              { timeoutMs: 300_000 }
-            );
-            fs.writeFileSync(path.join(evDir, 'build-mobile.log'), mobileBuild.stdout + (mobileBuild.stderr ? `\n--- stderr ---\n${mobileBuild.stderr}` : ''));
-            const mobileEntry = path.join(mobileCloneDir, 'index.html');
-            const mobileResidue = mobileBuild.code === 0 && fs.existsSync(mobileEntry) ? detectHarnessResidue(mobileEntry) : [];
-            const lostLayoutSwitches = mobileBuild.code === 0 && fs.existsSync(mobileEntry) && mobileResidue.length === 0
-              ? detectLostLayoutSwitch(refMobileHtmlPath, mobileEntry)
-              : [];
-            mobileBundleBuilt = mobileBuild.code === 0 && fs.existsSync(mobileEntry) && mobileResidue.length === 0 && lostLayoutSwitches.length === 0;
-            const mobileFailureCode = mobileResidue.length ? 'CONTAMINATED_BUNDLE' : (lostLayoutSwitches.length ? 'LAYOUT_SWITCH_LOST' : 'MOBILE_BUILD_FAILED');
-            const mobileFailureMessage = mobileResidue.length
-              ? `harness residue in mobile bundle: ${mobileResidue.join(', ')}`
-              : (lostLayoutSwitches.length
-                ? `mobile bundle dropped the source body attribute(s) that select the phone layout: ${lostLayoutSwitches.join(', ')}`
-                : mobileBuild.stderr.slice(0, 500));
-            if (!mobileBundleBuilt) {
-              pageResult.errors.push({ phase: 'mobileCloneGeneration', code: mobileFailureCode, message: mobileFailureMessage });
-            }
-            pageResult.phases.mobileCloneGeneration = mobileBundleBuilt
-              ? { ok: true, entry: mobileEntry, bytes: fs.statSync(mobileEntry).size }
-              : { ok: false, code: mobileFailureCode, error: mobileFailureMessage };
-            console.log(mobileBundleBuilt
-              ? `[P${p.id}] Mobile clone bundle generated at ${mobileEntry}.`
-              : `[P${p.id}] Mobile clone generation failed: ${mobileFailureCode} — ${mobileFailureMessage.slice(0, 200)}`);
-          }
+          // Candidate verification exercises the same unified bundle across all viewports;
+          // no mandatory mobile candidate build or separate mobile clone directory is required.
         }
       } else {
         cloneBuilt = false;
@@ -893,20 +864,15 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
               throw new Error(`Invalid or missing readiness floor for viewport ${vp.label}: ${JSON.stringify(floor)}`);
             }
             const isMobileTier = vp.width < 768;
-            const mobileEntry = path.join(mobileCloneDir, 'index.html');
-            if (isMobileTier && !fs.existsSync(mobileEntry)) {
-              // A typed refusal, not a page failure: nothing produced a mobile bundle
-              // for this page, so there is no candidate to judge at this tier.
-              vpResult.status = 'REFUSED';
-              vpResult.refusal = { code: 'MOBILE_BUNDLE_ABSENT', reason: `no mobile bundle at ${mobileEntry}` };
-              vpResult.overall = 'INCONCLUSIVE';
-              vpResult.causeCode = 'MOBILE_BUNDLE_ABSENT';
-              runSummary.refusals.push({ pageId: p.id, viewport: vp.label, code: 'MOBILE_BUNDLE_ABSENT', path: mobileEntry });
-              pageResult.viewports[vp.label] = vpResult;
-              console.log(`[P${p.id}][${vp.label}] REFUSED: no mobile bundle at ${mobileEntry}`);
-              continue;
+            const candidateSelection = selectCandidateEntryForViewport({
+              bundleIdentity,
+              cloneDir,
+              viewport: vp,
+            });
+            if (!candidateSelection.ok) {
+              throw new Error(`Candidate selection failed for viewport ${vp.label}: ${candidateSelection.reason}`);
             }
-            const servedEntry = isMobileTier ? mobileEntry : cloneEntry;
+            const servedEntry = candidateSelection.entryPath;
             const vpProc = await runCommand(
               'node',
               ['.canary/tools/viewport-run.mjs', vp.label, String(vp.width), String(vp.height), refTabId, cloneTabId, attemptDir, String(floor.minSections), String(floor.minCards)],
@@ -1215,7 +1181,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
         writePagePointer(pageDir, {
           identity: pageResult.bundle,
           cloneDir,
-          mobileCloneDir,
+          mobileCloneDir: null,
           referencePath: path.join(refDir, 'reference.html'),
           viewports: Object.fromEntries(Object.entries(pageResult.viewports).map(([label, v]) => [label, { verdict: v.overall, causeCode: v.causeCode ?? null, status: v.status }])),
         });

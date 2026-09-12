@@ -1535,7 +1535,8 @@ export class TabDevToolsHost {
                   this.evalJs(script, tId || targetId, pId || effectivePane),
               },
               targetId,
-              effectivePane
+              effectivePane,
+              { fullPage: mode === 'full-page' }
             );
             if (!quiescence.ready) {
               // `evaluatePreCaptureQuiescence` reports the failing predicate as one of

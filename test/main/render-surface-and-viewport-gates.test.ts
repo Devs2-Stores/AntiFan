@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
@@ -285,6 +288,39 @@ describe('Capture geometry is a transaction', () => {
     );
     assert.strictEqual(calls.drains, 1, 'an abandoned capture must drain the transport it left busy');
     assert.strictEqual(calls.geometryRestores, 1, 'and must prove the capture geometry was put back');
+  });
+});
+
+describe('DOM export materialization', () => {
+  it('preserves the existing export when materialization fails', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'antifan-export-'));
+    const destination = path.join(dir, 'index.html');
+    try {
+      await fs.writeFile(destination, 'previous export');
+      const { host } = buildHost({ evalJs: async () => { throw new Error('walk failed'); } });
+      await assert.rejects(new BrowserControlPort(host).dumpDom(TARGET, destination),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'REFERENCE_MATERIALIZATION_INCOMPLETE');
+      assert.equal(await fs.readFile(destination, 'utf8'), 'previous export');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an unconfirmed walk but permits explicit raw export', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'antifan-export-'));
+    const destination = path.join(dir, 'index.html');
+    try {
+      const { host } = buildHost({ evalJs: async () => null });
+      host.getDom = async () => '<html><body>exported</body></html>';
+      const port = new BrowserControlPort(host);
+      await assert.rejects(port.dumpDom(TARGET, destination),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'REFERENCE_MATERIALIZATION_INCOMPLETE');
+      await assert.rejects(fs.access(destination));
+      await port.dumpDom(TARGET, destination, { materialize: false, clean: false });
+      assert.equal(await fs.readFile(destination, 'utf8'), '<html><body>exported</body></html>');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

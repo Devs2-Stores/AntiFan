@@ -8,14 +8,16 @@ export interface TreeWalkerSanitizerOptions {
   stripLivewire?: boolean;
   stripAlpine?: boolean;
   stripComments?: boolean;
+  stripModals?: boolean;
   selector?: string;
 }
 
 export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptions = {}): string {
   const {
     stripLivewire = true,
-    stripAlpine = false,
+    stripAlpine = true,
     stripComments = true,
+    stripModals = true,
     selector = '',
   } = options;
 
@@ -62,6 +64,33 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
           el.removeAttribute(attrName);
         }
       };
+      // Hide or strip unhydrated SSR/Livewire modals and popups that block viewports
+      if (${stripModals}) {
+        const modalSelectors = [
+          '#popup-login',
+          '#popup-video',
+          '.popup-login',
+          '.popup-video',
+          '.modal.show',
+          '.fade.show'
+        ];
+        for (const sel of modalSelectors) {
+          const modals = clone.querySelectorAll ? clone.querySelectorAll(sel) : [];
+          for (const m of Array.from(modals)) {
+            try {
+              if (m && m.style) m.style.setProperty('display', 'none', 'important');
+            } catch {}
+          }
+        }
+      }
+
+      // Convert lazy images to eager so pre-capture quiescence never hangs
+      const lazyImgs = clone.querySelectorAll ? clone.querySelectorAll('img[loading="lazy"]') : [];
+      for (const img of Array.from(lazyImgs)) {
+        try {
+          img.setAttribute('loading', 'eager');
+        } catch {}
+      }
 
       // Sanitize root element itself
       if (clone.nodeType === Node.ELEMENT_NODE) {

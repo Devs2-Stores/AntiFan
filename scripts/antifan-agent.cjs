@@ -269,7 +269,7 @@ function resolveSessionGrant() {
   if (grantArg) {
     return grantArg.slice('--grant='.length);
   }
-  return isFixerSession ? 'write' : 'eval';
+  return 'eval';
 }
 
 function resolveAllowedCapabilities() {

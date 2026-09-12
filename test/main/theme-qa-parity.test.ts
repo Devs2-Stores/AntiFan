@@ -26,6 +26,9 @@ const TAB_HOST: BrowserHostPort = withCanonicalCapture({
   })) as any,
   evalJs: async (expr: unknown) => {
     if (typeof expr === 'string') {
+      if (expr.includes('rawDeltaX') || expr.includes('LayoutOverflowEngine')) {
+        return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
+      }
       if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
         return { settled: true, brokenImages: [] };
       }
@@ -285,6 +288,16 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         getDocumentGeneration: () => docGen,
         isCurrentTarget: (t) => t.tabId === 'tab-1' && t.documentGeneration === docGen,
         getDiagnostics: () => toHostDiagnostics({ console: [], failures: [] }),
+        runResponsiveCheck: async () => ({
+          ok: true,
+          breakpoints: {
+            'mobile-small': { width: 320, height: 568, mobile: true, hasHorizontalOverflow: false },
+            'mobile-standard': { width: 375, height: 667, mobile: true, hasHorizontalOverflow: false },
+            'tablet-portrait': { width: 768, height: 1024, mobile: false, hasHorizontalOverflow: false },
+            'tablet-landscape': { width: 1024, height: 768, mobile: false, hasHorizontalOverflow: false },
+            'desktop-laptop': { width: 1440, height: 900, mobile: false, hasHorizontalOverflow: false },
+          },
+        }),
       };
       const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
       const browser = new BrowserControlPort(host, artifactStore);

@@ -1438,10 +1438,21 @@ export class BrowserControlPort {
   async dumpDom(
     target: BrowserTarget,
     outputPath: string,
-    options?: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; stripLivewire?: boolean }
+    options?: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; stripLivewire?: boolean; materialize?: boolean }
   ): Promise<{ path: string; byteCount: number; nodeCount: number; tabId: string }> {
     const tabId = this.resolveTargetTab(target, options?.tabId);
     return this.passivePool.execute(tabId, async () => {
+      if (options?.materialize !== false) {
+        let materialization: unknown;
+        try {
+          materialization = await this.host.evalJs(buildReferenceMaterializationScript(), tabId, options?.paneId, false, REFERENCE_MATERIALIZATION_BOUND_MS);
+        } catch (error) {
+          throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `DOM export materialization failed on tab '${tabId}': ${error instanceof Error ? error.message : String(error)}`, { tabId, cause: 'eval-failed' });
+        }
+        if (!materialization || typeof materialization !== 'object' || !('materialized' in materialization) || materialization.materialized !== true) {
+          throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `DOM export materialization did not complete on tab '${tabId}'; no file was written`, { tabId, cause: 'walk-empty' });
+        }
+      }
       const shouldClean = options?.clean !== false || options?.stripLivewire === true;
       let rawResult: unknown;
       if (shouldClean) {

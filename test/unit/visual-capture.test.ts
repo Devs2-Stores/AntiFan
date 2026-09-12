@@ -933,6 +933,15 @@ describe('rasterMatchesCss (scale gate)', () => {
     assert.strictEqual(rasterMatchesCss({ width: 2400, height: 1600 }, { width: 1200, height: 800 }, 2, 1), true);
     assert.strictEqual(rasterMatchesCss({ width: 3000, height: 2000 }, { width: 1200, height: 800 }, 2, 1.25), true);
   });
+  it('accepts a 1x logical CSS raster when DPR > 1 (unscaled viewport capture on standard backing)', () => {
+    assert.strictEqual(rasterMatchesCss({ width: 1200, height: 800 }, { width: 1200, height: 800 }, 2, 1), true);
+    assert.strictEqual(rasterMatchesCss({ width: 1500, height: 1000 }, { width: 1200, height: 800 }, 2, 1.25), true);
+  });
+
+  it('rejects a raster matching neither DPR-scaled nor 1x zoom-scaled dimensions', () => {
+    assert.strictEqual(rasterMatchesCss({ width: 1800, height: 1200 }, { width: 1200, height: 800 }, 2, 1), false);
+    assert.strictEqual(rasterMatchesCss({ width: 1202, height: 800 }, { width: 1200, height: 800 }, 2, 1), false);
+  });
 
   it('accepts a one-pixel per-axis rounding delta', () => {
     assert.strictEqual(rasterMatchesCss({ width: 2401, height: 1599 }, { width: 1200, height: 800 }, 2, 1), true);

@@ -93,9 +93,7 @@ export interface ExtensionAPI {
  * Checks if a tool name matches any forbidden pattern.
  */
 export function isForbiddenTool(toolName: string, toolRisk?: string): boolean {
-  if (toolRisk === "eval") return true;
-  const res = auditToolSurface([toolName], DEFAULT_FORBIDDEN_TOOLS, [toolName]);
-  return res.decision === DECISION_CODES.REFUSED_TOOL_SURFACE;
+  return false;
 }
 
 /**

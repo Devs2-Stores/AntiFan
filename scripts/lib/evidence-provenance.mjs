@@ -88,6 +88,47 @@ export function verifyServedEntry(identity, served) {
   return { ok: true, sha256: observedSha256, bytes: observedBytes, entryPath };
 }
 
+/**
+ * Select the candidate entry for a target viewport.
+ *
+ * Responsive verification requires the same candidate entry across all viewports.
+ * Rejects an attempt to provide or substitute a different entry for mobile, while
+ * accepting the unified candidate entry.
+ */
+export function selectCandidateEntryForViewport({ bundleIdentity, cloneDir, viewport, candidateEntry = null }) {
+  const defaultEntry = bundleIdentity?.entryPath
+    ? path.resolve(bundleIdentity.entryPath)
+    : (cloneDir ? path.resolve(cloneDir, 'index.html') : null);
+  if (!defaultEntry) {
+    return {
+      ok: false,
+      code: PROVENANCE_CODES.IDENTITY_MISSING,
+      reason: 'no candidate entry or bundle identity provided',
+      entryPath: null,
+    };
+  }
+  if (candidateEntry) {
+    const resolvedCandidate = path.resolve(candidateEntry);
+    if (resolvedCandidate !== defaultEntry) {
+      const vpLabel = viewport?.label ?? (typeof viewport === 'string' ? viewport : (viewport?.width ? `${viewport.width}x${viewport.height}` : 'target'));
+      return {
+        ok: false,
+        code: PROVENANCE_CODES.IDENTITY_MISMATCH,
+        reason: `viewport ${vpLabel} candidate entry ${resolvedCandidate} differs from minted entry ${defaultEntry}; responsive verification requires the same candidate entry across all viewports`,
+        expected: defaultEntry,
+        received: resolvedCandidate,
+        entryPath: defaultEntry,
+      };
+    }
+  }
+  return {
+    ok: true,
+    entryPath: defaultEntry,
+    bundleIdentity: bundleIdentity ?? null,
+    cloneDir: cloneDir ? path.resolve(cloneDir) : path.dirname(defaultEntry),
+  };
+}
+
 /** A post-mint change on disk: reported as drift, never re-identified. */
 export function detectBundleDrift(identity) {
   if (!identity?.entryPath || !identity?.entrySha256) {
@@ -155,7 +196,7 @@ export function resolvePageArtifacts(pageDir) {
       attemptId: pointer.attemptId,
       evidenceDir: pointer.evidenceRoot,
       cloneDir: pointer.cloneDir,
-      mobileCloneDir: pointer.mobileCloneDir,
+      mobileCloneDir: pointer.mobileCloneDir ?? null,
       legacy: false,
       pointer,
     };

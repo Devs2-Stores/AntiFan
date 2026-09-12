@@ -29,6 +29,7 @@ import {
   mintBundleIdentity,
   readPagePointer,
   resolvePageArtifacts,
+  selectCandidateEntryForViewport,
   verifyServedEntry,
   writePagePointer,
 } from '../../scripts/lib/evidence-provenance.mjs';
@@ -195,6 +196,73 @@ describe('published pointer', () => {
     assert.equal(artifacts.evidenceDir, path.resolve(pageDir, 'evidence'));
     assert.equal(artifacts.cloneDir, path.resolve(pageDir, 'clone'));
     assert.equal(artifacts.mobileCloneDir, path.resolve(pageDir, 'clone', 'mobile'));
+  });
+
+  it('publishes and resolves a unified responsive candidate across all viewports without mobileCloneDir', () => {
+    const pageDir = fixtureDir('unified');
+    const cloneDir = path.join(pageDir, 'attempts', 'unified-attempt', 'clone');
+    const evidenceDir = path.join(pageDir, 'attempts', 'unified-attempt', 'evidence');
+    const entryPath = writeEntry(path.join(cloneDir, 'index.html'), '<html lang="vi"><head><style>@media(max-width:767px){body{font-size:14px}}</style></head><body>unified storefront</body></html>');
+    const identity = mintBundleIdentity({
+      entryPath,
+      attemptId: 'unified-attempt',
+      evidenceRoot: evidenceDir,
+      sourceUrl: 'https://example.com/storefront',
+    });
+
+    // Unified publication: single candidate entry, mobileCloneDir is null
+    writePagePointer(pageDir, {
+      identity,
+      cloneDir,
+      mobileCloneDir: null,
+      viewports: {
+        '1440': { verdict: 'PASS', status: 'COMPLETED' },
+        '1024': { verdict: 'PASS', status: 'COMPLETED' },
+        '390': { verdict: 'PASS', status: 'COMPLETED' },
+      },
+    });
+
+    const published = readPagePointer(pageDir);
+    assert.equal(published.attemptId, 'unified-attempt');
+    assert.equal(published.mobileCloneDir, null);
+    assert.equal(published.entryPath, entryPath);
+    assert.equal(published.entrySha256, identity.entrySha256);
+
+    const resolved = resolvePageArtifacts(pageDir);
+    assert.equal(resolved.legacy, false);
+    assert.equal(resolved.attemptId, 'unified-attempt');
+    assert.equal(resolved.cloneDir, path.resolve(cloneDir));
+    assert.equal(resolved.mobileCloneDir, null);
+
+    // Strict candidate selection & provenance: every viewport selects the exact same candidate
+    for (const [vpLabel, width] of [['1440', 1440], ['1024', 1024], ['390', 390]]) {
+      const selection = selectCandidateEntryForViewport({
+        bundleIdentity: identity,
+        cloneDir,
+        viewport: { label: vpLabel, width },
+      });
+      assert.equal(selection.ok, true, `viewport ${vpLabel} must select candidate successfully`);
+      assert.equal(selection.entryPath, entryPath);
+
+      const verified = verifyServedEntry(identity, selection.entryPath);
+      assert.equal(verified.ok, true, `viewport ${vpLabel} must verify against the minted candidate identity`);
+      assert.equal(verified.sha256, identity.entrySha256);
+    }
+
+    // If a runner or caller attempts to supply or substitute a different entry for mobile, it is refused
+    const foreignMobile = writeEntry(path.join(cloneDir, 'mobile', 'index.html'), '<html>separate mobile</html>');
+    const foreignSelection = selectCandidateEntryForViewport({
+      bundleIdentity: identity,
+      cloneDir,
+      viewport: { label: '390', width: 390 },
+      candidateEntry: foreignMobile,
+    });
+    assert.equal(foreignSelection.ok, false);
+    assert.equal(foreignSelection.code, PROVENANCE_CODES.IDENTITY_MISMATCH);
+
+    const foreignCheck = verifyServedEntry(identity, foreignMobile);
+    assert.equal(foreignCheck.ok, false);
+    assert.equal(foreignCheck.code, PROVENANCE_CODES.IDENTITY_MISMATCH);
   });
 });
 

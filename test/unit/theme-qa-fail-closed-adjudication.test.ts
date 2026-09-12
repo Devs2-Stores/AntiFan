@@ -3,6 +3,16 @@ import * as assert from 'node:assert';
 import { ThemeQaWorkflow, ThemeQaWorkflowPorts } from '../../src/main/qa/theme-qa-workflow';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { VisualSettleReceipt } from '../../src/main/verification/capture-settle';
+import { LiquidErrorScanner } from '../../src/main/qa/scanners/liquid-error-scanner';
+import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow-engine';
+import { BrokenAssetScanner } from '../../src/main/qa/scanners/broken-asset-scanner';
+import { HsGateRules } from '../../src/main/qa/rules/hs-gate-rules';
+import { ServerCrashScanner } from '../../src/main/qa/scanners/server-crash-scanner';
+
+const layoutScript = LayoutOverflowEngine.getBrowserScanScript('active');
+const liquidScript = LiquidErrorScanner.getBrowserScanScript();
+const assetScript = BrokenAssetScanner.getBrowserScanScript();
+const serverCrashScript = ServerCrashScanner.getBrowserScanScript();
 
 describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => {
   const makeTarget = (docGen = 1): BrowserTarget => ({
@@ -19,6 +29,8 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     hasSettleCapture?: boolean;
     initialDocGen?: number;
     diagnostics?: () => { console: unknown[]; failures: unknown[] };
+    responsiveCheck?: (tabId: string) => Promise<Record<string, unknown>>;
+    eval?: (target: BrowserTarget, script: string) => Promise<unknown>;
   }): ThemeQaWorkflowPorts => {
     let currentGen = overrides?.initialDocGen ?? 1;
     const hasSettle = overrides?.hasSettleCapture ?? true;
@@ -29,28 +41,31 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
         artifactRef: { id: 'art-screenshot', kind: 'screenshot' },
         envelope: {},
       }),
-      eval: async (_target: BrowserTarget, script: string) => {
-        if (script.includes('LiquidErrorScanner')) {
-          return { hasErrors: false, errors: [], scannedElementsCount: 20 };
-        }
-        if (script.includes('LayoutOverflowEngine')) {
+      eval: overrides?.eval ?? (async (_target: BrowserTarget, script: string) => {
+        if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX')) {
           return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
         }
-        if (script.includes('BrokenAssetScanner')) {
+        if (script === liquidScript || script.includes('ERROR_PATTERNS')) {
+          return { hasErrors: false, errors: [], scannedElementsCount: 20 };
+        }
+        if (script === assetScript || script.includes('naturalWidth') || script.includes('img.decode')) {
           return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
         }
-        if (script.includes('HsGateRules')) {
+        if (script.includes('HS-') || script.includes('violations') || script.includes('sapo') || script.includes('haravan') || script.includes('evaluateHtml')) {
           return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
         }
-        if (script.includes('ServerCrashScanner')) {
+        if (script === serverCrashScript || script.includes('crash') || script.includes('ServerCrashScanner')) {
           return { hasCrash: false, errorsCount: 0, findings: [] };
         }
         return {};
-      },
+      }),
       diagnostics: overrides?.diagnostics ?? (() => ({ console: [], failures: [] })),
       listTabs: () => [{ id: 'tab-1', url: 'https://store.example.com' }],
       getDocumentGeneration: () => currentGen,
     };
+    if (overrides?.responsiveCheck) {
+      browserObj.responsiveCheck = overrides.responsiveCheck;
+    }
 
     if (hasSettle) {
       browserObj.settleCapture = overrides?.settleCapture ?? (async () => ({
@@ -539,5 +554,212 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(matrix.verdict, 'INCONCLUSIVE');
     assert.strictEqual(matrix.dimensions.haravanCompliance.score, null);
     assert.ok(matrix.dimensions.haravanCompliance.details.includes('unmeasured or unknown'));
+  });
+
+  it('10. Responsive overflow without culprits fails summary and checklist.responsive (no false PASS, tablet attributed)', async () => {
+    const ports = createMockPorts({
+      responsiveCheck: async () => ({
+        ok: true,
+        breakpoints: {
+          'mobile-small': { width: 320, height: 568, mobile: true, hasHorizontalOverflow: false },
+          'mobile-standard': { width: 375, height: 667, mobile: true, hasHorizontalOverflow: false },
+          'tablet-portrait': { width: 768, height: 1024, mobile: false, hasHorizontalOverflow: true, scrollWidth: 800, clientWidth: 768 },
+          'tablet-landscape': { width: 1024, height: 768, mobile: false, hasHorizontalOverflow: false },
+          'desktop-laptop': { width: 1440, height: 900, mobile: false, hasHorizontalOverflow: false },
+        },
+      }),
+    });
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-overflow-no-culprits',
+      attemptId: 'att-overflow-no-culprits',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+    });
+
+    assert.strictEqual(report.findings?.overflow.hasOverflow, true);
+    assert.strictEqual(report.findings?.overflow.viewport.name, 'tablet', 'Width 768 must be attributed to tablet');
+    assert.strictEqual(report.findings?.overflow.viewport.width, 768);
+    assert.strictEqual(report.checklist.responsive, false, 'Responsive checklist must not pass when responsive overflow exists');
+    assert.strictEqual(report.checklist.layout, false);
+    assert.strictEqual(report.checklist.overflow, false);
+    assert.strictEqual(report.summary.passed, false, 'Summary must fail when responsive overflow exists');
+    assert.strictEqual(report.summary.verdict, 'FAIL');
+    assert.strictEqual(report.summary.criticalCount >= 1, true, 'Critical count must include responsive overflow even without culprits');
+
+    const filteredReport = await workflow.validate({
+      runId: 'run-overflow-filtered',
+      attemptId: 'att-overflow-filtered',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+      enabledChecks: { responsive: true, layout: false, overflow: false },
+    });
+    assert.strictEqual(filteredReport.summary.passed, false, 'Summary must fail when responsive check is enabled and responsive overflow exists');
+    assert.strictEqual(filteredReport.summary.verdict, 'FAIL');
+  });
+
+  it('11. Failed requested sweep yields INCONCLUSIVE under default enabled checks (precedence for known failure)', async () => {
+    const ports = createMockPorts({
+      responsiveCheck: async () => {
+        throw new Error('CAPABILITY_NOT_FOUND: runResponsiveCheck is not supported by host');
+      },
+    });
+    const workflow = new ThemeQaWorkflow(ports);
+
+    // Subcase A: Clean scans but requested sweep failed -> INCONCLUSIVE
+    const report = await workflow.validate({
+      runId: 'run-failed-sweep',
+      attemptId: 'att-failed-sweep',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+    });
+
+    assert.strictEqual(report.summary.passed, false);
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+    assert.strictEqual(report.summary.criticalCount, 0, 'Missing sweep evidence is not an observed defect');
+    assert.ok(
+      report.findings?.evidenceGaps?.some((g) => g.includes('Responsive multi-breakpoint sweep failed or unsupported'))
+    );
+
+    // Subcase B: Known failure takes precedence over missing sweep evidence -> FAIL
+    const portsWithFailure = createMockPorts({
+      responsiveCheck: async () => {
+        throw new Error('CAPABILITY_NOT_FOUND: runResponsiveCheck is not supported by host');
+      },
+      eval: async (_target: BrowserTarget, script: string) => {
+        if (script === liquidScript || script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+          return { hasErrors: true, errors: [{ type: 'syntax', message: 'Unknown tag "foo"', location: 'index.liquid:1' }], scannedElementsCount: 5 };
+        }
+        if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX') || script.includes('LayoutOverflowEngine')) {
+          return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
+        }
+        return {};
+      },
+    });
+    const workflowWithFailure = new ThemeQaWorkflow(portsWithFailure);
+    const failReport = await workflowWithFailure.validate({
+      runId: 'run-failed-sweep-with-liquid',
+      attemptId: 'att-failed-sweep-with-liquid',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+    });
+    assert.strictEqual(failReport.summary.passed, false);
+    assert.strictEqual(failReport.summary.verdict, 'FAIL', 'Known failure must take precedence over missing sweep evidence');
+  });
+
+  it('12. Empty or malformed requested sweep yields INCONCLUSIVE under default enabled checks', async () => {
+    // Subcase A: Empty breakpoints
+    const portsEmpty = createMockPorts({
+      responsiveCheck: async () => ({ ok: true, breakpoints: {} }),
+    });
+    const workflowEmpty = new ThemeQaWorkflow(portsEmpty);
+    const reportEmpty = await workflowEmpty.validate({
+      runId: 'run-empty-sweep',
+      attemptId: 'att-empty-sweep',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+    });
+    assert.strictEqual(reportEmpty.summary.passed, false);
+    assert.strictEqual(reportEmpty.summary.verdict, 'INCONCLUSIVE');
+    assert.ok(
+      reportEmpty.findings?.evidenceGaps?.some((g) => g.includes('no breakpoint measurements'))
+    );
+
+    // Subcase B: Malformed breakpoint rows (non-boolean hasHorizontalOverflow)
+    const portsMalformed = createMockPorts({
+      responsiveCheck: async () => ({
+        ok: true,
+        breakpoints: {
+          'mobile-small': { width: 320, height: 568, mobile: true, hasHorizontalOverflow: undefined },
+        },
+      }),
+    });
+    const workflowMalformed = new ThemeQaWorkflow(portsMalformed);
+    const reportMalformed = await workflowMalformed.validate({
+      runId: 'run-malformed-sweep',
+      attemptId: 'att-malformed-sweep',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+    });
+    assert.strictEqual(reportMalformed.summary.passed, false);
+    assert.strictEqual(reportMalformed.summary.verdict, 'INCONCLUSIVE');
+    assert.ok(
+      reportMalformed.findings?.evidenceGaps?.some((g) => g.includes('malformed or incomplete'))
+    );
+  });
+
+  it('13. Optional sweep preserved when not requested (no multiBreakpoint input)', async () => {
+    const ports = createMockPorts();
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-no-sweep-requested',
+      attemptId: 'att-no-sweep-requested',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+
+    assert.strictEqual(report.summary.passed, true);
+    assert.strictEqual(report.summary.verdict, 'PASS');
+    assert.strictEqual(report.findings?.evidenceGaps, undefined, 'No evidence gaps when sweep is not requested');
+  });
+
+  it('14. Layout overflow scanner evaluation failure or non-object yields INCONCLUSIVE', async () => {
+    // Subcase A: eval throws error
+    const portsCrash = createMockPorts({
+      eval: async (_target: BrowserTarget, script: string) => {
+        if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX') || script.includes('LayoutOverflowEngine')) {
+          throw new Error('CDP evaluation timed out');
+        }
+        if (script === liquidScript || script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+          return { hasErrors: false, errors: [], scannedElementsCount: 10 };
+        }
+        return {};
+      },
+    });
+    const workflowCrash = new ThemeQaWorkflow(portsCrash);
+    const reportCrash = await workflowCrash.validate({
+      runId: 'run-layout-eval-crash',
+      attemptId: 'att-layout-eval-crash',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+    assert.strictEqual(reportCrash.summary.passed, false);
+    assert.strictEqual(reportCrash.summary.verdict, 'INCONCLUSIVE');
+    assert.ok(
+      reportCrash.findings?.evidenceGaps?.some((g) => g.includes('Layout overflow scanner evaluation failed'))
+    );
+
+    // Subcase B: eval returns non-object / missing hasOverflow
+    const portsNonObject = createMockPorts({
+      eval: async (_target: BrowserTarget, script: string) => {
+        if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX') || script.includes('LayoutOverflowEngine')) {
+          return null;
+        }
+        if (script === liquidScript || script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+          return { hasErrors: false, errors: [], scannedElementsCount: 10 };
+        }
+        return {};
+      },
+    });
+    const workflowNonObject = new ThemeQaWorkflow(portsNonObject);
+    const reportNonObject = await workflowNonObject.validate({
+      runId: 'run-layout-eval-nonobj',
+      attemptId: 'att-layout-eval-nonobj',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+    assert.strictEqual(reportNonObject.summary.passed, false);
+    assert.strictEqual(reportNonObject.summary.verdict, 'INCONCLUSIVE');
+    assert.ok(
+      reportNonObject.findings?.evidenceGaps?.some((g) => g.includes('did not return valid measurement object'))
+    );
   });
 });

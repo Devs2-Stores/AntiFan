@@ -294,10 +294,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string', description: 'Optional target tabId' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         clean: { type: 'boolean', description: 'Automatically sanitize Livewire/SSR metadata blobs', default: true },
+        materialize: { type: 'boolean', description: 'Automatically walk and materialize full-page lazy/SSR content before dumping', default: true },
       },
       required: ['outputPath'],
     },
-    execute: async (params: { outputPath: string; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean }, context) => {
+    execute: async (params: { outputPath: string; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; materialize?: boolean }, context) => {
       let rootPath = process.cwd();
       if (context?.projectId && context?.workspaceId) {
         try {
