@@ -637,9 +637,42 @@ function escapeHtml(text: string): string {
 }
 
 let draggedTabId: string | null = null;
+let lastTabsSignature = '';
+let lastBookmarksSignature = '';
+let lastChromeProfileName = '';
+let lastAppliedDevicePresetId: string | null = null;
+let lastAppliedSplitMode: boolean | null = null;
+let lastAppliedSplitDesktopPresetId: string | null = null;
+let lastAppliedSplitMobilePresetId: string | null = null;
+let lastAppliedSplitFocusedPane: string | null = null;
+let lastAppliedZoomText = '';
+let lastAppliedBackDisabled: boolean | null = null;
+let lastAppliedForwardDisabled: boolean | null = null;
+let lastAppliedAgentControlled: boolean | null = null;
+
+function computeTabsSignature(tabs: AntiFanTab[], activeId: string): string {
+  let sig = activeId + ':' + tabs.length;
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i];
+    if (!t) continue;
+    sig += `;${t.id},${t.title || ''},${t.url || ''},${t.favicon || ''},${t.isLoading ? 1 : 0},${t.themeError || ''},${t.isAudible ? 1 : 0},${t.isMuted ? 1 : 0},${t.aiState || ''},${t.isAgentControlled ? 1 : 0}`;
+  }
+  return sig;
+}
+
+function computeBookmarksSignature(bookmarks: Array<{ id?: string; title?: string; url: string }>, activeTab: AntiFanTab | undefined): string {
+  const activeUrl = activeTab ? (activeTab.url || '') : '';
+  let sig = `${activeUrl}:${bookmarks.length}`;
+  for (let i = 0; i < bookmarks.length; i++) {
+    const b = bookmarks[i];
+    if (b) sig += `;${b.url}`;
+  }
+  return sig;
+}
 
 function renderTabs() {
   if (!tabList) return;
+  lastTabsSignature = computeTabsSignature(currentTabs, activeTabId);
 
   const currentTabIds = new Set(currentTabs.map((t) => t.id));
   
@@ -888,54 +921,80 @@ function updateControls() {
   const activeTab = currentTabs.find((t) => t.id === activeTabId);
   if (activeTab) {
     if (document.activeElement !== urlInput && urlInput) {
-      urlInput.value = activeTab.url === 'about:blank' ? '' : activeTab.url;
+      const targetUrl = activeTab.url === 'about:blank' ? '' : activeTab.url;
+      if (urlInput.value !== targetUrl) {
+        urlInput.value = targetUrl;
+      }
     }
-    if (btnBack) btnBack.disabled = !activeTab.canGoBack;
-    if (btnForward) btnForward.disabled = !activeTab.canGoForward;
+    const canGoBack = !activeTab.canGoBack;
+    if (btnBack && lastAppliedBackDisabled !== canGoBack) {
+      lastAppliedBackDisabled = canGoBack;
+      btnBack.disabled = canGoBack;
+    }
+    const canGoForward = !activeTab.canGoForward;
+    if (btnForward && lastAppliedForwardDisabled !== canGoForward) {
+      lastAppliedForwardDisabled = canGoForward;
+      btnForward.disabled = canGoForward;
+    }
     
     const pct = `${Math.round(activeTab.zoomFactor * 100)}%`;
-    if (zoomLabel) zoomLabel.textContent = pct;
+    if (zoomLabel && pct !== lastAppliedZoomText) {
+      lastAppliedZoomText = pct;
+      zoomLabel.textContent = pct;
+    }
 
     if (deviceSelect) {
-      // The Device Viewport Breakpoint cluster must stay truthful for
-      // MCP-applied custom sizes ("custom-1280x720" has no static <option>).
-      // Rebuild a display-only DISABLED option so the select shows the size
-      // without routing a user change back to setDevicePreset (which would
-      // wipe tab.customViewport and lose the real emulation).
-      deviceSelect.querySelectorAll('option[value^="custom-"]').forEach((o) => o.remove());
-      if (activeTab.devicePresetId && /^custom-\d+x\d+$/i.test(activeTab.devicePresetId)) {
-        const m = /^custom-(\d+)x(\d+)$/i.exec(activeTab.devicePresetId);
-        const opt = document.createElement('option');
-        opt.value = activeTab.devicePresetId;
-        opt.disabled = true;
-        opt.textContent = m ? `Custom (${m[1]}×${m[2]})` : activeTab.devicePresetId;
-        deviceSelect.appendChild(opt);
-      }
-      if (activeTab.devicePresetId) {
-        deviceSelect.value = activeTab.devicePresetId;
+      const presetId = activeTab.devicePresetId || '';
+      if (presetId !== lastAppliedDevicePresetId) {
+        lastAppliedDevicePresetId = presetId;
+        deviceSelect.querySelectorAll('option[value^="custom-"]').forEach((o) => o.remove());
+        if (presetId && /^custom-\d+x\d+$/i.test(presetId)) {
+          const m = /^custom-(\d+)x(\d+)$/i.exec(presetId);
+          const opt = document.createElement('option');
+          opt.value = presetId;
+          opt.disabled = true;
+          opt.textContent = m ? `Custom (${m[1]}×${m[2]})` : presetId;
+          deviceSelect.appendChild(opt);
+        }
+        if (presetId) {
+          deviceSelect.value = presetId;
+        }
       }
     }
-    if (activeTab.splitMode) {
-      if (btnToggleSplit) btnToggleSplit.classList.add('mode-active');
-      if (splitControlsContainer) splitControlsContainer.style.display = 'flex';
-      if (deviceSelect) deviceSelect.style.display = 'none';
-      if (splitDesktopSelect && activeTab.splitDesktopPresetId) {
+    const isSplit = !!activeTab.splitMode;
+    if (isSplit !== lastAppliedSplitMode) {
+      lastAppliedSplitMode = isSplit;
+      if (isSplit) {
+        if (btnToggleSplit) btnToggleSplit.classList.add('mode-active');
+        if (splitControlsContainer) splitControlsContainer.style.display = 'flex';
+        if (deviceSelect) deviceSelect.style.display = 'none';
+      } else {
+        if (btnToggleSplit) btnToggleSplit.classList.remove('mode-active');
+        if (splitControlsContainer) splitControlsContainer.style.display = 'none';
+        if (deviceSelect) deviceSelect.style.display = 'inline-block';
+      }
+    }
+    if (isSplit) {
+      if (splitDesktopSelect && activeTab.splitDesktopPresetId && activeTab.splitDesktopPresetId !== lastAppliedSplitDesktopPresetId) {
+        lastAppliedSplitDesktopPresetId = activeTab.splitDesktopPresetId;
         splitDesktopSelect.value = activeTab.splitDesktopPresetId;
       }
-      if (splitMobileSelect && activeTab.splitMobilePresetId) {
+      if (splitMobileSelect && activeTab.splitMobilePresetId && activeTab.splitMobilePresetId !== lastAppliedSplitMobilePresetId) {
+        lastAppliedSplitMobilePresetId = activeTab.splitMobilePresetId;
         splitMobileSelect.value = activeTab.splitMobilePresetId;
       }
       const focusedPane = activeTab.splitFocusedPane || 'desktop';
-      if (btnSplitFocusDesktop) btnSplitFocusDesktop.classList.toggle('active', focusedPane === 'desktop');
-      if (btnSplitFocusMobile) btnSplitFocusMobile.classList.toggle('active', focusedPane === 'mobile');
-    } else {
-      if (btnToggleSplit) btnToggleSplit.classList.remove('mode-active');
-      if (splitControlsContainer) splitControlsContainer.style.display = 'none';
-      if (deviceSelect) deviceSelect.style.display = 'inline-block';
+      if (focusedPane !== lastAppliedSplitFocusedPane) {
+        lastAppliedSplitFocusedPane = focusedPane;
+        if (btnSplitFocusDesktop) btnSplitFocusDesktop.classList.toggle('active', focusedPane === 'desktop');
+        if (btnSplitFocusMobile) btnSplitFocusMobile.classList.toggle('active', focusedPane === 'mobile');
+      }
     }
 
-    if (agentActiveBadge) {
-      agentActiveBadge.style.display = activeTab.isAgentControlled ? 'inline-flex' : 'none';
+    const isAgent = !!activeTab.isAgentControlled;
+    if (agentActiveBadge && isAgent !== lastAppliedAgentControlled) {
+      lastAppliedAgentControlled = isAgent;
+      agentActiveBadge.style.display = isAgent ? 'inline-flex' : 'none';
     }
   }
   if (btnClearOmnibox && urlInput) {
@@ -963,8 +1022,8 @@ const bookmarkItems = document.getElementById('bookmarkItems') as HTMLElement | 
 const btnStarBookmark = document.getElementById('btnStarBookmark') as HTMLButtonElement | null;
 
 function renderBookmarks() {
-
   const activeTab = currentTabs.find((t) => t.id === activeTabId);
+  lastBookmarksSignature = computeBookmarksSignature(currentBookmarks, activeTab);
   const isBookmarked = activeTab && currentBookmarks.some((b) => b.url === activeTab.url);
   if (btnStarBookmark) {
     btnStarBookmark.classList.toggle('active', !!isBookmarked);
@@ -2043,21 +2102,31 @@ async function initToolbar() {
   } catch (err) {
     console.error('[antifan toolbar] Failed to load initial state:', err);
   }
+  api.onStateUpdated((state: unknown) => {
+    if (state && typeof state === 'object') {
+      const s = state as Record<string, unknown>;
+      currentTabs = (s.tabs as unknown as AntiFanTab[]) || [];
+      activeTabId = (s.activeTabId as string) || '';
+      if (s.bookmarks) currentBookmarks = s.bookmarks as unknown as Array<{ id: string; title: string; url: string }>;
+      if (s.activeChromeProfile) activeProfileInfo = s.activeChromeProfile;
+      if (s.chromeProfiles) availableChromeProfiles = s.chromeProfiles as unknown as unknown[];
+      isInspecting = !!s.isInspecting;
+      isFontFinderActive = !!s.isFontFinderActive;
+      isLensActive = !!s.isLensActive;
+      isRulerActive = !!s.isRulerActive;
+      if (s.themeQa) renderThemeQa(s.themeQa as unknown as ThemeQaState);
 
-  api.onStateUpdated((state: any) => {
-    if (state) {
-      currentTabs = state.tabs || [];
-      activeTabId = state.activeTabId || '';
-      if (state.bookmarks) currentBookmarks = state.bookmarks;
-      if (state.activeChromeProfile) activeProfileInfo = state.activeChromeProfile;
-      if (state.chromeProfiles) availableChromeProfiles = state.chromeProfiles;
-      isInspecting = !!state.isInspecting;
-      isFontFinderActive = !!state.isFontFinderActive;
-      isLensActive = !!state.isLensActive;
-      isRulerActive = !!state.isRulerActive;
-      if (state.themeQa) renderThemeQa(state.themeQa);
-      renderTabs();
-      renderBookmarks();
+      const newTabsSig = computeTabsSignature(currentTabs, activeTabId);
+      if (newTabsSig !== lastTabsSignature) {
+        renderTabs();
+      }
+
+      const activeTab = currentTabs.find((t) => t.id === activeTabId);
+      const newBookmarksSig = computeBookmarksSignature(currentBookmarks, activeTab);
+      if (newBookmarksSig !== lastBookmarksSignature) {
+        renderBookmarks();
+      }
+
       renderChromeProfiles();
       updateControls();
     }
