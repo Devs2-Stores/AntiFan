@@ -58,14 +58,19 @@ for (const f of allHtmlFiles) {
   }
 
   // 5. P14 specific remediation: Recruitment tab & active state
-  if (f.includes('page-14-tuyen-dung') && !html.includes('antifan-remedy-p14')) {
-    const p14Rule = `\n<style id="antifan-remedy-p14">
-.tabbed-content .tab-panel:not(.active) { display: none !important; }
+  if (f.includes('page-14-tuyen-dung')) {
+    if (html.includes('.tabbed-content .tab-panel:not(.active)')) {
+      html = html.replace('.tabbed-content .tab-panel:not(.active)', '.tabbed-content .tab-panels > .panel:not(.active), .tabbed-content .panel:not(.active)');
+      changed = true;
+    } else if (!html.includes('antifan-remedy-p14')) {
+      const p14Rule = `\n<style id="antifan-remedy-p14">
+.tabbed-content .tab-panels > .panel:not(.active), .tabbed-content .panel:not(.active) { display: none !important; }
 .tab-jobs .nav-tabs > li.active > a { border-bottom: 2px solid #3092ce !important; color: #3092ce !important; font-weight: 700 !important; }
 .job.job-ta .new-jobs { background-color: #e53935; color: #fff; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; }
 </style>\n`;
-    html = html.replace('</head>', `${p14Rule}</head>`);
-    changed = true;
+      html = html.replace('</head>', `${p14Rule}</head>`);
+      changed = true;
+    }
   }
 
   if (changed) {
