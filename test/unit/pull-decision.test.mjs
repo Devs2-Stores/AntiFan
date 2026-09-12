@@ -19,8 +19,7 @@ function record(overrides = {}) {
 }
 
 test('a file changed after the pull is never overwritten', () => {
-  const action = decidePullAction(record({ localHash: 'b'.repeat(64), forceRefresh: false }));
-  assert.equal(action, PULL_ACTION.EDITED);
+  assert.equal(decidePullAction(record({ localHash: 'b'.repeat(64) })), PULL_ACTION.EDITED);
   assert.equal(
     decidePullAction(record({ localHash: 'b'.repeat(64), forceRefresh: true })),
     PULL_ACTION.EDITED,
@@ -47,23 +46,55 @@ test('a binary whose remote updated_at moved is refreshed', () => {
   assert.equal(action, PULL_ACTION.REFRESH);
 });
 
-test('a binary size difference alone is not remote drift', () => {
-  // The API reports the stored asset while the CDN serves a converted variant.
+test('a binary whose length disagrees with the stored asset is re-pulled once', () => {
+  // The mirror can hold an older representation while the API stamp never moved.
   const action = decidePullAction(record({ isText: false, remoteSize: 45678 }));
-  assert.equal(action, PULL_ACTION.SKIP);
+  assert.equal(action, PULL_ACTION.REFRESH);
+});
+
+test('a recorded variant representation stops the length signal repeating', () => {
+  const action = decidePullAction(record({
+    isText: false,
+    remoteSize: 45678,
+    recorded: { sha256: HASH, updated_at: '2026-09-12T00:00:00.000Z', variantRepresentation: true },
+  }));
+  assert.equal(action, PULL_ACTION.SKIP, 'a weak signal must not become a download-every-run loop');
+});
+
+test('a moved stamp still refreshes a recorded variant representation', () => {
+  const action = decidePullAction(record({
+    isText: false,
+    remoteSize: 45678,
+    remoteUpdatedAt: '2026-09-13T00:00:00.000Z',
+    recorded: { sha256: HASH, updated_at: '2026-09-12T00:00:00.000Z', variantRepresentation: true },
+  }));
+  assert.equal(action, PULL_ACTION.REFRESH);
 });
 
 test('a text asset whose remote length changed is refreshed', () => {
   assert.equal(decidePullAction(record({ remoteSize: 101 })), PULL_ACTION.REFRESH);
 });
 
-test('an id-less remote or an unrecorded timestamp cannot manufacture drift', () => {
+test('an unrecorded key is adopted, never re-fetched on length alone', () => {
   assert.equal(
-    decidePullAction(record({ isText: false, remoteUpdatedAt: null, remoteSize: 999 })),
+    decidePullAction(record({ isText: false, recorded: null, remoteSize: 45678 })),
+    PULL_ACTION.SKIP
+  );
+  assert.equal(decidePullAction(record({ recorded: null })), PULL_ACTION.SKIP);
+});
+
+test('a missing stamp on either side cannot manufacture drift', () => {
+  assert.equal(
+    decidePullAction(record({ isText: false, remoteUpdatedAt: null, remoteSize: 100 })),
     PULL_ACTION.SKIP
   );
   assert.equal(
-    decidePullAction(record({ recorded: { sha256: HASH, updated_at: null }, isText: false, remoteUpdatedAt: '2026-09-13T00:00:00.000Z' })),
+    decidePullAction(record({
+      isText: false,
+      remoteSize: 100,
+      recorded: { sha256: HASH, updated_at: null },
+      remoteUpdatedAt: '2026-09-13T00:00:00.000Z',
+    })),
     PULL_ACTION.SKIP
   );
 });

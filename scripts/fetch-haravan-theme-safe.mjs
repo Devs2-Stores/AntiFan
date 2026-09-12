@@ -196,6 +196,7 @@ async function main() {
   let failCount = 0;
   const failedKeys = [];
   const refreshedKeys = [];
+  const representationKeys = [];
   const locallyEdited = [];
 
   for (let i = 0; i < assets.length; i++) {
@@ -220,15 +221,21 @@ async function main() {
       });
     }
 
-    if (action === 'skip') {
-      skippedCount++;
-      nextManifest[asset.key] = { bytes: fs.statSync(destPath).size, sha256: sha256(destPath), updated_at: asset.updated_at || null };
-      continue;
-    }
-    if (action === 'edited') {
-      editedCount++;
-      locallyEdited.push(asset.key);
-      nextManifest[asset.key] = { bytes: fs.statSync(destPath).size, sha256: sha256(destPath), updated_at: previousManifest[asset.key]?.updated_at || null, locallyModified: true };
+    if (action === 'skip' || action === 'edited') {
+      const prior = previousManifest[asset.key] || {};
+      // A representation note describes the key, not one download, so it
+      // outlives the run that recorded it: dropping it here would make the
+      // next run treat the same variant as fresh drift.
+      const kept = {};
+      if (prior.variantRepresentation === true) kept.variantRepresentation = true;
+      if (action === 'skip') {
+        skippedCount++;
+        nextManifest[asset.key] = { bytes: fs.statSync(destPath).size, sha256: sha256(destPath), updated_at: asset.updated_at || null, ...kept };
+      } else {
+        editedCount++;
+        locallyEdited.push(asset.key);
+        nextManifest[asset.key] = { bytes: fs.statSync(destPath).size, sha256: sha256(destPath), updated_at: prior.updated_at || null, locallyModified: true, ...kept };
+      }
       continue;
     }
 
@@ -252,7 +259,16 @@ async function main() {
       }
       if (action === 'refresh') { refreshedCount++; refreshedKeys.push(asset.key); }
       else fetchedCount++;
-      nextManifest[asset.key] = { bytes: fs.statSync(destPath).size, sha256: sha256(destPath), updated_at: asset.updated_at || null };
+      const writtenBytes = fs.statSync(destPath).size;
+      const entry = { bytes: writtenBytes, sha256: sha256(destPath), updated_at: asset.updated_at || null };
+      if (!text && typeof asset.size === 'number' && writtenBytes !== asset.size) {
+        // The download came back as a converted variant rather than the stored
+        // asset. Recorded so the length signal stops firing for this key instead
+        // of downloading it on every run.
+        entry.variantRepresentation = true;
+        representationKeys.push(asset.key);
+      }
+      nextManifest[asset.key] = entry;
       await new Promise(r => setTimeout(r, 80));
     } catch (err) {
       failCount++;
@@ -269,6 +285,11 @@ async function main() {
   }, null, 2));
 
   console.log(`\n[DONE] Finished: fetched ${fetchedCount}, refreshed ${refreshedCount}, skipped ${skippedCount}, locally edited ${editedCount}, failed ${failCount}.`);
+
+  if (representationKeys.length > 0) {
+    console.log(`[INFO] ${representationKeys.length} asset(s) the CDN answered with a converted variant; recorded as a variant representation:`);
+    for (const key of representationKeys.slice(0, 10)) console.log(`  - ${key}`);
+  }
 
   if (refreshedKeys.length > 0) {
     console.log(`[INFO] ${refreshedKeys.length} asset(s) refreshed because the remote copy moved on:`);

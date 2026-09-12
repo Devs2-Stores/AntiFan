@@ -5,11 +5,14 @@
  * someone's work and is left alone. For the remaining files the only question
  * is whether the remote copy moved on.
  *
- * Remote drift cannot be read off the byte length of a binary asset: the theme
- * API reports the size of the stored asset while the CDN serves a converted
- * variant, so lengths differ with no remote change at all. Binaries therefore
- * compare the API `updated_at`, and text assets — whose length is exact —
- * compare both.
+ * Remote drift is read from the API `updated_at`, from the byte length of a text
+ * asset — whose length is exact — and, for a binary, from a length that disagrees
+ * with the API-declared stored size. That last signal is weak: the CDN sometimes
+ * answers a download with a converted variant, and the mirror then holds bytes
+ * whose length differs from the stored asset with no remote change at all. A key
+ * that already showed that behaviour is recorded as a variant representation and
+ * is no longer refreshed on length, so the weak signal can never become a
+ * download-every-run loop.
  */
 
 export const PULL_ACTION = Object.freeze({
@@ -40,10 +43,12 @@ export function decidePullAction({
     const remoteMovedOn = Boolean(
       recorded.updated_at && remoteUpdatedAt && recorded.updated_at !== remoteUpdatedAt
     );
-    const textLengthDrift = Boolean(
-      isText && typeof remoteSize === 'number' && localSize !== remoteSize
+    const lengthDrift = Boolean(
+      typeof remoteSize === 'number' &&
+        localSize !== remoteSize &&
+        (isText || recorded.variantRepresentation !== true)
     );
-    return remoteMovedOn || textLengthDrift ? PULL_ACTION.REFRESH : PULL_ACTION.SKIP;
+    return remoteMovedOn || lengthDrift ? PULL_ACTION.REFRESH : PULL_ACTION.SKIP;
   }
 
   // No manifest entry for this key: the file is adopted as-is and recorded, so
