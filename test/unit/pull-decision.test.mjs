@@ -83,6 +83,19 @@ test('an unrecorded key is adopted, never re-fetched on length alone', () => {
   assert.equal(decidePullAction(record({ recorded: null })), PULL_ACTION.SKIP);
 });
 
+test('a listing without a size cannot manufacture drift', () => {
+  // A missing size is unknown, not zero: it must never read as a disagreement.
+  assert.equal(
+    decidePullAction(record({ isText: false, remoteSize: null, remoteUpdatedAt: null })),
+    PULL_ACTION.SKIP
+  );
+  assert.equal(decidePullAction(record({ remoteSize: null })), PULL_ACTION.SKIP);
+  assert.equal(
+    decidePullAction(record({ remoteSize: undefined, remoteUpdatedAt: null })),
+    PULL_ACTION.SKIP
+  );
+});
+
 test('a missing stamp on either side cannot manufacture drift', () => {
   assert.equal(
     decidePullAction(record({ isText: false, remoteUpdatedAt: null, remoteSize: 100 })),
