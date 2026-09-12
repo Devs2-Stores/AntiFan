@@ -21,19 +21,28 @@ function getUtf8ByteLength(str) {
     if (!str)
         return 0;
     let bytes = 0;
-    for (const char of str) {
-        const cp = char.codePointAt(0);
-        if (cp <= 0x7f) {
+    const len = str.length;
+    for (let i = 0; i < len; i++) {
+        const code = str.charCodeAt(i);
+        if (code <= 0x7f) {
             bytes += 1;
         }
-        else if (cp <= 0x7ff) {
+        else if (code <= 0x7ff) {
             bytes += 2;
         }
-        else if (cp <= 0xffff) {
+        else if (code >= 0xd800 && code <= 0xdbff) {
+            if (i + 1 < len) {
+                const next = str.charCodeAt(i + 1);
+                if (next >= 0xdc00 && next <= 0xdfff) {
+                    bytes += 4;
+                    i++;
+                    continue;
+                }
+            }
             bytes += 3;
         }
         else {
-            bytes += 4;
+            bytes += 3;
         }
     }
     return bytes;
@@ -46,31 +55,53 @@ function getUtf8ByteLength(str) {
  * 3. bytes <= maxBytes.
  */
 function sliceUtf8Bytes(str, maxBytes) {
-    if (!str) {
-        return { head: '', tail: '', bytes: 0 };
+    if (!str || maxBytes <= 0) {
+        return { head: '', tail: str || '', bytes: 0 };
     }
     let accumulatedBytes = 0;
     let charCount = 0;
-    for (const char of str) {
-        const cp = char.codePointAt(0);
+    const len = str.length;
+    for (let i = 0; i < len; i++) {
+        const code = str.charCodeAt(i);
         let charBytes = 1;
-        if (cp <= 0x7f) {
+        let codeUnits = 1;
+        if (code <= 0x7f) {
             charBytes = 1;
+            codeUnits = 1;
         }
-        else if (cp <= 0x7ff) {
+        else if (code <= 0x7ff) {
             charBytes = 2;
+            codeUnits = 1;
         }
-        else if (cp <= 0xffff) {
-            charBytes = 3;
+        else if (code >= 0xd800 && code <= 0xdbff) {
+            if (i + 1 < len) {
+                const next = str.charCodeAt(i + 1);
+                if (next >= 0xdc00 && next <= 0xdfff) {
+                    charBytes = 4;
+                    codeUnits = 2;
+                }
+                else {
+                    charBytes = 3;
+                    codeUnits = 1;
+                }
+            }
+            else {
+                charBytes = 3;
+                codeUnits = 1;
+            }
         }
         else {
-            charBytes = 4;
+            charBytes = 3;
+            codeUnits = 1;
         }
         if (accumulatedBytes + charBytes > maxBytes) {
             break;
         }
         accumulatedBytes += charBytes;
-        charCount += char.length; // 1 for BMP, 2 for surrogate pair
+        charCount += codeUnits;
+        if (codeUnits === 2) {
+            i++;
+        }
     }
     const head = str.slice(0, charCount);
     const tail = str.slice(charCount);
@@ -136,6 +167,7 @@ class TerminalWriteDispatcher {
             isWriting: false,
             writeRafId: null,
             onPostWrite,
+            writeQueueBytes: [],
         };
     }
     queueWrite(target, chunk) {
@@ -143,6 +175,10 @@ class TerminalWriteDispatcher {
             return;
         const chunkBytes = getUtf8ByteLength(chunk);
         target.writeQueue.push(chunk);
+        if (!target.writeQueueBytes) {
+            target.writeQueueBytes = [];
+        }
+        target.writeQueueBytes.push(chunkBytes);
         target.queueByteLength += chunkBytes;
         // If a write is currently in-flight in xterm, let the in-flight callback drain the queue to maintain strict FIFO
         if (target.isWriting) {
@@ -178,18 +214,26 @@ class TerminalWriteDispatcher {
         let accumulatedBytes = 0;
         while (target.writeQueue.length > 0 && accumulatedBytes < this.maxFrameBytes) {
             const head = target.writeQueue[0];
-            const headBytes = getUtf8ByteLength(head);
+            const headBytes = (target.writeQueueBytes && target.writeQueueBytes.length > 0)
+                ? target.writeQueueBytes[0]
+                : getUtf8ByteLength(head);
             const budget = this.maxFrameBytes - accumulatedBytes;
             if (headBytes <= budget) {
                 payload += head;
                 accumulatedBytes += headBytes;
                 target.writeQueue.shift();
+                if (target.writeQueueBytes) {
+                    target.writeQueueBytes.shift();
+                }
             }
             else {
                 const { head: sliceHead, tail: sliceTail, bytes: sliceBytes } = sliceUtf8Bytes(head, budget);
                 payload += sliceHead;
                 accumulatedBytes += sliceBytes;
                 target.writeQueue[0] = sliceTail;
+                if (target.writeQueueBytes) {
+                    target.writeQueueBytes[0] = Math.max(0, headBytes - sliceBytes);
+                }
                 break;
             }
         }
@@ -225,6 +269,7 @@ class TerminalWriteDispatcher {
             target.writeRafId = null;
         }
         target.writeQueue = [];
+        target.writeQueueBytes = [];
         target.queueByteLength = 0;
         target.isWriting = false;
     }

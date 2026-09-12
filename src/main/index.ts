@@ -552,3 +552,21 @@ app.on('will-quit', () => {
   recordBenchmark({ surface: 'startup', name: 'shutdown' });
   recordProcessMetrics('atShutdown');
 });
+
+let isSignalExiting = false;
+function handleSignal(): void {
+  if (isSignalExiting) return;
+  isSignalExiting = true;
+  isShuttingDown = true;
+  const forceTimer = setTimeout(() => {
+    process.exit(1);
+  }, 2000);
+  forceTimer.unref?.();
+  shutdown().finally(() => {
+    clearTimeout(forceTimer);
+    process.exit(0);
+  });
+}
+
+process.on('SIGINT', handleSignal);
+process.on('SIGTERM', handleSignal);

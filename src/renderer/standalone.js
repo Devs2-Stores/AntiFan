@@ -435,7 +435,29 @@ function setupTerminalClipboard(targetTerm, getSessionId) {
   });
 }
 
-const terminalPool = new Map(); // id -> item
+const rawTerminalPool = new Map(); // id -> item
+const terminalPool = {
+  get(id) {
+    let item = rawTerminalPool.get(id);
+    if (!item && typeof id === 'string' && Array.isArray(sessions)) {
+      const s = sessions.find((x) => x.id === id);
+      if (s) {
+        item = getOrCreateTerminalPane(id, typeof s.buffer === 'string' ? s.buffer : '', s.snapshotThroughSeq || 0, true);
+      }
+    }
+    return item;
+  },
+  set(id, val) { return rawTerminalPool.set(id, val); },
+  has(id) { return rawTerminalPool.has(id); },
+  delete(id) { return rawTerminalPool.delete(id); },
+  clear() { return rawTerminalPool.clear(); },
+  entries() { return rawTerminalPool.entries(); },
+  values() { return rawTerminalPool.values(); },
+  keys() { return rawTerminalPool.keys(); },
+  forEach(cb, thisArg) { return rawTerminalPool.forEach(cb, thisArg); },
+  get size() { return rawTerminalPool.size; },
+  [Symbol.iterator]() { return rawTerminalPool[Symbol.iterator](); },
+};
 if (typeof window !== 'undefined') {
   window.__antifanSanitizePasteText = sanitizePasteText;
   window.__antifanDispatchSafePaste = dispatchSafePaste;
@@ -607,7 +629,7 @@ async function forceResyncPane(viewState, sessionId) {
     if (viewState.term) {
       viewState.term.reset();
       if (fullBuffer) {
-        const bufText = typeof fullBuffer === 'string' ? fullBuffer : (fullBuffer?.buffer || '');
+        const bufText = sliceHydrationTail(typeof fullBuffer === 'string' ? fullBuffer : (fullBuffer?.buffer || ''));
         if (bufText) await writeTermAsync(viewState.term, bufText);
       }
     }
@@ -652,11 +674,21 @@ async function processIncomingChunk(viewState, chunk, isSplit) {
 
   if (chunkGen > 0) {
     if (viewState.sessionGeneration > 0 && chunkGen !== viewState.sessionGeneration) {
-      // Generational leap: session respawned
+      // Generational leap: the PTY for this session id was respawned and the main
+      // process transcript restarts empty (respawn passes no restored buffer), so
+      // the rendered history belongs to a process that no longer exists. Clear the
+      // pane instead of appending the new shell's banner under stale output.
       viewState.sessionGeneration = chunkGen;
       viewState.lastRenderedSeq = 0;
       viewState.syncState = 'READY';
       viewState.liveQueue = [];
+      try {
+        if (isSplit) {
+          if (splitTerm) splitTerm.reset();
+        } else if (viewState.term) {
+          viewState.term.reset();
+        }
+      } catch {}
       hideDegradedBanner(viewState);
     } else {
       viewState.sessionGeneration = chunkGen;
@@ -857,12 +889,26 @@ function writeTermAsync(term, data) {
 // the last few hundred lines. The main process still owns the full retained
 // transcript, so hydrate from getFullBuffer and keep the wired slice only as a
 // fallback for callers whose backend cannot serve it.
+// xterm retains 10k lines (main pane) / 50k lines (split pane) of scrollback. Writing a
+// multi-megabyte transcript into a fresh pane only burns renderer parse frames on history
+// the scrollback discards anyway, so hydration writes a trailing window aligned to a line
+// boundary. The main process still owns the full transcript for delta recovery.
+const MAX_HYDRATION_WRITE_CHARS = 1024 * 1024;
+function sliceHydrationTail(snapshot) {
+  if (!snapshot || snapshot.length <= MAX_HYDRATION_WRITE_CHARS) return snapshot || '';
+  let raw = snapshot.slice(-MAX_HYDRATION_WRITE_CHARS);
+  if (raw.charCodeAt(0) >= 0xdc00 && raw.charCodeAt(0) <= 0xdfff) raw = raw.slice(1);
+  const firstNl = raw.indexOf('\n');
+  if (firstNl !== -1 && firstNl < 4096) raw = raw.slice(firstNl + 1);
+  return `\x1b[0m${raw}`;
+}
+
 async function resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq) {
   if (api?.getFullBuffer) {
     try {
       const res = await api.getFullBuffer(sessionId);
       if (res && typeof res.buffer === 'string') {
-        return { snapshot: res.buffer, snapshotSeq: res.snapshotThroughSeq || 0 };
+        return { snapshot: sliceHydrationTail(res.buffer), snapshotSeq: res.snapshotThroughSeq || 0 };
       }
     } catch {}
   }
@@ -1077,9 +1123,15 @@ function writeToSplitPane(chunk) {
   }
 }
 function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthoritative = false) {
-  let item = terminalPool.get(sessionId);
+  let item = rawTerminalPool.get(sessionId);
   if (item) {
     return item;
+  }
+
+  const s = Array.isArray(sessions) ? sessions.find((x) => x.id === sessionId) : null;
+  if (!snapshot && s && typeof s.buffer === 'string') {
+    snapshot = s.buffer;
+    snapshotSeq = s.snapshotThroughSeq || 0;
   }
 
   const paneEl = document.createElement('div');
@@ -1106,6 +1158,15 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
   const webglAddon = attachWebglAddon(sTerm);
   const webLinksAddon = attachWebLinksAddon(sTerm);
   setupTerminalClipboard(sTerm, () => sessionId);
+
+  // Pre-hydrate bounded tail before attaching pane to DOM to ensure zero-flash/no-blank on switch
+  const boundedTail = sliceHydrationTail(snapshot);
+  if (boundedTail && boundedTail.length > 0) {
+    try {
+      sTerm.write(boundedTail);
+    } catch {}
+  }
+
   mainPane.appendChild(paneEl);
   if (globalResizeObserver) {
     try { globalResizeObserver.observe(paneEl); } catch {}
@@ -1122,8 +1183,6 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
   sTerm.onData((data) => {
     api?.sendTerminalInputTo(sessionId, data);
   });
-
-
   item = {
     id: sessionId,
     term: sTerm,
@@ -1132,7 +1191,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
     webglAddon,
     webLinksAddon,
     lastRenderedSeq: 0,
-    sessionGeneration: 0,
+    sessionGeneration: (s && typeof s.sessionGeneration === 'number') ? s.sessionGeneration : 0,
     hydrationEpoch: 0,
     activeHydratingEpoch: null,
     liveQueue: [],
@@ -1194,7 +1253,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
     }
   });
 
-  terminalPool.set(sessionId, item);
+  rawTerminalPool.set(sessionId, item);
   atomicHydratePane(item, sessionId, snapshot, snapshotSeq);
   syncPaneWithBackend(item, sessionId);
   return item;
@@ -1218,13 +1277,24 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
       sessionSplitRatios.delete(id);
     }
   }
-  for (const s of allSessions) {
+  const activeSession = (allSessions || []).find((s) => s.id === currentActiveId);
+  const splitSiblingId = activeSession?.splitSessionId;
+
+  for (const s of (allSessions || [])) {
     const sessionSnapshot = s.id === currentActiveId
       ? (typeof snapshot === 'string' ? snapshot : (typeof s.buffer === 'string' ? s.buffer : ''))
       : (typeof s.buffer === 'string' ? s.buffer : '');
     const seq = s.id === currentActiveId ? (snapshotThroughSeq || s.snapshotThroughSeq || 0) : (s.snapshotThroughSeq || 0);
+    // A session with no transcript has nothing to parse, so materializing it cannot
+    // cost startup time; only content-bearing background panes are deferred.
+    const exists = rawTerminalPool.has(s.id);
+    const isEager = s.id === currentActiveId || s.id === splitSiblingId || !sessionSnapshot;
+    if (!exists && !isEager) {
+      // Lazy background session: defer pane creation and transcript parsing until first activation
+      continue;
+    }
 
-    const item = terminalPool.get(s.id);
+    const item = rawTerminalPool.get(s.id);
     if (!item) {
       getOrCreateTerminalPane(s.id, sessionSnapshot, seq, true);
     } else if (!item.hasAuthoritativeState) {
@@ -2353,7 +2423,9 @@ function renderTabs() {
   updateAffinityBadges();
 }
 
+let initialPushReceived = false;
 api?.onTerminalSession((state) => {
+  initialPushReceived = true;
   sessions = state.sessions || [];
   if (!isPopoutMode) {
     activeId = state.activeSessionId || activeId;
@@ -2433,8 +2505,10 @@ async function bootstrapTerminalState() {
           activeId = sessions[0]?.id || '';
         }
       }
-      renderTabs();
-      syncTerminalPool(sessions, activeId);
+      if (!initialPushReceived) {
+        renderTabs();
+        syncTerminalPool(sessions, activeId);
+      }
     } else if (api?.newTerminal) {
       await api.newTerminal();
     }

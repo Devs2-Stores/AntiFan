@@ -171,7 +171,7 @@ type Session = {
   id: string;
   name: string;
   cwd: string;
-  pty: pty.IPty;
+  pty: pty.IPty | null;
   buffer: string;
   splitOf?: string;
   capsuleId: string;
@@ -186,14 +186,45 @@ type Session = {
   closedAt?: number;
   dataSubscription?: { dispose: () => void };
   exitSubscription?: { dispose: () => void };
+  // Geometry/affinity captured while the shell is deferred (restored background
+  // sessions record their transcript synchronously and start the PTY later).
+  pendingCols?: number;
+  pendingRows?: number;
+  pendingMinimumRows?: number;
+  pendingParentId?: string;
+  pendingParentGeneration?: number;
 };
 type SavedSession = { id: string; name: string; cwd: string; buffer?: string; splitOf?: string; capsuleId?: string };
-const MAX_TRANSCRIPT_BYTES = 512 * 1024; // 512KB in-memory history buffer (~5,000-10,000 lines)
-const MAX_PERSISTED_BYTES = 256 * 1024; // 256KB per session on disk
+// Interactive TUIs (agent spinners, status bars) redraw continuously and consume
+// a transcript tail fast: a 512KB ceiling evicted output within a couple of
+// minutes even at ~3KB/s of redraw chatter, which surfaced to users as output
+// that "started mid-word". 4MB retains hours of TUI traffic per session.
+const MAX_TRANSCRIPT_BYTES = 4 * 1024 * 1024; // 4MB in-memory history buffer
+const MAX_PERSISTED_BYTES = 1024 * 1024; // 1MB per session on disk (restart recovery)
+// Re-slicing the transcript copies the whole retained tail, so only trim after a
+// generous overshoot instead of on every 64KB of new output.
+const TRANSCRIPT_TRIM_OVERSHOOT_BYTES = 256 * 1024;
+/**
+ * Default preference for Windows Pseudo Console (ConPTY) on Windows 10 build 18309+ / Windows 11.
+ * Off by default: measured on this machine, a ConPTY-backed session leaves the Electron
+ * process unable to exit after teardown (the live theme proof stages its report and then
+ * never terminates), while the same proof exits cleanly on winpty. Opt in with
+ * ANTIFAN_USE_CONPTY=1 only after re-verifying process exit on the target machine;
+ * ANTIFAN_USE_CONPTY=0 forces the winpty fallback.
+ */
+export const DEFAULT_USE_CONPTY = false;
+// Gap between deferred shell starts during session restore. Each Windows PTY spawn
+// blocks the main thread, so the queue yields to the event loop between starts.
+const DEFERRED_PTY_START_DELAY_MS = 250;
 const MIN_TERMINAL_ROWS = 8;
 const MIN_SPLIT_TERMINAL_ROWS = 4;
 const SPLIT_TERMINAL_FRACTION = 0.2;
-const GLOBAL_JSON_BUFFER_BUDGET_BYTES = 40 * 1024; // 40 KiB total wire budget for all session buffers
+// Wire budget for the session-state payload (renderer fallback only; the renderer
+// hydrates from getFullBuffer). The legacy 40 KiB budget truncated the active
+// pane snapshot to ~16 KiB, which made a pane look mid-stream after a reattach.
+const GLOBAL_JSON_BUFFER_BUDGET_BYTES = 160 * 1024; // 160 KiB total wire budget for all session buffers
+const ACTIVE_SNAPSHOT_BUDGET_BYTES = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.4);
+const BACKGROUND_SNAPSHOT_BUDGET_BYTES = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.6);
 
 export interface SessionSummary {
   id: string;
@@ -345,8 +376,27 @@ export class TerminalManager extends EventEmitter {
   private lastCols = 120;
   private lastRows = 30;
   private isDisposed = false;
+  private deferredPtyIds: string[] = [];
+  private deferredPtyTimer: NodeJS.Timeout | null = null;
   private benchmarkChunkSeq = 0;
   private benchmarkChunkBytes = 0;
+  private conptyFallbackLogged = false;
+  private conptyFailed = false;
+
+  private supportsConpty(): boolean {
+    if (process.platform !== 'win32') return false;
+    const override = process.env.ANTIFAN_USE_CONPTY;
+    if (override === '0') return false;
+    if (override !== '1' && !DEFAULT_USE_CONPTY) return false;
+    try {
+      const match = /(\d+)\.(\d+)\.(\d+)/.exec(os.release());
+      if (match && match[3]) {
+        const build = parseInt(match[3], 10);
+        return build >= 18309;
+      }
+    } catch {}
+    return false;
+  }
 
   private subscribers = new Map<string, TerminalSubscriberState>();
   // Single canonical owner. Construction is private and only the composition root's
@@ -426,7 +476,9 @@ export class TerminalManager extends EventEmitter {
             capsuleId: s.capsuleId,
           })),
         };
-        const serialized = JSON.stringify(payload, null, 2);
+        // Compact JSON: the state file is machine-read on restore, and pretty
+        // printing a multi-MB buffer string only burns main-thread time.
+        const serialized = JSON.stringify(payload);
         await fs.promises.writeFile(tempPath, serialized, 'utf8');
         if (this.writeSequence === currentSeq) {
           try {
@@ -439,7 +491,7 @@ export class TerminalManager extends EventEmitter {
             await fs.promises.unlink(tempPath).catch(() => {});
           }
           if (this.writeSequence !== currentSeq) {
-            this.persistSync();
+            this.schedulePersist();
           }
         } else {
           await fs.promises.unlink(tempPath).catch(() => {});
@@ -485,7 +537,7 @@ export class TerminalManager extends EventEmitter {
           capsuleId: s.capsuleId,
         })),
       };
-      const serialized = JSON.stringify(payload, null, 2);
+      const serialized = JSON.stringify(payload);
       try {
         fs.writeFileSync(tempPath, serialized, 'utf8');
         fs.renameSync(tempPath, filePath);
@@ -563,28 +615,61 @@ export class TerminalManager extends EventEmitter {
         this.activeSessionId = id;
         this.spawn(id, this.currentCwd);
       } else {
-        // No live sessions at all: restore from saved sessions or spawn fresh
+        // No live sessions at all: restore from saved sessions or spawn fresh.
+        // Synchronously spawning every saved session blocks the main thread for seconds,
+        // so mirror startTerminal(): spawn eagerly only the active base session and its split,
+        // reserving background sessions to start from a deferred queue.
         const { activeSessionId: savedActiveId, sessions: saved } = this.readSavedSessions();
         const baseSessions = saved.filter(item => !item.splitOf);
         if (baseSessions.length > 0) {
+          const targetEntry = targetSessionId ? saved.find(item => item.id === targetSessionId) : undefined;
+          const targetBaseId = targetEntry ? (targetEntry.splitOf || targetEntry.id) : undefined;
+          const matchingSaved = baseSessions.find(item => (item.capsuleId || this.currentCapsuleId) === this.currentCapsuleId);
+          const savedActiveEntry = savedActiveId ? saved.find(item => item.id === savedActiveId) : undefined;
+          const savedBaseId = savedActiveEntry ? (savedActiveEntry.splitOf || savedActiveEntry.id) : undefined;
+
+          const activeBaseId = (targetBaseId && baseSessions.some(item => item.id === targetBaseId))
+            ? targetBaseId
+            : (matchingSaved
+              ? matchingSaved.id
+              : (savedBaseId && baseSessions.some(item => item.id === savedBaseId)
+                ? savedBaseId
+                : baseSessions[0]!.id));
+
+          const deferredIds: string[] = [];
           for (const item of baseSessions) {
-            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
-            s.name = item.name || s.name;
-            s.capsuleId = item.capsuleId || this.currentCapsuleId;
+            if (item.id === activeBaseId) {
+              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
+              s.name = item.name || s.name;
+              s.capsuleId = item.capsuleId || this.currentCapsuleId;
+            } else {
+              const s = this.reserveRestoredSession(item, undefined, undefined, MIN_TERMINAL_ROWS);
+              s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              deferredIds.push(item.id);
+            }
           }
           const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
           for (const item of splitSessions) {
             const parent = item.splitOf ? this.sessions.get(item.splitOf) : undefined;
             const parentRows = parent?.pty?.rows;
             const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
-            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
-            s.name = item.name || s.name;
-            s.splitOf = item.splitOf;
-            s.capsuleId = item.capsuleId || this.currentCapsuleId;
+            if (item.splitOf === activeBaseId) {
+              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+              s.name = item.name || s.name;
+              s.splitOf = item.splitOf;
+              s.capsuleId = item.capsuleId || this.currentCapsuleId;
+            } else {
+              const s = this.reserveRestoredSession(item, undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+              s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              deferredIds.push(item.id);
+            }
           }
-          const matchingRestored = [...this.sessions.values()].find(s => !s.splitOf && s.capsuleId === this.currentCapsuleId);
-          if (matchingRestored) {
-            this.activeSessionId = matchingRestored.id;
+          this.scheduleDeferredPtyStarts(deferredIds);
+
+          if (targetSessionId && this.sessions.has(targetSessionId)) {
+            this.activeSessionId = targetSessionId;
+          } else if (matchingSaved && this.sessions.has(matchingSaved.id)) {
+            this.activeSessionId = matchingSaved.id;
           } else if (savedActiveId && this.sessions.has(savedActiveId)) {
             const savedTarget = this.sessions.get(savedActiveId);
             this.activeSessionId = savedTarget?.splitOf || savedActiveId;
@@ -602,7 +687,127 @@ export class TerminalManager extends EventEmitter {
     this.emitSession();
   }
 
-  private spawn(id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = MIN_TERMINAL_ROWS, parentSessionId?: string, parentGeneration?: number): Session {
+  /**
+   * Creates the session record (transcript, generation, identity) without a shell.
+   * Restoring several Windows PTYs in one loop blocked the main thread for 3.5-7.9s
+   * (measured: 150-800ms per spawn), so restored background sessions are recorded
+   * synchronously and start their shell from a deferred queue.
+   */
+  private createSessionRecord(
+    id: string,
+    cwd: string,
+    restoredBuffer: string,
+    initialCols: number | undefined,
+    initialRows: number | undefined,
+    minimumRows: number,
+    parentSessionId: string | undefined,
+    generation: number,
+    parentGeneration?: number,
+  ): Session {
+    const s: Session = {
+      id,
+      name: `Terminal ${id.replace('terminal-', '')}`,
+      cwd,
+      pty: null,
+      buffer: safeSliceTail(restoredBuffer, MAX_TRANSCRIPT_BYTES),
+      capsuleId: this.currentCapsuleId,
+      disposed: false,
+      lastSeq: 0,
+      sessionGeneration: generation,
+      state: 'running',
+      deliveryJournal: new SessionDeliveryJournal(),
+      pendingCols: initialCols,
+      pendingRows: initialRows,
+      pendingMinimumRows: minimumRows,
+      pendingParentId: parentSessionId,
+      pendingParentGeneration: parentGeneration,
+    };
+    this.sessions.set(id, s);
+    return s;
+  }
+
+  private reserveRestoredSession(
+    item: SavedSession,
+    initialCols: number | undefined,
+    initialRows: number | undefined,
+    minimumRows: number,
+    parentSessionId?: string,
+    parentGeneration?: number,
+  ): Session {
+    const generation = (this.sessionGenerations.get(item.id) || 0) + 1;
+    this.sessionGenerations.set(item.id, generation);
+    const s = this.createSessionRecord(
+      item.id,
+      item.cwd || this.currentCwd,
+      item.buffer || '',
+      initialCols,
+      initialRows,
+      minimumRows,
+      parentSessionId,
+      generation,
+      parentGeneration,
+    );
+    s.name = item.name || s.name;
+    s.splitOf = item.splitOf;
+    s.capsuleId = item.capsuleId || this.currentCapsuleId;
+    return s;
+  }
+
+  /**
+   * Guarantees the session has a live shell, materializing a deferred restore on
+   * demand. Returns the live record (the reserved record is replaced by the spawned
+   * one, which is bound to the PTY's data/exit subscriptions).
+   */
+  private ensureSessionPty(id: string): Session | undefined {
+    const queuedIdx = this.deferredPtyIds.indexOf(id);
+    if (queuedIdx !== -1) this.deferredPtyIds.splice(queuedIdx, 1);
+    const reserved = this.sessions.get(id);
+    if (!reserved || reserved.disposed) return undefined;
+    if (reserved.pty) return reserved;
+    let live: Session;
+    try {
+      live = this.spawn(
+        id,
+        reserved.cwd,
+        reserved.buffer,
+        reserved.pendingCols,
+        reserved.pendingRows,
+        reserved.pendingMinimumRows || MIN_TERMINAL_ROWS,
+        reserved.pendingParentId,
+        reserved.pendingParentGeneration,
+        reserved.sessionGeneration,
+      );
+    } catch {
+      return this.sessions.get(id) || reserved;
+    }
+    // The spawned record carries the restored transcript (passed as restoredBuffer);
+    // identity fields are re-applied so tabs, splits and capsule membership survive.
+    live.name = reserved.name;
+    live.splitOf = reserved.splitOf;
+    live.capsuleId = reserved.capsuleId;
+    live.lastSeq = reserved.lastSeq || 0;
+    return live;
+  }
+
+  private scheduleDeferredPtyStarts(ids: string[]): void {
+    for (const id of ids) {
+      if (!this.deferredPtyIds.includes(id)) this.deferredPtyIds.push(id);
+    }
+    this.pumpDeferredPtyQueue();
+  }
+
+  private pumpDeferredPtyQueue(): void {
+    if (this.isDisposed || this.deferredPtyTimer || this.deferredPtyIds.length === 0) return;
+    this.deferredPtyTimer = setTimeout(() => {
+      this.deferredPtyTimer = null;
+      const nextId = this.deferredPtyIds[0];
+      if (nextId) this.ensureSessionPty(nextId);
+      this.pumpDeferredPtyQueue();
+    }, DEFERRED_PTY_START_DELAY_MS);
+    this.deferredPtyTimer.unref();
+  }
+
+  private spawn(id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = MIN_TERMINAL_ROWS, parentSessionId?: string, parentGeneration?: number, reservedGeneration?: number): Session {
     let validCwd = cwd || this.currentCwd;
     try {
       if (!validCwd || !fs.existsSync(validCwd) || !fs.statSync(validCwd).isDirectory()) {
@@ -619,7 +824,10 @@ export class TerminalManager extends EventEmitter {
     const pathDelimiter = process.platform === 'win32' ? ';' : ':';
     const currentPath = process.env.PATH || '';
     const envPath = scriptsDir ? (currentPath ? `${scriptsDir}${pathDelimiter}${currentPath}` : scriptsDir) : currentPath;
-    const generation = (this.sessionGenerations.get(id) || 0) + 1;
+    // A deferred restore reserved this session's generation when it created the
+    // record; reusing it keeps agent affinity and the renderer's chunk-generation
+    // stream continuous when the shell actually starts.
+    const generation = reservedGeneration !== undefined ? reservedGeneration : (this.sessionGenerations.get(id) || 0) + 1;
     this.sessionGenerations.set(id, generation);
     const affinitySessionId = parentSessionId || id;
     const affinityGeneration = String(parentGeneration !== undefined ? parentGeneration : generation);
@@ -645,31 +853,40 @@ export class TerminalManager extends EventEmitter {
       ANTIFAN_TERMINAL_AFFINITY_GENERATION: affinityGeneration,
       ...(parentSessionId ? { ANTIFAN_TERMINAL_PARENT_SESSION_ID: parentSessionId } : {}),
     };
-    const ptyOptions: pty.IPtyForkOptions = {
-      cwd: validCwd,
+    const basePtyOptions: pty.IBasePtyForkOptions = {
       cols,
       rows,
       env: terminalEnv,
-      ...(process.platform === 'win32' ? { useConpty: false } : {}),
     };
-    try {
-      child = pty.spawn(shell, [], ptyOptions);
-    } catch {
-      child = pty.spawn(shell, [], { ...ptyOptions, cwd: os.homedir() });
+
+    const spawnWithCwd = (options: pty.IPtyForkOptions | pty.IWindowsPtyForkOptions, targetCwd: string): pty.IPty => {
+      try {
+        return pty.spawn(shell, [], { ...options, cwd: targetCwd });
+      } catch {
+        return pty.spawn(shell, [], { ...options, cwd: os.homedir() });
+      }
+    };
+
+    const canUseConpty = this.supportsConpty() && !this.conptyFailed;
+    if (canUseConpty) {
+      try {
+        child = spawnWithCwd({ ...basePtyOptions, useConpty: true }, validCwd);
+      } catch (err) {
+        if (!this.conptyFallbackLogged) {
+          this.conptyFallbackLogged = true;
+          console.warn('[antifan:terminal] ConPTY spawn failed, falling back to legacy winpty:', err);
+        }
+        this.conptyFailed = true;
+        child = spawnWithCwd({ ...basePtyOptions, useConpty: false }, validCwd);
+      }
+    } else {
+      const legacyOptions: pty.IPtyForkOptions | pty.IWindowsPtyForkOptions = {
+        ...basePtyOptions,
+        ...(process.platform === 'win32' ? { useConpty: false } : {}),
+      };
+      child = spawnWithCwd(legacyOptions, validCwd);
     }
-    const s: Session = {
-      id,
-      name: `Terminal ${id.replace('terminal-', '')}`,
-      cwd: validCwd,
-      pty: child,
-      buffer: safeSliceTail(restoredBuffer, MAX_TRANSCRIPT_BYTES),
-      capsuleId: this.currentCapsuleId,
-      disposed: false,
-      lastSeq: 0,
-      sessionGeneration: generation,
-      state: 'running',
-      deliveryJournal: new SessionDeliveryJournal(),
-    };
+    const s = this.createSessionRecord(id, validCwd, restoredBuffer, cols, rows, minimumRows, parentSessionId, generation, parentGeneration);
     const dataSub = child.onData(data => {
       if (s.disposed) return;
       if (isBenchmarkEnabled()) {
@@ -709,7 +926,7 @@ export class TerminalManager extends EventEmitter {
     s.lastSeq = (s.lastSeq || 0) + 1;
     s.deliveryJournal.append(s.sessionGeneration, s.lastSeq, data);
     s.buffer += data;
-    if (s.buffer.length > MAX_TRANSCRIPT_BYTES + 65536) {
+    if (s.buffer.length > MAX_TRANSCRIPT_BYTES + TRANSCRIPT_TRIM_OVERSHOOT_BYTES) {
       s.buffer = safeSliceTail(s.buffer, MAX_TRANSCRIPT_BYTES);
     }
     this.schedulePersist();
@@ -724,21 +941,42 @@ export class TerminalManager extends EventEmitter {
       const { activeSessionId: savedActiveId, sessions: saved } = this.readSavedSessions();
       const baseSessions = saved.filter(item => !item.splitOf);
       if (baseSessions.length > 0) {
+        // Only the session the user lands on starts its shell eagerly: restoring every
+        // saved session synchronously blocked the main thread for seconds. The others
+        // get their restored transcript record now and start from a deferred queue,
+        // materializing immediately if anything touches them first.
+        const savedActiveEntry = savedActiveId ? saved.find(item => item.id === savedActiveId) : undefined;
+        const requestedBaseId = savedActiveEntry ? (savedActiveEntry.splitOf || savedActiveEntry.id) : '';
+        const activeBaseId = baseSessions.some(item => item.id === requestedBaseId)
+          ? requestedBaseId
+          : baseSessions[0]!.id;
+        const deferredIds: string[] = [];
         for (const item of baseSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
-          s.name = item.name || s.name;
-          s.capsuleId = item.capsuleId || this.currentCapsuleId;
+          if (item.id === activeBaseId) {
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
+            s.name = item.name || s.name;
+            s.capsuleId = item.capsuleId || this.currentCapsuleId;
+          } else {
+            this.reserveRestoredSession(item, undefined, undefined, MIN_TERMINAL_ROWS);
+            deferredIds.push(item.id);
+          }
         }
         const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
         for (const item of splitSessions) {
           const parent = item.splitOf ? this.sessions.get(item.splitOf) : undefined;
           const parentRows = parent?.pty?.rows;
           const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
-          s.name = item.name || s.name;
-          s.splitOf = item.splitOf;
-          s.capsuleId = item.capsuleId || this.currentCapsuleId;
+          if (item.splitOf === activeBaseId) {
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+            s.name = item.name || s.name;
+            s.splitOf = item.splitOf;
+            s.capsuleId = item.capsuleId || this.currentCapsuleId;
+          } else {
+            this.reserveRestoredSession(item, undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+            deferredIds.push(item.id);
+          }
         }
+        this.scheduleDeferredPtyStarts(deferredIds);
         if (savedActiveId && this.sessions.has(savedActiveId)) {
           const savedTarget = this.sessions.get(savedActiveId);
           this.activeSessionId = savedTarget?.splitOf || savedActiveId;
@@ -768,11 +1006,11 @@ export class TerminalManager extends EventEmitter {
   }
 
   public write(input: string): void {
-    this.sessions.get(this.activeSessionId)?.pty.write(input);
+    this.ensureSessionPty(this.activeSessionId)?.pty?.write(input);
   }
 
   public writeTo(id: string, input: string): void {
-    this.sessions.get(id)?.pty.write(input);
+    this.ensureSessionPty(id)?.pty?.write(input);
   }
   public resize(cols: number, rows: number): void {
     const validCols = Math.max(40, cols);
@@ -782,11 +1020,16 @@ export class TerminalManager extends EventEmitter {
       this.lastRows = validRows;
     }
     for (const s of this.sessions.values()) {
-      if (!s.disposed) {
-        try {
-          s.pty.resize(validCols, validRows);
-        } catch {}
+      if (s.disposed) continue;
+      if (!s.pty) {
+        // Remember the geometry so a shell that starts later comes up at this size.
+        s.pendingCols = validCols;
+        s.pendingRows = validRows;
+        continue;
       }
+      try {
+        s.pty.resize(validCols, validRows);
+      } catch {}
     }
   }
 
@@ -800,7 +1043,12 @@ export class TerminalManager extends EventEmitter {
       this.lastRows = validRows;
     }
     if (target && !target.disposed) {
-      try { target.pty.resize(validCols, validRows); } catch {}
+      if (target.pty) {
+        try { target.pty.resize(validCols, validRows); } catch {}
+      } else {
+        target.pendingCols = validCols;
+        target.pendingRows = validRows;
+      }
     }
   }
   private async safelyKillSession(s: Session | undefined): Promise<void> {
@@ -938,8 +1186,9 @@ export class TerminalManager extends EventEmitter {
   }
 
   public createSplitSession(parentId: string, cwd?: string, initialCols?: number, initialRows?: number): string {
-    const parent = this.sessions.get(parentId);
-    if (!parent || parent.disposed || parent.splitOf) return '';
+    const parentRecord = this.sessions.get(parentId);
+    if (!parentRecord || parentRecord.disposed || parentRecord.splitOf) return '';
+    const parent = this.ensureSessionPty(parentId) || parentRecord;
     const existing = [...this.sessions.values()].find(x => x.splitOf === parentId);
     if (existing) return existing.id;
     let n = 1;
@@ -1003,9 +1252,9 @@ export class TerminalManager extends EventEmitter {
       if ([...this.sessions.values()].some(x => x.splitOf === s.id)) totalPanes += 1;
     }
 
-    const activeBudget = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.4);
+    const activeBudget = ACTIVE_SNAPSHOT_BUDGET_BYTES;
     const bgBudget = totalPanes > 1
-      ? Math.floor((GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.6) / (totalPanes - 1))
+      ? Math.floor(BACKGROUND_SNAPSHOT_BUDGET_BYTES / (totalPanes - 1))
       : activeBudget;
 
     return baseSessions.map(s => {
@@ -1043,7 +1292,7 @@ export class TerminalManager extends EventEmitter {
     let dataSubscriptionCount = 0;
     let exitSubscriptionCount = 0;
     for (const session of this.sessions.values()) {
-      if (session.state === 'running' && !session.disposed) runningPtyCount++;
+      if (session.pty && session.state === 'running' && !session.disposed) runningPtyCount++;
       transcriptBytes += Buffer.byteLength(session.buffer, 'utf8');
       if (session.dataSubscription) dataSubscriptionCount++;
       if (session.exitSubscription) exitSubscriptionCount++;
@@ -1204,6 +1453,7 @@ export class TerminalManager extends EventEmitter {
     if (this.activeSessionId === targetId) {
       return true;
     }
+    this.ensureSessionPty(targetId);
     this.activeSessionId = targetId;
     this.emitSession();
     return true;
@@ -1279,7 +1529,7 @@ export class TerminalManager extends EventEmitter {
       activeSessionId: this.activeSessionId,
       sessions: sessionsList,
       splitSessionId: activeSummary?.splitSessionId,
-      snapshot: activeSummary?.buffer || (s?.buffer ? safeSliceTailJsonBounded(s.buffer, 16 * 1024) : ''),
+      snapshot: activeSummary?.buffer || (s?.buffer ? safeSliceTailJsonBounded(s.buffer, ACTIVE_SNAPSHOT_BUDGET_BYTES) : ''),
       snapshotThroughSeq: s ? (s.lastSeq || 0) : 0,
     };
   }
@@ -1293,6 +1543,11 @@ export class TerminalManager extends EventEmitter {
     // Allow a later canonical to be constructed after teardown (test isolation etc.):
     // each process still holds at most ONE live instance at any moment.
     TerminalManager.constructionCount = 0;
+    if (this.deferredPtyTimer) {
+      clearTimeout(this.deferredPtyTimer);
+      this.deferredPtyTimer = null;
+    }
+    this.deferredPtyIds = [];
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
@@ -1317,7 +1572,7 @@ export class TerminalManager extends EventEmitter {
     if (!input.sessionId) {
       throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required for terminal wait');
     }
-    const s = this.sessions.get(input.sessionId);
+    const s = this.ensureSessionPty(input.sessionId) || this.sessions.get(input.sessionId);
     if (!s) {
       throw new CapabilityError('INVALID_ARGUMENT', `Terminal session ${input.sessionId} not found`);
     }
