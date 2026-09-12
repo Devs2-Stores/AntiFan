@@ -46,12 +46,9 @@ export function decidePullAction({
     return remoteMovedOn || textLengthDrift ? PULL_ACTION.REFRESH : PULL_ACTION.SKIP;
   }
 
-  // No manifest entry for this key: a text asset whose length matches the API is
-  // intact; anything else is taken from the remote. An unrecorded file that is
-  // kept is adopted as-is and recorded, so only files the manifest knows about
-  // can be replaced by a later remote change.
-  if (!recorded && isText && typeof remoteSize === 'number' && localSize === remoteSize) {
-    return PULL_ACTION.SKIP;
-  }
+  // No manifest entry for this key: the file is adopted as-is and recorded, so
+  // only files the manifest knows about can be replaced by a later remote change.
+  // A text asset whose length matches the API is provably intact; an unrecorded
+  // binary has no comparable signal, so it is kept too.
   return PULL_ACTION.SKIP;
 }

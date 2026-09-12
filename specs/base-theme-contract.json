@@ -1096,7 +1096,7 @@
       "evidenceStatus": "CONFLICT",
       "description": "Corpus census reveals that 24/30 themes maintain both config/settings.html (pure HTML table form) and config/settings_schema.json (F1GENZ JSON schema). Haravan Admin round-trip saving behavior when both files define overlapping keys is not documented in official manuals.",
       "blocking": "Phase 05 Generator Cutover & Phase 06 Base Theme Assembly: blocks decision on whether generator must emit dual config (settings.html + settings_schema.json) or single schema format for unpublished test themes.",
-      "investigationPlan": "Execute isolated test push on staging theme 1001512581 with distinct test values in settings.html vs settings_schema.json, perform Admin GUI save, and probe rendered output in settings_data.json."
+      "investigationPlan": "Execute isolated test push on the unpublished staging theme under work (1001514194 as of 2026-09-13) with distinct test values in settings.html vs settings_schema.json, perform Admin GUI save, and probe rendered output in settings_data.json."
     },
     {
       "id": "UNRESOLVED_02_STOREFRONT_IDENTITY_ATTESTATION",
@@ -1136,7 +1136,7 @@
       "evidenceStatus": "OBSERVED (mechanism: 79 files across 40 of 45 measured roots use `{% form 'customer' %}`) — UNVERIFIED (where the submitted address is stored)",
       "description": "snippets/footer.liquid uses `{% form 'customer' %}` with a hidden contact[tags]=newsletter field and renders form.posted_successfully? / form.errors. The `customer` form type is absent from the documented Haravan form-type list (contact, customer_login, create_customer, reset_customer_password, activate_customer_password) recorded in docs/haravan/routes-and-handles.md, yet it is the corpus-standard newsletter mechanism (79 files across 40/45 measured roots from `customizes` and the Haravan-only theme roots). Two measured files instead POST a raw form to /account/contact (customizes/Thietbihoaphat/snippets/home-subscribe.liquid, customizes/Toda/snippets/footer.liquid) and 12 files POST raw to /contact, so the mechanism is well attested but the storage destination is not measured by any of them.",
       "blocking": "Phase 06 Base Theme: the form mechanism matches observed corpus practice but no measurement shows where a submitted address lands. It must not be presented as a certified subscription feature until a live round-trip observes the record or response.",
-      "investigationPlan": "Submit the form once against the unpublished staging theme (1001512581) with a controlled address, observe the HTTP response and whether a customer/contact record appears, then confirm the storage destination or replace the endpoint. Also record `customer` in the form-type list of docs/haravan/routes-and-handles.md as corpus-observed rather than documented."
+      "investigationPlan": "Submit the form once against the unpublished staging theme under work (1001514194 as of 2026-09-13) with a controlled address, observe the HTTP response and whether a customer/contact record appears, then confirm the storage destination or replace the endpoint. Also record `customer` in the form-type list of docs/haravan/routes-and-handles.md as corpus-observed rather than documented."
     }
   ]
 }
