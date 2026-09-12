@@ -1,15 +1,19 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import https from 'node:https';
 
-const ORG_ID = '200001207485';
-const THEME_ID = '1001512581';
-const TARGET_DIR = path.resolve('themes/phukienmaymoc-copy');
+// Target is taken from the environment so no single theme id is baked in.
+// Defaults point at the theme currently under work.
+const ORG_ID = process.env.HARAVAN_ORG_ID || '200001207485';
+const THEME_ID = process.env.HARAVAN_THEME_ID || '1001514194';
+const TARGET_DIR = path.resolve(process.env.HARAVAN_THEME_DIR || path.join('themes', `haravan-${THEME_ID}`));
 
-const cliData = JSON.parse(fs.readFileSync('C:/Users/Admin/.haravan-cli.json', 'utf8'));
+const configPath = process.env.HARAVAN_CLI_CONFIG || path.join(os.homedir(), '.haravan-cli.json');
+const cliData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const org = cliData[ORG_ID];
 if (!org || !org.access_token) {
-  throw new Error(`No access token for org ${ORG_ID}`);
+  throw new Error(`No access token for org ${ORG_ID} in ${configPath}`);
 }
 const token = org.access_token;
 
@@ -77,7 +81,13 @@ function downloadBinary(url, destPath) {
 }
 
 async function main() {
-  console.log(`[1] Fetching asset list for theme ${THEME_ID}...`);
+  console.log(`[1] Fetching theme metadata for ${THEME_ID}...`);
+  const themeMeta = await apiRequestWithRetry(`/web/themes/${THEME_ID}.json`);
+  const theme = themeMeta && themeMeta.theme ? themeMeta.theme : themeMeta;
+  const themeName = theme && theme.name ? theme.name : `haravan-${THEME_ID}`;
+  const themeRole = theme && theme.role ? theme.role : 'unknown';
+  console.log(`[OK] Theme #${THEME_ID} "${themeName}" (role: ${themeRole})`);
+
   const listRes = await apiRequestWithRetry(`/web/themes/${THEME_ID}/assets.json`);
   const assets = listRes.assets || [];
   console.log(`[OK] Found ${assets.length} total assets.`);
@@ -85,19 +95,27 @@ async function main() {
   fs.mkdirSync(TARGET_DIR, { recursive: true });
   fs.writeFileSync(
     path.join(TARGET_DIR, '.haravan-cli_local.json'),
-    JSON.stringify({ org_id: ORG_ID, theme_id: THEME_ID, theme_name: 'phukienmaymoc-copy' }, null, 2)
+    JSON.stringify({ org_id: ORG_ID, theme_id: THEME_ID, theme_name: themeName }, null, 2)
   );
 
   let fetchedCount = 0;
+  let refreshedCount = 0;
   let skippedCount = 0;
   let failCount = 0;
+  const failedKeys = [];
 
   for (let i = 0; i < assets.length; i++) {
     const asset = assets[i];
     const destPath = path.join(TARGET_DIR, asset.key);
-    if (fs.existsSync(destPath) && fs.statSync(destPath).size > 0) {
-      skippedCount++;
-      continue;
+    if (fs.existsSync(destPath)) {
+      const localSize = fs.statSync(destPath).size;
+      // A local file is only trusted when its byte length matches what the theme
+      // API reports; a truncated download also has a non-zero size.
+      if (localSize > 0 && localSize === asset.size) {
+        skippedCount++;
+        continue;
+      }
+      refreshedCount++;
     }
 
     try {
@@ -119,6 +137,9 @@ async function main() {
           fs.mkdirSync(path.dirname(destPath), { recursive: true });
           fs.writeFileSync(destPath, detail.asset.value, 'utf8');
           fetchedCount++;
+        } else {
+          failCount++;
+          failedKeys.push({ key: asset.key, reason: 'API returned no value for a text asset' });
         }
       } else if (asset.public_url) {
         await downloadBinary(asset.public_url, destPath);
@@ -127,11 +148,43 @@ async function main() {
       await new Promise(r => setTimeout(r, 80));
     } catch (err) {
       failCount++;
+      failedKeys.push({ key: asset.key, reason: err && err.message ? err.message : String(err) });
     }
-    process.stdout.write(`\rProgress: ${i + 1}/${assets.length} (fetched: ${fetchedCount}, skipped: ${skippedCount}, fail: ${failCount})`);
+    process.stdout.write(`\rProgress: ${i + 1}/${assets.length} (fetched: ${fetchedCount}, refreshed: ${refreshedCount}, skipped: ${skippedCount}, fail: ${failCount})`);
   }
 
-  console.log(`\n[DONE] Finished: fetched ${fetchedCount}, skipped ${skippedCount}, failed ${failCount}.`);
+  console.log(`\n[DONE] Finished: fetched ${fetchedCount}, refreshed ${refreshedCount}, skipped ${skippedCount}, failed ${failCount}.`);
+  // A few binary assets are served by the CDN under a version query that differs
+  // from the byte count the theme API declares. The rendered storefront is the
+  // authority for those, so a length difference is reported, never a failure.
+  const variantDiffs = [];
+  for (const asset of assets) {
+    const filePath = path.join(TARGET_DIR, asset.key);
+    if (!fs.existsSync(filePath) || typeof asset.size !== 'number') continue;
+    const localSize = fs.statSync(filePath).size;
+    if (localSize !== asset.size) {
+      variantDiffs.push(`${asset.key} (local ${localSize}, api ${asset.size})`);
+    }
+  }
+  if (variantDiffs.length > 0) {
+    console.log(`[INFO] ${variantDiffs.length} asset(s) whose local bytes differ from the API-declared size (served CDN variant wins):`);
+    for (const line of variantDiffs.slice(0, 10)) console.log(`  - ${line}`);
+  } else {
+    console.log('[OK] Every local asset matches the API-declared byte size.');
+  }
+
+  if (failedKeys.length > 0) {
+    const failurePath = path.join(TARGET_DIR, '.haravan-cli_fetch-failures.json');
+    fs.writeFileSync(failurePath, JSON.stringify({ org_id: ORG_ID, theme_id: THEME_ID, failures: failedKeys }, null, 2));
+    console.error(`[FAIL] ${failedKeys.length} asset(s) could not be fetched; list written to ${failurePath}`);
+    for (const entry of failedKeys.slice(0, 20)) {
+      console.error(`  - ${entry.key}: ${entry.reason}`);
+    }
+    process.exitCode = 1;
+  }
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
