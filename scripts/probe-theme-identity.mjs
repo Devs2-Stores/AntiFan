@@ -8,7 +8,7 @@
  * Usage:
  *   node scripts/probe-theme-identity.mjs <storeUrl> <themeId> [protectedThemeId]
  * Example:
- *   node scripts/probe-theme-identity.mjs https://phukienmaymoc.com 1001512581 1001510509
+ *   node scripts/probe-theme-identity.mjs https://phukienmaymoc.com 1001514194 1001510509
  *
  * Exit codes: 0 HTTP diagnostics completed; 1 request failure; 2 invalid arguments.
  */

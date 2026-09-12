@@ -12,12 +12,15 @@ Nguồn: 3 scout read-only + tự kiểm lại ở controller. Số nào do scou
 
 Đo bằng `GET https://apis.haravan.com/web/themes.json` và `/web/themes/1001514194.json` (Bearer, token không in ra log).
 
-## 2. Bản pull `15092026/` — khớp khoá 100%, nội dung khớp CDN 100%
+## 2. Bản pull `15092026/` — khớp khoá 100%, đối chiếu theo `size` bản gốc (không theo byte CDN)
 
 - 241 tệp / 241 khoá remote: khớp 241, thiếu 0, thừa 0. `.haravan-cli_remote.json` khớp 241/241.
 - Controller tự kiểm lại: 241 khoá manifest ↔ 241 tệp local, 0 lệch; sha256 của `templates/index.liquid`, `layout/theme.liquid`, `snippets/footer.liquid` khớp manifest 3/3.
-- **Đối chiếu byte với remote (đo 2026-09-13)**: 143 tệp văn bản — **0 lệch** kích thước so với `size` API khai. 5 ảnh nhị phân có `size` API **lớn hơn** byte CDN phục vụ ⇒ `size` là kích thước bản gốc lưu trữ, CDN phục vụ bản biến thể. Bản local **khớp byte với CDN cho cả 5** (GET `public_url` 3 lần/tệp: cùng độ dài và cùng sha256 bằng bản local; ví dụ `hera_index_hero_1_mobile.jpg` 45.507 byte, sha256 `cd5d8c93…`), và bản pull mới vào thư mục tạm sinh ra đúng các hash đó. Cả 5 tệp có marker kết thúc hợp lệ (JPEG `ffd9` / PNG `IEND`) ⇒ **không tệp nào bị cắt**. Danh sách local/API: `hera_index_hero_1_mobile.jpg` 45.507/55.681, `hera_index_hero_2_mobile.jpg` 98.904/120.262, `shop_coupon_item_image_2.png` 1.653/2.140, `shop_social_sidebar_item_image_1.png` 1.288/1.542, `shop_social_sidebar_item_image_5.png` 4.736/5.091. Một lần đo đầu của cùng URL `?v=3` trả 55.681 byte, các lần sau trả 45.507 (ổn định 3/3) ⇒ không khoá giả định theo `?v=` và **không dùng `size` API làm tiêu chí đủ/thiếu cho ảnh**.
-- Rác CLI còn lại: `15092026/.hrv_tmp_pull-<pid>-<ts>/assets/` — đúng 6 tệp: 4 bản gốc lưu trữ khác byte (`hera_index_hero_1_mobile.jpg` 55.681, `hera_index_hero_2_mobile.jpg` 120.262, `shop_coupon_item_image_2.png` 2.140, `shop_social_sidebar_item_image_1.png` 1.542), 1 tệp **0 byte** (`shop_social_sidebar_item_image_5.png`), 1 tệp **trùng khít** bản trong `assets/` (`share_fb_home.png`). Không thuộc nội dung theme.
+- **Đối chiếu byte với remote (đo lại 2026-09-13 sau khi làm mới toàn bộ)**: 143 tệp văn bản — độ dài byte bằng `size` API.
+- **Byte của ảnh nhị phân không phải tiêu chí ổn định**: cùng một `public_url`, CDN trả kết quả khác nhau ở các thời điểm (`hera_index_hero_1_mobile.jpg`: 45.507 B rồi 55.681 B) và theo `Accept` (`Vary: accept, accept-encoding`; `hera_index_hero_2_mobile.jpg` với `Accept: image/webp` → 76.840 B webp, không gửi `Accept` → 98.904 B jpeg). `size` API là **kích thước bản gốc lưu trữ**; thứ CDN trả có thể là bản biến thể. Sau khi làm mới, bản local còn lệch `size` ở **2 tệp** (`hera_index_hero_1_mobile.jpg` 45.507/55.681, `shop_coupon_item_image_2.png` 1.653/2.140); các ảnh còn lại khớp bản gốc. Mọi ảnh có marker kết thúc hợp lệ (JPEG `ffd9` / PNG `IEND`) ⇒ **không tệp nào bị cắt**.
+- **Drift remote giữa phiên**: `updated_at` của `hera_index_hero_2_mobile.jpg` `17:02:03Z → 17:35:29Z`, `shop_social_sidebar_item_image_1.png` → `17:35:42Z`, `shop_social_sidebar_item_image_5.png` → `17:35:47Z`. Script pull hiện so `updated_at` (ảnh) và độ dài byte (văn bản) nên tự tải lại đúng các khoá này; hai lần chạy liên tiếp sau đó: `fetched 0, refreshed 0, skipped 241`.
+- Kết luận dùng được: **không lấy khớp byte với CDN làm tiêu chí kiểm chứng**, **không dùng `size` API làm tiêu chí đủ/thiếu cho ảnh**, **không khoá giả định theo `?v=`**.
+- Rác CLI `15092026/.hrv_tmp_pull-<pid>-<ts>/assets/` (6 tệp: 4 bản gốc lưu trữ 55.681 / 120.262 / 2.140 / 1.542, 1 tệp 0 byte, 1 tệp trùng bản trong `assets/`) — **đã xoá 2026-09-13**.
 - Phân bố: `templates/` 43, `snippets/` 65, `assets/` 129, `layout/` 1, `config/` 3.
 
 ## 3. Hình dạng nền tảng: sạch kiểu Haravan phẳng

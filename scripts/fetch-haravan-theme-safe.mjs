@@ -4,6 +4,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 
+import { decidePullAction } from './lib/pull-decision.mjs';
+
 // Every input is taken from the environment so no theme id, directory or
 // personal config path is baked into the repository.
 const ORG_ID = process.env.HARAVAN_ORG_ID || '200001207485';
@@ -193,6 +195,7 @@ async function main() {
   let editedCount = 0;
   let failCount = 0;
   const failedKeys = [];
+  const refreshedKeys = [];
   const locallyEdited = [];
 
   for (let i = 0; i < assets.length; i++) {
@@ -205,20 +208,16 @@ async function main() {
       const localSize = fs.statSync(destPath).size;
       const recorded = previousManifest[asset.key];
       const localHash = sha256(destPath);
-      if (recorded && recorded.sha256 && recorded.sha256 !== localHash) {
-        // The file changed after the pull: it is someone's work, not a cache.
-        action = 'edited';
-      } else if (FORCE_REFRESH) {
-        action = 'refresh';
-      } else if (recorded && recorded.sha256 === localHash) {
-        // Unmodified since the pull; refresh only when the remote asset moved on.
-        action = text && typeof asset.size === 'number' && localSize !== asset.size ? 'refresh' : 'skip';
-      } else if (!recorded && text && typeof asset.size === 'number' && localSize === asset.size) {
-        // No manifest yet, but the byte length proves the text asset is intact.
-        action = 'skip';
-      } else {
-        action = 'skip';
-      }
+      action = decidePullAction({
+        exists: true,
+        localSize,
+        localHash,
+        recorded,
+        isText: text,
+        remoteSize: typeof asset.size === 'number' ? asset.size : null,
+        remoteUpdatedAt: asset.updated_at || null,
+        forceRefresh: FORCE_REFRESH,
+      });
     }
 
     if (action === 'skip') {
@@ -251,7 +250,7 @@ async function main() {
         failedKeys.push({ key: asset.key, reason: 'binary asset without a public URL' });
         continue;
       }
-      if (action === 'refresh') refreshedCount++;
+      if (action === 'refresh') { refreshedCount++; refreshedKeys.push(asset.key); }
       else fetchedCount++;
       nextManifest[asset.key] = { bytes: fs.statSync(destPath).size, sha256: sha256(destPath), updated_at: asset.updated_at || null };
       await new Promise(r => setTimeout(r, 80));
@@ -271,15 +270,21 @@ async function main() {
 
   console.log(`\n[DONE] Finished: fetched ${fetchedCount}, refreshed ${refreshedCount}, skipped ${skippedCount}, locally edited ${editedCount}, failed ${failCount}.`);
 
+  if (refreshedKeys.length > 0) {
+    console.log(`[INFO] ${refreshedKeys.length} asset(s) refreshed because the remote copy moved on:`);
+    for (const key of refreshedKeys.slice(0, 10)) console.log(`  - ${key}`);
+    if (refreshedKeys.length > 10) console.log(`  ... and ${refreshedKeys.length - 10} more`);
+  }
+
   if (editedCount > 0) {
     console.log(`[INFO] ${editedCount} file(s) differ from the pull manifest and were left untouched:`);
     for (const key of locallyEdited.slice(0, 10)) console.log(`  - ${key}`);
     console.log('[INFO] Delete a file or set HARAVAN_FORCE_REFRESH=1 to take the remote copy over local work.');
   }
 
-  // The theme API reports the size of the stored asset, while the CDN serves a
-  // converted variant, so a length difference on a binary asset is expected and
-  // is reported as information instead of being treated as a failure.
+  // The theme API reports the stored asset; the CDN may answer a download with a
+  // converted variant of it, so a length difference means the mirror holds a
+  // variant rather than the stored asset. Reported as information, not failure.
   const variantDiffs = [];
   for (const asset of assets) {
     const filePath = path.join(TARGET_DIR, asset.key);
@@ -290,10 +295,10 @@ async function main() {
     }
   }
   if (variantDiffs.length > 0) {
-    console.log(`[INFO] ${variantDiffs.length} asset(s) whose local bytes differ from the API-declared size (the CDN serves a different variant):`);
+    console.log(`[INFO] ${variantDiffs.length} asset(s) whose local bytes differ from the API-declared stored size (the mirror holds a CDN variant):`);
     for (const line of variantDiffs.slice(0, 10)) console.log(`  - ${line}`);
   } else {
-    console.log('[OK] Every local asset matches the API-declared byte size.');
+    console.log('[OK] Every local asset matches the API-declared stored byte size.');
   }
 
   if (failedKeys.length > 0) {

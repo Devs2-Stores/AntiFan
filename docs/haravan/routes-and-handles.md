@@ -46,7 +46,7 @@ When the router encounters a URL with `?view={suffix}`, it searches for a templa
 **Corpus Observation:**
 In the 30-theme corpus under `E:/Work/customizes/`, alternate templates are prevalent:
 - 24/30 themes contain at least one alternate product or collection template.
-- `AntiFan/themes/phukienmaymoc-copy` contains `collection.index-tab-2.liquid`, `index.header-load-menu.liquid`, and `cart.json.liquid`.
+- `customizes/Bagamuioto` and `customizes/Phukienmaymoc` carry the alternates `collection.index-tab-2.liquid`, `index.header-load-menu.liquid`, and `cart.json.liquid` next to the canonical flat template.
 
 ---
 

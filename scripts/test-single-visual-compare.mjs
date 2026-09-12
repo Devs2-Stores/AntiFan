@@ -2,6 +2,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { call } from '../.canary/tools/lib-rpc.mjs';
+import { resolveThemeId } from './lib/theme-target.mjs';
+
+const THEME_ID = resolveThemeId();
 
 const IMAGE_HYDRATION_EXPR = `(async () => {
   document.querySelectorAll('img[loading="lazy"]').forEach(img => {
@@ -52,7 +55,7 @@ async function main() {
 
   const refUrl = `http://127.0.0.1:${PORT}/`;
   const storefrontParsed = new URL('https://phukienmaymoc.com/');
-  storefrontParsed.searchParams.set('themeid', '1001512581');
+  storefrontParsed.searchParams.set('themeid', THEME_ID);
   const storefrontUrl = storefrontParsed.toString();
 
   console.log('[1] Creating Reference Tab...');

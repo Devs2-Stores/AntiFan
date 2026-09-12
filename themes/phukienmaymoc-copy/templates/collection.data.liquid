@@ -1,9 +1,0 @@
-{%layout none%}
-{%paginate collection.products by settings.collection_pagination_limit %}
-{%- assign checkFilter = false -%}
-{%- if settings.collection_filter_show -%} {%- assign checkFilter = true -%} {%- endif -%}
-
-{%for product in collection.products%}
-	{% include 'll-product-loop' with page: paginate.current_page, section:'collection' %}
-{%endfor%}
-{% endpaginate %} 

@@ -3,6 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { AntiFanMcpClient } from './lib/antifan-mcp-client.mjs';
 import { VIEWPORT_TOLERANCE_PX } from './lib/viewport-geometry.mjs';
+import { resolveThemeId } from './lib/theme-target.mjs';
+
+const THEME_ID = resolveThemeId();
 
 const VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 900 },
@@ -11,21 +14,21 @@ const VIEWPORTS = [
 ];
 
 const ROUTES = [
-  { id: 'p01', name: 'Home', path: '/?themeid=1001512581' },
-  { id: 'p02', name: 'Collection Cam Bien', path: '/collections/cam-bien?themeid=1001512581' },
-  { id: 'p03', name: 'Collection Contactor', path: '/collections/contactor?themeid=1001512581' },
-  { id: 'p04', name: 'Brand Inovance', path: '/collections/vendors?q=Inovance&themeid=1001512581' },
-  { id: 'p05', name: 'Product LC1D09M7', path: '/products/lc1d09m7?themeid=1001512581' },
-  { id: 'p06', name: 'Cart', path: '/cart?themeid=1001512581' },
-  { id: 'p07', name: 'Blog News', path: '/blogs/news?themeid=1001512581' },
-  { id: 'p08', name: 'Article PLC', path: '/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581' },
-  { id: 'p09', name: 'Search Laser', path: '/search?q=laser&themeid=1001512581' },
-  { id: 'p10', name: 'Page Brands', path: '/pages/brands?themeid=1001512581' },
-  { id: 'p11', name: 'Page Quote', path: '/pages/bao-gia?themeid=1001512581' },
-  { id: 'p12', name: 'Page Documents', path: '/pages/tai-lieu-ky-thuat?themeid=1001512581' },
-  { id: 'p13', name: 'Page About', path: '/pages/gioi-thieu?themeid=1001512581' },
-  { id: 'p14', name: 'Page History', path: '/pages/lich-su-phat-trien?themeid=1001512581' },
-  { id: 'p15', name: 'Page Careers', path: '/pages/tuyen-dung?themeid=1001512581' }
+  { id: 'p01', name: 'Home', path: `/?themeid=${THEME_ID}` },
+  { id: 'p02', name: 'Collection Cam Bien', path: `/collections/cam-bien?themeid=${THEME_ID}` },
+  { id: 'p03', name: 'Collection Contactor', path: `/collections/contactor?themeid=${THEME_ID}` },
+  { id: 'p04', name: 'Brand Inovance', path: `/collections/vendors?q=Inovance&themeid=${THEME_ID}` },
+  { id: 'p05', name: 'Product LC1D09M7', path: `/products/lc1d09m7?themeid=${THEME_ID}` },
+  { id: 'p06', name: 'Cart', path: `/cart?themeid=${THEME_ID}` },
+  { id: 'p07', name: 'Blog News', path: `/blogs/news?themeid=${THEME_ID}` },
+  { id: 'p08', name: 'Article PLC', path: `/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=${THEME_ID}` },
+  { id: 'p09', name: 'Search Laser', path: `/search?q=laser&themeid=${THEME_ID}` },
+  { id: 'p10', name: 'Page Brands', path: `/pages/brands?themeid=${THEME_ID}` },
+  { id: 'p11', name: 'Page Quote', path: `/pages/bao-gia?themeid=${THEME_ID}` },
+  { id: 'p12', name: 'Page Documents', path: `/pages/tai-lieu-ky-thuat?themeid=${THEME_ID}` },
+  { id: 'p13', name: 'Page About', path: `/pages/gioi-thieu?themeid=${THEME_ID}` },
+  { id: 'p14', name: 'Page History', path: `/pages/lich-su-phat-trien?themeid=${THEME_ID}` },
+  { id: 'p15', name: 'Page Careers', path: `/pages/tuyen-dung?themeid=${THEME_ID}` }
 ];
 
 async function main() {
@@ -50,8 +53,8 @@ async function main() {
   }
 
   const results = [];
-  // Historical report reports/chromium-verification/chromium-45-cases-results.json is a frozen
-  // evidence artifact (baseline for D9/D10). Runs write into an isolated run directory.
+  // Runs write into an isolated run directory under reports/runs/; the previous target's
+  // frozen 45-case baseline was removed with it on 2026-09-13.
   const runId = `run-${crypto.randomUUID()}`;
   const runTimestamp = new Date().toISOString();
   const reportsDir = path.resolve('reports/runs', runId);
@@ -63,7 +66,7 @@ async function main() {
   for (const page of ROUTES) {
     const targetUrl = new URL(page.path, 'https://phukienmaymoc.com');
     if (!targetUrl.searchParams.has('themeid')) {
-      targetUrl.searchParams.set('themeid', '1001512581');
+      targetUrl.searchParams.set('themeid', THEME_ID);
     }
     const fullUrl = targetUrl.toString();
     
@@ -196,7 +199,7 @@ async function main() {
     hoplongLeakCases: leakCases.length,
     store: 'phukienmaymoc.com',
     orgId: '200001207485',
-    themeId: '1001512581',
+    themeId: THEME_ID,
     viewports: VIEWPORTS.map(v => `${v.width}x${v.height}`),
     timestamp: runTimestamp,
     results
