@@ -93,7 +93,7 @@ const SETTINGS_READ_PATTERN = /(?<![\w.$])settings\.([A-Za-z_][A-Za-z0-9_]*)/g;
 const LIQUID_COMMENT_BLOCK = /\{%-?\s*comment\s*-?%\}[\s\S]*?\{%-?\s*endcomment\s*-?%\}/g;
 
 /** Source directories checked for Liquid templates */
-const SOURCE_DIRECTORIES = ['layout', 'templates', 'sections', 'snippets'] as const;
+const SOURCE_DIRECTORIES = ['layout', 'templates', 'snippets'] as const;
 
 /** Extensions considered parseable Liquid source */
 const SOURCE_EXTENSIONS: Record<string, true> = {
@@ -302,7 +302,10 @@ export class SettingsAssetsNormalizer {
    * 2. Normalizes config/settings_schema.json and writes back to disk
    * 3. Audits and synthesizes missing assets
    */
-  public normalizeThemeSync(themeDir: string): ThemeNormalizationResult {
+  public normalizeThemeSync(
+    themeDir: string,
+    settingsMode?: 'legacy-html' | 'f1genz-schema'
+  ): ThemeNormalizationResult {
     const resolvedThemeDir = path.resolve(themeDir);
     const schemaPath = path.join(resolvedThemeDir, 'config', 'settings_schema.json');
     const dataPath = path.join(resolvedThemeDir, 'config', 'settings_data.json');
@@ -355,7 +358,11 @@ export class SettingsAssetsNormalizer {
 
     const schemaResult = this.normalizeSettingsSchema(combinedData, schema);
 
-    if (schemaResult.addedSettingsCount > 0) {
+    const shouldWriteSchema =
+      settingsMode === 'f1genz-schema' ||
+      (settingsMode === undefined && fs.existsSync(schemaPath) && !fs.existsSync(path.join(resolvedThemeDir, 'config', 'settings.html')));
+
+    if (schemaResult.addedSettingsCount > 0 && shouldWriteSchema) {
       fs.mkdirSync(path.dirname(schemaPath), { recursive: true });
       fs.writeFileSync(
         schemaPath,
@@ -372,15 +379,20 @@ export class SettingsAssetsNormalizer {
     };
   }
 
-  public static normalizeTheme(themeDir: string): ThemeNormalizationResult {
+  public static normalizeTheme(
+    themeDir: string,
+    settingsMode?: 'legacy-html' | 'f1genz-schema'
+  ): ThemeNormalizationResult {
     const normalizer = new SettingsAssetsNormalizer();
-    return normalizer.normalizeThemeSync(themeDir);
+    return normalizer.normalizeThemeSync(themeDir, settingsMode);
   }
 
-  public async normalizeTheme(themeDir: string): Promise<ThemeNormalizationResult> {
-    return this.normalizeThemeSync(themeDir);
+  public async normalizeTheme(
+    themeDir: string,
+    settingsMode?: 'legacy-html' | 'f1genz-schema'
+  ): Promise<ThemeNormalizationResult> {
+    return this.normalizeThemeSync(themeDir, settingsMode);
   }
-
   /**
    * Inactive setting placement helper.
    * Finds an existing group matching category name, or appends a new group.

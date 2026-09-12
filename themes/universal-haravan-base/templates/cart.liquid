@@ -1,0 +1,58 @@
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <h1 style="font-size: 2rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 2rem; text-align: center;">
+    Giỏ hàng của bạn
+  </h1>
+
+  {%- if cart.item_count == 0 -%}
+    <div class="cart-empty-state">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto 1.5rem; color: var(--color-text-muted);" aria-hidden="true">
+        <circle cx="9" cy="21" r="1"></circle>
+        <circle cx="20" cy="21" r="1"></circle>
+        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+      </svg>
+      <h2 class="empty-state-title">Giỏ hàng của bạn đang trống</h2>
+      <p class="empty-state-description">Bạn chưa thêm bất kỳ sản phẩm nào vào giỏ hàng.</p>
+      <a href="/collections/all" class="btn btn-primary">Tiếp tục mua sắm</a>
+    </div>
+  {%- else -%}
+    <form action="/cart" method="post" id="CartForm">
+      {% include 'cart-table' %}
+
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2rem; margin-top: 2rem;">
+        {%- if settings.cart_notes_enable -%}
+          <div style="flex: 1 1 300px; max-width: 450px;">
+            <label for="CartSpecialInstructions" class="form-label">Ghi chú đơn hàng</label>
+            <textarea
+              name="note"
+              id="CartSpecialInstructions"
+              rows="4"
+              class="form-control"
+              placeholder="Ghi chú thêm cho đơn hàng của bạn (ví dụ: giờ giao hàng)..."
+            >{{ cart.note }}</textarea>
+          </div>
+        {%- endif -%}
+
+        <div style="flex: 1 1 300px; text-align: right;">
+          <div style="margin-bottom: 1.5rem;">
+            <span style="font-size: 1.125rem; color: var(--color-text-muted);">Tổng giá trị đơn hàng:</span>
+            <div style="font-size: 2rem; font-weight: 700; color: var(--color-primary); margin-top: 0.25rem;">
+              {{ cart.total_price | money }}
+            </div>
+            <p style="font-size: 0.8125rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+              Phí vận chuyển và mã giảm giá sẽ được áp dụng tại bước thanh toán.
+            </p>
+          </div>
+
+          <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+            <button type="submit" name="update" class="btn btn-outline">
+              Cập nhật giỏ hàng
+            </button>
+            <button type="submit" name="checkout" class="btn btn-primary" style="padding: 0.875rem 2rem;">
+              Tiến hành thanh toán
+            </button>
+          </div>
+        </div>
+      </div>
+    </form>
+  {%- endif -%}
+</div>

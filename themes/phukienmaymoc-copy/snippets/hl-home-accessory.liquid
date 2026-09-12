@@ -32,194 +32,146 @@
                     </div>
                     <div class="right">
                         <ul>
-                                                            <li class="active" :class="{'active': accessoryTab == 0 }">
-                                    <a href="javascript:;" aria-label="Phụ kiện tủ điện">Phụ kiện tủ điện</a>
-                                </li>
-                                                    </ul>
+                            <li class="active" data-accessory-tab="0">
+                                <a href="javascript:;" aria-label="Phụ kiện tủ điện">Phụ kiện tủ điện</a>
+                            </li>
+                        </ul>
                     </div>
                 </div>
                 <div class="accessory-content">
-                                            <div class="accessory-content__block " :class="{ 'active': opend }">
-                            <div class="accessory-content__list flex">
-                                                                                                            <div class="accessory-content__item"
-                                                                                    >
-                                            <div class="thumbnail"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="cau-dau-khoi-hanyoung"
-                            width="86"
-                            height="92"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                                            <div class="content">
-                                                <h3>
-                                                    <a href="/collections/cau-dau-khoi">
-                                                        Cầu đấu khối
-                                                    </a>
-                                                </h3>
-                                                <p>Cầu đấu khối dùng để sử dụng để kết nối các dây dẫn điện một cách nhanh chóng, an toàn và hiệu quả. Loại cầu đấu này được ưa chuộng trong lĩnh vực điện dân dụng, công nghiệp.</p>
-                                            </div>
-                                        </div>
-                                                                            <div class="accessory-content__item"
-                                                                                    >
-                                            <div class="thumbnail"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="cau-dau-ghep-gan-din-ray-hanyoung"
-                            width="86"
-                            height="92"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                                            <div class="content">
-                                                <h3>
-                                                    <a href="/collections/cau-dau-ghep-gan-din-ray">
-                                                        Cầu đấu ghép gắn Din Ray
-                                                    </a>
-                                                </h3>
-                                                <p>Cầu đấu ghép gắn Din Ray là thiết bị hiện đại được ứng dụng phổ biến trong các hệ thống điện. Tạo hiệu quả ứng dụng ổn định với kết cấu khoa học cùng nguyên lý vận hành an toàn.</p>
-                                            </div>
-                                        </div>
-                                                                            <div class="accessory-content__item"
-                                                                                    >
-                                            <div class="thumbnail"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="din-ray-hanyoung"
-                            width="86"
-                            height="92"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                                            <div class="content">
-                                                <h3>
-                                                    <a href="/collections/din-ray">
-                                                        Din Ray
-                                                    </a>
-                                                </h3>
-                                                <p>Din Ray là loại kim loại được sử dụng linh hoạt trong việc gắn kết các thiết bị điện đóng ngắt mạch và các phụ kiện điện khác. Sản phẩm được thiết kế tương đối đơn giản nhưng đây là một phần quan trọng trong việc lắp đặt, bảo trì và vận hành các thiết bị điện</p>
-                                            </div>
-                                        </div>
-                                                                            <div class="accessory-content__item"
-                                                                                    >
-                                            <div class="thumbnail"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="dien-tro-say-tu-dien-leipole"
-                            width="86"
-                            height="92"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                                            <div class="content">
-                                                <h3>
-                                                    <a href="/dien-tro-say-tu-dien">
-                                                        Điện trở sấy tủ điện
-                                                    </a>
-                                                </h3>
-                                                <p>Điện trở sấy tủ điện là thiết bị điện trực tiếp tạo ra nhiệt để làm nóng lò xo điện trở, tức là chuyển đổi từ điện năng sang nhiệt năng để sấy khô tủ điện giúp tủ điện không bị ẩm mốc gây hư hại cho thiết vị trong tủ điện.  </p>
-                                            </div>
-                                        </div>
-                                                                            <div class="accessory-content__item"
-                                                                                    >
-                                            <div class="thumbnail"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="quat-thong-gio-tu-dien-leipole"
-                            width="86"
-                            height="92"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                                            <div class="content">
-                                                <h3>
-                                                    <a href="/collections/quat-thong-gio-tu-dien">
-                                                        Quạt thông gió tủ điện
-                                                    </a>
-                                                </h3>
-                                                <p>Quạt thông gió tủ điện được sử dụng phổ biến trong các tủ điện, thiết bị điện, tại vị trí mà không khí không thể tự lưu chuyển đến.</p>
-                                            </div>
-                                        </div>
-                                                                            <div class="accessory-content__item"
-                                                                                    >
-                                            <div class="thumbnail"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="vo-cau-chi-ruot-cau-chi-schneider"
-                            width="86"
-                            height="92"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                                            <div class="content">
-                                                <h3>
-                                                    <a href="/collections/vo-cau-chi-ruot-cau-chi">
-                                                        Vỏ cầu chì &amp; Ruột cầu chì
-                                                    </a>
-                                                </h3>
-                                                <p>Vỏ cầu chì, ruột cầu chì là 2 bộ phận quan trọng của cầu chì, một loại thiết bị điện quen thuộc, đóng vai trò quan trọng trong việc bảo vệ hệ thống điện khỏi các nguy cơ chập cháy, hư hỏng do quá tải.</p>
-                                            </div>
-                                        </div>
-                                                                            <div class="accessory-content__item"
-                                                                                    >
-                                            <div class="thumbnail"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="dieu-hoa-tu-dien-schneider"
-                            width="86"
-                            height="92"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                                            <div class="content">
-                                                <h3>
-                                                    <a href="/collections/dieu-hoa-tu-dien">
-                                                        Điều hòa tủ điện
-                                                    </a>
-                                                </h3>
-                                                <p>Điều hòa tủ điện là một thiết bị kỹ thuật được ứng dụng phổ biến hiện nay, cung cấp giải pháp cho các tủ điều khiển, tủ động lực, ứng dụng cho nhiều ngành nghề khác nhau.</p>
-                                            </div>
-                                        </div>
-                                                                            <div class="accessory-content__item"
-                                                                                    >
-                                            <div class="thumbnail"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="mang-nhua-giga-electric"
-                            width="86"
-                            height="92"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                                            <div class="content">
-                                                <h3>
-                                                    <a href="/collections/mang-nhua">
-                                                        Máng nhựa
-                                                    </a>
-                                                </h3>
-                                                <p>Máng nhựa hay còn được biết đến là máng cáp nhựa, máng điện là một trong những đường máng được làm bằng chất liệu tôn, được sử dụng để đưa dẫn các đường dây cáp điện hay cáp mạng. Thẩm mỹ và an toàn hơn</p>
-                                            </div>
-                                        </div>
-                                                                                                </div>
-                                                    </div>
-                                        </div>
+                    <div class="accessory-content__block" data-accessory-panel="0">
+                        <div class="accessory-content__list flex">
+                            {%- assign acc1 = collections['phu-tro'] -%}
+                            {%- if acc1 -%}
+                            <div class="accessory-content__item">
+                                <div class="thumbnail">
+                                    <img loading="eager" src="{{ acc1.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ acc1.title | escape }}" width="86" height="92" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                </div>
+                                <div class="content">
+                                    <h3>
+                                        <a href="{{ acc1.url }}" title="{{ acc1.title | escape }}" aria-label="{{ acc1.title | escape }}">{{ acc1.title }}</a>
+                                    </h3>
+                                    {%- if acc1.description != blank -%}
+                                    <p>{{ acc1.description | strip_html | truncatewords: 35 }}</p>
+                                    {%- endif -%}
+                                </div>
+                            </div>
+                            {%- endif -%}
+                            {%- assign acc2 = collections['phu-kien-may-laser'] -%}
+                            {%- if acc2 -%}
+                            <div class="accessory-content__item">
+                                <div class="thumbnail">
+                                    <img loading="eager" src="{{ acc2.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ acc2.title | escape }}" width="86" height="92" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                </div>
+                                <div class="content">
+                                    <h3>
+                                        <a href="{{ acc2.url }}" title="{{ acc2.title | escape }}" aria-label="{{ acc2.title | escape }}">{{ acc2.title }}</a>
+                                    </h3>
+                                    {%- if acc2.description != blank -%}
+                                    <p>{{ acc2.description | strip_html | truncatewords: 35 }}</p>
+                                    {%- endif -%}
+                                </div>
+                            </div>
+                            {%- endif -%}
+                            {%- assign acc3 = collections['vat-tu-tieu-hao-cho-laser'] -%}
+                            {%- if acc3 -%}
+                            <div class="accessory-content__item">
+                                <div class="thumbnail">
+                                    <img loading="eager" src="{{ acc3.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ acc3.title | escape }}" width="86" height="92" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                </div>
+                                <div class="content">
+                                    <h3>
+                                        <a href="{{ acc3.url }}" title="{{ acc3.title | escape }}" aria-label="{{ acc3.title | escape }}">{{ acc3.title }}</a>
+                                    </h3>
+                                    {%- if acc3.description != blank -%}
+                                    <p>{{ acc3.description | strip_html | truncatewords: 35 }}</p>
+                                    {%- endif -%}
+                                </div>
+                            </div>
+                            {%- endif -%}
+                            {%- assign acc4 = collections['phu-kien-dien-tu'] -%}
+                            {%- if acc4 -%}
+                            <div class="accessory-content__item">
+                                <div class="thumbnail">
+                                    <img loading="eager" src="{{ acc4.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ acc4.title | escape }}" width="86" height="92" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                </div>
+                                <div class="content">
+                                    <h3>
+                                        <a href="{{ acc4.url }}" title="{{ acc4.title | escape }}" aria-label="{{ acc4.title | escape }}">{{ acc4.title }}</a>
+                                    </h3>
+                                    {%- if acc4.description != blank -%}
+                                    <p>{{ acc4.description | strip_html | truncatewords: 35 }}</p>
+                                    {%- endif -%}
+                                </div>
+                            </div>
+                            {%- endif -%}
+                            {%- assign acc5 = collections['he-thong-dieu-khien-khi-phu-tro'] -%}
+                            {%- if acc5 -%}
+                            <div class="accessory-content__item">
+                                <div class="thumbnail">
+                                    <img loading="eager" src="{{ acc5.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ acc5.title | escape }}" width="86" height="92" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                </div>
+                                <div class="content">
+                                    <h3>
+                                        <a href="{{ acc5.url }}" title="{{ acc5.title | escape }}" aria-label="{{ acc5.title | escape }}">{{ acc5.title }}</a>
+                                    </h3>
+                                    {%- if acc5.description != blank -%}
+                                    <p>{{ acc5.description | strip_html | truncatewords: 35 }}</p>
+                                    {%- endif -%}
+                                </div>
+                            </div>
+                            {%- endif -%}
+                            {%- assign acc6 = collections['huong-dan-va-thanh-truot'] -%}
+                            {%- if acc6 -%}
+                            <div class="accessory-content__item">
+                                <div class="thumbnail">
+                                    <img loading="eager" src="{{ acc6.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ acc6.title | escape }}" width="86" height="92" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                </div>
+                                <div class="content">
+                                    <h3>
+                                        <a href="{{ acc6.url }}" title="{{ acc6.title | escape }}" aria-label="{{ acc6.title | escape }}">{{ acc6.title }}</a>
+                                    </h3>
+                                    {%- if acc6.description != blank -%}
+                                    <p>{{ acc6.description | strip_html | truncatewords: 35 }}</p>
+                                    {%- endif -%}
+                                </div>
+                            </div>
+                            {%- endif -%}
+                            {%- assign acc7 = collections['bo-giam-toc'] -%}
+                            {%- if acc7 -%}
+                            <div class="accessory-content__item">
+                                <div class="thumbnail">
+                                    <img loading="eager" src="{{ acc7.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ acc7.title | escape }}" width="86" height="92" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                </div>
+                                <div class="content">
+                                    <h3>
+                                        <a href="{{ acc7.url }}" title="{{ acc7.title | escape }}" aria-label="{{ acc7.title | escape }}">{{ acc7.title }}</a>
+                                    </h3>
+                                    {%- if acc7.description != blank -%}
+                                    <p>{{ acc7.description | strip_html | truncatewords: 35 }}</p>
+                                    {%- endif -%}
+                                </div>
+                            </div>
+                            {%- endif -%}
+                            {%- assign acc8 = collections['dong-co-servo-bo-dieu-khien-servo'] -%}
+                            {%- if acc8 -%}
+                            <div class="accessory-content__item">
+                                <div class="thumbnail">
+                                    <img loading="eager" src="{{ acc8.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ acc8.title | escape }}" width="86" height="92" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                </div>
+                                <div class="content">
+                                    <h3>
+                                        <a href="{{ acc8.url }}" title="{{ acc8.title | escape }}" aria-label="{{ acc8.title | escape }}">{{ acc8.title }}</a>
+                                    </h3>
+                                    {%- if acc8.description != blank -%}
+                                    <p>{{ acc8.description | strip_html | truncatewords: 35 }}</p>
+                                    {%- endif -%}
+                                </div>
+                            </div>
+                            {%- endif -%}
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>

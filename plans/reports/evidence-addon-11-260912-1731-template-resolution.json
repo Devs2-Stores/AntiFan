@@ -1,0 +1,89 @@
+{
+  "fetchedAt": "2026-09-12T12:32:33.930Z",
+  "method": "live HTML marker match on template-unique root classes",
+  "results": [
+    {
+      "path": "/pages/brands",
+      "status": 200,
+      "matchedTemplates": [
+        "page.brands"
+      ]
+    },
+    {
+      "path": "/pages/bao-gia",
+      "status": 200,
+      "matchedTemplates": [
+        "page.quote"
+      ]
+    },
+    {
+      "path": "/pages/gioi-thieu",
+      "status": 200,
+      "matchedTemplates": []
+    },
+    {
+      "path": "/pages/lien-he",
+      "status": 200,
+      "matchedTemplates": []
+    },
+    {
+      "path": "/collections/cam-bien",
+      "status": 200,
+      "matchedTemplates": [
+        "collection.liquid"
+      ]
+    },
+    {
+      "path": "/collections/vendors?q=Ecovacs",
+      "status": 200,
+      "matchedTemplates": [
+        "collection.liquid"
+      ]
+    },
+    {
+      "path": "/products/lc1d09m7",
+      "status": 200,
+      "matchedTemplates": [
+        "product.liquid"
+      ]
+    },
+    {
+      "path": "/blogs/news",
+      "status": 200,
+      "matchedTemplates": [
+        "blog.liquid"
+      ]
+    },
+    {
+      "path": "/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong",
+      "status": 200,
+      "matchedTemplates": [
+        "article.liquid"
+      ]
+    },
+    {
+      "path": "/this-does-not-exist",
+      "status": 404,
+      "matchedTemplates": [
+        "page.brands",
+        "404.liquid"
+      ]
+    },
+    {
+      "path": "/brands",
+      "status": 404,
+      "matchedTemplates": [
+        "page.brands",
+        "404.liquid"
+      ]
+    },
+    {
+      "path": "/collections/does-not-exist-xyz",
+      "status": 404,
+      "matchedTemplates": [
+        "page.brands",
+        "404.liquid"
+      ]
+    }
+  ]
+}

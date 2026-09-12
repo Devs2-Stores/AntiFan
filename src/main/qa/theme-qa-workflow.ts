@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { ArtifactRef, BrowserTarget, CapabilityError } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from '../tools/browser-control-port';
 import type { EvidenceCaptureEnvelope } from '../verification/visual-capture';
+import type { VisualSettleReceipt } from '../verification/capture-settle';
 import { ArtifactStore } from '../tools/artifact-store';
 import { PlatformDetector, PlatformDetectionResult, EcommercePlatform } from './scanners/platform-detector';
 import { LiquidErrorScanner, LiquidScanResult, LiquidErrorFinding } from './scanners/liquid-error-scanner';
@@ -11,6 +12,8 @@ import { BrokenAssetScanner, BrokenAssetScanResult, BrokenAssetFinding } from '.
 import { LayoutOverflowEngine, ViewportOverflowResult } from './scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
 import { classifyDiagnostics, extractCorrelatableAssetFailures, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
+import type { ThemeTransactionRegistry } from './theme-transaction-registry';
+import type { TerminalSyncCursor, SyncSettleResult } from './haravan-sync-barrier';
 export interface ThemeQaChecklist {
   layout: boolean;
   responsive: boolean;
@@ -53,14 +56,16 @@ export interface ThemeQaDetailedFindings {
     warnings: DiagnosticIssue[];
   };
   differential?: ThemeQaDifferentialAttribution;
+  evidenceGaps?: string[];
 }
 export interface ThemeQaSummary {
   passed: boolean;
   totalIssues: number;
   criticalCount: number;
+  verdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
 }
 export interface QaMatrixDimension {
-  score: number;
+  score: number | null;
   details: string;
 }
 
@@ -68,12 +73,22 @@ export interface QaMatrixViewportItem {
   mismatchPercent: number | null;
   passed: boolean;
   measured: boolean;
+  verdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+}
+
+export interface QaMatrixCoverage {
+  measuredDimensions: number;
+  totalDimensions: number;
+  measuredViewports: number;
+  totalViewports: number;
 }
 
 export interface QaMatrixReport {
   timestamp: string;
-  overallScore: number;
+  overallScore: number | null;
   passed: boolean;
+  verdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+  coverage?: QaMatrixCoverage;
   dimensions: {
     visualFidelity: QaMatrixDimension;
     domSemantics: QaMatrixDimension;
@@ -90,7 +105,6 @@ export interface QaMatrixReport {
     mobile: QaMatrixViewportItem;
   };
 }
-
 export interface ThemeQaReport {
   runId: string;
   attemptId: string;
@@ -101,12 +115,14 @@ export interface ThemeQaReport {
   findings?: ThemeQaDetailedFindings;
   artifacts: ArtifactRef[];
   qaMatrix?: QaMatrixReport;
+  settleReceipt?: VisualSettleReceipt;
   createdAt: number;
 }
 export interface ThemeQaWorkflowPorts {
   browser: BrowserControlPort;
   artifacts: ArtifactStore;
   reload: (target: BrowserTarget) => Promise<{ reloaded: boolean; target: BrowserTarget }> | { reloaded: boolean; target: BrowserTarget };
+  transactionRegistry?: ThemeTransactionRegistry;
 }
 
 /**
@@ -127,6 +143,13 @@ function rethrowTargetLifecycleError(error: unknown): void {
     throw error;
   }
 }
+
+/**
+ * Visual mismatch ceiling for a viewport to count as passing. The comparison
+ * score hits 0 at this percentage, so the boolean verdict is derived from the
+ * measured number: a caller-supplied `passed` cannot certify a diff beyond it.
+ */
+const VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT = 10;
 
 export class ThemeQaWorkflow {
   constructor(private readonly ports: ThemeQaWorkflowPorts) {}
@@ -152,12 +175,120 @@ export class ThemeQaWorkflow {
       tablet?: { mismatchPercent: number; passed: boolean };
       mobile?: { mismatchPercent: number; passed: boolean };
     };
+    mutationContext?: {
+      cursor?: TerminalSyncCursor;
+      syncReceipt?: SyncSettleResult;
+      initialDocGen?: number;
+    };
   }): Promise<ThemeQaReport> {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }
     this.assertOwnership(input.target);
     const effectiveBaselineFindings = input.baselineFindings;
+    // Mutation QA lifecycle attestation:
+    // Bind cursor/generation baseline captured before mutation and acknowledgment belonging to that mutation.
+    // Caller omission of a baseline cannot reclassify a known mutation session as read-only.
+    const activeSession = this.ports.transactionRegistry?.getActiveSession(input.workspaceRoot);
+    const hasActiveSessionMutation = Boolean(
+      activeSession &&
+      (activeSession.sessionState === 'mutated' ||
+       activeSession.sessionState === 'synced' ||
+       activeSession.sessionState === 'settled' ||
+       activeSession.touchedFiles.length > 0)
+    );
+    const hasMutationContext = Boolean(
+      input.mutationContext &&
+      (input.mutationContext.cursor || input.mutationContext.syncReceipt || typeof input.mutationContext.initialDocGen === 'number')
+    );
+    const isMutationSession = hasActiveSessionMutation || hasMutationContext;
+    let mutationMissingBarrier = false;
+    let mutationBarrierError: string | undefined;
+
+    if (isMutationSession) {
+      // 1. Workspace Transaction Authority: Trusted stored session evidence cannot be bypassed by caller receipts
+      if (hasActiveSessionMutation && activeSession) {
+        if (activeSession.sessionState !== 'settled') {
+          mutationMissingBarrier = true;
+          mutationBarrierError = `Active workspace mutation session "${activeSession.sessionId}" has un-settled mutations (state: ${activeSession.sessionState}); trusted session must be settled via awaitSyncAndReload before QA validation`;
+        } else if (
+          typeof input.target.documentGeneration === 'number' &&
+          typeof activeSession.lineage.documentGeneration === 'number' &&
+          input.target.documentGeneration < activeSession.lineage.documentGeneration
+        ) {
+          mutationMissingBarrier = true;
+          mutationBarrierError = `Target documentGeneration (${input.target.documentGeneration}) is stale compared to session settled generation (${activeSession.lineage.documentGeneration})`;
+        }
+      }
+
+      // 2. External Mutation Context: Never accept structural receipt alone; require cursor + syncReceipt + initialDocGen
+      if (!mutationMissingBarrier && hasMutationContext) {
+        const mc = input.mutationContext!;
+        if (!mc.cursor || !mc.syncReceipt || typeof mc.initialDocGen !== 'number') {
+          mutationMissingBarrier = true;
+          mutationBarrierError = 'External mutation verification requires complete pre-mutation baseline (cursor, syncReceipt, and initialDocGen); structural receipt alone is not accepted';
+        } else {
+          const cursor = mc.cursor;
+          const receipt = mc.syncReceipt;
+          const initialDocGen = mc.initialDocGen;
+
+          const isValidCursor =
+            typeof cursor === 'object' &&
+            cursor !== null &&
+            typeof cursor.sessionId === 'string' &&
+            cursor.sessionId.trim().length > 0 &&
+            typeof cursor.baselineSeq === 'number' &&
+            Number.isInteger(cursor.baselineSeq) &&
+            cursor.baselineSeq >= 0 &&
+            typeof cursor.sessionGeneration === 'number' &&
+            Number.isInteger(cursor.sessionGeneration) &&
+            cursor.sessionGeneration >= 0;
+
+          const isValidReceipt =
+            typeof receipt === 'object' &&
+            receipt !== null &&
+            receipt.settledMethod === 'terminal-output' &&
+            typeof receipt.lastSeq === 'number' &&
+            Number.isInteger(receipt.lastSeq) &&
+            receipt.lastSeq > 0 &&
+            typeof receipt.durationMs === 'number' &&
+            Number.isFinite(receipt.durationMs) &&
+            receipt.durationMs >= 0 &&
+            typeof receipt.syncGen === 'number' &&
+            Number.isInteger(receipt.syncGen) &&
+            receipt.syncGen >= 0 &&
+            typeof receipt.sessionGeneration === 'number' &&
+            Number.isInteger(receipt.sessionGeneration) &&
+            receipt.sessionGeneration >= 0;
+
+          const isValidInitialDocGen =
+            Number.isInteger(initialDocGen) && initialDocGen >= 0;
+
+          if (!isValidCursor) {
+            mutationMissingBarrier = true;
+            mutationBarrierError = 'Terminal sync cursor is malformed: sessionId must be non-empty string, baselineSeq and sessionGeneration must be nonnegative integers';
+          } else if (!isValidReceipt) {
+            mutationMissingBarrier = true;
+            mutationBarrierError = 'Mutation sync receipt is malformed: settledMethod must be "terminal-output", lastSeq positive integer, durationMs nonnegative, syncGen and exact sessionGeneration nonnegative integers';
+          } else if (!isValidInitialDocGen) {
+            mutationMissingBarrier = true;
+            mutationBarrierError = 'Pre-mutation initialDocGen must be a nonnegative integer';
+          } else if (receipt.lastSeq <= cursor.baselineSeq) {
+            mutationMissingBarrier = true;
+            mutationBarrierError = `Mutation sync acknowledgment sequence (${receipt.lastSeq}) preceded or matched pre-mutation baseline (${cursor.baselineSeq}); acknowledgment does not belong to this mutation`;
+          } else if (receipt.sessionGeneration !== cursor.sessionGeneration) {
+            mutationMissingBarrier = true;
+            mutationBarrierError = `Mutation sync receipt sessionGeneration (${receipt.sessionGeneration}) does not match baseline cursor sessionGeneration (${cursor.sessionGeneration}); terminal session generation mismatch`;
+          } else {
+            const currentDocGen = input.target.documentGeneration;
+            if (typeof currentDocGen !== 'number' || currentDocGen <= initialDocGen) {
+              mutationMissingBarrier = true;
+              mutationBarrierError = `Target documentGeneration (${currentDocGen ?? 'undefined'}) failed to advance beyond pre-mutation baseline (${initialDocGen}); stale document lineage`;
+            }
+          }
+        }
+      }
+    }
     // SNAPSHOT diagnostics tại ĐẦU validate, trước MỌI await (Red Team Finding
     // 11): đọc muộn ở bước 5.5 race với navigation clear (phase 1 clear đồng
     // bộ tại did-start-navigation). browser.diagnostics trả mảng copy sẵn nên
@@ -214,15 +345,19 @@ export class ThemeQaWorkflow {
     };
 
     // Stage 2 & 3: Composed Settle Barrier (Phase 4: settleCapture)
+    let settleReceipt: VisualSettleReceipt | undefined;
+    let settleMissingCapability = false;
     try {
       if (typeof this.ports.browser.settleCapture === 'function') {
-        const settleReceipt = await this.ports.browser.settleCapture(activeTarget);
-        if (!settleReceipt.settleComplete) {
+        settleReceipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { signal: input.signal });
+        if (!settleReceipt || !settleReceipt.settleComplete) {
           throw new CapabilityError(
             'SETTLE_INCOMPLETE',
-            `Theme QA settle gate incomplete: gates not all settled (network=${settleReceipt.gates.network}, fonts=${settleReceipt.gates.fonts}, images=${settleReceipt.gates.images}, dom=${settleReceipt.gates.dom})`
+            `Theme QA settle gate incomplete: gates not all settled (network=${settleReceipt?.gates?.network}, fonts=${settleReceipt?.gates?.fonts}, images=${settleReceipt?.gates?.images}, dom=${settleReceipt?.gates?.dom})`
           );
         }
+      } else {
+        settleMissingCapability = true;
       }
     } catch (err) {
       rethrowTargetLifecycleError(err);
@@ -378,6 +513,15 @@ export class ThemeQaWorkflow {
     const diagnosticIssues: DiagnosticIssue[] = diagResult.criticalIssues;
     const diagnosticWarnings: DiagnosticIssue[] = diagResult.warnings;
 
+    // Separate evidence incompleteness from observed failure (do not inject into diagnosticIssues)
+    const evidenceGaps: string[] = [];
+    if (settleMissingCapability) {
+      evidenceGaps.push('Authoritative settlement capability missing (browser.settleCapture is not available on host); cannot certify authoritative PASS');
+    }
+
+    if (mutationMissingBarrier && mutationBarrierError) {
+      evidenceGaps.push(mutationBarrierError);
+    }
     // Pre-reload diagnostics classification (audit-only evidence)
     const preReloadDiagResult = classifyDiagnostics(preReloadDiagnostics, preReloadContextUrl);
     const preReloadCritical: DiagnosticIssue[] = preReloadDiagResult.criticalIssues;
@@ -623,8 +767,30 @@ export class ThemeQaWorkflow {
       serverCrashResult.errorsCount +
       diagnosticIssues.length +
       diagnosticWarnings.length;
+    // Observed defects verdict only for checks the caller kept enabled; `enabledChecks` remains a
+    // verdict filter, while engine checklist authority is preserved separately in `checklist`.
+    const checkParticipates = (key: keyof ThemeQaChecklist): boolean => !enabled || enabled[key] !== false;
+    const hasObservedFailure =
+      (checkParticipates('liquidClean') && liquidResult.hasErrors) ||
+      (checkParticipates('layout') && overflowResult.hasOverflow) ||
+      (checkParticipates('assetsValid') && assetResult.hasBrokenAssets) ||
+      (checkParticipates('hsCompliant') && hsResult.errorsCount > 0) ||
+      serverCrashResult.hasCrash ||
+      diagnosticIssues.length > 0;
+    const hasMissingEvidence = settleMissingCapability || mutationMissingBarrier || evidenceGaps.length > 0;
+
+    let summaryVerdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE' = 'PASS';
+    if (hasObservedFailure) {
+      summaryVerdict = 'FAIL';
+    } else if (hasMissingEvidence) {
+      summaryVerdict = 'INCONCLUSIVE';
+    } else if (activeChecklistEntries.length > 0 && !activeChecklistEntries.every(Boolean)) {
+      summaryVerdict = 'FAIL';
+    }
+
     const summary: ThemeQaSummary = {
-      passed: activeChecklistEntries.length > 0 ? activeChecklistEntries.every(Boolean) : true,
+      passed: summaryVerdict === 'PASS',
+      verdict: summaryVerdict,
       totalIssues,
       criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowResult.culprits.length + assetResult.brokenAssets.length,
     };
@@ -640,6 +806,7 @@ export class ThemeQaWorkflow {
       diagnosticWarnings,
       ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
       ...(differential ? { differential } : {}),
+      ...(evidenceGaps.length > 0 ? { evidenceGaps } : {}),
     };
 
     const artifacts: ArtifactRef[] = [];
@@ -708,6 +875,7 @@ export class ThemeQaWorkflow {
       findings,
       artifacts,
       qaMatrix,
+      ...(settleReceipt ? { settleReceipt } : {}),
       createdAt: Date.now(),
     };
   }
@@ -722,85 +890,170 @@ export class ThemeQaWorkflow {
       mobile?: { mismatchPercent: number; passed: boolean };
     }
   ): QaMatrixReport {
-    const vpDesktop: QaMatrixViewportItem = viewports?.desktop
-      ? { mismatchPercent: viewports.desktop.mismatchPercent, passed: viewports.desktop.passed, measured: true }
-      : { mismatchPercent: null, passed: true, measured: false };
+    const parseViewport = (rawVp?: { mismatchPercent?: unknown; passed?: unknown }): QaMatrixViewportItem => {
+      const isValidNumber = typeof rawVp?.mismatchPercent === 'number' &&
+        Number.isFinite(rawVp.mismatchPercent) &&
+        rawVp.mismatchPercent >= 0 &&
+        rawVp.mismatchPercent <= 100;
 
-    const vpTablet: QaMatrixViewportItem = viewports?.tablet
-      ? { mismatchPercent: viewports.tablet.mismatchPercent, passed: viewports.tablet.passed, measured: true }
-      : { mismatchPercent: null, passed: true, measured: false };
+      if (!isValidNumber) {
+        return {
+          mismatchPercent: null,
+          passed: false,
+          measured: false,
+          verdict: 'INCONCLUSIVE',
+        };
+      }
 
-    const vpMobile: QaMatrixViewportItem = viewports?.mobile
-      ? { mismatchPercent: viewports.mobile.mismatchPercent, passed: viewports.mobile.passed, measured: true }
-      : { mismatchPercent: null, passed: true, measured: false };
+      // The caller owns the structural verdict: a low pixel diff cannot see a
+      // structural parity failure, so the threshold may only downgrade a caller
+      // PASS, never upgrade a caller FAIL.
+      const mismatchPercent = rawVp!.mismatchPercent as number;
+      const passed =
+        rawVp!.passed === true && mismatchPercent < VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT;
+      return {
+        mismatchPercent,
+        passed,
+        measured: true,
+        verdict: passed ? 'PASS' : 'FAIL',
+      };
+    };
+
+    const vpDesktop = parseViewport(viewports?.desktop);
+    const vpTablet = parseViewport(viewports?.tablet);
+    const vpMobile = parseViewport(viewports?.mobile);
 
     const visualScore = vpDesktop.measured && typeof vpDesktop.mismatchPercent === 'number'
       ? Math.max(0, 100 - Math.round(vpDesktop.mismatchPercent * 10))
-      : 100;
+      : null;
 
     const responsiveMeasuredCount = (vpTablet.measured ? 1 : 0) + (vpMobile.measured ? 1 : 0);
     const responsiveScore = responsiveMeasuredCount > 0
       ? Math.max(0, 100 - Math.round((((vpTablet.mismatchPercent || 0) + (vpMobile.mismatchPercent || 0)) / responsiveMeasuredCount) * 10))
-      : 100;
+      : null;
 
-    const domSemanticsScore = checklist.layout ? 98 : 70;
-    const cssModularityScore = checklist.responsive ? 96 : 65;
-    const interactiveScore = checklist.interactions ? 100 : 50;
-    const haravanScore = checklist.liquidClean !== false ? 100 : 40;
-    const assetScore = checklist.assetsValid !== false ? 100 : 60;
-    const perfScore = summary.criticalCount === 0 ? 95 : 60;
+    const domSemanticsScore = typeof checklist.layout === 'boolean'
+      ? (checklist.layout ? 98 : 70)
+      : null;
+    const domSemanticsDetails = typeof checklist.layout === 'boolean'
+      ? (checklist.layout ? 'Semantic tags and clean tree structure validated' : 'DOM tree issues detected')
+      : 'DOM semantics unmeasured';
+
+    const cssModularityScore = typeof checklist.responsive === 'boolean'
+      ? (checklist.responsive ? 96 : 65)
+      : null;
+    const cssModularityDetails = typeof checklist.responsive === 'boolean'
+      ? 'Modular section CSS and responsive breakpoints'
+      : 'CSS modularity unmeasured';
+
+    const interactiveScore = typeof checklist.interactions === 'boolean'
+      ? (checklist.interactions ? 100 : 50)
+      : null;
+    const interactiveDetails = typeof checklist.interactions === 'boolean'
+      ? (checklist.interactions ? 'All hover, sliders, and modals pass CleanTabProbe' : 'Interactive failures')
+      : 'Interactive operability unmeasured';
+
+    // Compliance details describe actual scan scope/results. liquidClean absent is UNKNOWN, not clean.
+    // Even true only certifies that scanner's checks, not all Haravan compliance or runtime execution.
+    let haravanScore: number | null = null;
+    let haravanDetails = 'Haravan Liquid syntax scan unmeasured or unknown (no scanner execution)';
+    if (checklist.liquidClean === true) {
+      haravanScore = 100;
+      haravanDetails = 'Liquid syntax clean per scanner static/browser checks (does not certify full Haravan OS 2.0 or runtime platform compliance)';
+    } else if (checklist.liquidClean === false) {
+      haravanScore = 40;
+      haravanDetails = 'Liquid syntax errors detected by scanner';
+    }
+
+    const assetScore = typeof checklist.assetsValid === 'boolean'
+      ? (checklist.assetsValid ? 100 : 60)
+      : null;
+    const assetDetails = typeof checklist.assetsValid === 'boolean'
+      ? (!findings?.assets?.hasBrokenAssets ? 'All assets and local font subsets resolved without broken links' : 'Broken assets found')
+      : 'Asset integrity unmeasured';
+
+    // Performance/CWV: unmeasured in ThemeQaWorkflow, nullable score without false certification
+    const perfScore: number | null = null;
+    const perfDetails = 'Core Web Vitals and performance unmeasured (no CWV telemetry measured in this run)';
 
     const dimensions = {
       visualFidelity: {
         score: visualScore,
         details: vpDesktop.measured
-          ? `Desktop diff: ${vpDesktop.mismatchPercent}%, threshold < 10%`
+          ? `Desktop diff: ${vpDesktop.mismatchPercent}%, threshold < ${VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT}%`
           : 'Visual diff unmeasured (no baseline comparison supplied)',
       },
-      domSemantics: { score: domSemanticsScore, details: checklist.layout ? 'Semantic tags and clean tree structure validated' : 'DOM tree issues detected' },
-      cssModularity: { score: cssModularityScore, details: 'Modular section CSS and responsive breakpoints' },
-      interactiveOperability: { score: interactiveScore, details: checklist.interactions ? 'All hover, sliders, and modals pass CleanTabProbe' : 'Interactive failures' },
-      haravanCompliance: { score: haravanScore, details: 'Haravan OS 2.0 sections, schema presets, and Liquid templates' },
-      assetIntegrity: { score: assetScore, details: !findings?.assets?.hasBrokenAssets ? 'All assets and local font subsets resolved without broken links' : 'Broken assets found' },
+      domSemantics: { score: domSemanticsScore, details: domSemanticsDetails },
+      cssModularity: { score: cssModularityScore, details: cssModularityDetails },
+      interactiveOperability: { score: interactiveScore, details: interactiveDetails },
+      haravanCompliance: { score: haravanScore, details: haravanDetails },
+      assetIntegrity: { score: assetScore, details: assetDetails },
       responsiveParity: {
         score: responsiveScore,
         details: responsiveMeasuredCount > 0
           ? `Tablet diff: ${vpTablet.mismatchPercent ?? 'N/A'}%, Mobile diff: ${vpMobile.mismatchPercent ?? 'N/A'}%`
           : 'Responsive viewports unmeasured (no baseline comparison supplied)',
       },
-      performanceCWV: { score: perfScore, details: 'No render-blocking scripts, clean lazy loading' }
+      performanceCWV: { score: perfScore, details: perfDetails },
     };
 
-    const scoredDimensions = [
-      domSemanticsScore,
-      cssModularityScore,
-      interactiveScore,
-      haravanScore,
-      assetScore,
-      perfScore,
-    ];
-    if (vpDesktop.measured) scoredDimensions.push(visualScore);
-    if (responsiveMeasuredCount > 0) scoredDimensions.push(responsiveScore);
+    const finiteScores = Object.values(dimensions)
+      .map((d) => d.score)
+      .filter((s): s is number => typeof s === 'number' && Number.isFinite(s));
 
-    const overallScore = Math.round(
-      scoredDimensions.reduce((sum, s) => sum + s, 0) / scoredDimensions.length
-    );
+    const overallScore = finiteScores.length > 0
+      ? Math.round(finiteScores.reduce((sum, s) => sum + s, 0) / finiteScores.length)
+      : null;
 
-    const passed = summary.passed &&
-      (!vpDesktop.measured || vpDesktop.passed) &&
-      (!vpTablet.measured || vpTablet.passed) &&
-      (!vpMobile.measured || vpMobile.passed);
+    const measuredVpCount = (vpDesktop.measured ? 1 : 0) + (vpTablet.measured ? 1 : 0) + (vpMobile.measured ? 1 : 0);
+    const coverage: QaMatrixCoverage = {
+      measuredDimensions: finiteScores.length,
+      totalDimensions: 8,
+      measuredViewports: measuredVpCount,
+      totalViewports: 3,
+    };
+
+    const anyVpFailed = (vpDesktop.measured && !vpDesktop.passed) ||
+      (vpTablet.measured && !vpTablet.passed) ||
+      (vpMobile.measured && !vpMobile.passed);
+
+    const allVpMeasured = vpDesktop.measured && vpTablet.measured && vpMobile.measured;
+    const allVpPassed = allVpMeasured && vpDesktop.passed && vpTablet.passed && vpMobile.passed;
+
+    const rawLiquidClean: unknown = checklist && 'liquidClean' in checklist ? checklist.liquidClean : undefined;
+    const hasComplianceScan = typeof rawLiquidClean === 'boolean';
+    const hasEvidenceGaps = Boolean(findings?.evidenceGaps && findings.evidenceGaps.length > 0);
+
+    let verdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+    if (anyVpFailed || summary.verdict === 'FAIL') {
+      verdict = 'FAIL';
+    } else if (
+      !allVpMeasured ||
+      !hasComplianceScan ||
+      summary.verdict === 'INCONCLUSIVE' ||
+      hasEvidenceGaps
+    ) {
+      verdict = 'INCONCLUSIVE';
+    } else if (allVpPassed && summary.passed) {
+      verdict = 'PASS';
+    } else {
+      verdict = summary.criticalCount > 0 ? 'FAIL' : 'INCONCLUSIVE';
+    }
+
+    const passed = verdict === 'PASS';
 
     return {
       timestamp: new Date().toISOString(),
       overallScore,
       passed,
+      verdict,
+      coverage,
       dimensions,
       viewports: {
         desktop: vpDesktop,
         tablet: vpTablet,
-        mobile: vpMobile
-      }
+        mobile: vpMobile,
+      },
     };
   }
   private assertOwnership(target: BrowserTarget): void {

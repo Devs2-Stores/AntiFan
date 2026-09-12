@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-12T12:30:37.652Z",
+  "store": {
+    "domain": "phukienmaymoc.com",
+    "orgId": "200001207485",
+    "themeId": "1001512581",
+    "themeRole": "unpublished"
+  },
+  "referenceSet": {
+    "root": "exports/hoplongtech-html",
+    "note": "9 routes documented in exports/hoplongtech-html/INDEX.md and all 9 page dirs + index.html verified present on disk (page-01-home, page-02-brands, page-03-category-cam-bien, page-04-category-contactor, page-05-brands-ecovacs, page-07-product-detail, page-08-bao-gia, page-10-tin-tuc, page-11-tin-tuc-detail); page-06/09/12-15 were not exported per INDEX.md section 'Khong xuat'."
+  },
+  "routes": [
+    {
+      "id": "ROUTE_01_HOME",
+      "path": "/",
+      "template": "templates/index.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-01-home",
+      "referenceUrl": "https://hoplongtech.com/",
+      "dataBinding": {
+        "kind": "static",
+        "handle": null,
+        "source": "static - no catalog entity; templates/index.liquid:6-13 includes 8 hl-home-* snippets; live staging render (themeid=1001512581) observed by Main: section.slide, section.category-list, section.banner-category, section.block-category x5, section.home-form, section.accessory, section.news, section.partner"
+      },
+      "bindingStatus": "RESOLVED_LIVE",
+      "liveVerification": {
+        "status": 200,
+        "bytes": 1188605,
+        "templateMarker": "section.slide + 11 further sections",
+        "note": "unchanged from the agent claim; independently re-observed"
+      }
+    },
+    {
+      "id": "ROUTE_02_BRANDS_DIRECTORY",
+      "path": "/pages/brands",
+      "template": "templates/page.brands.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-02-brands",
+      "referenceUrl": "https://hoplongtech.com/brands",
+      "dataBinding": {
+        "kind": "static",
+        "handle": null,
+        "source": "live /pages/brands -> HTTP 200, root class page-brand-all (templates/page.brands.liquid:1); page entity present in the public sitemap; snippets/hl-page-brands.liquid:25,43 iterate shop.vendors"
+      },
+      "bindingStatus": "RESOLVED_LIVE",
+      "liveVerification": {
+        "status": 200,
+        "title": "Danh mục thương hiệu",
+        "templateMarker": "page-brand-all (templates/page.brands.liquid)",
+        "refuted": "GET /brands returns HTTP 404 (title Không tìm thấy trang); the earlier 404.liquid binding is REFUTED."
+      }
+    },
+    {
+      "id": "ROUTE_03_CATEGORY_UNFILTERED",
+      "path": "/collections/cam-bien",
+      "template": "templates/collection.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-03-category-cam-bien",
+      "referenceUrl": "https://hoplongtech.com/category/cam-bien",
+      "dataBinding": {
+        "kind": "collection",
+        "handle": "cam-bien",
+        "source": "live /collections/cam-bien -> HTTP 200; GET /collections/cam-bien/products.json -> 5 products; live /collections.json enumerates 37 collections including cam-bien"
+      },
+      "bindingStatus": "RESOLVED_LIVE",
+      "liveVerification": {
+        "status": 200,
+        "title": "Cảm Biến Tự Động Hóa",
+        "templateMarker": "product-list + cate-list (templates/collection.liquid)",
+        "note": "collection exists live and contains 5 products; it is absent from the 35-entry inventory array - the inventory was incomplete"
+      }
+    },
+    {
+      "id": "ROUTE_04_CATEGORY_FILTERED",
+      "path": "/collections/contactor",
+      "template": "templates/collection.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-04-category-contactor",
+      "referenceUrl": "https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127",
+      "dataBinding": {
+        "kind": "collection",
+        "handle": "contactor",
+        "source": "live /collections/contactor -> HTTP 200 with 5 products; reference filter filterBrandIds[0]=1127 has no verified Haravan equivalent (recorded UNKNOWN, not invented)"
+      },
+      "bindingStatus": "RESOLVED_LIVE",
+      "liveVerification": {
+        "status": 200,
+        "title": "Khởi Động Từ - Contactor",
+        "templateMarker": "product-list + cate-list (templates/collection.liquid)",
+        "note": "unfiltered collection route verified live; the reference vendor/attribute filter parameter is NOT verified",
+        "filterConventionObserved": "snippets/hl-page-brands.liquid:54 emits /collections/all?filter=(vendor:product={vendor}) - theme-authored, not platform-attested"
+      }
+    },
+    {
+      "id": "ROUTE_05_BRAND_PAGE",
+      "path": "/collections/vendors?q=Ecovacs",
+      "template": "templates/collection.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-05-brands-ecovacs",
+      "referenceUrl": "https://hoplongtech.com/brands/ecovacs",
+      "dataBinding": {
+        "kind": "collection",
+        "handle": "vendors?q=Ecovacs",
+        "source": "live /collections/vendors?q=Ecovacs -> HTTP 200 rendering templates/collection.liquid; the binding of templates/collection.brand.liquid (root brand-single w-100) to any live route is UNKNOWN and must not be asserted"
+      },
+      "bindingStatus": "RESOLVED_LIVE_TEMPLATE_UNKNOWN",
+      "liveVerification": {
+        "status": 200,
+        "title": "(empty)",
+        "templateMarker": "product-list + cate-list (templates/collection.liquid)",
+        "refuted": "the vendor route does NOT render templates/collection.brand.liquid; no live route observed so far renders brand-single"
+      }
+    },
+    {
+      "id": "ROUTE_06_PRODUCT_DETAIL",
+      "path": "/products/lc1d09m7",
+      "template": "templates/product.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-07-product-detail",
+      "referenceUrl": "https://hoplongtech.com/products/lc1d09m7",
+      "dataBinding": {
+        "kind": "product",
+        "handle": "lc1d09m7",
+        "source": "resolved live (read-only) via GET /collections/all/products.json?themeid=1001512581 - HTTP 200, 50 products page 1; handle identical to the reference URL path segment, so binding is 1:1; inventory products_summary reports counts.products=234 but carries no product handles; wrapper templates/product.liquid:85 'products-single w-100' == reference section_products-single_w-100_1"
+      },
+      "bindingStatus": "RESOLVED_FROM_INVENTORY"
+    },
+    {
+      "id": "ROUTE_07_QUOTE_REQUEST",
+      "path": "/pages/bao-gia",
+      "template": "templates/page.quote.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-08-bao-gia",
+      "referenceUrl": "https://hoplongtech.com/bao-gia",
+      "dataBinding": {
+        "kind": "page",
+        "handle": "bao-gia",
+        "source": "live /pages/bao-gia -> HTTP 200 rendering templates/page.quote.liquid (page-form); page entity present in the public sitemap (13 pages live vs 6 in the inventory)"
+      },
+      "bindingStatus": "RESOLVED_LIVE",
+      "liveVerification": {
+        "status": 200,
+        "title": "Yêu cầu báo giá",
+        "templateMarker": "page-form (templates/page.quote.liquid)",
+        "refuted": "GET /bao-gia returns HTTP 404; theme nav links to it (snippets/header.liquid:509) but no such flat route exists"
+      }
+    },
+    {
+      "id": "ROUTE_08_BLOG_LISTING",
+      "path": "/blogs/news",
+      "template": "templates/blog.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-10-tin-tuc",
+      "referenceUrl": "https://hoplongtech.com/tin-tuc",
+      "dataBinding": {
+        "kind": "blog",
+        "handle": "news",
+        "source": "blogs[0].handle ('Tin tuc', articles_count=10); wrapper templates/blog.liquid:5 'blog w-100' == reference section_blog_w-100_1; theme nav aliases the same listing as '/tin-tuc' (snippets/header.liquid:569, snippets/footer.liquid:96), which is not a Haravan flat route"
+      },
+      "bindingStatus": "RESOLVED_LIVE",
+      "liveVerification": {
+        "status": 200,
+        "title": "Tin tức",
+        "templateMarker": "blog w-100 (templates/blog.liquid)",
+        "refuted": "GET /tin-tuc returns HTTP 404; the theme nav alias is not a Haravan flat route"
+      }
+    },
+    {
+      "id": "ROUTE_09_ARTICLE_DETAIL",
+      "path": "/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong",
+      "template": "templates/article.liquid",
+      "referenceDir": "exports/hoplongtech-html/page-11-tin-tuc-detail",
+      "referenceUrl": "https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html",
+      "dataBinding": {
+        "kind": "article",
+        "handle": "plc-la-gi-cau-tao-nguyen-ly-hoat-dong",
+        "source": "live /blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong -> HTTP 200 rendering templates/article.liquid; 10 real articles enumerated in the public sitemap; the REFERENCE article (quoc-vuong-jordan-...) has no counterpart in this store - accepted reference deviation, not a theme defect"
+      },
+      "bindingStatus": "RESOLVED_LIVE",
+      "liveVerification": {
+        "status": 200,
+        "title": "PLC là gì? Cấu tạo, nguyên lý hoạt động",
+        "templateMarker": "layout-article (templates/article.liquid)"
+      }
+    }
+  ],
+  "unresolved": [
+    {
+      "routeId": "ROUTE_04_CATEGORY_FILTERED",
+      "question": "Does the theme support any verified attribute/vendor filter parameter on collection routes?",
+      "evidence": "Only the theme-authored convention /collections/all?filter=(vendor:product={vendor}) (snippets/hl-page-brands.liquid:54) was found. No platform documentation, Admin behaviour, or live observation confirms that syntax. Recorded UNKNOWN; must not be claimed as a working filter contract."
+    },
+    {
+      "routeId": "ROUTE_05_BRAND_PAGE",
+      "question": "Which live route (if any) renders templates/collection.brand.liquid?",
+      "evidence": "/collections/vendors?q=Ecovacs renders templates/collection.liquid live, not collection.brand.liquid. The brand-single wrapper was never observed in live HTML; its binding is UNKNOWN."
+    },
+    {
+      "routeId": "ROUTE_09_ARTICLE_DETAIL",
+      "question": "Reference article has no counterpart in this store.",
+      "evidence": "Reference slug quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot is absent from /sitemap_blogs_1.xml (10 articles). Comparing captures for that slug would be comparing unrelated content; the bound live article is a documented deviation."
+    }
+  ],
+  "liveVerification": {
+    "fetchedAt": "2026-09-12T12:33:35.108Z",
+    "method": "read-only HTTP GET with ?themeid=1001512581 on the staging storefront; template attribution by matching template-unique root classes in the returned HTML",
+    "artifacts": [
+      "plans/reports/evidence-addon-11-260912-1731-template-resolution.json",
+      "plans/reports/evidence-addon-12-260912-1731-live-sitemap-inventory.json",
+      "plans/reports/evidence-addendum-09-260912-1731-staging-route-probe-2.json"
+    ]
+  },
+  "inventoryReconciliation": {
+    "summary": "reports/haravan-store-inventory.json undercounts live entities; the live storefront/sitemap is authoritative for route existence",
+    "counts": {
+      "inventory": {
+        "products": 234,
+        "collections": 35,
+        "pages": 6,
+        "articles": 10
+      },
+      "live": {
+        "products": 236,
+        "collections": 37,
+        "pages": 13,
+        "articles": 10
+      },
+      "sources": {
+        "products": "/sitemap_products_1.xml",
+        "collections": "/sitemap_collections_1.xml + /collections.json?limit=250",
+        "pages": "/sitemap_pages_1.xml",
+        "articles": "/sitemap_blogs_1.xml"
+      }
+    },
+    "additionalFindings": [
+      "collections[].products_count is unreliable: /collections.json reports 5 for all 37 collections while per-collection /collections/{handle}/products.json returns 1 (may-uon-cong), 5 (cam-bien) and 19 (nguon-laser-soi-quang)",
+      "the inventory pages[] array omits /pages/brands, /pages/bao-gia, /pages/tai-lieu-ky-thuat, /pages/gioi-thieu, /pages/lich-su-phat-trien, /pages/tuyen-dung, /pages/tai-lieu-ky-thuat-1",
+      "/collections/cam-bien, /collections/contactor and /collections/phu-kien-han return the SAME 5 product handles - store data reality, not a routing defect"
+    ],
+    "defectId": "D12"
+  }
+}

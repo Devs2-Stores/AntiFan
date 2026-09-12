@@ -1,0 +1,29 @@
+{
+  "fetchedAt": "2026-09-12T12:29:19.058Z",
+  "url": "https://phukienmaymoc.com/?themeid=1001512581",
+  "httpStatus": 200,
+  "bytes": 1188605,
+  "sha256": "70fa6dd7c524c285de65692b9e8385c97e9f512642c4ba2200885ca5bbfba3e1",
+  "innerWidthProbe": "n/a (raw HTTP, not browser)",
+  "mainBytes": 335570,
+  "renderedSectionClasses": [
+    "slide",
+    "category-list",
+    "banner-category",
+    "block-category",
+    "block-category",
+    "block-category",
+    "block-category",
+    "block-category",
+    "home-form",
+    "accessory",
+    "news",
+    "partner"
+  ],
+  "absentMarkers": [
+    "product-loop",
+    "homepage-collection",
+    "home-collection-tabs"
+  ],
+  "note": "Raw HTTP evidence only: no viewport, no screenshot, no identity attestation beyond the themeid query. Not a substitute for Phase 07 browser measurement."
+}

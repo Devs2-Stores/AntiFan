@@ -12,7 +12,14 @@ export interface SnippetDefinition {
 }
 
 export class HaravanSnippetGenerator {
-  public generateSnippets(snippetsDir: string): string[] {
+  /**
+   * Writes the generic snippet set into `snippetsDir`.
+   *
+   * `excludeNames` carries snippet names the caller already emitted from the
+   * source IR (for example the cloned `header`/`footer` chrome). Those files are
+   * left untouched: a generic stub must never overwrite cloned markup.
+   */
+  public generateSnippets(snippetsDir: string, excludeNames?: ReadonlySet<string>): string[] {
     fs.mkdirSync(snippetsDir, { recursive: true });
     const writtenFiles: string[] = [];
 
@@ -67,10 +74,10 @@ export class HaravanSnippetGenerator {
         name: 'search-bar',
         liquidTemplate: `
 <div class="search-bar">
-  <form action="{{ routes.search_url }}" method="get" role="search">
+  <form action="/search" method="get" role="search">
     <input type="search" name="q" placeholder="Tìm kiếm sản phẩm..." value="{{ search.terms | escape }}" autocomplete="off">
     <button type="submit" aria-label="Tìm kiếm">
-      {% render 'icon-search' %}
+      {% include 'icon-search' %}
     </button>
   </form>
 </div>
@@ -108,10 +115,48 @@ export class HaravanSnippetGenerator {
   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
 </svg>
         `.trim()
+      },
+      {
+        name: 'header',
+        liquidTemplate: `
+<header class="site-header" role="banner">
+  <div class="container">
+    <div class="header-inner">
+      <a href="/" class="header-logo">
+        {% if settings.logo != blank %}
+          <img src="{{ settings.logo | img_url: 'medium' }}" alt="{{ shop.name | escape }}">
+        {% else %}
+          <span>{{ shop.name | escape }}</span>
+        {% endif %}
+      </a>
+      {% include 'search-bar' %}
+      <div class="header-actions">
+        <a href="/cart" class="header-cart" aria-label="Giỏ hàng">
+          {% include 'icon-cart' %}
+          <span class="cart-count">{{ cart.item_count }}</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</header>
+        `.trim()
+      },
+      {
+        name: 'footer',
+        liquidTemplate: `
+<footer class="site-footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <p class="copyright">&copy; {{ 'now' | date: '%Y' }} {{ shop.name | escape }}. All rights reserved.</p>
+    </div>
+  </div>
+</footer>
+        `.trim()
       }
     ];
 
     for (const item of snippets) {
+      if (excludeNames?.has(item.name)) continue;
       const filePath = path.join(snippetsDir, `${item.name}.liquid`);
       fs.writeFileSync(filePath, item.liquidTemplate, 'utf-8');
       writtenFiles.push(filePath);

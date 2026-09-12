@@ -1,0 +1,62 @@
+<footer class="site-footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <h3 class="footer-col-title">{{ shop.name | escape }}</h3>
+        <p style="line-height: 1.6; color: #CBD5E0;">
+          {{ settings.footer_about_text | escape }}
+        </p>
+        <p style="font-size: 0.875rem; color: #A0AEC0;">
+          Email: {{ shop.email | escape }}
+        </p>
+      </div>
+
+      <div>
+        <h3 class="footer-col-title">Liên kết nhanh</h3>
+        {%- assign footer_menu = settings.footer_menu_handle | default: 'footer' -%}
+        <ul style="list-style: none; padding: 0; margin: 0; line-height: 2;">
+          {%- if linklists[footer_menu] and linklists[footer_menu].links.size > 0 -%}
+            {%- for link in linklists[footer_menu].links -%}
+              <li><a href="{{ link.url }}">{{ link.title | escape }}</a></li>
+            {%- endfor -%}
+          {%- else -%}
+            <li><a href="/">Trang chủ</a></li>
+            <li><a href="/collections/all">Sản phẩm</a></li>
+            <li><a href="/pages/contact">Liên hệ</a></li>
+          {%- endif -%}
+        </ul>
+      </div>
+
+      {%- if settings.footer_newsletter_enable -%}
+        <div>
+          <h3 class="footer-col-title">Đăng ký nhận tin</h3>
+          <p style="font-size: 0.875rem; color: #CBD5E0; margin-bottom: 1rem;">
+            Nhận thông tin về sản phẩm mới và chương trình khuyến mãi sớm nhất.
+          </p>
+          <form action="/account/contact" method="post" accept-charset="UTF-8">
+            <input type="hidden" name="form_type" value="customer" />
+            <input type="hidden" name="utf8" value="✓" />
+            <input type="hidden" name="contact[tags]" value="newsletter" />
+            <div style="display: flex; gap: 0.5rem;">
+              <input
+                type="email"
+                name="contact[email]"
+                class="form-control"
+                placeholder="Nhập email của bạn..."
+                required
+                aria-label="Địa chỉ email nhận bản tin"
+              />
+              <button type="submit" class="btn btn-primary">Gửi</button>
+            </div>
+          </form>
+        </div>
+      {%- endif -%}
+    </div>
+
+    <div class="footer-bottom">
+      <p style="margin: 0;">
+        {{ settings.footer_copyright_text | escape }}
+      </p>
+    </div>
+  </div>
+</footer>

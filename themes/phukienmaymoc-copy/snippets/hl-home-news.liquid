@@ -45,7 +45,7 @@
                                         <div class="article-item__thumbnail">
                                             <a title="{{ article.title }}" aria-label="{{ article.title }}" href="{{ article.url }}">
                                                 <div class="thumbnail-item">
-                                                    <img loading="eager" src="{% if article.image %}{{ article.image.src }}{% else %}{{ 'logo.png' | asset_url }}{% endif %}" alt="{{ article.title | escape }}" width="333" height="190" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                                    <img loading="eager" src="{% if article.image %}{{ article.image.src }}{% else %}{{ 'no_image.jpg' | asset_url }}{% endif %}" alt="{{ article.title | escape }}" width="333" height="190" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
                                                 </div>
                                             </a>
                                         </div>

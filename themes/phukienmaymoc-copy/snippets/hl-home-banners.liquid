@@ -30,27 +30,39 @@
 <section class="banner-category">
   <div class="container container-fuild">
     <div class="banner-category__content w-100">
+      {%- assign ban1 = collections['phu-tro'] -%}
+      {%- if ban1 -%}
+      {%- assign ban1_img = ban1.products.first.featured_image -%}
       <div class="banner-category__item">
-        <a href="/series/miluz-e" title="/series/miluz-e" aria-label="/series/miluz-e">
+        <a href="{{ ban1.url }}" title="{{ ban1.title | escape }}" aria-label="{{ ban1.title | escape }}">
           <div class="thumbnail-item">
-            <img loading="eager" src="{{ "logo.png" | asset_url }}" alt="miluz-e" width="466" height="196" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+            <img loading="eager" src="{% if ban1_img %}{{ ban1_img.src | product_img_url: 'medium' }}{% else %}{{ 'default_image.png.webp' | asset_url }}{% endif %}" alt="{{ ban1.title | escape }}" width="466" height="196" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
           </div>
         </a>
       </div>
+      {%- endif -%}
+      {%- assign ban2 = collections['phu-kien-laser-co2'] -%}
+      {%- if ban2 -%}
+      {%- assign ban2_img = ban2.products.first.featured_image -%}
       <div class="banner-category__item">
-        <a href="/collections/bien-ap-cach-ly?filterBrandIds[0]=1162" title="/collections/bien-ap-cach-ly?filterBrandIds[0]=1162" aria-label="/collections/bien-ap-cach-ly?filterBrandIds[0]=1162">
+        <a href="{{ ban2.url }}" title="{{ ban2.title | escape }}" aria-label="{{ ban2.title | escape }}">
           <div class="thumbnail-item">
-            <img loading="eager" src="{{ "logo.png" | asset_url }}" alt="bien-ap-giga-electric-1" width="466" height="196" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+            <img loading="eager" src="{% if ban2_img %}{{ ban2_img.src | product_img_url: 'medium' }}{% else %}{{ 'default_image.png.webp' | asset_url }}{% endif %}" alt="{{ ban2.title | escape }}" width="466" height="196" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
           </div>
         </a>
       </div>
+      {%- endif -%}
+      {%- assign ban3 = collections['may-lam-lanh-nuoc'] -%}
+      {%- if ban3 -%}
+      {%- assign ban3_img = ban3.products.first.featured_image -%}
       <div class="banner-category__item">
-        <a href="/collections/bien-tan-ha-the?filterBrandIds[0]=1189" title="/collections/bien-tan-ha-the?filterBrandIds[0]=1189" aria-label="/collections/bien-tan-ha-the?filterBrandIds[0]=1189">
+        <a href="{{ ban3.url }}" title="{{ ban3.title | escape }}" aria-label="{{ ban3.title | escape }}">
           <div class="thumbnail-item">
-            <img loading="eager" src="{{ "logo.png" | asset_url }}" alt="bien-tan-nistro-3" width="466" height="196" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+            <img loading="eager" src="{% if ban3_img %}{{ ban3_img.src | product_img_url: 'medium' }}{% else %}{{ 'default_image.png.webp' | asset_url }}{% endif %}" alt="{{ ban3.title | escape }}" width="466" height="196" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
           </div>
         </a>
       </div>
+      {%- endif -%}
     </div>
   </div>
 </section>

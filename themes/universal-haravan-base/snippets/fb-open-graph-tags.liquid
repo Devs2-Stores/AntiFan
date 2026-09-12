@@ -1,0 +1,40 @@
+{%- assign og_title = page_title | default: shop.name -%}
+{%- assign og_url = canonical_url | default: shop.url -%}
+{%- assign og_type = 'website' -%}
+{%- assign og_description = page_description | default: shop.description | default: shop.name -%}
+
+{%- if template contains 'product' -%}
+  {%- assign og_type = 'product' -%}
+  {%- assign og_title = product.title | strip_html | escape -%}
+  {%- assign og_description = product.description | strip_html | truncatewords: 25 | escape -%}
+{%- elsif template contains 'article' -%}
+  {%- assign og_type = 'article' -%}
+  {%- assign og_title = article.title | strip_html | escape -%}
+  {%- assign og_description = article.content | strip_html | truncatewords: 25 | escape -%}
+{%- elsif template contains 'collection' -%}
+  {%- assign og_title = collection.title | strip_html | escape -%}
+  {%- assign og_description = collection.description | strip_html | truncatewords: 25 | escape -%}
+{%- endif -%}
+
+<meta property="og:site_name" content="{{ shop.name | escape }}" />
+<meta property="og:url" content="{{ og_url }}" />
+<meta property="og:title" content="{{ og_title }}" />
+<meta property="og:type" content="{{ og_type }}" />
+<meta property="og:description" content="{{ og_description }}" />
+
+{%- if template contains 'product' and product.images.size > 0 -%}
+  {%- assign og_image = product.images.first | img_url: 'grande' -%}
+  <meta property="og:image" content="{{ og_image }}" />
+  <meta property="og:image:secure_url" content="{{ og_image }}" />
+  <meta property="og:price:amount" content="{{ product.price | money_without_currency | strip_html }}" />
+  <meta property="og:price:currency" content="{{ shop.currency }}" />
+{%- elsif template contains 'article' and article.image -%}
+  <meta property="og:image" content="{{ article | img_url: 'grande' }}" />
+  <meta property="og:image:secure_url" content="{{ article | img_url: 'grande' }}" />
+{%- elsif settings.header_logo != blank -%}
+  <meta property="og:image" content="{{ settings.header_logo }}" />
+{%- endif -%}
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="{{ og_title }}" />
+<meta name="twitter:description" content="{{ og_description }}" />

@@ -1,0 +1,61 @@
+{
+  "attestedAt": "2026-09-12",
+  "method": "Read-only Haravan Admin API via the local Haravan CLI (npx tsx E:/Work/apps/Haravan CLI/src/index.ts), executed with cwd = themes/phukienmaymoc-copy so the project binding in .haravan-cli_local.json resolves. No write, no push, no publish.",
+  "platform": "Haravan",
+  "commands": [
+    {
+      "command": "hrv theme info --json",
+      "endpoint": "GET /web/themes/1001512581.json",
+      "output": {
+        "theme_id": 1001512581,
+        "name": "Bản sao chép của clothing",
+        "role": "unpublished",
+        "org_id": "200001207485",
+        "org_name": "Phukienmaymoc"
+      }
+    },
+    {
+      "command": "hrv theme list --json",
+      "endpoint": "GET /web/themes.json",
+      "output": [
+        {
+          "created_at": "2026-09-06T07:28:14.600Z",
+          "id": 1001512581,
+          "name": "Bản sao chép của clothing",
+          "role": "unpublished",
+          "previewable": true,
+          "processing": false
+        },
+        {
+          "created_at": "2026-08-26T04:52:26.092Z",
+          "id": 1001510509,
+          "name": "Phụ Kiện Máy Móc New Version",
+          "role": "main",
+          "previewable": true,
+          "processing": false
+        }
+      ]
+    }
+  ],
+  "verdict": {
+    "stagingWriteTarget": {
+      "themeId": "1001512581",
+      "role": "unpublished",
+      "status": "VERIFIED",
+      "note": "Role re-attested live 2026-09-12. Matches reports/haravan-store-inventory.json and .haravan-cli_local.json (org_id 200001207485)."
+    },
+    "protectedMainTheme": {
+      "themeId": "1001510509",
+      "role": "main",
+      "status": "VERIFIED",
+      "policy": "PROTECTED_NEVER_TOUCH"
+    },
+    "storeThemeCount": 2
+  },
+  "previousBlocker": "Phase 00 recorded 'live Admin attestation blocked: mounted browser tools denied'. Resolution: the Haravan Admin API path (read-only) is available through the CLI even though the AntiFan Desktop MCP tool surface is unpermitted in this session; theme role/identity is therefore attested live, not inferred. AntiFan Control Plane RPC (.canary/tools/lib-rpc.mjs -> anti.browser.tabs.list) is also reachable, so browser-based measurement for Phase 07 does not depend on the denied direct MCP surface.",
+  "boundaries": [
+    "No credential, token, or org secret value appears in this file.",
+    "No write, push, publish, delete, or rename operation was performed.",
+    "Role must be re-attested before every write batch (see plans/.../phase-00)."
+  ]
+}

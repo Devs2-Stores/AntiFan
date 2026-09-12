@@ -32,96 +32,66 @@
 <section class="category-list">
             <div class="container container-fuild">
             <div class="category-list__content flex w-100">
+                                    {%- assign cat1 = collections['phu-kien-may-laser'] -%}
+                                    {%- if cat1 -%}
                                     <div class="category-list__item">
-                        <div class="thumbnail">
-                            <a href="/collections/bien-tan-ha-the" title="Biến tần Schneider" aria-label="Biến tần Schneider">
-                                <div class="thumbnail-item"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="bien-tan-se"
-                            width="136"
-                            height="95"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                            </a>
-                        </div>
-                        
-                    </div>
+                                        <div class="thumbnail">
+                                            <a href="{{ cat1.url }}" title="{{ cat1.title | escape }}" aria-label="{{ cat1.title | escape }}">
+                                                <div class="thumbnail-item">
+                                                    <img loading="eager" src="{{ cat1.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ cat1.title | escape }}" width="136" height="95" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                                </div>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    {%- endif -%}
+                                    {%- assign cat2 = collections['dau-cat-laser'] -%}
+                                    {%- if cat2 -%}
                                     <div class="category-list__item">
-                        <div class="thumbnail">
-                            <a href="/collections/nut-nhan" title="Nút nhấn" aria-label="Nút nhấn">
-                                <div class="thumbnail-item"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="nut-nhan-giga"
-                            width="136"
-                            height="95"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                            </a>
-                        </div>
-                        
-                    </div>
+                                        <div class="thumbnail">
+                                            <a href="{{ cat2.url }}" title="{{ cat2.title | escape }}" aria-label="{{ cat2.title | escape }}">
+                                                <div class="thumbnail-item">
+                                                    <img loading="eager" src="{{ cat2.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ cat2.title | escape }}" width="136" height="95" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                                </div>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    {%- endif -%}
+                                    {%- assign cat3 = collections['nguon-laser-soi-quang'] -%}
+                                    {%- if cat3 -%}
                                     <div class="category-list__item">
-                        <div class="thumbnail">
-                            <a href="/collections/mcb-cau-dao-tu-dong-dang-cai" title="Cầu dao tự động" aria-label="Cầu dao tự động">
-                                <div class="thumbnail-item"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="mccb-cau-dao-tu-dong-siemen"
-                            width="136"
-                            height="95"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                            </a>
-                        </div>
-                        
-                    </div>
+                                        <div class="thumbnail">
+                                            <a href="{{ cat3.url }}" title="{{ cat3.title | escape }}" aria-label="{{ cat3.title | escape }}">
+                                                <div class="thumbnail-item">
+                                                    <img loading="eager" src="{{ cat3.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ cat3.title | escape }}" width="136" height="95" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                                </div>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    {%- endif -%}
+                                    {%- assign cat4 = collections['vat-tu-tieu-hao-cho-laser'] -%}
+                                    {%- if cat4 -%}
                                     <div class="category-list__item">
-                        <div class="thumbnail">
-                            <a href="/collections/cong-tac-o-cam-dan-dung" title="Công tắc, ổ cắm  thông minh" aria-label="Công tắc, ổ cắm  thông minh">
-                                <div class="thumbnail-item"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="cong-tac-o-cam-se-1"
-                            width="136"
-                            height="95"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                            </a>
-                        </div>
-                        
-                    </div>
+                                        <div class="thumbnail">
+                                            <a href="{{ cat4.url }}" title="{{ cat4.title | escape }}" aria-label="{{ cat4.title | escape }}">
+                                                <div class="thumbnail-item">
+                                                    <img loading="eager" src="{{ cat4.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ cat4.title | escape }}" width="136" height="95" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                                </div>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    {%- endif -%}
+                                    {%- assign cat5 = collections['contactor'] -%}
+                                    {%- if cat5 -%}
                                     <div class="category-list__item">
-                        <div class="thumbnail">
-                            <a href="/collections/contactor" title="Contactor" aria-label="Contactor">
-                                <div class="thumbnail-item"
-        >
-    <img
-                    loading="eager"
-                src="{{ "logo.png" | asset_url }}"
-        alt="cam-bien-tiem-can-omzon"
-                            width="136"
-                            height="95"
-                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
-    >
-</div>
-                            </a>
-                        </div>
-                        
-                    </div>
+                                        <div class="thumbnail">
+                                            <a href="{{ cat5.url }}" title="{{ cat5.title | escape }}" aria-label="{{ cat5.title | escape }}">
+                                                <div class="thumbnail-item">
+                                                    <img loading="eager" src="{{ cat5.products.first.featured_image.src | product_img_url: 'medium' }}" alt="{{ cat5.title | escape }}" width="136" height="95" onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';">
+                                                </div>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    {%- endif -%}
                             </div>
         </div>
     </section>

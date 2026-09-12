@@ -1,6 +1,6 @@
 /**
  * Generator: Haravan Layout Generator
- * Compiles layout/theme.liquid with standard Haravan OS 2.0 architecture
+ * Compiles layout/theme.liquid with standard flat Haravan architecture
  */
 
 export class HaravanLayoutGenerator {
@@ -37,13 +37,13 @@ export class HaravanLayoutGenerator {
   </head>
 
   <body class="template-{{ template | replace: '.', ' ' | truncatewords: 1, '' | handle }}">
-    {% section 'header' %}
+    {% include 'header' %}
 
     <main id="MainContent" class="content-for-layout focus-none" role="main" tabindex="-1">
       {{ content_for_layout }}
     </main>
 
-    {% section 'footer' %}
+    {% include 'footer' %}
 
     <script src="{{ 'theme.js' | asset_url }}" defer></script>
   </body>

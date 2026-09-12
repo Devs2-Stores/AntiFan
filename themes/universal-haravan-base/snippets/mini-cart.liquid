@@ -1,0 +1,65 @@
+<aside id="CartDrawer" class="drawer drawer-right" role="region" aria-label="Shopping Cart Drawer" aria-hidden="true">
+  <div class="drawer-header">
+    <h2 class="drawer-title">Giỏ hàng (<span class="cart-drawer-count">{{ cart.item_count }}</span>)</h2>
+    <button type="button" class="drawer-close-btn" data-drawer-close aria-label="Đóng giỏ hàng">&times;</button>
+  </div>
+
+  <div class="drawer-body">
+    {%- if cart.item_count == 0 -%}
+      <div class="cart-empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto 1rem; color: var(--color-text-muted);" aria-hidden="true">
+          <circle cx="9" cy="21" r="1"></circle>
+          <circle cx="20" cy="21" r="1"></circle>
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+        </svg>
+        <h3 class="empty-state-title">Giỏ hàng của bạn đang trống</h3>
+        <p class="empty-state-description">Bạn chưa thêm bất kỳ sản phẩm nào vào giỏ hàng.</p>
+        <a href="/collections/all" class="btn btn-primary" style="width: 100%;">Tiếp tục mua sắm</a>
+      </div>
+    {%- else -%}
+      <div class="cart-drawer-items">
+        {%- for line_item in cart.items -%}
+          <div class="cart-drawer-item" style="display: flex; gap: 1rem; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid var(--color-border);">
+            <div style="width: 64px; height: 64px; flex-shrink: 0;">
+              <img
+                src="{{ line_item.image | img_url: 'compact' }}"
+                alt="{{ line_item.title | escape }}"
+                style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--border-radius);"
+                loading="lazy"
+                width="64"
+                height="64"
+              />
+            </div>
+            <div style="flex: 1 1 auto;">
+              <h4 style="font-size: 0.9375rem; margin: 0 0 0.25rem;">
+                <a href="{{ line_item.url }}">{{ line_item.product.title | escape }}</a>
+              </h4>
+              {%- unless line_item.variant.title contains 'Default' -%}
+                <div style="font-size: 0.8125rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">
+                  {{ line_item.variant.title | escape }}
+                </div>
+              {%- endunless -%}
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.875rem;">
+                <span>SL: {{ line_item.quantity }}</span>
+                <span style="font-weight: 600; color: var(--color-primary);">{{ line_item.line_price | money }}</span>
+              </div>
+            </div>
+          </div>
+        {%- endfor -%}
+      </div>
+    {%- endif -%}
+  </div>
+
+  {%- if cart.item_count > 0 -%}
+    <div class="drawer-footer">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; font-size: 1.125rem; font-weight: 700;">
+        <span>Tổng tiền:</span>
+        <span style="color: var(--color-primary);">{{ cart.total_price | money }}</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+        <a href="/checkout" class="btn btn-primary" style="width: 100%;">Thanh toán</a>
+        <a href="/cart" class="btn btn-outline" style="width: 100%;">Xem giỏ hàng chi tiết</a>
+      </div>
+    </div>
+  {%- endif -%}
+</aside>

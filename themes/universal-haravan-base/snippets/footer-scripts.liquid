@@ -1,0 +1,13 @@
+<div class="drawer-backdrop" aria-hidden="true"></div>
+
+{% include 'menu-mobile' %}
+
+{%- if settings.cart_type == 'drawer' -%}
+  {% include 'mini-cart' %}
+{%- endif -%}
+
+{%- if settings.product_quickview_enable -%}
+  {% include 'quickview' %}
+{%- endif -%}
+
+<script src="{{ 'theme.js' | asset_url }}" defer></script>

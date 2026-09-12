@@ -19,6 +19,7 @@ trees_all.txt
 *.png
 !assets/icon.png
 !extension/icons/*.png
+!themes/*/assets/*.png
 **/AntiFan-Browser-Desktop-*/
 plans/**/reports/smoke/*.log
 plans/**/reports/baseline/*.log
@@ -35,3 +36,14 @@ exports/
 .haravan-cli_remote.json
 .haravan-cli_backup/
 .hrv-sync-state.json
+
+# Generated Haravan theme build output
+build/
+
+# Fetched storefront payload cache (regenerable; contains live HTML/JSON)
+plans/reports/.store-fixture-cache/
+
+# Bulk regenerable evidence dumps (reproduce with plans/reports/_*.mjs)
+plans/reports/_corpus-*.json
+plans/reports/_render-diagnostic.html
+plans/reports/haravan-live-store-fixture.json

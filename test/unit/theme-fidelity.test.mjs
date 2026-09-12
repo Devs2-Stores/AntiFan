@@ -26,6 +26,7 @@ import {
   slugify,
   themeIdFromParameter,
   checkServedTheme,
+  validateCompareTargeting,
   validateInventory,
 } from '../../.canary/tools/theme-fidelity.mjs';
 
@@ -129,31 +130,43 @@ test('validateInventory requires surfaces and names the missing field by path', 
   refusal(() => validateInventory(inventory({ views: [{ name: 'v', url: 'https://x/?view=v' }] }), { file: 'inv.json' }), 'INVENTORY_FIELD_MISSING', EXIT.USAGE);
 });
 
-test('the themeid gate allows -1 and the authorised copy, and refuses anything else by name', () => {
+test('the themeid gate validates against allowed themes, refusing implicit -1 while permitting explicit read-only diagnostics', () => {
   const { targets } = validateInventory(inventory({
     surfaces: [
       { name: 'live', url: 'https://phukienmaymoc.com/?themeid=-1&view=home' },
       { name: 'copy', url: 'https://phukienmaymoc.com/?themeid=1001512581&view=home' },
       { name: 'bare', url: 'https://phukienmaymoc.com/cart' },
+      { name: 'empty', url: 'https://phukienmaymoc.com/?themeid=&view=home' },
       { name: 'other', url: 'https://phukienmaymoc.com/?themeid=999&view=home' },
     ],
   }), { file: 'inv.json' });
 
+  // Default staging allowlist has no implicit -1
   const safety = evaluateUrlSafety(targets, DEFAULT_ALLOWED_THEMES);
-  assert.deepEqual(safety.allowedThemes, ['-1', '1001512581']);
+  assert.deepEqual(safety.allowedThemes, ['1001512581']);
   assert.equal(safety.gates[0].themeId, -1);
-  assert.equal(safety.gates[0].allowed, true);
+  assert.equal(safety.gates[0].allowed, false, 'implicit production -1 must be refused in staging allowlist');
   assert.equal(safety.gates[1].themeId, 1001512581);
   assert.equal(safety.gates[1].allowed, true);
   assert.equal(safety.gates[2].themeId, null);
   assert.equal(safety.gates[2].parameter, null);
   assert.equal(safety.gates[2].allowed, true, 'a URL without themeid is allowed and recorded as carrying none');
   assert.match(safety.gates[2].reason, /no themeid/);
-  assert.equal(safety.gates[3].allowed, false);
-  assert.equal(safety.refusals.length, 1);
-  assert.equal(safety.refusals[0].code, 'THEME_ID_NOT_ALLOWED');
-  assert.equal(safety.refusals[0].url, 'https://phukienmaymoc.com/?themeid=999&view=home');
-  assert.equal(safety.refusals[0].value, '999');
+  assert.equal(safety.gates[3].allowed, false, 'empty themeid must be refused');
+  assert.equal(safety.gates[4].allowed, false, 'foreign themeid must be refused');
+  assert.equal(safety.refusals.length, 3);
+  assert.deepEqual(safety.refusals.map((r) => r.value), ['-1', '', '999']);
+
+  // Explicit read-only main diagnostics allowlist permits -1
+  const diagnostics = evaluateUrlSafety(targets, ['1001512581', '-1']);
+  assert.deepEqual(diagnostics.allowedThemes, ['1001512581', '-1']);
+  assert.equal(diagnostics.gates[0].allowed, true, 'explicit -1 in allowedThemes permits read-only diagnostics');
+  assert.equal(diagnostics.gates[1].allowed, true);
+  assert.equal(diagnostics.gates[2].allowed, true);
+  assert.equal(diagnostics.gates[3].allowed, false);
+  assert.equal(diagnostics.gates[4].allowed, false);
+  assert.equal(diagnostics.refusals.length, 2);
+  assert.deepEqual(diagnostics.refusals.map((r) => r.value), ['', '999']);
 });
 
 test('the themeid gate reads the parameter case-insensitively and refuses any offending value', () => {
@@ -173,9 +186,234 @@ test('the themeid gate reads the parameter case-insensitively and refuses any of
   const extended = evaluateUrlSafety(targets, ['1001512581', '7']);
   assert.equal(extended.refusals.length, 0);
   assert.equal(extended.gates[1].allowed, true);
-  // -1 stays allowed whatever the list says; the list replaces the default copy id.
+
+  // When only 7 is allowed, 1001512581 is refused; no implicit fallback exists
   const narrowed = evaluateUrlSafety(targets, ['7']);
   assert.deepEqual(narrowed.refusals.map((r) => r.value), ['1001512581', '1001512581']);
+});
+
+test('compare authorization gate enforces staging targeting invariants and preserves valid references', () => {
+  const makeProvenance = ({ url, themeId, themeIdParameter, surface = 'home', viewport = '1440x900' }) => ({
+    role: 'test',
+    label: 'test',
+    store: 'https://phukienmaymoc.com/',
+    surface,
+    viewport,
+    url,
+    themeId,
+    themeIdParameter: themeIdParameter !== undefined ? themeIdParameter : (themeId !== null ? String(themeId) : null),
+    file: `dom/${surface}__${viewport}.json`,
+    dom: { file: `dom/${surface}__${viewport}.html`, sha256: 'abc123', observedUrl: url },
+    png: { file: `png/${surface}__${viewport}.png`, sha256: 'def456', bytes: 1000 },
+    domDigest: 'abc123',
+    geometry: { innerWidth: 1440, innerHeight: 900 },
+    tabIdentity: { innerWidth: 1440, innerHeight: 900 },
+    instance: { attachmentId: 'att1', pid: 100 },
+    run: { runId: 'run1' },
+    capturedAt: '2026-09-12T00:00:00.000Z',
+  });
+
+  const validStaging = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=1001512581',
+    themeId: 1001512581,
+    themeIdParameter: '1001512581',
+  });
+  const validLiveReference = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=-1',
+    themeId: -1,
+    themeIdParameter: '-1',
+  });
+  const validExternalReference = makeProvenance({
+    url: 'https://hoplongtech.com/products/laser',
+    themeId: null,
+    themeIdParameter: null,
+  });
+
+  // 1. Valid pair: staging copy subject vs read-only live production reference (-1)
+  assert.equal(
+    validateCompareTargeting({
+      referenceProvenance: validLiveReference,
+      subjectProvenance: validStaging,
+      allowedThemes: DEFAULT_ALLOWED_THEMES,
+    }),
+    null,
+  );
+
+  // 2. Valid pair: staging copy subject vs valid independent reference URL (external store)
+  assert.equal(
+    validateCompareTargeting({
+      referenceProvenance: validExternalReference,
+      subjectProvenance: validStaging,
+      allowedThemes: DEFAULT_ALLOWED_THEMES,
+    }),
+    null,
+  );
+
+  // 3. Subject with absent themeid cannot certify staging
+  const subjectAbsent = makeProvenance({
+    url: 'https://phukienmaymoc.com/cart',
+    themeId: null,
+    themeIdParameter: null,
+  });
+  const errAbsent = validateCompareTargeting({
+    referenceProvenance: validLiveReference,
+    subjectProvenance: subjectAbsent,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errAbsent);
+  assert.equal(errAbsent.code, 'THEME_ID_NOT_ALLOWED');
+  assert.equal(errAbsent.exitCode, EXIT.REFUSAL);
+  assert.match(errAbsent.message, /absent targeting cannot certify staging/);
+
+  // 4. Subject with empty themeid cannot certify staging
+  const subjectEmpty = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=',
+    themeId: '',
+    themeIdParameter: '',
+  });
+  const errEmpty = validateCompareTargeting({
+    referenceProvenance: validLiveReference,
+    subjectProvenance: subjectEmpty,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errEmpty);
+  assert.equal(errEmpty.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errEmpty.message, /empty targeting cannot certify staging/);
+
+  // 5. Subject with duplicate themeid cannot certify staging
+  const subjectDuplicate = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=1001512581&themeid=1001512581',
+    themeId: 1001512581,
+    themeIdParameter: '1001512581',
+  });
+  const errDuplicate = validateCompareTargeting({
+    referenceProvenance: validLiveReference,
+    subjectProvenance: subjectDuplicate,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errDuplicate);
+  assert.equal(errDuplicate.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errDuplicate.message, /duplicate targeting cannot certify staging/);
+
+  // 6. Subject with production -1 cannot certify staging (implicit -1 removed)
+  const subjectProduction = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=-1',
+    themeId: -1,
+    themeIdParameter: '-1',
+  });
+  const errProduction = validateCompareTargeting({
+    referenceProvenance: validLiveReference,
+    subjectProvenance: subjectProduction,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errProduction);
+  assert.equal(errProduction.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errProduction.message, /production targeting cannot certify staging/);
+
+  // 7. Subject with mismatched staging theme ID cannot certify staging
+  const subjectMismatched = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=999',
+    themeId: 999,
+    themeIdParameter: '999',
+  });
+  const errMismatched = validateCompareTargeting({
+    referenceProvenance: validLiveReference,
+    subjectProvenance: subjectMismatched,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errMismatched);
+  assert.equal(errMismatched.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errMismatched.message, /not an allowed staging theme/);
+
+  // 8. Reference with foreign unallowed theme ID is refused
+  const refForeign = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=999',
+    themeId: 999,
+    themeIdParameter: '999',
+  });
+  const errRefForeign = validateCompareTargeting({
+    referenceProvenance: refForeign,
+    subjectProvenance: validStaging,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errRefForeign);
+  assert.equal(errRefForeign.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errRefForeign.message, /neither -1 \(read-only live\) nor an allowed theme/);
+
+  // 9. Reference with duplicate themeid parameters is refused
+  const refDuplicate = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=-1&themeid=999',
+    themeId: -1,
+    themeIdParameter: '-1',
+  });
+  const errRefDuplicate = validateCompareTargeting({
+    referenceProvenance: refDuplicate,
+    subjectProvenance: validStaging,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errRefDuplicate);
+  assert.equal(errRefDuplicate.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errRefDuplicate.message, /duplicate targeting cannot certify comparison/);
+
+  // 10. Reference with empty themeid parameter is refused
+  const refEmpty = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=',
+    themeId: '',
+    themeIdParameter: '',
+  });
+  const errRefEmpty = validateCompareTargeting({
+    referenceProvenance: refEmpty,
+    subjectProvenance: validStaging,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errRefEmpty);
+  assert.equal(errRefEmpty.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errRefEmpty.message, /empty targeting cannot certify comparison/);
+
+  // 11. Reference provenance themeId mismatching URL parameter is refused
+  const refProvMismatch = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=-1',
+    themeId: 999,
+    themeIdParameter: '-1',
+  });
+  const errRefProvMismatch = validateCompareTargeting({
+    referenceProvenance: refProvMismatch,
+    subjectProvenance: validStaging,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errRefProvMismatch);
+  assert.equal(errRefProvMismatch.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errRefProvMismatch.message, /does not match reference target or allowed reference themes/);
+
+  // 12. Reference provenance themeIdParameter mismatching URL parameter is refused
+  const refParamMismatch = makeProvenance({
+    url: 'https://phukienmaymoc.com/?themeid=-1',
+    themeId: -1,
+    themeIdParameter: '999',
+  });
+  const errRefParamMismatch = validateCompareTargeting({
+    referenceProvenance: refParamMismatch,
+    subjectProvenance: validStaging,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errRefParamMismatch);
+  assert.equal(errRefParamMismatch.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errRefParamMismatch.message, /does not match URL themeid parameter -1/);
+
+  // 13. Independent reference (no URL themeid) asserting foreign themeId is refused
+  const refForeignExternal = makeProvenance({
+    url: 'https://hoplongtech.com/products/laser',
+    themeId: 999,
+    themeIdParameter: null,
+  });
+  const errRefForeignExternal = validateCompareTargeting({
+    referenceProvenance: refForeignExternal,
+    subjectProvenance: validStaging,
+    allowedThemes: DEFAULT_ALLOWED_THEMES,
+  });
+  assert.ok(errRefForeignExternal);
+  assert.equal(errRefForeignExternal.code, 'THEME_ID_NOT_ALLOWED');
+  assert.match(errRefForeignExternal.message, /records themeId=999, which is neither -1 nor an allowed theme/);
 });
 
 test('identity comparison withholds on any field disagreement and tolerates only height rounding', () => {

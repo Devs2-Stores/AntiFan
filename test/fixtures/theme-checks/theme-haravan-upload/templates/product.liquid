@@ -1,0 +1,1 @@
+{% if product.media.size > 0 %}{% for media in product.media %}<img src="{{ media.preview_image.src }}" alt="">{% endfor %}{% else %}{% for image in product.images %}<img src="{{ image | product_img_url: 'large' }}" alt="">{% endfor %}{% endif %}

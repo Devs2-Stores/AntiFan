@@ -1,0 +1,65 @@
+{
+  "recordedAt": "2026-09-12T12:53:46.784Z",
+  "harness": "plans/reports/_capture-local-render.mjs",
+  "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "mode": "local-static-render",
+  "navigatedUrl": "http://127.0.0.1:18477/",
+  "sourceHtml": "plans\\reports\\_render-diagnostic.html",
+  "scope": "Local visual evidence for the LiquidJS-rendered home. The local revision is not pushable under the approved plan, so this is not storefront verification.",
+  "results": [
+    {
+      "breakpoint": "1440",
+      "width": 1440,
+      "screenshot": "plans\\reports\\home-render\\home-1440.png",
+      "overflowing": false,
+      "scrollWidth": 1440,
+      "scrollHeight": 4213,
+      "images": 90,
+      "imagesLoaded": 85,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "http://127.0.0.1:18477/assets/hl-home.js"
+      ],
+      "pageErrors": [],
+      "overflowingElements": []
+    },
+    {
+      "breakpoint": "768",
+      "width": 768,
+      "screenshot": "plans\\reports\\home-render\\home-768.png",
+      "overflowing": false,
+      "scrollWidth": 768,
+      "scrollHeight": 6892,
+      "images": 90,
+      "imagesLoaded": 85,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "http://127.0.0.1:18477/assets/hl-home.js"
+      ],
+      "pageErrors": [],
+      "overflowingElements": []
+    },
+    {
+      "breakpoint": "390",
+      "width": 390,
+      "screenshot": "plans\\reports\\home-render\\home-390.png",
+      "overflowing": false,
+      "scrollWidth": 390,
+      "scrollHeight": 7902,
+      "images": 90,
+      "imagesLoaded": 85,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "http://127.0.0.1:18477/assets/hl-home.js"
+      ],
+      "pageErrors": [],
+      "overflowingElements": []
+    }
+  ]
+}

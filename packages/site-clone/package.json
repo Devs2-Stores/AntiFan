@@ -1,7 +1,15 @@
 {
   "name": "@antifan/site-clone",
   "version": "1.0.0",
-  "description": "Haravan OS 2.0 Storefront Cloning & QA Engine",
+  "description": "Haravan Storefront Cloning & QA Engine",
+  "keywords": [
+    "haravan",
+    "theme",
+    "storefront",
+    "cloning",
+    "liquid",
+    "qa"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

@@ -48,7 +48,7 @@
         >
     <img
                     loading="eager"
-                src="{{ "logo.png" | asset_url }}"
+                src="{{ "dsc04523-1.png" | asset_url }}"
         alt="dsc04523-1"
                             width="426"
                             height="481"
@@ -64,7 +64,8 @@
             </a>
         </div>
         <div class="right">
-            <form class="form-block">
+            <div class="form-block">
+            {% form 'contact' %}
     <div class="form-block__header">
         <p>
             Yêu cầu báo giá
@@ -73,15 +74,23 @@
             Chúng tôi sẽ liên hệ và gửi báo giá theo thông tin mà bạn cung cấp
         </span>
     </div>
+    {% if form.posted_successfully? %}
+    <div class="alert alert-success" style="color: #28a745; margin-bottom: 15px;">
+        Cám ơn bạn đã gửi yêu cầu! Chúng tôi sẽ liên hệ và gửi báo giá theo thông tin mà bạn cung cấp.
+    </div>
+    {% endif %}
+    {% if form.errors %}
+    <p class="subtext error">Thông tin bạn nhập chưa đầy đủ</p>
+    {% endif %}
     <div class="form-block__content">
         <div class="form-row">
-            <input type="text" placeholder="Số điện thoại">
+            <input type="text" name="contact[phone]" placeholder="Số điện thoại" required>
                     </div>
         <div class="form-row">
-            <input type="text" placeholder="Email">
+            <input type="email" name="contact[email]" placeholder="Email" required>
                     </div>
-        <div class="form-row row-product">
-                        <div class="row-button">
+        <div class="form-row row-product" data-quote-rows>
+                        <div class="row-button" role="button" tabindex="0" data-quote-add>
                 <p class="row-button__add">
                     Thêm sản phẩm
                     <svg width="11" height="12" viewBox="0 0 11 12" fill="none"
@@ -94,9 +103,6 @@
             </div>
         </div>
         <div class="form-row row-file">
-            <input id="open-file" value="" class="input-files" type="file"
-                name="files" accept=".csv,.xls,.xlsx">
-            <label for="open-file">Chọn tệp</label>
             <span class="flex-inline-center">
                                     <span>Nhập mã hàng từ file .csv</span>
                                 <span class="info-more__button flex-center-left" title="Click để xem hướng dẫn tải tệp lên" onclick="this.closest('.row-file')?.querySelector('.detail')?.classList.toggle('active')">
@@ -137,9 +143,6 @@
                 <div class="detail-bottom">
                     <p>Tệp csv hoặc excel có yêu cầu 2 cột, cột A nhập danh sách tên, mã sản phẩm, cột B nhập số lượng sản phẩm tương ứng.</p>
                 </div>
-                <div class="detail-bottom">
-                    <a class="download-file" href="/quote_sample.xlsx">Tải file mẫu</a>
-                </div>
             </div>
                                 </div>
         <div class="form-row">
@@ -169,8 +172,22 @@
             </button>
         </div>
     </div>
-</form>
+    <input type="hidden" name="contact[body]" value="" data-quote-body>
+    {% endform %}
+            </div>
         </div>
     </div>
 </section>
+
+<template id="hl-home-quote-row">
+    <div class="flex">
+        <input type="text" name="product_name" placeholder="Tên, mã sản phẩm" required>
+        <input type="number" name="product_quantity" placeholder="Số lượng" min="1" max="999" required>
+        <span class="remove-row">
+            <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="20" height="20" viewBox="0 0 24 24">
+                <path fill="red" d="M 10 2 L 9 3 L 4 3 L 4 5 L 5 5 L 5 20 C 5 20.522222 5.1913289 21.05461 5.5683594 21.431641 C 5.9453899 21.808671 6.4777778 22 7 22 L 17 22 C 17.522222 22 18.05461 21.808671 18.431641 21.431641 C 18.808671 21.05461 19 20.522222 19 20 L 19 5 L 20 5 L 20 3 L 15 3 L 14 2 L 10 2 z M 7 5 L 17 5 L 17 20 L 7 20 L 7 5 z M 9 7 L 9 18 L 11 18 L 11 7 L 9 7 z M 13 7 L 13 18 L 15 18 L 15 7 L 13 7 z"></path>
+            </svg>
+        </span>
+    </div>
+</template>
 {%- comment -%} hrv-sync-1001512581 {%- endcomment -%}

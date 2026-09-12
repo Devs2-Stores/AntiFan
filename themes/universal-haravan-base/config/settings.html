@@ -1,0 +1,94 @@
+<fieldset>
+  <legend>1. Màu sắc</legend>
+  <div class="ml-5">
+    <table>
+      <tr><th><label for="color_primary">Màu chủ đạo</label></th><td><input type="text" id="color_primary" name="color_primary" class="color" value="#E30613" /></td></tr>
+      <tr><th><label for="color_secondary">Màu phụ trợ</label></th><td><input type="text" id="color_secondary" name="color_secondary" class="color" value="#1A202C" /></td></tr>
+      <tr><th><label for="color_text">Màu chữ</label></th><td><input type="text" id="color_text" name="color_text" class="color" value="#2D3748" /></td></tr>
+      <tr><th><label for="color_bg">Màu nền</label></th><td><input type="text" id="color_bg" name="color_bg" class="color" value="#FFFFFF" /></td></tr>
+      <tr><th><label for="color_border">Màu viền</label></th><td><input type="text" id="color_border" name="color_border" class="color" value="#E2E8F0" /></td></tr>
+    </table>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>2. Kiểu chữ & Bố cục</legend>
+  <div class="ml-5">
+    <table>
+      <tr><th><label for="font_base_size">Cỡ chữ cơ sở (px)</label></th><td><input type="text" id="font_base_size" name="font_base_size" value="16" /></td></tr>
+      <tr><th><label for="container_max_width">Độ rộng tối đa container (px)</label></th><td><input type="text" id="container_max_width" name="container_max_width" value="1200" /></td></tr>
+    </table>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>3. Đầu trang (Header)</legend>
+  <div class="ml-5">
+    <table>
+      <tr><th><label for="header_sticky_enable">Cố định thanh đầu trang</label></th><td><input type="checkbox" id="header_sticky_enable" name="header_sticky_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="header_menu_handle">Menu chính</label></th><td><input type="text" id="header_menu_handle" name="header_menu_handle" class="linklist" value="main-menu" /></td></tr>
+      <tr><th><label for="header_search_enable">Bật tìm kiếm</label></th><td><input type="checkbox" id="header_search_enable" name="header_search_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="header_logo">Logo cửa hàng</label></th><td><input type="file" id="header_logo" name="header_logo" /></td></tr>
+      <tr><th><label for="header_announcement_enable">Bật thanh thông báo</label></th><td><input type="checkbox" id="header_announcement_enable" name="header_announcement_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="header_announcement_text">Nội dung thông báo</label></th><td><input type="text" id="header_announcement_text" name="header_announcement_text" value="Miễn phí vận chuyển cho đơn hàng từ 500.000đ" /></td></tr>
+      <tr><th><label for="breadcrumb_enable">Bật Breadcrumb</label></th><td><input type="checkbox" id="breadcrumb_enable" name="breadcrumb_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="favicon">Favicon</label></th><td><input type="file" id="favicon" name="favicon" /></td></tr>
+    </table>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>4. Trang chủ</legend>
+  <div class="ml-5">
+    <table>
+      <tr><th><label for="home_hero_enable">Bật banner trang chủ</label></th><td><input type="checkbox" id="home_hero_enable" name="home_hero_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="home_hero_title">Tiêu đề banner</label></th><td><input type="text" id="home_hero_title" name="home_hero_title" value="Bộ sưu tập mới nhất" /></td></tr>
+      <tr><th><label for="home_hero_subtitle">Phụ đề banner</label></th><td><input type="text" id="home_hero_subtitle" name="home_hero_subtitle" value="Khám phá các sản phẩm chất lượng cao với ưu đãi đặc biệt" /></td></tr>
+      <tr><th><label for="home_hero_btn_text">Nút bấm banner</label></th><td><input type="text" id="home_hero_btn_text" name="home_hero_btn_text" value="Mua ngay" /></td></tr>
+      <tr><th><label for="home_hero_btn_url">Đường dẫn banner</label></th><td><input type="text" id="home_hero_btn_url" name="home_hero_btn_url" value="/collections/all" /></td></tr>
+      <tr><th><label for="home_featured_collection">Nhóm sản phẩm nổi bật</label></th><td><input type="text" id="home_featured_collection" name="home_featured_collection" class="collection" value="frontpage" /></td></tr>
+      <tr><th><label for="home_featured_limit">Số sản phẩm nổi bật</label></th><td><input type="text" id="home_featured_limit" name="home_featured_limit" value="8" /></td></tr>
+      <tr><th><label for="home_blog_enable">Bật tin tức trang chủ</label></th><td><input type="checkbox" id="home_blog_enable" name="home_blog_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="home_blog_handle">Blog tin tức</label></th><td><input type="text" id="home_blog_handle" name="home_blog_handle" class="blog" value="news" /></td></tr>
+      <tr><th><label for="home_blog_limit">Số bài viết</label></th><td><input type="text" id="home_blog_limit" name="home_blog_limit" value="3" /></td></tr>
+    </table>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>5. Danh mục & Sản phẩm</legend>
+  <div class="ml-5">
+    <table>
+      <tr><th><label for="product_grid_columns">Số cột sản phẩm</label></th><td><select id="product_grid_columns" name="product_grid_columns"><option value="3">3 cột</option><option value="4" selected="selected">4 cột</option><option value="5">5 cột</option></select></td></tr>
+      <tr><th><label for="product_grid_show_vendor">Hiển thị thương hiệu</label></th><td><input type="checkbox" id="product_grid_show_vendor" name="product_grid_show_vendor" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="product_grid_show_quickview">Nút Xem nhanh trên thẻ</label></th><td><input type="checkbox" id="product_grid_show_quickview" name="product_grid_show_quickview" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="collection_products_per_page">Số sản phẩm / trang</label></th><td><input type="text" id="collection_products_per_page" name="collection_products_per_page" value="16" /></td></tr>
+      <tr><th><label for="collection_grid_columns">Số cột trang danh mục</label></th><td><select id="collection_grid_columns" name="collection_grid_columns"><option value="3">3 cột</option><option value="4" selected="selected">4 cột</option><option value="5">5 cột</option></select></td></tr>
+      <tr><th><label for="product_quickview_enable">Bật Xem nhanh</label></th><td><input type="checkbox" id="product_quickview_enable" name="product_quickview_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="product_tabs_enable">Bật Tabs Metafields</label></th><td><input type="checkbox" id="product_tabs_enable" name="product_tabs_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="product_zoom_enable">Bật phóng to ảnh</label></th><td><input type="checkbox" id="product_zoom_enable" name="product_zoom_enable" value="true" checked="checked" /></td></tr>
+    </table>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>6. Giỏ hàng</legend>
+  <div class="ml-5">
+    <table>
+      <tr><th><label for="cart_type">Kiểu hiển thị giỏ hàng</label></th><td><select id="cart_type" name="cart_type"><option value="drawer" selected="selected">Ngăn trượt (Drawer)</option><option value="page">Chuyển trang (/cart)</option></select></td></tr>
+      <tr><th><label for="cart_notes_enable">Cho phép ghi chú</label></th><td><input type="checkbox" id="cart_notes_enable" name="cart_notes_enable" value="true" checked="checked" /></td></tr>
+    </table>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>7. Chân trang (Footer)</legend>
+  <div class="ml-5">
+    <table>
+      <tr><th><label for="footer_about_text">Giới thiệu ngắn chân trang</label></th><td><textarea id="footer_about_text" name="footer_about_text">Universal Haravan Base Theme — Nền tảng thương mại điện tử chuẩn mực.</textarea></td></tr>
+      <tr><th><label for="footer_menu_handle">Menu chân trang</label></th><td><input type="text" id="footer_menu_handle" name="footer_menu_handle" class="linklist" value="footer" /></td></tr>
+      <tr><th><label for="footer_newsletter_enable">Bật đăng ký bản tin</label></th><td><input type="checkbox" id="footer_newsletter_enable" name="footer_newsletter_enable" value="true" checked="checked" /></td></tr>
+      <tr><th><label for="footer_copyright_text">Bản quyền chân trang</label></th><td><input type="text" id="footer_copyright_text" name="footer_copyright_text" value="© 2026 Bản quyền thuộc về Cửa hàng. Cung cấp bởi Haravan." /></td></tr>
+    </table>
+  </div>
+</fieldset>

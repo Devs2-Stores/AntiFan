@@ -145,5 +145,37 @@
 		{%if settings.prod_pricezero_btn_select == 'prod_pricezero_btn_form'%}
       {% include 'modal-pricezero'%}
       {%endif%}
+		<div id="toast-container" class="toast-top-right">
+			<div class="toast show">
+				<div class="toast-icon">
+					<span class="success flex-center">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="30px" height="30px">
+							<path fill="#fff" d="M480.1 128.1l-272 272C204.3 405.7 198.2 408 192 408s-12.28-2.344-16.97-7.031l-144-144c-9.375-9.375-9.375-24.56 0-33.94s24.56-9.375 33.94 0L192 350.1l255-255c9.375-9.375 24.56-9.375 33.94 0S490.3 119.6 480.1 128.1z"></path>
+						</svg>
+					</span>
+					<span class="error flex-center">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512" width="30px" height="30px">
+							<path fill="#fff" d="M312.1 375c9.369 9.369 9.369 24.57 0 33.94s-24.57 9.369-33.94 0L160 289.9l-119 119c-9.369 9.369-24.57 9.369-33.94 0s-9.369-24.57 0-33.94L126.1 256L7.027 136.1c-9.369-9.369-9.369-24.57 0-33.94s24.57-9.369 33.94 0L160 222.1l119-119c9.369-9.369 24.57-9.369 33.94 0s9.369 24.57 0 33.94L193.9 256L312.1 375z"></path>
+						</svg>
+					</span>
+				</div>
+				<div class="toast-message">
+					<p class="toast-message_content"></p>
+				</div>
+			</div>
+		</div>
+		<div class="notice-cart">
+			<div class="notice-cart__message" role="alert">
+				<p><span class="name"></span>&nbsp;đã được thêm vào giỏ hàng.</p>
+				<a href="/cart" class="button" aria-label="Xem giỏ hàng">Xem giỏ hàng</a>
+				<div class="close">
+					<svg width="14" viewBox="0 0 18 17" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+						<path d="M14.4497 3.16142L3.81641 13.8379" stroke="#fff" stroke-width="2" stroke-linecap="square"></path>
+						<path d="M4.18307 3.16142L14.8164 13.8379" stroke="#fff" stroke-width="2" stroke-linecap="square"></path>
+					</svg>
+				</div>
+			</div>
+		</div>
+		<div class="loading-box" style="display: none;"><div class="loading-box__image"><div class="icon"></div></div></div>
 	</body>
 </html>

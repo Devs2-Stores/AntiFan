@@ -6,6 +6,20 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Haravan A–Z — Lint truthfulness, Base Theme, QA fail-closed
+- Sửa bộ lint Haravan theo bằng chứng 45 theme: biến vòng lặp `cart.items` được tự do (chỉ chặn alias sai `cart_item`/`item_cart`/`cart_line_item`); `settings['x']` được phân giải theo cả `config/settings_schema.json` lẫn tên control trong `config/settings.html` (control nằm trong HTML comment không khai báo gì); `product.media` buộc có fallback `product.images` cùng file; `media_tag` bị từ chối; `blog.articles.size` chỉ bị chặn khi dùng như tổng số (không chặn phép kiểm rỗng); `settings.html` chỉ bị cấm khi schema đi kèm còn sống. Trên theme dự án: 27 → 5 vi phạm, cả 5 đều là include trỏ tới snippet không tồn tại.
+- `dod-validator` chỉ chấp nhận `?themeid=<số>` khi audit preview Haravan; `theme_id=`/`preview_theme_id=` bị từ chối (chuỗi này từng xác nhận sai 45/45 case).
+- QA fail-closed: thiếu bằng chứng ⇒ `INCONCLUSIVE`, điểm chưa đo để `null`, không tự cấp 100 cho một lần quét tĩnh.
+- Bổ sung `themes/universal-haravan-base/` (base theme trung tính), wiki `docs/haravan/` (10 tài liệu), hợp đồng `specs/base-theme-contract.json`, cùng kế hoạch triển khai Haravan A–Z và bằng chứng scout/capture.
+
+### Haravan A–Z — Vòng soát bàn giao (ShipReview) và Base Theme
+- Lint: `settingsSchemaIsLive`/`settingsFormIsLive` từng là tham chiếu hàm trần (luôn truthy) nên chế độ `f1genz` từ chối mọi theme có `settings.html` và luật "thiếu khai báo settings" không bao giờ chạy; `SETTINGS_READ_PATTERN` cắt cụt id có dấu gạch nối (`settings.footer-top-check-1` → `footer`). Cả hai đã sửa và có fixture riêng.
+- Site-clone/compiler: `atomicSwap` dọn `sections/`/`locales/` cũ khi hoán đổi thư mục; bộ sinh snippet không còn ghi đè header/footer do IR sinh ra; nhánh import `.ts` thứ ba của `compile-haravan-theme.mjs` nằm trong `try/catch`.
+- `.gitignore`: `*.png` từng loại 123 ảnh PNG (18.82 MB) đang được Liquid trong theme dự án tham chiếu; negation `!themes/*/assets/*.png` khôi phục khả năng theo dõi.
+- QA viewport chỉ-giảm: `passed` của caller là bắt buộc và được AND với ngưỡng `VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT = 10`, nên diff 0.99% không thể nâng một FAIL cấu trúc thành PASS.
+- Base theme: swatch là liên kết `/products/{handle}?variant={id}` (server render đúng biến thể, không cần JS, không lệch giá/ảnh); quickview nạp fragment từ `?view=quickview` → `templates/product.quickview.liquid` (`{% layout none %}`) và báo lỗi rõ khi tải hỏng; 404 có form tìm kiếm; gỡ 3 asset chết (`base-theme.css`, `base-theme.js`, `theme-tokens.css`).
+- Hợp đồng base theme và `docs/haravan/base-theme-contract.md` khớp lại thực tế: input của product-loop, mô tả mini-cart/cart-table/quickview, số liệu census đo trên 45 root, và form newsletter được ghi nhận `UNVERIFIED`.
+
 ### Rendering & Device Preset Background
 - Khắc phục triệt để lỗi tab Chromium hiển thị toàn màu đen (hoặc trắng) sau khi chuyển từ preset bo góc (iPhone/iPad/Galaxy) sang preset phẳng kích thước cố định (MacBook 13/14, Full HD, Surface Pro, iPhone SE…): `applyTabDeviceEmulation` giờ luôn đồng bộ màu nền của `WebContentsView` theo bán kính bo góc của preset (`#00000000` khi bo góc, `#ffffff` khi phẳng), thay vì chỉ đặt trong nhánh bo góc và bỏ quên nhánh còn lại. Trước đây view giữ nguyên trạng thái trong suốt, khiến mọi khoảnh khắc chưa được vẽ của tab lộ nền cửa sổ `#080c14` ra ngoài (tab đen) cho tới khi F5 vẽ lại toàn bộ viewport.
 - Bổ sung unit test khoá hợp đồng "màu nền view luôn khớp bán kính bo góc" cho toàn bộ danh mục `DEVICE_PRESETS`, chặn tái phát khi thêm preset mới.

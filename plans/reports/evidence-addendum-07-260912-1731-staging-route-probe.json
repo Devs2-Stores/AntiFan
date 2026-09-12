@@ -1,0 +1,85 @@
+{
+  "probedAt": "2026-09-12T12:29:53.455Z",
+  "store": "phukienmaymoc.com",
+  "themeParam": "themeid=1001512581",
+  "note": "Raw HTTP read-only probe. Status/bytes/title only; no viewport, screenshot, or identity attestation. Supplementary evidence, not a Phase 07 browser measurement.",
+  "results": [
+    {
+      "name": "/",
+      "url": "https://phukienmaymoc.com/?themeid=1001512581",
+      "status": 200,
+      "bytes": 1188605,
+      "title": "Phukienmaymoc"
+    },
+    {
+      "name": "collection-all",
+      "url": "https://phukienmaymoc.com/collections/all?themeid=1001512581",
+      "status": 200,
+      "bytes": 926505,
+      "title": "Tất cả sản phẩm &ndash; Phukienmaymoc"
+    },
+    {
+      "name": "collection-custom",
+      "url": "https://phukienmaymoc.com/collections/linh-kien-dien?themeid=1001512581",
+      "status": 200,
+      "bytes": 881815,
+      "title": "Linh kiện điện &ndash; Phukienmaymoc"
+    },
+    {
+      "name": "product",
+      "url": "https://phukienmaymoc.com/products/lc1d09m7?themeid=1001512581",
+      "status": 200,
+      "bytes": 858361,
+      "title": "Khởi động từ Contactor LC1D09M7 Schneider Electric 9A 220VAC"
+    },
+    {
+      "name": "blog",
+      "url": "https://phukienmaymoc.com/blogs/news?themeid=1001512581",
+      "status": 200,
+      "bytes": 877886,
+      "title": "Tin tức &ndash; Phukienmaymoc"
+    },
+    {
+      "name": "article",
+      "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+      "status": 200,
+      "bytes": 882307,
+      "title": "PLC là gì? Cấu tạo, nguyên lý hoạt động &ndash; Phukienmaymo"
+    },
+    {
+      "name": "page-about",
+      "url": "https://phukienmaymoc.com/pages/about-us?themeid=1001512581",
+      "status": 200,
+      "bytes": 855610,
+      "title": "Giới thiệu &ndash; Phukienmaymoc"
+    },
+    {
+      "name": "page-contact",
+      "url": "https://phukienmaymoc.com/pages/lien-he?themeid=1001512581",
+      "status": 200,
+      "bytes": 860073,
+      "title": "&ndash; Phukienmaymoc"
+    },
+    {
+      "name": "cart",
+      "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "status": 200,
+      "bytes": 881767,
+      "title": "Giỏ hàng của bạn - Phukienmaymoc"
+    },
+    {
+      "name": "search",
+      "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+      "status": 200,
+      "bytes": 958294,
+      "title": "Kết quả tìm kiếm \"laser\" - Phukienmaymoc"
+    },
+    {
+      "name": "404",
+      "url": "https://phukienmaymoc.com/this-route-does-not-exist-xyz?themeid=1001512581",
+      "status": 404,
+      "bytes": 949615,
+      "title": "Không tìm thấy trang &ndash; Phukienmaymoc"
+    }
+  ]
+}

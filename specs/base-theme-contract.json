@@ -1,0 +1,1136 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "1.0.0",
+  "platform": {
+    "name": "haravan",
+    "liquidEngine": "DotLiquid (.NET ported dialect)",
+    "architectureStyle": "flat-directory-v1",
+    "evidencePrecedence": [
+      "official_haravan_docs",
+      "real_haravan_admin",
+      "real_haravan_api",
+      "real_haravan_cli",
+      "haravan_theme_source_corpus",
+      "live_storefront"
+    ],
+    "previewAddressing": {
+      "canonicalParameter": "?themeid=",
+      "serverCookie": "preview_theme_id",
+      "inertShopifyParameter": "?preview_theme_id=",
+      "behaviorNote": "On unauthenticated storefront GETs, ?preview_theme_id= is completely inert and serves the live theme (role: main). The server only sets the preview_theme_id cookie when addressed via ?themeid=.",
+      "evidenceSource": "Haravan CLI src/commands/theme/theme-dev.ts:70; src/services/open-service.ts:80; plans/reports/evidence-addendum-04-260912-1731-measurement-identity.md"
+    },
+    "apiSurfaces": {
+      "haraweb": {
+        "baseUrl": "https://apis.haravan.com/web",
+        "scopes": ["web.read_blogs", "web.write_blogs", "web.read_comments", "web.write_comments", "web.read_pages", "web.write_pages", "web.read_redirects", "web.write_redirects", "web.read_articles", "web.write_articles"],
+        "note": "Web/CMS content resources only."
+      },
+      "commerce": {
+        "baseUrl": "https://apis.haravan.com/com",
+        "scopes": ["com.read_products", "com.write_products", "com.read_orders", "com.write_orders", "com.read_customers", "com.write_customers"],
+        "note": "Products resource bundles Smart_collection, Collect, Custom_collections, Product variant, and Product Image."
+      },
+      "ajaxApi": {
+        "description": "Unauthenticated lightweight storefront JSON endpoints for themes.",
+        "endpoints": ["/cart.js", "/cart/add.js", "/cart/update.js", "/cart/change.js", "/cart/clear.js", "/products/{handle}.js", "/search"]
+      },
+      "missingEndpoints": [
+        {
+          "endpoint": "/web/link_lists.json",
+          "observedResult": "HTTP 404 (Omni API limitation)",
+          "evidenceSource": "reports/haravan-store-inventory.json:101; observed 2026-09-12"
+        }
+      ]
+    },
+    "unsupportedFilters": [
+      "reject",
+      "compact",
+      "where",
+      "concat",
+      "at_most",
+      "at_least",
+      "image_url"
+    ],
+    "unsupportedConstructs": [
+      "sections/*.liquid",
+      "templates/*.json",
+      "{% schema %}",
+      "{% render %}",
+      "section blocks",
+      "section presets",
+      "app blocks"
+    ],
+    "supportedConstructs": [
+      "layout/theme.liquid",
+      "templates/*.liquid",
+      "snippets/*.liquid",
+      "config/settings.html",
+      "config/settings_schema.json",
+      "config/settings_data.json",
+      "{% include %}"
+    ],
+    "platformLimits": {
+      "collectionProductsPerPageMax": 50,
+      "collectionAllTagsMax": 1000,
+      "metafieldTabsDelimiters": {
+        "tabSeparator": "@@###@@",
+        "titleContentSeparator": "@@##@@",
+        "evidenceSource": "Corpus census: 21/30 themes using snippets/hrvproducttabs.liquid"
+      }
+    }
+  },
+  "structure": {
+    "layout": [
+      "layout/theme.liquid"
+    ],
+    "templates": [
+      "templates/index.liquid",
+      "templates/product.liquid",
+      "templates/collection.liquid",
+      "templates/cart.liquid",
+      "templates/search.liquid",
+      "templates/page.liquid",
+      "templates/page.contact.liquid",
+      "templates/blog.liquid",
+      "templates/article.liquid",
+      "templates/404.liquid",
+      "templates/product.quickview.liquid",
+      "templates/customers[account].liquid",
+      "templates/customers[activate_account].liquid",
+      "templates/customers[addresses].liquid",
+      "templates/customers[login].liquid",
+      "templates/customers[order].liquid",
+      "templates/customers[register].liquid",
+      "templates/customers[reset_password].liquid"
+    ],
+    "snippets": [
+      "snippets/header.liquid",
+      "snippets/footer.liquid",
+      "snippets/menu.liquid",
+      "snippets/menu-mobile.liquid",
+      "snippets/breadcrumb.liquid",
+      "snippets/product-loop.liquid",
+      "snippets/product-grid.liquid",
+      "snippets/collection-card.liquid",
+      "snippets/swatch.liquid",
+      "snippets/quickview.liquid",
+      "snippets/mini-cart.liquid",
+      "snippets/cart-table.liquid",
+      "snippets/pagination-default.liquid",
+      "snippets/seo_head.liquid",
+      "snippets/fb-open-graph-tags.liquid",
+      "snippets/hrvproducttabs.liquid",
+      "snippets/footer-scripts.liquid"
+    ],
+    "assets": [
+      "assets/theme.css",
+      "assets/theme.js",
+      "assets/favicon.png",
+      "assets/no-image.png"
+    ],
+    "config": {
+      "required": [
+        "config/settings_data.json"
+      ],
+      "modeDependent": {
+        "legacy-html": [
+          "config/settings.html"
+        ],
+        "f1genz-schema": [
+          "config/settings_schema.json"
+        ],
+        "dual": []
+      },
+      "note": "A theme emits exactly one settings mode. config/settings_data.json always holds values; the Admin-facing declaration file is mode-specific. No automatic schema requirement for legacy mode."
+    },
+    "locales": {
+      "optional": [
+        "locales/vi.json",
+        "locales/en.json"
+      ],
+      "corpusPrevalence": "13/30 themes (43.3%) ship a locales/ directory",
+      "rule": "Emit locales only when localization is requested or translated strings exist; never emit empty locale files as decoration."
+    },
+    "semanticLandmarks": {
+      "skipLink": "a.skip-to-content[href='#main']",
+      "header": "header.site-header[role='banner']",
+      "navigationDesktop": "nav.site-navigation[role='navigation'][aria-label='Main Navigation']",
+      "navigationMobile": "nav.mobile-navigation[role='navigation'][aria-label='Mobile Navigation']",
+      "main": "main#main.main-content[role='main']",
+      "search": "form.search-form[role='search']",
+      "footer": "footer.site-footer[role='contentinfo']",
+      "dialog": "div.modal-dialog[role='dialog'][aria-modal='true'][aria-labelledby]",
+      "drawer": "aside.drawer[role='region'][aria-label]"
+    },
+    "extensionBoundaries": {
+      "headerAnnouncement": "snippets/header.liquid hook before navigation for merchant promo banners",
+      "headerSearch": "snippets/header.liquid search form slot with autocomplete toggle",
+      "productMetafieldTabs": "snippets/hrvproducttabs.liquid extension point for Haravan product tab app",
+      "productRecommendations": "templates/product.liquid related products slot bound to collection.products",
+      "cartDrawerUpsell": "snippets/mini-cart.liquid slot for free shipping threshold and cross-sell line items",
+      "footerNewsletter": "snippets/footer.liquid newsletter submission form slot",
+      "footerScriptBoundary": "snippets/footer-scripts.liquid terminal script boundary before </body> for deferred assets"
+    }
+  },
+  "routes": [
+    {
+      "id": "ROUTE_INDEX",
+      "path": "/",
+      "template": "templates/index.liquid",
+      "requiredLiquidObjects": ["shop", "settings", "collections", "blogs", "pages"],
+      "queryParameters": ["themeid", "view"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Storefront homepage containing hero, featured collections, product grid, and blog highlights.",
+      "evidenceSource": "Corpus census: 30/30 themes implement templates/index.liquid"
+    },
+    {
+      "id": "ROUTE_PRODUCT",
+      "path": "/products/{handle}",
+      "template": "templates/product.liquid",
+      "requiredLiquidObjects": [
+        "product",
+        "product.id",
+        "product.title",
+        "product.handle",
+        "product.price",
+        "product.compare_at_price",
+        "product.price_varies",
+        "product.available",
+        "product.images",
+        "product.featured_image",
+        "product.variants",
+        "product.options",
+        "product.selected_or_first_available_variant",
+        "product.description",
+        "product.metafields"
+      ],
+      "queryParameters": ["variant", "themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Product detail page with media gallery, variant option selectors, pricing, add-to-cart form, and description tabs.",
+      "evidenceSource": "haravan-theme/references/page-templates.md:5-104; corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_COLLECTION",
+      "path": "/collections/{handle}",
+      "template": "templates/collection.liquid",
+      "requiredLiquidObjects": [
+        "collection",
+        "collection.id",
+        "collection.title",
+        "collection.handle",
+        "collection.description",
+        "collection.products",
+        "collection.products_count",
+        "collection.all_tags",
+        "collection.all_vendors",
+        "collection.all_types",
+        "paginate"
+      ],
+      "queryParameters": ["page", "sort_by", "view", "themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Collection listing page with pagination (max 50 products), sorting, tag filtering, and empty collection handling.",
+      "evidenceSource": "haravan-theme/references/page-templates.md; corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_LIST_COLLECTIONS",
+      "path": "/collections",
+      "template": "templates/collection.liquid",
+      "requiredLiquidObjects": ["collections"],
+      "queryParameters": ["page", "themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Catalog index listing all visible custom and smart collections.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_CART",
+      "path": "/cart",
+      "template": "templates/cart.liquid",
+      "requiredLiquidObjects": [
+        "cart",
+        "cart.item_count",
+        "cart.items",
+        "cart.total_price",
+        "cart.note"
+      ],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Full shopping cart page with line items, quantity adjustment inputs, notes, line item removal, and checkout button.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_SEARCH",
+      "path": "/search",
+      "template": "templates/search.liquid",
+      "requiredLiquidObjects": [
+        "search",
+        "search.performed",
+        "search.terms",
+        "search.results",
+        "search.results_count",
+        "paginate"
+      ],
+      "queryParameters": ["q", "type", "page", "themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Search results page supporting search.performed boolean state and empty results feedback.",
+      "evidenceSource": "haravan-theme/references/liquid-cheatsheet.md:25; corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_PAGE",
+      "path": "/pages/{handle}",
+      "template": "templates/page.liquid",
+      "requiredLiquidObjects": [
+        "page",
+        "page.id",
+        "page.title",
+        "page.content"
+      ],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Standard static content page for About, FAQ, Terms, and Policies.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_PAGE_CONTACT",
+      "path": "/pages/contact",
+      "template": "templates/page.contact.liquid",
+      "requiredLiquidObjects": [
+        "page",
+        "page.title",
+        "page.content",
+        "form"
+      ],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Contact page containing static text and Haravan customer contact submission form with error and success feedback.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_BLOG",
+      "path": "/blogs/{handle}",
+      "template": "templates/blog.liquid",
+      "requiredLiquidObjects": [
+        "blog",
+        "blog.id",
+        "blog.title",
+        "blog.handle",
+        "blog.articles",
+        "blog.articles_count",
+        "paginate"
+      ],
+      "queryParameters": ["page", "themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Blog post listing page with articles_count total verification and pagination.",
+      "evidenceSource": "haravan-theme/references/liquid-cheatsheet.md:162; corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_ARTICLE",
+      "path": "/blogs/{blog_handle}/{article_handle}",
+      "template": "templates/article.liquid",
+      "requiredLiquidObjects": [
+        "blog",
+        "article",
+        "article.id",
+        "article.title",
+        "article.content",
+        "article.author",
+        "article.published_at",
+        "article.image",
+        "article.comments",
+        "article.comments_count",
+        "form"
+      ],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Article detail page with featured image, rich text content, date formatting, and comment form submission.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_ACCOUNT",
+      "path": "/account",
+      "template": "templates/customers[account].liquid",
+      "requiredLiquidObjects": [
+        "customer",
+        "customer.name",
+        "customer.email",
+        "customer.orders",
+        "customer.default_address"
+      ],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Customer dashboard showing past orders, shipping address summary, and profile links.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_ACCOUNT_LOGIN",
+      "path": "/account/login",
+      "template": "templates/customers[login].liquid",
+      "requiredLiquidObjects": ["form"],
+      "queryParameters": ["return_to", "themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Customer login form with toggle to password recovery form.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_ACCOUNT_REGISTER",
+      "path": "/account/register",
+      "template": "templates/customers[register].liquid",
+      "requiredLiquidObjects": ["form"],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "New customer registration form with validation feedback.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_ACCOUNT_ADDRESSES",
+      "path": "/account/addresses",
+      "template": "templates/customers[addresses].liquid",
+      "requiredLiquidObjects": [
+        "customer",
+        "customer.addresses",
+        "form"
+      ],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Customer address book management: list addresses, add new address, edit address, delete, and set default.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_ACCOUNT_ORDER",
+      "path": "/account/orders/{id}",
+      "template": "templates/customers[order].liquid",
+      "requiredLiquidObjects": [
+        "order",
+        "order.name",
+        "order.created_at",
+        "order.line_items",
+        "order.shipping_address",
+        "order.billing_address",
+        "order.financial_status",
+        "order.fulfillment_status"
+      ],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Single order detail receipt with line item quantities, discounts, tax, shipping, and fulfillment tracking.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_ACCOUNT_RESET",
+      "path": "/account/reset/{id}/{token}",
+      "template": "templates/customers[reset_password].liquid",
+      "requiredLiquidObjects": ["form"],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "Customer password reset token confirmation form.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    },
+    {
+      "id": "ROUTE_NOT_FOUND",
+      "path": "/*",
+      "template": "templates/404.liquid",
+      "requiredLiquidObjects": ["shop", "settings"],
+      "queryParameters": ["themeid"],
+      "previewBehavior": "Addressable via ?themeid={id}",
+      "description": "404 Not Found error page with search bar and link to catalog.",
+      "evidenceSource": "Corpus census 30/30 themes"
+    }
+  ],
+  "snippets": [
+    {
+      "name": "header",
+      "file": "snippets/header.liquid",
+      "inputs": {},
+      "outputs": "Rendered site header with brand logo, desktop navigation, search modal trigger, and cart drawer badge counter.",
+      "requiredContext": ["shop", "settings"],
+      "settingsDependencies": [
+        "header_logo",
+        "header_menu_handle",
+        "header_sticky_enable",
+        "header_search_enable"
+      ],
+      "accessibilityContract": "Contains banner landmark, skip-to-content anchor target, aria-expanded on dropdowns and drawer triggers.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 45/45 roots ship snippets/header.liquid"
+    },
+    {
+      "name": "footer",
+      "file": "snippets/footer.liquid",
+      "inputs": {},
+      "outputs": "Rendered site footer with merchant contact details, footer linklists, newsletter signup form, and copyright note.",
+      "requiredContext": ["shop", "settings"],
+      "settingsDependencies": [
+        "footer_about_text",
+        "footer_copyright_text",
+        "footer_menu_handle",
+        "footer_newsletter_enable"
+      ],
+      "accessibilityContract": "Contains contentinfo landmark, form field labels, heading hierarchy.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 45/45 roots ship snippets/footer.liquid"
+    },
+    {
+      "name": "menu",
+      "file": "snippets/menu.liquid",
+      "inputs": {
+        "menu_handle": "Handle of the navigation linklist (defaults to settings.header_menu_handle or 'main-menu')"
+      },
+      "outputs": "Multi-level navigation tree (L1, L2, L3) with active state detection based on canonical URL matching.",
+      "requiredContext": ["linklists"],
+      "settingsDependencies": ["header_menu_handle"],
+      "accessibilityContract": "L1/L2 disclosure buttons provide aria-expanded and keyboard navigation (Arrow/Tab/Escape).",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 18/45 roots ship snippets/menu.liquid"
+    },
+    {
+      "name": "menu-mobile",
+      "file": "snippets/menu-mobile.liquid",
+      "inputs": {
+        "menu_handle": "Handle of mobile navigation linklist"
+      },
+      "outputs": "Off-canvas navigation drawer optimized for touch viewports with accordion drill-downs.",
+      "requiredContext": ["linklists"],
+      "settingsDependencies": ["header_menu_handle"],
+      "accessibilityContract": "Drawer dialog with focus trap, aria-modal='true', and close button triggered on Escape or backdrop click.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 16/45 roots ship snippets/menu-mobile.liquid"
+    },
+    {
+      "name": "breadcrumb",
+      "file": "snippets/breadcrumb.liquid",
+      "inputs": {
+        "current_title": "Optional manual override title for breadcrumb tail"
+      },
+      "outputs": "Breadcrumb navigation trail with microdata Schema.org BreadcrumbList markup.",
+      "requiredContext": ["template", "product", "collection", "blog", "article", "page"],
+      "settingsDependencies": ["breadcrumb_enable"],
+      "accessibilityContract": "Wrapped in nav[aria-label='Breadcrumbs'], active item marked with aria-current='page'.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 30/45 roots ship snippets/breadcrumb.liquid"
+    },
+    {
+      "name": "product-loop",
+      "file": "snippets/product-loop.liquid",
+      "inputs": {
+        "product": "Product object (required)"
+      },
+      "outputs": "Single product card element with lazy image, sale badge, title, pricing, a detail link, and a quickview trigger button when both quickview settings are enabled.",
+      "requiredContext": ["product", "settings"],
+      "settingsDependencies": ["product_grid_show_vendor", "product_grid_show_quickview", "product_quickview_enable"],
+      "accessibilityContract": "Image alt matches product title; the quickview trigger has an explicit aria-label and the icon glyph is hidden from screen readers.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 19/45 roots ship snippets/product-loop.liquid"
+    },
+    {
+      "name": "product-grid",
+      "file": "snippets/product-grid.liquid",
+      "inputs": {
+        "products": "Collection or array of products",
+        "columns_desktop": "Number of columns (default: 4)",
+        "columns_mobile": "Number of columns (default: 2)"
+      },
+      "outputs": "Responsive CSS grid container wrapping product-loop snippets.",
+      "requiredContext": ["settings"],
+      "settingsDependencies": ["collection_grid_columns"],
+      "accessibilityContract": "List role semantics (ul > li) for screen reader item counts.",
+      "evidenceSource": "No corpus file-name precedent: 0/45 roots ship snippets/product-grid.liquid. The grid is an AntiFan split of listing markup that the corpus inlines inside templates/collection.liquid."
+    },
+    {
+      "name": "collection-card",
+      "file": "snippets/collection-card.liquid",
+      "inputs": {
+        "collection": "Collection object (required)"
+      },
+      "outputs": "Collection tile with a linked cover image, the collection title, and the product count. The cover falls back to the first product image and then to assets/no-image.png.",
+      "requiredContext": ["collection"],
+      "settingsDependencies": [],
+      "accessibilityContract": "Cover link and title link carry the collection title as their accessible name; the product count is plain prose.",
+      "evidenceSource": "No corpus file-name precedent: 0/45 roots ship snippets/collection-card.liquid; the corpus inlines card markup in each theme collection template. collection.all_products_count appears 99 times across the corpus."
+    },
+    {
+      "name": "swatch",
+      "file": "snippets/swatch.liquid",
+      "inputs": {
+        "swatch": "Option name string (e.g. 'Color' or 'Size')",
+        "product": "Product object"
+      },
+      "outputs": "One link per distinct option value pointing at `/products/{handle}?variant={id}`; the requested variant is what the server renders, so price, image and availability always match the chosen value.",
+      "requiredContext": ["product"],
+      "settingsDependencies": [],
+      "accessibilityContract": "role='group' with the option name as aria-label; the value currently rendered carries aria-current='true'; sold-out values state (Hết hàng) in the title attribute.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 38/45 roots ship snippets/swatch.liquid. Variant query parameter VERIFIED in docs/haravan/routes-and-handles.md:17 (used by 145 corpus files)."
+    },
+    {
+      "name": "quickview",
+      "file": "snippets/quickview.liquid",
+      "inputs": {},
+      "outputs": "Modal shell for quickview; its body is replaced at open time by the markup returned from `/products/{handle}?view=quickview`, which dispatches to templates/product.quickview.liquid.",
+      "requiredContext": ["settings"],
+      "settingsDependencies": ["product_quickview_enable"],
+      "accessibilityContract": "role='dialog', aria-modal='true', close button labelled, body region is aria-live='polite' so the loaded fragment is announced, and a failed load prints a visible message instead of a permanent loading state.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 16/45 roots ship snippets/quickview.liquid, 21/45 ship templates/product.quickview.liquid and 35/45 ship some quickview-named template, all with `{% layout none %}`. The fetch-and-inject mechanism is observed in practice (customizes/Apshop/assets/main.js.liquid:1332 requests `/products/' + handle + '?view=quickview'` and writes the response into the quickview modal body) and the `?view={suffix}` dispatch is VERIFIED in docs/haravan/routes-and-handles.md."
+    },
+    {
+      "name": "mini-cart",
+      "file": "snippets/mini-cart.liquid",
+      "inputs": {},
+      "outputs": "Off-canvas cart drawer listing each line item with image, title, variant, quantity and line price, plus an empty state, the order total and checkout/detail links. Quantity editing stays on the cart page.",
+      "requiredContext": ["cart", "settings"],
+      "settingsDependencies": ["cart_type"],
+      "accessibilityContract": "aside with role='region' and aria-label, aria-hidden toggled by the drawer controller, and an explicitly labelled close button.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 18/45 roots ship snippets/mini-cart.liquid"
+    },
+    {
+      "name": "cart-table",
+      "file": "snippets/cart-table.liquid",
+      "inputs": {},
+      "outputs": "Cart line item table: thumbnail, product and variant title, a remove link to `/cart/change?line={n}&quantity=0`, an `updates[]` quantity input, unit price and line price.",
+      "requiredContext": ["cart"],
+      "settingsDependencies": [],
+      "accessibilityContract": "Each quantity input is labelled with its product title, and each remove link names the product, so the action stays unambiguous out of context.",
+      "evidenceSource": "No corpus file-name precedent: 0/45 roots ship snippets/cart-table.liquid; the corpus renders cart line items inline in templates/cart.liquid. `name=\"updates[]\"` appears 58 times and `/cart/change?line=` in 79 corpus files."
+    },
+    {
+      "name": "pagination-default",
+      "file": "snippets/pagination-default.liquid",
+      "inputs": {
+        "paginate": "Paginate object from Liquid paginate tag"
+      },
+      "outputs": "Semantic pagination controls (previous, numeric page links, next).",
+      "requiredContext": ["paginate"],
+      "settingsDependencies": [],
+      "accessibilityContract": "nav[aria-label='Pagination'], aria-current='page' on active page.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 22/45 roots ship snippets/pagination-default.liquid"
+    },
+    {
+      "name": "seo_head",
+      "file": "snippets/seo_head.liquid",
+      "inputs": {},
+      "outputs": "Meta title, meta description, canonical link, Open Graph tags, and Twitter Cards inside <head>.",
+      "requiredContext": ["page_title", "page_description", "canonical_url", "shop", "product", "article"],
+      "settingsDependencies": ["favicon"],
+      "accessibilityContract": "Clean document head metadata, UTF-8 charset, responsive viewport tag.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 19/45 roots ship snippets/seo_head.liquid"
+    },
+    {
+      "name": "fb-open-graph-tags",
+      "file": "snippets/fb-open-graph-tags.liquid",
+      "inputs": {},
+      "outputs": "Open Graph and Twitter card metatags. og:type plus og:title/og:description branch per template (product, article, collection); og:image comes from the product or article image, else `settings.header_logo`.",
+      "requiredContext": ["template", "page_title", "page_description", "canonical_url", "shop", "settings"],
+      "settingsDependencies": ["header_logo"],
+      "accessibilityContract": "Meta-only output; it renders no visible content and no focusable element.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 36/45 roots ship snippets/fb-open-graph-tags.liquid"
+    },
+    {
+      "name": "hrvproducttabs",
+      "file": "snippets/hrvproducttabs.liquid",
+      "inputs": {
+        "product": "Product object"
+      },
+      "outputs": "Rendered product tabs extracted from product.metafields.hrvptabs.tabs using delimiters @@###@@ and @@##@@.",
+      "requiredContext": ["product"],
+      "settingsDependencies": ["product_tabs_enable"],
+      "accessibilityContract": "Tablist semantics: role='tablist', role='tab', role='tabpanel', aria-selected.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 22/45 roots ship snippets/hrvproducttabs.liquid"
+    },
+    {
+      "name": "footer-scripts",
+      "file": "snippets/footer-scripts.liquid",
+      "inputs": {},
+      "outputs": "Loads the mobile menu drawer, optionally the mini-cart drawer and the quickview modal shell, then defers assets/theme.js.",
+      "requiredContext": ["settings"],
+      "settingsDependencies": [],
+      "accessibilityContract": "Non-blocking deferred scripts preventing main-thread freeze.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 28/45 roots ship snippets/footer-scripts.liquid"
+    }
+  ],
+  "settings": {
+    "storage": "config/settings_data.json",
+    "dualConfigMode": {
+      "supported": false,
+      "supportedStatus": "UNVERIFIED_PENDING_ADMIN_ROUND_TRIP — precedence is UNRESOLVED_01; the generator MUST emit a single explicit mode and MUST NOT default to dual",
+      "corpusPrevalence": "24/30 themes (80.0%) maintain both config/settings.html and config/settings_schema.json",
+      "precedenceRule": "config/settings.html provides legacy Admin theme settings form; config/settings_schema.json provides visual editor schema and attribute bindings. Precedence between the two on colliding setting ids is NOT established.",
+      "dualEmissionInvariant": "If a hand-authored theme ships both declaration files, they MUST declare the same setting ids with the same defaults and config/settings_data.json MUST carry those defaults, so no precedence order can change rendered output."
+    },
+    "legacyForm": {
+      "file": "config/settings.html",
+      "rules": [
+        "Pure HTML only — NO Liquid tags allowed.",
+        "Use compact single-line <tr> table layout inside <fieldset>.",
+        "Wrap nested fieldsets inside <div class='ml-5'> because Haravan strips class attributes from <fieldset> elements.",
+        "Use special input classes: class='color' for color picker, class='linklist' for menu select, class='collection' for collection select, class='blog' for blog select, class='page' for page select.",
+        "File upload inputs must carry target file extension in name attribute: <input type='file' name='logo.png'>.",
+        "Explicit visibility checkbox required for every optional section or group."
+      ],
+      "evidenceSource": "C:/Users/Admin/.claude/skills/haravan-theme/references/settings-html.md; corpus census 30/30 themes"
+    },
+    "visualEditor": {
+      "file": "config/settings_schema.json",
+      "supportedTypes": [
+        "header",
+        "paragraph",
+        "text",
+        "textarea",
+        "checkbox",
+        "color",
+        "image_picker",
+        "select",
+        "radio",
+        "link_list",
+        "collection",
+        "blog",
+        "page"
+      ],
+      "domBindings": {
+        "requiredAttributes": ["setting-id", "setting-type"],
+        "mappingRule": "Every merchant setting in schema must be bound on rendered HTML with both setting-id matching the schema id and setting-type matching the schema type (image_picker maps to image).",
+        "exemptionRule": "Do not annotate hidden layout wrappers, link-only settings, or data-only metadata tags."
+      },
+      "evidenceSource": "C:/Users/Admin/.claude/skills/haravan-settings-schema/references/schema-and-editor-contract.md"
+    },
+    "baseSettingsMap": [
+      { "id": "color_primary", "type": "color", "label": "Màu chủ đạo", "default": "#E30613", "category": "Colors" },
+      { "id": "color_secondary", "type": "color", "label": "Màu phụ trợ", "default": "#1A202C", "category": "Colors" },
+      { "id": "color_text", "type": "color", "label": "Màu chữ", "default": "#2D3748", "category": "Colors" },
+      { "id": "color_bg", "type": "color", "label": "Màu nền", "default": "#FFFFFF", "category": "Colors" },
+      { "id": "color_border", "type": "color", "label": "Màu viền", "default": "#E2E8F0", "category": "Colors" },
+      { "id": "font_base_size", "type": "text", "label": "Cỡ chữ cơ sở (px)", "default": "16", "category": "Typography" },
+      { "id": "container_max_width", "type": "text", "label": "Độ rộng tối đa container (px)", "default": "1200", "category": "Layout" },
+      { "id": "header_sticky_enable", "type": "checkbox", "label": "Cố định thanh đầu trang (Sticky)", "default": true, "category": "Header" },
+      { "id": "header_menu_handle", "type": "link_list", "label": "Menu chính", "default": "main-menu", "category": "Header" },
+      { "id": "header_search_enable", "type": "checkbox", "label": "Bật tìm kiếm trên header", "default": true, "category": "Header" },
+      { "id": "product_grid_columns", "type": "select", "label": "Số cột sản phẩm (Desktop)", "default": "4", "options": [{"value": "3", "label": "3 cột"}, {"value": "4", "label": "4 cột"}, {"value": "5", "label": "5 cột"}], "category": "Collection" },
+      { "id": "collection_products_per_page", "type": "text", "label": "Số sản phẩm trên mỗi trang (tối đa 50)", "default": "16", "category": "Collection" },
+      { "id": "product_quickview_enable", "type": "checkbox", "label": "Bật tính năng Xem nhanh", "default": true, "category": "Product" },
+      { "id": "product_tabs_enable", "type": "checkbox", "label": "Bật tabs chi tiết sản phẩm (Metafields)", "default": true, "category": "Product" },
+      { "id": "cart_type", "type": "select", "label": "Kiểu hiển thị giỏ hàng", "default": "drawer", "options": [{"value": "drawer", "label": "Ngăn trượt (Drawer)"}, {"value": "page", "label": "Chuyển trang (/cart)"}], "category": "Cart" },
+      { "id": "cart_notes_enable", "type": "checkbox", "label": "Cho phép ghi chú đơn hàng", "default": true, "category": "Cart" },
+      { "id": "footer_about_text", "type": "textarea", "label": "Giới thiệu ngắn chân trang", "default": "Universal Haravan Base Theme — Nền tảng thương mại điện tử chuẩn mực.", "category": "Footer" },
+      { "id": "footer_copyright_text", "type": "text", "label": "Bản quyền chân trang", "default": "© 2026 Bản quyền thuộc về Cửa hàng. Cung cấp bởi Haravan.", "category": "Footer" }
+    ]
+  },
+  "assets": {
+    "conventions": {
+      "location": "assets/",
+      "liquidFilter": "asset_url",
+      "syntaxExample": "{{ 'theme.css' | asset_url | stylesheet_tag }}",
+      "precompilation": "Haravan runtime automatically compiles *.scss.liquid and *.css.liquid into *.css CDN assets."
+    },
+    "dependencyPolicy": {
+      "coreFramework": "Zero-dependency Vanilla JS and native CSS. No hard dependency on jQuery, Bootstrap, or Tailwind runtime.",
+      "carouselPolicy": {
+        "corePrimitive": "Native CSS scroll-snap container with touch gestures and Vanilla JS navigation controls (<2KB).",
+        "vendorLibraryHandling": "Slick Slider (19/30 themes), Swiper JS (9/30 themes), Owl Carousel (6/30 themes), and Flickity (5/30 themes) are categorized as Project Theme extensions. Base Theme Core does not ship vendor carousel libraries to avoid jQuery bloat and CLS regressions."
+      }
+    },
+    "scriptLoadingPolicy": {
+      "mainThemeBundle": "Loaded with 'defer' attribute at the end of snippets/footer-scripts.liquid before </body>.",
+      "thirdPartyAnalytics": "Loaded with 'async' attribute.",
+      "inlinedScript": "Strictly limited to critical DOM theme tokens and feature detection in <head>."
+    },
+    "styleConventions": {
+      "tokens": "CSS Custom Properties declared on :root at the top of assets/theme.css.",
+      "layoutSystem": "Responsive container system (.container, .grid, .flex) without monolithic external frameworks.",
+      "reducedMotion": "Mandatory @media (prefers-reduced-motion: reduce) block disabling smooth scrolling and animations."
+    },
+    "imagePolicy": {
+      "presets": ["pico", "icon", "thumb", "small", "compact", "medium", "large", "grande", "1024x1024", "2048x2048"],
+      "masterPresetRule": "Avoid unbounded 'master' filter; always select bounded dimensions matching responsive display slots.",
+      "loadingAttribute": "loading='eager' and fetchpriority='high' on first-viewport LCP images; loading='lazy' on all below-the-fold images."
+    }
+  },
+  "escaping": {
+    "rules": [
+      {
+        "context": "Merchant text inputs from settings",
+        "filter": "escape",
+        "example": "{{ settings.home_hero_title | escape }}",
+        "rationale": "Prevents stored XSS injection from administrative settings fields."
+      },
+      {
+        "context": "Entity titles and strings",
+        "filter": "escape",
+        "example": "{{ product.title | escape }}, {{ collection.title | escape }}, {{ article.title | escape }}",
+        "rationale": "Escapes quotes, ampersands, and angle brackets inside HTML contexts."
+      },
+      {
+        "context": "URLs inside href and src attributes",
+        "filter": "escape",
+        "example": "<a href=\"{{ product.url | escape }}\">",
+        "rationale": "Ensures clean attribute values and prevents attribute breakout."
+      },
+      {
+        "context": "Image alt text",
+        "filter": "escape",
+        "example": "<img alt=\"{{ product.title | escape }}\">",
+        "rationale": "Prevents broken HTML tags when product titles contain double quotation marks."
+      },
+      {
+        "context": "Truncated content excerpts",
+        "filter": "strip_html | truncatewords: N | escape",
+        "example": "{{ article.content | strip_html | truncatewords: 25 | escape }}",
+        "rationale": "Strips rich text tags before truncating to prevent unclosed HTML element leaks."
+      },
+      {
+        "context": "Metafield tab titles",
+        "filter": "strip_html | escape",
+        "example": "{{ tabTitle | strip_html | escape }}",
+        "rationale": "Sanitizes tab headings extracted from product.metafields.hrvptabs.tabs."
+      },
+      {
+        "context": "Trusted rich text exemptions",
+        "filter": "raw output (no escape filter)",
+        "example": "{{ product.description }}, {{ page.content }}, {{ article.content }}, {{ tabContent }}",
+        "rationale": "Merchant-authored WYSIWYG markup sanitized by Haravan Core at input time; applying escape would render raw HTML tags to the consumer."
+      },
+      {
+        "context": "Inlined JavaScript JSON",
+        "filter": "json",
+        "example": "var productData = {{ product | json }};",
+        "rationale": "DotLiquid json filter produces safe JSON serialization without manual string concatenation."
+      }
+    ]
+  },
+  "dataHandles": {
+    "handleGeneration": "Generated via DotLiquid handleize filter: ASCII lowercase alphanumeric characters separated by hyphens.",
+    "systemHandles": {
+      "allProductsCollection": "collections['all'] maps to entire store catalog at /collections/all.",
+      "mainMenu": "linklists['main-menu'] default navigation linklist.",
+      "footerMenu": "linklists['footer'] default footer navigation linklist.",
+      "frontpageCollection": "collections['frontpage'] default homepage featured collection."
+    },
+    "missingHandleFallbacks": {
+      "collectionMissing": "When collections[handle] is nil or empty, template must render empty-state notification instead of crashing.",
+      "linklistMissing": "When linklists[handle] is nil, navigation snippet renders an empty ul or a fallback link to /.",
+      "blogMissing": "When blogs[handle] is nil, blog section renders a graceful empty notice."
+    },
+    "apiLimitationNote": "Haravan Omni REST API endpoint /web/link_lists.json returns 404; storefront code relies strictly on storefront Liquid linklists global object."
+  },
+  "states": {
+    "emptyCollection": {
+      "predicate": "collection.products.size == 0",
+      "markupLandmark": "div.collection-empty-state",
+      "heading": "Danh mục đang cập nhật sản phẩm",
+      "description": "Hiện tại chưa có sản phẩm nào trong danh mục này. Vui lòng quay lại sau hoặc khám phá toàn bộ danh mục của chúng tôi.",
+      "ctaAction": { "label": "Xem tất cả sản phẩm", "url": "/collections/all" }
+    },
+    "emptySearch": {
+      "predicate": "search.performed and search.results_count == 0",
+      "markupLandmark": "div.search-empty-state",
+      "heading": "Không tìm thấy kết quả phù hợp",
+      "description": "Không có kết quả nào phù hợp với từ khóa '{search.terms}'. Vui lòng thử lại với từ khóa khác.",
+      "ctaAction": { "label": "Tiếp tục tìm kiếm", "action": "focus-search-input" }
+    },
+    "emptyCart": {
+      "predicate": "cart.item_count == 0",
+      "markupLandmark": "div.cart-empty-state",
+      "heading": "Giỏ hàng của bạn đang trống",
+      "description": "Bạn chưa thêm bất kỳ sản phẩm nào vào giỏ hàng.",
+      "ctaAction": { "label": "Tiếp tục mua sắm", "url": "/collections/all" }
+    },
+    "productSoldOut": {
+      "predicate": "variant.available == false",
+      "buttonState": { "disabled": true, "text": "Hết hàng" },
+      "badgeMarkup": "<span class='badge badge-sold-out'>Hết hàng</span>",
+      "behavior": "Disable quantity selectors and submit button."
+    },
+    "variantUnavailable": {
+      "predicate": "selected_variant == nil",
+      "buttonState": { "disabled": true, "text": "Không khả dụng" },
+      "behavior": "Alert consumer that selected option combination does not exist."
+    },
+    "formErrors": {
+      "predicate": "form.errors != blank",
+      "markupLandmark": "div.form-errors.alert.alert-danger[role='alert']",
+      "formatter": "{{ form.errors | default_errors }}",
+      "behavior": "Display clear, localized validation messages listing missing or invalid fields."
+    },
+    "notFound404": {
+      "predicate": "route 404",
+      "markupLandmark": "section.not-found-section",
+      "heading": "404 - Không tìm thấy trang",
+      "description": "Trang bạn đang tìm kiếm có thể đã bị xóa, thay đổi liên kết hoặc tạm thời không khả dụng.",
+      "ctaAction": { "label": "Quay về trang chủ", "url": "/" },
+      "searchAction": "/search?q={terms}&type=product — plain GET search form rendered in the 404 body",
+      "secondaryCtaAction": { "label": "Xem tất cả sản phẩm", "url": "/collections/all" }
+    }
+  },
+  "acceptanceScenarios": [
+    {
+      "id": "SCENARIO_01_SIMPLE_PRODUCT",
+      "name": "Simple Product (Single Default Variant)",
+      "route": "/products/{handle}",
+      "prerequisites": ["Product exists with exactly 1 variant ('Default Title') and inventory > 0"],
+      "actions": [
+        "Navigate to /products/{handle}?themeid={targetThemeId}",
+        "Inspect product title, gallery image, price display, and Add to Cart button",
+        "Click Add to Cart button"
+      ],
+      "expectedResults": [
+        "Product price displays formatted money string without discount badge",
+        "Add to Cart button is enabled with text 'Thêm vào giỏ hàng'",
+        "Clicking Add to Cart triggers POST /cart/add.js with variant ID and quantity 1",
+        "Cart item counter increments and mini-cart drawer opens with added item"
+      ],
+      "verificationEvidence": "HTTP 200 on /cart/add.js; cart count element updates in DOM without page reload",
+      "evidenceSource": "haravan-theme/references/page-templates.md:5-99"
+    },
+    {
+      "id": "SCENARIO_02_COMPLEX_PRODUCT",
+      "name": "Complex Product with Multi-Option Variants (Color and Size)",
+      "route": "/products/{handle}",
+      "prerequisites": ["Product exists with at least 2 option dimensions (e.g. Màu sắc, Kích thước) and ≥3 variants"],
+      "actions": [
+        "Navigate to product page",
+        "Verify render of separate swatch groups for Option 1 and Option 2",
+        "Follow a swatch link for a secondary color and, on the reloaded page, a different size chip"
+      ],
+      "expectedResults": [
+        "The swatch href is `/products/{handle}?variant={id}` and the served page renders that variant as `product.selected_or_first_available_variant`",
+        "Displayed price, compare-at price and availability reflect the requested variant because the server renders it, not because client state was patched",
+        "Featured image shows the variant image when the variant has one, else the first product image",
+        "A value whose variants are all unavailable is linked to its first variant and labelled (Hết hàng) in the title attribute"
+      ],
+      "verificationEvidence": "Rendered swatch anchors carry the variant query parameter; the select on the same page marks the requested variant `selected`; responsive layout keeps both swatch groups usable at 390/768/1440",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 38/45 roots ship snippets/swatch.liquid. Variant query parameter VERIFIED in docs/haravan/routes-and-handles.md:17."
+    },
+    {
+      "id": "SCENARIO_03_UNAVAILABLE_VARIANTS",
+      "name": "Multi-Option Unavailable and Out-of-Stock Variants",
+      "route": "/products/{handle}",
+      "prerequisites": ["Product contains at least 1 sold-out variant (inventory = 0) and 1 non-existent combination"],
+      "actions": [
+        "Select the sold-out option combination",
+        "Observe Add to Cart button state",
+        "Select the non-existent option combination"
+      ],
+      "expectedResults": [
+        "Sold-out variant: button is disabled, button text switches to 'Hết hàng'",
+        "Non-existent combination: button is disabled, button text switches to 'Không khả dụng'",
+        "No uncaught JavaScript errors in browser console during option transitions"
+      ],
+      "verificationEvidence": "Button element has disabled attribute; form submission blocked",
+      "evidenceSource": "Base theme states contract §states.productSoldOut and §states.variantUnavailable"
+    },
+    {
+      "id": "SCENARIO_04_POPULATED_COLLECTION",
+      "name": "Populated Collection with Filter, Sort, and Pagination",
+      "route": "/collections/{handle}",
+      "prerequisites": ["Collection exists with ≥17 products to exceed 16 items/page pagination threshold"],
+      "actions": [
+        "Navigate to collection page",
+        "Inspect product grid layout (4 columns desktop, 2 columns mobile)",
+        "Change sort dropdown to 'price-ascending'",
+        "Click page 2 in pagination controls"
+      ],
+      "expectedResults": [
+        "Exactly 16 product cards rendered on page 1",
+        "Pagination controls show active page 1 and clickable page 2 link",
+        "Sorting reloads or fetches products ordered by price ascending",
+        "Page 2 renders remaining products with active pagination indicator '2'"
+      ],
+      "verificationEvidence": "DOM contains exactly 16 .product-card items on page 1; pagination nav contains aria-current='page'",
+      "evidenceSource": "haravan-theme/references/page-templates.md; corpus census 30/30 themes"
+    },
+    {
+      "id": "SCENARIO_05_EMPTY_COLLECTION",
+      "name": "Empty Collection Handling",
+      "route": "/collections/{handle}",
+      "prerequisites": ["Collection exists with 0 assigned products"],
+      "actions": [
+        "Navigate to empty collection URL"
+      ],
+      "expectedResults": [
+        "Zero product cards rendered in product grid",
+        "Empty state block rendered with landmark div.collection-empty-state",
+        "Consumer message 'Danh mục đang cập nhật sản phẩm' displayed",
+        "Working call-to-action link pointing to /collections/all rendered"
+      ],
+      "verificationEvidence": "collection.products.size == 0 predicate satisfied; no broken layout or NaN values",
+      "evidenceSource": "Base theme states contract §states.emptyCollection"
+    },
+    {
+      "id": "SCENARIO_06_SEARCH_ZERO_RESULTS",
+      "name": "Search with Zero Results and Re-query",
+      "route": "/search?q=xyznonexistentterm",
+      "prerequisites": ["Search term guaranteed to yield 0 product, article, or page matches"],
+      "actions": [
+        "Navigate to search route with non-existent query parameter",
+        "Inspect search results page",
+        "Enter valid search term in search input and submit"
+      ],
+      "expectedResults": [
+        "search.performed evaluates to true",
+        "search.results_count equals 0",
+        "Search input retains user query 'xyznonexistentterm'",
+        "Empty state message displayed prompting consumer to refine search terms",
+        "Re-query successfully redirects to search results page with matching items"
+      ],
+      "verificationEvidence": "search-empty-state DOM element present; form submission successful",
+      "evidenceSource": "haravan-theme/references/liquid-cheatsheet.md:25"
+    },
+    {
+      "id": "SCENARIO_07_EMPTY_CART",
+      "name": "Empty Shopping Cart State",
+      "route": "/cart",
+      "prerequisites": ["Cart session contains 0 items"],
+      "actions": [
+        "Navigate directly to /cart with empty cart"
+      ],
+      "expectedResults": [
+        "cart.item_count equals 0",
+        "Cart table is hidden",
+        "Empty cart container div.cart-empty-state rendered",
+        "Notification 'Giỏ hàng của bạn đang trống' displayed",
+        "Button 'Tiếp tục mua sắm' links to /collections/all"
+      ],
+      "verificationEvidence": "DOM contains cart-empty-state; no undefined or NaN price values",
+      "evidenceSource": "Base theme states contract §states.emptyCart"
+    },
+    {
+      "id": "SCENARIO_08_POPULATED_CART",
+      "name": "Populated Cart Line Items, Quantity Adjustment, and Subtotal",
+      "route": "/cart",
+      "prerequisites": ["Cart contains at least 1 line item with quantity 2"],
+      "actions": [
+        "Navigate to /cart",
+        "Verify line item title, variant details, unit price, quantity, and line price",
+        "Click quantity increment button to change quantity to 3",
+        "Click remove line item button"
+      ],
+      "expectedResults": [
+        "Subtotal equals unit price multiplied by quantity",
+        "Quantity change triggers POST /cart/change.js",
+        "Subtotal and line item total update dynamically or via reload",
+        "Removing line item triggers POST /cart/change.js with quantity 0",
+        "When last item removed, view transitions cleanly to empty cart state"
+      ],
+      "verificationEvidence": "Ajax network calls to /cart/change.js succeed with HTTP 200; total updates",
+      "evidenceSource": "Corpus census 30/30 themes; Haravan Ajax API specifications"
+    },
+    {
+      "id": "SCENARIO_09_CUSTOMER_ADDRESSES",
+      "name": "Customer Account and Address Management",
+      "route": "/account/addresses",
+      "prerequisites": ["Authenticated customer session"],
+      "actions": [
+        "Navigate to /account/addresses",
+        "Click 'Thêm địa chỉ mới' button to reveal modal/form",
+        "Fill in recipient name, phone, address, province, and district",
+        "Check 'Đặt làm địa chỉ mặc định' and submit"
+      ],
+      "expectedResults": [
+        "Existing addresses rendered with default address tag",
+        "Form submits to /account/addresses",
+        "New address appears in address list with default tag applied",
+        "Edit and delete address actions operate without JavaScript exceptions"
+      ],
+      "verificationEvidence": "Form POST succeeds; customer.addresses list reflects created address",
+      "evidenceSource": "Corpus census: 30/30 themes implement templates/customers[addresses].liquid"
+    },
+    {
+      "id": "SCENARIO_10_PAGE_AND_CONTACT",
+      "name": "Standard Content Page and Contact Form Submission",
+      "route": "/pages/contact",
+      "prerequisites": ["Page exists with handle 'contact' using template page.contact.liquid"],
+      "actions": [
+        "Navigate to /pages/contact",
+        "Verify static page title and rich description content",
+        "Fill contact form: Name, Email, Phone, Message",
+        "Submit form"
+      ],
+      "expectedResults": [
+        "Page content rendered without raw Liquid tag leakage",
+        "Form submission dispatches to Haravan contact handler",
+        "On successful submission, confirmation notice 'Cảm ơn bạn đã liên hệ' displayed",
+        "Form input fields reset"
+      ],
+      "verificationEvidence": "form.posted_successfully? evaluates to true; success alert rendered",
+      "evidenceSource": "Corpus census: 30/30 themes implement templates/page.contact.liquid"
+    },
+    {
+      "id": "SCENARIO_11_BLOG_AND_ARTICLE",
+      "name": "Blog Post Listing and Article Details with Comments",
+      "route": "/blogs/{blog_handle}/{article_handle}",
+      "prerequisites": ["Blog exists with ≥1 published article with comments enabled"],
+      "actions": [
+        "Navigate to article URL",
+        "Inspect article title, author, published date format (%d/%m/%Y), featured image, and content",
+        "Fill comment form with Name, Email, Comment Body and submit"
+      ],
+      "expectedResults": [
+        "Article content rendered with full rich text formatting",
+        "Date formatted according to Vietnamese locale standard",
+        "Comment form submits to /blogs/{blog_handle}/{article_handle}/comments",
+        "Success alert displayed stating comment was submitted (or pending moderation)"
+      ],
+      "verificationEvidence": "form.posted_successfully? evaluates to true; comment count verified",
+      "evidenceSource": "haravan-theme/references/page-templates.md:106-140; corpus census 30/30 themes"
+    },
+    {
+      "id": "SCENARIO_12_FORM_ERRORS",
+      "name": "Form Validation Errors (Registration Flow)",
+      "route": "/account/register",
+      "prerequisites": ["Unauthenticated visitor session"],
+      "actions": [
+        "Navigate to /account/register",
+        "Fill invalid email string (e.g. 'not-an-email') and password < 6 characters",
+        "Submit registration form"
+      ],
+      "expectedResults": [
+        "Form submission rejected by Haravan server validation",
+        "Page reloads with form.errors populated",
+        "Error container div.form-errors.alert.alert-danger rendered",
+        "Specific error messages listed in bullet points via default_errors filter",
+        "User inputs (except passwords) retained in form fields"
+      ],
+      "verificationEvidence": "form.errors != blank predicate satisfied; error alert visible in DOM",
+      "evidenceSource": "Base theme states contract §states.formErrors"
+    }
+  ],
+  "unresolved": [
+    {
+      "id": "UNRESOLVED_01_ADMIN_SETTINGS_PRECEDENCE",
+      "title": "Admin Settings Format Precedence (settings.html vs settings_schema.json)",
+      "evidenceStatus": "CONFLICT",
+      "description": "Corpus census reveals that 24/30 themes maintain both config/settings.html (pure HTML table form) and config/settings_schema.json (F1GENZ JSON schema). Haravan Admin round-trip saving behavior when both files define overlapping keys is not documented in official manuals.",
+      "blocking": "Phase 05 Generator Cutover & Phase 06 Base Theme Assembly: blocks decision on whether generator must emit dual config (settings.html + settings_schema.json) or single schema format for unpublished test themes.",
+      "investigationPlan": "Execute isolated test push on staging theme 1001512581 with distinct test values in settings.html vs settings_schema.json, perform Admin GUI save, and probe rendered output in settings_data.json."
+    },
+    {
+      "id": "UNRESOLVED_02_STOREFRONT_IDENTITY_ATTESTATION",
+      "title": "Storefront Theme Identity Attestation Mechanism via Browser DOM / HTTP",
+      "evidenceStatus": "CONFLICT",
+      "description": "Historical test artifacts relied on Shopify ?preview_theme_id= parameter which was completely inert on unauthenticated storefront GETs, causing tests to measure the live theme (Defect D9). While ?themeid= is verified to trigger a different HTML response and set the preview_theme_id cookie, HTTP cookies and HTML equality alone do not provide a cryptographically verifiable DOM watermark proving exactly which theme rendered.",
+      "blocking": "Phase 03 Capture Identity & Phase 07 Storefront Verification Campaign: blocks automated verification gate from declaring a definitive VERIFIED_PASS without explicit theme attestation marker.",
+      "investigationPlan": "Inject a deterministic meta watermark (<meta name='haravan-theme-identity' content='theme-id:commit-sha'>) into Base Theme layout/theme.liquid and have Playwright verify this DOM marker before capturing screenshots."
+    },
+    {
+      "id": "UNRESOLVED_03_MENU_REST_API_LIMITATION",
+      "title": "Menu REST API Missing Resource Alternative",
+      "evidenceStatus": "VERIFIED",
+      "description": "Store inventory audit confirmed that Omni REST API endpoint /web/link_lists.json returns 404. There is currently no verified REST API endpoint to programmatically inspect or provision navigation linklists on Haravan.",
+      "blocking": "Phase 08B Automated Fixture Provisioning: blocks automated creation of custom navigation menus via REST scripts; requires fallback to manual admin menu configuration or fallback settings handle binding.",
+      "investigationPlan": "Probe Haravan Commerce GraphQL API and internal Haraweb admin endpoints to determine if menu management is exposed via private GraphQL queries."
+    },
+    {
+      "id": "UNRESOLVED_04_PRODUCT_MEDIA_AVAILABILITY",
+      "title": "Product Media Object Availability Boundary",
+      "evidenceStatus": "UNKNOWN",
+      "description": "Haravan 1.0 standard relies exclusively on product.images and product.featured_image. Some newer Haravan themes report support for product.media (supporting 3D models and video). Whether all Haravan store tiers support product.media at runtime is unknown.",
+      "blocking": "Phase 06 Base Theme Product Template: blocks decision on whether to implement gallery using product.images (100% universal compatibility) or product.media.",
+      "investigationPlan": "Probe product Liquid object on store phukienmaymoc.com to check if product.media is defined and populated for products with video media."
+    },
+    {
+      "id": "UNRESOLVED_05_SENTINEL_MINUS_ONE_SEMANTICS",
+      "title": "Sentinel -1 Semantics in Historical Canary Safety Allowlist",
+      "evidenceStatus": "VERIFIED",
+      "description": "Historical file .canary/state/subset-r2.json:39-43 whitelisted theme ID '-1', causing safety guards to pass-open and observe the live theme while recording themeid=-1 (Defect D11). Exact historical intent (uninitialized variable vs deliberate wildcard) is unverified.",
+      "blocking": "Phase 01 Fail-closed Adjudication: blocks historical telemetry parsing from treating -1 records as valid test runs.",
+      "investigationPlan": "Enforce strict positive integer regular expression for themeId in all verifier guards, rejecting -1 with FAIL_CLOSED_SAFETY_ABORT."
+    },
+    {
+      "id": "UNRESOLVED_06_NEWSLETTER_FORM_MECHANISM",
+      "title": "Newsletter Subscription Form Mechanism",
+      "evidenceStatus": "UNVERIFIED",
+      "description": "snippets/footer.liquid posts the newsletter field to /account/contact with form_type=customer and contact[tags]=newsletter. The `customer` form type is not in the documented Haravan form-type list (contact, customer_login, create_customer, reset_customer_password, activate_customer_password) recorded in docs/haravan/routes-and-handles.md, and no corpus theme was measured using it. The raw POST markup is what the implementation ships.",
+      "blocking": "Phase 06 Base Theme: the newsletter block is not certified to store an address anywhere. It must not be presented as a verified subscription feature until a live round-trip observes where the address lands.",
+      "investigationPlan": "Submit the form once against the unpublished staging theme (1001512581) with a controlled address, observe the HTTP response and whether a Haravan customer/contact record appears, then either confirm the endpoint or replace the block with a documented mechanism."
+    }
+  ]
+}

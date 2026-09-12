@@ -14,6 +14,23 @@ import { CssCascadeAnalyzer, RawCdpMatchedStylesPayload } from '../../src/main/b
 describe('Phase 3: Theme Evidence Capabilities', () => {
   const fixtureThemeRoot = path.resolve(process.cwd(), 'test/fixtures/golden-workflow/product-card/theme');
 
+  it('correlates a snippet through a flat template include without section wrappers', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-flat-lineage-'));
+    try {
+      fs.mkdirSync(path.join(root, 'templates'));
+      fs.mkdirSync(path.join(root, 'snippets'));
+      fs.writeFileSync(path.join(root, 'templates', 'product.liquid'), "{% include 'product-card' %}");
+      fs.writeFileSync(path.join(root, 'snippets', 'product-card.liquid'), '<article class="product-card"></article>');
+      const result = ThemeSourceMapper.mapElementToSource(root, { tagName: 'article', classes: ['product-card'], attributes: {} });
+      const candidate = result.data?.candidates.find((item) => item.file === 'snippets/product-card.liquid');
+      assert.ok(candidate);
+      assert.strictEqual(candidate.correlated, true);
+      assert.strictEqual(candidate.signals.referencedBySection, false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('verifies ThemeEvidenceEnvelope schema and type guard', () => {
     const validEnvelope: ThemeEvidenceEnvelope<{ count: number }> = {
       success: true,

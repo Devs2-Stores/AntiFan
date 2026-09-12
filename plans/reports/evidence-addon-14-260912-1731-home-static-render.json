@@ -1,0 +1,210 @@
+{
+  "recordedAt": "2026-09-12T13:23:22.599Z",
+  "harness": "plans/reports/_render-home.mjs",
+  "engine": "liquidjs@10.27.0 (Haravan CLI dependency) - Liquid-compatible, NOT DotLiquid",
+  "themeDir": "E:\\Work\\apps\\AntiFan\\themes\\phukienmaymoc-copy",
+  "entry": "templates/index.liquid",
+  "fixture": "plans/reports/haravan-live-store-fixture.json",
+  "expandedIncludes": [
+    "hl-home-hero",
+    "hl-home-categories",
+    "hl-home-banners",
+    "hl-home-block-category",
+    "hl-home-quote",
+    "hl-home-accessory",
+    "hl-home-news",
+    "hl-home-partner"
+  ],
+  "expandedIncludeCount": 8,
+  "unsupportedIncludes": [],
+  "renderedBytes": 167924,
+  "sectionOrder": [
+    "slide",
+    "category-list",
+    "banner-category",
+    "block-category",
+    "block-category",
+    "block-category",
+    "block-category",
+    "block-category",
+    "home-form",
+    "accessory",
+    "news",
+    "partner"
+  ],
+  "distinctProductHrefs": 20,
+  "distinctCollectionHrefs": 79,
+  "distinctAssetRefs": 44,
+  "checks": [
+    {
+      "id": "render_has_no_unrendered_liquid",
+      "ok": true,
+      "observed": 0,
+      "expected": 0
+    },
+    {
+      "id": "render_has_no_liquid_error",
+      "ok": true,
+      "observed": 0,
+      "expected": 0
+    },
+    {
+      "id": "include_missing_markers",
+      "ok": true,
+      "observed": 0,
+      "expected": 0
+    },
+    {
+      "id": "home_section_order",
+      "ok": true,
+      "observed": "slide,category-list,banner-category,block-category,block-category,block-category,block-category,block-category,home-form,accessory,news,partner",
+      "expected": "slide,category-list,banner-category,block-category,block-category,block-category,block-category,block-category,home-form,accessory,news,partner"
+    },
+    {
+      "id": "category_tile_count",
+      "ok": true,
+      "observed": 5,
+      "expected": 5,
+      "referenceCount": 5
+    },
+    {
+      "id": "banner_count",
+      "ok": true,
+      "observed": 3,
+      "expected": 3,
+      "referenceCount": 3
+    },
+    {
+      "id": "block_category_count",
+      "ok": true,
+      "observed": 5,
+      "expected": 5,
+      "referenceCount": 5
+    },
+    {
+      "id": "product_card_count",
+      "ok": true,
+      "observed": 25,
+      "expected": 25,
+      "referenceCount": 25
+    },
+    {
+      "id": "news_item_count",
+      "ok": true,
+      "observed": 4,
+      "expected": 4,
+      "referenceCount": 4
+    },
+    {
+      "id": "hero_slide_dot_count",
+      "ok": true,
+      "observed": 10,
+      "expected": 10,
+      "referenceCount": 10
+    },
+    {
+      "id": "hero_submenu_count",
+      "ok": true,
+      "observed": 10,
+      "expected": 10,
+      "referenceCount": 10
+    },
+    {
+      "id": "accessory_item_count",
+      "ok": true,
+      "observed": 8,
+      "expected": 8
+    },
+    {
+      "id": "partner_logo_count",
+      "ok": true,
+      "observed": 20,
+      "expected": 20
+    },
+    {
+      "id": "news_items_scoped",
+      "ok": true,
+      "observed": 4,
+      "expected": 4
+    },
+    {
+      "id": "partner_slider_arrows_present",
+      "ok": true,
+      "observed": true,
+      "expected": true,
+      "detail": "reference home ships hover arrows for the partner slider"
+    },
+    {
+      "id": "product_hrefs_resolve",
+      "ok": true,
+      "observed": 0,
+      "expected": 0,
+      "detail": ""
+    },
+    {
+      "id": "bound_surface_collection_hrefs_resolve",
+      "ok": true,
+      "observed": 0,
+      "expected": 0,
+      "detail": ""
+    },
+    {
+      "id": "nav_mega_menu_dead_collection_hrefs",
+      "ok": true,
+      "observed": 65,
+      "expected": "recorded, out of approved binding scope",
+      "detail": "/collections/chuyen-mach-nut-nhan,/collections/den-bao,/collections/dong-ho-do,/collections/bo-dieu-khien-nhiet-do,/collections/bien-tan,/collections/khoi-dong-mem,/collections/plc-hmi,/collections/relay,/collections/thiet-bi-dong-cat,/collections/cam-bien-quang,/collections/cam-bien-soi-quang,/collections/cam-bien-cua"
+    },
+    {
+      "id": "referenced_local_assets_exist",
+      "ok": true,
+      "observed": 0,
+      "expected": 0,
+      "detail": ""
+    },
+    {
+      "id": "no_placeholder_logo_in_home",
+      "ok": true,
+      "observed": 0,
+      "expected": 0
+    },
+    {
+      "id": "real_product_titles_rendered",
+      "ok": true,
+      "observed": 20,
+      "expected": "(value) => value >= 20",
+      "detail": "20 distinct fixture titles appear in the render"
+    },
+    {
+      "id": "price_block_rendered",
+      "ok": true,
+      "observed": true,
+      "expected": true,
+      "detail": "every card renders a price block"
+    },
+    {
+      "id": "pricezero_branch_or_currency_rendered",
+      "ok": true,
+      "observed": true,
+      "expected": true,
+      "detail": "cards show either a formatted price or the zero-price CTA"
+    },
+    {
+      "id": "bound_collections_linked",
+      "ok": true,
+      "observed": 14,
+      "expected": 14,
+      "detail": "contactor,cam-bien,phu-kien-may-laser,dau-cat-laser,phu-tro,nguon-laser-soi-quang,vat-tu-tieu-hao-cho-laser,phu-kien-laser-co2,may-lam-lanh-nuoc,phu-kien-dien-tu,he-thong-dieu-khien-khi-phu-tro,huong-dan-va-thanh-truot,bo-giam-toc,dong-co-servo-bo-dieu-khien-servo"
+    },
+    {
+      "id": "bound_surfaces_render_real_titles",
+      "ok": true,
+      "observed": true,
+      "expected": true,
+      "detail": "13 live collection titles appear on bound surfaces"
+    }
+  ],
+  "verdict": "RENDER_CONTRACT_SATISFIED",
+  "failureCount": 0,
+  "caveat": "LiquidJS is not the production engine. A pass proves the template logic and bindings are self-consistent under real store handles; it does not prove Haravan DotLiquid renders identically, and no storefront render of this revision exists (remote push is outside the approved plan)."
+}

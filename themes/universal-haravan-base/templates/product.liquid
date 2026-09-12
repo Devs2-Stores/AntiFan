@@ -1,0 +1,160 @@
+{%- assign current_variant = product.selected_or_first_available_variant | default: product.variants.first -%}
+
+<div class="container" style="padding-top: 2rem; padding-bottom: 3rem;">
+  <div class="product-detail-grid">
+    <div class="product-gallery">
+      <div class="product-main-image">
+        {%- if product.images.size > 0 -%}
+          <img
+            id="ProductMainImage"
+            src="{{ current_variant.image | default: product.images.first | img_url: '1024x1024' }}"
+            alt="{{ product.title | escape }}"
+            loading="eager"
+            fetchpriority="high"
+            width="600"
+            height="600"
+          />
+        {%- else -%}
+          <img
+            id="ProductMainImage"
+            src="{{ 'no-image.png' | asset_url }}"
+            alt="{{ product.title | escape }}"
+            loading="eager"
+            width="600"
+            height="600"
+          />
+        {%- endif -%}
+      </div>
+
+      {%- if product.images.size > 1 -%}
+        <div class="product-thumbnails">
+          {%- for image in product.images -%}
+            <button
+              type="button"
+              class="product-thumbnail-item{% if forloop.first %} is-active{% endif %}"
+              data-gallery-thumbnail
+              data-full-src="{{ image | img_url: '1024x1024' }}"
+              aria-label="Xem ảnh {{ forloop.index }} của {{ product.title | escape }}"
+            >
+              <img
+                src="{{ image | img_url: 'compact' }}"
+                alt="{{ product.title | escape }}"
+                loading="lazy"
+                width="72"
+                height="72"
+              />
+            </button>
+          {%- endfor -%}
+        </div>
+      {%- endif -%}
+    </div>
+
+    <div class="product-info">
+      {%- if settings.product_grid_show_vendor and product.vendor != blank -%}
+        <div style="font-size: 0.875rem; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.5rem;">
+          {{ product.vendor | escape }}
+        </div>
+      {%- endif -%}
+
+      <h1 style="font-size: 2rem; font-weight: 700; margin: 0 0 1rem; color: var(--color-secondary); line-height: 1.2;">
+        {{ product.title | escape }}
+      </h1>
+
+      <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 1.5rem;">
+        <span id="ProductPrice" class="price-regular" style="font-size: 1.75rem;">
+          {{ current_variant.price | money }}
+        </span>
+        {%- if current_variant.compare_at_price > current_variant.price -%}
+          <span id="ComparePrice" class="price-compare" style="font-size: 1.125rem;">
+            {{ current_variant.compare_at_price | money }}
+          </span>
+          <span class="badge badge-sale">Giảm giá</span>
+        {%- endif -%}
+      </div>
+
+      <form action="/cart/add" method="post" enctype="multipart/form-data" id="AddToCartForm">
+        {%- if product.variants.size > 1 -%}
+          <div style="margin-bottom: 1.5rem;">
+            <label for="ProductSelect" class="form-label">Tùy chọn sản phẩm</label>
+            <select name="id" id="ProductSelect" class="form-control">
+              {%- for variant in product.variants -%}
+                <option
+                  {% if variant == current_variant %}selected="selected"{% endif %}
+                  {% unless variant.available %}disabled="disabled"{% endunless %}
+                  value="{{ variant.id }}"
+                >
+                  {{ variant.title | escape }} - {{ variant.price | money }}
+                  {%- unless variant.available -%} (Hết hàng){%- endunless -%}
+                </option>
+              {%- endfor -%}
+            </select>
+          </div>
+
+          {%- for option in product.options -%}
+            {% include 'swatch' with option %}
+          {%- endfor -%}
+        {%- else -%}
+          <input type="hidden" name="id" value="{{ current_variant.id }}" />
+        {%- endif -%}
+
+        <div style="display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 2rem;">
+          <div style="width: 120px;">
+            <label for="Quantity" class="form-label">Số lượng</label>
+            <input
+              type="number"
+              id="Quantity"
+              name="quantity"
+              value="1"
+              min="1"
+              class="form-control"
+              style="text-align: center;"
+            />
+          </div>
+
+          <button
+            type="submit"
+            name="add"
+            id="AddToCart"
+            class="btn btn-primary"
+            style="flex: 1; padding: 0.875rem;"
+            {% unless current_variant.available %}disabled="disabled"{% endunless %}
+          >
+            <span id="AddToCartText">
+              {%- if current_variant.available -%}
+                Thêm vào giỏ hàng
+              {%- else -%}
+                Hết hàng
+              {%- endif -%}
+            </span>
+          </button>
+        </div>
+      </form>
+
+      <div class="product-description" style="line-height: 1.7; border-top: 1px solid var(--color-border); padding-top: 1.5rem;">
+        <h2 style="font-size: 1.125rem; font-weight: 700; margin-bottom: 0.75rem;">Mô tả sản phẩm</h2>
+        <div style="color: var(--color-text);">
+          {{ product.description }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% include 'hrvproducttabs' %}
+
+  {%- if collection and collection.products.size > 1 -%}
+    <section style="margin-top: 4rem; border-top: 1px solid var(--color-border); padding-top: 3rem;">
+      <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 2rem; text-align: center;">Sản phẩm liên quan</h2>
+      <div class="grid grid-cols-4">
+        {%- assign current_id = product.id -%}
+        {%- assign shown_count = 0 -%}
+        {%- for rel_product in collection.products -%}
+          {%- if rel_product.id != current_id and shown_count < 4 -%}
+            {%- assign shown_count = shown_count | plus: 1 -%}
+            {%- assign product = rel_product -%}
+            {% include 'product-loop' %}
+          {%- endif -%}
+        {%- endfor -%}
+      </div>
+    </section>
+  {%- endif -%}
+</div>

@@ -1,0 +1,117 @@
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <header style="margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+    <a href="/account" style="font-size: 0.875rem; color: var(--color-primary);">&larr; Quay lại trang tài khoản</a>
+    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 0.5rem;">
+      <h1 style="font-size: 2rem; font-weight: 700; color: var(--color-secondary); margin: 0;">
+        Đơn hàng {{ order.name }}
+      </h1>
+      <span style="color: var(--color-text-muted); font-size: 0.875rem;">
+        Đặt ngày {{ order.created_at | date: '%d/%m/%Y lúc %H:%M' }}
+      </span>
+    </div>
+  </header>
+
+  {%- if order.cancelled -%}
+    <div class="alert alert-danger" style="background-color: #FFF5F5; border: 1px solid #FEB2B2; color: #C53030; padding: 1rem; border-radius: var(--border-radius); margin-bottom: 2rem;" role="alert">
+      <strong>Đơn hàng đã bị hủy</strong> vào ngày {{ order.cancelled_at | date: '%d/%m/%Y' }}.<br />
+      Lý do: {{ order.cancel_reason }}
+    </div>
+  {%- endif -%}
+
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 3rem;">
+    <div>
+      <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem;">Chi tiết sản phẩm</h2>
+      <table class="cart-table">
+        <thead>
+          <tr>
+            <th>Sản phẩm</th>
+            <th>Đơn giá</th>
+            <th style="text-align: center;">Số lượng</th>
+            <th style="text-align: right;">Tổng</th>
+          </tr>
+        </thead>
+        <tbody>
+          {%- for line_item in order.line_items -%}
+            <tr>
+              <td>
+                <div style="font-weight: 600;">
+                  <a href="{{ line_item.product.url }}">{{ line_item.title | escape }}</a>
+                </div>
+                {%- if line_item.sku != blank -%}
+                  <div style="font-size: 0.75rem; color: var(--color-text-muted);">Mã: {{ line_item.sku }}</div>
+                {%- endif -%}
+              </td>
+              <td>{{ line_item.price | money }}</td>
+              <td style="text-align: center;">{{ line_item.quantity }}</td>
+              <td style="text-align: right; font-weight: 600;">{{ line_item.line_price | money }}</td>
+            </tr>
+          {%- endfor -%}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" style="text-align: right; font-weight: 600;">Tạm tính:</td>
+            <td style="text-align: right;">{{ order.subtotal_price | money }}</td>
+          </tr>
+          {%- for discount in order.discounts -%}
+            <tr>
+              <td colspan="3" style="text-align: right; color: var(--color-sale);">Khuyến mãi ({{ discount.code }}):</td>
+              <td style="text-align: right; color: var(--color-sale);">-{{ discount.savings | money }}</td>
+            </tr>
+          {%- endfor -%}
+          {%- for shipping_method in order.shipping_methods -%}
+            <tr>
+              <td colspan="3" style="text-align: right;">Vận chuyển ({{ shipping_method.title }}):</td>
+              <td style="text-align: right;">{{ shipping_method.price | money }}</td>
+            </tr>
+          {%- endfor -%}
+          {%- for tax_line in order.tax_lines -%}
+            <tr>
+              <td colspan="3" style="text-align: right;">Thuế ({{ tax_line.title }} {{ tax_line.rate | times: 100 }}%):</td>
+              <td style="text-align: right;">{{ tax_line.price | money }}</td>
+            </tr>
+          {%- endfor -%}
+          <tr style="font-size: 1.125rem; font-weight: 700;">
+            <td colspan="3" style="text-align: right; border-top: 2px solid var(--color-border);">Tổng cộng:</td>
+            <td style="text-align: right; border-top: 2px solid var(--color-border); color: var(--color-primary);">{{ order.total_price | money }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div style="background: var(--color-bg-subtle); padding: 1.5rem; border-radius: var(--border-radius);">
+        <h3 style="font-size: 1.125rem; font-weight: 700; margin-top: 0; margin-bottom: 0.75rem;">Địa chỉ giao hàng</h3>
+        <p style="margin: 0 0 0.25rem; font-size: 0.875rem; color: var(--color-text-muted);">
+          Trạng thái: <strong>{{ order.fulfillment_status_label }}</strong>
+        </p>
+        {%- if order.shipping_address -%}
+          <div style="font-size: 0.875rem; line-height: 1.6; margin-top: 0.75rem;">
+            <p style="font-weight: 600; margin: 0;">{{ order.shipping_address.name | escape }}</p>
+            <p style="margin: 0;">{{ order.shipping_address.address1 | escape }}</p>
+            {%- if order.shipping_address.address2 != blank -%}<p style="margin: 0;">{{ order.shipping_address.address2 | escape }}</p>{%- endif -%}
+            <p style="margin: 0;">{{ order.shipping_address.city | escape }}, {{ order.shipping_address.province | escape }}</p>
+            <p style="margin: 0;">{{ order.shipping_address.country | escape }}</p>
+            {%- if order.shipping_address.phone != blank -%}<p style="margin: 0.25rem 0 0;">SĐT: {{ order.shipping_address.phone | escape }}</p>{%- endif -%}
+          </div>
+        {%- endif -%}
+      </div>
+
+      <div style="background: var(--color-bg-subtle); padding: 1.5rem; border-radius: var(--border-radius);">
+        <h3 style="font-size: 1.125rem; font-weight: 700; margin-top: 0; margin-bottom: 0.75rem;">Địa chỉ thanh toán</h3>
+        <p style="margin: 0 0 0.25rem; font-size: 0.875rem; color: var(--color-text-muted);">
+          Trạng thái: <strong>{{ order.financial_status_label }}</strong>
+        </p>
+        {%- if order.billing_address -%}
+          <div style="font-size: 0.875rem; line-height: 1.6; margin-top: 0.75rem;">
+            <p style="font-weight: 600; margin: 0;">{{ order.billing_address.name | escape }}</p>
+            <p style="margin: 0;">{{ order.billing_address.address1 | escape }}</p>
+            {%- if order.billing_address.address2 != blank -%}<p style="margin: 0;">{{ order.billing_address.address2 | escape }}</p>{%- endif -%}
+            <p style="margin: 0;">{{ order.billing_address.city | escape }}, {{ order.billing_address.province | escape }}</p>
+            <p style="margin: 0;">{{ order.billing_address.country | escape }}</p>
+            {%- if order.billing_address.phone != blank -%}<p style="margin: 0.25rem 0 0;">SĐT: {{ order.billing_address.phone | escape }}</p>{%- endif -%}
+          </div>
+        {%- endif -%}
+      </div>
+    </div>
+  </div>
+</div>

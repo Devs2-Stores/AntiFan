@@ -1291,6 +1291,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         workspaceRoot?: string;
         multiBreakpoint?: boolean;
         viewports?: {
+          // `passed` is the caller structural verdict; the QA matrix ANDs it with the pixel threshold, so only downgrades are possible.
           desktop?: { mismatchPercent: number; passed: boolean };
           tablet?: { mismatchPercent: number; passed: boolean };
           mobile?: { mismatchPercent: number; passed: boolean };

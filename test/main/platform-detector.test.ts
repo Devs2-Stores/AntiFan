@@ -6,6 +6,20 @@ import * as path from 'node:path';
 import { PlatformDetector } from '../../src/main/qa/scanners/platform-detector';
 
 describe('PlatformDetector', () => {
+  it('does not classify Liquid sections alone as Haravan or erase explicit Haravan markers', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-sections-'));
+    try {
+      fs.mkdirSync(path.join(tmp, 'sections'));
+      fs.writeFileSync(path.join(tmp, 'sections', 'hero.liquid'), '<div>Hero</div>');
+      assert.strictEqual(PlatformDetector.detectFromWorkspace(tmp).platform, 'shopify');
+      fs.mkdirSync(path.join(tmp, 'config'));
+      fs.writeFileSync(path.join(tmp, 'config', 'settings.html'), '<fieldset></fieldset>');
+      assert.strictEqual(PlatformDetector.detectFromWorkspace(tmp).platform, 'haravan');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('detects Haravan from settings.html or Haravan schema markers', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-hrv-'));
     fs.mkdirSync(path.join(tmp, 'config'), { recursive: true });

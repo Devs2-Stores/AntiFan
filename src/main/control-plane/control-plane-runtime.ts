@@ -240,7 +240,12 @@ export class ControlPlaneRuntime {
   rollbackLegacy(): void { this.switchState = { mode: 'legacy', lifecycle: 'legacy' }; this.capabilities.switchToLegacy(); }
   registerBrowser(browser: BrowserControlPort): void {
     this.themeTransactions.bindBrowserPort(browser);
-    this.themeQaWorkflow = new ThemeQaWorkflow({ browser, artifacts: this.artifacts, reload: (target) => browser.reload(target) });
+    this.themeQaWorkflow = new ThemeQaWorkflow({
+      browser,
+      artifacts: this.artifacts,
+      reload: (target) => browser.reload(target),
+      transactionRegistry: this.themeTransactions,
+    });
     registerBrowserCapabilities(this.capabilities, browser, this.themeQaWorkflow, () => this.getWorkspaceRoot(), this.receipts);
   }
   async validateThemeQa(target: BrowserTarget, options: { runId?: string; attemptId?: string; workspaceRoot?: string; multiBreakpoint?: boolean; signal?: AbortSignal } = {}): Promise<ThemeQaReport> {

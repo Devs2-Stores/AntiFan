@@ -81,9 +81,8 @@ export const SERVE_STATIC_TOOL = '.canary/tools/serve-static.mjs';
 /** Exit status contract. Nothing else may be returned from main(). */
 export const EXIT = { OK: 0, USAGE: 2, NOT_MEASURABLE: 3, REFUSAL: 4 };
 
-/** The authorised theme copy, plus -1 (live production, read-only). */
+/** The authorised theme copy. Production (-1) is not authorized implicitly. */
 export const DEFAULT_ALLOWED_THEMES = ['1001512581'];
-const PRODUCTION_THEME = '-1';
 export const DEFAULT_VIEWPORTS = '1440x900,1024x900,390x844';
 
 /** The identity fields a pinned side must reproduce at compare time. */
@@ -214,11 +213,11 @@ exit codes:
 
 safety rule:
   Before any navigation, every URL is parsed. A URL carrying a \`themeid\` query parameter
-  may only name -1 (live production, read-only) or a theme listed in --allow-theme
-  (default ${DEFAULT_ALLOWED_THEMES.join(', ')} — the authorised theme copy). Any other value is
-  refused with exit 4, naming the URL and the value. A URL without \`themeid\` is allowed
-  and recorded as carrying none. This tool never writes to a theme.
-
+  may only name a theme listed in --allow-theme (default ${DEFAULT_ALLOWED_THEMES.join(', ')} —
+  the authorised theme copy), or -1 when explicitly configured for read-only live diagnostics.
+  Any other value is refused with exit 4, naming the URL and the value. A URL without \`themeid\`
+  is allowed and recorded as carrying none for capture, but cannot certify staging in comparison.
+  This tool never writes to a theme.
 strict compare (never relaxed):
   useDefaultWidgetMasks=false, allowHeightDrift=false, tolerance=2, fullPage=true,
   normalizeScroll=true, zero user masks. A verdict is withheld as INCONCLUSIVE — never
@@ -339,7 +338,7 @@ export function parseArgs(argv) {
   }
   const known = mode === 'capture'
     ? new Set(['role', 'label', 'inventory', 'out', 'viewports', 'allow-theme'])
-    : new Set(['reference', 'subject', 'out']);
+    : new Set(['reference', 'subject', 'out', 'allow-theme']);
   for (const name of flags.keys()) {
     if (!known.has(name)) throw refuse('ARG_UNKNOWN', EXIT.USAGE, `--${name} is not a ${mode} option`, { mode, flag: name, known: Array.from(known) });
   }
@@ -365,10 +364,11 @@ export function parseArgs(argv) {
       },
     };
   }
-  return {
-    mode,
-    options: { reference: require('reference'), subject: require('subject'), out: require('out') },
-  };
+  const compareOptions = { reference: require('reference'), subject: require('subject'), out: require('out') };
+  if (flags.has('allow-theme')) {
+    compareOptions.allowThemes = flags.get('allow-theme').split(',').map(trimmed).filter(Boolean);
+  }
+  return { mode, options: compareOptions };
 }
 
 /** `1440x900,1024x900,390x844` -> tiers with the mobile flag and the harness dpr of 1. */
@@ -448,12 +448,13 @@ export function validateInventory(raw, { file = null } = {}) {
 
 /**
  * Safety gate. Every URL is parsed before any navigation: a `themeid` parameter may
- * only name -1 or an allowed theme, and a URL without one is allowed and recorded as
- * carrying none. Returns every gate (so the evidence names what each URL declared)
- * and every refusal (so the caller can name the offending URL and value).
+ * only name an allowed theme (or -1 when explicitly configured for read-only live diagnostics),
+ * and a URL without one is allowed and recorded as carrying none. Returns every gate
+ * (so the evidence names what each URL declared) and every refusal (so the caller can
+ * name the offending URL and value).
  */
 export function evaluateUrlSafety(targets, allowedThemes = DEFAULT_ALLOWED_THEMES) {
-  const allowed = new Set([PRODUCTION_THEME, ...allowedThemes.map((t) => String(t).trim()).filter(Boolean)]);
+  const allowed = new Set(allowedThemes.map((t) => String(t).trim()).filter(Boolean));
   const gates = [];
   const refusals = [];
   for (const target of targets) {
@@ -474,7 +475,7 @@ export function evaluateUrlSafety(targets, allowedThemes = DEFAULT_ALLOWED_THEME
       gates.push({ surface: target.name, url: target.url, themeId: null, parameter: null, values: [], allowed: true, reason: 'no themeid query parameter' });
       continue;
     }
-    const offending = values.filter((value) => !allowed.has(String(value).trim()));
+    const offending = values.filter((value) => !allowed.has(String(value).trim()) || String(value).trim() === '');
     const gate = {
       surface: target.name,
       url: target.url,
@@ -483,8 +484,8 @@ export function evaluateUrlSafety(targets, allowedThemes = DEFAULT_ALLOWED_THEME
       values,
       allowed: offending.length === 0,
       reason: offending.length
-        ? `themeid=${offending[0]} is neither ${PRODUCTION_THEME} nor an allowed theme (${Array.from(allowed).join(', ')})`
-        : `themeid=${values[0]} is ${PRODUCTION_THEME} or an allowed theme`,
+        ? `themeid=${offending[0]} is not an allowed theme (${Array.from(allowed).join(', ')})`
+        : `themeid=${values[0]} is an allowed theme (${Array.from(allowed).join(', ')})`,
     };
     gates.push(gate);
     if (offending.length) {
@@ -492,6 +493,184 @@ export function evaluateUrlSafety(targets, allowedThemes = DEFAULT_ALLOWED_THEME
     }
   }
   return { allowedThemes: Array.from(allowed), gates, refusals };
+}
+
+/**
+ * Validate comparison targeting invariants between reference and subject sides:
+ * - Subject (staging): must explicitly target an allowed staging theme; absent, empty,
+ *   duplicate, or mismatched targeting cannot certify staging. Implicit -1 is disallowed.
+ * - Reference: allows configured staging themes, explicit read-only live diagnostics (-1),
+ *   and valid independent reference URLs (e.g. external store reference with no themeid).
+ */
+export function validateCompareTargeting({ referenceProvenance, subjectProvenance, allowedThemes = DEFAULT_ALLOWED_THEMES }) {
+  const allowed = new Set(allowedThemes.map((t) => String(t).trim()).filter(Boolean));
+  // Staging comparison can never be certified by production -1
+  allowed.delete('-1');
+
+  if (!subjectProvenance || typeof subjectProvenance !== 'object') {
+    return refuse('PROVENANCE_UNRESOLVED', EXIT.REFUSAL, 'subject evidence carries no provenance');
+  }
+
+  const subjectUrlStr = subjectProvenance.url;
+  let subjectParsed = null;
+  try {
+    subjectParsed = new URL(subjectUrlStr);
+  } catch {
+    return refuse('URL_UNPARSABLE', EXIT.REFUSAL, `subject URL ${subjectUrlStr} is not an absolute URL`);
+  }
+
+  const subjectThemeParams = [];
+  for (const [k, v] of subjectParsed.searchParams) {
+    if (k.toLowerCase() === 'themeid') subjectThemeParams.push(v);
+  }
+
+  // Absent targeting
+  if (subjectThemeParams.length === 0 || subjectProvenance.themeId === null || subjectProvenance.themeId === undefined) {
+    return refuse(
+      'THEME_ID_NOT_ALLOWED',
+      EXIT.REFUSAL,
+      `subject evidence for ${subjectProvenance.surface ?? 'surface'}@${subjectProvenance.viewport ?? 'viewport'} (${subjectProvenance.file ?? subjectUrlStr}) has no themeid parameter; absent targeting cannot certify staging (${Array.from(allowed).join(', ')})`,
+      { side: 'subject', url: subjectUrlStr, allowedThemes: Array.from(allowed), reason: 'absent themeid' },
+    );
+  }
+
+  // Duplicate targeting
+  if (subjectThemeParams.length > 1) {
+    return refuse(
+      'THEME_ID_NOT_ALLOWED',
+      EXIT.REFUSAL,
+      `subject evidence for ${subjectProvenance.surface ?? 'surface'}@${subjectProvenance.viewport ?? 'viewport'} (${subjectProvenance.file ?? subjectUrlStr}) names multiple themeid parameters (${subjectThemeParams.join(', ')}); duplicate targeting cannot certify staging`,
+      { side: 'subject', url: subjectUrlStr, values: subjectThemeParams, allowedThemes: Array.from(allowed), reason: 'duplicate themeid' },
+    );
+  }
+
+  // Empty targeting
+  const subjectParam = subjectThemeParams[0];
+  if (!String(subjectParam).trim()) {
+    return refuse(
+      'THEME_ID_NOT_ALLOWED',
+      EXIT.REFUSAL,
+      `subject evidence for ${subjectProvenance.surface ?? 'surface'}@${subjectProvenance.viewport ?? 'viewport'} (${subjectProvenance.file ?? subjectUrlStr}) has an empty themeid parameter; empty targeting cannot certify staging`,
+      { side: 'subject', url: subjectUrlStr, value: subjectParam, allowedThemes: Array.from(allowed), reason: 'empty themeid' },
+    );
+  }
+
+  // Production -1 targeting on subject
+  const trimmedSubject = String(subjectParam).trim();
+  if (trimmedSubject === '-1') {
+    return refuse(
+      'THEME_ID_NOT_ALLOWED',
+      EXIT.REFUSAL,
+      `subject evidence for ${subjectProvenance.surface ?? 'surface'}@${subjectProvenance.viewport ?? 'viewport'} (${subjectProvenance.file ?? subjectUrlStr}) targets production themeid=-1; production targeting cannot certify staging`,
+      { side: 'subject', url: subjectUrlStr, value: '-1', allowedThemes: Array.from(allowed), reason: 'production themeid=-1 on subject' },
+    );
+  }
+
+  // Mismatched targeting
+  if (!allowed.has(trimmedSubject)) {
+    return refuse(
+      'THEME_ID_NOT_ALLOWED',
+      EXIT.REFUSAL,
+      `subject evidence for ${subjectProvenance.surface ?? 'surface'}@${subjectProvenance.viewport ?? 'viewport'} (${subjectProvenance.file ?? subjectUrlStr}) targets themeid=${trimmedSubject}, which is not an allowed staging theme (${Array.from(allowed).join(', ')})`,
+      { side: 'subject', url: subjectUrlStr, value: trimmedSubject, allowedThemes: Array.from(allowed), reason: 'mismatched staging theme' },
+    );
+  }
+
+  if (subjectProvenance.themeId !== null && subjectProvenance.themeId !== undefined) {
+    const provIdStr = String(subjectProvenance.themeId).trim();
+    if (provIdStr !== trimmedSubject || !allowed.has(provIdStr)) {
+      return refuse(
+        'THEME_ID_NOT_ALLOWED',
+        EXIT.REFUSAL,
+        `subject evidence for ${subjectProvenance.surface ?? 'surface'}@${subjectProvenance.viewport ?? 'viewport'} records themeId=${provIdStr}, which does not match allowed staging theme (${Array.from(allowed).join(', ')})`,
+        { side: 'subject', url: subjectUrlStr, value: provIdStr, allowedThemes: Array.from(allowed) },
+      );
+    }
+  }
+
+  // 2. Validate reference side
+  if (referenceProvenance && typeof referenceProvenance === 'object') {
+    const refUrlStr = referenceProvenance.url;
+    let refParsed = null;
+    try {
+      refParsed = new URL(refUrlStr);
+    } catch {
+      return refuse('URL_UNPARSABLE', EXIT.REFUSAL, `reference URL ${refUrlStr} is not an absolute URL`);
+    }
+
+    const refThemeParams = [];
+    for (const [k, v] of refParsed.searchParams) {
+      if (k.toLowerCase() === 'themeid') refThemeParams.push(v);
+    }
+
+    const refAllowed = new Set([...allowed, '-1']);
+
+    if (refThemeParams.length > 1) {
+      return refuse(
+        'THEME_ID_NOT_ALLOWED',
+        EXIT.REFUSAL,
+        `reference evidence for ${referenceProvenance.surface ?? 'surface'}@${referenceProvenance.viewport ?? 'viewport'} (${referenceProvenance.file ?? refUrlStr}) names duplicate themeid parameters (${refThemeParams.join(', ')}); duplicate targeting cannot certify comparison`,
+        { side: 'reference', url: refUrlStr, values: refThemeParams, allowedThemes: Array.from(refAllowed) },
+      );
+    }
+
+    if (refThemeParams.length === 1) {
+      const refParam = String(refThemeParams[0]).trim();
+      if (!refParam) {
+        return refuse(
+          'THEME_ID_NOT_ALLOWED',
+          EXIT.REFUSAL,
+          `reference evidence for ${referenceProvenance.surface ?? 'surface'}@${referenceProvenance.viewport ?? 'viewport'} (${referenceProvenance.file ?? refUrlStr}) carries empty themeid; empty targeting cannot certify comparison`,
+          { side: 'reference', url: refUrlStr, value: '', allowedThemes: Array.from(refAllowed) },
+        );
+      }
+      if (!refAllowed.has(refParam)) {
+        return refuse(
+          'THEME_ID_NOT_ALLOWED',
+          EXIT.REFUSAL,
+          `reference evidence for ${referenceProvenance.surface ?? 'surface'}@${referenceProvenance.viewport ?? 'viewport'} (${referenceProvenance.file ?? refUrlStr}) targets themeid=${refParam}, which is neither -1 (read-only live) nor an allowed theme (${Array.from(allowed).join(', ')})`,
+          { side: 'reference', url: refUrlStr, value: refParam, allowedThemes: Array.from(allowed) },
+        );
+      }
+      if (referenceProvenance.themeIdParameter !== undefined && referenceProvenance.themeIdParameter !== null) {
+        const refProvParamStr = String(referenceProvenance.themeIdParameter).trim();
+        if (refProvParamStr !== refParam) {
+          return refuse(
+            'THEME_ID_NOT_ALLOWED',
+            EXIT.REFUSAL,
+            `reference evidence for ${referenceProvenance.surface ?? 'surface'}@${referenceProvenance.viewport ?? 'viewport'} records themeIdParameter=${refProvParamStr}, which does not match URL themeid parameter ${refParam}`,
+            { side: 'reference', url: refUrlStr, value: refProvParamStr, allowedThemes: Array.from(refAllowed) },
+          );
+        }
+      }
+      if (referenceProvenance.themeId !== null && referenceProvenance.themeId !== undefined) {
+        const refProvIdStr = String(referenceProvenance.themeId).trim();
+        if (refProvIdStr !== refParam || !refAllowed.has(refProvIdStr)) {
+          return refuse(
+            'THEME_ID_NOT_ALLOWED',
+            EXIT.REFUSAL,
+            `reference evidence for ${referenceProvenance.surface ?? 'surface'}@${referenceProvenance.viewport ?? 'viewport'} records themeId=${refProvIdStr}, which does not match reference target or allowed reference themes (${Array.from(refAllowed).join(', ')})`,
+            { side: 'reference', url: refUrlStr, value: refProvIdStr, allowedThemes: Array.from(refAllowed) },
+          );
+        }
+      }
+    } else {
+      // refThemeParams.length === 0: valid independent reference URL (e.g. external store or bare route)
+      if (referenceProvenance.themeId !== null && referenceProvenance.themeId !== undefined) {
+        const refProvIdStr = String(referenceProvenance.themeId).trim();
+        if (refProvIdStr !== '' && !refAllowed.has(refProvIdStr)) {
+          return refuse(
+            'THEME_ID_NOT_ALLOWED',
+            EXIT.REFUSAL,
+            `reference evidence for ${referenceProvenance.surface ?? 'surface'}@${referenceProvenance.viewport ?? 'viewport'} records themeId=${refProvIdStr}, which is neither -1 nor an allowed theme (${Array.from(refAllowed).join(', ')})`,
+            { side: 'reference', url: refUrlStr, value: refProvIdStr, allowedThemes: Array.from(refAllowed) },
+          );
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /** A pinned identity is usable only when the tab reported a real viewport. */
@@ -1527,23 +1706,27 @@ async function runCompare(options) {
 
     // Both sides are read, named and safety-gated before a single tab exists: a case
     // whose provenance cannot be resolved is refused, never filled with a placeholder.
-    const unsafe = [];
+    const stagingAllowedThemes = (options.allowThemes && options.allowThemes.length)
+      ? options.allowThemes.map((t) => String(t).trim()).filter(Boolean)
+      : [...DEFAULT_ALLOWED_THEMES];
+
     for (const pair of pairs) {
       for (const side of ['reference', 'subject']) {
         const loaded = readSideEvidence(side === 'reference' ? reference.dir : subject.dir, pair[side], side);
         const provenance = assertSideProvenance(side, loaded.doc, loaded.file);
+        provenance.file = loaded.file;
         pair[`${side}Doc`] = loaded.doc;
         pair[`${side}File`] = loaded.file;
         pair[`${side}Provenance`] = provenance;
-        const themeId = provenance.themeId;
-        if (themeId !== null && themeId !== undefined && !DEFAULT_ALLOWED_THEMES.includes(String(themeId)) && String(themeId) !== PRODUCTION_THEME) {
-          unsafe.push({ side, surface: pair.surface, viewport: pair.viewport, url: provenance.url, themeId, file: loaded.file });
-        }
       }
-    }
-    if (unsafe.length) {
-      const first = unsafe[0];
-      throw refuse('THEME_ID_NOT_ALLOWED', EXIT.REFUSAL, `${first.side} evidence ${first.file} names ${first.url} with themeid=${first.themeId}, which is neither ${PRODUCTION_THEME} nor an allowed theme (${DEFAULT_ALLOWED_THEMES.join(', ')})`, { unsafe, allowedThemes: DEFAULT_ALLOWED_THEMES });
+      const targetingRefusal = validateCompareTargeting({
+        referenceProvenance: pair.referenceProvenance,
+        subjectProvenance: pair.subjectProvenance,
+        allowedThemes: stagingAllowedThemes,
+      });
+      if (targetingRefusal) {
+        throw targetingRefusal;
+      }
     }
 
     const rpc = await import('./lib-rpc.mjs');

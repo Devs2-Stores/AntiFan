@@ -1,0 +1,59 @@
+{%- layout none -%}
+{%- comment -%}
+Rendered as a fragment: the quickview modal fetches
+`/products/{handle}?view=quickview`, which Haravan dispatches to this template
+(see docs/haravan/routes-and-handles.md). `layout none` keeps the response to
+this markup only. Ids are Quickview-prefixed so injecting the fragment never
+duplicates the ids of the product page underneath.
+{%- endcomment -%}
+{%- assign quickview_variant = product.selected_or_first_available_variant | default: product.variants.first -%}
+<div class="quickview-product">
+  {%- if product.images.size > 0 -%}
+    <img
+      src="{{ product.images.first | img_url: '600x600' }}"
+      alt="{{ product.title | escape }}"
+      width="240"
+      height="240"
+      loading="lazy"
+    />
+  {%- else -%}
+    <img src="{{ 'no-image.png' | asset_url }}" alt="{{ product.title | escape }}" width="240" height="240" loading="lazy" />
+  {%- endif -%}
+
+  <div class="quickview-product-info">
+    <h3>{{ product.title | escape }}</h3>
+
+    <p class="quickview-price">
+      <span class="price-regular">{{ quickview_variant.price | money }}</span>
+      {%- if quickview_variant.compare_at_price > quickview_variant.price -%}
+        <span class="price-compare">{{ quickview_variant.compare_at_price | money }}</span>
+      {%- endif -%}
+    </p>
+
+    <form action="/cart/add" method="post" enctype="multipart/form-data" id="QuickviewAddToCartForm">
+      {%- if product.variants.size > 1 -%}
+        <label for="QuickviewProductSelect" class="form-label">Tùy chọn sản phẩm</label>
+        <select name="id" id="QuickviewProductSelect" class="form-control">
+          {%- for variant in product.variants -%}
+            <option
+              {% if variant == quickview_variant %}selected="selected"{% endif %}
+              {% unless variant.available %}disabled="disabled"{% endunless %}
+              value="{{ variant.id }}"
+            >
+              {{ variant.title | escape }} - {{ variant.price | money }}
+              {%- unless variant.available -%} (Hết hàng){%- endunless -%}
+            </option>
+          {%- endfor -%}
+        </select>
+      {%- else -%}
+        <input type="hidden" name="id" value="{{ quickview_variant.id }}" />
+      {%- endif -%}
+
+      <button type="submit" class="btn btn-primary" style="margin-top: 1rem;" {% unless quickview_variant.available %}disabled="disabled"{% endunless %}>
+        {%- if quickview_variant.available -%}Thêm vào giỏ{%- else -%}Hết hàng{%- endif -%}
+      </button>
+    </form>
+
+    <a href="{{ product.url }}" class="quickview-full-link">Xem chi tiết sản phẩm</a>
+  </div>
+</div>

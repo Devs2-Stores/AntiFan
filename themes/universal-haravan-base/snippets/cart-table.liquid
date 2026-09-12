@@ -1,0 +1,64 @@
+<table class="cart-table">
+  <thead>
+    <tr>
+      <th style="width: 50%;">Sản phẩm</th>
+      <th>Đơn giá</th>
+      <th style="text-align: center;">Số lượng</th>
+      <th style="text-align: right;">Thành tiền</th>
+    </tr>
+  </thead>
+  <tbody>
+    {%- for line_item in cart.items -%}
+      <tr>
+        <td>
+          <div style="display: flex; gap: 1rem; align-items: center;">
+            <a href="{{ line_item.url }}">
+              <img
+                src="{{ line_item.image | img_url: 'medium' }}"
+                alt="{{ line_item.title | escape }}"
+                class="cart-item-image"
+                loading="lazy"
+                width="80"
+                height="80"
+              />
+            </a>
+            <div>
+              <h3 style="font-size: 1rem; margin: 0 0 0.25rem;">
+                <a href="{{ line_item.url }}">{{ line_item.product.title | escape }}</a>
+              </h3>
+              {%- unless line_item.variant.title contains 'Default' -%}
+                <p style="margin: 0 0 0.5rem; font-size: 0.875rem; color: var(--color-text-muted);">
+                  {{ line_item.variant.title | escape }}
+                </p>
+              {%- endunless -%}
+              <a
+                href="/cart/change?line={{ forloop.index }}&quantity=0"
+                style="color: var(--color-sale); font-size: 0.8125rem;"
+                aria-label="Xóa {{ line_item.title | escape }} khỏi giỏ hàng"
+              >
+                Xóa sản phẩm
+              </a>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span>{{ line_item.price | money }}</span>
+        </td>
+        <td style="text-align: center;">
+          <input
+            type="number"
+            name="updates[]"
+            id="updates_{{ line_item.id }}"
+            value="{{ line_item.quantity }}"
+            min="0"
+            style="width: 60px; text-align: center; padding: 0.25rem; border: 1px solid var(--color-border); border-radius: var(--border-radius);"
+            aria-label="Số lượng cho {{ line_item.title | escape }}"
+          />
+        </td>
+        <td style="text-align: right; font-weight: 600; color: var(--color-primary);">
+          <span>{{ line_item.line_price | money }}</span>
+        </td>
+      </tr>
+    {%- endfor -%}
+  </tbody>
+</table>

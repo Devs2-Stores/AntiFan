@@ -1,0 +1,61 @@
+{%- paginate blog.articles by 12 -%}
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <header style="margin-bottom: 2.5rem; text-align: center;">
+    <h1 style="font-size: 2.25rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.5rem;">
+      {{ blog.title | escape }}
+    </h1>
+    <p style="color: var(--color-text-muted); margin: 0;">
+      Tổng cộng <strong>{{ blog.articles_count }}</strong> bài viết
+    </p>
+  </header>
+
+  {%- if blog.articles_count == 0 -%}
+    <div class="collection-empty-state">
+      <h2 class="empty-state-title">Chưa có bài viết</h2>
+      <p class="empty-state-description">Hiện tại chuyên mục này chưa có bài viết nào được đăng tải.</p>
+      <a href="/" class="btn btn-primary">Quay về trang chủ</a>
+    </div>
+  {%- else -%}
+    <div class="grid grid-cols-3">
+      {%- for article in blog.articles -%}
+        <article class="product-card" style="padding: 0; overflow: hidden;">
+          {%- if article.image -%}
+            <div style="aspect-ratio: 16 / 9; overflow: hidden; background: var(--color-border);">
+              <a href="{{ article.url }}" aria-label="{{ article.title | escape }}">
+                <img
+                  src="{{ article | img_url: 'large' }}"
+                  alt="{{ article.title | escape }}"
+                  style="width: 100%; height: 100%; object-fit: cover;"
+                  loading="lazy"
+                  width="400"
+                  height="225"
+                />
+              </a>
+            </div>
+          {%- endif -%}
+
+          <div style="padding: 1.5rem;">
+            <div style="font-size: 0.8125rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">
+              {{ article.published_at | date: '%d/%m/%Y' }} &bull; {{ article.author | escape }}
+            </div>
+
+            <h2 style="font-size: 1.25rem; font-weight: 600; margin: 0 0 0.75rem; line-height: 1.4;">
+              <a href="{{ article.url }}">{{ article.title | escape }}</a>
+            </h2>
+
+            <p style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6; margin: 0 0 1rem;">
+              {{ article.content | strip_html | truncatewords: 25 | escape }}
+            </p>
+
+            <a href="{{ article.url }}" style="color: var(--color-primary); font-weight: 600; font-size: 0.875rem;">
+              Đọc tiếp &rarr;
+            </a>
+          </div>
+        </article>
+      {%- endfor -%}
+    </div>
+
+    {% include 'pagination-default' %}
+  {%- endif -%}
+</div>
+{%- endpaginate -%}

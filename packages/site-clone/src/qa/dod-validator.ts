@@ -27,7 +27,7 @@
  * 19. dependencyVerification: check asset dependency checks
  */
 
-import { HaravanSchemaGenerator, type HaravanSectionSchema } from '../generators/haravan-schema-generator.js';
+import { HaravanSchemaGenerator } from '../generators/haravan-schema-generator.js';
 import { SettingsAssetsNormalizer, type SettingGroup } from '../generators/settings-assets-normalizer.js';
 import { LiquidBindingEngine } from '../generators/liquid-binding-engine.js';
 import { RouteResolver } from '../platform/haravan/route-resolver.js';
@@ -230,21 +230,21 @@ export const DOD_CRITERIA_SPECS: Record<DoDCriterionKey, DoDCriterionSpec> = {
   },
   haravanLiquidGenerator: {
     key: 'haravanLiquidGenerator',
-    name: 'Liquid Generation',
+    name: 'Liquid Flat Template & Snippet Generation',
     auditSection: '§63.7',
-    description: 'Verifies authentic Haravan OS 2.0 section and layout Liquid code generation.',
+    description: 'Verifies singular layout/theme.liquid, flat templates, and snippets without OS 2.0 sections/ or JSON templates.',
   },
   schemaGeneration: {
     key: 'schemaGeneration',
-    name: 'HaravanSchemaGenerator Dynamic Extraction',
+    name: 'Haravan Settings Declaration Generation',
     auditSection: '§63.8',
-    description: 'Verifies dynamic extraction and synthesis of OS 2.0 section schemas.',
+    description: 'Verifies settings generation (settings.html or settings_schema.json) without OS 2.0 section schemas/presets/blocks.',
   },
   settingsBinding: {
     key: 'settingsBinding',
-    name: 'SettingsAssetsNormalizer Compliance',
+    name: 'Settings & Data Binding Compliance',
     auditSection: '§63.9',
-    description: 'Verifies normalization of settings_schema.json and settings_data.json bindings.',
+    description: 'Verifies settings declaration alignment with settings_data.json defaults and exclusive single-mode usage.',
   },
   themeAssetGeneration: {
     key: 'themeAssetGeneration',
@@ -262,7 +262,7 @@ export const DOD_CRITERIA_SPECS: Record<DoDCriterionKey, DoDCriterionSpec> = {
     key: 'haravanPreview',
     name: 'Preview URL Derivation',
     auditSection: '§63.12',
-    description: 'Verifies derivation of valid Haravan theme preview URL with preview_theme_id token.',
+    description: 'Verifies derivation of valid Haravan theme preview URL with themeid token.',
   },
   realBrowserRender: {
     key: 'realBrowserRender',
@@ -284,15 +284,15 @@ export const DOD_CRITERIA_SPECS: Record<DoDCriterionKey, DoDCriterionSpec> = {
   },
   liquidVerification: {
     key: 'liquidVerification',
-    name: 'DotLiquid Sanitization',
+    name: 'DotLiquid Sanitization & Escaping',
     auditSection: '§63.16',
-    description: 'Verifies DotLiquid .NET runtime sanitization (no unsupported slice, empty, or Ruby quirks).',
+    description: 'Verifies DotLiquid .NET runtime sanitization, proper escaping, and absence of unsupported filters (reject, where, concat, etc.).',
   },
   schemaVerification: {
     key: 'schemaVerification',
-    name: 'OS 2.0 Schema Validation',
+    name: 'Haravan Settings & Construct Contract Verification',
     auditSection: '§63.17',
-    description: 'Verifies strict validation of schema blocks against Haravan OS 2.0 specification.',
+    description: 'Verifies settings schema validation and enforces complete absence of OS 2.0 constructs ({% schema %}, {% render %}, sections/, templates/*.json).',
   },
   routeVerification: {
     key: 'routeVerification',
@@ -302,9 +302,9 @@ export const DOD_CRITERIA_SPECS: Record<DoDCriterionKey, DoDCriterionSpec> = {
   },
   dependencyVerification: {
     key: 'dependencyVerification',
-    name: 'Asset Dependency Checks',
+    name: 'Asset & Include Dependency Checks',
     auditSection: '§63.19',
-    description: 'Verifies zero broken asset references, missing snippets, or dangling layout dependencies.',
+    description: 'Verifies zero broken asset references and that every {% include %} resolves to an existing snippet.',
   },
 };
 
@@ -662,23 +662,46 @@ export class DoDValidator {
         return { passed: false, reason: (obj.reason as string) || 'Liquid generation marked failed' };
       }
 
+      // Contract check: forbidden OS 2.0 sections/ or JSON templates
+      if (obj.hasSectionsDir === true || obj.hasJsonTemplates === true) {
+        return { passed: false, reason: 'Forbidden OS 2.0 constructs (sections/ or templates/*.json) detected in Haravan Liquid output.' };
+      }
+
+      const files = Array.isArray(obj.filesWritten) ? obj.filesWritten : (Array.isArray(obj.files) ? obj.files : []);
+      for (const f of files) {
+        if (typeof f === 'string') {
+          if (f.includes('sections/') || f.includes('sections\\')) {
+            return { passed: false, reason: 'Forbidden OS 2.0 sections/ directory detected in generated theme files.' };
+          }
+          if (f.endsWith('.json') && (f.includes('templates/') || f.includes('templates\\'))) {
+            return { passed: false, reason: 'Forbidden JSON template detected in generated theme files.' };
+          }
+        }
+      }
+
       const sections = Array.isArray(obj.sections) ? obj.sections : (Array.isArray(obj.templates) ? obj.templates : null);
       const sectionCount = typeof obj.sectionCount === 'number' ? obj.sectionCount : (sections ? sections.length : 0);
 
       if (sectionCount > 0) {
-        return { passed: true, evidence: `Haravan Liquid generator produced ${sectionCount} valid template/section components` };
+        return { passed: true, evidence: `Haravan Liquid generator produced ${sectionCount} valid flat template/snippet components` };
       }
 
       if (typeof obj.liquid === 'string' && obj.liquid.includes('{%') && obj.liquid.includes('%}')) {
+        if (obj.liquid.includes('{% schema %}') || obj.liquid.includes('{% render')) {
+          return { passed: false, reason: 'Forbidden constructs ({% schema %} or {% render %}) detected in generated Liquid.' };
+        }
         return { passed: true, evidence: `Haravan Liquid code generated successfully (${obj.liquid.length} chars)` };
       }
 
       if (obj.passed === true) {
-        return { passed: true, evidence: (obj.evidence as string) || 'Liquid generation verified' };
+        return { passed: true, evidence: (obj.evidence as string) || 'Haravan Liquid generation verified' };
       }
     }
 
     if (typeof candidate === 'string' && candidate.includes('{%') && candidate.includes('%}')) {
+      if (candidate.includes('{% schema %}') || candidate.includes('{% render')) {
+        return { passed: false, reason: 'Forbidden constructs ({% schema %} or {% render %}) detected in generated Liquid.' };
+      }
       return { passed: true, evidence: `Haravan Liquid template verified (${candidate.length} chars)` };
     }
 
@@ -686,7 +709,7 @@ export class DoDValidator {
   }
 
   // =========================================================================
-  // 8. schemaGeneration: check HaravanSchemaGenerator dynamic extraction
+  // 8. schemaGeneration: check Haravan settings declaration generation
   // =========================================================================
   public auditSchemaGeneration(ctx: DoDContext): DoDCriterionResult {
     const candidate = ctx.schemaGeneration ?? ctx.schemas ?? ctx.sectionSchemas;
@@ -700,7 +723,18 @@ export class DoDValidator {
         return { passed: false, reason: (obj.reason as string) || 'Schema generation marked failed' };
       }
 
-      // Check array of section schemas
+      // Check for forbidden section presets/blocks
+      const rawList = Array.isArray(candidate) ? candidate : (Array.isArray(obj.schemas) ? obj.schemas : [obj]);
+      for (const item of rawList) {
+        if (item && typeof item === 'object') {
+          const rec = item as Record<string, unknown>;
+          if (Array.isArray(rec.presets) || Array.isArray(rec.blocks)) {
+            return { passed: false, reason: 'OS 2.0 section presets or blocks detected. Haravan uses flat theme settings without section presets.' };
+          }
+        }
+      }
+
+      // Check array of theme settings groups
       const schemasList = Array.isArray(candidate) ? candidate : (Array.isArray(obj.schemas) ? obj.schemas : null);
       if (schemasList && schemasList.length > 0) {
         let validCount = 0;
@@ -710,17 +744,21 @@ export class DoDValidator {
           }
         }
         if (validCount > 0) {
-          return { passed: true, evidence: `Dynamic schema extraction verified: ${validCount} valid section schema(s) generated` };
+          return { passed: true, evidence: `Haravan settings declaration verified: ${validCount} valid setting group(s) generated` };
         }
       }
 
-      // Single section schema object
+      // Single settings group or settings.html object
       if (typeof obj.name === 'string' && Array.isArray(obj.settings)) {
-        return { passed: true, evidence: `Dynamic section schema generated: "${obj.name}" with ${obj.settings.length} settings` };
+        return { passed: true, evidence: `Haravan settings group generated: "${obj.name}" with ${obj.settings.length} settings` };
+      }
+
+      if (typeof obj.settingsHtml === 'string' && obj.settingsHtml.length > 0) {
+        return { passed: true, evidence: `Haravan legacy settings.html generated (${obj.settingsHtml.length} chars)` };
       }
 
       if (typeof obj.schemaCount === 'number' && obj.schemaCount > 0) {
-        return { passed: true, evidence: `Dynamic schema generator produced ${obj.schemaCount} section schemas` };
+        return { passed: true, evidence: `Dynamic schema generator produced ${obj.schemaCount} settings groups` };
       }
 
       if (obj.passed === true) {
@@ -728,11 +766,11 @@ export class DoDValidator {
       }
     }
 
-    return { passed: false, reason: 'Dynamic schema generation incomplete: missing valid OS 2.0 section schema definitions.' };
+    return { passed: false, reason: 'Dynamic schema generation incomplete: missing valid settings definitions.' };
   }
 
   // =========================================================================
-  // 9. settingsBinding: check SettingsAssetsNormalizer compliance
+  // 9. settingsBinding: check settings binding and single-mode compliance
   // =========================================================================
   public auditSettingsBinding(ctx: DoDContext): DoDCriterionResult {
     const candidate = ctx.settingsBinding ?? ctx.settingsNormalizer ?? (ctx.settingsSchema && ctx.settingsData ? { settingsSchema: ctx.settingsSchema, settingsData: ctx.settingsData } : null);
@@ -744,6 +782,11 @@ export class DoDValidator {
       const obj = candidate as Record<string, unknown>;
       if (obj.passed === false) {
         return { passed: false, reason: (obj.reason as string) || 'Settings binding compliance failed' };
+      }
+
+      // Check for forbidden dual settings mode
+      if (obj.dualMode === true || (obj.hasSettingsHtml === true && obj.hasSettingsSchema === true)) {
+        return { passed: false, reason: 'Dual settings mode detected. Haravan requires either legacy-html or f1genz-schema exclusively.' };
       }
 
       // If settingsSchema and settingsData are supplied, run normalization check
@@ -861,24 +904,23 @@ export class DoDValidator {
 
     // Must be valid URL and contain preview indicator
     const isUrl = /^https?:\/\/[^\s$.?#].[^\s]*$/i.test(urlString) || urlString.includes('localhost') || urlString.includes('127.0.0.1');
-    const hasPreviewParam =
-      urlString.includes('themeid=') ||
-      urlString.includes('theme_id=') ||
-      urlString.includes('preview_theme_id=') ||
-      urlString.includes('preview_theme_id') ||
-      urlString.includes('theme_id') ||
-      urlString.includes('themeid') ||
-      urlString.includes('preview');
+    // A Haravan preview is selected by the numeric `themeid` query parameter only.
+    // The Shopify spellings `theme_id` and `preview_theme_id` select nothing on
+    // Haravan, so accepting them certifies a preview that never addressed the theme.
+    const previewThemeId = /[?&]themeid=(\d+)(?=[&#]|$)/i.exec(urlString)?.[1] ?? null;
 
     if (!isUrl) {
       return { passed: false, reason: `Preview URL "${urlString}" is not a valid HTTP/HTTPS URL` };
     }
 
-    if (!hasPreviewParam) {
-      return { passed: false, reason: `Preview URL "${urlString}" missing Haravan preview token (preview_theme_id)` };
+    if (previewThemeId === null) {
+      return {
+        passed: false,
+        reason: `Preview URL "${urlString}" missing Haravan preview token: expected a numeric ?themeid=<id> query parameter`,
+      };
     }
 
-    return { passed: true, evidence: `Haravan preview URL confirmed: ${urlString}` };
+    return { passed: true, evidence: `Haravan preview URL confirmed: ${urlString} (themeid=${previewThemeId})` };
   }
 
   // =========================================================================
@@ -1036,6 +1078,14 @@ export class DoDValidator {
     if (/\b[a-zA-Z0-9_.]+\.size\s*>\s*0\b/.test(liquid)) issues.push('.size > 0 invocation on Drop');
     if (/\.each\b/.test(liquid)) issues.push('Ruby .each method call');
     if (/{%[\s\S]*?(?:&&|\|\|)[\s\S]*?%}/.test(liquid)) issues.push('JavaScript logical operators in Liquid tag');
+    // Haravan unsupported filters check
+    const unsupportedFilters = ['reject', 'compact', 'where', 'concat', 'at_most', 'at_least', 'image_url'];
+    for (const uf of unsupportedFilters) {
+      const re = new RegExp(`\\|\\s*${uf}\\b`, 'i');
+      if (re.test(liquid)) {
+        issues.push(`unsupported Shopify filter: ${uf}`);
+      }
+    }
     return issues;
   }
 
@@ -1045,35 +1095,48 @@ export class DoDValidator {
   public auditSchemaVerification(ctx: DoDContext): DoDCriterionResult {
     const candidate = ctx.schemaVerification ?? ctx.os2SchemaValidation;
     if (!candidate) {
-      return { passed: false, reason: 'OS 2.0 schema validation check missing.' };
+      return { passed: false, reason: 'Haravan settings schema validation check missing.' };
     }
 
     if (typeof candidate === 'object') {
       const obj = candidate as Record<string, unknown>;
       if (obj.passed === false) {
-        return { passed: false, reason: (obj.reason as string) || 'OS 2.0 schema validation failed' };
+        return { passed: false, reason: (obj.reason as string) || 'Settings schema validation failed' };
+      }
+
+      // Forbidden OS 2.0 construct checks
+      if (obj.hasSchemaTag === true || obj.hasRenderTag === true || obj.hasSectionsDir === true) {
+        return { passed: false, reason: 'Forbidden OS 2.0 constructs detected: {% schema %}, {% render %}, or sections/ are not supported on Haravan' };
       }
 
       // Check if schema validation result object is supplied
       if (Array.isArray(obj.errors) && obj.errors.length > 0) {
-        return { passed: false, reason: `OS 2.0 schema errors detected: ${obj.errors.join('; ')}` };
+        return { passed: false, reason: `Schema errors detected: ${obj.errors.join('; ')}` };
       }
 
-      // If raw schema object is supplied, validate it using HaravanSchemaGenerator
+      // If raw schema group or array is supplied, validate it using HaravanSchemaGenerator
       if (typeof obj.name === 'string' && Array.isArray(obj.settings)) {
-        const valRes = this.schemaGen.validateSectionSchema(obj as unknown as HaravanSectionSchema);
+        const valRes = this.schemaGen.validateSettingsSchema([obj]);
         if (!valRes.valid) {
           return { passed: false, reason: `Schema validation failed: ${valRes.errors.join('; ')}` };
         }
-        return { passed: true, evidence: `Section schema "${obj.name}" validated successfully against OS 2.0 rules` };
+        return { passed: true, evidence: `Settings group "${obj.name}" validated successfully against Haravan rules` };
+      }
+
+      if (Array.isArray(candidate)) {
+        const valRes = this.schemaGen.validateSettingsSchema(candidate);
+        if (!valRes.valid) {
+          return { passed: false, reason: `Schema validation failed: ${valRes.errors.join('; ')}` };
+        }
+        return { passed: true, evidence: `Haravan settings schema validated successfully (${candidate.length} groups)` };
       }
 
       if (obj.valid === true || obj.passed === true) {
-        return { passed: true, evidence: (obj.evidence as string) || 'OS 2.0 schema validation verified: all section schemas valid' };
+        return { passed: true, evidence: (obj.evidence as string) || 'Haravan settings schema validation verified: all setting groups valid' };
       }
     }
 
-    return { passed: false, reason: 'OS 2.0 schema verification failed: invalid schema format.' };
+    return { passed: false, reason: 'Haravan settings schema verification failed: invalid schema format.' };
   }
 
   // =========================================================================
@@ -1141,8 +1204,13 @@ export class DoDValidator {
         return { passed: false, reason: `Missing snippet references detected: ${missingSnippets.join(', ')}` };
       }
 
+      const unresolvedIncludes = Array.isArray(obj.unresolvedIncludes) ? obj.unresolvedIncludes : null;
+      if (unresolvedIncludes && unresolvedIncludes.length > 0) {
+        return { passed: false, reason: `Unresolved include targets detected: ${unresolvedIncludes.join(', ')}` };
+      }
+
       if (obj.brokenReferences === 0 || obj.verified === true || obj.passed === true) {
-        return { passed: true, evidence: (obj.evidence as string) || 'Asset dependency checks verified: zero broken asset or snippet references' };
+        return { passed: true, evidence: (obj.evidence as string) || 'Asset & include dependency checks verified: zero broken asset or snippet references' };
       }
     }
 

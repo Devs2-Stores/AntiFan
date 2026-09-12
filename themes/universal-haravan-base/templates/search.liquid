@@ -1,0 +1,72 @@
+{%- paginate search.results by 16 -%}
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <header style="text-align: center; max-width: 600px; margin: 0 auto 3rem;">
+    <h1 style="font-size: 2rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 1.5rem;">
+      Tìm kiếm
+    </h1>
+
+    <form action="/search" method="get" class="search-form" role="search">
+      <div style="display: flex; gap: 0.5rem;">
+        <label for="SearchPageInput" style="display: none;">Từ khóa tìm kiếm</label>
+        <input
+          type="search"
+          id="SearchPageInput"
+          name="q"
+          value="{{ search.terms | escape }}"
+          class="form-control"
+          placeholder="Nhập từ khóa tìm kiếm sản phẩm, bài viết..."
+          required
+        />
+        <button type="submit" class="btn btn-primary" style="padding: 0 1.5rem;">Tìm kiếm</button>
+      </div>
+    </form>
+  </header>
+
+  {%- if search.performed -%}
+    {%- if search.results_count == 0 -%}
+      <div class="search-empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto 1rem; color: var(--color-text-muted);" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <h2 class="empty-state-title">Không tìm thấy kết quả phù hợp</h2>
+        <p class="empty-state-description">
+          Không có kết quả nào phù hợp với từ khóa '{{ search.terms | escape }}'. Vui lòng thử lại với từ khóa khác.
+        </p>
+        <a href="/collections/all" class="btn btn-primary">Xem tất cả sản phẩm</a>
+      </div>
+    {%- else -%}
+      <div style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem;">
+          Tìm thấy <strong>{{ search.results_count }}</strong> kết quả cho từ khóa '<em>{{ search.terms | escape }}</em>'
+        </p>
+      </div>
+
+      <ul class="grid grid-cols-4" role="list" style="list-style: none; padding: 0; margin: 0;">
+        {%- for item in search.results -%}
+          <li role="listitem">
+            {%- if item.price -%}
+              {%- assign product = item -%}
+              {% include 'product-loop' %}
+            {%- else -%}
+              <article class="product-card" style="padding: 1.5rem;">
+                <h3 style="font-size: 1.125rem; margin: 0 0 0.5rem;">
+                  <a href="{{ item.url }}">{{ item.title | escape }}</a>
+                </h3>
+                <p style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6; margin: 0 0 1rem;">
+                  {{ item.content | strip_html | truncatewords: 25 | escape }}
+                </p>
+                <a href="{{ item.url }}" style="color: var(--color-primary); font-weight: 600; font-size: 0.875rem;">
+                  Xem chi tiết &rarr;
+                </a>
+              </article>
+            {%- endif -%}
+          </li>
+        {%- endfor -%}
+      </ul>
+
+      {% include 'pagination-default' %}
+    {%- endif -%}
+  {%- endif -%}
+</div>
+{%- endpaginate -%}

@@ -1,0 +1,443 @@
+{
+  "recordedAt": "2026-09-12T13:22:26.469Z",
+  "harness": "plans/reports/_capture-local-render.mjs",
+  "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "mode": "local-static-render",
+  "navigatedUrl": "http://127.0.0.1:18477/",
+  "sourceHtml": "plans\\reports\\_render-diagnostic.html",
+  "scope": "Local visual evidence for the LiquidJS-rendered home. The local revision is not pushable under the approved plan, so this is not storefront verification.",
+  "results": [
+    {
+      "breakpoint": "1440",
+      "width": 1440,
+      "innerWidth": 1440,
+      "visualViewportWidth": 1440,
+      "devicePixelRatio": 1,
+      "viewportApplied": true,
+      "screenshot": "plans\\reports\\home-render\\home-1440.png",
+      "overflowing": false,
+      "scrollWidth": 1440,
+      "scrollHeight": 4213,
+      "images": 90,
+      "imagesLoaded": 85,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "http://127.0.0.1:18477/assets/hl-home.js"
+      ],
+      "pageErrors": [],
+      "overflowingElements": [],
+      "sectionAudit": [
+        {
+          "cls": "slide",
+          "height": 445,
+          "width": 1440,
+          "display": "block",
+          "textLength": 164,
+          "images": 19,
+          "imagesLoaded": 19,
+          "links": 86
+        },
+        {
+          "cls": "category-list",
+          "height": 140,
+          "width": 1440,
+          "display": "flex",
+          "textLength": 0,
+          "images": 5,
+          "imagesLoaded": 5,
+          "links": 5
+        },
+        {
+          "cls": "banner-category",
+          "height": 165,
+          "width": 1440,
+          "display": "block",
+          "textLength": 0,
+          "images": 3,
+          "imagesLoaded": 3,
+          "links": 3
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 250,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 17
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 246,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 16
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 399,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 430,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 382,
+          "images": 6,
+          "imagesLoaded": 1,
+          "links": 11
+        },
+        {
+          "cls": "home-form",
+          "height": 344,
+          "width": 1440,
+          "display": "block",
+          "textLength": 467,
+          "images": 1,
+          "imagesLoaded": 1,
+          "links": 1
+        },
+        {
+          "cls": "accessory",
+          "height": 351,
+          "width": 1440,
+          "display": "block",
+          "textLength": 212,
+          "images": 8,
+          "imagesLoaded": 8,
+          "links": 9
+        },
+        {
+          "cls": "news",
+          "height": 436,
+          "width": 1440,
+          "display": "block",
+          "textLength": 951,
+          "images": 4,
+          "imagesLoaded": 4,
+          "links": 13
+        },
+        {
+          "cls": "partner",
+          "height": 222,
+          "width": 1440,
+          "display": "block",
+          "textLength": 21,
+          "images": 20,
+          "imagesLoaded": 20,
+          "links": 0
+        }
+      ]
+    },
+    {
+      "breakpoint": "768",
+      "width": 768,
+      "innerWidth": 768,
+      "visualViewportWidth": 768,
+      "devicePixelRatio": 1,
+      "viewportApplied": true,
+      "screenshot": "plans\\reports\\home-render\\home-768.png",
+      "overflowing": false,
+      "scrollWidth": 768,
+      "scrollHeight": 6892,
+      "images": 90,
+      "imagesLoaded": 86,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "http://127.0.0.1:18477/assets/hl-home.js"
+      ],
+      "pageErrors": [],
+      "overflowingElements": [],
+      "sectionAudit": [
+        {
+          "cls": "slide",
+          "height": 460,
+          "width": 768,
+          "display": "block",
+          "textLength": 113,
+          "images": 19,
+          "imagesLoaded": 19,
+          "links": 86
+        },
+        {
+          "cls": "category-list",
+          "height": 142,
+          "width": 768,
+          "display": "flex",
+          "textLength": 0,
+          "images": 5,
+          "imagesLoaded": 5,
+          "links": 5
+        },
+        {
+          "cls": "banner-category",
+          "height": 361,
+          "width": 768,
+          "display": "block",
+          "textLength": 0,
+          "images": 3,
+          "imagesLoaded": 3,
+          "links": 3
+        },
+        {
+          "cls": "block-category",
+          "height": 775,
+          "width": 768,
+          "display": "block",
+          "textLength": 254,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 17
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 768,
+          "display": "block",
+          "textLength": 216,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 16
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 768,
+          "display": "block",
+          "textLength": 371,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 768,
+          "display": "block",
+          "textLength": 407,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 768,
+          "display": "block",
+          "textLength": 365,
+          "images": 6,
+          "imagesLoaded": 2,
+          "links": 11
+        },
+        {
+          "cls": "home-form",
+          "height": 474,
+          "width": 768,
+          "display": "block",
+          "textLength": 467,
+          "images": 1,
+          "imagesLoaded": 1,
+          "links": 1
+        },
+        {
+          "cls": "accessory",
+          "height": 626,
+          "width": 768,
+          "display": "block",
+          "textLength": 212,
+          "images": 8,
+          "imagesLoaded": 8,
+          "links": 9
+        },
+        {
+          "cls": "news",
+          "height": 479,
+          "width": 768,
+          "display": "block",
+          "textLength": 270,
+          "images": 4,
+          "imagesLoaded": 4,
+          "links": 13
+        },
+        {
+          "cls": "partner",
+          "height": 222,
+          "width": 768,
+          "display": "block",
+          "textLength": 21,
+          "images": 20,
+          "imagesLoaded": 20,
+          "links": 0
+        }
+      ]
+    },
+    {
+      "breakpoint": "390",
+      "width": 390,
+      "innerWidth": 390,
+      "visualViewportWidth": 390,
+      "devicePixelRatio": 1,
+      "viewportApplied": true,
+      "screenshot": "plans\\reports\\home-render\\home-390.png",
+      "overflowing": false,
+      "scrollWidth": 390,
+      "scrollHeight": 7902,
+      "images": 90,
+      "imagesLoaded": 86,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "http://127.0.0.1:18477/assets/hl-home.js"
+      ],
+      "pageErrors": [],
+      "overflowingElements": [],
+      "sectionAudit": [
+        {
+          "cls": "slide",
+          "height": 272,
+          "width": 390,
+          "display": "block",
+          "textLength": 113,
+          "images": 19,
+          "imagesLoaded": 19,
+          "links": 86
+        },
+        {
+          "cls": "category-list",
+          "height": 142,
+          "width": 390,
+          "display": "flex",
+          "textLength": 0,
+          "images": 5,
+          "imagesLoaded": 5,
+          "links": 5
+        },
+        {
+          "cls": "banner-category",
+          "height": 361,
+          "width": 390,
+          "display": "block",
+          "textLength": 0,
+          "images": 3,
+          "imagesLoaded": 3,
+          "links": 3
+        },
+        {
+          "cls": "block-category",
+          "height": 775,
+          "width": 390,
+          "display": "block",
+          "textLength": 254,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 17
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 390,
+          "display": "block",
+          "textLength": 216,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 16
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 390,
+          "display": "block",
+          "textLength": 371,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 390,
+          "display": "block",
+          "textLength": 407,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 390,
+          "display": "block",
+          "textLength": 365,
+          "images": 6,
+          "imagesLoaded": 2,
+          "links": 11
+        },
+        {
+          "cls": "home-form",
+          "height": 1674,
+          "width": 390,
+          "display": "block",
+          "textLength": 467,
+          "images": 1,
+          "imagesLoaded": 1,
+          "links": 1
+        },
+        {
+          "cls": "accessory",
+          "height": 624,
+          "width": 390,
+          "display": "block",
+          "textLength": 212,
+          "images": 8,
+          "imagesLoaded": 8,
+          "links": 9
+        },
+        {
+          "cls": "news",
+          "height": 479,
+          "width": 390,
+          "display": "block",
+          "textLength": 270,
+          "images": 4,
+          "imagesLoaded": 4,
+          "links": 13
+        },
+        {
+          "cls": "partner",
+          "height": 222,
+          "width": 390,
+          "display": "block",
+          "textLength": 21,
+          "images": 20,
+          "imagesLoaded": 20,
+          "links": 0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    {% include 'seo_head' %}
+    <link rel="stylesheet" href="{{ 'theme.css' | asset_url }}" />
+    {{ content_for_header }}
+  </head>
+
+  <body id="{{ page_title | handle }}" class="template-{{ template | replace: '.', ' ' | truncatewords: 1, '' | handle }}">
+    <a href="#main" class="skip-to-content">Chuyển đến nội dung chính</a>
+
+    {% include 'header' %}
+
+    {% include 'breadcrumb' %}
+
+    <main id="main" class="main-content" role="main">
+      {{ content_for_layout }}
+    </main>
+
+    {% include 'footer' %}
+
+    {% include 'footer-scripts' %}
+  </body>
+</html>

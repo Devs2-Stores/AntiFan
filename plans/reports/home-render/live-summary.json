@@ -1,0 +1,515 @@
+{
+  "recordedAt": "2026-09-12T12:55:44.587Z",
+  "harness": "plans/reports/_capture-local-render.mjs",
+  "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "mode": "live-storefront-read-only",
+  "navigatedUrl": "https://phukienmaymoc.com/",
+  "sourceHtml": "plans\\reports\\_render-diagnostic.html",
+  "scope": "Read-only measurement of the deployed storefront at https://phukienmaymoc.com/ with ?themeid=1001512581. The deployed revision predates this session's home changes (no remote push is permitted by the approved plan), so this is a baseline, not verification of the new code.",
+  "results": [
+    {
+      "breakpoint": "1440",
+      "width": 1440,
+      "screenshot": "plans\\reports\\home-render\\live-home-1440.png",
+      "overflowing": false,
+      "scrollWidth": 1440,
+      "scrollHeight": 4700,
+      "images": 111,
+      "imagesLoaded": 106,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "https://www.gstatic.com/recaptcha/releases/BnqMGSY_YP4cCmbNINHpJPkd/recaptcha__en.js",
+        "https://www.google.com/recaptcha/api.js?render=6LchSLkqAAAAABVHBpeFgg8N-WgkYsr5fO6GUF_s",
+        "https://www.gstatic.com/recaptcha/releases/BnqMGSY_YP4cCmbNINHpJPkd/recaptcha__en.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery-3.5.1.min.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/header.js?v=1092",
+        "https://cdn.hstatic.net/shared/notification.js",
+        "https://stats.hstatic.net/beacon.min.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/seo-cwv-booster.js?v=1092",
+        "https://www.google.com/recaptcha/api.js?render=6LchSLkqAAAAABVHBpeFgg8N-WgkYsr5fO6GUF_s",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/hl-home.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/sale-popup.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/ll-addthis-sharing.js?v=1092",
+        "https://cdn.hstatic.net/shared/api.jquery.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery.angle.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/wow.min.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery.fancybox.min.js?v=1092"
+      ],
+      "pageErrors": [
+        {
+          "kind": "resource",
+          "message": "",
+          "source": "https://cdn.hstatic.net/themes/200001207485/1001512581/14/04-best-workplace-in-asia-2025-at-15x.jpg?v=1092",
+          "detail": ""
+        },
+        {
+          "kind": "resource",
+          "message": "",
+          "source": "https://cdn.hstatic.net/themes/200001207485/1001512581/14/dsc04523-1.png?v=1092",
+          "detail": ""
+        }
+      ],
+      "overflowingElements": [],
+      "sectionAudit": [
+        {
+          "cls": "slide",
+          "height": 445,
+          "width": 1440,
+          "display": "block",
+          "textLength": 164,
+          "images": 19,
+          "imagesLoaded": 19,
+          "links": 86
+        },
+        {
+          "cls": "category-list",
+          "height": 140,
+          "width": 1440,
+          "display": "flex",
+          "textLength": 0,
+          "images": 5,
+          "imagesLoaded": 5,
+          "links": 5
+        },
+        {
+          "cls": "banner-category",
+          "height": 165,
+          "width": 1440,
+          "display": "block",
+          "textLength": 0,
+          "images": 3,
+          "imagesLoaded": 3,
+          "links": 3
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 250,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 17
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 246,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 16
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 399,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 449,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 332,
+          "width": 1440,
+          "display": "block",
+          "textLength": 382,
+          "images": 6,
+          "imagesLoaded": 2,
+          "links": 11
+        },
+        {
+          "cls": "home-form",
+          "height": 369,
+          "width": 1440,
+          "display": "block",
+          "textLength": 499,
+          "images": 1,
+          "imagesLoaded": 1,
+          "links": 1
+        },
+        {
+          "cls": "accessory",
+          "height": 351,
+          "width": 1440,
+          "display": "block",
+          "textLength": 212,
+          "images": 8,
+          "imagesLoaded": 8,
+          "links": 9
+        },
+        {
+          "cls": "news",
+          "height": 125,
+          "width": 1440,
+          "display": "block",
+          "textLength": 46,
+          "images": 0,
+          "imagesLoaded": 0,
+          "links": 1
+        },
+        {
+          "cls": "partner",
+          "height": 222,
+          "width": 1440,
+          "display": "block",
+          "textLength": 21,
+          "images": 20,
+          "imagesLoaded": 20,
+          "links": 0
+        }
+      ]
+    },
+    {
+      "breakpoint": "768",
+      "width": 768,
+      "screenshot": "plans\\reports\\home-render\\live-home-768.png",
+      "overflowing": false,
+      "scrollWidth": 768,
+      "scrollHeight": 7244,
+      "images": 111,
+      "imagesLoaded": 107,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "https://www.gstatic.com/recaptcha/releases/BnqMGSY_YP4cCmbNINHpJPkd/recaptcha__en.js",
+        "https://www.google.com/recaptcha/api.js?render=6LchSLkqAAAAABVHBpeFgg8N-WgkYsr5fO6GUF_s",
+        "https://www.gstatic.com/recaptcha/releases/BnqMGSY_YP4cCmbNINHpJPkd/recaptcha__en.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery-3.5.1.min.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/header.js?v=1092",
+        "https://cdn.hstatic.net/shared/notification.js",
+        "https://stats.hstatic.net/beacon.min.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/seo-cwv-booster.js?v=1092",
+        "https://www.google.com/recaptcha/api.js?render=6LchSLkqAAAAABVHBpeFgg8N-WgkYsr5fO6GUF_s",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/hl-home.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/sale-popup.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/ll-addthis-sharing.js?v=1092",
+        "https://cdn.hstatic.net/shared/api.jquery.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery.angle.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/wow.min.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery.fancybox.min.js?v=1092"
+      ],
+      "pageErrors": [
+        {
+          "kind": "resource",
+          "message": "",
+          "source": "https://cdn.hstatic.net/themes/200001207485/1001512581/14/dsc04523-1.png?v=1092",
+          "detail": ""
+        },
+        {
+          "kind": "resource",
+          "message": "",
+          "source": "https://cdn.hstatic.net/themes/200001207485/1001512581/14/04-best-workplace-in-asia-2025-at-15x.jpg?v=1092",
+          "detail": ""
+        }
+      ],
+      "overflowingElements": [],
+      "sectionAudit": [
+        {
+          "cls": "slide",
+          "height": 433,
+          "width": 768,
+          "display": "block",
+          "textLength": 113,
+          "images": 19,
+          "imagesLoaded": 19,
+          "links": 86
+        },
+        {
+          "cls": "category-list",
+          "height": 142,
+          "width": 768,
+          "display": "flex",
+          "textLength": 0,
+          "images": 5,
+          "imagesLoaded": 5,
+          "links": 5
+        },
+        {
+          "cls": "banner-category",
+          "height": 361,
+          "width": 768,
+          "display": "block",
+          "textLength": 0,
+          "images": 3,
+          "imagesLoaded": 3,
+          "links": 3
+        },
+        {
+          "cls": "block-category",
+          "height": 775,
+          "width": 768,
+          "display": "block",
+          "textLength": 254,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 17
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 768,
+          "display": "block",
+          "textLength": 216,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 16
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 768,
+          "display": "block",
+          "textLength": 371,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 768,
+          "display": "block",
+          "textLength": 426,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 768,
+          "display": "block",
+          "textLength": 365,
+          "images": 6,
+          "imagesLoaded": 2,
+          "links": 11
+        },
+        {
+          "cls": "home-form",
+          "height": 499,
+          "width": 768,
+          "display": "block",
+          "textLength": 499,
+          "images": 1,
+          "imagesLoaded": 1,
+          "links": 1
+        },
+        {
+          "cls": "accessory",
+          "height": 354,
+          "width": 768,
+          "display": "block",
+          "textLength": 212,
+          "images": 8,
+          "imagesLoaded": 8,
+          "links": 9
+        },
+        {
+          "cls": "news",
+          "height": 128,
+          "width": 768,
+          "display": "block",
+          "textLength": 46,
+          "images": 0,
+          "imagesLoaded": 0,
+          "links": 1
+        },
+        {
+          "cls": "partner",
+          "height": 222,
+          "width": 768,
+          "display": "block",
+          "textLength": 21,
+          "images": 20,
+          "imagesLoaded": 20,
+          "links": 0
+        }
+      ]
+    },
+    {
+      "breakpoint": "390",
+      "width": 390,
+      "screenshot": "plans\\reports\\home-render\\live-home-390.png",
+      "overflowing": false,
+      "scrollWidth": 390,
+      "scrollHeight": 9012,
+      "images": 111,
+      "imagesLoaded": 107,
+      "imagesBrokenCount": 0,
+      "imagesBroken": [],
+      "sectionCount": 12,
+      "scripts": [
+        "https://www.gstatic.com/recaptcha/releases/BnqMGSY_YP4cCmbNINHpJPkd/recaptcha__en.js",
+        "https://www.google.com/recaptcha/api.js?render=6LchSLkqAAAAABVHBpeFgg8N-WgkYsr5fO6GUF_s",
+        "https://www.gstatic.com/recaptcha/releases/BnqMGSY_YP4cCmbNINHpJPkd/recaptcha__en.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery-3.5.1.min.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/header.js?v=1092",
+        "https://cdn.hstatic.net/shared/notification.js",
+        "https://stats.hstatic.net/beacon.min.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/seo-cwv-booster.js?v=1092",
+        "https://www.google.com/recaptcha/api.js?render=6LchSLkqAAAAABVHBpeFgg8N-WgkYsr5fO6GUF_s",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/hl-home.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/sale-popup.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/ll-addthis-sharing.js?v=1092",
+        "https://cdn.hstatic.net/shared/api.jquery.js",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery.angle.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/wow.min.js?v=1092",
+        "https://cdn.hstatic.net/themes/200001207485/1001512581/14/jquery.fancybox.min.js?v=1092"
+      ],
+      "pageErrors": [
+        {
+          "kind": "resource",
+          "message": "",
+          "source": "https://cdn.hstatic.net/themes/200001207485/1001512581/14/dsc04523-1.png?v=1092",
+          "detail": ""
+        },
+        {
+          "kind": "resource",
+          "message": "",
+          "source": "https://cdn.hstatic.net/themes/200001207485/1001512581/14/04-best-workplace-in-asia-2025-at-15x.jpg?v=1092",
+          "detail": ""
+        }
+      ],
+      "overflowingElements": [],
+      "sectionAudit": [
+        {
+          "cls": "slide",
+          "height": 269,
+          "width": 390,
+          "display": "block",
+          "textLength": 113,
+          "images": 19,
+          "imagesLoaded": 19,
+          "links": 86
+        },
+        {
+          "cls": "category-list",
+          "height": 142,
+          "width": 390,
+          "display": "flex",
+          "textLength": 0,
+          "images": 5,
+          "imagesLoaded": 5,
+          "links": 5
+        },
+        {
+          "cls": "banner-category",
+          "height": 361,
+          "width": 390,
+          "display": "block",
+          "textLength": 0,
+          "images": 3,
+          "imagesLoaded": 3,
+          "links": 3
+        },
+        {
+          "cls": "block-category",
+          "height": 775,
+          "width": 390,
+          "display": "block",
+          "textLength": 254,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 17
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 390,
+          "display": "block",
+          "textLength": 216,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 16
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 390,
+          "display": "block",
+          "textLength": 371,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 390,
+          "display": "block",
+          "textLength": 426,
+          "images": 6,
+          "imagesLoaded": 6,
+          "links": 11
+        },
+        {
+          "cls": "block-category",
+          "height": 721,
+          "width": 390,
+          "display": "block",
+          "textLength": 365,
+          "images": 6,
+          "imagesLoaded": 2,
+          "links": 11
+        },
+        {
+          "cls": "home-form",
+          "height": 1674,
+          "width": 390,
+          "display": "block",
+          "textLength": 499,
+          "images": 1,
+          "imagesLoaded": 1,
+          "links": 1
+        },
+        {
+          "cls": "accessory",
+          "height": 735,
+          "width": 390,
+          "display": "block",
+          "textLength": 212,
+          "images": 8,
+          "imagesLoaded": 8,
+          "links": 9
+        },
+        {
+          "cls": "news",
+          "height": 128,
+          "width": 390,
+          "display": "block",
+          "textLength": 46,
+          "images": 0,
+          "imagesLoaded": 0,
+          "links": 1
+        },
+        {
+          "cls": "partner",
+          "height": 222,
+          "width": 390,
+          "display": "block",
+          "textLength": 21,
+          "images": 20,
+          "imagesLoaded": 20,
+          "links": 0
+        }
+      ]
+    }
+  ]
+}

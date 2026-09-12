@@ -1,0 +1,40 @@
+{%- if paginate.pages > 1 -%}
+  <nav class="pagination-nav" role="navigation" aria-label="Pagination">
+    <ul class="pagination-list">
+      {%- if paginate.previous -%}
+        <li>
+          <a href="{{ paginate.previous.url }}" class="pagination-link" aria-label="Trang trước">
+            &laquo;
+          </a>
+        </li>
+      {%- endif -%}
+
+      {%- for part in paginate.parts -%}
+        {%- if part.is_link -%}
+          <li>
+            <a href="{{ part.url }}" class="pagination-link" aria-label="Trang {{ part.title }}">
+              {{ part.title }}
+            </a>
+          </li>
+        {%- else -%}
+          <li>
+            <span
+              class="pagination-link{% if part.title == paginate.current_page %} is-current{% endif %}"
+              {% if part.title == paginate.current_page %}aria-current="page"{% endif %}
+            >
+              {{ part.title }}
+            </span>
+          </li>
+        {%- endif -%}
+      {%- endfor -%}
+
+      {%- if paginate.next -%}
+        <li>
+          <a href="{{ paginate.next.url }}" class="pagination-link" aria-label="Trang tiếp theo">
+            &raquo;
+          </a>
+        </li>
+      {%- endif -%}
+    </ul>
+  </nav>
+{%- endif -%}

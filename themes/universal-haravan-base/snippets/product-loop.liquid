@@ -1,0 +1,68 @@
+<article class="product-card" data-product-id="{{ product.id }}">
+  <div class="product-card-image-wrap">
+    {%- unless product.available -%}
+      <span class="badge badge-sold-out">Hết hàng</span>
+    {%- else -%}
+      {%- if product.compare_at_price > product.price -%}
+        <span class="badge badge-sale">Giảm giá</span>
+      {%- endif -%}
+    {%- endunless -%}
+
+    <a href="{{ product.url }}" aria-label="{{ product.title | escape }}">
+      {%- if product.images.size > 0 -%}
+        <img
+          src="{{ product.images.first | img_url: 'large' }}"
+          alt="{{ product.title | escape }}"
+          class="product-card-image"
+          loading="lazy"
+          width="360"
+          height="360"
+        />
+      {%- else -%}
+        <img
+          src="{{ 'no-image.png' | asset_url }}"
+          alt="{{ product.title | escape }}"
+          class="product-card-image"
+          loading="lazy"
+          width="360"
+          height="360"
+        />
+      {%- endif -%}
+    </a>
+  </div>
+
+  <div class="product-card-content">
+    {%- if settings.product_grid_show_vendor and product.vendor != blank -%}
+      <div class="product-card-vendor">{{ product.vendor | escape }}</div>
+    {%- endif -%}
+
+    <h3 class="product-card-title">
+      <a href="{{ product.url }}">{{ product.title | escape }}</a>
+    </h3>
+
+    <div class="product-card-price">
+      <span class="price-regular">{{ product.price | money }}</span>
+      {%- if product.compare_at_price > product.price -%}
+        <span class="price-compare">{{ product.compare_at_price | money }}</span>
+      {%- endif -%}
+    </div>
+
+    <div class="product-card-actions">
+      <a href="{{ product.url }}" class="btn btn-outline" style="flex: 1; padding: 0.5rem; font-size: 0.875rem;">
+        Chi tiết
+      </a>
+      {%- if settings.product_grid_show_quickview and settings.product_quickview_enable -%}
+        <button
+          type="button"
+          class="btn btn-primary btn-quickview"
+          data-modal-trigger="QuickviewModal"
+          data-product-handle="{{ product.handle }}"
+          aria-label="Xem nhanh {{ product.title | escape }}"
+          style="padding: 0.5rem 0.75rem;"
+        >
+          &#128065;
+        </button>
+      {%- endif -%}
+    </div>
+  </div>
+</article>

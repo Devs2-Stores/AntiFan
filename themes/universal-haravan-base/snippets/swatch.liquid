@@ -1,0 +1,58 @@
+{%- comment -%}
+Swatch as navigation, not client state: every swatch is a link to
+`?variant={id}`, and `product.selected_or_first_available_variant` (used by
+templates/product.liquid) then renders that variant's price, image and
+availability. No JavaScript and no stale price, because the server owns the
+selection. Only `available` variants are linked while any exist for a value;
+unavailable values fall back to their first variant and are marked as sold out.
+{%- endcomment -%}
+{%- assign found_option = false -%}
+{%- assign is_color = false -%}
+{%- assign option_index = 0 -%}
+
+{%- for opt in product.options -%}
+  {%- if opt == swatch -%}
+    {%- assign found_option = true -%}
+    {%- assign option_index = forloop.index0 -%}
+    {%- assign downcased_opt = swatch | downcase -%}
+    {%- if downcased_opt contains 'màu' or downcased_opt contains 'color' or downcased_opt contains 'colour' -%}
+      {%- assign is_color = true -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endfor -%}
+
+{%- if found_option -%}
+  <div class="swatch-group" role="group" aria-label="{{ swatch | escape }}">
+    <div class="swatch-title">{{ swatch | escape }}:</div>
+    <div class="swatch-options">
+      {%- assign seen = '|' -%}
+      {%- for variant in product.variants -%}
+        {%- assign value = variant.options[option_index] -%}
+        {%- assign key = '|' | append: value | append: '|' -%}
+        {%- unless seen contains key -%}
+          {%- assign seen = seen | append: value | append: '|' -%}
+          {%- assign target_id = variant.id -%}
+          {%- assign target_available = variant.available -%}
+          {%- assign picked = false -%}
+          {%- for candidate in product.variants -%}
+            {%- if picked == false and candidate.options[option_index] == value and candidate.available -%}
+              {%- assign target_id = candidate.id -%}
+              {%- assign target_available = true -%}
+              {%- assign picked = true -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- assign is_active = false -%}
+          {%- if product.selected_or_first_available_variant.options[option_index] == value -%}
+            {%- assign is_active = true -%}
+          {%- endif -%}
+          <a
+            class="swatch-label{% if is_color %} color-swatch{% endif %}{% if is_active %} is-active{% endif %}{% unless target_available %} is-unavailable{% endunless %}"
+            href="{{ product.url }}?variant={{ target_id }}"
+            title="{{ value | escape }}{% unless target_available %} (Hết hàng){% endunless %}"
+            {% if is_active %}aria-current="true"{% endif %}
+          >{{ value | escape }}</a>
+        {%- endunless -%}
+      {%- endfor -%}
+    </div>
+  </div>
+{%- endif -%}

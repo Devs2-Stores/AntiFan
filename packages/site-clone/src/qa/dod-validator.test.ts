@@ -224,7 +224,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
           },
         });
         assert.strictEqual(res.passed, true);
-        assert.ok(res.evidence?.includes('4 valid template/section components'));
+        assert.ok(res.evidence?.includes('4 valid flat template/snippet components'));
       });
 
       it('fails when no liquid files or sections are produced', () => {
@@ -244,7 +244,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
           ],
         });
         assert.strictEqual(res.passed, true);
-        assert.ok(res.evidence?.includes('1 valid section schema'));
+        assert.ok(res.evidence?.includes('1 valid setting group'));
       });
 
       it('fails when schema definitions are missing', () => {
@@ -292,7 +292,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
     describe('11) writeThemeCopy', () => {
       it('passes when atomic theme write completed successfully', () => {
         const res = validator.auditWriteThemeCopy({
-          themeCopy: { success: true, filesWritten: ['sections/hero.liquid', 'layout/theme.liquid'] },
+          themeCopy: { success: true, filesWritten: ['snippets/hero.liquid', 'layout/theme.liquid'] },
         });
         assert.strictEqual(res.passed, true);
         assert.ok(res.evidence?.includes('2 files written atomically'));
@@ -309,20 +309,40 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
 
     // 12. haravanPreview
     describe('12) haravanPreview', () => {
-      it('passes when preview URL has preview_theme_id parameter', () => {
+      it('passes when preview URL has themeid parameter', () => {
         const res = validator.auditHaravanPreview({
-          previewUrl: 'https://store.myharavan.com/?preview_theme_id=12345678',
+          previewUrl: 'https://store.myharavan.com/?themeid=12345678',
         });
         assert.strictEqual(res.passed, true);
-        assert.ok(res.evidence?.includes('preview_theme_id=12345678'));
+        assert.ok(res.evidence?.includes('themeid=12345678'));
       });
 
       it('fails when preview URL is missing preview token', () => {
         const res = validator.auditHaravanPreview({
-          previewUrl: 'https://store.myharavan.com/products/all',
+          previewUrl: 'https://store.myharavan.com/products/all?preview=true',
         });
         assert.strictEqual(res.passed, false);
         assert.ok(res.reason?.includes('missing Haravan preview token'));
+      });
+
+      it('rejects a non-numeric themeid and the Shopify theme-selection spellings', () => {
+        for (const previewUrl of [
+          'https://store.myharavan.com/?themeid=',
+          'https://store.myharavan.com/?themeid=abc',
+          'https://store.myharavan.com/?theme_id=12345678',
+          'https://store.myharavan.com/?preview_theme_id=12345678',
+        ]) {
+          const res = validator.auditHaravanPreview({ previewUrl });
+          assert.strictEqual(res.passed, false, `expected refusal for ${previewUrl}`);
+        }
+      });
+
+      it('accepts a numeric themeid alongside other query parameters', () => {
+        const res = validator.auditHaravanPreview({
+          previewUrl: 'https://store.myharavan.com/?view=all&themeid=12345678&utm_source=x',
+        });
+        assert.strictEqual(res.passed, true);
+        assert.ok(res.evidence?.includes('themeid=12345678'));
       });
     });
 
@@ -408,7 +428,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
 
     // 17. schemaVerification
     describe('17) schemaVerification', () => {
-      it('validates raw OS 2.0 schema using HaravanSchemaGenerator', () => {
+      it('validates raw Haravan settings schema using HaravanSchemaGenerator', () => {
         const validSchema = {
           name: 'Hero Banner',
           settings: [
@@ -476,6 +496,14 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         assert.strictEqual(res.passed, false);
         assert.ok(res.reason?.includes('Missing theme assets'));
       });
+
+      it('fails when unresolved includes are detected', () => {
+        const res = validator.auditDependencyVerification({
+          assetDependencies: { missingAssets: [], missingSnippets: [], unresolvedIncludes: ['header_missing'] },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('Unresolved include targets'));
+      });
     });
   });
 
@@ -508,7 +536,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         // 11. writeThemeCopy
         themeCopy: { success: true, filesWritten: ['layout/theme.liquid'] },
         // 12. haravanPreview
-        previewUrl: 'https://demo.haravan.com/?preview_theme_id=987654321',
+        previewUrl: 'https://demo.haravan.com/?themeid=987654321',
         // 13. realBrowserRender
         browserRender: { status: 200, domLoaded: true, rendered: true },
         // 14. strictVerification
@@ -553,7 +581,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         settingsBinding: { compliant: true },
         themeAssets: ['assets/main.css'],
         themeCopy: { success: true, filesWritten: ['layout/theme.liquid'] },
-        previewUrl: 'https://demo.haravan.com/?preview_theme_id=123',
+        previewUrl: 'https://demo.haravan.com/?themeid=123',
         browserRender: { status: 200, domLoaded: true },
         visualDiff: { diffPercentage: 12.5, tolerance: 5.0 }, // FAILS: 12.5% > 5.0%
         dynamicBindings: { bindingsCount: 5 },

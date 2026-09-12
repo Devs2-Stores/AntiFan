@@ -1,0 +1,133 @@
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <article style="max-width: 800px; margin: 0 auto;">
+    <header style="margin-bottom: 2.5rem; text-align: center;">
+      <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">
+        <a href="{{ blog.url }}" style="color: var(--color-primary); font-weight: 600;">{{ blog.title | escape }}</a>
+        &bull; <span>{{ article.published_at | date: '%d/%m/%Y' }}</span>
+        &bull; <span>{{ article.author | escape }}</span>
+      </div>
+      <h1 style="font-size: 2.5rem; font-weight: 800; color: var(--color-secondary); line-height: 1.2; margin: 0;">
+        {{ article.title | escape }}
+      </h1>
+    </header>
+
+    {%- if article.image -%}
+      <div style="margin-bottom: 2.5rem; border-radius: var(--border-radius); overflow: hidden;">
+        <img
+          src="{{ article | img_url: '1024x1024' }}"
+          alt="{{ article.title | escape }}"
+          style="width: 100%; height: auto; display: block;"
+          loading="eager"
+          fetchpriority="high"
+          width="800"
+          height="450"
+        />
+      </div>
+    {%- endif -%}
+
+    <div class="article-content" style="line-height: 1.8; font-size: 1.0625rem; color: var(--color-text); margin-bottom: 3rem;">
+      {{ article.content }}
+    </div>
+
+    {%- if article.tags.size > 0 -%}
+      <div style="padding-top: 1.5rem; border-top: 1px solid var(--color-border); margin-bottom: 3rem;">
+        <span style="font-weight: 600; margin-right: 0.5rem;">Thẻ bài viết:</span>
+        {%- for tag in article.tags -%}
+          <a href="{{ blog.url }}/tagged/{{ tag | handle }}" class="badge" style="background: var(--color-bg-subtle); color: var(--color-text); margin-right: 0.375rem;">
+            {{ tag }}
+          </a>
+        {%- endfor -%}
+      </div>
+    {%- endif -%}
+
+    {%- if blog.comments_enabled? -%}
+      <section id="comments" style="padding-top: 2rem; border-top: 2px solid var(--color-border);">
+        <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem;">
+          Bình luận ({{ article.comments_count }})
+        </h2>
+
+        {%- paginate article.comments by 50 -%}
+          {%- if article.comments_count > 0 -%}
+            <div class="comments-list" style="margin-bottom: 3rem;">
+              {%- for comment in article.comments -%}
+                <div style="padding: 1.25rem 0; border-bottom: 1px solid var(--color-border);">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.875rem;">
+                    <strong>{{ comment.author | escape }}</strong>
+                    <span style="color: var(--color-text-muted);">{{ comment.created_at | date: '%d/%m/%Y %H:%M' }}</span>
+                  </div>
+                  <div style="color: var(--color-text); line-height: 1.6;">
+                    {{ comment.content }}
+                  </div>
+                </div>
+              {%- endfor -%}
+            </div>
+            {% include 'pagination-default' %}
+          {%- endif -%}
+        {%- endpaginate -%}
+
+        <div class="comment-form-wrap" style="background: var(--color-bg-subtle); padding: 2rem; border-radius: var(--border-radius);">
+          <h3 style="font-size: 1.25rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem;">
+            Để lại bình luận
+          </h3>
+
+          {% form 'new_comment', article %}
+            {%- if form.posted_successfully? -%}
+              <div class="alert alert-success" style="background-color: #F0FFF4; border: 1px solid #9AE6B4; color: #22543D; padding: 1rem; border-radius: var(--border-radius); margin-bottom: 1.5rem;" role="alert">
+                {%- if blog.moderated? -%}
+                  Bình luận của bạn đã được gửi thành công và đang chờ xét duyệt.
+                {%- else -%}
+                  Bình luận của bạn đã được đăng tải thành công!
+                {%- endif -%}
+              </div>
+            {%- endif -%}
+
+            {%- if form.errors -%}
+              <div class="form-errors alert alert-danger" role="alert">
+                {{ form.errors | default_errors }}
+              </div>
+            {%- endif -%}
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="CommentAuthor" class="form-label">Tên của bạn <span aria-hidden="true">*</span></label>
+                <input
+                  type="text"
+                  id="CommentAuthor"
+                  name="comment[author]"
+                  value="{{ form.author }}"
+                  class="form-control"
+                  required
+                />
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="CommentEmail" class="form-label">Email của bạn <span aria-hidden="true">*</span></label>
+                <input
+                  type="email"
+                  id="CommentEmail"
+                  name="comment[email]"
+                  value="{{ form.email }}"
+                  class="form-control"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="CommentBody" class="form-label">Nội dung bình luận <span aria-hidden="true">*</span></label>
+              <textarea
+                id="CommentBody"
+                name="comment[body]"
+                rows="4"
+                class="form-control"
+                required
+              >{{ form.body }}</textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Gửi bình luận</button>
+          {% endform %}
+        </div>
+      </section>
+    {%- endif -%}
+  </article>
+</div>

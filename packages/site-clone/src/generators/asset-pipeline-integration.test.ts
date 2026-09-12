@@ -81,12 +81,13 @@ describe('ThemeCompiler - Asset Pipeline Integration & Fail-Closed Localization 
     assert.ok(res.localization, 'Must return localization result');
     assert.strictEqual(res.localization.a3_audit.passed, true, 'Audit must pass');
 
-    // Verify file rewrite in sections/hero_section.liquid: must reference liquid asset_url, not remote
-    const sectionFile = path.join(outDir, 'sections', 'hero_section.liquid');
-    assert.ok(fs.existsSync(sectionFile), 'Section file must exist');
-    const content = fs.readFileSync(sectionFile, 'utf-8');
+    // Verify file rewrite in snippets/hero_section.liquid: must reference liquid asset_url, not remote
+    const snippetFile = path.join(outDir, 'snippets', 'hero_section.liquid');
+    assert.ok(fs.existsSync(snippetFile), 'Snippet file must exist');
+    const content = fs.readFileSync(snippetFile, 'utf-8');
     assert.ok(content.includes("{{ 'logo.png' | asset_url }}"), 'Must rewrite to asset_url filter');
     assert.ok(!content.includes('https://example.com/logo.png'), 'Must eliminate remote URL');
+    assert.strictEqual(fs.existsSync(path.join(outDir, 'sections')), false, 'sections/ directory must not exist');
   });
 
   it('compileThemeWithLocalizationAsync fails closed when asset audit detects missing unlocalized files', async () => {

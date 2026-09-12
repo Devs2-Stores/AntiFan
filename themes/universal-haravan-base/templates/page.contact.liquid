@@ -1,0 +1,88 @@
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <div style="max-width: 750px; margin: 0 auto;">
+    <header style="margin-bottom: 2rem; text-align: center;">
+      <h1 style="font-size: 2.25rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.5rem;">
+        {{ page.title | escape }}
+      </h1>
+      {%- if page.content != blank -%}
+        <div style="color: var(--color-text-muted); line-height: 1.6;">
+          {{ page.content }}
+        </div>
+      {%- endif -%}
+    </header>
+
+    {% form 'contact' %}
+      {%- if form.posted_successfully? -%}
+        <div class="alert alert-success" style="background-color: #F0FFF4; border: 1px solid #9AE6B4; color: #22543D; padding: 1rem; border-radius: var(--border-radius); margin-bottom: 1.5rem;" role="alert">
+          Cảm ơn bạn đã liên hệ. Chúng tôi sẽ phản hồi trong thời gian sớm nhất!
+        </div>
+      {%- endif -%}
+
+      {%- if form.errors -%}
+        <div class="form-errors alert alert-danger" role="alert">
+          {{ form.errors | default_errors }}
+        </div>
+      {%- endif -%}
+
+      <div class="form-group">
+        <label for="ContactFormName" class="form-label">Họ và tên <span aria-hidden="true">*</span></label>
+        <input
+          type="text"
+          id="ContactFormName"
+          name="contact[name]"
+          value="{% if form.name %}{{ form.name }}{% elsif customer %}{{ customer.name }}{% endif %}"
+          class="form-control"
+          placeholder="Nguyễn Văn A"
+          required
+        />
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
+          <label for="ContactFormEmail" class="form-label">Email <span aria-hidden="true">*</span></label>
+          <input
+            type="email"
+            id="ContactFormEmail"
+            name="contact[email]"
+            value="{% if form.email %}{{ form.email }}{% elsif customer %}{{ customer.email }}{% endif %}"
+            class="form-control"
+            placeholder="email@example.com"
+            required
+            spellcheck="false"
+            autocomplete="email"
+            autocapitalize="off"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="ContactFormPhone" class="form-label">Số điện thoại</label>
+          <input
+            type="tel"
+            id="ContactFormPhone"
+            name="contact[phone]"
+            value="{% if form.phone %}{{ form.phone }}{% elsif customer %}{{ customer.phone }}{% endif %}"
+            class="form-control"
+            placeholder="0912 345 678"
+            autocomplete="tel"
+          />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="ContactFormMessage" class="form-label">Nội dung liên hệ <span aria-hidden="true">*</span></label>
+        <textarea
+          rows="5"
+          id="ContactFormMessage"
+          name="contact[body]"
+          class="form-control"
+          placeholder="Viết lời nhắn của bạn ở đây..."
+          required
+        >{% if form.body %}{{ form.body }}{% endif %}</textarea>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.875rem;">
+        Gửi tin nhắn liên hệ
+      </button>
+    {% endform %}
+  </div>
+</div>

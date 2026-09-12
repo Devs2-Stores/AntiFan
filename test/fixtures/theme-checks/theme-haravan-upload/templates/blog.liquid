@@ -1,0 +1,6 @@
+{% paginate blog.articles by 16 %}
+{% if blog.articles.size > 0 %}
+  <p>{{ blog.articles_count }} bài viết</p>
+{% endif %}
+<p>{{ blog.articles.size }}</p>
+{% endpaginate %}

@@ -1,0 +1,56 @@
+{%- assign menu_handle = settings.header_menu_handle | default: 'main-menu' -%}
+<nav class="site-navigation" role="navigation" aria-label="Main Navigation">
+  <ul class="nav-list" role="menubar">
+    {%- if linklists[menu_handle] and linklists[menu_handle].links.size > 0 -%}
+      {%- for link in linklists[menu_handle].links -%}
+        {%- assign child_list_handle = link.title | handleize -%}
+        {%- assign has_children = false -%}
+        {%- if linklists[child_list_handle] and linklists[child_list_handle].links.size > 0 -%}
+          {%- assign has_children = true -%}
+        {%- endif -%}
+
+        <li class="nav-item{% if has_children %} has-dropdown{% endif %}" role="none">
+          <a
+            href="{{ link.url }}"
+            class="nav-link{% if link.active %} is-active{% endif %}"
+            role="menuitem"
+            {% if link.active %}aria-current="page"{% endif %}
+            {% if has_children %}aria-haspopup="true" aria-expanded="false"{% endif %}
+          >
+            {{ link.title | escape }}
+            {%- if has_children -%}
+              <span aria-hidden="true">&darr;</span>
+            {%- endif -%}
+          </a>
+
+          {%- if has_children -%}
+            <ul class="dropdown-menu" role="menu" aria-label="{{ link.title | escape }}">
+              {%- for child_link in linklists[child_list_handle].links -%}
+                <li role="none">
+                  <a
+                    href="{{ child_link.url }}"
+                    class="dropdown-link{% if child_link.active %} is-active{% endif %}"
+                    role="menuitem"
+                    {% if child_link.active %}aria-current="page"{% endif %}
+                  >
+                    {{ child_link.title | escape }}
+                  </a>
+                </li>
+              {%- endfor -%}
+            </ul>
+          {%- endif -%}
+        </li>
+      {%- endfor -%}
+    {%- else -%}
+      <li class="nav-item" role="none">
+        <a href="/" class="nav-link is-active" role="menuitem" aria-current="page">Trang chủ</a>
+      </li>
+      <li class="nav-item" role="none">
+        <a href="/collections/all" class="nav-link" role="menuitem">Sản phẩm</a>
+      </li>
+      <li class="nav-item" role="none">
+        <a href="/pages/about-us" class="nav-link" role="menuitem">Giới thiệu</a>
+      </li>
+    {%- endif -%}
+  </ul>
+</nav>

@@ -1,0 +1,26 @@
+{
+  "recordedAt": "2026-09-12",
+  "purpose": "Establish whether the local Project Theme mirror can be verified against the deployed staging theme, and record the divergence. Phase 07 must not treat a live capture of the deployed revision as evidence about the local revision.",
+  "method": "Read-only HTTP: GET https://phukienmaymoc.com/?themeid=1001512581 and HEAD on https://cdn.hstatic.net/themes/200001207485/1001512581/14/<asset>. No write, push, or publish was performed.",
+  "deployedRevisionProbe": {
+    "marker": "logo.png",
+    "occurrencesInLiveHomeHtml": 114,
+    "sampleCdnUrl": "cdn.hstatic.net/themes/200001207485/1001512581/14/logo.png?v=994",
+    "interpretation": "The deployed staging home still renders the placeholder image for ~114 slots, matching the local pre-edit state of the home snippets."
+  },
+  "cdnAssetProbe": [
+    { "asset": "schneider-lc1d09-main.jpg", "httpStatus": 200, "contentLength": 32682, "inLocalTheme": true, "note": "already present on the deployed theme CDN" },
+    { "asset": "gv2me326-new.png", "httpStatus": 200, "contentLength": 812950, "inLocalTheme": true, "note": "already present on the deployed theme CDN" },
+    { "asset": "bien-tan-se.jpg", "httpStatus": 404, "inLocalTheme": true, "note": "copied into the local theme this session; not deployed" },
+    { "asset": "nut-nhan-giga.jpg", "httpStatus": 404, "inLocalTheme": true, "note": "copied into the local theme this session; not deployed" },
+    { "asset": "logo-web-23.png", "httpStatus": 404, "inLocalTheme": true, "note": "copied into the local theme this session; not deployed" },
+    { "asset": "default_image.png.webp", "httpStatus": 200, "contentLength": 44, "note": "44-byte stub - the theme's own fallback is not a real image" },
+    { "asset": "zzz-not-a-real-asset-xyz.png", "httpStatus": 404, "note": "negative control; the CDN returns a real 404 for unknown names, so the 200s above are genuine assets" }
+  ],
+  "conclusions": [
+    "The local mirror is a superset of the deployed revision for assets: 96 reference assets were copied locally this session and are absent from the CDN.",
+    "Two reference assets already exist on the deployed theme, so the deployed revision is not byte-identical to the local pre-edit revision either. Local and deployed revision equivalence is UNKNOWN.",
+    "The approved plan forbids remote push (plans/260912-1731-haravan-az-implementation-plan/plan.md:11: 'Kế hoạch này không cho phép publish, xóa theme hoặc push remote'). Therefore no local revision of the home can be rendered on the storefront in this session.",
+    "Consequence for Phase 07: a live capture measures the deployed revision, which does not contain this session's home changes. Any verdict about the new code must be LOCAL (linter, Liquid structure, static analysis) or explicitly INCONCLUSIVE for live rendering."
+  ]
+}

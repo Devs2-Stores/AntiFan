@@ -1,0 +1,31 @@
+<div class="container" style="padding-top: 4rem; padding-bottom: 6rem;">
+  <section class="not-found-section">
+    <div style="font-size: 5rem; font-weight: 900; color: var(--color-primary); line-height: 1; margin-bottom: 1rem;">
+      404
+    </div>
+    <h1 class="empty-state-title">404 - Không tìm thấy trang</h1>
+    <p class="empty-state-description">
+      Trang bạn đang tìm kiếm có thể đã bị xóa, thay đổi liên kết hoặc tạm thời không khả dụng.
+    </p>
+    <form action="/search" method="get" class="search-form" role="search" style="max-width: 420px; margin: 0 auto 1.5rem;">
+      <input type="hidden" name="type" value="product" />
+      <label for="NotFoundSearchInput" class="form-label" style="display: none;">Tìm kiếm sản phẩm</label>
+      <div style="display: flex; gap: 0.5rem;">
+        <input
+          type="search"
+          id="NotFoundSearchInput"
+          name="q"
+          class="form-control"
+          placeholder="Tìm kiếm sản phẩm..."
+          value="{{ search.terms | escape }}"
+          aria-label="Tìm kiếm sản phẩm"
+        />
+        <button type="submit" class="btn btn-primary">Tìm</button>
+      </div>
+    </form>
+    <div style="display: flex; gap: 1rem; justify-content: center;">
+      <a href="/" class="btn btn-primary">Quay về trang chủ</a>
+      <a href="/collections/all" class="btn btn-outline">Xem tất cả sản phẩm</a>
+    </div>
+  </section>
+</div>

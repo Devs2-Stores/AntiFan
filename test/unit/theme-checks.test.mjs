@@ -10,7 +10,12 @@
  * that is absent locally is a failure while a remote one is recorded. The
  * binding fixtures also carry `section.settings.*`/`block.settings.*` reads and
  * a setting mentioned only inside `{% comment %}` — if either were mistaken for
- * a global read, the clean theme would report an undeclared setting.
+ * a global read, the clean theme would report an undeclared setting. The upload
+ * fixture proves that a `settings['logo.png']` read resolves against the control
+ * name that carries the extension, that the `item` cart loop is accepted while
+ * the documented `cart_item` alias is refused, and that `product.media` needs a
+ * `product.images` fallback in the same file; the inert fixture proves that
+ * control names inside an HTML comment declare nothing.
  *
  * Run with:
  *   node --test --test-force-exit test/unit/theme-checks.test.mjs
@@ -24,6 +29,7 @@ import {
   validateThemeSchemas,
   checkSettingsBinding,
   checkAssetReferences,
+  checkHaravanLiquidContracts,
 } from '../../scripts/lib/theme-checks.mjs';
 
 const FIXTURES = path.join(import.meta.dirname, '..', 'fixtures', 'theme-checks');
@@ -139,6 +145,34 @@ test('validateThemeSchemas refuses a theme with no settings_schema.json', () => 
   assert.equal(result.sections[0].ok, true, 'a section that does parse is still reported ok');
 });
 
+test('validateThemeSchemas accepts a legacy Haravan theme that declares settings in settings.html', () => {
+  const theme = fixtureTheme('theme-haravan-legacy');
+  const result = validateThemeSchemas(theme, { platform: 'haravan', schemaRequired: false });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.schemaFiles, [], 'an absent visual-editor schema is not a failure in legacy mode');
+  assert.deepEqual(result.failures, []);
+
+  const defaulted = validateThemeSchemas(theme, { platform: 'haravan' });
+  assert.deepEqual(
+    rulesOf(defaulted),
+    ['SETTINGS_SCHEMA_MISSING'],
+    'callers that do not name a settings mode keep the schema-expected contract',
+  );
+});
+
+test('validateThemeSchemas still validates a present schema when it is not required', () => {
+  const result = validateThemeSchemas(fixtureTheme('theme-clean'), {
+    platform: 'haravan',
+    schemaRequired: false,
+  });
+  assert.equal(result.schemaFiles.length, 1);
+  assert.equal(result.schemaFiles[0].ok, true, 'the present schema is still parsed and reported');
+  assert.ok(
+    !rulesOf(result).includes('SETTINGS_SCHEMA_MISSING'),
+    'an unrequired schema is never reported missing',
+  );
+});
+
 test('validateThemeSchemas refuses a directory that does not exist without throwing', () => {
   const result = validateThemeSchemas(fixtureTheme('theme-absent'));
   assert.equal(result.ok, false);
@@ -173,6 +207,103 @@ test('checkSettingsBinding reports every read as undeclared when the schema is m
   assert.equal(result.ok, false);
   assert.deepEqual(result.undeclared, [{ id: 'orphan_setting', files: ['layout/theme.liquid'] }]);
   assert.deepEqual(result.dead, []);
+});
+
+test('checkSettingsBinding resolves bracket reads against the settings.html control names', () => {
+  const result = checkSettingsBinding(fixtureTheme('theme-haravan-upload'));
+  assert.equal(result.ok, true, JSON.stringify(result.failures));
+  assert.deepEqual(result.undeclared, [], 'an upload id is declared by the control name that carries its extension');
+});
+
+test('checkSettingsBinding ignores control names inside an HTML comment', () => {
+  const result = checkSettingsBinding(fixtureTheme('theme-haravan-inert'));
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    result.undeclared,
+    [{ id: 'header_logo.png', files: ['snippets/hero.liquid'] }],
+    'a commented-out control declares nothing, so its read is unbacked',
+  );
+});
+
+test('checkHaravanLiquidContracts refuses only the prohibited cart item aliases', () => {
+  const result = checkHaravanLiquidContracts(fixtureTheme('theme-haravan-upload'));
+  const naming = result.failures.filter((failure) => failure.rule === 'HARAVAN_CART_ITEM_NAMING');
+  assert.deepEqual(
+    naming.map((failure) => [failure.file, failure.line]),
+    [['templates/cart-alias.liquid', 1]],
+    'the `item` loop is the corpus-correct form and the `cart_item` alias is the documented prohibition',
+  );
+});
+
+test('checkHaravanLiquidContracts requires a product.images fallback beside product.media', () => {
+  const result = checkHaravanLiquidContracts(fixtureTheme('theme-haravan-upload'));
+  const byRule = new Map(result.failures.map((failure) => [failure.rule, failure]));
+  assert.equal(byRule.get('HARAVAN_MEDIA_NO_FALLBACK').file, 'templates/product-bare.liquid');
+  assert.equal(byRule.get('HARAVAN_MEDIA_TAG_FORBIDDEN').file, 'templates/product-tag.liquid');
+  assert.equal(
+    result.failures.filter((failure) => failure.file === 'templates/product.liquid').length,
+    0,
+    'a gallery that also reaches product.images is accepted',
+  );
+});
+
+test('checkHaravanLiquidContracts flags a displayed articles.size and spares an emptiness test', () => {
+  const result = checkHaravanLiquidContracts(fixtureTheme('theme-haravan-upload'));
+  const flagged = result.failures.filter((failure) => failure.rule === 'HARAVAN_BLOG_ARTICLES_COUNT');
+  assert.deepEqual(
+    flagged.map((failure) => [failure.file, failure.line]),
+    [['templates/blog.liquid', 5]],
+    'only the printed page-local size is a total claim; `articles.size > 0` is an emptiness test',
+  );
+});
+
+test('checkHaravanLiquidContracts scopes the f1genz settings.html refusal to a live schema', () => {
+  const inertSchema = checkHaravanLiquidContracts(fixtureTheme('theme-haravan-f1genz'), {
+    settingsMode: 'f1genz',
+  });
+  assert.deepEqual(
+    rulesOf(inertSchema),
+    [],
+    'a schema without a control leaves settings.html as the declaration surface of the branch',
+  );
+
+  const liveSchema = checkHaravanLiquidContracts(fixtureTheme('theme-haravan-schema-live'), {
+    settingsMode: 'f1genz',
+  });
+  assert.deepEqual(
+    rulesOf(liveSchema),
+    ['HARAVAN_SETTINGS_HTML_FORBIDDEN'],
+    'a schema that declares a control owns the declaration, so the legacy form duplicates it',
+  );
+});
+
+test('checkHaravanLiquidContracts names a theme whose schema and form declare no live setting', () => {
+  const result = checkHaravanLiquidContracts(fixtureTheme('theme-haravan-declares-nothing'), {
+    settingsMode: 'auto',
+  });
+  assert.deepEqual(rulesOf(result), ['HARAVAN_SETTINGS_DECLARATIONS_ABSENT']);
+});
+
+test('checkHaravanLiquidContracts resolves a hyphenated setting id from its form control name', () => {
+  const result = checkHaravanLiquidContracts(fixtureTheme('theme-haravan-f1genz'), {
+    settingsMode: 'auto',
+  });
+  assert.deepEqual(
+    result.failures.filter((failure) => failure.rule === 'HARAVAN_SETTING_UNRESOLVED'),
+    [],
+    'settings.footer-top-check-1 is declared as name="footer-top-check-1", not as settings.footer',
+  );
+});
+
+test('checkHaravanLiquidContracts does not absorb a whitespace trim marker into a setting id', () => {
+  const result = checkHaravanLiquidContracts(fixtureTheme('theme-haravan-trim-marker'), {
+    settingsMode: 'auto',
+  });
+  assert.deepEqual(
+    result.failures.filter((failure) => failure.rule === 'HARAVAN_SETTING_UNRESOLVED'),
+    [],
+    'settings.addthis_live_show-%} declares addthis_live_show; the trailing hyphen belongs to the Liquid tag',
+  );
 });
 
 test('checkSettingsBinding tolerates a theme directory that does not exist', () => {

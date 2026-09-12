@@ -1,0 +1,46 @@
+{%- assign per_page = settings.collection_products_per_page | default: 16 | plus: 0 -%}
+{%- paginate collection.products by per_page -%}
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <header style="margin-bottom: 2.5rem; text-align: center;">
+    <h1 style="font-size: 2.25rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.75rem;">
+      {{ collection.title | escape }}
+    </h1>
+    {%- if collection.description != blank -%}
+      <div style="max-width: 700px; margin: 0 auto; color: var(--color-text-muted); line-height: 1.6;">
+        {{ collection.description }}
+      </div>
+    {%- endif -%}
+  </header>
+
+  {%- if collection.products.size == 0 -%}
+    <div class="collection-empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto 1rem; color: var(--color-text-muted);" aria-hidden="true">
+        <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <path d="M16 10a4 4 0 0 1-8 0"></path>
+      </svg>
+      <h2 class="empty-state-title">Danh mục đang cập nhật sản phẩm</h2>
+      <p class="empty-state-description">
+        Hiện tại chưa có sản phẩm nào trong danh mục này. Vui lòng quay lại sau hoặc khám phá toàn bộ danh mục của chúng tôi.
+      </p>
+      <a href="/collections/all" class="btn btn-primary">Xem tất cả sản phẩm</a>
+    </div>
+  {%- else -%}
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+      <p style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem;">
+        Hiển thị {{ collection.products.size }} / {{ collection.all_products_count }} sản phẩm
+      </p>
+    </div>
+
+    <ul class="grid grid-cols-{{ settings.collection_grid_columns | default: '4' }}" role="list" style="list-style: none; padding: 0; margin: 0;">
+      {%- for product in collection.products -%}
+        <li role="listitem">
+          {% include 'product-loop' %}
+        </li>
+      {%- endfor -%}
+    </ul>
+
+    {% include 'pagination-default' %}
+  {%- endif -%}
+</div>
+{%- endpaginate -%}

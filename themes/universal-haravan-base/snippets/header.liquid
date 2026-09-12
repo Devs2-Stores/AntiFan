@@ -1,0 +1,87 @@
+{%- if settings.header_announcement_enable and settings.header_announcement_text != blank -%}
+  <aside class="announcement-bar" role="region" aria-label="Thông báo đầu trang">
+    <div class="container">
+      <p style="margin: 0;">{{ settings.header_announcement_text | escape }}</p>
+    </div>
+  </aside>
+{%- endif -%}
+
+<header class="site-header{% if settings.header_sticky_enable %} is-sticky{% endif %}" role="banner">
+  <div class="container">
+    <div class="header-inner">
+      <button
+        type="button"
+        class="header-btn mobile-nav-toggle"
+        data-drawer-trigger="MobileNavDrawer"
+        aria-label="Mở menu di động"
+        aria-expanded="false"
+        aria-controls="MobileNavDrawer"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+
+      <div class="site-logo">
+        <a href="/" rel="home">
+          {%- if settings.header_logo != blank -%}
+            <img src="{{ settings.header_logo }}" alt="{{ shop.name | escape }}" loading="eager" width="160" height="40" />
+          {%- else -%}
+            <span>{{ shop.name | escape }}</span>
+          {%- endif -%}
+        </a>
+      </div>
+
+      {% include 'menu' %}
+
+      <div class="header-actions">
+        {%- if settings.header_search_enable -%}
+          <a href="/search" class="header-btn" aria-label="Tìm kiếm sản phẩm">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </a>
+        {%- endif -%}
+
+        {%- if shop.customer_accounts_enabled -%}
+          <a href="{% if customer %}/account{% else %}/account/login{% endif %}" class="header-btn" aria-label="Tài khoản khách hàng">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </a>
+        {%- endif -%}
+
+        {%- if settings.cart_type == 'drawer' -%}
+          <button
+            type="button"
+            class="header-btn"
+            data-drawer-trigger="CartDrawer"
+            aria-label="Giỏ hàng"
+            aria-expanded="false"
+            aria-controls="CartDrawer"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <path d="M16 10a4 4 0 0 1-8 0"></path>
+            </svg>
+            <span class="cart-badge">{{ cart.item_count }}</span>
+          </button>
+        {%- else -%}
+          <a href="/cart" class="header-btn" aria-label="Giỏ hàng">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <path d="M16 10a4 4 0 0 1-8 0"></path>
+            </svg>
+            <span class="cart-badge">{{ cart.item_count }}</span>
+          </a>
+        {%- endif -%}
+      </div>
+    </div>
+  </div>
+</header>

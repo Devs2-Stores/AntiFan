@@ -1,0 +1,19 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>
+  {{ page_title | strip_newlines | strip_html }}{% if current_tags %} &ndash; tagged "{{ current_tags | join: ', ' }}"{% endif %}{% if current_page != 1 %} &ndash; Page {{ current_page }}{% endif %}{% unless page_title contains shop.name %} &ndash; {{ shop.name }}{% endunless %}
+</title>
+<link rel="canonical" href="{{ canonical_url }}" />
+{%- if page_description -%}
+  <meta name="description" content="{{ page_description | escape }}" />
+{%- else -%}
+  <meta name="description" content="{{ shop.description | default: shop.name | escape }}" />
+{%- endif -%}
+
+{%- if settings.favicon != blank -%}
+  <link rel="shortcut icon" href="{{ settings.favicon }}" type="image/png" />
+{%- else -%}
+  <link rel="shortcut icon" href="{{ 'favicon.png' | asset_url }}" type="image/png" />
+{%- endif -%}
+
+{% include 'fb-open-graph-tags' %}

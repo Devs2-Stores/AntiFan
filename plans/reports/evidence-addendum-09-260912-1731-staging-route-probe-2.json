@@ -1,0 +1,78 @@
+{
+  "probedAt": "2026-09-12T12:31:42.784Z",
+  "themeParam": "themeid=1001512581",
+  "results": [
+    {
+      "p": "/brands",
+      "status": 404,
+      "title": "Không tìm thấy trang &ndash; Phukienmaymoc",
+      "mainRoot": "layout-pageNot"
+    },
+    {
+      "p": "/pages/brands",
+      "status": 200,
+      "title": "Danh mục thương hiệu &ndash; Phukienmaymoc",
+      "mainRoot": "page-brand-all"
+    },
+    {
+      "p": "/collections/cam-bien",
+      "status": 200,
+      "title": "Cảm Biến Tự Động Hóa &ndash; Phukienmaymoc",
+      "mainRoot": "product-list view-list w-100"
+    },
+    {
+      "p": "/collections/contactor",
+      "status": 200,
+      "title": "Khởi Động Từ - Contactor &ndash; Phukienmaymoc",
+      "mainRoot": "product-list view-list w-100"
+    },
+    {
+      "p": "/collections/vendors?q=Ecovacs",
+      "status": 200,
+      "title": "&ndash; Phukienmaymoc",
+      "mainRoot": "product-list view-list w-100"
+    },
+    {
+      "p": "/bao-gia",
+      "status": 404,
+      "title": "Không tìm thấy trang &ndash; Phukienmaymoc",
+      "mainRoot": "layout-pageNot"
+    },
+    {
+      "p": "/pages/bao-gia",
+      "status": 200,
+      "title": "Yêu cầu báo giá &ndash; Phukienmaymoc",
+      "mainRoot": ""
+    },
+    {
+      "p": "/tin-tuc",
+      "status": 404,
+      "title": "Không tìm thấy trang &ndash; Phukienmaymoc",
+      "mainRoot": "layout-pageNot"
+    },
+    {
+      "p": "/pages/gioi-thieu",
+      "status": 200,
+      "title": "Giới thiệu về Hợp Long &ndash; Phukienmaymoc",
+      "mainRoot": "breadcrumb-shop"
+    },
+    {
+      "p": "/pages/lich-su-phat-trien",
+      "status": 200,
+      "title": "Lịch sử phát triển &ndash; Phukienmaymoc",
+      "mainRoot": ""
+    },
+    {
+      "p": "/pages/tuyen-dung",
+      "status": 200,
+      "title": "Tuyển dụng &ndash; Phukienmaymoc",
+      "mainRoot": ""
+    },
+    {
+      "p": "/pages/tai-lieu-ky-thuat",
+      "status": 200,
+      "title": "Tài liệu kỹ thuật &ndash; Phukienmaymoc",
+      "mainRoot": "breadcrumb-shop"
+    }
+  ]
+}

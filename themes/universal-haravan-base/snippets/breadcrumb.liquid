@@ -1,0 +1,113 @@
+{%- if settings.breadcrumb_enable and template != 'index' -%}
+  <nav class="breadcrumb-nav" aria-label="Breadcrumbs">
+    <div class="container">
+      <ol class="breadcrumb-list" itemscope itemtype="https://schema.org/BreadcrumbList">
+        <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+          <a href="/" itemprop="item">
+            <span itemprop="name">Trang chủ</span>
+          </a>
+          <meta itemprop="position" content="1" />
+        </li>
+
+        {%- if template contains 'product' -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          {%- if collection -%}
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+              <a href="{{ collection.url }}" itemprop="item">
+                <span itemprop="name">{{ collection.title | escape }}</span>
+              </a>
+              <meta itemprop="position" content="2" />
+            </li>
+            <li class="breadcrumb-separator" aria-hidden="true">/</li>
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+              <span itemprop="name">{{ product.title | escape }}</span>
+              <meta itemprop="position" content="3" />
+            </li>
+          {%- else -%}
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+              <span itemprop="name">{{ product.title | escape }}</span>
+              <meta itemprop="position" content="2" />
+            </li>
+          {%- endif -%}
+
+        {%- elsif template contains 'collection' and collection.handle -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+            <span itemprop="name">{{ collection.title | escape }}</span>
+            <meta itemprop="position" content="2" />
+          </li>
+
+        {%- elsif template contains 'blog' -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          {%- if current_tags -%}
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+              <a href="{{ blog.url }}" itemprop="item">
+                <span itemprop="name">{{ blog.title | escape }}</span>
+              </a>
+              <meta itemprop="position" content="2" />
+            </li>
+            <li class="breadcrumb-separator" aria-hidden="true">/</li>
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+              <span itemprop="name">{{ current_tags | join: ', ' }}</span>
+              <meta itemprop="position" content="3" />
+            </li>
+          {%- else -%}
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+              <span itemprop="name">{{ blog.title | escape }}</span>
+              <meta itemprop="position" content="2" />
+            </li>
+          {%- endif -%}
+
+        {%- elsif template contains 'article' -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+            <a href="{{ blog.url }}" itemprop="item">
+              <span itemprop="name">{{ blog.title | escape }}</span>
+            </a>
+            <meta itemprop="position" content="2" />
+          </li>
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+            <span itemprop="name">{{ article.title | escape }}</span>
+            <meta itemprop="position" content="3" />
+          </li>
+
+        {%- elsif template contains 'page' -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+            <span itemprop="name">{{ page.title | escape }}</span>
+            <meta itemprop="position" content="2" />
+          </li>
+
+        {%- elsif template contains 'cart' -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+            <span itemprop="name">Giỏ hàng</span>
+            <meta itemprop="position" content="2" />
+          </li>
+
+        {%- elsif template contains 'search' -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+            <span itemprop="name">Tìm kiếm</span>
+            <meta itemprop="position" content="2" />
+          </li>
+
+        {%- elsif template contains 'customers' -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+            <span itemprop="name">Tài khoản</span>
+            <meta itemprop="position" content="2" />
+          </li>
+
+        {%- else -%}
+          <li class="breadcrumb-separator" aria-hidden="true">/</li>
+          <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem" aria-current="page">
+            <span itemprop="name">{{ page_title | escape }}</span>
+            <meta itemprop="position" content="2" />
+          </li>
+        {%- endif -%}
+      </ol>
+    </div>
+  </nav>
+{%- endif -%}

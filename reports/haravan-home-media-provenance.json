@@ -1,0 +1,513 @@
+{
+  "generatedAt": "2026-09-12T12:35:13.405Z",
+  "sourceExport": "exports/hoplongtech-html/page-01-home/assets",
+  "note": "Each home <img> placeholder was replaced with the reference export asset whose alt text names it. Product-card regions are NOT part of this pass (bound to real store data separately).",
+  "replaced": 99,
+  "perFile": {
+    "hl-home-accessory.liquid": 8,
+    "hl-home-banners.liquid": 3,
+    "hl-home-block-category.liquid": 30,
+    "hl-home-categories.liquid": 5,
+    "hl-home-hero.liquid": 19,
+    "hl-home-partner.liquid": 20,
+    "hl-home-quote.liquid": 1,
+    "footer.liquid": 13
+  },
+  "entries": [
+    {
+      "file": "snippets/hl-home-accessory.liquid",
+      "alt": "cau-dau-khoi-hanyoung",
+      "asset": "cau-dau-khoi-hanyoung.png"
+    },
+    {
+      "file": "snippets/hl-home-accessory.liquid",
+      "alt": "cau-dau-ghep-gan-din-ray-hanyoung",
+      "asset": "cau-dau-ghep-gan-din-ray-hanyoung.png"
+    },
+    {
+      "file": "snippets/hl-home-accessory.liquid",
+      "alt": "din-ray-hanyoung",
+      "asset": "din-ray-hanyoung.png"
+    },
+    {
+      "file": "snippets/hl-home-accessory.liquid",
+      "alt": "dien-tro-say-tu-dien-leipole",
+      "asset": "dien-tro-say-tu-dien-leipole.png"
+    },
+    {
+      "file": "snippets/hl-home-accessory.liquid",
+      "alt": "quat-thong-gio-tu-dien-leipole",
+      "asset": "quat-thong-gio-tu-dien-leipole.png"
+    },
+    {
+      "file": "snippets/hl-home-accessory.liquid",
+      "alt": "vo-cau-chi-ruot-cau-chi-schneider",
+      "asset": "vo-cau-chi-ruot-cau-chi-schneider.png"
+    },
+    {
+      "file": "snippets/hl-home-accessory.liquid",
+      "alt": "dieu-hoa-tu-dien-schneider",
+      "asset": "dieu-hoa-tu-dien-schneider.png"
+    },
+    {
+      "file": "snippets/hl-home-accessory.liquid",
+      "alt": "mang-nhua-giga-electric",
+      "asset": "mang-nhua-giga-electric.png"
+    },
+    {
+      "file": "snippets/hl-home-banners.liquid",
+      "alt": "miluz-e",
+      "asset": "miluz-e.jpg"
+    },
+    {
+      "file": "snippets/hl-home-banners.liquid",
+      "alt": "bien-ap-giga-electric-1",
+      "asset": "bien-ap-giga-electric-1.jpg"
+    },
+    {
+      "file": "snippets/hl-home-banners.liquid",
+      "alt": "bien-tan-nistro-3",
+      "asset": "bien-tan-nistro-3.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "gv2me326-new",
+      "asset": "gv2me326-new.png"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "schneider-lc1d09-main",
+      "asset": "schneider-lc1d09-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "schneider-lc1d12-main",
+      "asset": "schneider-lc1d12-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "schneider-a9c2-main",
+      "asset": "schneider-a9c2-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "schneider-lc1d32-main",
+      "asset": "schneider-lc1d32-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "schneider-lc1d188-main",
+      "asset": "schneider-lc1d188-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "bien-tan-nistro-1",
+      "asset": "bien-tan-nistro-1.png"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "ga27-65-nistro-main",
+      "asset": "ga27-65-nistro-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "ga27-main-hlt",
+      "asset": "ga27-main-hlt.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "ga27-main-hlt",
+      "asset": "ga27-main-hlt.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "ga27-main-hlt",
+      "asset": "ga27-main-hlt.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "nistro-ga20-65-main",
+      "asset": "nistro-ga20-65-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "veichi-1",
+      "asset": "veichi-1.png"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "veichi-ac310-main",
+      "asset": "veichi-ac310-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "veichi-ac10-main",
+      "asset": "veichi-ac10-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "veichi-ac310-main",
+      "asset": "veichi-ac310-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "veichi-ac01-main",
+      "asset": "veichi-ac01-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "vi20-veichi-main",
+      "asset": "vi20-veichi-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "bien-ap-giga",
+      "asset": "bien-ap-giga.png"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "giga-ggk-25",
+      "asset": "giga-ggk-25.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "giga-ggk-50",
+      "asset": "giga-ggk-50.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "giga-ggk-100",
+      "asset": "giga-ggk-100.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "giga-ggk-150",
+      "asset": "giga-ggk-150.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "giga-ggk-200",
+      "asset": "giga-ggk-200.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "cam-bien-autonics",
+      "asset": "cam-bien-autonics.png"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "autonics-brqm-main",
+      "asset": "autonics-brqm-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "omron-e3z-ls81-main",
+      "asset": "omron-e3z-ls81-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "autonics-bup-30-main",
+      "asset": "autonics-bup-30-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "autonics-pr12-2aodn-main",
+      "asset": "autonics-pr12-2aodn-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-block-category.liquid",
+      "alt": "autonics-ben-main",
+      "asset": "autonics-ben-main.jpg"
+    },
+    {
+      "file": "snippets/hl-home-categories.liquid",
+      "alt": "bien-tan-se",
+      "asset": "bien-tan-se.jpg"
+    },
+    {
+      "file": "snippets/hl-home-categories.liquid",
+      "alt": "nut-nhan-giga",
+      "asset": "nut-nhan-giga.jpg"
+    },
+    {
+      "file": "snippets/hl-home-categories.liquid",
+      "alt": "mccb-cau-dao-tu-dong-siemen",
+      "asset": "mccb-cau-dao-tu-dong-siemen.jpg"
+    },
+    {
+      "file": "snippets/hl-home-categories.liquid",
+      "alt": "cong-tac-o-cam-se-1",
+      "asset": "cong-tac-o-cam-se-1.jpg"
+    },
+    {
+      "file": "snippets/hl-home-categories.liquid",
+      "alt": "cam-bien-tiem-can-omzon",
+      "asset": "cam-bien-tiem-can-omzon.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "04-best-workplace-in-asia-2025-at-15x",
+      "asset": "04-best-workplace-in-asia-2025-at-15x.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "02fast500",
+      "asset": "02fast500.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "vnr500",
+      "asset": "vnr500.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "03-top-50-vietnam-best-growth",
+      "asset": "03-top-50-vietnam-best-growth.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "se-1",
+      "asset": "se-1.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "ur",
+      "asset": "ur.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "omron",
+      "asset": "omron.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "siemens",
+      "asset": "siemens.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "frecon-1",
+      "asset": "frecon-1.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "hanyoung",
+      "asset": "hanyoung.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "hop-long",
+      "asset": "hop-long.jpg"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "icon",
+      "asset": "icon.png"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "icon-01",
+      "asset": "icon-01.png"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "icon-02",
+      "asset": "icon-02.png"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "icon-03",
+      "asset": "icon-03.png"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "icon-04",
+      "asset": "icon-04.png"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "icon-05",
+      "asset": "icon-05.png"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "icon-06",
+      "asset": "icon-06.png"
+    },
+    {
+      "file": "snippets/hl-home-hero.liquid",
+      "alt": "flash-sales-2-1",
+      "asset": "flash-sales-2-1.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-02-1",
+      "asset": "logo-web-02-1.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-23",
+      "asset": "logo-web-23.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-24",
+      "asset": "logo-web-24.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-25",
+      "asset": "logo-web-25.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-26",
+      "asset": "logo-web-26.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-27",
+      "asset": "logo-web-27.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-28",
+      "asset": "logo-web-28.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-29",
+      "asset": "logo-web-29.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-38",
+      "asset": "logo-web-38.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-40",
+      "asset": "logo-web-40.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-30",
+      "asset": "logo-web-30.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-31",
+      "asset": "logo-web-31.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-32",
+      "asset": "logo-web-32.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-33",
+      "asset": "logo-web-33.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-34",
+      "asset": "logo-web-34.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-35",
+      "asset": "logo-web-35.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-36",
+      "asset": "logo-web-36.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-37",
+      "asset": "logo-web-37.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-41",
+      "asset": "logo-web-41.png"
+    },
+    {
+      "file": "snippets/hl-home-partner.liquid",
+      "alt": "logo-web-39",
+      "asset": "logo-web-39.png"
+    },
+    {
+      "file": "snippets/hl-home-quote.liquid",
+      "alt": "dsc04523-1",
+      "asset": "dsc04523-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-hlt-2024",
+      "asset": "logo-hlt-2024.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-hoplong-hang-author-04-1",
+      "asset": "logo-hoplong-hang-author-04-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-01",
+      "asset": "logo-01.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-hoplong-hang-author-06-1",
+      "asset": "logo-hoplong-hang-author-06-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-hoplong-hang-author-05-1",
+      "asset": "logo-hoplong-hang-author-05-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-hoplong-hang-author-08-1",
+      "asset": "logo-hoplong-hang-author-08-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-hoplong-hang-author-07-1",
+      "asset": "logo-hoplong-hang-author-07-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-hoplong-hang-author-10-1",
+      "asset": "logo-hoplong-hang-author-10-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-hoplong-hang-author-09-1",
+      "asset": "logo-hoplong-hang-author-09-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-02",
+      "asset": "logo-02.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-03-1",
+      "asset": "logo-03-1.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-04",
+      "asset": "logo-04.png"
+    },
+    {
+      "file": "snippets/footer.liquid",
+      "alt": "logo-05",
+      "asset": "logo-05.png"
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <header style="margin-bottom: 2.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+    <div>
+      <h1 style="font-size: 2rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.25rem;">
+        Tài khoản của bạn
+      </h1>
+      <p style="color: var(--color-text-muted); margin: 0;">Xin chào, <strong>{{ customer.name | escape }}</strong></p>
+    </div>
+    <a href="/account/logout" class="btn btn-outline" style="font-size: 0.875rem;">Đăng xuất</a>
+  </header>
+
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 3rem;">
+    <div>
+      <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem;">Lịch sử đơn hàng</h2>
+
+      {%- if customer.orders.size == 0 -%}
+        <div style="padding: 2rem; background: var(--color-bg-subtle); border-radius: var(--border-radius); text-align: center;">
+          <p style="color: var(--color-text-muted); margin: 0 0 1rem;">Bạn chưa đặt đơn hàng nào.</p>
+          <a href="/collections/all" class="btn btn-primary">Bắt đầu mua sắm</a>
+        </div>
+      {%- else -%}
+        <table class="cart-table">
+          <thead>
+            <tr>
+              <th>Mã đơn hàng</th>
+              <th>Ngày đặt</th>
+              <th>Thanh toán</th>
+              <th>Vận chuyển</th>
+              <th style="text-align: right;">Tổng cộng</th>
+            </tr>
+          </thead>
+          <tbody>
+            {%- for order in customer.orders -%}
+              <tr>
+                <td>
+                  <a href="{{ order.customer_url }}" style="font-weight: 600; color: var(--color-primary);">
+                    {{ order.name }}
+                  </a>
+                </td>
+                <td>{{ order.created_at | date: '%d/%m/%Y' }}</td>
+                <td>{{ order.financial_status_label }}</td>
+                <td>{{ order.fulfillment_status_label }}</td>
+                <td style="text-align: right; font-weight: 600;">{{ order.total_price | money }}</td>
+              </tr>
+            {%- endfor -%}
+          </tbody>
+        </table>
+      {%- endif -%}
+    </div>
+
+    <div>
+      <div style="background: var(--color-bg-subtle); padding: 1.5rem; border-radius: var(--border-radius);">
+        <h2 style="font-size: 1.25rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem;">
+          Thông tin tài khoản
+        </h2>
+        <p style="margin: 0 0 0.5rem;"><strong>{{ customer.name | escape }}</strong></p>
+        <p style="margin: 0 0 1rem; color: var(--color-text-muted);">{{ customer.email | escape }}</p>
+
+        {%- if customer.default_address -%}
+          <div style="border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem; font-size: 0.875rem; line-height: 1.6;">
+            <p style="font-weight: 600; margin: 0 0 0.25rem;">Địa chỉ mặc định:</p>
+            <p style="margin: 0;">{{ customer.default_address.address1 | escape }}</p>
+            {%- if customer.default_address.address2 != blank -%}
+              <p style="margin: 0;">{{ customer.default_address.address2 | escape }}</p>
+            {%- endif -%}
+            <p style="margin: 0;">{{ customer.default_address.city | escape }}, {{ customer.default_address.province | escape }}</p>
+            <p style="margin: 0;">{{ customer.default_address.country | escape }}</p>
+            {%- if customer.default_address.phone != blank -%}
+              <p style="margin: 0.25rem 0 0;">SĐT: {{ customer.default_address.phone | escape }}</p>
+            {%- endif -%}
+          </div>
+        {%- endif -%}
+
+        <div style="margin-top: 1.5rem;">
+          <a href="/account/addresses" class="btn btn-outline" style="width: 100%; text-align: center;">
+            Sổ địa chỉ ({{ customer.addresses_count }})
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,173 @@
+# Haravan API Capabilities, Scopes, and Integration Architecture
+
+**Document:** `docs/haravan/api-capabilities-and-scopes.md`  
+**Phase:** 08A — Knowledge Acquisition & Canonical Base Contract  
+**Created:** 2026-09-12  
+**Authority Hierarchy:** Official Haravan Docs > Real Store Admin > Real Haravan API > Real Haravan CLI > Theme Source Code > Live Storefront Behavior.
+
+---
+
+## 1. Distinct API Surfaces: Haraweb vs Commerce
+
+The Haravan Omni API is divided into two distinct REST sub-surfaces with different base URLs and permission scope namespaces:
+
+```text
+Haravan API Architecture
+├── Haraweb API (https://apis.haravan.com/web)
+│   ├── web.read_contents / web.write_contents (Bundled: Blog, Comment, Page, Redirect, Article)
+│   ├── web.read_themes / web.write_themes (Themes and theme assets)
+│   └── web.read_script_tags / web.write_script_tags (Storefront script injection)
+└── Commerce API (https://apis.haravan.com/com)
+    ├── com.read_products / com.write_products (Bundled: Product, SmartCollection, Collect, CustomCollection, Variant, Image)
+    ├── com.read_inventories / com.write_inventories (Inventory levels, locations, transfers)
+    ├── com.read_customers / com.write_customers (Customers and customer addresses)
+    ├── com.read_orders / com.write_orders (Orders, fulfillments, transactions)
+    └── com.read_shippings / com.write_shippings (Carrier services, shipping rates)
+```
+
+---
+
+## 2. Bundled Scope Granularity & OAuth Traps
+
+A frequent point of failure in Haravan integrations is assuming Shopify-like granular scope naming. Haravan bundles related resources into coarse scope groups.
+
+### Haraweb Scopes (`web.*`)
+
+| Scope Name | Permissions Granted | Bundled Platform Resources |
+|---|---|---|
+| `web.read_contents` | Read-only (GET) | **Blog, Comment, Page, Redirect, Article** |
+| `web.write_contents` | Read & Write (GET, POST, PUT, DELETE) | **Blog, Comment, Page, Redirect, Article** |
+| `web.read_themes` | Read-only (GET) | Theme, Theme Asset |
+| `web.write_themes` | Read & Write (GET, POST, PUT, DELETE) | Theme, Theme Asset |
+| `web.read_script_tags`| Read-only (GET) | ScriptTag |
+| `web.write_script_tags`| Read & Write (GET, POST, PUT, DELETE)| ScriptTag |
+
+> **Critical OAuth Trap:** There are **NO** granular scopes such as `web.read_blogs`, `web.read_pages`, or `web.read_articles`. Requesting these non-existent scopes causes OAuth authorization to abort with an `invalid_scope` error.
+
+### Commerce Scopes (`com.*`)
+
+| Scope Name | Permissions Granted | Bundled Platform Resources |
+|---|---|---|
+| `com.read_products` | Read-only (GET) | **Product, SmartCollection, Collect, CustomCollection, Product Variant, Product Image** |
+| `com.write_products` | Read & Write (GET, POST, PUT, DELETE) | **Product, SmartCollection, Collect, CustomCollection, Product Variant, Product Image** |
+| `com.read_inventories` | Read-only (GET) | Inventory Adjustment, Location, Transfer, Purchase Order |
+| `com.write_inventories`| Read & Write (GET, POST, PUT, DELETE)| Inventory Adjustment, Location, Transfer, Purchase Order |
+| `com.read_customers` | Read-only (GET) | Customer, Customer Address |
+| `com.write_customers` | Read & Write (GET, POST, PUT, DELETE) | Customer, Customer Address |
+| `com.read_orders` | Read-only (GET) | Order, Transaction, Fulfillment |
+| `com.write_orders` | Read & Write (GET, POST, PUT, DELETE) | Order, Transaction, Fulfillment |
+| `com.read_shippings` | Read-only (GET) | Shipping Rates, Carrier Services |
+| `com.write_shippings` | Read & Write (GET, POST, PUT, DELETE) | Shipping Rates, Carrier Services |
+
+> **Critical OAuth Trap:** There are **NO** granular scopes such as `com.read_collections`, `com.read_variants`, or `com.read_images`. All catalog entity types are bundled under `com.read_products` / `com.write_products`.
+
+---
+
+## 3. Authentication Modes and Token Lifecycles
+
+Haravan supports two primary application authorization paradigms:
+
+```text
+┌───────────────────────────────────────┬───────────────────────────────────────┐
+│ PUBLIC EMBEDDED APPLICATION           │ PRIVATE APPLICATION                   │
+├───────────────────────────────────────┼───────────────────────────────────────┤
+│ • OAuth 2.0 Authorization Code Flow   │ • Direct Bearer Token                 │
+│ • Multi-store App Store distribution  │ • Single-store only (store owner)     │
+│ • Uses @haravan/app-sdk & iframes     │ • No App SDK, no embedded iframes     │
+│ • Session Tokens (1-minute TTL)       │ • Permanent Token (revocable)         │
+│ • Session tokens CANNOT call Omni API │ • Token calls Omni API directly       │
+└───────────────────────────────────────┴───────────────────────────────────────┘
+```
+
+### Invariants:
+1. **OAuth Endpoints:**
+   - Authorization: `https://accounts.haravan.com/connect/authorize`
+   - Token Exchange: `POST https://accounts.haravan.com/connect/token` (`grant_type=authorization_code`)
+2. **Session Token Limitation:** Session tokens generated by `@haravan/app-sdk` authenticate the user to the app backend; they have a 60-second lifetime and **cannot call Omni APIs**. The app backend must use its stored OAuth `access_token` to interact with Haravan APIs.
+3. **Private App Cookie Warning:** Making POST requests using cookie-based authentication with private apps can fail with HTTP 200 containing error bodies and presents severe CSRF risks. Always use header `Authorization: Bearer {token}`.
+
+---
+
+## 4. Rate Limiting & Leaky Bucket Dynamics
+
+Haravan enforces a strict leaky-bucket algorithm across all Omni REST APIs:
+
+- **Bucket Capacity:** 80 requests.
+- **Leak Rate:** 4 requests per second.
+- **Throttling Response:** Returns `HTTP 429 Too Many Requests`.
+- **Response Telemetry Headers:**
+  - `X-Haravan-Api-Call-Limit`: Current usage vs capacity (e.g. `32/80`).
+  - `Retry-After`: Floating-point seconds to wait before retrying (e.g. `2.0`).
+- **Mitigation:** API clients must implement exponential backoff with jitter and respect `Retry-After` headers.
+
+---
+
+## 5. Webhook System Architecture
+
+- **Required Scope:** `wh_api`.
+- **Protocol:** HTTPS endpoints only (HTTP and IP-based URLs are rejected).
+- **Subscription Endpoint:** `https://webhook.haravan.com/api/subscribe`.
+- **Verification Challenge Flow:**
+  1. Haravan issues a GET request with query params: `hub.mode=subscribe`, `hub.verify_token`, `hub.challenge`.
+  2. App must return `HTTP 200 OK` with the exact text of `hub.challenge` (or `401 Unauthorized` on token mismatch).
+- **Payload Security:** Incoming POST payloads contain the signature header:
+  `X-Haravan-Hmacsha256: {base64_hmac_sha256}`
+  App must compute `base64(HMAC-SHA256(raw_body, client_secret))` and verify timing-safe equality.
+- **Delivery Timeouts & Retries:**
+  - Acknowledgement must occur within **5.0 seconds** with `HTTP 200`.
+  - Any status code outside `200` (including `3xx` redirects) is recorded as delivery failure.
+  - Haravan retries failed deliveries **19 times over 48 hours**. After 19 consecutive failures, the subscription is automatically terminated.
+
+---
+
+## 6. Documented Platform Gaps & Documentation Conflicts
+
+### Gap 1: Navigation Menus REST API Does Not Exist (`HTTP 404`)
+- **Probed Endpoint:** `GET /web/link_lists.json`
+- **Result:** Returns `HTTP 404 Not Found`.
+- **Impact:** Menus cannot be seeded, updated, or inspected via the Omni REST API. They must be managed manually via the Admin UI.
+
+### Gap 2: Smart Collections Reject Manual Product Collects (`HTTP 403`)
+- Attempting `POST /com/collects.json` with a `collection_id` belonging to a Smart Collection returns `HTTP 403 Forbidden`. Smart collections evaluate memberships purely through metadata rules.
+
+### Documentation Conflict: Inventory Adjustment Batch Size (`CONFLICT`)
+- Official documentation contains an unresolved conflict regarding array batch limits for inventory adjustments:
+  - `https://docs.haravan.com/docs/omni-apis/api-call-limit/` states: *"best supports for <=200 items per request"*.
+  - `https://docs.haravan.com/docs/omni-apis/inventory-adjustment/` (`POST /com/inventories/adjustorset.json`) states: *"best supports arrays of 100 items per request"*.
+- **Resolution Strategy:** Client code must defensively clamp inventory adjustment batches to **100 items maximum**.
+
+---
+
+## 7. API REST Resources vs Liquid Runtime Object Names
+
+A common developer error is confusing API payload structures with storefront Liquid objects:
+
+| Entity Type | Omni REST API Resource Path | Theme Liquid Runtime Object |
+|---|---|---|
+| Product | `/com/products.json` (`product`) | `product` |
+| Product Variant | `/com/products/{id}/variants.json` (`variant`) | `variant` |
+| Custom Collection | `/com/custom_collections.json` (`custom_collection`) | `collection` |
+| Smart Collection | `/com/smart_collections.json` (`smart_collection`) | `collection` |
+| Cart Line Item | (Ajax API `/cart.js` `items[]`) | `line_item` (iterated in `cart.items`) |
+| Theme Asset | `/web/themes/{id}/assets.json` (`asset`) | `asset_url` filter |
+| Store Navigation | **NONE** (No REST API) | `linklists` |
+
+---
+
+## 8. API Capabilities and Scopes Claims Ledger
+
+| Claim | Evidence Status | Source (Path or URL + Observed Date) | Contradiction | Next Probe |
+|---|---|---|---|---|
+| Haraweb scope `web.read_contents` bundles Blog, Comment, Page, Redirect, and Article. | `VERIFIED` | `https://docs.haravan.com/docs/omni-apis/access-scopes/` (2026-09-12). | Earlier reports claimed separate `read_blogs` scopes. | None. Scope definition verified. |
+| Commerce scope `com.read_products` bundles Products, Collections, Collects, Variants, and Images. | `VERIFIED` | `https://docs.haravan.com/docs/omni-apis/access-scopes/` (2026-09-12). | Earlier reports claimed separate `read_collections` scopes. | None. Scope definition verified. |
+| Omni REST API enforces leaky bucket: 80 capacity, 4 req/sec leak rate, HTTP 429 on exhaustion. | `VERIFIED` | `https://docs.haravan.com/docs/omni-apis/api-call-limit/` (2026-09-12). | None. | None. |
+| `/web/link_lists.json` returns HTTP 404; menus have no Omni REST endpoint. | `VERIFIED` | `reports/haravan-store-inventory.json` (2026-09-12). | None. Documented capability gap. | Probe BQ-04: test alternative paths. |
+| Webhook delivery requires HTTP 200 within 5 seconds; 3xx redirects count as failure. | `VERIFIED` | `https://docs.haravan.com/docs/tutorials/webhooks/connect-webhook/` (2026-09-12). | None. | None. |
+| Inventory adjustment batch limit is documented as both 100 and 200 items. | `CONFLICT` | `https://docs.haravan.com/docs/omni-apis/inventory-adjustment/` (2026-09-12). | Conflict within official Haravan documentation. | Use conservative batch size: 100 items. |
+| Session tokens have 60s TTL and cannot call Omni APIs directly. | `VERIFIED` | `https://docs.haravan.com/docs/tutorials/authentication/authentication-and-authorization/` (2026-07-05). | None. App SDK security model. | None. |
+| Live store inventory probe recorded 234 products, 35 custom collections, 0 smart collections, and `/web/link_lists.json` returned HTTP 404. | `CONFLICT` | `reports/haravan-store-inventory.json` (2026-09-12) vs public sitemap probe `/sitemap_{products,collections,pages,blogs}_1.xml` (2026-09-12, recorded in `plans/reports/evidence-addon-12-260912-1731-live-sitemap-inventory.json`). | The inventory undercounts live entities: 234 vs 236 products, 35 vs 37 collections, 6 vs 13 pages; articles agree at 10. `/web/link_lists.json` 404 is unaffected and still stands. | Regenerate any inventory snapshot before planning routes on it; treat the storefront sitemap + live entity probes as authoritative, the JSON snapshot as a same-day sample. |
+| `products_count` returned by `/collections.json` is not reliable: it reported `5` for all 37 live collections, while `/collections/{handle}/products.json` returned 1 (`may-uon-cong`), 5 (`cam-bien`) and 19 (`nguon-laser-soi-quang`). | `OBSERVED` | Live read-only probes (2026-09-12): `/collections.json?limit=250&themeid=1001512581`, `/collections/{handle}/products.json?limit=250&themeid=1001512581`; per-collection sets recorded in `plans/reports/evidence-addon-10-260912-1731-live-collections.json`. | A theme or report that filters collections by `products_count` will mis-decide (empty-state logic, collection badges). | Never gate collection emptiness on `products_count`; count `/collections/{handle}/products.json` or use `collection.products.size` in Liquid. |
+| Public sitemaps (`/sitemap.xml` + 4 child sitemaps) are the authoritative flat-route inventory for a Haravan storefront and are readable without authentication. | `OBSERVED` | Live probe (2026-09-12): `/sitemap.xml` → 4 child sitemaps; `/sitemap_pages_1.xml` 13 pages, `/sitemap_collections_1.xml` 37 collections, `/sitemap_products_1.xml` 236 products, `/sitemap_blogs_1.xml` 10 articles. | Reports had been built on the Omni API counts alone, which undercounted. | Prefer sitemaps for route manifests; use the Omni API for fields the sitemap does not expose. |
+| Applications requiring custom navigation menus must instruct merchants to create menus manually in Haravan Admin or bundle menus in theme files. | `DERIVED` | Synthesis of missing link_lists REST API and merchant workflow requirements (2026-09-12). | None. | None. |
+| Whether Haravan Partner API or internal GraphQL gateway exposes undocumented navigation menu mutation endpoints. | `UNKNOWN` | None. Undocumented internal platform interfaces. | None. | Probe internal Admin network requests when editing menus. |
+| Rate limit leaky bucket capacity may temporarily expand during platform-wide promotional events for high-tier Haravan merchant accounts. | `INFERRED` | Haravan enterprise tier documentation hints (2026-07-05). | None. | None. |

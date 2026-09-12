@@ -1,0 +1,109 @@
+<div class="container" style="padding-top: 3rem; padding-bottom: 5rem;">
+  <div style="max-width: 450px; margin: 0 auto;">
+    <div id="CustomerLoginForm">
+      <header style="text-align: center; margin-bottom: 2rem;">
+        <h1 style="font-size: 2rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.5rem;">
+          Đăng nhập
+        </h1>
+        <p style="color: var(--color-text-muted); margin: 0;">Vui lòng nhập email và mật khẩu của bạn</p>
+      </header>
+
+      {% form 'customer_login' %}
+        {%- if form.errors -%}
+          <div class="form-errors alert alert-danger" role="alert">
+            {{ form.errors | default_errors }}
+          </div>
+        {%- endif -%}
+
+        <div class="form-group">
+          <label for="CustomerEmail" class="form-label">Địa chỉ email <span aria-hidden="true">*</span></label>
+          <input
+            type="email"
+            id="CustomerEmail"
+            name="customer[email]"
+            class="form-control"
+            placeholder="email@example.com"
+            required
+            autocomplete="email"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+        </div>
+
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.375rem;">
+            <label for="CustomerPassword" class="form-label" style="margin-bottom: 0;">Mật khẩu <span aria-hidden="true">*</span></label>
+            <a href="#recover" onclick="document.getElementById('CustomerLoginForm').style.display='none'; document.getElementById('RecoverPasswordForm').style.display='block'; return false;" style="font-size: 0.8125rem; color: var(--color-primary);">
+              Quên mật khẩu?
+            </a>
+          </div>
+          <input
+            type="password"
+            id="CustomerPassword"
+            name="customer[password]"
+            class="form-control"
+            placeholder="••••••••"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.875rem; margin-top: 1rem;">
+          Đăng nhập
+        </button>
+
+        <div style="text-align: center; margin-top: 1.5rem; font-size: 0.875rem;">
+          Chưa có tài khoản? <a href="/account/register" style="color: var(--color-primary); font-weight: 600;">Đăng ký ngay</a>
+        </div>
+      {% endform %}
+    </div>
+
+    <div id="RecoverPasswordForm" style="display: none;">
+      <header style="text-align: center; margin-bottom: 2rem;">
+        <h2 style="font-size: 1.75rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.5rem;">
+          Phục hồi mật khẩu
+        </h2>
+        <p style="color: var(--color-text-muted); margin: 0;">Chúng tôi sẽ gửi email hướng dẫn tạo mật khẩu mới</p>
+      </header>
+
+      {% form 'recover_customer_password' %}
+        {%- if form.posted_successfully? -%}
+          <div class="alert alert-success" style="background-color: #F0FFF4; border: 1px solid #9AE6B4; color: #22543D; padding: 1rem; border-radius: var(--border-radius); margin-bottom: 1.5rem;" role="alert">
+            Chúng tôi đã gửi email với đường dẫn thiết lập lại mật khẩu. Vui lòng kiểm tra hòm thư của bạn!
+          </div>
+        {%- endif -%}
+
+        {%- if form.errors -%}
+          <div class="form-errors alert alert-danger" role="alert">
+            {{ form.errors | default_errors }}
+          </div>
+        {%- endif -%}
+
+        <div class="form-group">
+          <label for="RecoverEmail" class="form-label">Email đã đăng ký <span aria-hidden="true">*</span></label>
+          <input
+            type="email"
+            id="RecoverEmail"
+            name="email"
+            class="form-control"
+            placeholder="email@example.com"
+            required
+            autocomplete="email"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.875rem; margin-top: 1rem;">
+          Gửi email khôi phục
+        </button>
+
+        <div style="text-align: center; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-outline" style="width: 100%;" onclick="document.getElementById('RecoverPasswordForm').style.display='none'; document.getElementById('CustomerLoginForm').style.display='block';">
+            Hủy & Quay lại đăng nhập
+          </button>
+        </div>
+      {% endform %}
+    </div>
+  </div>
+</div>

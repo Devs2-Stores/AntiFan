@@ -1,0 +1,43 @@
+{%- if settings.product_tabs_enable and product.metafields.hrvptabs.tabs -%}
+  {%- assign raw_tabs = product.metafields.hrvptabs.tabs | append: '' -%}
+  {%- assign tab_list = raw_tabs | split: '@@###@@' -%}
+
+  {%- if tab_list.size > 0 -%}
+    <div class="product-tabs-container tabs-parent">
+      <ul class="tabs-nav" role="tablist" aria-label="Thông tin chi tiết sản phẩm">
+        {%- for tab_entry in tab_list -%}
+          {%- assign tab_parts = tab_entry | split: '@@##@@' -%}
+          {%- assign tab_title = tab_parts | first | strip_html | escape -%}
+          <li role="presentation">
+            <button
+              type="button"
+              id="tab-btn-{{ forloop.index }}"
+              class="tab-btn{% if forloop.first %} is-active{% endif %}"
+              role="tab"
+              aria-selected="{% if forloop.first %}true{% else %}false{% endif %}"
+              aria-controls="tab-panel-{{ forloop.index }}"
+            >
+              {{ tab_title }}
+            </button>
+          </li>
+        {%- endfor -%}
+      </ul>
+
+      <div class="tabs-content-wrap">
+        {%- for tab_entry in tab_list -%}
+          {%- assign tab_parts = tab_entry | split: '@@##@@' -%}
+          {%- assign tab_content = tab_parts | last -%}
+          <div
+            id="tab-panel-{{ forloop.index }}"
+            class="tab-panel{% if forloop.first %} is-active{% endif %}"
+            role="tabpanel"
+            aria-labelledby="tab-btn-{{ forloop.index }}"
+            {% unless forloop.first %}hidden="hidden"{% endunless %}
+          >
+            {{ tab_content }}
+          </div>
+        {%- endfor -%}
+      </div>
+    </div>
+  {%- endif -%}
+{%- endif -%}

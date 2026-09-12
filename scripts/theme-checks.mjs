@@ -19,15 +19,17 @@ import {
   validateThemeSchemas,
   checkSettingsBinding,
   checkAssetReferences,
+  checkHaravanLiquidContracts,
 } from './lib/theme-checks.mjs';
 
 function parseArgv(argv) {
-  const options = { themeDir: null, htmlFiles: [], outFile: null };
+  const options = { themeDir: null, htmlFiles: [], outFile: null, platform: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--theme') { options.themeDir = argv[++i] ?? null; continue; }
     if (arg === '--html') { const file = argv[++i]; if (file) options.htmlFiles.push(file); continue; }
     if (arg === '--out') { options.outFile = argv[++i] ?? null; continue; }
+    if (arg === '--platform') { options.platform = argv[++i] ?? null; continue; }
     return { ok: false, reason: `unrecognised argument '${arg}'` };
   }
   if (!options.themeDir) return { ok: false, reason: '--theme <themeDir> is required' };
@@ -46,9 +48,19 @@ if (!fs.existsSync(themeDir) || !fs.statSync(themeDir).isDirectory()) {
   process.exit(2);
 }
 
-const schemas = validateThemeSchemas(themeDir);
+const themeDirHasSettingsHtml = fs.existsSync(path.join(themeDir, 'config', 'settings.html'));
+const themeDirHasSettingsSchema = fs.existsSync(path.join(themeDir, 'config', 'settings_schema.json'));
+const schemas = validateThemeSchemas(themeDir, {
+  platform: parsed.options.platform,
+  // Legacy Haravan themes declare settings in settings.html; only a theme that
+  // carries the visual-editor schema is expected to satisfy a schema contract.
+  schemaRequired: !(parsed.options.platform === 'haravan' && themeDirHasSettingsHtml && !themeDirHasSettingsSchema),
+});
 const binding = checkSettingsBinding(themeDir);
 const assets = checkAssetReferences(themeDir);
+const haravanContracts = parsed.options.platform === 'haravan'
+  ? checkHaravanLiquidContracts(themeDir, { platform: 'haravan' })
+  : null;
 const renders = htmlFiles.map((file) => {
   const html = fs.readFileSync(file, 'utf8');
   const result = scanRenderFailures(html);
@@ -58,10 +70,10 @@ const refusals = [];
 if (!schemas.ok) refusals.push({ check: 'schema', failures: schemas.failures });
 if (!binding.ok) refusals.push({ check: 'settings-binding', failures: binding.failures });
 if (!assets.ok) refusals.push({ check: 'assets', failures: assets.localMissing.map((a) => ({ rule: 'ASSET_MISSING_LOCAL', ...a })) });
+if (haravanContracts && !haravanContracts.ok) refusals.push({ check: 'haravan-contracts', failures: haravanContracts.failures });
 for (const render of renders) {
   if (!render.ok) refusals.push({ check: 'render', file: render.file, failures: render.failures });
 }
-
 const report = {
   themeDir: path.resolve(themeDir),
   generatedAt: new Date().toISOString(),
@@ -71,6 +83,7 @@ const report = {
   assets: { ok: assets.ok, counts: assets.counts, localMissing: assets.localMissing, remote: assets.remote },
   renders,
   refusals,
+  ...(haravanContracts ? { haravanContracts } : {}),
 };
 if (outFile) fs.writeFileSync(outFile, JSON.stringify(report, null, 2));
 
@@ -78,6 +91,9 @@ console.log(`[theme-checks] theme=${report.themeDir}`);
 console.log(`[theme-checks] schema: schemaFiles=${schemas.schemaFiles.length} sections=${schemas.sections.length} failures=${schemas.failures.length}`);
 console.log(`[theme-checks] settings: undeclared=${binding.undeclared.length} dead=${binding.dead.length} failures=${binding.failures.length}`);
 console.log(`[theme-checks] assets: localPresent=${assets.counts.localPresent} localMissing=${assets.counts.localMissing} remote=${assets.counts.remote}`);
+if (haravanContracts) {
+  console.log(`[theme-checks] haravan-contracts: ok=${haravanContracts.ok} failures=${haravanContracts.failures.length}`);
+}
 for (const render of renders) {
   console.log(`[theme-checks] render ${render.file}: ok=${render.ok} failures=${render.failures.length}`);
 }

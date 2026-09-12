@@ -1,0 +1,135 @@
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+    <div>
+      <h1 style="font-size: 2rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.25rem;">
+        Sổ địa chỉ
+      </h1>
+      <a href="/account" style="font-size: 0.875rem; color: var(--color-primary);">&larr; Quay lại trang tài khoản</a>
+    </div>
+    <button type="button" class="btn btn-primary" onclick="var form=document.getElementById('AddAddressForm'); form.style.display = form.style.display === 'none' ? 'block' : 'none';">
+      + Thêm địa chỉ mới
+    </button>
+  </header>
+
+  <div id="AddAddressForm" style="display: none; background: var(--color-bg-subtle); padding: 2rem; border-radius: var(--border-radius); margin-bottom: 2.5rem;">
+    <h2 style="font-size: 1.25rem; font-weight: 700; margin-top: 0; margin-bottom: 1.5rem;">Thêm địa chỉ giao hàng</h2>
+
+    {% form 'customer_address', customer.new_address %}
+      {%- if form.errors -%}
+        <div class="form-errors alert alert-danger" role="alert">
+          {{ form.errors | default_errors }}
+        </div>
+      {%- endif -%}
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
+          <label for="AddressFirstNameNew" class="form-label">Họ</label>
+          <input type="text" id="AddressFirstNameNew" name="address[first_name]" value="{{ form.first_name }}" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label for="AddressLastNameNew" class="form-label">Tên</label>
+          <input type="text" id="AddressLastNameNew" name="address[last_name]" value="{{ form.last_name }}" class="form-control" required />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="AddressPhoneNew" class="form-label">Số điện thoại</label>
+        <input type="tel" id="AddressPhoneNew" name="address[phone]" value="{{ form.phone }}" class="form-control" required />
+      </div>
+
+      <div class="form-group">
+        <label for="AddressAddress1New" class="form-label">Địa chỉ</label>
+        <input type="text" id="AddressAddress1New" name="address[address1]" value="{{ form.address1 }}" class="form-control" placeholder="Số nhà, tên đường..." required />
+      </div>
+
+      <div class="form-group">
+        <label for="AddressCityNew" class="form-label">Tỉnh / Thành phố</label>
+        <input type="text" id="AddressCityNew" name="address[city]" value="{{ form.city }}" class="form-control" required />
+      </div>
+
+      <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
+        {{ form.set_as_default_checkbox }}
+        <label for="address_default_address_new" style="font-size: 0.875rem; margin: 0; cursor: pointer;">
+          Đặt làm địa chỉ mặc định
+        </label>
+      </div>
+
+      <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+        <button type="submit" class="btn btn-primary">Lưu địa chỉ</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('AddAddressForm').style.display='none';">Hủy</button>
+      </div>
+    {% endform %}
+  </div>
+
+  {%- if customer.addresses.size == 0 -%}
+    <div style="text-align: center; padding: 3rem 1rem; background: var(--color-bg-subtle); border-radius: var(--border-radius);">
+      <p style="color: var(--color-text-muted); margin: 0 0 1rem;">Bạn chưa lưu địa chỉ nào trong sổ địa chỉ.</p>
+    </div>
+  {%- else -%}
+    <div class="grid grid-cols-2">
+      {%- for address in customer.addresses -%}
+        <div class="product-card" style="padding: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+            <h3 style="font-size: 1.125rem; font-weight: 700; margin: 0;">
+              {{ address.first_name | escape }} {{ address.last_name | escape }}
+            </h3>
+            {%- if address == customer.default_address -%}
+              <span class="badge" style="background: var(--color-primary); color: #FFFFFF; position: static;">Mặc định</span>
+            {%- endif -%}
+          </div>
+
+          <div style="font-size: 0.875rem; color: var(--color-text); line-height: 1.6; margin-bottom: 1.25rem;">
+            <p style="margin: 0;">{{ address.address1 | escape }}</p>
+            {%- if address.address2 != blank -%}
+              <p style="margin: 0;">{{ address.address2 | escape }}</p>
+            {%- endif -%}
+            <p style="margin: 0;">{{ address.city | escape }}, {{ address.province | escape }}</p>
+            <p style="margin: 0;">{{ address.country | escape }}</p>
+            {%- if address.phone != blank -%}
+              <p style="margin: 0.25rem 0 0; color: var(--color-text-muted);">SĐT: {{ address.phone | escape }}</p>
+            {%- endif -%}
+          </div>
+
+          <div style="display: flex; gap: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+            <button
+              type="button"
+              class="btn btn-outline"
+              style="padding: 0.375rem 0.75rem; font-size: 0.8125rem;"
+              onclick="var editDiv = document.getElementById('EditAddress_{{ address.id }}'); editDiv.style.display = editDiv.style.display === 'none' ? 'block' : 'none';"
+            >
+              Chỉnh sửa
+            </button>
+            <form class="address-delete-form" method="post" action="/account/addresses/{{ address.id }}" onsubmit="return confirm('Bạn có chắc chắn muốn xóa địa chỉ này?');">
+              <input type="hidden" name="_method" value="delete" />
+              <button type="submit" class="btn btn-outline" style="padding: 0.375rem 0.75rem; font-size: 0.8125rem; color: var(--color-sale);">
+                Xóa
+              </button>
+            </form>
+          </div>
+
+          <div id="EditAddress_{{ address.id }}" style="display: none; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-border);">
+            {% form 'customer_address', address %}
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <input type="text" name="address[first_name]" value="{{ form.first_name }}" class="form-control" placeholder="Họ" />
+                <input type="text" name="address[last_name]" value="{{ form.last_name }}" class="form-control" placeholder="Tên" required />
+              </div>
+              <div class="form-group" style="margin-bottom: 0.5rem;">
+                <input type="tel" name="address[phone]" value="{{ form.phone }}" class="form-control" placeholder="Số điện thoại" required />
+              </div>
+              <div class="form-group" style="margin-bottom: 0.5rem;">
+                <input type="text" name="address[address1]" value="{{ form.address1 }}" class="form-control" placeholder="Địa chỉ" required />
+              </div>
+              <div class="form-group" style="margin-bottom: 0.5rem;">
+                <input type="text" name="address[city]" value="{{ form.city }}" class="form-control" placeholder="Tỉnh / Thành phố" required />
+              </div>
+              <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">Cập nhật</button>
+                <button type="button" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.875rem;" onclick="document.getElementById('EditAddress_{{ address.id }}').style.display='none';">Đóng</button>
+              </div>
+            {% endform %}
+          </div>
+        </div>
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+</div>

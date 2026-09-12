@@ -1,0 +1,84 @@
+<div class="container" style="padding-top: 3rem; padding-bottom: 5rem;">
+  <div style="max-width: 480px; margin: 0 auto;">
+    <header style="text-align: center; margin-bottom: 2rem;">
+      <h1 style="font-size: 2rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.5rem;">
+        Đăng ký tài khoản
+      </h1>
+      <p style="color: var(--color-text-muted); margin: 0;">Tạo tài khoản để theo dõi đơn hàng và ưu đãi đặc quyền</p>
+    </header>
+
+    {% form 'create_customer' %}
+      {%- if form.errors -%}
+        <div class="form-errors alert alert-danger" role="alert">
+          {{ form.errors | default_errors }}
+        </div>
+      {%- endif -%}
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
+          <label for="FirstName" class="form-label">Họ</label>
+          <input
+            type="text"
+            id="FirstName"
+            name="customer[first_name]"
+            class="form-control"
+            placeholder="Nguyễn"
+            value="{{ form.first_name }}"
+            autocomplete="given-name"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="LastName" class="form-label">Tên <span aria-hidden="true">*</span></label>
+          <input
+            type="text"
+            id="LastName"
+            name="customer[last_name]"
+            class="form-control"
+            placeholder="Văn A"
+            value="{{ form.last_name }}"
+            required
+            autocomplete="family-name"
+          />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="Email" class="form-label">Địa chỉ email <span aria-hidden="true">*</span></label>
+        <input
+          type="email"
+          id="Email"
+          name="customer[email]"
+          class="form-control"
+          placeholder="email@example.com"
+          value="{{ form.email }}"
+          required
+          autocomplete="email"
+          autocapitalize="off"
+          spellcheck="false"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="CreatePassword" class="form-label">Mật khẩu <span aria-hidden="true">*</span></label>
+        <input
+          type="password"
+          id="CreatePassword"
+          name="customer[password]"
+          class="form-control"
+          placeholder="Tối thiểu 6 ký tự"
+          required
+          autocomplete="new-password"
+        />
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.875rem; margin-top: 1rem;">
+        Đăng ký tài khoản
+      </button>
+
+      <div style="text-align: center; margin-top: 1.5rem; font-size: 0.875rem;">
+        Đã có tài khoản? <a href="/account/login" style="color: var(--color-primary); font-weight: 600;">Đăng nhập</a>
+      </div>
+    {% endform %}
+  </div>
+</div>

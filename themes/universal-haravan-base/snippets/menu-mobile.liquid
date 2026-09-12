@@ -1,0 +1,78 @@
+{%- assign menu_handle = settings.header_menu_handle | default: 'main-menu' -%}
+<aside id="MobileNavDrawer" class="drawer drawer-left" role="region" aria-label="Mobile Navigation" aria-hidden="true">
+  <div class="drawer-header">
+    <h2 class="drawer-title">Menu</h2>
+    <button type="button" class="drawer-close-btn" data-drawer-close aria-label="Đóng menu">&times;</button>
+  </div>
+
+  <div class="drawer-body">
+    {%- if settings.header_search_enable -%}
+      <form action="/search" method="get" class="search-form" role="search" style="margin-bottom: 1.5rem;">
+        <input type="hidden" name="type" value="product" />
+        <label for="MobileSearchInput" class="form-label" style="display: none;">Tìm kiếm sản phẩm</label>
+        <div style="display: flex; gap: 0.5rem;">
+          <input
+            type="search"
+            id="MobileSearchInput"
+            name="q"
+            class="form-control"
+            placeholder="Tìm kiếm sản phẩm..."
+            value="{{ search.terms | escape }}"
+            required
+          />
+          <button type="submit" class="btn btn-primary" aria-label="Tìm kiếm">&#128269;</button>
+        </div>
+      </form>
+    {%- endif -%}
+
+    <nav class="mobile-navigation" role="navigation" aria-label="Mobile Navigation">
+      <ul style="list-style: none; padding: 0; margin: 0;">
+        {%- if linklists[menu_handle] and linklists[menu_handle].links.size > 0 -%}
+          {%- for link in linklists[menu_handle].links -%}
+            {%- assign child_list_handle = link.title | handleize -%}
+            <li style="border-bottom: 1px solid var(--color-border); padding: 0.75rem 0;">
+              <a
+                href="{{ link.url }}"
+                style="font-weight: 600; display: block; font-size: 1.0625rem;"
+                {% if link.active %}aria-current="page"{% endif %}
+              >
+                {{ link.title | escape }}
+              </a>
+
+              {%- if linklists[child_list_handle] and linklists[child_list_handle].links.size > 0 -%}
+                <ul style="list-style: none; padding-left: 1rem; margin-top: 0.5rem;">
+                  {%- for child_link in linklists[child_list_handle].links -%}
+                    <li style="padding: 0.375rem 0;">
+                      <a href="{{ child_link.url }}" style="color: var(--color-text-muted);" {% if child_link.active %}aria-current="page"{% endif %}>
+                        {{ child_link.title | escape }}
+                      </a>
+                    </li>
+                  {%- endfor -%}
+                </ul>
+              {%- endif -%}
+            </li>
+          {%- endfor -%}
+        {%- else -%}
+          <li style="padding: 0.75rem 0;"><a href="/" style="font-weight: 600;">Trang chủ</a></li>
+          <li style="padding: 0.75rem 0;"><a href="/collections/all" style="font-weight: 600;">Sản phẩm</a></li>
+          <li style="padding: 0.75rem 0;"><a href="/pages/about-us" style="font-weight: 600;">Giới thiệu</a></li>
+        {%- endif -%}
+      </ul>
+    </nav>
+  </div>
+
+  <div class="drawer-footer">
+    {%- if shop.customer_accounts_enabled -%}
+      {%- if customer -%}
+        <p style="margin: 0 0 0.5rem; font-size: 0.875rem;">Xin chào, <strong>{{ customer.name | escape }}</strong></p>
+        <a href="/account" class="btn btn-outline" style="width: 100%; margin-bottom: 0.5rem;">Tài khoản</a>
+        <a href="/account/logout" class="btn btn-outline" style="width: 100%;">Đăng xuất</a>
+      {%- else -%}
+        <div style="display: flex; gap: 0.5rem;">
+          <a href="/account/login" class="btn btn-outline" style="flex: 1;">Đăng nhập</a>
+          <a href="/account/register" class="btn btn-primary" style="flex: 1;">Đăng ký</a>
+        </div>
+      {%- endif -%}
+    {%- endif -%}
+  </div>
+</aside>

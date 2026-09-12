@@ -1,0 +1,192 @@
+{
+  "fetchedAt": "2026-09-12T12:32:02.069Z",
+  "endpoint": "/collections.json?limit=250&themeid=1001512581",
+  "collectionCount": 37,
+  "collections": [
+    {
+      "handle": "contactor",
+      "title": "Khởi Động Từ - Contactor",
+      "products_count": 5
+    },
+    {
+      "handle": "cam-bien",
+      "title": "Cảm Biến Tự Động Hóa",
+      "products_count": 5
+    },
+    {
+      "handle": "phu-kien-han",
+      "title": "Phụ Kiện Hàn",
+      "products_count": 5
+    },
+    {
+      "handle": "dau-han-laser",
+      "title": "Đầu Hàn Laser",
+      "products_count": 1
+    },
+    {
+      "handle": "linh-kien-dien",
+      "title": "Linh Kiện Điện",
+      "products_count": 3
+    },
+    {
+      "handle": "phu-kien-khac-laser",
+      "title": "Phụ Kiện Khắc Laser",
+      "products_count": 6
+    },
+    {
+      "handle": "phu-kien-laser-co2",
+      "title": "Phụ Kiện Laser CO2",
+      "products_count": 8
+    },
+    {
+      "handle": "bo-on-dinh-dien-ap",
+      "title": "Bộ Ổn Định Điện Áp",
+      "products_count": 7
+    },
+    {
+      "handle": "may-uon-cong",
+      "title": "Máy Uốn Cong",
+      "products_count": 1
+    },
+    {
+      "handle": "dung-cu-laser-dong-truc",
+      "title": "Dụng Cụ Laser Đồng Trục",
+      "products_count": 3
+    },
+    {
+      "handle": "thiet-bi-lam-sach-bang-laser",
+      "title": "Thiết Bị Làm Sạch Bằng Laser",
+      "products_count": 2
+    },
+    {
+      "handle": "may-phat-dien-cho-may-han-laser",
+      "title": "Máy Phát Điện Cho Máy Hàn Laser",
+      "products_count": 1
+    },
+    {
+      "handle": "thiet-bi-va-dung-cu-sua-chua-cap-quang",
+      "title": "Thiết Bị Và Dụng Cụ Sửa Chữa Cáp Quang",
+      "products_count": 6
+    },
+    {
+      "handle": "quat-ly-tam",
+      "title": "Quạt Ly Tâm",
+      "products_count": 1
+    },
+    {
+      "handle": "may-loc-khoi",
+      "title": "Máy Lọc Khói",
+      "products_count": 1
+    },
+    {
+      "handle": "may-thu-bui",
+      "title": "Máy Thu Bụi",
+      "products_count": 7
+    },
+    {
+      "handle": "may-nen-khi",
+      "title": "Máy Nén Khí",
+      "products_count": 5
+    },
+    {
+      "handle": "phu-tro",
+      "title": "Phụ Trợ",
+      "products_count": 31
+    },
+    {
+      "handle": "phu-kien-may-laser",
+      "title": "Phụ Kiện Máy Laser",
+      "products_count": 159
+    },
+    {
+      "handle": "han-laser-ro-bot-3d",
+      "title": "Hàn Laser Rô-Bốt 3D",
+      "products_count": 19
+    },
+    {
+      "handle": "cat-laser-ro-bot-3d",
+      "title": "Cắt Laser Rô-Bốt 3D",
+      "products_count": 10
+    },
+    {
+      "handle": "in-3d-kim-loai-slm",
+      "title": "In 3D Kim Loại SLM",
+      "products_count": 5
+    },
+    {
+      "handle": "vat-tu-tieu-hao-cho-laser",
+      "title": "Vật Tư Tiêu Hao Cho Laser",
+      "products_count": 24
+    },
+    {
+      "handle": "he-thong-ho-tro-may-moc",
+      "title": "Hệ Thống Hỗ Trợ Máy Móc",
+      "products_count": 7
+    },
+    {
+      "handle": "phu-kien-dien-tu",
+      "title": "Phụ Kiện Điện Tử",
+      "products_count": 3
+    },
+    {
+      "handle": "he-thong-dieu-khien-khi-phu-tro",
+      "title": "Hệ Thống Điều Khiển Khí Phụ Trợ",
+      "products_count": 3
+    },
+    {
+      "handle": "chuck-cho-may-cat-ong-laser",
+      "title": "Chuck Cho Máy Cắt Ống Laser",
+      "products_count": 5
+    },
+    {
+      "handle": "thanh-rang-va-banh-rang-con",
+      "title": "Thanh Răng Và Bánh Răng Côn",
+      "products_count": 2
+    },
+    {
+      "handle": "huong-dan-va-thanh-truot",
+      "title": "Hướng Dẫn Và Thanh Trượt",
+      "products_count": 3
+    },
+    {
+      "handle": "thanh-truot-truc-z",
+      "title": "Thanh Trượt Trục Z",
+      "products_count": 2
+    },
+    {
+      "handle": "bo-giam-toc",
+      "title": "Bộ Giảm Tốc",
+      "products_count": 3
+    },
+    {
+      "handle": "dong-co-servo-bo-dieu-khien-servo",
+      "title": "Động Cơ Servo & Bộ Điều Khiển Servo",
+      "products_count": 8
+    },
+    {
+      "handle": "may-lam-lanh-nuoc",
+      "title": "Máy Làm Lạnh Nước",
+      "products_count": 12
+    },
+    {
+      "handle": "dau-han-lam-sach-bang-laser",
+      "title": "Đầu Hàn & Làm Sạch Bằng Laser",
+      "products_count": 28
+    },
+    {
+      "handle": "dau-cat-laser",
+      "title": "Đầu Cắt Laser",
+      "products_count": 29
+    },
+    {
+      "handle": "nguon-laser-soi-quang",
+      "title": "Nguồn Laser Sợi Quang",
+      "products_count": 19
+    },
+    {
+      "handle": "phan-mem-cat-laser",
+      "title": "Phần Mềm Cắt Laser",
+      "products_count": 17
+    }
+  ]
+}

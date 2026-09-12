@@ -81,9 +81,7 @@ export class PlatformDetector {
           sapoScore += 40;
           indicators.push('sections/*.bwt templates found (Sapo)');
         } else if (sectionFiles.some((f) => f.endsWith('.liquid'))) {
-          // Both Shopify and Haravan use .liquid sections
           shopifyScore += 10;
-          haravanScore += 10;
           indicators.push('sections/*.liquid templates found');
         }
       }

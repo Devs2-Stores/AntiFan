@@ -1,0 +1,76 @@
+[
+  {
+    "name": "Màu sắc",
+    "settings": [
+      { "type": "color", "id": "color_primary", "label": "Màu chủ đạo", "default": "#E30613" },
+      { "type": "color", "id": "color_secondary", "label": "Màu phụ trợ", "default": "#1A202C" },
+      { "type": "color", "id": "color_text", "label": "Màu chữ", "default": "#2D3748" },
+      { "type": "color", "id": "color_bg", "label": "Màu nền", "default": "#FFFFFF" },
+      { "type": "color", "id": "color_border", "label": "Màu viền", "default": "#E2E8F0" }
+    ]
+  },
+  {
+    "name": "Kiểu chữ & Bố cục",
+    "settings": [
+      { "type": "text", "id": "font_base_size", "label": "Cỡ chữ cơ sở (px)", "default": "16" },
+      { "type": "text", "id": "container_max_width", "label": "Độ rộng tối đa container (px)", "default": "1200" }
+    ]
+  },
+  {
+    "name": "Đầu trang (Header)",
+    "settings": [
+      { "type": "checkbox", "id": "header_sticky_enable", "label": "Cố định thanh đầu trang (Sticky)", "default": true },
+      { "type": "link_list", "id": "header_menu_handle", "label": "Menu chính", "default": "main-menu" },
+      { "type": "checkbox", "id": "header_search_enable", "label": "Bật tìm kiếm trên header", "default": true },
+      { "type": "image_picker", "id": "header_logo", "label": "Logo cửa hàng", "default": "" },
+      { "type": "checkbox", "id": "header_announcement_enable", "label": "Bật thanh thông báo đầu trang", "default": true },
+      { "type": "text", "id": "header_announcement_text", "label": "Nội dung thông báo", "default": "Miễn phí vận chuyển cho đơn hàng từ 500.000đ" },
+      { "type": "checkbox", "id": "breadcrumb_enable", "label": "Bật thanh điều hướng Breadcrumb", "default": true },
+      { "type": "image_picker", "id": "favicon", "label": "Favicon", "default": "" }
+    ]
+  },
+  {
+    "name": "Trang chủ",
+    "settings": [
+      { "type": "checkbox", "id": "home_hero_enable", "label": "Bật banner trang chủ", "default": true },
+      { "type": "text", "id": "home_hero_title", "label": "Tiêu đề banner trang chủ", "default": "Bộ sưu tập mới nhất" },
+      { "type": "text", "id": "home_hero_subtitle", "label": "Phụ đề banner", "default": "Khám phá các sản phẩm chất lượng cao với ưu đãi đặc biệt" },
+      { "type": "text", "id": "home_hero_btn_text", "label": "Nút bấm banner", "default": "Mua ngay" },
+      { "type": "text", "id": "home_hero_btn_url", "label": "Đường dẫn banner", "default": "/collections/all" },
+      { "type": "collection", "id": "home_featured_collection", "label": "Nhóm sản phẩm nổi bật trang chủ", "default": "frontpage" },
+      { "type": "text", "id": "home_featured_limit", "label": "Số sản phẩm nổi bật", "default": "8" },
+      { "type": "checkbox", "id": "home_blog_enable", "label": "Bật tin tức trang chủ", "default": true },
+      { "type": "blog", "id": "home_blog_handle", "label": "Blog tin tức trang chủ", "default": "news" },
+      { "type": "text", "id": "home_blog_limit", "label": "Số bài viết tin tức trang chủ", "default": "3" }
+    ]
+  },
+  {
+    "name": "Danh mục & Sản phẩm",
+    "settings": [
+      { "type": "select", "id": "product_grid_columns", "label": "Số cột sản phẩm (Desktop)", "default": "4", "options": [{"value": "3", "label": "3 cột"}, {"value": "4", "label": "4 cột"}, {"value": "5", "label": "5 cột"}] },
+      { "type": "checkbox", "id": "product_grid_show_vendor", "label": "Hiển thị thương hiệu sản phẩm", "default": true },
+      { "type": "checkbox", "id": "product_grid_show_quickview", "label": "Hiển thị nút Xem nhanh trên thẻ sản phẩm", "default": true },
+      { "type": "text", "id": "collection_products_per_page", "label": "Số sản phẩm trên mỗi trang", "default": "16" },
+      { "type": "select", "id": "collection_grid_columns", "label": "Số cột sản phẩm trang bộ sưu tập", "default": "4", "options": [{"value": "3", "label": "3 cột"}, {"value": "4", "label": "4 cột"}, {"value": "5", "label": "5 cột"}] },
+      { "type": "checkbox", "id": "product_quickview_enable", "label": "Bật tính năng Xem nhanh", "default": true },
+      { "type": "checkbox", "id": "product_tabs_enable", "label": "Bật tabs chi tiết sản phẩm (Metafields)", "default": true },
+      { "type": "checkbox", "id": "product_zoom_enable", "label": "Bật phóng to ảnh sản phẩm", "default": true }
+    ]
+  },
+  {
+    "name": "Giỏ hàng",
+    "settings": [
+      { "type": "select", "id": "cart_type", "label": "Kiểu hiển thị giỏ hàng", "default": "drawer", "options": [{"value": "drawer", "label": "Ngăn trượt (Drawer)"}, {"value": "page", "label": "Chuyển trang (/cart)"}] },
+      { "type": "checkbox", "id": "cart_notes_enable", "label": "Cho phép ghi chú đơn hàng", "default": true }
+    ]
+  },
+  {
+    "name": "Chân trang (Footer)",
+    "settings": [
+      { "type": "textarea", "id": "footer_about_text", "label": "Giới thiệu ngắn chân trang", "default": "Universal Haravan Base Theme — Nền tảng thương mại điện tử chuẩn mực." },
+      { "type": "link_list", "id": "footer_menu_handle", "label": "Menu chân trang", "default": "footer" },
+      { "type": "checkbox", "id": "footer_newsletter_enable", "label": "Bật đăng ký nhận bản tin", "default": true },
+      { "type": "text", "id": "footer_copyright_text", "label": "Bản quyền chân trang", "default": "© 2026 Bản quyền thuộc về Cửa hàng. Cung cấp bởi Haravan." }
+    ]
+  }
+]

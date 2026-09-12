@@ -51,7 +51,9 @@ async function main() {
   const server = await startStaticServer(refFile, PORT);
 
   const refUrl = `http://127.0.0.1:${PORT}/`;
-  const storefrontUrl = 'https://phukienmaymoc.com/?preview_theme_id=1001512581';
+  const storefrontParsed = new URL('https://phukienmaymoc.com/');
+  storefrontParsed.searchParams.set('themeid', '1001512581');
+  const storefrontUrl = storefrontParsed.toString();
 
   console.log('[1] Creating Reference Tab...');
   const refTabRes = await call('anti.browser.tabs.create', { url: refUrl, activate: true }, 60_000);
