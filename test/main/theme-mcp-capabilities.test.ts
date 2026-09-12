@@ -49,7 +49,7 @@ describe('Theme QA MCP Capabilities', () => {
       captureScreenshot: async () => Buffer.from('png').toString('base64'),
       evalJs: async (expression) => {
         if (expression.includes('data-template')) return { template: 'product', sections: [{ id: 'main-product', type: 'product', tag: 'section' }] };
-        if (expression.includes('performance.getEntriesByType')) return { observedRequests: [{ url: 'https://storefront.test/cart.js', method: 'GET' }], forms: [], contracts: { add: false, change: false, read: true } };
+        if (expression.includes('performance.getEntriesByType')) return { observedRequests: [{ url: 'https://shop.myshopify.com/cart.js', method: 'GET' }], forms: [], contracts: { add: false, change: false, read: true } };
         return { hasOverflow: false, deltaX: 0, culprits: [] };
       },
     });

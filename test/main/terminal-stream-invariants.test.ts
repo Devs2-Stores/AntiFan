@@ -305,7 +305,7 @@ describe('Phase T0: Terminal Stream Invariants & Telemetry', () => {
     assert.strictEqual(exits[0]!.lastSeq, 2);
   });
 
-  it('INVARIANT 4 (Input Routing): keyboard input and geometry reach the PTY that owns the session', () => {
+  it('INVARIANT 4 (Input Routing): keyboard input reaches the PTY that owns the session', () => {
     const sessionId = 'test-session-input';
     privates.spawn(sessionId, 'E:\\Work');
     const pty = latestPty();
@@ -315,9 +315,20 @@ describe('Phase T0: Terminal Stream Invariants & Telemetry', () => {
     tm.writeTo(sessionId, 'echo hi\r');
     assert.deepStrictEqual(pty.writes, ['echo hi\r'], 'input must reach the PTY that owns the session');
     assert.strictEqual(spawnedPtys.length, 1, 'routing input to a live session must not respawn a shell');
+  });
+
+  it('INVARIANT 5 (Geometry Routing): resize targets the live PTY instead of pending geometry', () => {
+    const sessionId = 'test-session-resize';
+    privates.spawn(sessionId, 'E:\\Work');
+    const pty = latestPty();
 
     tm.resizeTo(sessionId, 100, 40);
     assert.strictEqual(pty.cols, 100, 'a live session must resize its own PTY');
     assert.strictEqual(pty.rows, 40);
+
+    // The all-session resize reads the same handle, so it must not fall into the
+    // "remember geometry for a shell that starts later" branch either.
+    tm.resize(120, 30);
+    assert.strictEqual(pty.cols, 120, 'the all-session resize must reach a live PTY');
   });
 });
