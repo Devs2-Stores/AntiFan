@@ -69,6 +69,7 @@ export interface HarvestedAssetItem {
   localPath: string;
   byteCount?: number;
   occurrences?: AssetProvenanceOccurrence[];
+  defer?: boolean;
 }
 
 export interface HarvestedAssetManifest {
@@ -149,9 +150,9 @@ export class AssetHarvester {
       cssIdx++;
     };
 
-    const addScript = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => {
+    const addScript = (rawUrl: string, provenance?: AssetProvenanceOccurrence, defer?: boolean) => {
       const raw = (rawUrl || '').trim();
-      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
+      if (!raw || raw.startsWith('data:') || raw.startsWith('#') || /livewire/i.test(raw)) return;
       const trimmed = normalizeRef(raw);
       const existing = manifest.javascripts.find(item => item.sourceUrl === trimmed);
       if (existing) {
@@ -166,7 +167,8 @@ export class AssetHarvester {
         sourceUrl: trimmed,
         filename,
         localPath: path.join(assetsDir, filename),
-        occurrences: provenance ? [provenance] : []
+        occurrences: provenance ? [provenance] : [],
+        defer: defer ? true : undefined
       };
       if (trimmed !== raw) item.rawSourceUrl = raw;
       manifest.javascripts.push(item);
@@ -246,7 +248,7 @@ export class AssetHarvester {
       while ((match = scriptTagRegex.exec(content)) !== null) {
         const attrs = parseTagAttributes(match[0]);
         const src = attrs.get('src');
-        if (src) addScript(src, { filePath, tag: 'script', attribute: 'src' });
+        if (src) addScript(src, { filePath, tag: 'script', attribute: 'src' }, attrs.has('defer'));
       }
 
       // 3. Extract remote images (<img> tags)

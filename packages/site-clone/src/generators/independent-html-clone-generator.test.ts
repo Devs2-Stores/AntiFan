@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { sanitizeSectionMarkup } from './independent-html-clone-generator.js';
+import {
+  sanitizeSectionMarkup,
+  decodeHtmlEntities,
+  extractEmbeddedEffects
+} from './independent-html-clone-generator.js';
 
 describe('IndependentHtmlCloneGenerator - section sanitation', () => {
   it('drops inert <noscript> fallbacks that point at live third-party services', () => {
@@ -52,5 +56,71 @@ describe('IndependentHtmlCloneGenerator - section sanitation', () => {
   it('is stable when already-promoted markup is sanitized again', () => {
     const promoted = '<img src="assets/hero.jpg" srcset="assets/hero.jpg 1920w">';
     assert.strictEqual(sanitizeSectionMarkup(sanitizeSectionMarkup(promoted)), promoted);
+  });
+
+  it('strips inert wire:* attributes and Livewire comments while preserving content', () => {
+    const section = [
+      '<!--[if BLOCK]><![endif]-->',
+      '<div wire:snapshot="{&quot;data&quot;:{}}" wire:effects="[]" wire:id="abc123xyz" class="product-card">',
+      '<a href="/product/1" wire:navigate="" class="product-link">Product 1</a>',
+      '<button wire:click="addToCart" class="btn">Add</button>',
+      '</div>',
+      '<!--[if ENDBLOCK]><![endif]-->'
+    ].join('');
+
+    const sanitized = sanitizeSectionMarkup(section);
+
+    assert.ok(!/wire:/i.test(sanitized), 'no wire: attributes should survive');
+    assert.ok(!/<!--\[if/i.test(sanitized), 'no Livewire block comments should survive');
+    assert.ok(sanitized.includes('class="product-card"'), 'element classes remain intact');
+    assert.ok(sanitized.includes('Product 1'), 'element content remains intact');
+  });
+
+  it('strips data-update-uri and livewire script tags', () => {
+    const section = [
+      '<div data-update-uri="/livewire/update" data-navigate-once="true">',
+      '<script src="/livewire/livewire.min.js?id=40a765a4"></script>',
+      '<p>Store content</p>',
+      '</div>'
+    ].join('');
+
+    const sanitized = sanitizeSectionMarkup(section);
+
+    assert.ok(!sanitized.includes('data-update-uri'), 'data-update-uri must not survive');
+    assert.ok(!sanitized.includes('livewire.min.js'), 'livewire script must not survive');
+    assert.ok(sanitized.includes('<p>Store content</p>'), 'pure content remains');
+  });
+});
+
+describe('IndependentHtmlCloneGenerator - HTML Entity Decoding & Embedded Effects', () => {
+  it('decodes HTML entities in the correct order without premature unescaping', () => {
+    const input = '&quot;hello&quot; &lt;tag&gt; &amp; &amp;quot;inner&amp;quot;';
+    const decoded = decodeHtmlEntities(input);
+    assert.strictEqual(decoded, '"hello" <tag> & &quot;inner&quot;');
+  });
+
+  it('extracts embedded xjs expressions from wire:effects and ensures safe slick re-initialization', () => {
+    const sampleHtml = [
+      '<div wire:snapshot="{}" wire:effects="{&quot;returns&quot;:[null],&quot;xjs&quot;:[{&quot;expression&quot;:&quot;\\n                setTimeout(() =&gt; {\\n                    $(\x27.block-category__list\x27).slick({\\n                        slidesToShow: 1.8,\\n                        slidesToScroll: 1,\\n                        responsive: [{\\n                            breakpoint: 480,\\n                            settings: {\\n                                slidesToShow: 2.3\\n                            }\\n                        }]\\n                    });\\n                }, 200)\\n            &quot;}]}">',
+      '<div class="block-category__list"></div>',
+      '</div>'
+    ].join('');
+
+    const effects = extractEmbeddedEffects(sampleHtml);
+    assert.strictEqual(effects.length, 1);
+    assert.ok(effects[0].includes('setTimeout('), 'preserves setTimeout wrapper');
+    assert.ok(effects[0].includes('slidesToShow: 2.3'), 'preserves the exact responsive config');
+    assert.ok(effects[0].includes('slick-initialized'), 'wraps with slick-initialized unslick guard');
+  });
+
+  it('extracts multiple effects including footer navigation scroll handlers', () => {
+    const sampleHtml = [
+      '<div wire:effects="{&quot;xjs&quot;:[{&quot;expression&quot;:&quot;let nav = document.getElementById(\x27bottom-nav\x27); window.addEventListener(\x27scroll\x27, () =&gt; {});&quot;}]}"></div>'
+    ].join('');
+
+    const effects = extractEmbeddedEffects(sampleHtml);
+    assert.strictEqual(effects.length, 1);
+    assert.ok(effects[0].includes('bottom-nav'));
+    assert.ok(effects[0].includes('addEventListener'));
   });
 });

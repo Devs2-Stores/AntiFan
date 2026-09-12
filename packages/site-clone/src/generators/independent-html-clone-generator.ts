@@ -38,11 +38,64 @@ export interface IndependentHtmlCloneResult {
  *    real target in `data-src`/`data-srcset`. A static bundle has no swap step,
  *    so the placeholder is promoted onto the rendered attribute.
  */
+/**
+ * Decodes HTML entities safely. Decodes quotes and angle brackets first,
+ * and &amp; last so entities like &amp;quot; are not double-decoded prematurely.
+ */
+export function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#039;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * Extracts embedded executable scripts from wire:effects attributes (e.g. dynamic
+ * slick slider re-initialization, scroll listeners) into pure inline JS expressions.
+ * Wraps slick initialization calls with an unslick check so that if a synchronous
+ * bundle already ran on $(document).ready, the reference-derived config applies cleanly.
+ */
+export function extractEmbeddedEffects(html: string): string[] {
+  const scripts: string[] = [];
+  const regex = /wire:effects="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html)) !== null) {
+    const rawVal = match[1];
+    const decoded = decodeHtmlEntities(rawVal);
+    try {
+      const parsed = JSON.parse(decoded);
+      if (Array.isArray(parsed.xjs)) {
+        for (const item of parsed.xjs) {
+          if (item && typeof item.expression === 'string' && item.expression.trim()) {
+            let expr = item.expression.trim();
+            // Wrap .slick({ calls so an already-initialized slider is cleanly unslicked first
+            expr = expr.replace(
+              /\$\((["'][^"']+["'])\)\.slick\(\{/g,
+              '(($($1).hasClass("slick-initialized") ? $($1).slick("unslick") : null), $($1)).slick({'
+            );
+            scripts.push(expr);
+          }
+        }
+      }
+    } catch {
+      // Ignore unparseable wire:effects
+    }
+  }
+  return scripts;
+}
+
 export function sanitizeSectionMarkup(html: string): string {
   return html
     .replace(/(?::|x-bind:|v-bind:)?(src|data-src)\s*=\s*(?:"[^"]*(?:youtube\.com|vimeo\.com)[^"]*"|'[^']*(?:youtube\.com|vimeo\.com)[^']*')/gi, '$1=""')
     .replace(/(?::|x-bind:|v-bind:)(src|data-src)\s*=\s*(?:"[^"]*(?:https?:)?\/\/[^"]*"|'[^']*(?:https?:)?\/\/[^']*')/gi, '')
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<!--\[if (?:END)?BLOCK\]><!\[endif\]-->/gi, '')
+    .replace(/\s*wire:[a-zA-Z0-9_\-\.]+(?:="[^"]*"|='[^']*'|=[^\s>]+)?/gi, '')
+    .replace(/\s*data-(?:update-uri|navigate-once)(?:="[^"]*"|='[^']*'|=[^\s>]+)?/gi, '')
+    .replace(/<script\b[^>]*src="[^"]*livewire[^"]*"[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<img\b[^>]*>/gi, (tag) => promoteLazyLoadTarget(tag));
 }
 
@@ -88,6 +141,12 @@ export class IndependentHtmlCloneGenerator {
     const filesWritten: string[] = [];
 
     try {
+      // Filter out backend platform-runtime scripts from ir.assets so they are never copied or linked
+      if (ir.assets?.javascripts) {
+        ir.assets.javascripts = ir.assets.javascripts.filter(
+          js => !/livewire/i.test(js.filename || js.sourceUrl || '')
+        );
+      }
       // 1. Full-fidelity defaults: no artificial content caps unless the caller
       // explicitly asks for a bounded sample.
       const maxProducts = options.maxProducts ?? Number.POSITIVE_INFINITY;
@@ -102,6 +161,7 @@ export class IndependentHtmlCloneGenerator {
       const headerHtmls: string[] = [];
       const mainHtmls: string[] = [];
       const footerHtmls: string[] = [];
+      const extractedEffectsScripts: string[] = [];
       for (const sec of ir.sections) {
         let contentHtml = '';
         if (sec.rawHtml && sec.rawHtml.trim().length > 0) {
@@ -114,6 +174,12 @@ export class IndependentHtmlCloneGenerator {
             remainingProducts = Math.max(0, remainingProducts - pruneRes.retainedCount);
           } else if (isArticle) {
             remainingArticles = Math.max(0, remainingArticles - pruneRes.retainedCount);
+          }
+          // Sanitize Alpine-bound and standard load-capable video/embed attributes containing remote URLs,
+          // and drop inert <noscript> fallbacks that point at live third-party services.
+          // Extract embedded effects (e.g. xjs scripts) before stripping platform hooks
+          if (sec.rawHtml.includes('wire:effects')) {
+            extractedEffectsScripts.push(...extractEmbeddedEffects(sec.rawHtml));
           }
           // Sanitize Alpine-bound and standard load-capable video/embed attributes containing remote URLs,
           // and drop inert <noscript> fallbacks that point at live third-party services.
@@ -141,7 +207,8 @@ export class IndependentHtmlCloneGenerator {
         .map(css => `  <link rel="stylesheet" href="${css.sourceUrl || `assets/${css.filename}`}">`)
         .join('\n');
       const javascriptTags = (ir.assets?.javascripts || [])
-        .map(js => `  <script src="${js.sourceUrl || `assets/${js.filename}`}"></script>`)
+        .filter(js => !/livewire/i.test(js.filename || js.sourceUrl || ''))
+        .map(js => `  <script${js.defer ? ' defer' : ''} src="${js.sourceUrl || `assets/${js.filename}`}"></script>`)
         .join('\n');
       // Source-order head CSS: external sheets first, then the document's own inline styles,
       // so page-specific rules keep the cascade priority they had on the source site.
@@ -182,7 +249,12 @@ ${footerHtmls.join('\n')}
     window.flatsomeVars = { ajaxurl: '', rtl: false, sticky_height: 70, lightbox: { close_markup: '' } };
   }
 </script>
-${javascriptTags ? javascriptTags + '\n' : ''}</body>
+${javascriptTags ? javascriptTags + '\n' : ''}${extractedEffectsScripts.length > 0 ? `
+<script>
+// Embedded page effects extracted from reference (build-time derived, zero platform runtime)
+${extractedEffectsScripts.join('\n\n')}
+</script>
+` : ''}</body>
 </html>`;
 
       const indexHtmlPath = path.join(stageDir, 'index.html');
