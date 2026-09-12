@@ -27,6 +27,8 @@ export class HistoryManager extends EventEmitter {
   private persistTimer: NodeJS.Timeout | null = null;
   private readonly MAX_HISTORY_ITEMS = 20000;
   private chromeUserDataPath: string;
+  private isImporting = false;
+  private importTimer: NodeJS.Timeout | null = null;
 
   private constructor() {
     super();
@@ -37,7 +39,13 @@ export class HistoryManager extends EventEmitter {
       'User Data'
     );
     this.loadHistory();
-    this.importAllChromeProfiles().catch(() => {});
+    this.importTimer = setTimeout(() => {
+      this.importTimer = null;
+      this.importAllChromeProfiles().catch((err) => {
+        console.warn('[HistoryManager] Deferred Chrome history import note:', err);
+      });
+    }, 10_000);
+    this.importTimer.unref?.();
   }
 
   public static getInstance(): HistoryManager {
@@ -153,6 +161,8 @@ export class HistoryManager extends EventEmitter {
    * Safe-copies and imports history from Chrome's SQLite History DB
    */
   public async importAllChromeProfiles(): Promise<number> {
+    if (this.isImporting) return 0;
+    this.isImporting = true;
     let total = 0;
     try {
       if (!fs.existsSync(this.chromeUserDataPath)) return 0;
@@ -163,7 +173,9 @@ export class HistoryManager extends EventEmitter {
           total += n;
         }
       }
-    } catch {}
+    } catch {} finally {
+      this.isImporting = false;
+    }
     return total;
   }
 
@@ -208,7 +220,20 @@ except Exception as e:
       const pyPath = path.join(tempDir, 'extract_hist.py');
       fs.writeFileSync(pyPath, pyScript, 'utf8');
 
-      const rawJson = cp.execFileSync('python', [pyPath, tempDb], { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024, timeout: 8000 }).toString();
+      const rawJson = await new Promise<string>((resolve, reject) => {
+        cp.execFile(
+          'python',
+          [pyPath, tempDb],
+          { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024, timeout: 8000 },
+          (err, stdout) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(typeof stdout === 'string' ? stdout : (stdout as unknown as Buffer).toString());
+            }
+          }
+        );
+      });
       const records: Array<{ url: string; title: string; visitCount: number; lastVisitTime: number }> = JSON.parse(rawJson);
       for (const r of records) {
         if (!r.url) continue;
