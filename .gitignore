@@ -32,4 +32,6 @@ clone/hoplongtech/build/
 tmp/
 exports/
 .haravan-cli_local.json
-
+.haravan-cli_remote.json
+.haravan-cli_backup/
+.hrv-sync-state.json
