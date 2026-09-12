@@ -18,7 +18,7 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
           dom: async () => '<html><body><div>Test</div></body></html>',
           screenshot: async () => 'data:image/png;base64,mock',
           eval: async (_target: BrowserTarget, script: string) => {
-            if (script.includes('LayoutOverflowEngine')) {
+            if (script.includes('LayoutOverflowEngine') || script.includes('deadband') || script.includes('rawDeltaX')) {
               return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
             }
             if (script.includes('LiquidErrorScanner')) {
