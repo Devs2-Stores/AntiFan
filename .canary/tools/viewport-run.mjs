@@ -754,7 +754,7 @@ await refuseIfTooTall(cloneTabId, 'clone');
 // tab presents, so both sides are given the same regime before anything is measured. It is
 // applied to both tabs and changes no content: a page that overflows still overflows, and
 // the clone's own 299px horizontal overflow at 390 stays visible.
-const SCROLLBAR_REGIME_CSS = 'html{scrollbar-width:none !important}html::-webkit-scrollbar{display:none !important}';
+const SCROLLBAR_REGIME_CSS = 'html, * { scrollbar-width: none !important; } html::-webkit-scrollbar, *::-webkit-scrollbar { display: none !important; }';
 async function applyScrollbarRegime(tabId, role) {
   return await evalOn(tabId, `(() => {
     let style = document.getElementById('__antifan-scrollbar-regime');

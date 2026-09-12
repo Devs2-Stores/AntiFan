@@ -155,7 +155,7 @@ export class IndependentHtmlCloneGenerator {
   <title>${title.replace(/</g, '&lt;')}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    body { margin: 0; padding: 0; }
     img { max-width: 100%; }
   </style>
 ${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}</head>
@@ -165,6 +165,23 @@ ${headerHtmls.join('\n')}
 ${mainHtmls.join('\n')}
 </main>
 ${footerHtmls.join('\n')}
+<script>
+  if (typeof window.findFirstValidTab !== 'function') {
+    window.findFirstValidTab = function() {
+      const tabs = ['technical', 'overall', 'detail', 'document'];
+      for (const t of tabs) {
+        if (document.getElementById('content-tab-' + t)) return t;
+      }
+      return 'technical';
+    };
+  }
+  if (typeof window.tabExists !== 'function') {
+    window.tabExists = function(t) { return !!document.getElementById('content-tab-' + t); };
+  }
+  if (typeof window.flatsomeVars === 'undefined') {
+    window.flatsomeVars = { ajaxurl: '', rtl: false, sticky_height: 70, lightbox: { close_markup: '' } };
+  }
+</script>
 ${javascriptTags ? javascriptTags + '\n' : ''}</body>
 </html>`;
 

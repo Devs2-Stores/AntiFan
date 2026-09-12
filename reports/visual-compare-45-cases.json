@@ -1,0 +1,407 @@
+[
+  {
+    "page": "page-01-home",
+    "name": "TRANG CHỦ",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-01-home",
+    "name": "TRANG CHỦ",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 18.63,
+    "status": "REVIEW",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-01-home",
+    "name": "TRANG CHỦ",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-02-brands",
+    "name": "DANH MỤC THƯƠNG HIỆU",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-02-brands",
+    "name": "DANH MỤC THƯƠNG HIỆU",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-02-brands",
+    "name": "DANH MỤC THƯƠNG HIỆU",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-03-category-cam-bien",
+    "name": "NHÓM KHÔNG FILTER",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 7.69,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-03-category-cam-bien",
+    "name": "NHÓM KHÔNG FILTER",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 9.19,
+    "status": "REVIEW",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-03-category-cam-bien",
+    "name": "NHÓM KHÔNG FILTER",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 0.01,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-04-category-contactor",
+    "name": "TRANG NHÓM SẢN PHẨM",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 0.09,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-04-category-contactor",
+    "name": "TRANG NHÓM SẢN PHẨM",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 0.12,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-04-category-contactor",
+    "name": "TRANG NHÓM SẢN PHẨM",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 0.33,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-05-brands-ecovacs",
+    "name": "NHÓM SẢN PHẨM BRAND",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 9,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-05-brands-ecovacs",
+    "name": "NHÓM SẢN PHẨM BRAND",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 11.43,
+    "status": "REVIEW",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-05-brands-ecovacs",
+    "name": "NHÓM SẢN PHẨM BRAND",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 0.01,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-06-cart",
+    "name": "GIỎ HÀNG",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-06-cart",
+    "name": "GIỎ HÀNG",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-06-cart",
+    "name": "GIỎ HÀNG",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-07-product-detail",
+    "name": "CHI TIẾT SẢN PHẨM",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-07-product-detail",
+    "name": "CHI TIẾT SẢN PHẨM",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-07-product-detail",
+    "name": "CHI TIẾT SẢN PHẨM",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-08-bao-gia",
+    "name": "BÁO GIÁ",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 0.17,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-08-bao-gia",
+    "name": "BÁO GIÁ",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 0.93,
+    "status": "PASS",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-08-bao-gia",
+    "name": "BÁO GIÁ",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 0.02,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-09-tai-lieu",
+    "name": "TÀI LIỆU",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-09-tai-lieu",
+    "name": "TÀI LIỆU",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-09-tai-lieu",
+    "name": "TÀI LIỆU",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-10-tin-tuc",
+    "name": "TIN TỨC",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 0.08,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-10-tin-tuc",
+    "name": "TIN TỨC",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 0.46,
+    "status": "PASS",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-10-tin-tuc",
+    "name": "TIN TỨC",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 0.01,
+    "status": "PASS",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-11-tin-tuc-detail",
+    "name": "CHI TIẾT TIN TỨC",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 27.85,
+    "status": "REVIEW",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-11-tin-tuc-detail",
+    "name": "CHI TIẾT TIN TỨC",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 32.48,
+    "status": "REVIEW",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-11-tin-tuc-detail",
+    "name": "CHI TIẾT TIN TỨC",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 35.12,
+    "status": "REVIEW",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-12-gioi-thieu",
+    "name": "GIỚI THIỆU",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 46.39,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-12-gioi-thieu",
+    "name": "GIỚI THIỆU",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 39.13,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-12-gioi-thieu",
+    "name": "GIỚI THIỆU",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 50.21,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-13-lich-su",
+    "name": "LỊCH SỬ",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 77.96,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-13-lich-su",
+    "name": "LỊCH SỬ",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 77.44,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-13-lich-su",
+    "name": "LỊCH SỬ",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 64.4,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-14-tuyen-dung",
+    "name": "TUYỂN DỤNG",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": 25.09,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-14-tuyen-dung",
+    "name": "TUYỂN DỤNG",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": 22.29,
+    "status": "REVIEW",
+    "dimsMatch": false
+  },
+  {
+    "page": "page-14-tuyen-dung",
+    "name": "TUYỂN DỤNG",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": 47.17,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-15-tuyendung-detail",
+    "name": "page-15-tuyendung-detail",
+    "viewport": "1440x900 (Desktop)",
+    "vpLabel": "1440",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-15-tuyendung-detail",
+    "name": "page-15-tuyendung-detail",
+    "viewport": "1024x900 (Laptop)",
+    "vpLabel": "1024",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  },
+  {
+    "page": "page-15-tuyendung-detail",
+    "name": "page-15-tuyendung-detail",
+    "viewport": "390x844 (Mobile)",
+    "vpLabel": "390",
+    "mismatchPercentage": null,
+    "status": "REVIEW",
+    "dimsMatch": true
+  }
+]
