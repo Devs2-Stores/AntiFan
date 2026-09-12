@@ -93,6 +93,7 @@ function buildEngine() {
         paginate: {
           pages,
           page,
+          current_page: page,
           items: total,
           parts,
           previous: page > 1 ? { url: `/collections?page=${page - 1}` } : null,
@@ -275,6 +276,8 @@ async function main() {
   const pageTwoTiles = [...pageTwo.matchAll(/<article class="product-card collection-card">/g)].length;
   check('collections_pagination_second_page', pageTwoTiles === 12 && /Danh mục 13/.test(pageTwo) && !/Danh mục 1</.test(pageTwo), String(pageTwoTiles));
   check('collections_pagination_previous_on_later_page', /aria-label="Trang trước"/.test(pageTwo) && pageTwo.includes('href="/collections?page=1"'), '');
+  const currentMarker = pageTwo.match(/<span\s+class="pagination-link[^"]*"[^>]*aria-current="page"[^>]*>\s*2\s*<\/span>/);
+  check('collections_pagination_marks_current_page', Boolean(currentMarker) && (pageTwo.match(/aria-current="page"/g) ?? []).length === 1, currentMarker ? currentMarker[0].replace(/\s+/g, ' ') : 'aria-current="page" not rendered on page 2');
   const pageThree = await renderListCollections(many, { page: 3 });
   const pageThreeTiles = [...pageThree.matchAll(/<article class="product-card collection-card">/g)].length;
   check('collections_pagination_last_page_remainder', pageThreeTiles === 2 && /Danh mục 26/.test(pageThree), String(pageThreeTiles));

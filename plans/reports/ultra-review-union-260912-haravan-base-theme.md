@@ -66,3 +66,17 @@ Thay đổi kèm theo do người điều phối quyết định, cùng hướng
 
 Kết luận verifier: `REQUEST_CHANGES` tại thời điểm rà soát; toàn bộ 6 phát hiện Important/Minor đã được áp dụng
 và kiểm chứng lại ở trên.
+
+## 6. Vòng soát advisory sau khi push (đợt sửa tiếp theo)
+
+| Vấn đề | Kết luận | Hành động |
+| --- | --- | --- |
+| Tài liệu thiếu Kịch bản 13 (advisory) | **Sai** — `docs/haravan/base-theme-contract.md:300` đã có `### Kịch bản 13`, và 13 tiêu đề khớp đúng 13 id trong spec | Không đổi; ghi nhận là advisory lỗi thời |
+| Gỡ `paginate` khỏi dòng route (advisory lặp lại) | **Ngược hướng** — đã bổ sung `paginate` vào `ROUTE_LIST_COLLECTIONS` cho khớp quy ước route phân trang | Đã làm ở commit trước |
+| "`posted_successfully` = 0 trong corpus" | **Số sai do lệnh đo của tôi**; đo lại: 264 file / 279 lần, và 3 template của chính base theme đã dùng | Không có con số sai nào được ghi vào tài liệu/hợp đồng; lý do sửa footer dựa trên CSS thiếu + `§states.formErrors` + 7 form cùng theme |
+| Chuỗi "Không khả dụng" còn sót | **Sai** — 5 lần xuất hiện còn lại đều là câu phủ định ("theme không có trạng thái ...") | Không đổi |
+| `color-swatch` là affordance rỗng | **Đúng** — cờ `is_color` chỉ phát ra lớp không có rule nào trong theme | Đã gỡ cờ và lớp khỏi `swatch.liquid` |
+| `form-success` không có CSS | **Đã hết** — khối đó bị thay bằng `alert alert-success` ở commit trước | Không còn chuỗi nào trong theme |
+| `paginate.current_page` chưa được harness cấp nên nhánh `is-current`/`aria-current` không bao giờ render | **Đúng** — snippet so `part.title == paginate.current_page`, nhưng stub chỉ đặt `current_page` ở cấp ngoài | Stub đặt `current_page` trong drop `paginate`; `pagination-default.liquid` ép kiểu `part.title | times: 1`; kiểm tra mới assert `aria-current="page"`; đột biến bỏ ép kiểu làm harness đỏ |
+| `SCENARIO_04` đòi "4 cột desktop, 2 cột mobile" | **Đúng là drift** — `collection.liquid:35` dùng setting và `theme.css:121-125` không có media query nào cho `.grid-cols-*` | Sửa câu chữ theo thực tế đã ship (số cột theo setting ở mọi viewport), không thêm breakpoint mới |
+| `SCENARIO_03` nói quá về tồn kho | **Đúng** — pass 2 mới đòi `candidate.available`, pass 3 không điều kiện | Siết lại câu chữ theo đúng thứ tự pass (còn hàng nếu có, ngược lại render "Hết hàng") |

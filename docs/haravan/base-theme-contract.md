@@ -241,12 +241,12 @@ Mọi thay đổi trên Base Theme và Project Theme bắt buộc phải vượt
 - **Route:** `/products/{handle}`
 - **Điều kiện tiên quyết:** Sản phẩm có ít nhất 1 biến thể tồn kho = 0.
 - **Hành động:** Từ một biến thể đang render, theo liên kết swatch của một giá trị mà tổ hợp với các tuỳ chọn còn lại đang hết hàng; sau đó theo liên kết của một giá trị mà tổ hợp đó không tồn tại.
-- **Kết quả kỳ vọng:** Liên kết đó trỏ tới biến thể giữ nguyên các tuỳ chọn còn lại đang render (chỉ rơi về biến thể đầu tiên mang giá trị đó khi tổ hợp không tồn tại), gắn `is-unavailable` và ghi chú "(Hết hàng)" trong thuộc tính `title`; trang render đúng biến thể đó với nút "Hết hàng" ở trạng thái `disabled`. Giá trị mà tổ hợp với tuỳ chọn hiện tại không tồn tại thì được trỏ sang một biến thể còn hàng mang giá trị đó, nên yêu cầu luôn phân giải về biến thể thật; theme không có trạng thái "Không khả dụng". Không phát sinh lỗi JavaScript console vì chọn tuỳ chọn là điều hướng trang, không phải vá state phía client.
+- **Kết quả kỳ vọng:** Liên kết đó trỏ tới biến thể giữ nguyên các tuỳ chọn còn lại đang render (chỉ rơi về biến thể đầu tiên mang giá trị đó khi tổ hợp không tồn tại), gắn `is-unavailable` và ghi chú "(Hết hàng)" trong thuộc tính `title`; trang render đúng biến thể đó với nút "Hết hàng" ở trạng thái `disabled`. Giá trị mà tổ hợp với tuỳ chọn hiện tại không tồn tại thì được trỏ sang một biến thể mang giá trị đó — còn hàng nếu có, ngược lại là biến thể đã hết hàng và trang render "Hết hàng" với nút Submit `disabled` — nên yêu cầu luôn phân giải về biến thể thật; theme không có trạng thái "Không khả dụng". Không phát sinh lỗi JavaScript console vì chọn tuỳ chọn là điều hướng trang, không phải vá state phía client.
 
 ### Kịch bản 04: Populated Collection with Filter, Sort, and Pagination
 - **Route:** `/collections/{handle}`
 - **Điều kiện tiên quyết:** Danh mục có ≥17 sản phẩm (vượt ngưỡng phân trang 16 sản phẩm/trang).
-- **Hành động:** Kiểm tra lưới sản phẩm; chọn sắp xếp giá tăng dần; nhấn chuyển sang trang 2.
+- **Hành động:** Kiểm tra lưới sản phẩm (số cột lấy từ setting `collection_grid_columns` của merchant, áp dụng ở mọi viewport — theme không có breakpoint đổi số cột trên mobile); chọn sắp xếp giá tăng dần; nhấn chuyển sang trang 2.
 - **Kết quả kỳ vọng:** Trang 1 hiển thị đúng 16 thẻ sản phẩm; thanh phân trang hiển thị trang 1 active; sau khi chuyển trang, URL cập nhật `?page=2`, hiển thị các sản phẩm tiếp theo kèm thuộc tính `aria-current="page"`.
 
 ### Kịch bản 05: Empty Collection Handling

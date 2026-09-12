@@ -888,7 +888,7 @@
       "expectedResults": [
         "Sold-out combination: the page renders that variant and the submit button is disabled with the text 'Hết hàng'",
         "The chip that led there is marked unavailable and states (Hết hàng), because the zero-JS swatch links the combination rather than silently switching another option",
-        "A value whose combination with the current options does not exist is linked to another available variant carrying that value, so the request always resolves to a real variant; the theme has no 'Không khả dụng' state",
+        "A value whose combination with the current options does not exist is linked to a variant carrying that value: an in-stock one when one exists, otherwise the sold-out one, whose page renders 'Hết hàng' with the submit button disabled; the request always resolves to a real variant and the theme has no 'Không khả dụng' state",
         "No uncaught JavaScript errors, because option selection performs a navigation rather than client-side state patching"
       ],
       "verificationEvidence": "Rendered product page carries the requested variant id; the submit button has disabled and reads 'Hết hàng'; the swatch anchor for that value carries is-unavailable",
@@ -901,7 +901,7 @@
       "prerequisites": ["Collection exists with ≥17 products to exceed 16 items/page pagination threshold"],
       "actions": [
         "Navigate to collection page",
-        "Inspect product grid layout (4 columns desktop, 2 columns mobile)",
+        "Inspect the product grid layout (column count comes from the merchant setting collection_grid_columns, applied at every viewport; the theme ships no mobile column breakpoint)",
         "Change sort dropdown to 'price-ascending'",
         "Click page 2 in pagination controls"
       ],

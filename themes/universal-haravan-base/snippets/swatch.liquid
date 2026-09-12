@@ -14,17 +14,12 @@ exhausted value (Hết hàng).
 {%- endcomment -%}
 {%- assign active_variant = product.selected_or_first_available_variant | default: product.variants.first -%}
 {%- assign found_option = false -%}
-{%- assign is_color = false -%}
 {%- assign option_index = 0 -%}
 
 {%- for opt in product.options -%}
   {%- if opt == swatch -%}
     {%- assign found_option = true -%}
     {%- assign option_index = forloop.index0 -%}
-    {%- assign downcased_opt = swatch | downcase -%}
-    {%- if downcased_opt contains 'màu' or downcased_opt contains 'color' or downcased_opt contains 'colour' -%}
-      {%- assign is_color = true -%}
-    {%- endif -%}
   {%- endif -%}
 {%- endfor -%}
 
@@ -78,7 +73,7 @@ exhausted value (Hết hàng).
             {%- assign is_active = true -%}
           {%- endif -%}
           <a
-            class="swatch-label{% if is_color %} color-swatch{% endif %}{% if is_active %} is-active{% endif %}{% unless target_available %} is-unavailable{% endunless %}"
+            class="swatch-label{% if is_active %} is-active{% endif %}{% unless target_available %} is-unavailable{% endunless %}"
             href="{{ product.url }}?variant={{ target_id }}"
             title="{{ value | escape }}{% unless target_available %} (Hết hàng){% endunless %}"
             {% if is_active %}aria-current="true"{% endif %}
