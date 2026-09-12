@@ -97,6 +97,25 @@ function killTree(proc) {
     setTimeout(done, 1000);
   });
 }
+async function waitForProcessExit(pid, maxWaitMs = 400, pollIntervalMs = 25) {
+  if (!pid) return;
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      process.kill(pid, 0);
+      // Process still alive, poll again
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+    } catch (err) {
+      if (err && (err.code === 'ESRCH' || err.code === 'ENOENT')) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+    }
+  }
+  // Brief grace period (50ms) for Windows kernel mutexes and file locks to settle
+  await new Promise((r) => setTimeout(r, 50));
+}
+
 
 let relaunching = false;
 async function relaunchElectron() {
@@ -105,10 +124,14 @@ async function relaunchElectron() {
   try {
     if (electronProc) {
       log('Restarting AntiFan Electron...');
+      const oldPid = electronProc.pid;
       await killTree(electronProc);
       electronProc = null;
       // Allow Windows kernel mutex / file locks for single-instance lock to release cleanly
-      await new Promise((r) => setTimeout(r, 800));
+      // Poll until the process has actually terminated, bounded to avoid dead time
+      if (oldPid) {
+        await waitForProcessExit(oldPid, 400, 25);
+      }
     }
     log(`Starting AntiFan Browser Desktop${EXTRA_ELECTRON_ARGS.length ? ` (${EXTRA_ELECTRON_ARGS.join(' ')})` : ''}...`);
     const env = { ...process.env, NODE_ENV: 'development' };
@@ -121,7 +144,7 @@ async function relaunchElectron() {
   } finally {
     setTimeout(() => {
       relaunching = false;
-    }, 400);
+    }, 150);
   }
 }
 
@@ -167,7 +190,7 @@ function processTscLine(line) {
   }
 }
 
-tscProc = spawn(process.execPath, ['--max-old-space-size=4096', tscBin, '-p', './', '--watch', '--tsBuildInfoFile', '.compiled/.tsbuildinfo.watch'], {
+tscProc = spawn(process.execPath, ['--max-old-space-size=4096', tscBin, '-p', './', '--watch', '--tsBuildInfoFile', '.compiled/.tsbuildinfo'], {
   cwd: ROOT,
   stdio: ['inherit', 'pipe', 'inherit'],
 });
@@ -207,7 +230,7 @@ const dispatcher = createChangeDispatcher({
   getTscErrors: () => tscHasErrors,
   getTscSettledPromise: () => tscSettledPromise,
   getElectronProc: () => electronProc,
-  debounceMs: 1200,
+  debounceMs: 350,
   log,
 });
 

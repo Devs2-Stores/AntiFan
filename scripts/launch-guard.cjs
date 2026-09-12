@@ -60,9 +60,35 @@ function newestSourceMtimeMs(inputPath) {
   }
   return newest;
 }
+/** Newest mtime among emitted artifacts under a compiled directory. */
+function newestEmitMtimeMs(compiledDir) {
+  let newest = null;
+  function walk(dir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (ext === '.js' || ext === '.cjs' || ext === '.mjs' || ext === '.tsbuildinfo') {
+          const m = readMtimeMs(full);
+          if (m !== null && (newest === null || m > newest)) newest = m;
+        }
+      }
+    }
+  }
+  walk(compiledDir);
+  return newest;
+}
 
 /**
- * @param {{ bundlePath: string, sourceRoots?: string[], configFiles?: string[] }} input
+ * @param {{ bundlePath: string, buildInfoPath?: string, sourceRoots?: string[], configFiles?: string[] }} input
  * @returns {{ state: 'missing'|'stale'|'fresh', bundleMtimeMs: number|null, newestInputMs: number|null, reason: string }}
  */
 function inspectCompiledBundle(input) {
@@ -75,6 +101,40 @@ function inspectCompiledBundle(input) {
     return { state: 'missing', bundleMtimeMs: null, newestInputMs: null, reason: 'compiled bundle is absent' };
   }
 
+  // Anchor comparison on the latest compilation artifact (e.g. .tsbuildinfo or newest emit)
+  // so an incremental compile that does not rewrite bundlePath is not treated as stale.
+  let anchorMtimeMs = bundleMtimeMs;
+  let resolvedBuildInfo = input && input.buildInfoPath;
+  if (!resolvedBuildInfo) {
+    // Attempt auto-discovery of .tsbuildinfo if bundlePath is inside .compiled
+    const compiledMarker = path.sep + '.compiled' + path.sep;
+    const idx = bundlePath.lastIndexOf(compiledMarker);
+    if (idx !== -1) {
+      const candidate = path.join(bundlePath.slice(0, idx), '.compiled', '.tsbuildinfo');
+      if (fs.existsSync(candidate)) {
+        resolvedBuildInfo = candidate;
+      }
+    }
+  }
+
+  if (resolvedBuildInfo) {
+    const buildInfoMtime = readMtimeMs(resolvedBuildInfo);
+    if (buildInfoMtime !== null && buildInfoMtime > anchorMtimeMs) {
+      anchorMtimeMs = buildInfoMtime;
+    }
+  } else {
+    // If no buildInfo artifact, check if there is a newer emit under .compiled
+    const compiledMarker = path.sep + '.compiled' + path.sep;
+    const idx = bundlePath.lastIndexOf(compiledMarker);
+    if (idx !== -1) {
+      const compiledDir = path.join(bundlePath.slice(0, idx), '.compiled');
+      const newestEmit = newestEmitMtimeMs(compiledDir);
+      if (newestEmit !== null && newestEmit > anchorMtimeMs) {
+        anchorMtimeMs = newestEmit;
+      }
+    }
+  }
+
   let newestInputMs = null;
   for (const inputPath of [...(input.sourceRoots ?? []), ...(input.configFiles ?? [])]) {
     const candidate = newestSourceMtimeMs(inputPath);
@@ -82,12 +142,12 @@ function inspectCompiledBundle(input) {
   }
   // No reachable inputs means a packaged layout (sources are not shipped): nothing to compare.
   if (newestInputMs === null) {
-    return { state: 'fresh', bundleMtimeMs, newestInputMs: null, reason: 'no source inputs present to compare against' };
+    return { state: 'fresh', bundleMtimeMs: anchorMtimeMs, newestInputMs: null, reason: 'no source inputs present to compare against' };
   }
-  if (newestInputMs > bundleMtimeMs) {
-    return { state: 'stale', bundleMtimeMs, newestInputMs, reason: 'source inputs are newer than the compiled bundle' };
+  if (newestInputMs > anchorMtimeMs) {
+    return { state: 'stale', bundleMtimeMs: anchorMtimeMs, newestInputMs, reason: 'source inputs are newer than the compiled bundle' };
   }
-  return { state: 'fresh', bundleMtimeMs, newestInputMs, reason: 'compiled bundle is current' };
+  return { state: 'fresh', bundleMtimeMs: anchorMtimeMs, newestInputMs, reason: 'compiled bundle is current' };
 }
 
-module.exports = { inspectCompiledBundle, newestSourceMtimeMs, readMtimeMs };
+module.exports = { inspectCompiledBundle, newestSourceMtimeMs, newestEmitMtimeMs, readMtimeMs };

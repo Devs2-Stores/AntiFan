@@ -67,7 +67,7 @@ function collectExpected(expected, dir, relDir) {
     if (entry.name.endsWith('.d.ts')) continue;
     if (!entry.name.endsWith('.ts') && !entry.name.endsWith('.tsx')) continue;
     const stem = entry.name.replace(/\.tsx?$/, '');
-    expected.push(`${relDir}/${stem}.js`);
+    expected.push({ emitRel: `${relDir}/${stem}.js`, sourcePath: full });
   }
 }
 
@@ -77,7 +77,7 @@ collectEmit(emitIndex, OUT_ROOT);
 const expected = [];
 for (const dir of SOURCE_DIRS) collectExpected(expected, path.join(ROOT, dir), dir);
 
-const missing = expected.filter((rel) => !emitIndex.has(rel));
+const missing = expected.filter((item) => !emitIndex.has(item.emitRel));
 
 if (missing.length === 0) {
   console.log(`[emit-integrity] all ${expected.length} expected emit file(s) present.`);
@@ -85,10 +85,45 @@ if (missing.length === 0) {
 }
 
 if (fs.existsSync(BUILD_INFO)) {
-  fs.rmSync(BUILD_INFO, { force: true });
-  console.log(`[emit-integrity] ${missing.length} of ${expected.length} emit file(s) missing — discarded build info to force a full rebuild.`);
-  for (const rel of missing.slice(0, 20)) console.log(`[emit-integrity]   - .compiled/${rel}`);
-  if (missing.length > 20) console.log(`[emit-integrity]   … and ${missing.length - 20} more`);
+  let buildInfoMtimeMs = 0;
+  try {
+    buildInfoMtimeMs = fs.statSync(BUILD_INFO).mtimeMs;
+  } catch {}
+
+  const staleMissing = [];
+  const freshMissing = [];
+
+  for (const item of missing) {
+    let sourceMtimeMs = 0;
+    try {
+      sourceMtimeMs = fs.statSync(item.sourcePath).mtimeMs;
+    } catch {
+      staleMissing.push(item);
+      continue;
+    }
+
+    // A missing emit whose source is older than or equal to the build info indicates
+    // that tsc previously saw this source and recorded it in tsbuildinfo, but the emit
+    // was lost/deleted externally. tsc will NOT re-emit without build info invalidation.
+    // However, if the source is newer than the build info, tsc's incremental compiler
+    // will detect the modification and emit it naturally without needing a full cold rebuild.
+    if (sourceMtimeMs <= buildInfoMtimeMs) {
+      staleMissing.push(item);
+    } else {
+      freshMissing.push(item);
+    }
+  }
+
+  if (staleMissing.length > 0) {
+    fs.rmSync(BUILD_INFO, { force: true });
+    console.log(`[emit-integrity] ${staleMissing.length} of ${expected.length} emit file(s) missing for sources older than build info (${freshMissing.length} newer) — discarded build info to force a full rebuild.`);
+    for (const item of staleMissing.slice(0, 20)) console.log(`[emit-integrity]   - .compiled/${item.emitRel}`);
+    if (staleMissing.length > 20) console.log(`[emit-integrity]   … and ${staleMissing.length - 20} more`);
+  } else {
+    console.log(`[emit-integrity] ${freshMissing.length} emit file(s) missing, but all sources are newer than build info — preserving incremental build info.`);
+    for (const item of freshMissing.slice(0, 5)) console.log(`[emit-integrity]   + .compiled/${item.emitRel} (source newer)`);
+    if (freshMissing.length > 5) console.log(`[emit-integrity]   … and ${freshMissing.length - 5} more`);
+  }
 } else {
   console.log(`[emit-integrity] ${missing.length} emit file(s) missing and no build info present — cold rebuild expected.`);
 }

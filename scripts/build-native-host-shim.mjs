@@ -17,6 +17,31 @@ if (!fs.existsSync(binDir)) {
 }
 
 export function buildNativeHostShim() {
+  const inputs = [shimSrcC, shimSrcCs, __filename];
+  const force = process.argv.includes('--force') || process.env.ANTIFAN_FORCE_BUILD_SHIM === '1';
+
+  if (!force && fs.existsSync(outExe)) {
+    let outMtimeMs = 0;
+    try {
+      outMtimeMs = fs.statSync(outExe).mtimeMs;
+    } catch {}
+
+    let maxInputMtimeMs = 0;
+    for (const inputPath of inputs) {
+      try {
+        if (fs.existsSync(inputPath)) {
+          const mtimeMs = fs.statSync(inputPath).mtimeMs;
+          if (mtimeMs > maxInputMtimeMs) maxInputMtimeMs = mtimeMs;
+        }
+      } catch {}
+    }
+
+    if (outMtimeMs > 0 && outMtimeMs >= maxInputMtimeMs) {
+      console.log(`[NativeHostShim] Output is up to date: ${outExe} (skipping build)`);
+      return true;
+    }
+  }
+
   console.log('[NativeHostShim] Checking build requirements for antifan-bridge-host.exe...');
   try { if (fs.existsSync(outExe)) fs.unlinkSync(outExe); } catch {}
 

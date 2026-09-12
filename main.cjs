@@ -8,10 +8,12 @@ const { app, dialog } = require('electron');
 const { inspectCompiledBundle } = require('./scripts/launch-guard.cjs');
 
 const compiledMain = path.join(__dirname, '.compiled', 'src', 'main', 'index.js');
+const buildInfoPath = path.join(__dirname, '.compiled', '.tsbuildinfo');
 
 // A stale bundle behaves like old code, not like a missing module: decide before launching.
 const bundleState = inspectCompiledBundle({
   bundlePath: compiledMain,
+  buildInfoPath,
   sourceRoots: [path.join(__dirname, 'src')],
   configFiles: [path.join(__dirname, 'tsconfig.json')],
 });
