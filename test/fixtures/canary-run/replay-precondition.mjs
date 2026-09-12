@@ -7,7 +7,7 @@
  * verifies the declared sha256/byteLength. The evidence JSON under
  * `test/fixtures/canary-run/evidence` is a *copy* of a real run, so its documents still name
  * the artifact bytes and the clone tree that run produced. Those bytes live in a
- * machine-local store (`ANTIFAN_DATA_ROOT`, default `E:\Work\.antifan-canary`) which rotates
+ * machine-local store (`ANTIFAN_DATA_ROOT`, a directory outside the repository by default) which rotates
  * its run directories, so the replay is only executable where the run it describes is still
  * intact.
  *

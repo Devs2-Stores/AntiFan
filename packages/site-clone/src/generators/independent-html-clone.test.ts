@@ -153,6 +153,13 @@ describe('IndependentHtmlCloneGenerator - Standalone Bundle & Cardinality Bounds
       [],
       'Standalone bundle must contain zero remote resource hotlinks'
     );
+    // ...and the localized candidate list must have survived as an attribute: an empty hotlink scan
+    // also passes when the generator deletes the attribute instead of rewriting it.
+    const localizedSrcset = html.match(/srcset="([^"]+)"/);
+    assert.ok(localizedSrcset, 'the fixture srcset must survive localization as a srcset attribute');
+    assert.match(localizedSrcset[1]!, /1x/, 'the localized srcset must keep its candidate list');
+    assert.match(localizedSrcset[1]!, /2x/);
+    assert.doesNotMatch(localizedSrcset[1]!, /example\.com/, 'no candidate may keep its remote host');
     // Verify manifest was produced
     const manifestPath = path.join(outDir, 'manifest.json');
     assert.ok(fs.existsSync(manifestPath), 'manifest.json must exist');

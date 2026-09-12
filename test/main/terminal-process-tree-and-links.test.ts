@@ -110,7 +110,7 @@ describe('Terminal Process Tree Kill & Web Links Addon Contracts', () => {
     assert.match(preloadContent, /openExternal:\s*\(url\?:\s*string\)\s*=>\s*ipcRenderer\.invoke\('antifan:toolbar:open-external',\s*url\)/);
   });
 
-  // Hyperlink routing (attachWebLinksAddon, its createTab/openExternal precedence, and the
-  // disposal wiring) is covered behaviourally in
-  // test/renderer/terminal-split-behaviour.test.ts, which drives the shipped handler.
+  // Hyperlink routing (attachWebLinksAddon and its createTab/openExternal precedence) is covered
+  // behaviourally in test/renderer/terminal-split-behaviour.test.ts, which drives the shipped
+  // handler. Pane disposal is covered by the split lifecycle cases in the same suite.
 });

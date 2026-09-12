@@ -6,8 +6,11 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa lỗi — Terminal mất handle PTY (phát hiện khi làm test "cắn")
+- `TerminalManager.spawn` tạo record với `pty: null` nhưng **không gán** handle `node-pty` vừa tạo vào record, nên mọi đường dùng handle đều là no-op: `writeTo`/`write` bỏ im lặng mọi phím gõ (`ensureSessionPty` coi record không PTY là "chờ khôi phục" và spawn lại), `resize`/`resizeTo` chỉ ghi `pendingCols/pendingRows`, teardown không kill được shell (nguy cơ tiến trình mồ côi), và `getDiagnostics` luôn báo `runningPtyCount = 0`. Nay `spawn` gán `s.pty = child`; test `INVARIANT 4 (Input Routing)` trong `test/main/terminal-stream-invariants.test.ts` khẳng định input và geometry tới đúng PTY của session — đỏ khi bỏ dòng gán, xanh khi có.
+
 ### Kiểm thử — Audit suite (ultra: 5 ứng viên + 1 verifier)
-- Gate `npm test` từng dừng ngay sau `test:canary` đỏ (`&&`), nên ~1.957 test phía sau chưa từng chạy trong gate mặc định. Nay `scripts/run-test-pipeline.mjs` chạy đủ 9 làn, ghi nhận từng làn, đánh dấu `skipped` cho các làn phụ thuộc khi `compile` hỏng, và thoát 1 nếu có làn đỏ; `npm test`/`npm run verify` trỏ vào runner này.
+- Gate `npm test` từng dừng ngay sau `test:canary` đỏ (`&&`), nên ~1.957 test phía sau chưa từng chạy trong gate mặc định. Nay `scripts/run-test-pipeline.mjs` chạy đủ 7 làn test ở `npm test` (thêm 2 cổng tĩnh `audit` + `plans:check` ở `npm run verify`), ghi nhận từng làn, đánh dấu `skipped` cho các làn phụ thuộc khi `compile` hỏng, và thoát 1 nếu có làn đỏ; `npm test`/`npm run verify` trỏ vào runner này.
 - 12 test `test:main` đỏ vì fixture thiếu kỳ vọng URL (`URL_EXPECTATION_MISSING` → `INCONCLUSIVE`) và `diffPixels` đã bị bỏ khỏi payload so sánh: khôi phục `diffPixels` ở `src/main/tools/browser-control-port.ts` (tầng báo cáo, canary writer và QA matrix đều đọc trường này) và bổ sung `expectedTargetUrl`/`expectedBaselineUrl` trong fixture. `test:main` nay 1091 pass / 0 fail / 1 skip có tiền đề.
 - `callTool` của MCP client nuốt `isError` và trả chuỗi lỗi như kết quả thành công ⇒ nay ném lỗi; test client chạy trên double stdio hermetic mới (`test/fixtures/mcp/fake-omp-mcp.cjs`, 52 tool) thay vì bridge sống.
 - Ba test replay canary "pass" dù artifact không tồn tại: nay có tiền đề máy kiểm được (`test/fixtures/canary-run/replay-precondition.mjs` liệt kê 9 artifact thiếu kèm `sha256`/`byteLength`), skip phải nêu tên tiền đề thiếu thay vì im lặng.

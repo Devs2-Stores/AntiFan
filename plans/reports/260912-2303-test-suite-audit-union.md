@@ -5,7 +5,7 @@ suite. Gói bằng chứng đo trước khi sửa: `plans/reports/ultra-test-aud
 Năm ứng viên đọc-only (C1–C5) chạy độc lập trên 5 lát cắt; mọi phát hiện dưới đây đã được đối
 chiếu lại với file tại thời điểm sửa (không dùng lại kết luận cũ).
 
-- Repo: `E:/Work/apps/AntiFan`, nhánh `main`, gốc audit `6fcb9f3` (đã push, cây sạch).
+- Repo: worktree của dự án (`<repo>`), nhánh `main`, gốc audit `6fcb9f3` (đã push, cây sạch).
 - Không có `.github/` → repo không có CI; gate duy nhất là `npm test` / `npm run verify` chạy tay.
 - Nền tảng: Haravan. Không áp giả định Shopify trong bất kỳ mục nào.
 
@@ -25,7 +25,7 @@ chiếu lại với file tại thời điểm sửa (không dùng lại kết lu
 | 10 | Important | `attachWebLinksAddon` được kiểm bằng regex trên nguồn | `test/main/terminal-process-tree-and-links.test.ts` → renderer suite | Ca hành vi: handler thật `→ api.createTab(uri)`, fallback `openExternal` khi thiếu `createTab` **và** khi promise reject, `uri` rỗng không mở gì | 8/8 pass; M1/M2 đỏ |
 | 11 | Important | "Low-spec latency" đo vòng lặp `setImmediate` của Node — không chạm production | `test/main/low-spec-optimization.test.ts:23-33` | Thay bằng hai bất biến thật của `AsyncThemeQaQueue`: supersede abort đồng bộ + job cũ settle muộn **không** xoá generation mới; vòng enqueue nhanh chỉ generation mới hoàn tất (chờ có hạn, bỏ `setTimeout(100)`) | 3/3 pass; M1 (bỏ guard generation) / M2 (bỏ `abort` trong `enqueue`) đỏ |
 | 12 | Important | `check-plans.mjs` bỏ qua plan **không có frontmatter** ⇒ 11 plan không bao giờ bị gate | `scripts/check-plans.mjs` | Plan thiếu frontmatter được nêu tên và **thoát 1**; summary vẫn đếm `no-frontmatter` | `plans=61 classified=61 no-frontmatter=0`, exit 0; 11 plan được ghi `status` có bằng chứng |
-| 13 | Important | Bất biến "zero remote hotlink" của site-clone không thấy `srcset`/`poster`/CSS `url()` | `packages/site-clone/src/generators/independent-html-clone.test.ts` | Oracle độc lập `remoteResourceUrls()` tách từng candidate trong `srcset`/`imagesrcset`; fixture mang `srcset` remote thật; ca riêng chứng minh oracle bắt đủ 6 ngữ cảnh | 7/7 pass; M1 (nhánh `srcset` trả tag gốc) / M2 (tắt `urlMap`) đỏ |
+| 13 | Important | Bất biến "zero remote hotlink" của site-clone không thấy `srcset`/`poster`/CSS `url()` | `packages/site-clone/src/generators/independent-html-clone.test.ts` | Oracle độc lập `remoteResourceUrls()` tách từng candidate trong `srcset`/`imagesrcset`; fixture mang `srcset` remote thật; ca riêng chứng minh oracle bắt đủ 6 ngữ cảnh | 7/7 pass; M1 (nhánh `srcset` trả tag gốc) / M2 (tắt `urlMap`) đỏ; bổ sung khẳng định **chiều dương** — `srcset` đã bản địa hoá phải còn trong bundle kèm `1x`/`2x` và không host remote, nên ca này không thể xanh nhờ attribute bị xoá |
 | 14 | Minor | Test title trùng `CAPTURE_EMPTY_PAYLOAD` ở hai gate PNG/JPEG | `test/unit/visual-capture.test.ts` | Đổi tiêu đề gate JPEG thành `rejects an empty JPEG payload …` | làn `test:fast` xanh |
 | 15 | Minor | Chú thích đầu file nói sai: `/api/cookies/import` "đã bị gỡ" (endpoint vẫn tồn tại; chỉ handshake extension bị gỡ) | `test/main/bridge-cookie-import.test.ts` | Chú thích mô tả đúng trạng thái, trỏ sang test endpoint | 1/1 pass |
 | 16 | Minor | `.antifan-data/` (data root cục bộ) không được ignore | `.gitignore` | Thêm `.antifan-data/` | `git check-ignore` khớp |
@@ -33,6 +33,7 @@ chiếu lại với file tại thời điểm sửa (không dùng lại kết lu
 
 | 18 | Important | `test/unit/check-plans.test.mjs` khẳng định **hợp đồng cũ**: "accepts a plan without frontmatter" — tức là test tự khoá hành vi khiếm khuyết | `test/unit/check-plans.test.mjs` | Cập nhật theo hợp đồng mới và mở rộng 3 → 6 ca (plan không frontmatter, frontmatter thiếu `status:`, thông báo tiếng người, cây `plans/` của repo phải `no-frontmatter=0`) | 6/6 pass |
 | 19 | Important | Ngăn xếp gate `scripts/check-bottlenecks.mjs` (B8) kiểm `scripts["test"] ~ /test:canary/` — runner mới không còn chuỗi đó nên B8 **REOPENED** (gate `npm run audit` đỏ) | `plans/bottlenecks.json` | Predicate B8 chuyển sang bất biến thật: `file-absent-regex` trên `scripts/run-test-pipeline.mjs` với mẫu `test:canary` (canary rơi khỏi runner ⇒ REOPENED); `closedBy` mô tả runner | `npm run audit`: 35 row (CLOSED=23, REFUTED_OK=4, MANUAL=8), `OK — every declared status matches HEAD`, exit 0 |
+| 20 | Critical | **Lỗi production, phát hiện khi làm test "cắn"**: `TerminalManager.spawn` tạo record với `pty: null` rồi **không gán** handle `node-pty` vừa tạo (không có `s.pty = child` ở bất kỳ đâu trong `src/`) ⇒ `writeTo`/`write` nuốt im lặng mọi phím gõ (`ensureSessionPty` coi record không PTY là "chờ khôi phục" nên spawn lại), `resize`/`resizeTo` chỉ ghi `pendingCols/pendingRows`, teardown không kill được shell, `getDiagnostics.runningPtyCount` luôn 0 | `src/main/browser/terminal-manager.ts` (record tạo tại `createSessionRecord` `pty: null`; vị trí gán nay ở `spawn`) | Gán `s.pty = child;` ngay sau khi tạo record, kèm chú thích lý do | Test mới `INVARIANT 4 (Input Routing)` đỏ trước khi sửa (`pty.writes` = `[]`, `spawnedPtys.length` = 2), xanh sau (6/6); đột biến ở §2 |
 
 ### 1b. Phát hiện mới trong lúc sửa
 
@@ -52,6 +53,7 @@ chiếu lại với file tại thời điểm sửa (không dùng lại kết lu
 | `src/renderer/standalone.js` | bỏ biên `liveQueue`; phá reset khi nhảy generation; degrade khi thiếu delta; gọi `setActiveTerminalSession` khi xử lý chunk | RED ×4 (md5 sau khôi phục `189c72bf…`) |
 | `src/renderer/standalone.js` (split/link) | bỏ kẹp `paneMin`; bỏ trần 60px; bỏ debounce nút split; đổi chord `Ctrl+Shift+D`; hoán nhãn context menu; mở mọi link bằng `openExternal`; bỏ fallback khi `createTab` reject | RED ×7 |
 | `src/renderer/standalone.js` | — (không còn đột biến sót trên đĩa: `grep -c "if (false)"` = 0, `git diff --stat` rỗng) | khôi phục xanh |
+| `src/main/browser/terminal-manager.ts` | bỏ dòng gán `s.pty = child;` | RED (`INVARIANT 4`: `pty.writes` = `[]`); khôi phục từ bản sao byte-exact → GREEN 6/6 |
 | `packages/site-clone/src/models/asset-localizer.ts` | nhánh `srcset` trả tag gốc; vô hiệu `urlMap.get` | RED / RED (md5 sau khôi phục `4add5d65…`) |
 
 ## 3. Cân nhắc rồi **giữ nguyên** (có lý do, không phải bỏ sót)
@@ -70,6 +72,19 @@ chiếu lại với file tại thời điểm sửa (không dùng lại kết lu
 - **Replay canary**: không thể tạo lại artifact vì `scripts/lib/build-report.mjs` kiểm `sha256` +
   `byteLength` do fixture khai báo, còn repo là **PUBLIC** (không được đẩy bytes lớn) → giữ dạng
   skip-có-tiền-đề, kèm (a) runner tổng hợp không để skip che regression, (b) test hợp đồng gate.
+  Đây là **bảo vệ không chạy (dormant guard), không phải coverage**: khi artifact được khôi phục,
+  test chạy thật và fail thật; skip chỉ nêu tên 9 tiền đề thiếu kèm `sha256`/`byteLength`.
+
+### 3b. Việc đã cân nhắc và **hoãn có ý thức** (ghi để báo cáo không đọc như đã bao trùm)
+
+| Việc | Lý do hoãn | Trạng thái |
+| --- | --- | --- |
+| `test/main/ipc-audit.test.ts:20-80` đọc `native-tab-host.ts` và khẳng định `content.includes('ipcMain.handle(channel)')` | Cùng lớp với assertion wiring/asset ở §3: kênh IPC là hợp đồng liên file giữa preload và main; không có seam IPC thật nào chạy được ngoài Electron. Giữ + đã ghi vào hạn chế tồn dư | Giữ nguyên, có chú thích phân loại |
+| Fixture `theme-mcp-capabilities.test.ts` dùng host `shop.myshopify.com` trong double của capability Haravan | Host đó **không** xuất hiện trong `src/` (không phải giả định nền tảng trong production), nhưng tên miền Shopify trong fixture của repo Haravan-only dễ gây hiểu sai | **Đã sửa**: đổi sang host trung tính `https://storefront.test/cart.js` |
+| Suite split-terminal trùng lặp/source-text trong `terminal-switching-regression.test.ts` (~:714) | Phần hành vi đã có suite renderer; phần còn lại là text/constant của asset renderer (không có runtime Node). Xoá cả file sẽ mất assertion `convertEol`/`clear()`/`contentTopOffset` — lớp asset ở §3 | Giữ; tautology số học cục bộ đã xoá, trỏ sang suite renderer |
+| `test/unit/visual-matrix` không được làn nào gọi; `_render-base-theme.mjs` trỏ cứng đường dẫn ngoài repo | Đã nêu ở §4.2 | Tài liệu hoá, không gate |
+
+
 
 ## 4. Tồn đọng (quyết định còn mở, không tự quyết)
 
@@ -77,7 +92,7 @@ chiếu lại với file tại thời điểm sửa (không dùng lại kết lu
    Windows (`windows-acl`, `node-pty` native, Electron) — một workflow Linux chưa kiểm chứng được ở
    đây sẽ tạo gate đỏ giả. Cần quyết định runner (self-hosted Windows) trước khi thêm.
 2. **`test/unit/visual-matrix` / template `plans/reports/_*.mjs`**: `_render-base-theme.mjs` trỏ cứng
-   `E:/Work/apps/Haravan CLI/package.json`, không có npm script bọc → tài liệu, không phải gate.
+   `<external>/Haravan CLI/package.json`, không có npm script bọc → tài liệu, không phải gate.
 3. **Nhãn Round 5** trong `terminal-split-hardened.test.ts` (khẳng định rule CSS trong asset) giữ
    nguyên theo mục §3; không xoá test để lấy xanh.
 4. **Haravan plan `260912-1731`**: ghi `status: pending` (phase-00 READY, 3 phase PLANNED, 5 phase
@@ -99,12 +114,9 @@ test:e2e          passed   18.1s
 all lanes passed
 ```
 
-- `test:main` (lần chạy riêng): 1091 test / 1090 pass / 0 fail / **1 skip có tiền đề**.
-- `test:e2e`: 6/6 pass (gồm soak đã sửa).
-- `plans:check`: `plans=61 classified=61 no-frontmatter=0 done=31 active=12 pending=11 superseded=6 blocked=1`, exit 0.
-- `npm run audit`: 35 row (CLOSED=23, REFUTED_OK=4, MANUAL=8), "OK — every declared status matches HEAD", exit 0.
-- Các làn riêng lẻ trong quá trình sửa: renderer gap 10/10, renderer split+link 8/8, capsule 6/6, terminal invariants 5/5, soak 2/2, omp-adapter 13/13, site-clone generator 7/7, plan gate 6/6, mcp client 2/2.
-- `npx tsc -p ./` sạch sau mỗi lần sửa TS; `src/renderer/standalone.js` khôi phục nguyên byte (`md5 189c72bfb50ba86c0b8b0e587f588476`, `git diff` rỗng).
+- Các làn riêng lẻ trong quá trình sửa: renderer gap 10/10, renderer split+link 8/8, capsule 6/6, terminal invariants 6/6 (gồm `INVARIANT 4` mới), terminal switching 18/18, process-tree+links 4/4, theme-mcp 3/3, soak 2/2, omp-adapter 13/13, site-clone generator 7/7, plan gate 6/6, mcp client 2/2.
+- `npx tsc -p ./` sạch sau mỗi lần sửa TS; `src/renderer/standalone.js` khôi phục nguyên byte (`md5 189c72bfb50ba86c0b8b0e587f588476`, `git diff` rỗng); `src/main/browser/terminal-manager.ts` sau sửa: `md5 8ade45017e54cadd47902b95c5a4cd6b`.
+- Sau khi sửa lỗi PTY: `npm test` chạy lại — **cả 7 làn xanh** (268s), `npm run audit` OK, `plans:check` 61/61.
 
 
 ## 6. Công khai

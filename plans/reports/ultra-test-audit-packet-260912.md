@@ -6,7 +6,7 @@ hợp nhất đã được verifier xác thực.
 
 ## 1. Trạng thái đóng băng
 
-- Repo `E:/Work/apps/AntiFan`, nhánh `main`, HEAD `6fcb9f3` (đã push, cây làm việc sạch).
+- Repo `<repo>`, nhánh `main`, HEAD `6fcb9f3` (đã push, cây làm việc sạch).
 - Package `antifan-browser-desktop@1.3.6`.
 - Ba commit gần nhất đều là sửa base theme Haravan: `6fcb9f3`, `7f0f6b7`, `fee8255`.
 
@@ -131,7 +131,7 @@ sẽ làm test đỏ nếu sửa đúng. Nêu cả phát hiện mình **đã câ
 ## 11. Ràng buộc
 
 - Read-only tuyệt đối: không sửa file, không chạy build/test, không lệnh git thay đổi trạng thái.
-- `E:/Work/customizes/**`, `E:/Work/themes/**` là corpus read-only.
+- Corpus theme Haravan ngoài repo (`<work>/customizes/**`, `<work>/themes/**`) là read-only.
 - Không in giá trị giống secret; nếu phát hiện secret thật trong fixture, chỉ nêu `file:line` và loại
   secret, không trích giá trị.
 - Từ vựng bằng chứng: `OBSERVED | VERIFIED | DERIVED | INFERRED | UNKNOWN | CONFLICT`.

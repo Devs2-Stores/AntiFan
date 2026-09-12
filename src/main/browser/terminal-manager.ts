@@ -887,6 +887,9 @@ export class TerminalManager extends EventEmitter {
       child = spawnWithCwd(legacyOptions, validCwd);
     }
     const s = this.createSessionRecord(id, validCwd, restoredBuffer, cols, rows, minimumRows, parentSessionId, generation, parentGeneration);
+    // The record must carry its own shell handle: `writeTo`/`resizeTo` route through it, teardown
+    // kills it, and `ensureSessionPty` reads it to tell a live session from a deferred restore.
+    s.pty = child;
     const dataSub = child.onData(data => {
       if (s.disposed) return;
       if (isBenchmarkEnabled()) {

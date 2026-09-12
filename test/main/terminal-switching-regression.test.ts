@@ -159,15 +159,9 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.match(jsContent, /paneMin\s*=\s*Math\.min\(60,\s*Math\.floor\(usable\s*\*\s*0\.15\)\)/);
     assert.match(jsContent, /contentTopOffset/);
     assert.match(jsContent, /minHeight\s*=\s*'0px'/);
-    // Verify short-container clamping math: at 100px usable height, paneMin is 15px (not clamped to 50px 50/50)
-    const shortContainerUsable = 100;
-    const shortPaneMin = Math.min(60, Math.floor(shortContainerUsable * 0.15));
-    assert.strictEqual(shortPaneMin, 15);
-    const shortRawMain = Math.round(shortContainerUsable * 0.8);
-    const shortClampedMain = Math.max(shortPaneMin, Math.min(shortContainerUsable - shortPaneMin, shortRawMain));
-    assert.strictEqual(shortClampedMain, 80);
-    const shortClampedLower = shortContainerUsable - shortClampedMain;
-    assert.strictEqual(shortClampedLower, 20);
+    // Short-container clamping (pane floor, usable-minus-pane cap, rounded main pane) is asserted
+    // against the shipped getSplitGeometry in test/renderer/terminal-split-behaviour.test.ts; the
+    // local arithmetic that used to live here restated the formula instead of exercising it.
     // 9. Ensure Ctrl+K/Cmd+K clears the terminal scrollback via xterm clear() (resets the tall scroll area)
     assert.match(jsContent, /targetTerm\.clear\(\)/);
     assert.match(jsContent, /e\.key === 'k' \|\| e\.key === 'K'/);

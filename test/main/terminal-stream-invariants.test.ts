@@ -304,4 +304,20 @@ describe('Phase T0: Terminal Stream Invariants & Telemetry', () => {
     assert.strictEqual(exits[0]!.sessionGeneration, session.sessionGeneration);
     assert.strictEqual(exits[0]!.lastSeq, 2);
   });
+
+  it('INVARIANT 4 (Input Routing): keyboard input and geometry reach the PTY that owns the session', () => {
+    const sessionId = 'test-session-input';
+    privates.spawn(sessionId, 'E:\\Work');
+    const pty = latestPty();
+
+    // `ensureSessionPty` treats a record without a PTY handle as a deferred restore, so a handle
+    // dropped at spawn time turns every keystroke into a silent no-op on the live session.
+    tm.writeTo(sessionId, 'echo hi\r');
+    assert.deepStrictEqual(pty.writes, ['echo hi\r'], 'input must reach the PTY that owns the session');
+    assert.strictEqual(spawnedPtys.length, 1, 'routing input to a live session must not respawn a shell');
+
+    tm.resizeTo(sessionId, 100, 40);
+    assert.strictEqual(pty.cols, 100, 'a live session must resize its own PTY');
+    assert.strictEqual(pty.rows, 40);
+  });
 });
