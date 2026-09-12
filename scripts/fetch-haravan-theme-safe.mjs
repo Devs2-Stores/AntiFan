@@ -232,6 +232,7 @@ async function main() {
   const failedKeys = [];
   const refreshedKeys = [];
   const representationKeys = [];
+  const cdnKeys = [];
   const locallyEdited = [];
 
   for (let i = 0; i < assets.length; i++) {
@@ -240,6 +241,7 @@ async function main() {
     const text = isTextAsset(asset.key);
     let action = 'fetch';
     let fromAttachment = false;
+    let fromCdn = false;
 
     if (fs.existsSync(destPath) && fs.statSync(destPath).size > 0) {
       const localSize = fs.statSync(destPath).size;
@@ -310,6 +312,7 @@ async function main() {
           fromAttachment = true;
         } else if (isMirrorableUrl(asset.public_url)) {
           await downloadBinary(asset.public_url, destPath);
+          fromCdn = true;
         } else {
           failCount++;
           failedKeys.push({
@@ -329,6 +332,16 @@ async function main() {
         // Authoritative bytes: the API's own length, which `size` does not
         // describe for every asset, so later runs compare the stamp alone.
         entry.attachmentBytes = writtenBytes;
+      } else if (!text && fromCdn) {
+        // Provenance, recorded whether or not the length happens to agree with
+        // `size`: a CDN answer is not the API's asset, and inferring that from a
+        // length difference misses exactly the case where it equals `size`.
+        entry.cdnSourced = true;
+        cdnKeys.push(asset.key);
+        if (typeof asset.size === 'number' && writtenBytes !== asset.size) {
+          entry.variantRepresentation = true;
+          representationKeys.push(asset.key);
+        }
       } else if (!text && typeof asset.size === 'number' && writtenBytes !== asset.size) {
         // The CDN answered with a converted variant rather than the stored
         // asset. Recorded so the length signal stops firing for this key instead
@@ -353,6 +366,11 @@ async function main() {
   }, null, 2));
 
   console.log(`\n[DONE] Finished: fetched ${fetchedCount}, refreshed ${refreshedCount}, skipped ${skippedCount}, locally edited ${editedCount}, failed ${failCount}.`);
+
+  if (cdnKeys.length > 0) {
+    console.log(`[INFO] ${cdnKeys.length} asset(s) written from the CDN because the API returned no attachment for them:`);
+    for (const key of cdnKeys.slice(0, 10)) console.log(`  - ${key}`);
+  }
 
   if (representationKeys.length > 0) {
     console.log(`[INFO] ${representationKeys.length} asset(s) the CDN answered with a converted variant; recorded as a variant representation:`);
@@ -384,7 +402,7 @@ async function main() {
     }
   }
   if (variantDiffs.length > 0) {
-    console.log(`[INFO] ${variantDiffs.length} asset(s) whose local bytes differ from the API-declared size (expected: size describes the upload, the mirror holds the API attachment bytes):`);
+    console.log(`[INFO] ${variantDiffs.length} asset(s) whose local bytes differ from the API-declared size (expected: size describes the CDN/upload representation, the mirror holds the API attachment bytes):`);
     for (const line of variantDiffs.slice(0, 10)) console.log(`  - ${line}`);
   } else {
     console.log('[OK] Every local asset matches the API-declared stored byte size.');
