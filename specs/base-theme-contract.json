@@ -533,7 +533,7 @@
         "swatch": "Option name string (e.g. 'Color' or 'Size')",
         "product": "Product object"
       },
-      "outputs": "One link per distinct option value pointing at `/products/{handle}?variant={id}`; the requested variant is what the server renders, so price, image and availability always match the chosen value. Each value's target is resolved in three passes against the variant being rendered: (1) an available variant that also matches it on every other option dimension, (2) any available variant carrying the value, (3) any variant carrying the value. Pass 1 is what keeps selecting one option from resetting another.",
+      "outputs": "One link per distinct option value pointing at `/products/{handle}?variant={id}`; the requested variant is what the server renders, so price, image and availability always match the chosen value. Each value's target is resolved in three passes against the variant being rendered: (1) the variant that matches it on every other option dimension — availability is deliberately excluded from this pass, so a sold-out combination is linked and labelled (Hết hàng) rather than silently replaced by another value, (2) an available variant carrying the value, reached only when no such combination exists at all, (3) any variant carrying the value, which is what labels a value whose combinations are exhausted. Pass 1 is what keeps selecting one option from resetting another.",
       "requiredContext": ["product"],
       "settingsDependencies": [],
       "accessibilityContract": "role='group' with the option name as aria-label; the value currently rendered carries aria-current='true'; sold-out values state (Hết hàng) in the title attribute.",
@@ -869,7 +869,7 @@
         "The swatch href is `/products/{handle}?variant={id}` and the served page renders that variant as `product.selected_or_first_available_variant`",
         "Displayed price, compare-at price and availability reflect the requested variant because the server renders it, not because client state was patched",
         "Featured image shows the variant image when the variant has one, else the first product image",
-        "Following a chip in the second option group keeps the first option value that is currently rendered: the chip targets a variant whose other option dimensions match the rendered variant (pass 1), and only falls back to another available variant carrying that value (pass 2) or any variant carrying it (pass 3)",
+        "Following a chip in the second option group keeps the first option value that is currently rendered: the chip targets the variant whose other option dimensions match the rendered variant (pass 1), including when that variant is sold out — the chip is then labelled (Hết hàng) instead of being redirected to another value; fallback to another available variant carrying that value (pass 2) happens only when the combination does not exist at all, and pass 3 links any variant carrying the value",
         "A value whose variants are all unavailable is linked to its first variant and labelled (Hết hàng) in the title attribute"
       ],
       "verificationEvidence": "Rendered swatch anchors carry the variant query parameter; the select on the same page marks the requested variant `selected`; responsive layout keeps both swatch groups usable at 390/768/1440",

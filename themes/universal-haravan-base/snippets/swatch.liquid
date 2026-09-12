@@ -5,10 +5,12 @@ Swatch as navigation, not client state: every swatch links to
 availability. No JavaScript and no stale price, because the server owns the selection.
 
 The target variant for a value is chosen in three passes so picking one option cannot
-silently reset another: (1) an available variant that also matches the variant being
-rendered on every other option dimension, (2) any available variant with this value,
-(3) any variant with this value. Only pass 3 can produce a sold-out link, and it is
-labelled (Hết hàng) in the title attribute.
+silently reset another: (1) the variant that matches the one being rendered on every
+other option dimension — availability deliberately does NOT enter this pass, so a
+sold-out combination is linked and labelled instead of being replaced by another
+colour; (2) any available variant with this value, reached only when no such
+combination exists at all; (3) any variant with this value, which is what labels an
+exhausted value (Hết hàng).
 {%- endcomment -%}
 {%- assign active_variant = product.selected_or_first_available_variant | default: product.variants.first -%}
 {%- assign found_option = false -%}
@@ -52,7 +54,7 @@ labelled (Hết hàng) in the title attribute.
                       {%- endif -%}
                     {%- endunless -%}
                   {%- endfor -%}
-                  {%- if candidate.available and others_match -%}
+                  {%- if others_match -%}
                     {%- assign candidate_ok = true -%}
                   {%- endif -%}
                 {%- elsif pass == 2 -%}

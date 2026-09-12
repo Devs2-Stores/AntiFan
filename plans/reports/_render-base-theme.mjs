@@ -63,13 +63,14 @@ const check = (id, ok, detail) => {
 
 const baseVariant = { id: 1, title: 'Đỏ / S', options: ['Đỏ', 'S'], available: true, url: '/products/p?variant=1' };
 function makeProduct(overrides = {}) {
-  const variants = [
+  const rows = [
     { id: 1, title: 'Đỏ / S', options: ['Đỏ', 'S'], available: true, url: '/products/p?variant=1' },
     { id: 2, title: 'Đỏ / M', options: ['Đỏ', 'M'], available: true, url: '/products/p?variant=2' },
     { id: 3, title: 'Xanh / S', options: ['Xanh', 'S'], available: true, url: '/products/p?variant=3' },
     { id: 4, title: 'Xanh / M', options: ['Xanh', 'M'], available: true, url: '/products/p?variant=4' },
     ...overrides.extraVariants ?? [],
   ];
+  const variants = rows.filter((v) => !(overrides.removeVariants ?? []).includes(v.id));
   for (const [id, available] of Object.entries(overrides.availability ?? {})) {
     const v = variants.find((x) => x.id === Number(id));
     if (v) v.available = available;
@@ -134,10 +135,20 @@ async function main() {
   const colorFlat = colorHtml.replace(/\s+/g, ' ');
   check('swatch_active_marks_rendered_value', /is-active" href="\/products\/ao-thun\?variant=3" title="Xanh" aria-current="true"/.test(colorFlat), colorFlat.slice(colorFlat.indexOf('swatch-options'), colorFlat.length).slice(0, 220));
 
-  // 2. Swatch: Xanh/M sold out -> size M falls back to an available variant with that size.
+  // 2. Swatch: Xanh/M sold out but the combination exists -> the dimension is preserved,
+  //    the value is linked to its own sold-out variant and labelled, instead of being
+  //    silently redirected to Đỏ/M.
   const soldOut = await renderSwatch(makeProduct({ activeId: 3, availability: { 4: false } }), 'Kích thước');
+  const soldOutFlat = soldOut.replace(/\s+/g, ' ');
   const soldOutHrefs = [...soldOut.slice(soldOut.indexOf('aria-label="Kích thước"')).matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
-  check('swatch_unavailable_value_falls_back', soldOutHrefs[1] === '/products/ao-thun?variant=2', soldOutHrefs.join(' | '));
+  check('swatch_sold_out_combination_preserves_dimension', soldOutHrefs[1] === '/products/ao-thun?variant=4', soldOutHrefs.join(' | '));
+  check('swatch_sold_out_combination_labelled', /href="\/products\/ao-thun\?variant=4"\s+title="M \(Hết hàng\)"/.test(soldOutFlat) && /is-unavailable/.test(soldOutFlat), soldOutFlat.slice(soldOutFlat.indexOf('swatch-options'), soldOutFlat.length).slice(0, 240));
+
+  // 2b. The combination does not exist at all -> an available variant with that value is
+  //     the only reachable target, so the fallback is admitted there and only there.
+  const missingCombination = await renderSwatch(makeProduct({ activeId: 3, removeVariants: [4] }), 'Kích thước');
+  const missingHrefs = [...missingCombination.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  check('swatch_missing_combination_falls_back_to_available', missingHrefs[1] === '/products/ao-thun?variant=2' && !/\(Hết hàng\)/.test(missingCombination), missingHrefs.join(' | '));
 
   // 3. Every variant of a value unavailable -> pass 3 links it and labels it sold out.
   const allMOut = await renderSwatch(makeProduct({ activeId: 3, availability: { 2: false, 4: false } }), 'Kích thước');
