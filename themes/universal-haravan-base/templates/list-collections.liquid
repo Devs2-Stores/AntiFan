@@ -1,0 +1,36 @@
+{%- comment -%}
+Serves `/collections`, the list-of-collections route. Haravan dispatches it to
+templates/list-collections.liquid (41/45 corpus roots ship this file, and the
+live store serves it with the `template-list-collections` container class).
+Paginated because Haravan's `collections` object is paginable; the card itself
+lives in snippets/collection-card.liquid.
+{%- endcomment -%}
+{%- assign per_page = 12 -%}
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <header style="margin-bottom: 2.5rem; text-align: center;">
+    <h1 style="font-size: 2.25rem; font-weight: 700; color: var(--color-secondary); margin: 0 0 0.75rem;">
+      Danh mục sản phẩm
+    </h1>
+    <p style="color: var(--color-text-muted); margin: 0;">Tất cả danh mục đang có tại cửa hàng</p>
+  </header>
+
+  {%- if collections.size == 0 -%}
+    <div class="collection-empty-state">
+      <h2 class="empty-state-title">Chưa có danh mục nào</h2>
+      <p class="empty-state-description">Cửa hàng chưa tạo danh mục sản phẩm nào. Vui lòng quay lại sau.</p>
+      <a href="/collections/all" class="btn btn-primary">Xem tất cả sản phẩm</a>
+    </div>
+  {%- else -%}
+    {%- paginate collections by per_page -%}
+      <ul class="grid grid-cols-3" role="list" style="list-style: none; padding: 0; margin: 0;">
+        {%- for collection in collections -%}
+          <li role="listitem">
+            {% include 'collection-card' %}
+          </li>
+        {%- endfor -%}
+      </ul>
+
+      {% include 'pagination-default' %}
+    {%- endpaginate -%}
+  {%- endif -%}
+</div>

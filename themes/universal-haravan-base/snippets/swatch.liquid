@@ -1,11 +1,16 @@
 {%- comment -%}
-Swatch as navigation, not client state: every swatch is a link to
-`?variant={id}`, and `product.selected_or_first_available_variant` (used by
-templates/product.liquid) then renders that variant's price, image and
-availability. No JavaScript and no stale price, because the server owns the
-selection. Only `available` variants are linked while any exist for a value;
-unavailable values fall back to their first variant and are marked as sold out.
+Swatch as navigation, not client state: every swatch links to
+`/products/{handle}?variant={id}`, and `product.selected_or_first_available_variant`
+(used by templates/product.liquid) then renders that variant's price, image and
+availability. No JavaScript and no stale price, because the server owns the selection.
+
+The target variant for a value is chosen in three passes so picking one option cannot
+silently reset another: (1) an available variant that also matches the variant being
+rendered on every other option dimension, (2) any available variant with this value,
+(3) any variant with this value. Only pass 3 can produce a sold-out link, and it is
+labelled (Hết hàng) in the title attribute.
 {%- endcomment -%}
+{%- assign active_variant = product.selected_or_first_available_variant | default: product.variants.first -%}
 {%- assign found_option = false -%}
 {%- assign is_color = false -%}
 {%- assign option_index = 0 -%}
@@ -31,18 +36,43 @@ unavailable values fall back to their first variant and are marked as sold out.
         {%- assign key = '|' | append: value | append: '|' -%}
         {%- unless seen contains key -%}
           {%- assign seen = seen | append: value | append: '|' -%}
-          {%- assign target_id = variant.id -%}
-          {%- assign target_available = variant.available -%}
-          {%- assign picked = false -%}
-          {%- for candidate in product.variants -%}
-            {%- if picked == false and candidate.options[option_index] == value and candidate.available -%}
-              {%- assign target_id = candidate.id -%}
-              {%- assign target_available = true -%}
-              {%- assign picked = true -%}
-            {%- endif -%}
+          {%- assign target_id = '' -%}
+          {%- assign target_available = false -%}
+
+          {%- for pass in (1..3) -%}
+            {%- for candidate in product.variants -%}
+              {%- if target_id == '' and candidate.options[option_index] == value -%}
+                {%- assign candidate_ok = false -%}
+                {%- if pass == 1 -%}
+                  {%- assign others_match = true -%}
+                  {%- for opt in product.options -%}
+                    {%- unless forloop.index0 == option_index -%}
+                      {%- if candidate.options[forloop.index0] != active_variant.options[forloop.index0] -%}
+                        {%- assign others_match = false -%}
+                      {%- endif -%}
+                    {%- endunless -%}
+                  {%- endfor -%}
+                  {%- if candidate.available and others_match -%}
+                    {%- assign candidate_ok = true -%}
+                  {%- endif -%}
+                {%- elsif pass == 2 -%}
+                  {%- if candidate.available -%}
+                    {%- assign candidate_ok = true -%}
+                  {%- endif -%}
+                {%- else -%}
+                  {%- assign candidate_ok = true -%}
+                {%- endif -%}
+
+                {%- if candidate_ok -%}
+                  {%- assign target_id = candidate.id -%}
+                  {%- assign target_available = candidate.available -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
           {%- endfor -%}
+
           {%- assign is_active = false -%}
-          {%- if product.selected_or_first_available_variant.options[option_index] == value -%}
+          {%- if active_variant.options[option_index] == value -%}
             {%- assign is_active = true -%}
           {%- endif -%}
           <a

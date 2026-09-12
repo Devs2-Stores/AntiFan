@@ -40,6 +40,7 @@ themes/universal-haravan-base/
 │   ├── blog.liquid                   # Danh sách bài viết blog
 │   ├── article.liquid                # Chi tiết bài viết
 │   ├── 404.liquid                    # Trang báo lỗi 404
+│   ├── list-collections.liquid        # Chỉ mục toàn bộ danh mục (route /collections)
 │   ├── product.quickview.liquid      # Fragment xem nhanh (layout none, phục vụ ?view=quickview)
 │   └── customers[*.liquid]           # 7 template tài khoản khách hàng chuẩn
 ├── snippets/
@@ -49,8 +50,7 @@ themes/universal-haravan-base/
 │   ├── menu-mobile.liquid            # Menu drawer mobile
 │   ├── breadcrumb.liquid             # Đường dẫn phân cấp
 │   ├── product-loop.liquid           # Thẻ sản phẩm chuẩn
-│   ├── product-grid.liquid           # Lưới sản phẩm
-│   ├── collection-card.liquid        # Thẻ danh mục (ảnh bìa, tên, số sản phẩm)
+│   ├── collection-card.liquid        # Thẻ danh mục (ảnh bìa, tên, số sản phẩm), dùng bởi list-collections
 │   ├── swatch.liquid                 # Liên kết chọn biến thể (?variant=)
 │   ├── quickview.liquid              # Modal xem nhanh sản phẩm
 │   ├── mini-cart.liquid              # Ngăn trượt giỏ hàng Ajax
@@ -88,7 +88,7 @@ Base Theme ánh xạ đầy đủ 17 route giao diện của Haravan với các 
 | `ROUTE_INDEX` | `/` | `templates/index.liquid` | `shop`, `settings`, `collections`, `blogs`, `pages` | `themeid`, `view` |
 | `ROUTE_PRODUCT` | `/products/{handle}` | `templates/product.liquid` | `product`, `product.variants`, `product.options`, `product.images`, `product.selected_or_first_available_variant`, `product.metafields` | `variant`, `themeid` |
 | `ROUTE_COLLECTION` | `/collections/{handle}` | `templates/collection.liquid` | `collection`, `collection.products` (max 50), `collection.all_tags`, `collection.all_vendors`, `paginate` | `page`, `sort_by`, `view`, `themeid` |
-| `ROUTE_LIST_COLLECTIONS` | `/collections` | `templates/collection.liquid` | `collections` | `page`, `themeid` |
+| `ROUTE_LIST_COLLECTIONS` | `/collections` | `templates/list-collections.liquid` | `collections`, `paginate` | `page`, `themeid` |
 | `ROUTE_CART` | `/cart` | `templates/cart.liquid` | `cart`, `cart.items`, `cart.total_price`, `cart.item_count`, `cart.note` | `themeid` |
 | `ROUTE_SEARCH` | `/search` | `templates/search.liquid` | `search`, `search.performed`, `search.terms`, `search.results`, `paginate` | `q`, `type`, `page`, `themeid` |
 | `ROUTE_PAGE` | `/pages/{handle}` | `templates/page.liquid` | `page`, `page.title`, `page.content` | `themeid` |

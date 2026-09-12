@@ -1,7 +1,0 @@
-<ul class="grid grid-cols-{{ settings.product_grid_columns | default: '4' }}" role="list" style="list-style: none; padding: 0; margin: 0;">
-  {%- for product in products -%}
-    <li role="listitem">
-      {% include 'product-loop' %}
-    </li>
-  {%- endfor -%}
-</ul>

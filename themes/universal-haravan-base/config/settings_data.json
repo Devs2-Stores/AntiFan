@@ -24,7 +24,6 @@
     "home_blog_enable": true,
     "home_blog_handle": "news",
     "home_blog_limit": "3",
-    "product_grid_columns": "4",
     "product_grid_show_vendor": true,
     "product_grid_show_quickview": true,
     "collection_products_per_page": "16",

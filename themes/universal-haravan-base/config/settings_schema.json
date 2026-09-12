@@ -47,7 +47,6 @@
   {
     "name": "Danh mục & Sản phẩm",
     "settings": [
-      { "type": "select", "id": "product_grid_columns", "label": "Số cột sản phẩm (Desktop)", "default": "4", "options": [{"value": "3", "label": "3 cột"}, {"value": "4", "label": "4 cột"}, {"value": "5", "label": "5 cột"}] },
       { "type": "checkbox", "id": "product_grid_show_vendor", "label": "Hiển thị thương hiệu sản phẩm", "default": true },
       { "type": "checkbox", "id": "product_grid_show_quickview", "label": "Hiển thị nút Xem nhanh trên thẻ sản phẩm", "default": true },
       { "type": "text", "id": "collection_products_per_page", "label": "Số sản phẩm trên mỗi trang", "default": "16" },

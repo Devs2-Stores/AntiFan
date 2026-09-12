@@ -95,6 +95,7 @@
       "templates/blog.liquid",
       "templates/article.liquid",
       "templates/404.liquid",
+      "templates/list-collections.liquid",
       "templates/product.quickview.liquid",
       "templates/customers[account].liquid",
       "templates/customers[activate_account].liquid",
@@ -111,7 +112,6 @@
       "snippets/menu-mobile.liquid",
       "snippets/breadcrumb.liquid",
       "snippets/product-loop.liquid",
-      "snippets/product-grid.liquid",
       "snippets/collection-card.liquid",
       "snippets/swatch.liquid",
       "snippets/quickview.liquid",
@@ -235,12 +235,12 @@
     {
       "id": "ROUTE_LIST_COLLECTIONS",
       "path": "/collections",
-      "template": "templates/collection.liquid",
+      "template": "templates/list-collections.liquid",
       "requiredLiquidObjects": ["collections"],
       "queryParameters": ["page", "themeid"],
       "previewBehavior": "Addressable via ?themeid={id}",
-      "description": "Catalog index listing all visible custom and smart collections.",
-      "evidenceSource": "Corpus census 30/30 themes"
+      "description": "Catalog index listing all visible collections, paginated.",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): templates/list-collections.liquid in 41/45 roots, templates/collections.liquid 0/45; live storefront GET https://phukienmaymoc.com/collections returns 200 with the container class template-list-collections"
     },
     {
       "id": "ROUTE_CART",
@@ -515,20 +515,6 @@
       "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): 19/45 roots ship snippets/product-loop.liquid"
     },
     {
-      "name": "product-grid",
-      "file": "snippets/product-grid.liquid",
-      "inputs": {
-        "products": "Collection or array of products",
-        "columns_desktop": "Number of columns (default: 4)",
-        "columns_mobile": "Number of columns (default: 2)"
-      },
-      "outputs": "Responsive CSS grid container wrapping product-loop snippets.",
-      "requiredContext": ["settings"],
-      "settingsDependencies": ["collection_grid_columns"],
-      "accessibilityContract": "List role semantics (ul > li) for screen reader item counts.",
-      "evidenceSource": "No corpus file-name precedent: 0/45 roots ship snippets/product-grid.liquid. The grid is an AntiFan split of listing markup that the corpus inlines inside templates/collection.liquid."
-    },
-    {
       "name": "collection-card",
       "file": "snippets/collection-card.liquid",
       "inputs": {
@@ -538,7 +524,7 @@
       "requiredContext": ["collection"],
       "settingsDependencies": [],
       "accessibilityContract": "Cover link and title link carry the collection title as their accessible name; the product count is plain prose.",
-      "evidenceSource": "No corpus file-name precedent: 0/45 roots ship snippets/collection-card.liquid; the corpus inlines card markup in each theme collection template. collection.all_products_count appears 99 times across the corpus."
+      "evidenceSource": "Consumed by templates/list-collections.liquid, which serves the /collections route. No corpus file-name precedent: 0/45 roots ship snippets/collection-card.liquid, since the corpus inlines card markup in the collection template; collection.all_products_count appears 99 times across the corpus."
     },
     {
       "name": "swatch",
@@ -547,7 +533,7 @@
         "swatch": "Option name string (e.g. 'Color' or 'Size')",
         "product": "Product object"
       },
-      "outputs": "One link per distinct option value pointing at `/products/{handle}?variant={id}`; the requested variant is what the server renders, so price, image and availability always match the chosen value.",
+      "outputs": "One link per distinct option value pointing at `/products/{handle}?variant={id}`; the requested variant is what the server renders, so price, image and availability always match the chosen value. Each value's target is resolved in three passes against the variant being rendered: (1) an available variant that also matches it on every other option dimension, (2) any available variant carrying the value, (3) any variant carrying the value. Pass 1 is what keeps selecting one option from resetting another.",
       "requiredContext": ["product"],
       "settingsDependencies": [],
       "accessibilityContract": "role='group' with the option name as aria-label; the value currently rendered carries aria-current='true'; sold-out values state (Hết hàng) in the title attribute.",
@@ -694,7 +680,6 @@
       { "id": "header_sticky_enable", "type": "checkbox", "label": "Cố định thanh đầu trang (Sticky)", "default": true, "category": "Header" },
       { "id": "header_menu_handle", "type": "link_list", "label": "Menu chính", "default": "main-menu", "category": "Header" },
       { "id": "header_search_enable", "type": "checkbox", "label": "Bật tìm kiếm trên header", "default": true, "category": "Header" },
-      { "id": "product_grid_columns", "type": "select", "label": "Số cột sản phẩm (Desktop)", "default": "4", "options": [{"value": "3", "label": "3 cột"}, {"value": "4", "label": "4 cột"}, {"value": "5", "label": "5 cột"}], "category": "Collection" },
       { "id": "collection_products_per_page", "type": "text", "label": "Số sản phẩm trên mỗi trang (tối đa 50)", "default": "16", "category": "Collection" },
       { "id": "product_quickview_enable", "type": "checkbox", "label": "Bật tính năng Xem nhanh", "default": true, "category": "Product" },
       { "id": "product_tabs_enable", "type": "checkbox", "label": "Bật tabs chi tiết sản phẩm (Metafields)", "default": true, "category": "Product" },
@@ -884,6 +869,7 @@
         "The swatch href is `/products/{handle}?variant={id}` and the served page renders that variant as `product.selected_or_first_available_variant`",
         "Displayed price, compare-at price and availability reflect the requested variant because the server renders it, not because client state was patched",
         "Featured image shows the variant image when the variant has one, else the first product image",
+        "Following a chip in the second option group keeps the first option value that is currently rendered: the chip targets a variant whose other option dimensions match the rendered variant (pass 1), and only falls back to another available variant carrying that value (pass 2) or any variant carrying it (pass 3)",
         "A value whose variants are all unavailable is linked to its first variant and labelled (Hết hàng) in the title attribute"
       ],
       "verificationEvidence": "Rendered swatch anchors carry the variant query parameter; the select on the same page marks the requested variant `selected`; responsive layout keeps both swatch groups usable at 390/768/1440",
@@ -1081,6 +1067,25 @@
       ],
       "verificationEvidence": "form.errors != blank predicate satisfied; error alert visible in DOM",
       "evidenceSource": "Base theme states contract §states.formErrors"
+    },
+    {
+      "id": "SCENARIO_13_LIST_COLLECTIONS",
+      "name": "Catalog Index Listing All Collections",
+      "route": "/collections",
+      "prerequisites": ["Store has at least one visible collection and fewer than 12 so the page fits one page of pagination"],
+      "actions": [
+        "Navigate to /collections",
+        "Inspect the rendered grid of collection tiles",
+        "Follow the title link of one tile"
+      ],
+      "expectedResults": [
+        "The page renders the collections grid through templates/list-collections.liquid (container class grid) rather than a single collection's products",
+        "Each tile shows the collection cover (collection.image, else its first product image, else assets/no-image.png), the linked title and the all_products_count",
+        "Following a tile link reaches that collection's own listing at /collections/{handle}",
+        "With no visible collections the page renders the empty state instead of an empty grid"
+      ],
+      "verificationEvidence": "Rendered page contains one grid item per collection from the `collections` object; item count matches collections.size for a single page",
+      "evidenceSource": "Corpus census (45 Haravan roots, measured 2026-09-12): templates/list-collections.liquid in 41/45 roots, `for collection in collections` in 48 corpus files, `paginate collections` in 37 corpus files; live storefront GET /collections returns 200 with container class template-list-collections"
     }
   ],
   "unresolved": [
@@ -1126,11 +1131,11 @@
     },
     {
       "id": "UNRESOLVED_06_NEWSLETTER_FORM_MECHANISM",
-      "title": "Newsletter Subscription Form Mechanism",
-      "evidenceStatus": "UNVERIFIED",
-      "description": "snippets/footer.liquid posts the newsletter field to /account/contact with form_type=customer and contact[tags]=newsletter. The `customer` form type is not in the documented Haravan form-type list (contact, customer_login, create_customer, reset_customer_password, activate_customer_password) recorded in docs/haravan/routes-and-handles.md, and no corpus theme was measured using it. The raw POST markup is what the implementation ships.",
-      "blocking": "Phase 06 Base Theme: the newsletter block is not certified to store an address anywhere. It must not be presented as a verified subscription feature until a live round-trip observes where the address lands.",
-      "investigationPlan": "Submit the form once against the unpublished staging theme (1001512581) with a controlled address, observe the HTTP response and whether a Haravan customer/contact record appears, then either confirm the endpoint or replace the block with a documented mechanism."
+      "title": "Newsletter Subscription Form Mechanism and Storage Destination",
+      "evidenceStatus": "OBSERVED (mechanism: 79 files across 40 of 45 measured roots use `{% form 'customer' %}`) — UNVERIFIED (where the submitted address is stored)",
+      "description": "snippets/footer.liquid uses `{% form 'customer' %}` with a hidden contact[tags]=newsletter field and renders form.posted_successfully? / form.errors. The `customer` form type is absent from the documented Haravan form-type list (contact, customer_login, create_customer, reset_customer_password, activate_customer_password) recorded in docs/haravan/routes-and-handles.md, yet it is the corpus-standard newsletter mechanism (79 files across 40/45 measured roots from `customizes` and the Haravan-only theme roots). Two measured files instead POST a raw form to /account/contact (customizes/Thietbihoaphat/snippets/home-subscribe.liquid, customizes/Toda/snippets/footer.liquid) and 12 files POST raw to /contact, so the mechanism is well attested but the storage destination is not measured by any of them.",
+      "blocking": "Phase 06 Base Theme: the form mechanism matches observed corpus practice but no measurement shows where a submitted address lands. It must not be presented as a certified subscription feature until a live round-trip observes the record or response.",
+      "investigationPlan": "Submit the form once against the unpublished staging theme (1001512581) with a controlled address, observe the HTTP response and whether a customer/contact record appears, then confirm the storage destination or replace the endpoint. Also record `customer` in the form-type list of docs/haravan/routes-and-handles.md as corpus-observed rather than documented."
     }
   ]
 }
