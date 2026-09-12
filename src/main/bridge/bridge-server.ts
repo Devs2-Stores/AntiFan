@@ -30,7 +30,7 @@ import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId, hashSecret, verifySecret } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { SessionCapabilityFilter, isCapabilityNamePermitted } from '../tools/capability-catalogue';
-import { enforceProtectedDirectoryDacl, enforceProtectedFileDacl, resolveCurrentUserSid } from '../security/windows-acl';
+import { enforceProtectedDirectoryDacl, enforceProtectedFileDacl, resolveCurrentUserSid, applyProtectedPathsDacl } from '../security/windows-acl';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import { deriveCapsulePartition } from '../browser/browser-session-partition';
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
@@ -100,16 +100,20 @@ export function redactCredentials(input: string): string {
     .replace(/("code"\s*:\s*")[^"]+(")/gi, '$1[REDACTED]$2');
 }
 
-export function applyProtectedFileDacl(filePath: string): void {
+export function applyProtectedPathsDaclBridge(paths: string[]): void {
   if (process.platform !== 'win32') return;
-  try {
-    if (typeof enforceProtectedFileDacl === 'function') {
-      const sid = typeof resolveCurrentUserSid === 'function' ? resolveCurrentUserSid() : undefined;
-      enforceProtectedFileDacl(filePath, sid);
+  if (typeof applyProtectedPathsDacl === 'function') {
+    applyProtectedPathsDacl(paths);
+  } else if (typeof enforceProtectedFileDacl === 'function') {
+    const sid = typeof resolveCurrentUserSid === 'function' ? resolveCurrentUserSid() : undefined;
+    for (const p of paths) {
+      enforceProtectedFileDacl(p, sid);
     }
-  } catch {
-    // Non-fatal in non-elevated or mock test environments
   }
+}
+
+export function applyProtectedFileDacl(filePath: string): void {
+  applyProtectedPathsDaclBridge([filePath]);
 }
 
 export function isAuthorizedCompanionOrigin(rawOrigin: string): boolean {
@@ -270,7 +274,11 @@ export class BridgeServer {
       : path.join(os.tmpdir(), `antifan-pairing-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`);
     BridgeServer.instance = this;
     this.wireTabHostEvents();
-    this.replenishPairingQueue();
+    try {
+      this.replenishPairingQueue();
+    } catch (err) {
+      console.warn('[antifan] Synchronous replenishPairingQueue failed:', err);
+    }
   }
 
   public getHost(): string {
@@ -443,148 +451,224 @@ export class BridgeServer {
   }
 
   public replenishPairingQueue(): void {
-    try {
-      if (!fs.existsSync(this.pairingQueueDir)) {
-        fs.mkdirSync(this.pairingQueueDir, { recursive: true });
-        if (process.platform === 'win32') {
-          try {
-            const sid = resolveCurrentUserSid();
-            enforceProtectedDirectoryDacl(this.pairingQueueDir, sid);
-          } catch {}
-        }
-      }
-
-      const existing = fs.readdirSync(this.pairingQueueDir);
-      let activeCount = 0;
-      const now = Date.now();
-      for (const file of existing) {
-        if (!file.endsWith('.json')) continue;
-        const filePath = path.join(this.pairingQueueDir, file);
+    if (!fs.existsSync(this.pairingQueueDir)) {
+      fs.mkdirSync(this.pairingQueueDir, { recursive: true });
+      if (process.platform === 'win32') {
         try {
-          const raw = fs.readFileSync(filePath, 'utf8');
-          const data = JSON.parse(raw);
-          if (!data || !data.code || !data.expiresAt || now > data.expiresAt) {
-            fs.unlinkSync(filePath);
-          } else {
-            activeCount++;
-          }
-        } catch {
-          try { fs.unlinkSync(filePath); } catch {}
-        }
+          const sid = resolveCurrentUserSid();
+          enforceProtectedDirectoryDacl(this.pairingQueueDir, sid);
+        } catch {}
       }
+    }
 
-      const needed = Math.max(0, 3 - activeCount);
-      for (let i = 0; i < needed; i++) {
-        const pairing = this.issuePairingCode({
-          clientClass: 'mcp',
-          ttlMs: 600_000,
-        });
-        const challengeId = randomUUID();
-        const challengeData = {
-          challengeId,
-          code: pairing.code,
-          clientClass: 'mcp',
-          expiresAt: pairing.expiresAt,
-          port: this.port,
-          host: this.host,
-          pid: process.pid,
-        };
-        const challengePath = path.join(this.pairingQueueDir, `challenge-${challengeId}.json`);
-        this.atomicWriteWithDacl(challengePath, JSON.stringify(challengeData, null, 2));
+    const existing = fs.readdirSync(this.pairingQueueDir);
+    let activeCount = 0;
+    const now = Date.now();
+    for (const file of existing) {
+      if (!file.endsWith('.json')) continue;
+      const filePath = path.join(this.pairingQueueDir, file);
+      try {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const data = JSON.parse(raw);
+        if (!data || !data.code || !data.expiresAt || now > data.expiresAt) {
+          fs.unlinkSync(filePath);
+        } else {
+          activeCount++;
+        }
+      } catch {
+        try { fs.unlinkSync(filePath); } catch {}
       }
-    } catch {}
+    }
+
+    const needed = Math.max(0, 3 - activeCount);
+    const itemsToWrite: Array<{ targetPath: string; content: string }> = [];
+    for (let i = 0; i < needed; i++) {
+      const pairing = this.issuePairingCode({
+        clientClass: 'mcp',
+        ttlMs: 600_000,
+      });
+      const challengeId = randomUUID();
+      const challengeData = {
+        challengeId,
+        code: pairing.code,
+        clientClass: 'mcp',
+        expiresAt: pairing.expiresAt,
+        port: this.port,
+        host: this.host,
+        pid: process.pid,
+      };
+      const challengePath = path.join(this.pairingQueueDir, `challenge-${challengeId}.json`);
+      itemsToWrite.push({
+        targetPath: challengePath,
+        content: JSON.stringify(challengeData, null, 2),
+      });
+    }
+    if (itemsToWrite.length > 0) {
+      this.atomicWriteManyWithDacl(itemsToWrite);
+    }
   }
 
   public claimPairingChallenge(clientClass: 'mcp' | 'mobile' = 'mcp'): { code: string; expiresAt: number; challengeId?: string } | null {
     try {
-      if (!fs.existsSync(this.pairingQueueDir)) return null;
-      const files = fs.readdirSync(this.pairingQueueDir).filter(f => f.startsWith('challenge-') && f.endsWith('.json'));
-      const now = Date.now();
-      let hasExpiredOrCorrupt = false;
-      for (const file of files) {
-        const filePath = path.join(this.pairingQueueDir, file);
-        let raw: string;
+      if (!fs.existsSync(this.pairingQueueDir)) {
         try {
-          raw = fs.readFileSync(filePath, 'utf8');
-        } catch {
-          continue;
-        }
-        let data: { code?: string; expiresAt?: number; clientClass?: string; challengeId?: string } | null = null;
-        try {
-          data = JSON.parse(raw) as { code?: string; expiresAt?: number; clientClass?: string; challengeId?: string };
-        } catch {
-          try { fs.unlinkSync(filePath); } catch {}
-          hasExpiredOrCorrupt = true;
-          continue;
-        }
-
-        if (!data || !data.code || typeof data.expiresAt !== 'number' || now > data.expiresAt) {
-          try { fs.unlinkSync(filePath); } catch {}
-          hasExpiredOrCorrupt = true;
-          continue;
-        }
-
-        // Verify clientClass BEFORE unlinking/claiming so other client classes are not destroyed
-        if (clientClass && data.clientClass && data.clientClass !== clientClass) {
-          continue;
-        }
-
-        // Atomic claim via unique rename
-        const claimPath = path.join(this.pairingQueueDir, `${file}.claimed.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`);
-        try {
-          fs.renameSync(filePath, claimPath);
-        } catch {
-          // Raced with another process
-          continue;
-        }
-        try {
-          fs.unlinkSync(claimPath);
+          this.replenishPairingQueue();
         } catch {}
+      }
+      if (!fs.existsSync(this.pairingQueueDir)) return null;
 
-        // A challenge file may outlive the process that minted it: the queue directory
-        // is shared across restarts, while the code registry is per-instance. The code
-        // is a same-user bearer credential carrying its own expiry, so adopt it into
-        // this instance instead of handing out a code that exchange rejects as
-        // PAIRING_CODE_NOT_FOUND.
-        const codeHash = hashSecret(data.code);
-        if (!this.pairingStore.has(codeHash)) {
-          this.pairingStore.set(codeHash, {
-            codeHash,
-            clientClass: data.clientClass === 'mobile' ? 'mobile' : 'mcp',
-            ttlMs: Math.max(10_000, data.expiresAt - now),
-            createdAt: now,
-            expiresAt: data.expiresAt,
-            consumed: false,
-            revoked: false,
-            attemptBudget: 3,
-            failedAttempts: 0,
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const files = fs.readdirSync(this.pairingQueueDir).filter(f => f.startsWith('challenge-') && f.endsWith('.json'));
+        if (files.length === 0) {
+          try {
+            this.replenishPairingQueue();
+          } catch {}
+          continue;
+        }
+        const now = Date.now();
+        let hasExpiredOrCorrupt = false;
+        for (const file of files) {
+          const filePath = path.join(this.pairingQueueDir, file);
+          let raw: string;
+          try {
+            raw = fs.readFileSync(filePath, 'utf8');
+          } catch {
+            continue;
+          }
+          let data: { code?: string; expiresAt?: number; clientClass?: string; challengeId?: string } | null = null;
+          try {
+            data = JSON.parse(raw) as { code?: string; expiresAt?: number; clientClass?: string; challengeId?: string };
+          } catch {
+            try { fs.unlinkSync(filePath); } catch {}
+            hasExpiredOrCorrupt = true;
+            continue;
+          }
+
+          if (!data || !data.code || typeof data.expiresAt !== 'number' || now > data.expiresAt) {
+            try { fs.unlinkSync(filePath); } catch {}
+            hasExpiredOrCorrupt = true;
+            continue;
+          }
+
+          // Verify clientClass BEFORE unlinking/claiming so other client classes are not destroyed
+          if (clientClass && data.clientClass && data.clientClass !== clientClass) {
+            continue;
+          }
+
+          // Atomic claim via unique rename
+          const claimPath = path.join(this.pairingQueueDir, `${file}.claimed.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`);
+          try {
+            fs.renameSync(filePath, claimPath);
+          } catch {
+            // Raced with another process
+            continue;
+          }
+          try {
+            fs.unlinkSync(claimPath);
+          } catch {}
+
+          // A challenge file may outlive the process that minted it: the queue directory
+          // is shared across restarts, while the code registry is per-instance. The code
+          // is a same-user bearer credential carrying its own expiry, so adopt it into
+          // this instance instead of handing out a code that exchange rejects as
+          // PAIRING_CODE_NOT_FOUND.
+          const codeHash = hashSecret(data.code);
+          if (!this.pairingStore.has(codeHash)) {
+            this.pairingStore.set(codeHash, {
+              codeHash,
+              clientClass: data.clientClass === 'mobile' ? 'mobile' : 'mcp',
+              ttlMs: Math.max(10_000, data.expiresAt - now),
+              createdAt: now,
+              expiresAt: data.expiresAt,
+              consumed: false,
+              revoked: false,
+              attemptBudget: 3,
+              failedAttempts: 0,
+            });
+          }
+
+          setImmediate(() => {
+            try {
+              this.replenishPairingQueue();
+            } catch (err) {
+              console.warn('[antifan] Background replenishPairingQueue failed:', err);
+            }
           });
+          return { code: data.code, expiresAt: data.expiresAt, challengeId: data.challengeId };
         }
 
-        setImmediate(() => this.replenishPairingQueue());
-        return { code: data.code, expiresAt: data.expiresAt, challengeId: data.challengeId };
-      }
-
-      // Schedule replenishment on expiry / empty queue to prevent queue starvation
-      if (hasExpiredOrCorrupt || files.length === 0) {
-        setImmediate(() => this.replenishPairingQueue());
+        if (hasExpiredOrCorrupt) {
+          try {
+            this.replenishPairingQueue();
+          } catch {}
+        } else {
+          break;
+        }
       }
     } catch {}
     return null;
   }
 
-  private atomicWriteWithDacl(targetPath: string, content: string): void {
-    const parentDir = path.dirname(targetPath);
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
+  private atomicWriteManyWithDacl(items: Array<{ targetPath: string; content: string }>): void {
+    if (!items || items.length === 0) return;
+
+    const prepared: Array<{ targetPath: string; content: string; tempPath: string }> = [];
+    for (const item of items) {
+      const parentDir = path.dirname(item.targetPath);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
+      const tempPath = path.join(
+        parentDir,
+        `.${path.basename(item.targetPath)}.tmp.${Date.now()}-${Math.random().toString(16).slice(2)}`
+      );
+      // Create empty temp file first and lock DACL before writing sensitive secret payload
+      fs.writeFileSync(tempPath, '', { encoding: 'utf8', mode: 0o600 });
+      prepared.push({ targetPath: item.targetPath, content: item.content, tempPath });
     }
-    const tempPath = path.join(parentDir, `.${path.basename(targetPath)}.tmp.${Date.now()}-${Math.random().toString(16).slice(2)}`);
-    // Create empty temp file first and lock DACL before writing sensitive secret payload
-    fs.writeFileSync(tempPath, '', { encoding: 'utf8', mode: 0o600 });
-    applyProtectedFileDacl(tempPath);
-    fs.writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(tempPath, targetPath);
-    applyProtectedFileDacl(targetPath);
+
+    try {
+      // Apply protected DACL to all empty temp files in ONE batched call before writing content
+      applyProtectedPathsDaclBridge(prepared.map((p) => p.tempPath));
+
+      // Write content and atomic rename with fallback
+      for (const p of prepared) {
+        fs.writeFileSync(p.tempPath, p.content, { encoding: 'utf8', mode: 0o600 });
+        try {
+          fs.renameSync(p.tempPath, p.targetPath);
+        } catch {
+          // Windows rename fallback: apply protected DACL to target BEFORE writing content
+          try {
+            if (!fs.existsSync(p.targetPath)) {
+              fs.writeFileSync(p.targetPath, '', { encoding: 'utf8', mode: 0o600 });
+            }
+            applyProtectedPathsDaclBridge([p.targetPath]);
+            fs.writeFileSync(p.targetPath, p.content, { encoding: 'utf8', mode: 0o600 });
+            try {
+              fs.unlinkSync(p.tempPath);
+            } catch {}
+          } catch (fallbackErr) {
+            try { fs.unlinkSync(p.targetPath); } catch {}
+            try { fs.unlinkSync(p.tempPath); } catch {}
+            throw fallbackErr;
+          }
+        }
+      }
+
+      // Verify and enforce protected DACL on all final target files in ONE batched call
+      applyProtectedPathsDaclBridge(prepared.map((p) => p.targetPath));
+    } finally {
+      // Ensure any leftover temp files are cleaned up if an error occurred
+      for (const p of prepared) {
+        if (fs.existsSync(p.tempPath)) {
+          try { fs.unlinkSync(p.tempPath); } catch {}
+        }
+      }
+    }
+  }
+
+  private atomicWriteWithDacl(targetPath: string, content: string): void {
+    this.atomicWriteManyWithDacl([{ targetPath, content }]);
   }
 
   public getRemoteConnectionInfo(): {
@@ -902,7 +986,11 @@ export class BridgeServer {
         // observed the empty queue still receives a challenge instead of a spurious 404.
         let challenge = this.claimPairingChallenge('mcp');
         if (!challenge) {
-          this.replenishPairingQueue();
+          try {
+            this.replenishPairingQueue();
+          } catch (err) {
+            console.warn('[antifan] Challenge replenishPairingQueue failed:', err);
+          }
           challenge = this.claimPairingChallenge('mcp');
         }
         const responseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1602,7 +1690,10 @@ export class BridgeServer {
       },
     };
     try {
-      this.atomicWriteWithDacl(this.bridgeInfoPath, JSON.stringify(info, null, 2));
+      const content = JSON.stringify(info, null, 2);
+      const itemsToWrite: Array<{ targetPath: string; content: string }> = [
+        { targetPath: this.bridgeInfoPath, content },
+      ];
       console.log(`[antifan] Persisted non-secret bridge info to ${this.bridgeInfoPath}`);
 
       const geminiDir = path.join(os.homedir(), '.gemini');
@@ -1610,11 +1701,13 @@ export class BridgeServer {
         const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
         const mirrorPath = path.join(geminiDir, geminiFileName);
         if (this.canPublishLegacyMirror(mirrorPath)) {
-          this.atomicWriteWithDacl(mirrorPath, JSON.stringify(info, null, 2));
+          itemsToWrite.push({ targetPath: mirrorPath, content });
         } else {
           console.warn(`[antifan] Keeping the existing entry in ${mirrorPath}: it is held by a live instance.`);
         }
       }
+
+      this.atomicWriteManyWithDacl(itemsToWrite);
     } catch (err) {
       console.error('[antifan] Failed to persist bridge info:', err);
     }
@@ -2633,14 +2726,23 @@ export class BridgeServer {
    * past the cap is terminated — no unbounded buffering, no silent loss (the
    * renderer reconnects and re-syncs terminal state via snapshot).
    */
-  private sendEventFrame(ws: WebSocket, event: string, data: unknown, terminalSessionId?: string): void {
+  private sendEventFrame(
+    ws: WebSocket,
+    event: string,
+    data: unknown,
+    terminalSessionId?: string,
+    preSerializedRaw?: string,
+    preSerializedBytes?: number,
+    extractedDataText?: string,
+    extractedSeq?: number,
+  ): void {
     if (ws.readyState !== WebSocket.OPEN) return;
 
-    const raw = JSON.stringify({ event, data } as BridgeEventPayload);
-    const bytes = Buffer.byteLength(raw, 'utf8');
-    let dataText = '';
-    let seq: number | undefined;
-    if (terminalSessionId && data && typeof data === 'object') {
+    const raw = preSerializedRaw ?? JSON.stringify({ event, data } as BridgeEventPayload);
+    const bytes = preSerializedBytes ?? Buffer.byteLength(raw, 'utf8');
+    let dataText = extractedDataText ?? '';
+    let seq: number | undefined = extractedSeq;
+    if (extractedDataText === undefined && terminalSessionId && data && typeof data === 'object') {
       if ('data' in data && data.data !== undefined) {
         dataText = String(data.data ?? '');
       }
@@ -2806,11 +2908,27 @@ export class BridgeServer {
     const isTerminalData = event === 'antifan:terminal:data';
     const isTerminalSession = event === 'antifan:terminal:session';
     let terminalSessionId: string | undefined;
-    if (isTerminalData && data && typeof data === 'object' && 'sessionId' in data) {
-      terminalSessionId = String(data.sessionId ?? '');
+    let dataText: string | undefined;
+    let seq: number | undefined;
+
+    if (isTerminalData && data && typeof data === 'object') {
+      if ('sessionId' in data) {
+        terminalSessionId = String(data.sessionId ?? '');
+      }
+      if ('data' in data && data.data !== undefined) {
+        dataText = String(data.data ?? '');
+      }
+      if ('seq' in data && typeof data.seq === 'number') {
+        seq = data.seq;
+      }
     } else if (isTerminalSession && data && typeof data === 'object' && 'id' in data) {
       terminalSessionId = String(data.id ?? '');
     }
+
+    // Pre-serialize frame payload once for all clients and benchmark
+    const raw = JSON.stringify(payload);
+    const rawBytes = Buffer.byteLength(raw, 'utf8');
+
     let sent = 0;
     let congested = 0;
     for (const client of this.clients) {
@@ -2844,9 +2962,9 @@ export class BridgeServer {
       const state = this.clientCongestion.get(client);
       if (state && state.queue.length > 0) congested += 1;
       if (isTerminalData) {
-        this.sendEventFrame(client, event, data, terminalSessionId);
+        this.sendEventFrame(client, event, data, terminalSessionId, raw, rawBytes, dataText, seq);
       } else {
-        this.sendEventFrame(client, event, data);
+        this.sendEventFrame(client, event, data, undefined, raw, rawBytes);
       }
       sent += 1;
     }
@@ -2855,7 +2973,7 @@ export class BridgeServer {
         surface: 'bridge',
         name: 'broadcast',
         value: performance.now() - broadcastStartMs,
-        extra: { event, clients: sent, congested, bytes: Buffer.byteLength(JSON.stringify(payload), 'utf8') },
+        extra: { event, clients: sent, congested, bytes: rawBytes },
       });
     }
   }

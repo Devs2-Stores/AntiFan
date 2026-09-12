@@ -1,22 +1,71 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { NativeMessageDecoder, encodeNativeMessage } from './framing';
 import { LocalIpcClient } from './local-ipc-client';
+import { StorageLocations } from '../config/storage-locations';
+
+const MAX_LOG_BYTES = 2 * 1024 * 1024; // 2 MB
 
 function setupDiagnosticLogging(): (msg: string) => void {
-  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-  const logDir = path.join(localAppData, 'AntiFan', 'logs');
-  if (!fs.existsSync(logDir)) {
-    try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
+  let logFile: string | null = null;
+  let logFileOld: string | null = null;
+  let currentBytes = 0;
+  let initialized = false;
+
+  function initLogFile(): void {
+    if (initialized) return;
+    initialized = true;
+    try {
+      const runtimeDir = process.env.ANTIFAN_RUNTIME_DIR || StorageLocations.getRuntimeDir();
+      const logDir = path.join(runtimeDir, 'logs');
+      if (!fs.existsSync(logDir)) {
+        try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
+      }
+      logFile = path.join(logDir, 'native-host.log');
+      logFileOld = path.join(logDir, 'native-host.log.1');
+      if (fs.existsSync(logFile)) {
+        currentBytes = fs.statSync(logFile).size;
+      }
+    } catch {
+      logFile = null;
+      logFileOld = null;
+    }
   }
-  const logFile = path.join(logDir, 'native-host.log');
+
+  function rotateIfNeeded(addedBytes: number): void {
+    if (!logFile || !logFileOld) return;
+    if (currentBytes + addedBytes <= MAX_LOG_BYTES) return;
+
+    try {
+      if (fs.existsSync(logFileOld)) {
+        try { fs.unlinkSync(logFileOld); } catch {}
+      }
+      if (fs.existsSync(logFile)) {
+        fs.renameSync(logFile, logFileOld);
+      }
+      currentBytes = 0;
+    } catch {
+      currentBytes = 0;
+    }
+  }
 
   return (msg: string) => {
     try {
+      initLogFile();
+      if (!logFile) return;
+
       const line = `[${new Date().toISOString()}] ${msg}\n`;
-      fs.appendFileSync(logFile, line, 'utf8');
-    } catch {}
+      const lineBytes = Buffer.byteLength(line, 'utf8');
+
+      rotateIfNeeded(lineBytes);
+
+      fs.appendFile(logFile, line, 'utf8', () => {
+        // Non-fatal async callback
+      });
+      currentBytes += lineBytes;
+    } catch {
+      // Diagnostic logging failure must never break messaging handshake
+    }
   };
 }
 
