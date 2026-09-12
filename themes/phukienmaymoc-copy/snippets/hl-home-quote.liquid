@@ -52,7 +52,7 @@
         alt="dsc04523-1"
                             width="426"
                             height="481"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
         </div>
@@ -93,14 +93,13 @@
                 </p>
             </div>
         </div>
-        <div class="form-row row-file"x-data="{ showDetail: false }">
+        <div class="form-row row-file">
             <input id="open-file" value="" class="input-files" type="file"
                 name="files" accept=".csv,.xls,.xlsx">
             <label for="open-file">Chọn tệp</label>
             <span class="flex-inline-center">
                                     <span>Nhập mã hàng từ file .csv</span>
-                                <span class="info-more__button flex-center-left" title="Click để xem hướng dẫn tải tệp lên"
-                    @click="showDetail = !showDetail">
+                                <span class="info-more__button flex-center-left" title="Click để xem hướng dẫn tải tệp lên" onclick="this.closest('.row-file')?.querySelector('.detail')?.classList.toggle('active')">
                     <svg version="1.1" id="Capa_1" xmlns="http://www.w3.org/2000/svg"
                         xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 422.686 422.686" xml:space="preserve"
                         height="15px" width="15px">
@@ -174,3 +173,4 @@
         </div>
     </div>
 </section>
+{%- comment -%} hrv-sync-1001512581 {%- endcomment -%}

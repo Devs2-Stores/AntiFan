@@ -15,8 +15,8 @@
                         <span class="menu-link__name">Danh mục sản phẩm</span>
                     </a>
                     <div class="submenu-category w-100 flex">
-                        <div class="category-navigation" x-data="{ hoverId: null, scrollId: null }" x-on:mouseleave="hoverId = null;scrollId = null">
-    <div class="category-navigation__head" x-on:mouseover="hoverId = null; scrollId = null" x-on:mouseleave="hoverId = null">
+                        <div class="category-navigation"  >
+    <div class="category-navigation__head"  >
         <svg width="25" height="24" viewBox="0 0 25 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M21.2546 0.950195H16.1732C14.5696 0.950195 13.2695 2.20769 13.2695 3.75889V8.67412C13.2695 10.2253 14.5696 11.4828 16.1732 11.4828H21.2546C22.8583 11.4828 24.1583 10.2253 24.1583 8.67412V3.75889C24.1583 2.20769 22.8583 0.950195 21.2546 0.950195Z" fill="#DDECFF"/>
             <path d="M21.3648 1.45337H16.0618C14.8066 1.45337 13.7891 2.43762 13.7891 3.65176V8.78133C13.7891 9.99547 14.8066 10.9797 16.0618 10.9797H21.3648C22.62 10.9797 23.6375 9.99547 23.6375 8.78133V3.65176C23.6375 2.43762 22.62 1.45337 21.3648 1.45337Z" stroke="#3590CE"/>
@@ -31,10 +31,7 @@
     </div>
     <div class="category-navigation__list">
                     <ul>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 0; scrollId = 0" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="0">
                         <a  aria-label="Cảm biến" rel="" href="/collections/cam-bien" target="_self">
                             Cảm biến
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -42,10 +39,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 1; scrollId = 1" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="1">
                         <a  aria-label="Chuyển mạch/ Nút nhấn" rel="" href="/collections/chuyen-mach-nut-nhan" target="_self">
                             Chuyển mạch/ Nút nhấn
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -53,10 +47,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 2; scrollId = 2" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="2">
                         <a  aria-label="Đèn báo" rel="" href="/collections/den-bao" target="_self">
                             Đèn báo
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -64,10 +55,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 3; scrollId = 3" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="3">
                         <a  aria-label="Đồng hồ đo" rel="" href="/collections/dong-ho-do" target="_self">
                             Đồng hồ đo
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -75,10 +63,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 4; scrollId = 4" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="4">
                         <a  aria-label="Bộ điều khiển nhiệt độ" rel="" href="/collections/bo-dieu-khien-nhiet-do" target="_self">
                             Bộ điều khiển nhiệt độ
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -86,10 +71,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 5; scrollId = 5" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="5">
                         <a  aria-label="Biến tần" rel="" href="/collections/bien-tan" target="_self">
                             Biến tần
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -97,10 +79,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 6; scrollId = 6" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="6">
                         <a  aria-label="Khởi động mềm" rel="" href="/collections/khoi-dong-mem" target="_self">
                             Khởi động mềm
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -108,10 +87,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 7; scrollId = 7" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="7">
                         <a  aria-label="PLC/ HMI" rel="" href="/collections/plc-hmi" target="_self">
                             PLC/ HMI
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -119,10 +95,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 8; scrollId = 8" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="8">
                         <a  aria-label="Relay" rel="" href="/collections/relay" target="_self">
                             Relay
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -130,10 +103,7 @@
                                 </svg>
                                                     </a>
                     </li>
-                                    <li 
-                         
-                            x-on:mouseover="hoverId = 9; scrollId = 9" x-on:mouseleave="hoverId = null"
-                                            >
+                                    <li data-index="9">
                         <a  aria-label="Thiết bị đóng cắt" rel="" href="/collections/thiet-bi-dong-cat" target="_self">
                             Thiết bị đóng cắt
                                                             <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -151,42 +121,42 @@
         </div>
     </div>
     <div class="category-navigation__sub" id="category-navigation__sub">
-                                                        <div class="sub-menu" id="child1"  x-show="hoverId == 0 || scrollId == 0" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                        <div class="sub-menu" data-index="0" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="10">
                                     <a class="has-child"  aria-label="Cảm biến" rel="" href="/collections/cam-bien" target="_self">
                                         Cảm biến
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="11">
                                                         <a  aria-label="Cảm biến tiệm cận" rel="" href="/collections/cam-bien-tiem-can" target="_self">Cảm biến tiệm cận</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="12">
                                                         <a  aria-label="Cảm biến quang" rel="" href="/collections/cam-bien-quang" target="_self">Cảm biến quang</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="13">
                                                         <a  aria-label="Cảm biến sợi quang" rel="" href="/collections/cam-bien-soi-quang" target="_self">Cảm biến sợi quang</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="14">
                                                         <a  aria-label="Cảm biến cửa" rel="" href="/collections/cam-bien-cua" target="_self">Cảm biến cửa</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="15">
                                                         <a  aria-label="Cảm biến vùng" rel="" href="/collections/cam-bien-vung" target="_self">Cảm biến vùng</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="16">
                                                         <a  aria-label="Cảm biến hình ảnh" rel="" href="/collections/cam-bien-hinh-anh" target="_self">Cảm biến hình ảnh</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="17">
                                                         <a  aria-label="Cảm biến áp suất" rel="" href="/collections/cam-bien-ap-suat" target="_self">Cảm biến áp suất</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="18">
                                                         <a  aria-label="Cảm biến đo lường" rel="" href="/collections/cam-bien-do-luong" target="_self">Cảm biến đo lường</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="19">
                                                         <a  aria-label="Bộ mã hóa vòng quay / Encoder" rel="" href="/collections/bo-ma-hoa-vong-quay-encoder" target="_self">Bộ mã hóa vòng quay / Encoder</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="20">
                                                         <a  aria-label="Bộ điều khiển cảm biến" rel="" href="/collections/bo-dieu-khien-cam-bien" target="_self">Bộ điều khiển cảm biến</a>
                                                     </li>
                                                                                             </ul>
@@ -194,27 +164,27 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 1 || scrollId == 1" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="1" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="21">
                                     <a class="has-child"  aria-label="Chuyển mạch/ Nút nhấn" rel="" href="/collections/chuyen-mach-nut-nhan" target="_self">
                                         Chuyển mạch/ Nút nhấn
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="22">
                                                         <a  aria-label="Chuyển mạch 2-3 vị trí" rel="" href="/collections/chuyen-mach-2-3-vi-tri" target="_self">Chuyển mạch 2-3 vị trí</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="23">
                                                         <a  aria-label="Chuyển mạch có khóa" rel="" href="/collections/chuyen-mach-co-khoa" target="_self">Chuyển mạch có khóa</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="24">
                                                         <a  aria-label="Cần gạt 2-4 hướng" rel="" href="/collections/can-gat-2-4-huong" target="_self">Cần gạt 2-4 hướng</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="25">
                                                         <a  aria-label="Chuyển mạch khác" rel="" href="/collections/chuyen-mach-khac" target="_self">Chuyển mạch khác</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="26">
                                                         <a  aria-label="Nút nhấn" rel="" href="/collections/nut-nhan" target="_self">Nút nhấn</a>
                                                     </li>
                                                                                             </ul>
@@ -222,27 +192,27 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 2 || scrollId == 2" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="2" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="27">
                                     <a class="has-child"  aria-label="Đèn báo" rel="" href="/collections/den-bao" target="_self">
                                         Đèn báo
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="28">
                                                         <a  aria-label="Đèn báo panel tròn" rel="" href="/collections/den-bao-panel-tron" target="_self">Đèn báo panel tròn</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="29">
                                                         <a  aria-label="Đèn báo panel khối" rel="" href="/collections/den-bao-panel-khoi" target="_self">Đèn báo panel khối</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="30">
                                                         <a  aria-label="Đèn báo tháp" rel="" href="/collections/den-bao-thap" target="_self">Đèn báo tháp</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="31">
                                                         <a  aria-label="Đèn báo quay" rel="" href="/collections/den-bao-quay" target="_self">Đèn báo quay</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="32">
                                                         <a  aria-label="Đèn báo khác" rel="" href="/collections/den-bao-khac" target="_self">Đèn báo khác</a>
                                                     </li>
                                                                                             </ul>
@@ -250,33 +220,33 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 3 || scrollId == 3" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="3" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="33">
                                     <a class="has-child"  aria-label="Đồng hồ đo" rel="" href="/collections/dong-ho-do" target="_self">
                                         Đồng hồ đo
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="34">
                                                         <a  aria-label="Đồng hồ Counter" rel="" href="/collections/dong-ho-counter" target="_self">Đồng hồ Counter</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="35">
                                                         <a  aria-label="Đồng hồ Timer" rel="" href="/collections/dong-ho-timer" target="_self">Đồng hồ Timer</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="36">
                                                         <a  aria-label="Đồng hồ Counter/ Timer" rel="" href="/collections/dong-ho-counter-timer" target="_self">Đồng hồ Counter/ Timer</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="37">
                                                         <a  aria-label="Đồng hồ đo xung/ tốc độ" rel="" href="/collections/dong-ho-do-xung-toc-do" target="_self">Đồng hồ đo xung/ tốc độ</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="38">
                                                         <a  aria-label="Đồng hồ đo hiển thị số" rel="" href="/collections/dong-ho-do-hien-thi-so" target="_self">Đồng hồ đo hiển thị số</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="39">
                                                         <a  aria-label="Đồng hồ đo giám sát điện năng" rel="" href="/collections/dong-ho-do-giam-sat-dien-nang" target="_self">Đồng hồ đo giám sát điện năng</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="40">
                                                         <a  aria-label="Đồng hồ đo điện năng" rel="" href="/collections/dong-ho-do-dien-nang" target="_self">Đồng hồ đo điện năng</a>
                                                     </li>
                                                                                             </ul>
@@ -284,27 +254,27 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 4 || scrollId == 4" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="4" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="41">
                                     <a class="has-child"  aria-label="Bộ điều khiển nhiệt độ" rel="" href="/collections/bo-dieu-khien-nhiet-do" target="_self">
                                         Bộ điều khiển nhiệt độ
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="42">
                                                         <a  aria-label="Đồng hồ nhiệt độ" rel="" href="/collections/dong-ho-nhiet-do" target="_self">Đồng hồ nhiệt độ</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="43">
                                                         <a  aria-label="Bộ transmitter nhiệt độ" rel="" href="/collections/bo-transmitter-nhiet-do" target="_self">Bộ transmitter nhiệt độ</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="44">
                                                         <a  aria-label="Can nhiệt" rel="" href="/collections/can-nhiet" target="_self">Can nhiệt</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="45">
                                                         <a  aria-label="Cảm biến mưa, nhiệt độ, độ ẩm" rel="" href="/collections/cam-bien-mua-nhiet-do-do-am" target="_self">Cảm biến mưa, nhiệt độ, độ ẩm</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="46">
                                                         <a  aria-label="Bộ ghi dữ liệu nhiệt độ" rel="" href="/collections/bo-ghi-du-lieu-nhiet-do" target="_self">Bộ ghi dữ liệu nhiệt độ</a>
                                                     </li>
                                                                                             </ul>
@@ -312,18 +282,18 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 5 || scrollId == 5" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="5" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="47">
                                     <a class="has-child"  aria-label="Biến tần" rel="" href="/collections/bien-tan" target="_self">
                                         Biến tần
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="48">
                                                         <a  aria-label="Biến tần hạ thế" rel="" href="/collections/bien-tan-ha-the" target="_self">Biến tần hạ thế</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="49">
                                                         <a  aria-label="Biến tần trung thế" rel="" href="/collections/bien-tan-trung-the" target="_self">Biến tần trung thế</a>
                                                     </li>
                                                                                             </ul>
@@ -331,18 +301,18 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 6 || scrollId == 6" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="6" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="50">
                                     <a class="has-child"  aria-label="Khởi động mềm" rel="" href="/collections/khoi-dong-mem" target="_self">
                                         Khởi động mềm
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="51">
                                                         <a  aria-label="Khởi động mềm 1 phase" rel="" href="/collections/khoi-dong-mem-1-phase" target="_self">Khởi động mềm 1 phase</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="52">
                                                         <a  aria-label="Khởi động mềm 3 phase" rel="" href="/collections/khoi-dong-mem-3-phase" target="_self">Khởi động mềm 3 phase</a>
                                                     </li>
                                                                                             </ul>
@@ -350,18 +320,18 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 7 || scrollId == 7" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="7" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="53">
                                     <a class="has-child"  aria-label="PLC/ HMI" rel="" href="/collections/plc-hmi" target="_self">
                                         PLC/ HMI
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="54">
                                                         <a  aria-label="PLC" rel="" href="/collections/plc" target="_self">PLC</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="55">
                                                         <a  aria-label="HMI" rel="" href="/collections/hmi" target="_self">HMI</a>
                                                     </li>
                                                                                             </ul>
@@ -369,36 +339,36 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 8 || scrollId == 8" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="8" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="56">
                                     <a class="has-child"  aria-label="Relay" rel="" href="/collections/relay" target="_self">
                                         Relay
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="57">
                                                         <a  aria-label="Relay trung gian" rel="" href="/collections/relay-trung-gian" target="_self">Relay trung gian</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="58">
                                                         <a  aria-label="Relay trung gian bán dẫn" rel="" href="/collections/relay-trung-gian-ban-dan" target="_self">Relay trung gian bán dẫn</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="59">
                                                         <a  aria-label="Relay bán dẫn" rel="" href="/collections/relay-ban-dan" target="_self">Relay bán dẫn</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="60">
                                                         <a  aria-label="Relay luân phiên" rel="" href="/collections/relay-luan-phien" target="_self">Relay luân phiên</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="61">
                                                         <a  aria-label="I/O Relay Terminal" rel="" href="/collections/i-o-relay-terminal" target="_self">I/O Relay Terminal</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="62">
                                                         <a  aria-label="Relay điều khiển mức" rel="" href="/collections/relay-die-u-khie-n-mu-c" target="_self">Relay điều khiển mức</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="63">
                                                         <a  aria-label="Relay an toàn" rel="" href="/collections/relay-an-toan" target="_self">Relay an toàn</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="64">
                                                         <a  aria-label="Relay Terminal" rel="" href="/collections/relay-terminal" target="_self">Relay Terminal</a>
                                                     </li>
                                                                                             </ul>
@@ -406,57 +376,57 @@
                                                                     </li>
                                                     </ul>
                     </div>
-                                                                <div class="sub-menu" id="child1"  x-show="hoverId == 9 || scrollId == 9" x-on:mouseleave="hoverId = null; scrollId = null">
+                                                                <div class="sub-menu" data-index="9" id="child1"   >
                         <ul class="menu-child lv1">
-                                                            <li>
+                                                            <li data-index="65">
                                     <a class="has-child"  aria-label="Thiết bị đóng cắt" rel="" href="/collections/thiet-bi-dong-cat" target="_self">
                                         Thiết bị đóng cắt
                                     </a>
                                                                             <div class="lv2">
                                             <ul>
-                                                                                                    <li>
+                                                                                                    <li data-index="66">
                                                         <a  aria-label="MCB Cầu dao tự động - dạng cài" rel="" href="/collections/mcb-cau-dao-tu-dong-dang-cai" target="_self">MCB Cầu dao tự động - dạng cài</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="67">
                                                         <a  aria-label="RCCB Cầu dao chống dòng rò - dạng cài" rel="" href="/collections/rccb-cau-dao-chong-dong-ro-dang-cai" target="_self">RCCB Cầu dao chống dòng rò - dạng cài</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="68">
                                                         <a  aria-label="RCBO Cầu dao tích hợp chống dòng rò - dạng cài" rel="" href="/collections/rcbo-cau-dao-tich-hop-chong-dong-ro-dang-cai" target="_self">RCBO Cầu dao tích hợp chống dòng rò - dạng cài</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="69">
                                                         <a  aria-label="Cầu dao chống sét - dạng cài" rel="" href="/collections/cau-dao-chong-set-dang-cai" target="_self">Cầu dao chống sét - dạng cài</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="70">
                                                         <a  aria-label="MCCB Cầu dao tự động - dạng khối" rel="" href="/collections/mccb-cau-dao-tu-dong-dang-khoi" target="_self">MCCB Cầu dao tự động - dạng khối</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="71">
                                                         <a  aria-label="MCCB Cầu dao tự động - dạng khối (Loại chỉnh dòng)" rel="" href="/collections/mccb-cau-dao-tu-dong-dang-khoi-loai-chinh-dong" target="_self">MCCB Cầu dao tự động - dạng khối (Loại chỉnh dòng)</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="72">
                                                         <a  aria-label="ELCB Cầu dao chống dòng rò - dạng khối" rel="" href="/collections/elcb-cau-dao-chong-dong-ro-dang-khoi" target="_self">ELCB Cầu dao chống dòng rò - dạng khối</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="73">
                                                         <a  aria-label="ACB Máy cắt khí" rel="" href="/collections/acb-may-cat-khi" target="_self">ACB Máy cắt khí</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="74">
                                                         <a  aria-label="MotorCB Cầu dao bảo vệ motor - dạng khối" rel="" href="/collections/motorcb-cau-dao-bao-ve-motor-dang-khoi" target="_self">MotorCB Cầu dao bảo vệ motor - dạng khối</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="75">
                                                         <a  aria-label="CB Máy cắt" rel="" href="/collections/cb-may-cat" target="_self">CB Máy cắt</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="76">
                                                         <a  aria-label="ATS Compact (MCCB/CB)" rel="" href="/collections/ats-compact-mccb-cb" target="_self">ATS Compact (MCCB/CB)</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="77">
                                                         <a  aria-label="ATS Masterpact (ACB)" rel="" href="/collections/ats-masterpact-acb" target="_self">ATS Masterpact (ACB)</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="78">
                                                         <a  aria-label="Contactor" rel="" href="/collections/contactor" target="_self">Contactor</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="79">
                                                         <a  aria-label="Relay nhiệt" rel="" href="/collections/relay-nhiet" target="_self">Relay nhiệt</a>
                                                     </li>
-                                                                                                    <li>
+                                                                                                    <li data-index="80">
                                                         <a  aria-label="CP Cầu dao tự động" rel="" href="/collections/cp-cau-dao-tu-dong" target="_self">CP Cầu dao tự động</a>
                                                     </li>
                                                                                             </ul>
@@ -467,3 +437,23 @@
                                         </div>
 </div>                    </div>
                 </li>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const nav = document.querySelector('.category-navigation');
+  if (!nav) return;
+  const items = nav.querySelectorAll('.category-navigation__list li');
+  const subs = nav.querySelectorAll('.category-navigation__sub .sub-menu');
+  items.forEach(function(item, idx) {
+    item.addEventListener('mouseenter', function() {
+      subs.forEach(function(sub, sIdx) {
+        sub.style.display = (sIdx === idx) ? 'block' : 'none';
+      });
+    });
+  });
+  nav.addEventListener('mouseleave', function() {
+    subs.forEach(function(sub) { sub.style.display = 'none'; });
+  });
+});
+</script>
+
+{%- comment -%} hrv-sync-1001512581 {%- endcomment -%}

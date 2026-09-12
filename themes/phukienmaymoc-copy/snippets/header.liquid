@@ -63,16 +63,16 @@
         alt="logo-hlt-2024"
                             width="243"
                             height="55"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                     </a>
                 </div>
                 <div class="main-header__search">
     <div class="search-form">
-        <form method="GET">
-            <input type="hidden" name="_token" value="cbPgr9fLBRyoJ0xKguHa3QFSYertLGpMDINS35Ce" autocomplete="off">            <div class="search-form__input">
-                <input autocomplete="off" type="text" placeholder="Nhập từ khoá để tìm kiếm sản phẩm">
+        <form action="/search" method="GET">
+            <div class="search-form__input">
+                <input autocomplete="off" type="text" name="q" placeholder="Nhập từ khoá để tìm kiếm sản phẩm">
                 <span class="loading-suggest">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 200 200"><radialGradient id="a10" cx=".66" fx=".66" cy=".3125" fy=".3125" gradientTransform="scale(1.5)"><stop offset="0" stop-color="#ffffff"></stop><stop offset=".3" stop-color="#ffffff" stop-opacity=".9"></stop><stop offset=".6" stop-color="#ffffff" stop-opacity=".6"></stop><stop offset=".8" stop-color="#ffffff" stop-opacity=".3"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop></radialGradient><circle transform-origin="center" fill="none" stroke="url(#a10)" stroke-width="9" stroke-linecap="round" stroke-dasharray="200 1000" stroke-dashoffset="0" cx="100" cy="100" r="70"><animateTransform type="rotate" attributeName="transform" calcMode="spline" dur="2" values="360;0" keyTimes="0;1" keySplines="0 0 1 1" repeatCount="indefinite"></animateTransform></circle><circle transform-origin="center" fill="none" opacity=".2" stroke="#ffffff" stroke-width="9" stroke-linecap="round" cx="100" cy="100" r="70"></circle></svg>
                 </span>
@@ -132,14 +132,14 @@
                             <span>Hotline: 1800 6345</span>
                         </a>
                     </div>
-                    <div class="systerm" @click.away="openBranch = false">
+                    <div class="systerm" onclick="document.getElementById('systerm-list')?.classList.toggle('active')">
                                                     <p class="item-cta flex-center">
                                 <svg width="17" height="21" viewBox="0 0 17 21" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path fill-rule="evenodd" clip-rule="evenodd" d="M8.82187 20.7642C10.6363 20.7642 16.9992 13.8758 16.9992 8.94971C16.9992 4.0236 13.748 0.76416 8.82187 0.76416C3.89576 0.76416 0.644531 4.0236 0.644531 8.9415C0.644531 13.8594 7.00742 20.7559 8.82187 20.7559V20.7642ZM8.82187 12.5868C10.8334 12.5868 12.459 10.9612 12.459 8.94971C12.459 6.93822 10.8334 5.3126 8.82187 5.3126C6.81038 5.3126 5.18476 6.93822 5.18476 8.94971C5.18476 10.9612 6.81038 12.5868 8.82187 12.5868Z" fill="#3590CE"/>
                                 </svg>
                                 <span>Hệ thống chi nhánh</span>
                             </p>
-                            <div :class="{ 'systerm-lists': true, 'active': openBranch }" id="systerm-list">
+                            <div class="systerm-lists" id="systerm-list">
                                                                     <p class="systerm-lists__item">
                                         <a href="/lien-he?branch=1" aria-label="Trụ sở chính">
                                             <span class="name">Trụ sở chính</span><br>
@@ -484,7 +484,7 @@
         alt="icon"
                             width="100%"
                             height="100%"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                                                 <span class="menu-link__name">Các thương hiệu</span>
@@ -499,7 +499,7 @@
         alt="icon-01"
                             width="100%"
                             height="100%"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                                                 <span class="menu-link__name">Đặt hàng nhanh</span>
@@ -514,7 +514,7 @@
         alt="icon-02"
                             width="100%"
                             height="100%"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                                                 <span class="menu-link__name">Yêu cầu báo giá</span>
@@ -529,7 +529,7 @@
         alt="icon-03"
                             width="100%"
                             height="100%"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                                                 <span class="menu-link__name">Tracking Order</span>
@@ -544,7 +544,7 @@
         alt="icon-04"
                             width="100%"
                             height="100%"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                                                 <span class="menu-link__name">Check bảo hành</span>
@@ -559,7 +559,7 @@
         alt="icon-05"
                             width="100%"
                             height="100%"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                                                 <span class="menu-link__name">Tài liệu kỹ thuật</span>
@@ -574,7 +574,7 @@
         alt="icon-06"
                             width="100%"
                             height="100%"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                                                 <span class="menu-link__name">Tin tức</span>
@@ -589,7 +589,7 @@
         alt="flash-sales-2-1"
                             width="100%"
                             height="100%"
-                onerror="this.onerror=null; this.src='/assets/images/default_image.png.webp';"
+                onerror="this.onerror=null; this.src='{{ 'default_image.png.webp' | asset_url }}';"
     >
 </div>
                                                 <span class="menu-link__name">Flash Sale</span>
@@ -880,3 +880,4 @@
         </div>
     </div>
 </div>
+{%- comment -%} hrv-sync-1001512581 {%- endcomment -%}
