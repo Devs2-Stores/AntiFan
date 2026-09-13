@@ -60,7 +60,16 @@ comparable with the Chromium capture that preceded it.
    are device-optional so a host with no phone gets the adapter's accurate `DEVICE_NOT_CONNECTED`
    ("install Apple Mobile Device Support") rather than a target complaint. Target-bound operations still
    fail closed, and a supplied target is always validated against the live binding.
-6. **Runtime lease vs evidence lease** — the first cut forwarded the *runtime* lease token to artifact
+6. **A cached usbmux bridge could wedge across a re-plug** — the bridge's loopback listener outlives the
+   device socket (only `close()` stops it, and a failed `Connect` merely fails that one client), while
+   `bridgeDeviceWdaPort` returned the cached URL without re-probing. Releasing on epoch mismatch only ran
+   on the bound-target path (`transportFor`), so an unbound `device.status` — the call an operator makes
+   first — kept re-caching a bridge pinned to a retired `deviceNumber`: loopback accepted, every request
+   failed, and the adapter reported `DEVICE_WDA_NOT_READY` indefinitely even with a live runner. A cached
+   bridge is now reused only while its own `deviceNumber` is still attached *and* the establishment probe
+   still answers through it; otherwise it is closed and rebuilt, or dropped so the caller gets the
+   accurate typed error.
+7. **Runtime lease vs evidence lease** — the first cut forwarded the *runtime* lease token to artifact
    staging, which the store correctly rejects as an expired evidence lease. Device staging now mirrors
    `browser.screenshot` (unleased unless the caller explicitly acquired an evidence lease).
 

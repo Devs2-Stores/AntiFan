@@ -521,9 +521,21 @@ export class IosDeviceAdapter implements DeviceControlPort {
    * transport fault, so the caller keeps its candidate-list error.
    */
   private async bridgeDeviceWdaPort(): Promise<string | undefined> {
-    if (this.bridgedForwarder) return `http://${this.bridgedForwarder.localHost}:${this.bridgedForwarder.localPort}`;
     try {
       const attached = await listUsbmuxDevices(5_000);
+      const cached = this.bridgedForwarder;
+      if (cached) {
+        const cachedBaseUrl = `http://${cached.localHost}:${cached.localPort}`;
+        // The loopback listener outlives the device socket, so a cached bridge keeps accepting TCP while
+        // every Connect targets a deviceNumber a re-plug already retired. The establishment probe is the
+        // only check that covers the whole chain (listener, device socket, runner), so reuse the cached
+        // bridge only while its own device is still attached *and* still answers there; otherwise drop it
+        // and rebuild rather than publish a URL that cannot serve a request.
+        const pinnedStillAttached = attached.some((entry) => entry.deviceNumber === cached.deviceNumber);
+        if (pinnedStillAttached && (await probeWdaCandidates([cachedBaseUrl]))) return cachedBaseUrl;
+        this.releaseBridgedTransport();
+        console.log('[antifan:device] released the usbmux bridge: its device was re-attached or the runner stopped answering');
+      }
       if (!attached.length) return undefined;
       const liveDeviceId = this.devices.getLiveBinding()?.deviceId;
       const device =
