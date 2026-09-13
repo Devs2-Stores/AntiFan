@@ -281,8 +281,18 @@ async function run() {
     check('device.status answers with a failed attachment gate and the operator remediation', bareStatus.readiness.physical.status === 'fail' && /Apple Mobile Device Support/.test(String(bareStatus.readiness.physical.action)), bareStatus.readiness.physical);
     check('device.status exposes no fabricated device identity or binding', bareStatus.device === undefined && bareStatus.target === undefined, bareStatus.device);
     await expectError('a target-bound device operation reports the device as not connected', 'DEVICE_NOT_CONNECTED', () => bareCall('device.tap', { x: 1, y: 1 }));
+  } else if (enumeration.count === 0) {
+    // The transport works and nothing is plugged in. That is a third state, not the failure of the
+    // branch above: enumeration itself succeeded, so the diagnostics must answer with an empty list and
+    // a connect-the-phone action rather than a transport code.
+    const bareList = await bareCall('device.list');
+    check('device.list answers with an empty list when the transport works and no device is attached', Array.isArray(bareList) && bareList.length === 0, bareList);
+    check('device.status answers with a failed attachment gate and the operator remediation', bareStatus.readiness.physical.status === 'fail' && /Connect it by USB/.test(String(bareStatus.readiness.physical.action)), bareStatus.readiness.physical);
+    check('device.status exposes no fabricated device identity or binding', bareStatus.device === undefined && bareStatus.target === undefined, bareStatus.device);
+    await expectError('a target-bound device operation reports the device as not connected', 'DEVICE_NOT_CONNECTED', () => bareCall('device.tap', { x: 1, y: 1 }));
   } else {
-    // Host with a working USB stack: no fabricated failure, the same call reports real readiness.
+    // Host with a working USB stack and an attached device: no fabricated failure, the same call reports
+    // real readiness.
     check('device.status reports readiness instead of failing when the host enumerates devices', bareStatus.readiness.physical.status === 'pass', bareStatus.readiness.physical);
   }
 
