@@ -398,17 +398,18 @@ export class CapabilityCatalogue {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
-      // Strict on purpose, and the reachable paths are unaffected by it:
+      // Strict on purpose, and it is the contract the tests pin rather than a loose guard:
       //   * Every operation-capable device capability sets `requiresDeviceTarget: true`, so its target is
-      //     always validated exactly; the inner check could never skip validation for a device action.
-      //   * `device.list` / `device.status` / `device.open_safari` are target-optional, but the whole
-      //     branch is skipped for them unless a `deviceTarget` is supplied - and nothing in this codebase
-      //     populates that field (no assignment, no spread into a context), so their "never fails on
-      //     absence" contract holds on every path a caller can actually reach.
-      // The only divergence is a caller that supplies a foreign or stale target to one of those three.
-      // Then `device.open_safari` would otherwise silently ignore the device it was told to use, so a
-      // typed refusal is the better answer. Callers that just want readiness on a phone-less host pass
-      // `deviceId` (or nothing) and never set `deviceTarget`.
+      //     always validated exactly; the inner check can never skip validation for a device action.
+      //   * A caller that supplies a `deviceTarget` is held to it: a stale epoch or session generation is
+      //     refused with `DEVICE_TARGET_STALE`, and the capability then runs on the live binding
+      //     (`test/unit/device-target-authority.test.ts`, `scripts/smoke-device-surface.mjs`).
+      //   * A sessionless target is accepted only where `allowMissingDeviceSession` says so, which is how
+      //     `device.open_safari` establishes the very session a later capability requires.
+      // The target-optional capabilities (`device.list` / `device.status` / `device.open_safari`) skip this
+      // branch entirely when no target is supplied, so a phone-less host still gets a readiness answer;
+      // supplying a foreign target to one of them is refused instead of silently ignored, because ignoring
+      // it would act on a different device than the caller named.
       authorizeAndResolveEffectiveDeviceTarget(
         context,
         this.options.getDeviceBinding?.(),
