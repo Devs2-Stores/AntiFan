@@ -125,19 +125,26 @@ store, so a device receipt is directly comparable with the Chromium capture that
 
 ### Prerequisites
 
-- **Attachment (USB)**: Apple Mobile Device Support must be installed and running, because
-  enumeration goes through `usbmuxd`. On Windows that means the standalone (non-Microsoft-Store)
-  iTunes installer or the Apple Devices app. Without it there is no USB path at all, and
-  `device.status` reports a transport failure instead of claiming no device is attached.
+- **Attachment (USB)**: `usbmuxd` must be running, because enumeration goes through it. Two flavours
+  provide it on Windows: the classic (non-Microsoft-Store) iTunes/Apple Devices install adds
+  `AppleMobileDeviceService` plus `Common Files\Apple\Mobile Device Support`, while Microsoft Store
+  iTunes serves the same port from `AppleMobileDeviceProcess.exe` (measured on this workstation — see the
+  host traps below for what that changes for third-party tools). Without either there is no USB path at
+  all, and `device.status` reports a transport failure instead of claiming no device is attached.
 - **WebDriverAgent runner**: the automation surface is WebDriverAgent over plain HTTP. No Appium
-  server is involved in this path.
-- **Reaching it**: either forward the device port to the host, or point the adapter at the device's
-  own address:
-  - `ANTIFAN_WDA_URL=http://<host>:8100`
-  - `ANTIFAN_WDA_CANDIDATES=http://127.0.0.1:8100,http://<iphone-lan-ip>:8100`
+  server is involved in this path. On iOS 17 and later the runner must be launched through a RemoteXPC
+  tunnel, which is what the runbook below covers.
+- **Reaching it**: nothing to configure by default. With no `ANTIFAN_WDA_URL`, no
+  `ANTIFAN_WDA_CANDIDATES` and no explicit candidates, the adapter bridges the runner's device-side port
+  to loopback over usbmux itself (`ANTIFAN_WDA_DEVICE_PORT`, default 8100). Configuring an explicit
+  transport **turns that bridge off** and makes the operator its owner — do that when the runner is
+  already exposed some other way, not as the default recipe:
+  - `ANTIFAN_WDA_URL=http://<host-port-or-lan-ip>:8100`
+  - `ANTIFAN_WDA_CANDIDATES=https://preview.example,http://<iphone-lan-ip>:8100`
 
-  An iPhone's `localhost` is the phone's own loopback, not the workstation's, so a forwarded port or
-  a network address is required. A reverse-USB tunnel for localhost is out of scope for this milestone.
+  An iPhone's `localhost` is the phone's own loopback, not the workstation's, so an explicit transport
+  means a LAN address or a forwarded port. A reverse-USB tunnel for localhost is out of scope for this
+  milestone.
 
 ### Capabilities
 
@@ -201,10 +208,12 @@ absent — a different fix from an empty USB bus. The probe writes the serial an
 its JSON report.
 
 `--forward <devicePort>` bridges a port the phone itself listens on to `127.0.0.1` with the in-process
-usbmux forwarder, with no `iproxy` / `go-ios forward` involved. The adapter does the same thing on its own:
-when no configured candidate answers, it bridges the runner's device port (`ANTIFAN_WDA_DEVICE_PORT`,
-default 8100) over usbmux and only accepts it once WebDriverAgent answers there. Bridging is not a
-RemoteXPC tunnel: it reaches a port the device already exposes, which is what a running runner provides.
+usbmux forwarder, with no `iproxy` / `go-ios forward` involved. The adapter does the same thing on its own
+while the candidate list is still its own default: when none of those candidates answers, it bridges the
+runner's device port (`ANTIFAN_WDA_DEVICE_PORT`, default 8100) over usbmux and only accepts it once
+WebDriverAgent answers there. An explicit candidate list, whether from the argument or the environment,
+means the operator owns the transport and keeps the bridge off. Bridging is not a RemoteXPC tunnel: it
+reaches a port the device already exposes, which is what a running runner provides.
 
 ### First-run runbook (Windows, real hardware)
 
@@ -282,7 +291,13 @@ address or a tunnel URL is only needed once an explicit transport is configured.
 - **Microsoft Store iTunes is what provides usbmuxd here.** `C:\Program Files\WindowsApps\AppleInc.iTunes_*\
   AMDS64\AppleMobileDeviceProcess.exe` answers on tcp 27015, while `C:\Program Files\Common Files\Apple`
   does not exist. Signing tools that document the classic non-Store iTunes as a prerequisite may not see
-  the device in this configuration.
+  the device in this configuration. (Inventory the Store flavour with `Get-AppxPackage` or the process
+  owner — `C:\Program Files\WindowsApps` cannot be listed without elevation, so an empty listing there
+  means nothing.) Swapping to the web installers is an upgrade rather than a workaround: they lay down
+  the classic `AppleMobileDeviceService` plus `Common Files\Apple\Mobile Device Support` layout that
+  go-ios, `iproxy` and the libimobiledevice guides assume, and the pairing record under
+  `C:\ProgramData\Apple\Lockdown` is shared between flavours, so the device returns after a re-trust and
+  a tunnel restart.
 - **This machine's root store contains no Apple roots at all** (285 trusted roots, none issued by Apple),
   so `gs.apple.com` fails TLS verification with `SELF_SIGNED_CERT_IN_CHAIN`. That endpoint is Apple's TSS,
   which `ios image auto` needs in order to mount the developer image, and the same class of failure

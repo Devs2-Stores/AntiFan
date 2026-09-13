@@ -117,7 +117,7 @@ Apple Mobile Device Support was installed and the phone unlocked, which moved th
 | Port bridging | `connectDevicePort` took the **`same-socket` handover** branch (Apple's Windows usbmuxd does not return a `Port`), and the in-process forwarder carried a real lockdownd exchange: a plain TCP client with no usbmux knowledge read `ProductVersion` through `127.0.0.1:<bridge>` |
 | Device facts | `device_lockdown` pass — `Admin's iPhone`, `iPhone14,5`, iOS `26.5.2` (`23F84`), pairing record present at `C:\ProgramData\Apple\Lockdown\00008110-00013942210A401E.plist` |
 | Pairing | trusted — privileged keys answer `GetProhibited` (needs a paired `StartSession`), not `PairingRequired` |
-| Adapter transport fallback | with no candidate answering, the adapter bridged device port 8100 over usbmux itself — **no `iproxy`/`go-ios` involved** |
+| Adapter transport fallback | with the candidate list left at its own defaults, the adapter bridged device port 8100 over usbmux itself — **no `iproxy`/`go-ios` involved**. Smoke phase 9 now exercises exactly that path on every run, so the claim is tied to current code rather than to a manual run |
 | Runner gate | **device-measured**: usbmuxd answered the Connect to port 8100 and the device refused it, surfaced as typed `DEVICE_WDA_NOT_READY` ("The WebDriverAgent runner is not answering") — i.e. no runner is running, which is now the only remaining gap |
 | Developer Mode | `ios devmode get` → `DeveloperModeEnabled: true`, after the device-side toggle and restart that iOS requires when a passcode is set |
 | iOS 17+ tunnel | `ios tunnel start --userspace` → `{"userspaceTun":true,"rsdPort":54932}` and `ios rsd ls` lists the full RSD service set — **no `wintun.dll`, no Administrator** |
