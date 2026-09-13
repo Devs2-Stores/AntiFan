@@ -399,8 +399,11 @@ export class CapabilityCatalogue {
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
       // Strict on purpose, and it is the contract the tests pin rather than a loose guard:
-      //   * Every operation-capable device capability sets `requiresDeviceTarget: true`, so its target is
-      //     always validated exactly; the inner check can never skip validation for a device action.
+      //   * Every capability that acts on an established session - navigate, reload, screenshot, tap,
+      //     swipe, type, wait - sets `requiresDeviceTarget: true`, so its target is always validated
+      //     exactly; the inner check can never skip validation for a session-bound operation. The three
+      //     target-optional entries are the reads (`device.list`, `device.status`) and `device.open_safari`,
+      //     which is a write but writes the session itself, so it cannot require one to already exist.
       //   * A caller that supplies a `deviceTarget` is held to it: a stale epoch or session generation is
       //     refused with `DEVICE_TARGET_STALE`, and the capability then runs on the live binding
       //     (`test/unit/device-target-authority.test.ts`, `scripts/smoke-device-surface.mjs`).
