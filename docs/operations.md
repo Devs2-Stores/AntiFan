@@ -286,6 +286,28 @@ A phone's `localhost` is its own loopback, not this workstation's, and nothing h
 tunnel for localhost: the adapter bridges the runner's own port over usbmux, so a forwarder, a LAN
 address or a tunnel URL is only needed once an explicit transport is configured.
 
+### No-signing device surface (measured on this workstation, 2026-09-13)
+
+go-ios reaches several device services through the RSD tunnel with **no signed app at all** — Developer
+Mode plus the mounted developer image are enough. Verified live against the attached iPhone 13 / iOS
+26.5.2:
+
+| Command | Measured result |
+| --- | --- |
+| `ios screenshot --output=<file>` | a real PNG at native panel resolution (1170x2532), complete and valid (253 chunks, IEND present). The first attempt timed out with `TakeScreenshot: Timed out waiting for response` and the immediate retry succeeded, so treat that timeout as retryable rather than as a wiring fault |
+| `ios ps` | the device's real process list with system paths and start times |
+| `ios info` | full lockdown identity (build `23F84`, baseband, Bluetooth address, boot session) |
+| `ios rsd ls` | the full RSD service list |
+| `ios webinspector list` | the tunnel reaches the inspector and the device answers for itself: *"web inspector is not enabled on the device; enable Settings > Safari > Advanced > Web Inspector, then reconnect"* |
+| `ios ax` | no response within 60 s, consistent with Settings > Developer > Enable UI Automation still being off (unconfirmed until that toggle is flipped) |
+
+What this tier cannot do: **native input**. go-ios exposes no tap/swipe, so driving the UI still requires
+a signed runner (`runwda` / `runtest` / `runxctest` / `ui`). The no-signing tier therefore yields
+evidence and inspection — screenshots, process lists, logs, packet capture, web content — not device
+control. Do not run bare `ios prepare` to widen it: it is the one command here that reconfigures the
+device (supervision-style prep, certificate creation) on someone's personal phone, and nothing above
+needs it.
+
 ### Known host traps (measured on this workstation)
 
 - **Explorer shows the iPhone, yet no tool can reach it.** Windows' inbox MTP/WPD stack is what makes the

@@ -127,14 +127,17 @@ Apple Mobile Device Support was installed and the phone unlocked, which moved th
 | Device facts | `device_lockdown` pass — `Admin's iPhone`, `iPhone14,5`, iOS `26.5.2` (`23F84`), pairing record present at `C:\ProgramData\Apple\Lockdown\00008110-00013942210A401E.plist` |
 | Pairing | trusted — privileged keys answer `GetProhibited` (needs a paired `StartSession`), not `PairingRequired` |
 | Adapter transport fallback | with the candidate list left at its own defaults, the adapter bridged device port 8100 over usbmux itself — **no `iproxy`/`go-ios` involved**. Smoke phase 9 now exercises exactly that path on every run, so the claim is tied to current code rather than to a manual run |
-| Runner gate | **device-measured**: usbmuxd answered the Connect to port 8100 and the device refused it, surfaced as typed `DEVICE_WDA_NOT_READY` ("The WebDriverAgent runner is not answering") — i.e. no runner is running, which is now the only remaining gap |
+| Runner gate | **device-measured**: usbmuxd answered the Connect to port 8100 and the device refused it, surfaced as typed `DEVICE_WDA_NOT_READY` ("The WebDriverAgent runner is not answering") — i.e. no runner is running, which is the only remaining gap for *device control* (evidence and inspection already work unsigned, see below) |
 | Developer Mode | `ios devmode get` → `DeveloperModeEnabled: true`, after the device-side toggle and restart that iOS requires when a passcode is set |
 | iOS 17+ tunnel | `ios tunnel start --userspace` → `{"userspaceTun":true,"rsdPort":54932}` and `ios rsd ls` lists the full RSD service set — **no `wintun.dll`, no Administrator** |
 | Developer image | `ios image auto` → "requesting new signature from Apple TSS" → "success mounting image"; `ios image list` reports the image signature. Needed installing Apple's root CAs first (see host traps) |
 | Installed apps | `ios apps` lists 81 applications and **no WebDriverAgent**: the runner genuinely has to be signed and installed |
+| No-signing device tier | **device-measured**: `ios screenshot` wrote a valid 1170x2532 PNG of the real phone screen (complete, IEND present), `ios ps` listed the device's processes with real system paths, `ios info` returned the full lockdown identity — all through the RSD tunnel with **no signed app and no Apple ID**. `ios webinspector list` reaches the inspector and waits only on the device's Safari toggle |
+| Native input without signing | **not available**: go-ios exposes no tap/swipe command, so `device.tap` / `device.swipe` / `device.type` and the WDA session operations still require `runwda` behind a signed runner |
 
-`npm run smoke:device` reports 31 passed / 0 failed with a device attached (the live-discovery phase takes
-its "device present" branch instead of its absence branch).
+`npm run smoke:device` reports 32 passed / 0 failed with a device attached (the live-discovery phase takes
+its "device present" branch instead of its absence branch, and phase 9 exercises the default-candidate
+bridge against the attached device).
 
 ## Remaining gap: a running WebDriverAgent runner
 
@@ -147,17 +150,28 @@ its provisioning profile is trusted.").
 On iOS 17+ an XCTest runner reaches `testmanagerd` only through a RemoteXPC tunnel, so launching it is the
 one step that cannot be performed from this host:
 
-- **A Mac (any, borrowed is fine)** — open WebDriverAgent in Xcode, select the device, Run. Nothing needs
-  installing here: the adapter bridges port 8100 over usbmux on its own.
+- **A Mac (any, borrowed is fine, phone attached)** — open WebDriverAgent in Xcode, select the device,
+  Run: automatic signing registers the device and mints the certificate in one step. Nothing needs
+  installing here: the adapter bridges port 8100 over usbmux on its own. A *hosted* macOS runner (CI) is
+  **not** an equivalent shortcut — free-Apple-ID automatic signing needs an interactive 2FA session, a
+  runner has no USB to register this device's UDID into the profile, and the wiring tempts you to commit
+  Apple ID credentials, which this repository forbids.
+- **Anything that mints a P12 + mobileprovision** — a paid Apple Developer identity signed locally with
+  `ios sign app`, or `ios sign provision appstoreconnect` with an App Store Connect key. Both stay
+  Windows-only and need no third-party GUI.
 - **Windows-only (verified on this host, no Administrator and no `wintun.dll`)** — go-ios 1.3.2 sees the
   device, and `ios tunnel start --userspace` negotiates over usbmux and exposes the full RSD service list,
   so the kernel-tunnel `wintun.dll` advice does not apply. `ios ui download wda` fetched an unsigned
-  WebDriverAgentRunner 13.2.0. The two remaining inputs are on the device side: Developer Mode is
-  `false` and, with a passcode set, iOS refuses a remote enable, so the toggle must be flipped in
-  Settings (the menu is already revealed); and the runner needs signing assets (a P12 + mobileprovision,
-  an App Store Connect key for `sign provision appstoreconnect`, or an external signer such as
-  Sideloadly/AltStore). After that: `ios runwda --bundleid=com.facebook.WebDriverAgentRunner.xctrunner`
-  and `npm run probe:device -- --forward 8100`.
+  WebDriverAgentRunner 13.2.0. Developer Mode is now `true` (`ios devmode get`, after the device-side
+  toggle iOS insists on), so the only remaining input is signing: a P12 + mobileprovision, an App Store
+  Connect key, or an external signer such as Sideloadly/AltStore. After that:
+  `ios runwda --bundleid=com.facebook.WebDriverAgentRunner.xctrunner` and
+  `npm run probe:device -- --forward 8100`.
+- **No signing at all — evidence and inspection only (verified on this host)** — the RSD tunnel already
+  serves `ios screenshot` (a real 1170x2532 PNG of this phone), `ios ps` and `ios info`, and
+  `ios webinspector list` reaches Safari's inspector waiting only on the device's Web Inspector toggle.
+  This costs no Apple ID and no iTunes change, but go-ios exposes no tap/swipe, so device *control* still
+  needs the signed runner above.
 
 Either way the host side needs no further work: `npm run probe:device -- --forward 8100` confirms the port,
 and the adapter's own fallback bridges it without `iproxy` or `go-ios forward`. The step-by-step runbook is
