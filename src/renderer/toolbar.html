@@ -181,10 +181,10 @@
 
         <!-- Group 2: Inspection & Dev Tools -->
         <div class="toolbar-group toolbar-group-tools">
-          <button class="nav-btn btn-device-status" id="btnDeviceStatus" style="display:none;" title="iPhone 13 Connected">
-            <span class="device-status-dot"></span>
-            <span class="device-status-icon">📱</span>
-            <span class="device-status-text" id="deviceStatusText">iPhone 13 Connected</span>
+          <button class="nav-btn btn-phone-status" id="btnPhoneStatus" style="display:none;" title="iPhone Connected">
+            <span class="phone-status-dot" id="phoneStatusDot"></span>
+            <span class="phone-status-icon">📱</span>
+            <span class="phone-status-text" id="phoneStatusText">iPhone Connected</span>
           </button>
 
           <button class="nav-btn btn-theme-qa" id="btnThemeQa" title="Run Theme QA Validation (Zero-Liquid & Responsive Overflow)">
@@ -403,21 +403,21 @@
         </div>
       </div>
     </div>
-    <!-- REAL IPHONE DEVICE STATUS MODAL -->
-    <div class="device-status-overlay" id="deviceStatusOverlay" style="display:none;">
-      <div class="device-status-modal" role="dialog" aria-modal="true" aria-labelledby="deviceStatusModalTitle">
-        <div class="device-status-modal-header">
+    <!-- REAL IPHONE HARDWARE PHONE STATUS MODAL -->
+    <div class="phone-status-overlay" id="phoneStatusOverlay" style="display:none;">
+      <div class="phone-status-modal" role="dialog" aria-modal="true" aria-labelledby="phoneStatusModalTitle">
+        <div class="phone-status-modal-header">
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="font-size:18px;">📱</span>
-            <strong id="deviceStatusModalTitle">Apple iPhone Hardware</strong>
+            <strong id="phoneStatusModalTitle">Apple iPhone Hardware</strong>
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <button id="btnDeviceStatusRefresh" class="btn-device-modal-action" title="Làm mới trạng thái">🔄 Làm mới</button>
-            <button class="shortcuts-close" id="deviceStatusClose" aria-label="Đóng">&times;</button>
+            <button id="btnPhoneStatusRefresh" class="btn-phone-modal-action" title="Làm mới trạng thái">🔄 Làm mới</button>
+            <button class="shortcuts-close" id="phoneStatusClose" aria-label="Đóng">&times;</button>
           </div>
         </div>
-        <div class="device-status-modal-body" id="deviceStatusBody">
-          <div class="device-status-empty">Đang kiểm tra kết nối thiết bị...</div>
+        <div class="phone-status-modal-body" id="phoneStatusBody">
+          <div class="phone-status-empty">Đang kiểm tra kết nối thiết bị...</div>
         </div>
       </div>
     </div>

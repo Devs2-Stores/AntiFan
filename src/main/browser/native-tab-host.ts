@@ -13,7 +13,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, ToolbarDeviceStatus } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, ToolbarPhoneStatus } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -970,12 +970,10 @@ export class NativeTabHost extends EventEmitter {
         activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
         chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
         themeQa: this.getThemeQaState(this.activeTabId),
-        deviceStatus: this.cachedDeviceStatus,
+        phoneStatus: this.cachedPhoneStatus,
       };
     });
-    ipcMain.handle(TOOLBAR_CHANNELS.GET_DEVICE_STATUS, async (_event, forceRefresh?: boolean) => this.getDeviceStatus(forceRefresh));
-    ipcMain.handle(TOOLBAR_CHANNELS.DEVICE_OPEN_SAFARI, async (_event, options?: { url?: string }) => this.openDeviceSafari(options));
-    ipcMain.handle(TOOLBAR_CHANNELS.DEVICE_SCREENSHOT, async () => this.captureDeviceScreenshot());
+    ipcMain.handle(TOOLBAR_CHANNELS.GET_PHONE_STATUS, async (_event, forceRefresh?: boolean) => this.getPhoneStatus(forceRefresh));
     ipcMain.handle(TOOLBAR_CHANNELS.THEME_QA_RUN, async (_event, options?: { workspaceRoot?: string }) => this.runThemeQa(options));
 
     ipcMain.handle(TOOLBAR_CHANNELS.CREATE_TAB, (_event, url?: string) => this.createTab(url));
@@ -6325,7 +6323,7 @@ export class NativeTabHost extends EventEmitter {
       activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
       chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
       themeQa: this.getThemeQaState(this.activeTabId),
-      deviceStatus: this.cachedDeviceStatus,
+      phoneStatus: this.cachedPhoneStatus,
     };
     safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
     safeSendWebContents(this.sidebarView?.webContents, 'antifan:tabs:updated', payload.tabs);
@@ -6339,94 +6337,59 @@ export class NativeTabHost extends EventEmitter {
     this.schedulePersist();
   }
 
-  private cachedDeviceStatus: ToolbarDeviceStatus | null = null;
-  private lastDeviceStatusCheck = 0;
+  private cachedPhoneStatus: ToolbarPhoneStatus | null = null;
+  private lastPhoneStatusCheck = 0;
 
-  public async getDeviceStatus(forceRefresh = false): Promise<ToolbarDeviceStatus> {
+  public async getPhoneStatus(forceRefresh = false): Promise<ToolbarPhoneStatus> {
     const now = Date.now();
-    if (!forceRefresh && this.cachedDeviceStatus && now - this.lastDeviceStatusCheck < 8000) {
-      return this.cachedDeviceStatus;
+    if (!forceRefresh && this.cachedPhoneStatus && now - this.lastPhoneStatusCheck < 5000) {
+      return this.cachedPhoneStatus;
     }
     const port = this.controlPlane?.getDevicePort();
     if (!port) {
-      this.cachedDeviceStatus = { connected: false, detail: 'Device control port not registered', lastChecked: now };
-      this.lastDeviceStatusCheck = now;
-      return this.cachedDeviceStatus;
+      this.cachedPhoneStatus = { state: 'unknown', detail: 'Device control port not registered', lastChecked: now };
+      this.lastPhoneStatusCheck = now;
+      return this.cachedPhoneStatus;
     }
     try {
-      const res = await port.status('');
-      if (!res.device) {
-        this.cachedDeviceStatus = { connected: false, detail: 'No iOS device attached via USB', lastChecked: now };
+      const devices = await port.list();
+      const dev = devices?.[0];
+      if (!dev) {
+        this.cachedPhoneStatus = { state: 'disconnected', detail: 'No physical iOS device attached via USB', lastChecked: now };
       } else {
-        this.cachedDeviceStatus = {
-          connected: true,
-          name: res.device.name,
-          model: res.device.model,
-          osVersion: res.device.osVersion,
-          deviceId: res.device.deviceId,
-          connection: res.device.connection,
-          automationReady: res.readiness.automationReady,
-          wdaReady: res.readiness.wda.status === 'pass',
-          detail: res.readiness.wda.status === 'pass' ? 'WebDriverAgent runner active' : 'WebDriverAgent runner idle/not answering',
+        this.cachedPhoneStatus = {
+          state: 'connected',
+          name: dev.name,
+          model: dev.model,
+          osVersion: dev.osVersion,
+          deviceId: dev.deviceId,
+          connection: dev.connection,
+          detail: 'Physical iPhone connected via USB (usbmuxd)',
           lastChecked: now,
         };
       }
     } catch (err) {
-      this.cachedDeviceStatus = {
-        connected: false,
+      this.cachedPhoneStatus = {
+        state: 'unknown',
         detail: err instanceof Error ? err.message : String(err),
         lastChecked: now,
       };
     }
-    this.lastDeviceStatusCheck = now;
-    return this.cachedDeviceStatus;
+    this.lastPhoneStatusCheck = now;
+    return this.cachedPhoneStatus;
   }
 
-  public async openDeviceSafari(options?: { url?: string }): Promise<{ success: boolean; error?: string }> {
-    const port = this.controlPlane?.getDevicePort();
-    if (!port) return { success: false, error: 'Device control port not registered' };
-    try {
-      const activeTab = this.tabs.get(this.activeTabId);
-      const targetUrl = options?.url || activeTab?.state.url || 'https://google.com';
-      await port.openSafari('', { initialUrl: targetUrl });
-      void this.getDeviceStatus(true).then((st) => this.broadcastDeviceStatus(st));
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
-  public async captureDeviceScreenshot(): Promise<{ success: boolean; artifactId?: string; error?: string }> {
-    const port = this.controlPlane?.getDevicePort();
-    const manager = this.controlPlane?.getDeviceManager();
-    if (!port || !manager) return { success: false, error: 'Device control port not registered' };
-    try {
-      const binding = manager.getLiveBinding();
-      if (!binding) return { success: false, error: 'No active device session. Please open Safari first.' };
-      const runContext = {
-        runId: `run-${Date.now()}`,
-        attemptId: `att-${Date.now()}`,
-        projectId: binding.projectId,
-        workspaceId: binding.workspaceId,
-      };
-      const artifact = await port.screenshot(binding, runContext);
-      return { success: true, artifactId: artifact.id };
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
-  public broadcastDeviceStatus(status?: ToolbarDeviceStatus): void {
-    const payload = status || this.cachedDeviceStatus;
+  public broadcastPhoneStatus(status?: ToolbarPhoneStatus): void {
+    const payload = status || this.cachedPhoneStatus;
     if (!payload || !this.toolbarView || this.toolbarView.webContents.isDestroyed()) return;
     try {
-      this.toolbarView.webContents.send(TOOLBAR_CHANNELS.DEVICE_STATUS, payload);
+      this.toolbarView.webContents.send(TOOLBAR_CHANNELS.PHONE_STATUS, payload);
     } catch {}
   }
 
   public setControlPlane(cp: ControlPlaneRuntime): void {
     this.controlPlane = cp;
-    void this.getDeviceStatus(true).then((st) => this.broadcastDeviceStatus(st)).catch(() => {});
+    void this.getPhoneStatus(true).then((st) => this.broadcastPhoneStatus(st)).catch(() => {});
   }
   public getThemeQaState(tabId?: string): { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number } {
     const id = tabId || this.activeTabId;

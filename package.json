@@ -64,6 +64,7 @@
     "install:shortcut": "node scripts/install-windows-shortcut.mjs",
     "certify:dual-plane": "node scripts/smoke-dual-plane-cutover-runner.cjs",
     "smoke:device": "npm run compile && node scripts/smoke-device-surface.mjs",
+    "smoke:phone-ui": "npm run compile && node scripts/run-electron.cjs scripts/smoke-phone-ui.cjs",
     "probe:device": "node scripts/probe-iphone-hardware.mjs"
   },
   "dependencies": {

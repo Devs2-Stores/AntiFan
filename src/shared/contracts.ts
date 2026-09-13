@@ -275,21 +275,17 @@ export const TOOLBAR_CHANNELS = {
   TOGGLE_SPLIT_REVIEW: 'antifan:toolbar:toggle-split-review',
   SET_SPLIT_PRESET: 'antifan:toolbar:set-split-preset',
   SET_SPLIT_FOCUSED_PANE: 'antifan:toolbar:set-split-focused-pane',
-  DEVICE_STATUS: 'antifan:toolbar:device-status',
-  GET_DEVICE_STATUS: 'antifan:toolbar:get-device-status',
-  DEVICE_OPEN_SAFARI: 'antifan:toolbar:device-open-safari',
-  DEVICE_SCREENSHOT: 'antifan:toolbar:device-screenshot',
+  PHONE_STATUS: 'antifan:toolbar:phone-status',
+  GET_PHONE_STATUS: 'antifan:toolbar:get-phone-status',
 };
 
-export interface ToolbarDeviceStatus {
-  connected: boolean;
+export interface ToolbarPhoneStatus {
+  state: 'connected' | 'disconnected' | 'unknown';
   name?: string;
   model?: string;
   osVersion?: string;
   deviceId?: string;
   connection?: string;
-  automationReady?: boolean;
-  wdaReady?: boolean;
   detail?: string;
   lastChecked?: number;
 }
