@@ -14,6 +14,7 @@ export interface HaravanLayoutOptions {
   includeFooter?: boolean;
   headerSnippet?: string;
   footerSnippet?: string;
+  bottomNavigationSnippet?: string;
 }
 
 export class HaravanLayoutGenerator {
@@ -51,10 +52,11 @@ export class HaravanLayoutGenerator {
     const includeFooter = options?.includeFooter !== false;
     const headerSnippet = options?.headerSnippet || 'header';
     const footerSnippet = options?.footerSnippet || 'footer';
+    const bottomNavSnippet = options?.bottomNavigationSnippet;
 
     const headerLiquid = includeHeader ? `    {% include '${headerSnippet}' %}\n` : '';
     const footerLiquid = includeFooter ? `\n    {% include '${footerSnippet}' %}` : '';
-
+    const bottomNavLiquid = bottomNavSnippet ? `\n    {% include '${bottomNavSnippet}' %}` : '';
     return `
 <!doctype html>
 <html${htmlAttrs}>
@@ -89,7 +91,7 @@ ${additionalStylesheets ? additionalStylesheets + '\n' : ''}
   <body${bodyAttrs}>
 ${headerLiquid}    <main id="MainContent" class="${mainClass}" role="main" tabindex="-1"${mainAttrs}>
       {{ content_for_layout }}
-    </main>${footerLiquid}
+    </main>${footerLiquid}${bottomNavLiquid}
 
 ${additionalScripts ? additionalScripts + '\n' : ''}    <script src="{{ 'theme.js' | asset_url }}" defer></script>
   </body>

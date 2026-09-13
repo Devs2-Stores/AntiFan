@@ -724,7 +724,10 @@ async function autohealSession() {
         try {
           const tabListId = 'tabs-' + crypto.randomUUID();
           const tabResult = await new Promise((resolve) => {
-            const timer = setTimeout(() => resolve(null), 3000);
+            const timer = setTimeout(() => {
+              ws.removeListener('message', onMsg);
+              resolve(null);
+            }, 3000);
             const onMsg = (raw) => {
               try {
                 const resp = JSON.parse(raw.toString());
@@ -768,7 +771,10 @@ async function autohealSession() {
       } else {
         const startId = 'autoheal-' + crypto.randomUUID();
         session = await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error('startSession timeout')), 5000);
+          const timer = setTimeout(() => {
+            ws.removeListener('message', onMsg);
+            reject(new Error('startSession timeout'));
+          }, 5000);
           const onMsg = (raw) => {
             try {
               const resp = JSON.parse(raw.toString());

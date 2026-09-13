@@ -489,16 +489,24 @@ export async function downloadUrlWithPinning(
           rejectOnce(err);
         });
 
-        req.on('socket', (socket: net.Socket) => {
-          socket.on('connect', () => {
-            const remoteIp = socket.remoteAddress;
-            if (remoteIp) {
-              const ipCheck = isPrivateOrReservedIp(remoteIp);
-              if (ipCheck.blocked) {
-                rejectOnce(new Error(`SSRF_SOCKET_CONNECTED_IP_BLOCKED: ${remoteIp}`));
-              }
+        const evaluateConnectedIp = (socket: net.Socket) => {
+          const remoteIp = socket.remoteAddress;
+          if (remoteIp) {
+            const ipCheck = isPrivateOrReservedIp(remoteIp);
+            if (ipCheck.blocked) {
+              rejectOnce(new Error(`SSRF_SOCKET_CONNECTED_IP_BLOCKED: ${remoteIp}`));
             }
-          });
+          }
+        };
+
+        req.on('socket', (socket: net.Socket) => {
+          // A pooled keep-alive socket is already connected: 'connect' will never fire again, so a
+          // listener added here would be retained for the socket's lifetime and pin this closure.
+          if (socket.connecting) {
+            socket.once('connect', () => evaluateConnectedIp(socket));
+          } else {
+            evaluateConnectedIp(socket);
+          }
         });
 
         req.end();
@@ -919,6 +927,292 @@ export class AssetLocalizer {
   }
 
   /**
+   * Consolidates byte-identical asset duplicates across contexts (e.g. desktop vs mobile).
+   * Rules (fail-closed, deterministic, no data loss):
+   * 1. Consider only items with sha256 (from download result or hashed from disk) and byteCount > 0.
+   * 2. Group strictly by sha256. Groups of size 1 are untouched.
+   * 3. Canonical member: prefer the member whose filename carries no -desktop/-mobile before the extension;
+   *    otherwise the lexicographically smallest filename (order-independent).
+   * 4. Rename the canonical file to its surface-neutral name (strip the trailing -desktop/-mobile token before the extension).
+   *    If that neutral path is already occupied by a file with a different sha256, keep the existing canonical name instead of overwriting.
+   *    If the canonical file is missing on disk, skip the whole group and delete nothing.
+   * 5. Delete the removed copies; set every member item's filename/localPath to the canonical;
+   *    rewrite every manifest.assetMap alias that pointed at a removed filename so it points at the canonical (keep url#desktop/url#mobile aliases working).
+   * 6. Items with distinct sha256 for the same URL keep their separate files — never merge those.
+   */
+  public consolidateIdenticalContent(
+    downloaded: DownloadedAssetResult[],
+    manifest: HarvestedAssetManifest,
+    assetsDir: string
+  ): {
+    consolidated: number;
+    freedBytes: number;
+    groups: Array<{
+      sha256: string;
+      canonical: string;
+      removed: string[];
+      removedFiles?: string[];
+      renamedFrom?: string;
+      aliases?: string[];
+    }>;
+  } {
+    const allItems: HarvestedAssetItem[] = [
+      ...manifest.stylesheets,
+      ...manifest.javascripts,
+      ...manifest.images,
+      ...manifest.fonts
+    ];
+
+    // 1. Build lookup for downloaded items by filename
+    const dlByFilename = new Map<string, DownloadedAssetResult>();
+    for (const dl of downloaded) {
+      if (dl.filename) {
+        dlByFilename.set(dl.filename, dl);
+      }
+    }
+
+    // Helper: strip surface qualifier before extension or before qualifier/hash suffix
+    const stripSurfaceQualifier = (filename: string): string => {
+      const ext = path.extname(filename);
+      let base = path.basename(filename, ext);
+      base = base.replace(/-(?:desktop|mobile)$/i, '');
+      base = base.replace(/-(?:desktop|mobile)-(?=[a-zA-Z0-9])/i, '-');
+      return `${base}${ext}`;
+    };
+
+    const hasSurfaceQualifier = (filename: string): boolean => {
+      const ext = path.extname(filename);
+      const base = path.basename(filename, ext);
+      return /(?:^|[-_])(?:desktop|mobile)(?:[-_.]|$)/i.test(base) && base !== 'desktop' && base !== 'mobile';
+    };
+
+    // 2. Discover sha256 and byteCount for all distinct filenames in manifest
+    // Map filename -> { sha256, byteCount }
+    const fileMetaMap = new Map<string, { sha256: string; byteCount: number }>();
+    for (const item of allItems) {
+      if (!item.filename || fileMetaMap.has(item.filename)) continue;
+
+      const filePath = path.resolve(assetsDir, item.filename);
+      let sha: string | undefined;
+      let bytes: number | undefined;
+
+      // Hash candidate file directly from disk first
+      if (fs.existsSync(filePath)) {
+        try {
+          const stat = fs.statSync(filePath);
+          if (stat.isFile() && stat.size > 0) {
+            bytes = stat.size;
+            const content = fs.readFileSync(filePath);
+            sha = createHash('sha256').update(content).digest('hex');
+          }
+        } catch {}
+      }
+
+      // Fall back to download result / item hash ONLY when file is genuinely absent on disk
+      if (!sha || bytes === undefined) {
+        const dl = dlByFilename.get(item.filename);
+        if (dl && dl.sha256 && dl.byteCount !== undefined && dl.byteCount > 0) {
+          sha = dl.sha256;
+          bytes = dl.byteCount;
+        } else if (item.sha256 && item.byteCount && item.byteCount > 0) {
+          sha = item.sha256;
+          bytes = item.byteCount;
+        }
+      }
+
+      if (sha && bytes && bytes > 0) {
+        fileMetaMap.set(item.filename, { sha256: sha, byteCount: bytes });
+      }
+    }
+
+    // 3. Group strictly by sha256
+    const shaGroups = new Map<string, { filenames: Set<string>; byteCount: number }>();
+    for (const [filename, meta] of fileMetaMap) {
+      let group = shaGroups.get(meta.sha256);
+      if (!group) {
+        group = { filenames: new Set<string>(), byteCount: meta.byteCount };
+        shaGroups.set(meta.sha256, group);
+      }
+      group.filenames.add(filename);
+    }
+
+    let totalConsolidated = 0;
+    let totalFreedBytes = 0;
+    const resultGroups: Array<{
+      sha256: string;
+      canonical: string;
+      removed: string[];
+      removedFiles?: string[];
+      renamedFrom?: string;
+      aliases?: string[];
+    }> = [];
+
+    // 4. Process groups
+    const sortedShaKeys = Array.from(shaGroups.keys()).sort();
+
+    for (const sha of sortedShaKeys) {
+      const group = shaGroups.get(sha)!;
+      // Rule 2: Groups of size 1 are untouched
+      if (group.filenames.size <= 1) continue;
+
+      const filenames = Array.from(group.filenames).sort((a, b) => a.localeCompare(b));
+
+      // Rule 3: Canonical member: prefer the member whose filename carries no -desktop/-mobile before the extension;
+      // otherwise the lexicographically smallest filename (order-independent).
+      const neutralMembers = filenames.filter(f => !hasSurfaceQualifier(f));
+      const chosenCanonical = neutralMembers.length > 0 ? neutralMembers[0] : filenames[0];
+
+      const canonicalPath = path.resolve(assetsDir, chosenCanonical);
+      // Rule 4: If the canonical file is missing on disk, skip the whole group and delete nothing
+      if (!fs.existsSync(canonicalPath)) {
+        continue;
+      }
+
+      // Physical deletion tracking: only files actually deleted from disk
+      const physicallyDeleted: string[] = [];
+      let groupFreedBytes = 0;
+      let renamedFrom: string | undefined = undefined;
+
+      // Rule 4: Rename canonical file to surface-neutral name (strip trailing/embedded -desktop/-mobile)
+      const neutralTarget = stripSurfaceQualifier(chosenCanonical);
+      let effectiveCanonical = chosenCanonical;
+
+      if (neutralTarget !== chosenCanonical) {
+        const neutralPath = path.resolve(assetsDir, neutralTarget);
+        if (fs.existsSync(neutralPath)) {
+          // Check if neutral path has identical sha256
+          let neutralSha: string | undefined;
+          try {
+            const neutralContent = fs.readFileSync(neutralPath);
+            neutralSha = createHash('sha256').update(neutralContent).digest('hex');
+          } catch {}
+
+          if (neutralSha === sha) {
+            // Already present with same sha256: use neutralTarget
+            effectiveCanonical = neutralTarget;
+            renamedFrom = chosenCanonical;
+            if (canonicalPath !== neutralPath && fs.existsSync(canonicalPath)) {
+              try {
+                const stat = fs.statSync(canonicalPath);
+                fs.unlinkSync(canonicalPath);
+                physicallyDeleted.push(chosenCanonical);
+                groupFreedBytes += stat.size;
+              } catch {}
+            }
+          } else {
+            // Occupied by a different file with different sha256: keep existing chosenCanonical
+            effectiveCanonical = chosenCanonical;
+          }
+        } else {
+          // Rename canonical to neutral
+          try {
+            fs.renameSync(canonicalPath, neutralPath);
+            effectiveCanonical = neutralTarget;
+            renamedFrom = chosenCanonical;
+          } catch {
+            effectiveCanonical = chosenCanonical;
+          }
+        }
+      }
+
+      // Rule 5: Delete other member files from disk (those not matching effectiveCanonical or chosenCanonical)
+      for (const fname of filenames) {
+        if (fname === effectiveCanonical || fname === chosenCanonical) continue;
+        const p = path.resolve(assetsDir, fname);
+        if (fs.existsSync(p)) {
+          try {
+            const stat = fs.statSync(p);
+            fs.unlinkSync(p);
+            physicallyDeleted.push(fname);
+            groupFreedBytes += stat.size;
+          } catch {}
+        }
+      }
+
+      totalConsolidated += physicallyDeleted.length;
+      totalFreedBytes += groupFreedBytes;
+
+      // Read canonical's real on-disk hash and size
+      const finalCanonicalPath = path.resolve(assetsDir, effectiveCanonical);
+      let finalCanonicalSha = sha;
+      let finalCanonicalBytes = group.byteCount;
+      if (fs.existsSync(finalCanonicalPath)) {
+        try {
+          const stat = fs.statSync(finalCanonicalPath);
+          finalCanonicalBytes = stat.size;
+          const buf = fs.readFileSync(finalCanonicalPath);
+          finalCanonicalSha = createHash('sha256').update(buf).digest('hex');
+        } catch {}
+      }
+
+      const allFormerMemberNames = Array.from(new Set([...filenames, chosenCanonical, effectiveCanonical]))
+        .filter(f => f !== effectiveCanonical)
+        .sort((a, b) => a.localeCompare(b));
+
+      resultGroups.push({
+        sha256: finalCanonicalSha,
+        canonical: effectiveCanonical,
+        removed: physicallyDeleted.sort((a, b) => a.localeCompare(b)),
+        renamedFrom,
+        aliases: allFormerMemberNames
+      });
+
+      // Update all items in manifest belonging to this group
+      const allAliasesSet = new Set(allFormerMemberNames);
+      for (const item of allItems) {
+        if (filenames.includes(item.filename) || allAliasesSet.has(item.filename) || item.filename === chosenCanonical) {
+          item.filename = effectiveCanonical;
+          item.localPath = path.resolve(assetsDir, effectiveCanonical);
+          item.sha256 = finalCanonicalSha;
+          item.byteCount = finalCanonicalBytes;
+        }
+      }
+
+      // Update downloaded results
+      for (const dl of downloaded) {
+        if (filenames.includes(dl.filename) || allAliasesSet.has(dl.filename) || dl.filename === chosenCanonical) {
+          dl.filename = effectiveCanonical;
+          dl.localPath = path.resolve(assetsDir, effectiveCanonical);
+          dl.sha256 = finalCanonicalSha;
+          dl.byteCount = finalCanonicalBytes;
+        }
+      }
+
+      // Rule 5: Rewrite every manifest.assetMap alias that pointed at a removed/renamed filename so it points at canonical
+      if (manifest.assetMap) {
+        for (const [alias, target] of Object.entries(manifest.assetMap)) {
+          if (allAliasesSet.has(target) || target === chosenCanonical) {
+            manifest.assetMap[alias] = effectiveCanonical;
+          }
+        }
+        for (const alias of allFormerMemberNames) {
+          manifest.assetMap[alias] = effectiveCanonical;
+          manifest.assetMap[`assets/${alias}`] = effectiveCanonical;
+          manifest.assetMap[`/assets/${alias}`] = effectiveCanonical;
+        }
+        manifest.assetMap[effectiveCanonical] = effectiveCanonical;
+        manifest.assetMap[`assets/${effectiveCanonical}`] = effectiveCanonical;
+        manifest.assetMap[`/assets/${effectiveCanonical}`] = effectiveCanonical;
+
+        for (const item of allItems) {
+          if (item.filename === effectiveCanonical) {
+            manifest.assetMap[item.sourceUrl] = effectiveCanonical;
+            if (item.rawSourceUrl) {
+              manifest.assetMap[item.rawSourceUrl] = effectiveCanonical;
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      consolidated: totalConsolidated,
+      freedBytes: totalFreedBytes,
+      groups: resultGroups
+    };
+  }
+
+  /**
    * Phase A2: Rewrites remote URLs in HTML/Liquid/CSS source files into local asset references using syntax-aware rewriters.
    */
   public rewriteFiles(
@@ -1270,10 +1564,11 @@ export class AssetLocalizer {
         depthExceededUrls.push(current.sourceUrl);
         continue;
       }
-      if (processedStylesheets.has(current.sourceUrl)) {
+      const normCssPath = path.resolve(current.localCssPath).toLowerCase();
+      if (processedStylesheets.has(normCssPath)) {
         continue;
       }
-      processedStylesheets.add(current.sourceUrl);
+      processedStylesheets.add(normCssPath);
 
       if (!fs.existsSync(current.localCssPath)) {
         continue;
@@ -1281,10 +1576,11 @@ export class AssetLocalizer {
       const cssContent = fs.readFileSync(current.localCssPath, 'utf8');
       const discoveredItems: HarvestedAssetItem[] = [];
 
-      let sheetMap = perSheetUrlMaps.get(current.localCssPath);
+      const normPathKey = path.resolve(current.localCssPath).toLowerCase();
+      let sheetMap = perSheetUrlMaps.get(normPathKey);
       if (!sheetMap) {
         sheetMap = new Map<string, string>();
-        perSheetUrlMaps.set(current.localCssPath, sheetMap);
+        perSheetUrlMaps.set(normPathKey, sheetMap);
       }
       // 1. Scan for @import declarations (CSS stylesheets or fonts)
       const importSpans: Array<{ start: number; end: number }> = [];
@@ -1437,6 +1733,14 @@ export class AssetLocalizer {
             sheetMap.set('https:' + urlRef, replacement);
             sheetMap.set('http:' + urlRef, replacement);
           }
+          const cleanUrlRef = urlRef.split('?')[0].split('#')[0];
+          if (cleanUrlRef && !sheetMap.has(cleanUrlRef)) {
+            sheetMap.set(cleanUrlRef, replacement);
+          }
+          const baseCleanRef = path.basename(cleanUrlRef);
+          if (baseCleanRef && !sheetMap.has(baseCleanRef)) {
+            sheetMap.set(baseCleanRef, replacement);
+          }
         }
       }
 
@@ -1492,8 +1796,13 @@ export class AssetLocalizer {
         const replacement = mode === 'liquid'
           ? `{{ '${item.filename}' | asset_url }}`
           : item.filename;
+        const cleanSource = item.sourceUrl.split('?')[0].split('#')[0];
+        const baseClean = path.basename(cleanSource);
         globalMap.set(item.sourceUrl, replacement);
-        globalMap.set(item.sourceUrl.split('?')[0].split('#')[0], replacement);
+        globalMap.set(cleanSource, replacement);
+        if (baseClean && !globalMap.has(baseClean)) {
+          globalMap.set(baseClean, replacement);
+        }
         if (item.sourceUrl.startsWith('https://')) {
           globalMap.set(item.sourceUrl.slice(6), replacement);
           globalMap.set(item.sourceUrl.slice(6).split('?')[0].split('#')[0], replacement);
@@ -1506,7 +1815,8 @@ export class AssetLocalizer {
       for (const cssPath of allDownloadedCssPaths) {
         if (fs.existsSync(cssPath)) {
           const content = fs.readFileSync(cssPath, 'utf8');
-          const sheetSpecificMap = perSheetUrlMaps.get(cssPath) || new Map<string, string>();
+          const normPathKey = path.resolve(cssPath).toLowerCase();
+          const sheetSpecificMap = perSheetUrlMaps.get(normPathKey) || new Map<string, string>();
           const mergedMap = new Map<string, string>([...globalMap, ...sheetSpecificMap]);
 
           const res = rewriteCssUrls(content, mergedMap, { mode });
@@ -1571,10 +1881,33 @@ export class AssetLocalizer {
     );
 
     // 1. Audit local disk assets
+    const failedDownloads = new Set<string>(
+      (options.downloadResults ?? [])
+        .filter(dl => dl.status === 'failed')
+        .map(dl => dl.sourceUrl)
+    );
+
+    // 1. Audit local disk assets
     for (const item of allItems) {
       const localPath = path.resolve(resolvedAssetsDir, item.filename);
 
       if (!fs.existsSync(localPath)) {
+        if (failedDownloads.has(item.sourceUrl)) {
+          findings.push({
+            severity: 'warning',
+            code: 'DOWNLOAD_FAILED',
+            message: `Remote asset download failed upstream: ${item.sourceUrl}`,
+            details: { filename: item.filename, sourceUrl: item.sourceUrl, localPath }
+          });
+          verifiedAssets.push({
+            filename: item.filename,
+            localPath,
+            exists: false,
+            byteCount: 0,
+            status: 'missing'
+          });
+          continue;
+        }
         findings.push({
           severity: 'error',
           code: 'MISSING_LOCAL_FILE',
@@ -1692,12 +2025,17 @@ export class AssetLocalizer {
         const urlMatch = rawVal.match(/(?:https?:)?\/\/[^\s"'<>]+/i);
         if (!urlMatch) continue;
         const matchedUrl = urlMatch[0].trim();
-        // Plain navigating hyperlinks (<a href="https://...">) are not loaded as page sub-resources
+        // Plain navigating hyperlinks (<a href="https://...">) and metadata links (<link rel="profile|dns-prefetch|preconnect|canonical|alternate">) are not loaded as page sub-resources
         if (attrName === 'href') {
           const tagStart = Math.max(0, match.index - 100);
-          const tagSlice = contentToScan.slice(tagStart, match.index).toLowerCase();
-          const isLinkTag = /<link\b[^>]*$/i.test(tagSlice);
-          if (!isLinkTag) continue;
+          const tagSlice = contentToScan.slice(tagStart, match.index);
+          const linkMatch = tagSlice.match(/<link\b([^>]*)$/i);
+          if (!linkMatch) continue;
+          const linkAttrs = linkMatch[1].toLowerCase();
+          const relMatch = linkAttrs.match(/\brel=["']?([^"'\s>]+)/i);
+          const rel = relMatch ? relMatch[1] : '';
+          const isSubresourceLink = /(?:^|\s)(?:stylesheet|icon|shortcut\s+icon|apple-touch-icon|preload)(?:\s|$)/i.test(rel);
+          if (!isSubresourceLink) continue;
         }
 
         const dedupKey = `${file.path}::${attrName}::${matchedUrl}`;
@@ -1754,6 +2092,19 @@ export class AssetLocalizer {
           const isKnownFilename = knownFilenames.has(token);
 
           if (!isLiquidToken && !isKnownFilename) {
+            const failedUrls = (options.downloadResults ?? [])
+              .filter(dl => dl.status === 'failed')
+              .map(dl => ({ url: dl.sourceUrl, file: dl.filename, clean: dl.sourceUrl.split('?')[0].split('#')[0] }));
+            const isFailedUpstream = failedUrls.some(f => f.file === token || path.basename(f.clean) === token || f.url.endsWith('/' + token));
+            if (isFailedUpstream) {
+              findings.push({
+                severity: 'warning',
+                code: 'DOWNLOAD_FAILED',
+                message: `CSS @import references upstream asset that failed to download: ${sheet.filename} -> ${token}`,
+                details: { stylesheet: sheet.filename, token }
+              });
+              continue;
+            }
             unlocalizedSet.add(token);
             findings.push({
               severity: 'error',
@@ -1778,6 +2129,19 @@ export class AssetLocalizer {
           const isKnownFilename = knownFilenames.has(token);
 
           if (!isLiquidToken && !isKnownFilename) {
+            const failedUrls = (options.downloadResults ?? [])
+              .filter(dl => dl.status === 'failed')
+              .map(dl => ({ url: dl.sourceUrl, file: dl.filename, clean: dl.sourceUrl.split('?')[0].split('#')[0] }));
+            const isFailedUpstream = failedUrls.some(f => f.file === token || path.basename(f.clean) === token || f.url.endsWith('/' + token));
+            if (isFailedUpstream) {
+              findings.push({
+                severity: 'warning',
+                code: 'DOWNLOAD_FAILED',
+                message: `CSS url() references upstream asset that failed to download: ${sheet.filename} -> ${token}`,
+                details: { stylesheet: sheet.filename, token }
+              });
+              continue;
+            }
             unlocalizedSet.add(token);
             findings.push({
               severity: 'error',

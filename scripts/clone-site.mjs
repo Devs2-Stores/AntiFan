@@ -91,6 +91,16 @@ fs.mkdirSync(assetsDir, { recursive: true });
 fs.mkdirSync(cssDir, { recursive: true });
 fs.mkdirSync(jsDir, { recursive: true });
 
+function classifyArchitecture(desktopHtml, mobileHtml) {
+  const combined = `${desktopHtml}\n${mobileHtml ?? ''}`;
+  const signals = [];
+  if (/livewire\.(?:min\.)?js|wire:snapshot|wire:effects/i.test(combined)) signals.push('livewire');
+  if (/\bx-data\s*=|\bx-on:click\s*=|\b@click\s*=/.test(combined)) signals.push('alpine');
+  if (/__NEXT_DATA__/.test(combined)) signals.push('next');
+  if (/data-turbo(?:-|=")/i.test(combined)) signals.push('turbo');
+  return signals.length > 0 ? signals.join('+') : 'static-materialized';
+}
+
 function verifyCaptureReceipt(rawPath, expected) {
   const receiptPath = `${rawPath}.capture.json`;
   if (!fs.existsSync(rawPath) || !fs.existsSync(receiptPath)) {
@@ -250,15 +260,11 @@ async function run() {
     }
   }
 
-  // Discover and localize secondary subresources inside downloaded stylesheets (e.g. fonts, @imports)
-  const combinedManifest = {
-    stylesheets: combinedAssets.filter(a => a.type === 'css'),
-    javascripts: combinedAssets.filter(a => a.type === 'js'),
-    images: combinedAssets.filter(a => a.type === 'image'),
-    fonts: combinedAssets.filter(a => a.type === 'font'),
-    totalBytes: downloadResult.totalBytes,
-  };
-  const secondaryResult = await localizer.localizeDownloadedStylesheets(combinedManifest, {
+  // Discover and localize secondary subresources inside downloaded stylesheets (e.g. fonts, @imports).
+  // One manifest object flows through the whole pipeline: stylesheet localization registers the
+  // assets it discovers into it, so consolidation, HTML rewriting, and the integrity audit all
+  // resolve names against the same registry.
+  const secondaryResult = await localizer.localizeDownloadedStylesheets(harvestedManifest, {
     assetsDir,
     mode: 'relative',
     sourceBaseUrl: targetUrl,
@@ -272,16 +278,29 @@ async function run() {
   if (secondaryResult.secondaryDownloaded.length > 0) {
     console.log(`  ✓ Secondary Asset Download complete: ${secondaryResult.secondaryDownloaded.length} secondary assets (fonts/stylesheets) downloaded.`);
   }
+  // Same URL requested from two device contexts usually returns identical bytes; keep one
+  // file for those and only keep per-context copies where the served content really differs.
+  const consolidation = localizer.consolidateIdenticalContent(
+    [...downloadResult.downloaded, ...secondaryResult.secondaryDownloaded],
+    harvestedManifest,
+    assetsDir
+  );
+  if (consolidation.consolidated > 0) {
+    console.log(`  ✓ Consolidated ${consolidation.consolidated} byte-identical duplicates (${(consolidation.freedBytes / (1024 * 1024)).toFixed(2)} MB); ${consolidation.groups.length} asset(s) share a single file across surfaces.`);
+  }
   // Rewrite asset references in HTML
   console.log('  Rewriting Desktop HTML references to local assets/...');
   const dRewriteResult = localizer.rewriteFiles([{ path: 'index.html', content: desktopHtml, context: desktopContext }], harvestedManifest, { mode: 'relative' });
   desktopHtml = dRewriteResult.files[0].rewrittenContent;
 
+  let mRewriteResult = null;
   if (mobileHtml) {
     console.log('  Rewriting Mobile HTML references to local ../assets/...');
-    const mRewriteResult = localizer.rewriteFiles([{ path: 'mobile/index.html', content: mobileHtml, context: mobileContext }], harvestedManifest, { mode: 'relative' });
+    mRewriteResult = localizer.rewriteFiles([{ path: 'mobile/index.html', content: mobileHtml, context: mobileContext }], harvestedManifest, { mode: 'relative' });
     mobileHtml = mRewriteResult.files[0].rewrittenContent;
   }
+
+  const allDownloaded = [...downloadResult.downloaded, ...secondaryResult.secondaryDownloaded];
 
   // 4. Core Generator (Sanitization & Parity Injections)
   console.log('\n[Phase 4/4] Finalizing Standalone Package via IndependentHtmlCloneGenerator...');
@@ -306,15 +325,115 @@ async function run() {
     console.log(`  ✓ Mobile Surface finalized: ${mobileResult.outputPath} (${mobileResult.html.length} bytes)`);
   }
 
+  // Fail-closed integrity audit of the package that actually ships: every harvested asset on
+  // disk, the emitted surface documents (third-party widgets the sanitizer removed are
+  // intentionally not present, so auditing the pre-sanitization HTML would report references
+  // no shipped file contains), and every on-disk stylesheet are checked for references the
+  // browser would follow into a dead end. A download that never arrived is reported and
+  // leaves the package incomplete; any other finding is a broken reference and stops
+  // generation instead of shipping a package that only looks finished.
+  const emittedFiles = [
+    { path: 'index.html', originalContent: desktopResult.html, rewrittenContent: desktopResult.html, replacementCount: dRewriteResult.files[0].replacementCount }
+  ];
+  if (mobileResult) {
+    emittedFiles.push({
+      path: 'mobile/index.html',
+      originalContent: mobileResult.html,
+      rewrittenContent: mobileResult.html,
+      replacementCount: mRewriteResult ? mRewriteResult.files[0].replacementCount : 0
+    });
+  }
+  const audit = localizer.verifyAndAudit(harvestedManifest, {
+    assetsDir,
+    rewrittenFiles: emittedFiles,
+    downloadResults: allDownloaded,
+    depthExceededUrls: secondaryResult.depthExceededUrls
+  });
+  const blockingFindings = audit.findings.filter(finding => finding.code !== 'DOWNLOAD_FAILED');
+  console.log(`  Integrity audit: ${audit.findings.length} finding(s), ${blockingFindings.length} blocking, ${audit.verifiedAssets.length} asset(s) verified on disk.`);
+  for (const finding of blockingFindings.slice(0, 20)) {
+    console.error(`    ! ${finding.code}: ${finding.message}`);
+  }
+
+  // Documents embedded from another origin (video players, chat widgets, maps) cannot be stored
+  // in a static package. Record every one the sanitizer dropped so the package does not claim
+  // parity it cannot deliver: the manifest states what the clone will not load.
+  const emitSurface = mobileResult
+    ? [{ path: 'index.html', html: desktopResult.html }, { path: 'mobile/index.html', html: mobileResult.html }]
+    : [{ path: 'index.html', html: desktopResult.html }];
+  const remoteEmbeds = [];
+  const seenEmbeds = new Set();
+  for (const surface of emitSurface) {
+    const sourceHtml = surface.path === 'index.html' ? dRewriteResult.files[0].rewrittenContent : mRewriteResult.files[0].rewrittenContent;
+    for (const match of sourceHtml.matchAll(/<(iframe|embed|object)\b[^>]*?(?:data-)?src\s*=\s*["']((?:https?:)?\/\/[^"']+)["']/gi)) {
+      const url = match[2];
+      const key = `${surface.path}::${url}`;
+      if (seenEmbeds.has(key) || surface.html.includes(url)) continue;
+      seenEmbeds.add(key);
+      remoteEmbeds.push({ surface: surface.path, element: match[1].toLowerCase(), url });
+    }
+  }
+  if (remoteEmbeds.length > 0) {
+    console.log(`  ! ${remoteEmbeds.length} remote embed(s) cannot be stored offline and were dropped from the emitted surfaces.`);
+  }
+
   // Generate Manifest
   const manifestPath = path.join(outDir, 'clone-manifest.json');
+  const assetMap = {};
+  const assetProvenance = [];
+  const absorbedRequests = [];
+  const hashToFirstFilename = new Map();
+  const seenFilenames = new Set();
+  for (const item of allDownloaded) {
+    let sha256 = item.sha256 || null;
+    if (!sha256 && item.localPath && fs.existsSync(item.localPath)) {
+      sha256 = crypto.createHash('sha256').update(fs.readFileSync(item.localPath)).digest('hex');
+    }
+    if (item.sourceUrl) {
+      if (!(item.sourceUrl in assetMap)) {
+        assetMap[item.sourceUrl] = item.filename;
+      }
+      if (item.requestIdentity) {
+        assetMap[`${item.sourceUrl}#${item.requestIdentity}`] = item.filename;
+      }
+    }
+    // Consolidation rewrites an absorbed request's filename in place, so the file a request now
+    // names is the file its bytes live in. The first request naming a file owns that file's
+    // provenance row; every later request naming the same file was consolidated into it and is
+    // recorded as absorbed. Without this the receipt lists one file twice and claims the file
+    // duplicates itself.
+    if (seenFilenames.has(item.filename)) {
+      absorbedRequests.push({
+        filename: item.filename,
+        sourceUrl: item.sourceUrl,
+        requestIdentity: item.requestIdentity || null,
+        status: item.status,
+        byteCount: item.byteCount
+      });
+      continue;
+    }
+    seenFilenames.add(item.filename);
+    const duplicateOf = sha256 ? hashToFirstFilename.get(sha256) || null : null;
+    if (sha256 && !duplicateOf) {
+      hashToFirstFilename.set(sha256, item.filename);
+    }
+    assetProvenance.push({
+      filename: item.filename,
+      sourceUrl: item.sourceUrl,
+      requestIdentity: item.requestIdentity || null,
+      status: item.status,
+      byteCount: item.byteCount,
+      sha256,
+      duplicateContentOf: duplicateOf && duplicateOf !== item.filename ? duplicateOf : null
+    });
+  }
   const manifestData = {
     schemaVersion: 1,
     targetUrl,
     clonedAt: new Date().toISOString(),
-    architecture: 'unclassified',
-    offlineReady: false,
-    verificationStatus: 'unverified',
+    architecture: classifyArchitecture(desktopHtml, mobileHtml),
+    offlineReady: audit.findings.length === 0,
+    verificationStatus: audit.passed ? 'asset-verified' : 'integrity-failed',
     surfaces: {
       desktop: {
         entry: 'index.html',
@@ -334,17 +453,63 @@ async function run() {
       } : {})
     },
     assets: {
+      // Request-level counts (what was asked for) and file-level counts (what the package holds)
+      // are reported separately: a URL requested from two device contexts is two requests but one
+      // file, and a failed request is not a downloaded asset.
       totalDiscovered: combinedAssets.length + secondaryResult.secondaryDownloaded.length,
-      downloaded: downloadResult.downloaded.length + secondaryResult.secondaryDownloaded.length,
+      requestsAttempted: allDownloaded.length,
+      downloaded: allDownloaded.filter(item => item.status !== 'failed').length,
       failed: downloadResult.failedCount + secondaryResult.failedCount,
+      filesInPackage: seenFilenames.size,
       totalBytes: downloadResult.totalBytes + secondaryResult.totalBytes,
       unresolvedPrimary: failedAssetUrls,
-      unresolvedSecondary: secondaryResult.depthExceededUrls
+      unresolvedSecondary: [
+        ...secondaryResult.depthExceededUrls,
+        ...secondaryResult.secondaryDownloaded
+          .filter(item => item.status === 'failed')
+          .map(item => ({ sourceUrl: item.sourceUrl, error: item.error ?? 'unknown failure' }))
+      ],
+      remoteEmbeds,
+      audit: {
+        passed: audit.passed,
+        verifiedAssetCount: audit.verifiedAssets.length,
+        findingCount: audit.findings.length,
+        blockingFindingCount: blockingFindings.length,
+        findings: audit.findings,
+        unlocalizedUrls: audit.unlocalizedUrls
+      },
+      consolidatedSharedFiles: consolidation.groups.map(group => ({
+        sha256: group.sha256,
+        canonical: group.canonical,
+        removed: group.removed,
+        renamedFrom: group.renamedFrom ?? null,
+        aliases: group.aliases ?? []
+      })),
+      consolidation: {
+        physicalDeletions: consolidation.consolidated,
+        freedBytes: consolidation.freedBytes
+      },
+      assetMap,
+      provenance: assetProvenance,
+      absorbedRequests
     }
   };
 
   fs.writeFileSync(manifestPath, JSON.stringify(manifestData, null, 2), 'utf8');
   console.log(`  ✓ Saved clone manifest to ${manifestPath}`);
+
+  if (blockingFindings.length > 0) {
+    throw new Error(
+      `Integrity audit failed with ${blockingFindings.length} blocking finding(s); ` +
+      `the package has broken references and is not shippable. See ${manifestPath} (assets.audit.findings).`
+    );
+  }
+  if (!audit.passed) {
+    console.warn(
+      `  ! Integrity audit reported ${audit.findings.length} non-blocking finding(s) ` +
+      `(downloads that never arrived); the package was written but is not offline-complete.`
+    );
+  }
 
   console.log('\n===========================================================');
   console.log('[AntiFan Universal Clone] Generated. Offline and visual parity verification still required.');

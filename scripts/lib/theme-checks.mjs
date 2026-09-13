@@ -33,7 +33,8 @@
  *   HARAVAN_INCLUDE_TARGET_MISSING, HARAVAN_SETTING_UNRESOLVED,
  *   HARAVAN_SETTINGS_HTML_MISSING, HARAVAN_SETTINGS_HTML_INVALID,
  *   HARAVAN_SETTINGS_HTML_FORBIDDEN, HARAVAN_SETTINGS_SCHEMA_MISSING,
- *   HARAVAN_SETTINGS_DECLARATIONS_ABSENT
+ *   HARAVAN_SETTINGS_DECLARATIONS_ABSENT,
+ *   HARAVAN_NO_DUAL_SURFACE, HARAVAN_SINGLE_CHROME
  *                                           -- checkHaravanLiquidContracts
  * Every function is pure with respect to its arguments: the same html string or
  * the same theme directory produces the same ordered result, with no module
@@ -76,7 +77,7 @@ const SETTINGS_FORM_RELATIVE_PATH = 'config/settings.html';
  * not end on one: `settings.loomline_addthis_live_show-%}` would otherwise absorb
  * the Liquid whitespace-trim marker into the id and report a phantom id.
  */
-const SETTINGS_READ_PATTERN = /(?<![\w.$])settings\.([A-Za-z_][A-Za-z0-9_]*(?:-+[A-Za-z0-9_]+)*)/g;
+const SETTINGS_READ_PATTERN = /(?<![\w.$'"])settings\.([A-Za-z_][A-Za-z0-9_]*(?:-+[A-Za-z0-9_]+)*)/g;
 
 /**
  * `settings['<id>']` — the bracket spelling real Haravan themes use for dynamic
@@ -488,6 +489,17 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
         const lineNum = lineIndex + 1;
         const lineText = lines[lineIndex];
 
+        // Check HARAVAN_NO_DUAL_SURFACE
+        if (/theme-surface-(?:desktop|mobile)\b/.test(lineText)) {
+          failures.push({
+            rule: 'HARAVAN_NO_DUAL_SURFACE',
+            file: relativePath,
+            line: lineNum,
+            message: `Dual-surface wrapper class found in ${relativePath}`,
+            detail: `Haravan themes must be pure 1-DOM responsive. Dual-surface split containers ('theme-surface-desktop'/'theme-surface-mobile') are forbidden (${relativePath}:${lineNum})`,
+          });
+        }
+
         // Check {% schema %}
         if (/\{%-?\s*schema\b/.test(lineText)) {
           failures.push({
@@ -685,6 +697,56 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
           detail: `Unclosed {% ${opened.tag} %} opened at line ${opened.line} (${relativePath}:${opened.line})`,
         });
       }
+    }
+  }
+
+  // 4. Single chrome checks: single header snippet, single footer snippet, no duplicate header includes in layout
+  const headerSnippetPath = path.join(themeDir, 'snippets', 'header.liquid');
+  if (fs.existsSync(headerSnippetPath)) {
+    const rawHeader = readFileIfPresent(headerSnippetPath) ?? '';
+    const headerSource = rawHeader.replace(LIQUID_COMMENT_BLOCK, (match) => match.replace(/[^\r\n]/g, ' '));
+    const headerMatches = headerSource.match(/<header\b/gi) || [];
+    if (headerMatches.length > 1) {
+      failures.push({
+        rule: 'HARAVAN_SINGLE_CHROME',
+        file: 'snippets/header.liquid',
+        line: 1,
+        message: `snippets/header.liquid must have at most 1 <header> tag, found ${headerMatches.length}`,
+        detail: `Multiple <header> tags found in snippets/header.liquid (${headerMatches.length}). Themes must use a single canonical <header> container.`,
+      });
+    }
+  }
+
+  const footerSnippetPath = path.join(themeDir, 'snippets', 'footer.liquid');
+  if (fs.existsSync(footerSnippetPath)) {
+    const rawFooter = readFileIfPresent(footerSnippetPath) ?? '';
+    const footerSource = rawFooter.replace(LIQUID_COMMENT_BLOCK, (match) => match.replace(/[^\r\n]/g, ' '));
+    const footerMatches = footerSource.match(/<footer\b/gi) || [];
+    if (footerMatches.length > 1) {
+      failures.push({
+        rule: 'HARAVAN_SINGLE_CHROME',
+        file: 'snippets/footer.liquid',
+        line: 1,
+        message: `snippets/footer.liquid must have at most 1 <footer> tag, found ${footerMatches.length}`,
+        detail: `Multiple <footer> tags found in snippets/footer.liquid (${footerMatches.length}). Themes must use a single canonical <footer> container.`,
+      });
+    }
+  }
+
+  const themeLayoutPath = path.join(themeDir, 'layout', 'theme.liquid');
+  if (fs.existsSync(themeLayoutPath)) {
+    const rawThemeLayout = readFileIfPresent(themeLayoutPath) ?? '';
+    const themeLayoutSource = rawThemeLayout.replace(LIQUID_COMMENT_BLOCK, (match) => match.replace(/[^\r\n]/g, ' '));
+    const hasHeaderInclude = /\{%-?\s*include\s+['"](?:snippets\/)?header(?:\.liquid)?['"]/.test(themeLayoutSource);
+    const hasHeaderMobileInclude = /\{%-?\s*include\s+['"](?:snippets\/)?header-mobile(?:\.liquid)?['"]/.test(themeLayoutSource);
+    if (hasHeaderInclude && hasHeaderMobileInclude) {
+      failures.push({
+        rule: 'HARAVAN_SINGLE_CHROME',
+        file: 'layout/theme.liquid',
+        line: 1,
+        message: 'layout/theme.liquid must not include both header and header-mobile',
+        detail: 'Theme layout includes duplicate chrome (both header and header-mobile snippets). Themes must use a single responsive header.',
+      });
     }
   }
 

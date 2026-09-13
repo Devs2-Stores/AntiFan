@@ -142,6 +142,99 @@ describe('IndependentHtmlCloneGenerator - section sanitation', () => {
     assert.ok(sanitized.includes('class="menu-link flex"'));
     assert.ok(!sanitized.includes('fle"'));
   });
+
+  it('synthesizes data-antifan-state, open, close, and unwrap capture-time slick DOM', () => {
+    const input = [
+      '<div class="menu-mobile" @click="categoryNavigationVisible = true">Open</div>',
+      '<div class="close" x-on:click="categoryNavigationVisible = false">Close</div>',
+      '<div class="category-navigation__block" :class="{ \'show\': categoryNavigationVisible }">',
+      '  <div class="block-category__list w-100 slick-initialized slick-slider slick-dotted">',
+      '    <div class="slick-list draggable">',
+      '      <div class="slick-track" style="width: 785px; transform: translate3d(0px, 0px, 0px);">',
+      '        <div class="item slick-slide slick-active" data-slick-index="0" aria-describedby="slick-slide01">Slide 1</div>',
+      '        <div class="item slick-slide" data-slick-index="1">Slide 2</div>',
+      '      </div>',
+      '    </div>',
+      '    <ul class="slick-dots"><li class="slick-active"><button>1</button></li></ul>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+
+    const sanitized = sanitizeSectionMarkup(input);
+    assert.ok(sanitized.includes('data-antifan-open="categoryNavigationVisible"'), 'must produce data-antifan-open');
+    assert.ok(sanitized.includes('data-antifan-close="categoryNavigationVisible"'), 'must produce data-antifan-close');
+    assert.ok(sanitized.includes('data-antifan-state="categoryNavigationVisible"'), 'must produce data-antifan-state');
+    assert.ok(sanitized.includes('data-antifan-class="show"'), 'must produce data-antifan-class="show"');
+    assert.ok(!sanitized.includes('slick-initialized'), 'must strip slick-initialized class');
+    assert.ok(!sanitized.includes('slick-slider'), 'must strip slick-slider class');
+    assert.ok(!sanitized.includes('slick-dots'), 'must remove slick-dots DOM');
+    assert.ok(!sanitized.includes('slick-list'), 'must unwrap slick-list');
+    assert.ok(!sanitized.includes('slick-track'), 'must unwrap slick-track');
+    assert.ok(sanitized.includes('Slide 1') && sanitized.includes('Slide 2'), 'slide contents must be preserved cleanly');
+  });
+
+  it('strips bound attributes with quoted string literals without leaving expression fragments or duplicate src', () => {
+    const sample = '<iframe width="1280" height="536" :data-src="openVideo ? \'\' : \'https://www.youtube.com/embed/Nt2J6ZXPuw0\'" :src="openVideo ? \'https://www.youtube.com/embed/Nt2J6ZXPuw0\' : \'\'" frameborder="0" allowfullscreen="" data-src="https://www.youtube.com/embed/Nt2J6ZXPuw0" src=""></iframe>';
+    const sanitized = sanitizeSectionMarkup(sample);
+    assert.ok(!sanitized.includes('openVideo'), 'Expression variable openVideo must be stripped');
+    assert.ok(!sanitized.includes('Nt2J6ZXPuw0'), 'Lingering YouTube remote embed URL must be stripped');
+    assert.ok(!sanitized.includes('"" : \'\'"'), 'Malformed expression fragment must not exist');
+    assert.ok(!sanitized.includes(':src'), ':src bound attribute must be stripped');
+    assert.ok(!sanitized.includes(':data-src'), ':data-src bound attribute must be stripped');
+    const srcMatches = sanitized.match(/\ssrc=/gi) || [];
+    assert.strictEqual(srcMatches.length, 1, 'Exactly one src attribute must remain on the iframe');
+    assert.ok(sanitized.includes('src="about:blank"'), 'Iframe src must be safely normalized to about:blank');
+  });
+
+  it('strips dead third-party chat widget shells with fixed positioning and inline !important styles', () => {
+    const sample = '<body><main>Content</main><div id="zdcuurvpe1d1789321628886" style="display: block !important;"><iframe src="about:blank" frameborder="0" scrolling="no" width="64px" height="60px" style="outline:none !important; visibility:visible !important; resize:none !important; box-shadow:none !important; overflow:visible !important; background:none !important; opacity:1 !important; filter:alpha(opacity=100) !important; -ms-filter:progid:DXImageTransform.Microsoft.Alpha(Opacity 1}) !important; -mz-opacity:1 !important; -khtml-opacity:1 !important; top:auto !important; right:20px !important; bottom:20px !important; left:auto !important; position:fixed !important; border:0 !important; min-height:60px !important; min-width:64px !important; max-height:60px !important; max-width:64px !important; padding:0 !important; margin:0 !important; -moz-transition-property:none !important; -webkit-transition-property:none !important; -o-transition-property:none !important; transition-property:none !important; transform:none !important; -webkit-transform:none !important; -ms-transform:none !important; width:64px !important; height:60px !important; display:block !important; z-index:1000003 !important; background-color:transparent !important; cursor:none !important; float:none !important; border-radius:unset !important; pointer-events:auto !important; clip:auto !important; color-scheme:light !important;" id="ddbjpcjt6qq41789321629013" class="" referrerpolicy="no-referrer-when-downgrade"></iframe><iframe srcdoc="&lt;html&gt;&lt;/html&gt;" frameborder="0" scrolling="no" width="350px" height="720px" style="outline:none !important; visibility:visible !important; resize:none !important; box-shadow:none !important; overflow:visible !important; background:none !important; opacity:1 !important; filter:alpha(opacity=100) !important; -ms-filter:progid:DXImageTransform.Microsoft.Alpha(Opacity 1}) !important; -mz-opacity:1 !important; -khtml-opacity:1 !important; top:auto !important; right:20px !important; bottom:98px !important; left:auto !important; position:fixed !important; border:0 !important; min-height:720px !important; min-width:350px !important; max-height:720px !important; max-width:350px !important; padding:0 !important; margin:0 !important; -moz-transition-property:none !important; -webkit-transition-property:none !important; -o-transition-property:none !important; transition-property:none !important; transform:none !important; -webkit-transform:none !important; -ms-transform:none !important; width:350px !important; height:720px !important; display:none !important; z-index:auto !important; background-color:transparent !important; cursor:none !important; float:none !important; border-radius:unset !important; pointer-events:auto !important; clip:auto !important; color-scheme:light !important;" id="31a2vsm804ms1789321629043" class="" referrerpolicy="no-referrer-when-downgrade"></iframe></div></body>';
+    const sanitized = sanitizeSectionMarkup(sample);
+    assert.ok(!sanitized.includes('zdcuurvpe1d1789321628886'), 'Dead widget shell container div must be stripped');
+    assert.ok(!sanitized.includes('Microsoft.Alpha'), 'Third-party vendor Alpha filter styles must be stripped');
+    assert.ok(!sanitized.includes('srcdoc="&lt;html&gt;&lt;/html&gt;"'), 'Dead empty srcdoc widget iframes must be stripped');
+    assert.ok(sanitized.includes('<main>Content</main>'), 'Authentic page content must be preserved');
+  });
+
+  it('preserves a footer/newsletter block and an interactive script following a tracker shell with an iframe', () => {
+    const sample = [
+      '<body>',
+      '<main>Content</main>',
+      '<div style="z-index: 999999; display: block !important;">',
+      '  <iframe src="https://example.com/widget" width="100" height="100"></iframe>',
+      '</div>',
+      '<footer class="site-footer">',
+      '  <div class="newsletter-block">',
+      '    <h3>Newsletter</h3>',
+      '    <p>Subscribe to our newsletter</p>',
+      '  </div>',
+      '</footer>',
+      '<script>initAntifanInteractivity();</script>',
+      '</body>'
+    ].join('\n');
+
+    const sanitized = sanitizeSectionMarkup(sample);
+    assert.ok(!sanitized.includes('z-index: 999999'), 'tracker shell with z-index: 999999 must be stripped');
+    assert.ok(!sanitized.includes('example.com/widget'), 'tracker iframe must be stripped');
+    assert.ok(sanitized.includes('site-footer'), 'footer following tracker shell must survive');
+    assert.ok(sanitized.includes('newsletter-block'), 'newsletter content must survive');
+    assert.ok(sanitized.includes('Subscribe to our newsletter'), 'newsletter text must survive');
+    assert.ok(sanitized.includes('initAntifanInteractivity();'), 'subsequent script must survive');
+  });
+
+  it('does not strip layout content that wraps nested divs even if an iframe is present', () => {
+    const layoutMarkup = [
+      '<div class="main-layout" style="z-index: 99999; display: block !important;">',
+      '  <div class="inner-container">',
+      '    <p>Valuable content</p>',
+      '    <iframe src="about:blank"></iframe>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+
+    const sanitized = sanitizeSectionMarkup(layoutMarkup);
+    assert.ok(sanitized.includes('Valuable content'), 'layout content wrapping nested divs must survive');
+    assert.ok(sanitized.includes('inner-container'), 'inner container must survive');
+  });
 });
 
 describe('IndependentHtmlCloneGenerator - HTML Entity Decoding & Embedded Effects', () => {
@@ -465,6 +558,12 @@ describe('IndependentHtmlCloneGenerator - Interactivity Script Behavioral Execut
         setAttribute(name: string, val: string) {
           this.attrs[name] = val;
         }
+        removeAttribute(name: string) {
+          delete this.attrs[name];
+        }
+        hasAttribute(name: string): boolean {
+          return this.attrs[name] !== undefined;
+        }
         get src(): string {
           return this.attrs.src || '';
         }
@@ -490,22 +589,72 @@ describe('IndependentHtmlCloneGenerator - Interactivity Script Behavioral Execut
           return this.parentElement ? this.parentElement.closest(sel) : null;
         }
         matches(sel: string): boolean {
-          const parts = sel.split(',').map(s => s.trim());
+          const parts = sel.split(',').map(s => s.trim()).filter(Boolean);
           return parts.some(p => {
-            if (p.startsWith('#')) return this.id === p.slice(1);
-            if (p.startsWith('.')) return this.classList.contains(p.slice(1));
-            if (p.includes('.')) {
-              const classParts = p.split('.');
-              return this.classList.contains(classParts[1]);
+            const tokens = p.split(/\s+/).filter(Boolean);
+            if (tokens.length === 1) return this.matchesSingle(tokens[0]);
+            if (!this.matchesSingle(tokens[tokens.length - 1])) return false;
+            let curr: MockNode | null = this.parentElement;
+            for (let i = tokens.length - 2; i >= 0; i--) {
+              const token = tokens[i];
+              while (curr && !curr.matchesSingle(token)) {
+                curr = curr.parentElement;
+              }
+              if (!curr) return false;
+              curr = curr.parentElement;
             }
-            return this.tagName.toLowerCase() === p.toLowerCase();
+            return true;
           });
+        }
+        private matchesSingle(p: string): boolean {
+          if (!p) return false;
+          let remaining = p;
+          const attrMatches = Array.from(p.matchAll(/\[([a-zA-Z0-9_\-]+)(?:="([^"]*)")?\]/g));
+          for (const m of attrMatches) {
+            const name = m[1];
+            const val = m[2];
+            if (val !== undefined) {
+              if (this.getAttribute(name) !== val) return false;
+            } else {
+              if (this.getAttribute(name) === null) return false;
+            }
+            remaining = remaining.replace(m[0], '');
+          }
+          const idMatches = Array.from(remaining.matchAll(/#([a-zA-Z0-9_\-]+)/g));
+          for (const im of idMatches) {
+            if (this.id !== im[1]) return false;
+            remaining = remaining.replace(im[0], '');
+          }
+          const classMatches = Array.from(remaining.matchAll(/\.([a-zA-Z0-9_\-]+)/g));
+          for (const cm of classMatches) {
+            if (!this.classList.contains(cm[1])) return false;
+            remaining = remaining.replace(cm[0], '');
+          }
+          remaining = remaining.trim();
+          if (remaining && remaining !== '*') {
+            if (this.tagName.toLowerCase() !== remaining.toLowerCase()) return false;
+          }
+          return true;
         }
         querySelector(sel: string): MockNode | null {
           const all = this.querySelectorAll(sel);
           return all.length > 0 ? all[0] : null;
         }
         querySelectorAll(sel: string): MockNode[] {
+          if (sel.includes(',')) {
+            const parts = sel.split(',').map(s => s.trim()).filter(Boolean);
+            const seen = new Set<MockNode>();
+            const res: MockNode[] = [];
+            for (const part of parts) {
+              for (const node of this.querySelectorAll(part)) {
+                if (!seen.has(node)) {
+                  seen.add(node);
+                  res.push(node);
+                }
+              }
+            }
+            return res;
+          }
           const res: MockNode[] = [];
           for (const child of this.children) {
             if (child.matches(sel)) res.push(child);
@@ -535,12 +684,32 @@ describe('IndependentHtmlCloneGenerator - Interactivity Script Behavioral Execut
       videoContent.parentElement = videoPopup;
 
       const body = new MockNode('body');
-      body.children.push(menuBtn, drawer, videoBtn, videoPopup);
+      const declarativeOpenBtn = new MockNode('div');
+      declarativeOpenBtn.setAttribute('data-antifan-open', 'drawerState');
+      const declarativeCloseBtn = new MockNode('div');
+      declarativeCloseBtn.setAttribute('data-antifan-close', 'drawerState');
+      const stateDrawer = new MockNode('div');
+      stateDrawer.setAttribute('data-antifan-state', 'drawerState');
+      stateDrawer.setAttribute('data-antifan-class', 'show');
+
+      // Static non-overlay tab and panel that remain permanently active/show on load
+      const staticAccessoryTab = new MockNode('li', ['active']);
+      staticAccessoryTab.setAttribute('data-antifan-state', 'accessoryTab');
+      staticAccessoryTab.setAttribute('data-antifan-class', 'active');
+      const staticAccessoryPanel = new MockNode('div', ['accessory-content__block', 'show']);
+      staticAccessoryPanel.setAttribute('data-antifan-state', 'accessoryTab');
+      staticAccessoryPanel.setAttribute('data-antifan-class', 'show');
+
+      body.children.push(menuBtn, drawer, videoBtn, videoPopup, declarativeOpenBtn, declarativeCloseBtn, stateDrawer, staticAccessoryTab, staticAccessoryPanel);
       menuBtn.parentElement = body;
       drawer.parentElement = body;
       videoBtn.parentElement = body;
       videoPopup.parentElement = body;
-
+      declarativeOpenBtn.parentElement = body;
+      declarativeCloseBtn.parentElement = body;
+      stateDrawer.parentElement = body;
+      staticAccessoryTab.parentElement = body;
+      staticAccessoryPanel.parentElement = body;
       const docListeners: Record<string, ((e: unknown) => void)[]> = {};
       const mockDoc = {
         body,
@@ -562,15 +731,6 @@ describe('IndependentHtmlCloneGenerator - Interactivity Script Behavioral Execut
           return list.length > 0 ? list[0] : null;
         },
         querySelectorAll: (sel: string): MockNode[] => {
-          if (sel.includes('category-navigation__block.show') || sel.includes('.drawer.show') || sel.includes('[data-antifan-drawer].show')) {
-            return drawer.classList.contains('show') ? [drawer] : [];
-          }
-          if (sel.includes('#popup-video.active') || sel.includes('.popup.active')) {
-            return videoPopup.classList.contains('active') ? [videoPopup] : [];
-          }
-          if (sel.includes('.menu-mobile')) return [menuBtn];
-          if (sel.includes('.video-content__button')) return [videoBtn];
-          if (sel.includes('.category-navigation__block') || sel.includes('[class*="drawer"]')) return [drawer];
           return body.querySelectorAll(sel);
         }
       };
@@ -590,16 +750,19 @@ describe('IndependentHtmlCloneGenerator - Interactivity Script Behavioral Execut
       const ctx = vm.createContext(sandbox);
       script.runInContext(ctx);
 
-      // Behavioral Check 1: Trigger menu button -> drawer opens and body scroll locks
+      // Behavioral Check 1: Trigger menu button -> drawer opens, marker is set, and body scroll locks
       menuBtn.dispatchEvent({ type: 'click' });
       assert.strictEqual(drawer.classList.contains('show'), true, 'clicking menu button must add .show to drawer');
+      assert.strictEqual(drawer.getAttribute('data-antifan-opened'), 'true', 'opening drawer must mark element with data-antifan-opened=true');
       assert.strictEqual(body.style.overflow, 'hidden', 'opening drawer must lock body scroll with overflow: hidden');
 
-      // Behavioral Check 2: Press Escape -> drawer closes and body scroll lock releases
+      // Behavioral Check 2: Press Escape -> drawer closes, marker is cleared, and body scroll lock releases even with static active tabs present
       mockDoc.dispatchEvent({ type: 'keydown', key: 'Escape' });
       assert.strictEqual(drawer.classList.contains('show'), false, 'Escape key must close open drawer');
-      assert.strictEqual(body.style.overflow, '', 'Escape key must restore body overflow');
-
+      assert.strictEqual(drawer.getAttribute('data-antifan-opened'), null, 'closing drawer must clear data-antifan-opened marker');
+      assert.strictEqual(staticAccessoryTab.classList.contains('active'), true, 'static tab remains active');
+      assert.strictEqual(staticAccessoryPanel.classList.contains('show'), true, 'static tab panel remains show');
+      assert.strictEqual(body.style.overflow, '', 'closing drawer must restore body overflow despite static active state-tabs');
       // Behavioral Check 3: Trigger video button -> video popup activates with autoplay URL
       videoBtn.dispatchEvent({ type: 'click' });
       assert.strictEqual(videoPopup.classList.contains('active'), true, 'video button click must add .active to popup');
@@ -609,6 +772,16 @@ describe('IndependentHtmlCloneGenerator - Interactivity Script Behavioral Execut
       mockDoc.dispatchEvent({ type: 'keydown', key: 'Escape' });
       assert.strictEqual(videoPopup.classList.contains('active'), false, 'Escape key must close video popup');
       assert.strictEqual(iframe.attrs.src, 'about:blank', 'closing video popup must reset iframe src to about:blank');
+      // Behavioral Check 5: Declarative data-antifan-open and data-antifan-close trigger state transitions
+      declarativeOpenBtn.dispatchEvent({ type: 'click' });
+      assert.strictEqual(stateDrawer.classList.contains('show'), true, 'clicking data-antifan-open must open state drawer');
+      assert.strictEqual(stateDrawer.getAttribute('data-antifan-opened'), 'true', 'data-antifan-open must mark target with data-antifan-opened');
+      assert.strictEqual(body.style.overflow, 'hidden', 'opening state drawer must lock body scroll');
+
+      declarativeCloseBtn.dispatchEvent({ type: 'click' });
+      assert.strictEqual(stateDrawer.classList.contains('show'), false, 'clicking data-antifan-close must close state drawer');
+      assert.strictEqual(stateDrawer.getAttribute('data-antifan-opened'), null, 'data-antifan-close must clear data-antifan-opened marker');
+      assert.strictEqual(body.style.overflow, '', 'closing state drawer must release body scroll');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -718,6 +891,400 @@ describe('IndependentHtmlCloneGenerator - Subdirectory Relative Links (mobile/in
       const content = fs.readFileSync(res.entryHtmlPath, 'utf-8');
       assert.ok(content.includes('href="../assets/style.css"'), 'must reference stylesheet as ../assets/style.css');
       assert.ok(content.includes('src="../assets/app.js"'), 'must reference script as ../assets/app.js');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('IndependentHtmlCloneGenerator - parity overlay hiding scope', () => {
+  /**
+   * The capture binds hidden/shown state on ordinary elements too (menu items, tabs), not only
+   * on overlays: Alpine markup such as `:class="{ 'show': varName }"` appears on list items.
+   * A parity rule that hides everything carrying that binding leaves the emitted menu items
+   * permanently invisible, because nothing ever opens them. Overlay hiding must therefore key
+   * off overlay markers, which is what the vendor stylesheet already does for the real drawer.
+   */
+  const hiddenSelectors = (html: string): string[] => {
+    const styleMatch = html.match(/<style id="antifan-clone-parity">([\s\S]*?)<\/style>/);
+    assert.ok(styleMatch, 'parity stylesheet must be present');
+    const rules = styleMatch[1].match(/[^{}]+\{[^}]*\}/g) || [];
+    const selectors: string[] = [];
+    for (const rule of rules) {
+      const [rawSelector, rawBody] = rule.split('{');
+      if (!/visibility\s*:\s*hidden/.test(rawBody)) continue;
+      for (const part of rawSelector.split(',')) selectors.push(part.replace(/\/\*[\s\S]*?\*\//g, '').trim());
+    }
+    return selectors;
+  };
+
+  it('keeps state-bound non-overlay elements visible and still hides real overlays', () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-parity-scope-'));
+    try {
+      const sampleHtml = [
+        '<!DOCTYPE html><html><head></head><body>',
+        '<div class="menu-mobile" @click="categoryNavigationVisible = true"></div>',
+        '<ul class="category-navigation__list">',
+        '<li class="menu-item" :class="{ \'show\': categoryNavigationVisible }"><a href="/category/cam-bien">Cảm biến</a></li>',
+        '</ul>',
+        '<div class="category-navigation__block" :class="{ \'show\': categoryNavigationVisible }"><div class="close">x</div></div>',
+        '</body></html>'
+      ].join('\n');
+
+      const res = generator.generateFromMaterializedHtml(sampleHtml, { outputDir: tmpDir, entryFilename: 'index.html' });
+
+      // The binding is emitted for both the list item and the drawer.
+      assert.ok(res.html.includes('data-antifan-state="categoryNavigationVisible"'), 'state binding must be emitted');
+      const boundElements = res.html.match(/data-antifan-state="categoryNavigationVisible"/g) || [];
+      assert.strictEqual(boundElements.length, 2, 'both the list item and the drawer carry the binding');
+
+      const hideSelectors = hiddenSelectors(res.html);
+      const stateOnlySelector = hideSelectors.find((sel) => /^\[data-antifan-state\]/.test(sel) && !/drawer|category-navigation|overlay|offcanvas|modal/i.test(sel));
+      assert.strictEqual(
+        stateOnlySelector,
+        undefined,
+        `a bare state binding must not hide an element by parity CSS (found ${stateOnlySelector})`
+      );
+      assert.ok(
+        hideSelectors.some((sel) => /\.category-navigation__block:not\(\.show\)/.test(sel)),
+        'the real drawer must still be hidden by parity CSS'
+      );
+      assert.ok(
+        hideSelectors.some((sel) => /\[data-antifan-drawer\]/.test(sel)),
+        'overlay markers must still be hidden by parity CSS'
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('IndependentHtmlCloneGenerator - Mobile Drilldown and Overlay Controls', () => {
+  it('resolves level-2 toggle triggers relative to the clicked row and leaves sibling rows untouched', () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const vm = require('node:vm');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-drilldown-'));
+    try {
+      const sampleHtml = `<!DOCTYPE html><html><head></head><body><div class="category-navigation"></div></body></html>`;
+      const res = generator.generateFromMaterializedHtml(sampleHtml, {
+        outputDir: tmpDir,
+        entryFilename: 'index.html',
+        device: 'mobile'
+      });
+
+      const match = res.html.match(/<script id="antifan-clone-interactivity">([\s\S]*?)<\/script>/);
+      assert.ok(match, 'interactivity script must be present');
+      const script = new vm.Script(match[1], { filename: 'interactivity.js' });
+
+      class MockClassList {
+        private set = new Set<string>();
+        constructor(init: string[] = []) { init.forEach(c => this.set.add(c)); }
+        add(...names: string[]) { names.forEach(n => this.set.add(n)); }
+        remove(...names: string[]) { names.forEach(n => this.set.delete(n)); }
+        contains(n: string) { return this.set.has(n); }
+      }
+
+      class MockNode {
+        tagName = 'DIV';
+        classList = new MockClassList();
+        style: Record<string, string> = {};
+        attrs: Record<string, string> = {};
+        children: MockNode[] = [];
+        parentElement: MockNode | null = null;
+        listeners: Record<string, ((e: { target: unknown; key?: string; preventDefault: () => void; stopPropagation: () => void }) => void)[]> = {};
+
+        constructor(tag: string = 'div', classes: string[] = []) {
+          this.tagName = tag.toUpperCase();
+          this.classList = new MockClassList(classes);
+        }
+
+        getAttribute(name: string): string | null { return this.attrs[name] ?? null; }
+        setAttribute(name: string, val: string) { this.attrs[name] = val; }
+        hasAttribute(name: string): boolean { return this.attrs[name] !== undefined; }
+        addEventListener(type: string, fn: (e: { target: unknown; key?: string; preventDefault: () => void; stopPropagation: () => void }) => void) {
+          if (!this.listeners[type]) this.listeners[type] = [];
+          this.listeners[type].push(fn);
+        }
+        dispatchEvent(e: { type: string; key?: string; target?: unknown; preventDefault?: () => void; stopPropagation?: () => void }) {
+          const ev = { target: e.target || this, key: e.key, preventDefault: e.preventDefault || (() => {}), stopPropagation: e.stopPropagation || (() => {}) };
+          for (const fn of this.listeners[e.type] || []) fn(ev);
+        }
+        closest(sel: string): MockNode | null {
+          if (this.matches(sel)) return this;
+          return this.parentElement ? this.parentElement.closest(sel) : null;
+        }
+        matches(sel: string): boolean {
+          const parts = sel.split(',').map(s => s.trim());
+          return parts.some(p => {
+            if (p.startsWith('[')) {
+              const attrMatch = p.match(/^\[([a-zA-Z0-9_\-]+)(?:="([^"]*)")?\]$/);
+              if (attrMatch) {
+                const name = attrMatch[1];
+                const val = attrMatch[2];
+                if (val !== undefined) return this.getAttribute(name) === val;
+                return this.getAttribute(name) !== null;
+              }
+            }
+            if (p.startsWith('#')) return this.attrs.id === p.slice(1);
+            if (p.startsWith('.')) return this.classList.contains(p.slice(1));
+            return this.tagName.toLowerCase() === p.toLowerCase();
+          });
+        }
+        querySelector(sel: string): MockNode | null {
+          const all = this.querySelectorAll(sel);
+          return all.length > 0 ? all[0] : null;
+        }
+        querySelectorAll(sel: string): MockNode[] {
+          const res: MockNode[] = [];
+          for (const child of this.children) {
+            if (child.matches(sel)) res.push(child);
+            res.push(...child.querySelectorAll(sel));
+          }
+          return res;
+        }
+      }
+
+      const body = new MockNode('body');
+
+      // Setup 2 rows with the exact category-navigation structure:
+      // Row 1:
+      const row1 = new MockNode('li');
+      row1.setAttribute('data-antifan-state', 'isOpen');
+      row1.setAttribute('data-antifan-class', 'show');
+      const row1P = new MockNode('p');
+      const row1Span = new MockNode('span');
+      row1Span.setAttribute('data-antifan-toggle', 'isOpen');
+      const row1Child = new MockNode('ul', ['child-lv2']);
+      row1P.children.push(row1Span);
+      row1Span.parentElement = row1P;
+      row1.children.push(row1P, row1Child);
+      row1P.parentElement = row1;
+      row1Child.parentElement = row1;
+
+      // Row 2:
+      const row2 = new MockNode('li');
+      row2.setAttribute('data-antifan-state', 'isOpen');
+      row2.setAttribute('data-antifan-class', 'show');
+      const row2P = new MockNode('p');
+      const row2Span = new MockNode('span');
+      row2Span.setAttribute('data-antifan-toggle', 'isOpen');
+      const row2Child = new MockNode('ul', ['child-lv2']);
+      row2P.children.push(row2Span);
+      row2Span.parentElement = row2P;
+      row2.children.push(row2P, row2Child);
+      row2P.parentElement = row2;
+      row2Child.parentElement = row2;
+
+      const list = new MockNode('ul', ['child-lv1']);
+      list.children.push(row1, row2);
+      row1.parentElement = list;
+      row2.parentElement = list;
+
+      body.children.push(list);
+      list.parentElement = body;
+
+      const mockDoc = {
+        body,
+        readyState: 'complete',
+        addEventListener: () => {},
+        getElementById: (id: string) => body.querySelector('#' + id),
+        querySelector: (sel: string) => body.querySelector(sel),
+        querySelectorAll: (sel: string) => body.querySelectorAll(sel)
+      };
+
+      const ctx = vm.createContext({
+        window: {
+          addEventListener: () => {},
+          innerWidth: 390,
+          location: { search: '' },
+          document: mockDoc
+        },
+        document: mockDoc,
+        navigator: { userAgent: 'Mozilla/5.0' },
+        setInterval: () => 1,
+        clearInterval: () => {}
+      });
+
+      script.runInContext(ctx);
+
+      // Verify Initial State: both rows closed
+      assert.strictEqual(row1.classList.contains('show'), false);
+      assert.strictEqual(row2.classList.contains('show'), false);
+
+      // Action: Click Row 2 chevron
+      row2Span.dispatchEvent({ type: 'click' });
+
+      // Row 2 must gain show and active, and Row 1 must remain untouched
+      assert.strictEqual(row2.classList.contains('show'), true, 'Row 2 must gain .show class on toggle');
+      assert.strictEqual(row2.classList.contains('active'), true, 'Row 2 must gain .active class on toggle');
+      assert.strictEqual(row1.classList.contains('show'), false, 'Row 1 must remain closed when Row 2 is toggled');
+      assert.strictEqual(row1.classList.contains('active'), false, 'Row 1 must remain inactive');
+
+      // Action: Click Row 2 chevron again (close)
+      row2Span.dispatchEvent({ type: 'click' });
+      assert.strictEqual(row2.classList.contains('show'), false, 'Row 2 must close on second toggle');
+      assert.strictEqual(row2.classList.contains('active'), false, 'Row 2 must lose .active on second toggle');
+      assert.strictEqual(row1.classList.contains('show'), false, 'Row 1 remains untouched');
+
+      // Action: Click Row 1 chevron (open)
+      row1Span.dispatchEvent({ type: 'click' });
+      assert.strictEqual(row1.classList.contains('show'), true, 'Row 1 must open when its chevron is clicked');
+      assert.strictEqual(row2.classList.contains('show'), false, 'Row 2 remains closed');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('narrows unmatched data-antifan-open trigger fallback to a single best target rather than mass-opening every overlay', () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const vm = require('node:vm');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-unmatched-'));
+    try {
+      const sampleHtml = `<!DOCTYPE html><html><head></head><body><div class="category-navigation"></div></body></html>`;
+      const res = generator.generateFromMaterializedHtml(sampleHtml, {
+        outputDir: tmpDir,
+        entryFilename: 'index.html',
+        device: 'mobile'
+      });
+
+      const match = res.html.match(/<script id="antifan-clone-interactivity">([\s\S]*?)<\/script>/);
+      assert.ok(match, 'interactivity script must be present');
+      const script = new vm.Script(match[1], { filename: 'interactivity.js' });
+
+      class MockClassList {
+        private set = new Set<string>();
+        constructor(init: string[] = []) { init.forEach(c => this.set.add(c)); }
+        add(...names: string[]) { names.forEach(n => this.set.add(n)); }
+        remove(...names: string[]) { names.forEach(n => this.set.delete(n)); }
+        contains(n: string) { return this.set.has(n); }
+      }
+
+      class MockNode {
+        tagName = 'DIV';
+        classList = new MockClassList();
+        style: Record<string, string> = {};
+        attrs: Record<string, string> = {};
+        children: MockNode[] = [];
+        parentElement: MockNode | null = null;
+        listeners: Record<string, ((e: { target: unknown; preventDefault: () => void; stopPropagation: () => void }) => void)[]> = {};
+
+        constructor(tag: string = 'div', classes: string[] = []) {
+          this.tagName = tag.toUpperCase();
+          this.classList = new MockClassList(classes);
+        }
+
+        getAttribute(name: string): string | null { return this.attrs[name] ?? null; }
+        setAttribute(name: string, val: string) { this.attrs[name] = val; }
+        hasAttribute(name: string): boolean { return this.attrs[name] !== undefined; }
+        addEventListener(type: string, fn: (e: { target: unknown; preventDefault: () => void; stopPropagation: () => void }) => void) {
+          if (!this.listeners[type]) this.listeners[type] = [];
+          this.listeners[type].push(fn);
+        }
+        dispatchEvent(e: { type: string; target?: unknown; preventDefault?: () => void; stopPropagation?: () => void }) {
+          const ev = { target: e.target || this, preventDefault: e.preventDefault || (() => {}), stopPropagation: e.stopPropagation || (() => {}) };
+          for (const fn of this.listeners[e.type] || []) fn(ev);
+        }
+        closest(sel: string): MockNode | null {
+          if (this.matches(sel)) return this;
+          return this.parentElement ? this.parentElement.closest(sel) : null;
+        }
+        matches(sel: string): boolean {
+          const parts = sel.split(',').map(s => s.trim());
+          return parts.some(p => {
+            if (p.startsWith('[')) {
+              const attrMatch = p.match(/^\[([a-zA-Z0-9_\-]+)(?:="([^"]*)")?\]$/);
+              if (attrMatch) {
+                const name = attrMatch[1];
+                const val = attrMatch[2];
+                if (val !== undefined) return this.getAttribute(name) === val;
+                return this.getAttribute(name) !== null;
+              }
+            }
+            if (p.startsWith('.')) return this.classList.contains(p.slice(1));
+            return this.tagName.toLowerCase() === p.toLowerCase();
+          });
+        }
+        querySelector(sel: string): MockNode | null {
+          const all = this.querySelectorAll(sel);
+          return all.length > 0 ? all[0] : null;
+        }
+        querySelectorAll(sel: string): MockNode[] {
+          const res: MockNode[] = [];
+          for (const child of this.children) {
+            if (child.matches(sel)) res.push(child);
+            res.push(...child.querySelectorAll(sel));
+          }
+          return res;
+        }
+      }
+
+      const body = new MockNode('body');
+
+      const triggerBtn = new MockNode('button');
+      triggerBtn.setAttribute('data-antifan-open', 'nonExistentTarget');
+
+      const overlay1 = new MockNode('div', ['category-navigation__block']);
+      const overlay2 = new MockNode('div', ['drawer']);
+      const overlay3 = new MockNode('div', ['offcanvas']);
+
+      const nestedBtn = new MockNode('button');
+      nestedBtn.setAttribute('data-antifan-open', 'anotherNonExistent');
+      overlay2.children.push(nestedBtn);
+      nestedBtn.parentElement = overlay2;
+
+      body.children.push(triggerBtn, overlay1, overlay2, overlay3);
+      triggerBtn.parentElement = body;
+      overlay1.parentElement = body;
+      overlay2.parentElement = body;
+      overlay3.parentElement = body;
+
+      const mockDoc = {
+        body,
+        readyState: 'complete',
+        addEventListener: () => {},
+        getElementById: (id: string) => body.querySelector('#' + id),
+        querySelector: (sel: string) => body.querySelector(sel),
+        querySelectorAll: (sel: string) => body.querySelectorAll(sel)
+      };
+
+      const ctx = vm.createContext({
+        window: {
+          addEventListener: () => {},
+          innerWidth: 390,
+          location: { search: '' },
+          document: mockDoc
+        },
+        document: mockDoc,
+        navigator: { userAgent: 'Mozilla/5.0' },
+        setInterval: () => 1,
+        clearInterval: () => {}
+      });
+
+      script.runInContext(ctx);
+
+      // Trigger the unmatched open
+      triggerBtn.dispatchEvent({ type: 'click' });
+
+      // Exactly ONE overlay should open (the first fallback candidate), NOT all 3
+      const openOverlays = [overlay1, overlay2, overlay3].filter(o => o.classList.contains('show') || o.classList.contains('active'));
+      assert.strictEqual(openOverlays.length, 1, 'unmatched trigger must open at most one fallback overlay');
+      assert.strictEqual(overlay1.classList.contains('show'), true, 'first fallback candidate opens');
+      assert.strictEqual(overlay2.classList.contains('show'), false, 'subsequent overlays must not mass-open');
+      assert.strictEqual(overlay3.classList.contains('show'), false, 'subsequent overlays must not mass-open');
+
+      // Now test with a button nested inside an overlay: closest overlay ancestor wins
+      nestedBtn.dispatchEvent({ type: 'click' });
+      assert.strictEqual(overlay2.classList.contains('show'), true, 'closest overlay ancestor is prioritized over document order');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

@@ -48,7 +48,229 @@ export interface ThemeCompilerOptions {
   inputPath?: string;
   [key: string]: unknown;
 }
+export interface ResolvedAsset {
+  sourcePath: string;
+  resolvedFilename: string;
+}
 
+export function computeFileSha256(filePath: string): string {
+  const buf = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+export const THEME_STATIC_ASSET_EXTENSIONS = new Set([
+  '.css', '.js', '.mjs',
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.avif', '.bmp',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.mp4', '.webm', '.mp3', '.wav', '.pdf'
+]);
+
+export function isStaticThemeAsset(filename: string): boolean {
+  const clean = path.basename(filename.split(/[?#]/)[0]);
+  const ext = path.extname(clean).toLowerCase();
+  return THEME_STATIC_ASSET_EXTENSIONS.has(ext);
+}
+
+export function isJunkOrThirdPartyAsset(filename: string): boolean {
+  return /(?:twk-|tawk|1hiir|gtm\.js|googletagmanager|analytics\.js|facebook|clarity|subiz|vchat|zalo|hotjar|criteo|emojione|js_98b1fb9e|js\.js)/i.test(filename);
+}
+
+export function isBundlerHash(suffix: string): boolean {
+  if (suffix.length < 6 || suffix.length > 20) return false;
+  if (/^(?:header|footer|mobile|desktop|banner|nav|menu|icon|logo|thumb|modal|drawer|search|cart|arrow|bg|background)$/i.test(suffix)) {
+    return false;
+  }
+  const hasDigit = /\d/.test(suffix);
+  const isHex = /^[0-9a-fA-F]+$/.test(suffix);
+  const isMixedCase = /[a-z]/.test(suffix) && /[A-Z]/.test(suffix);
+  return hasDigit || isHex || isMixedCase;
+}
+
+export function isAlreadyMediaWrapped(css: string): boolean {
+  const stripped = css
+    .replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
+  if (!stripped || !stripped.startsWith('@media')) return false;
+  let depth = 0;
+  let firstBraceFound = false;
+  for (let i = 0; i < stripped.length; i++) {
+    const char = stripped[i];
+    if (char === '{') {
+      depth++;
+      firstBraceFound = true;
+    } else if (char === '}') {
+      depth--;
+      if (depth === 0 && firstBraceFound) {
+        const remainder = stripped.slice(i + 1).trim();
+        if (remainder.length === 0) return true;
+        if (remainder.startsWith('@media')) {
+          firstBraceFound = false;
+          continue;
+        }
+        return false;
+      }
+    }
+  }
+  return depth === 0 && firstBraceFound;
+}
+
+export function resolveRealAsset(
+  refName: string,
+  searchDirs: string[],
+  cloneAssetMap: Record<string, string>,
+  irAssets: Array<{ filename?: string; originalFilename?: string; sourceUrl?: string; localPath?: string }>
+): ResolvedAsset | null {
+  const cleanRef = path.basename(refName.split(/[?#]/)[0]);
+  if (!cleanRef || isJunkOrThirdPartyAsset(cleanRef)) return null;
+
+  // 1. Direct exact match in searchDirs
+  for (const dir of searchDirs) {
+    if (!fs.existsSync(dir)) continue;
+    const directPath = path.join(dir, cleanRef);
+    if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+      return { sourcePath: directPath, resolvedFilename: cleanRef };
+    }
+  }
+
+  // 2. Direct match in irAssets
+  for (const item of irAssets) {
+    if (item.localPath && fs.existsSync(item.localPath) && fs.statSync(item.localPath).isFile()) {
+      if (
+        item.filename === cleanRef ||
+        item.originalFilename === cleanRef ||
+        path.basename(item.sourceUrl?.split(/[?#]/)[0] || '') === cleanRef
+      ) {
+        return { sourcePath: item.localPath, resolvedFilename: item.filename || cleanRef };
+      }
+    }
+  }
+
+  // 3. Clone manifest assetMap lookups
+  const manifestCandidates: string[] = [];
+  if (cloneAssetMap[cleanRef]) manifestCandidates.push(cloneAssetMap[cleanRef]);
+  if (cloneAssetMap[`assets/${cleanRef}`]) manifestCandidates.push(cloneAssetMap[`assets/${cleanRef}`]);
+  if (cloneAssetMap[`/assets/${cleanRef}`]) manifestCandidates.push(cloneAssetMap[`/assets/${cleanRef}`]);
+  for (const [key, val] of Object.entries(cloneAssetMap)) {
+    const keyBase = path.basename(key.split(/[?#]/)[0]);
+    if (keyBase === cleanRef || val === cleanRef) {
+      manifestCandidates.push(val);
+      manifestCandidates.push(keyBase);
+    }
+  }
+  for (const cand of manifestCandidates) {
+    const candClean = path.basename(cand.split(/[?#]/)[0]);
+    for (const dir of searchDirs) {
+      if (!fs.existsSync(dir)) continue;
+      const p = path.join(dir, candClean);
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+        return { sourcePath: p, resolvedFilename: candClean };
+      }
+    }
+  }
+
+  // 4. Unambiguous stem match in searchDirs
+  const ext = path.extname(cleanRef).toLowerCase();
+  const stem = path.basename(cleanRef, ext);
+  const normalizedStem = stem.replace(/[-_.]/g, '').toLowerCase();
+  const stemLower = stem.toLowerCase();
+
+  const foundCandidates: string[] = [];
+  for (const dir of searchDirs) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      const entries = fs.readdirSync(dir).sort();
+      for (const entry of entries) {
+        if (isJunkOrThirdPartyAsset(entry)) continue;
+        const entryExt = path.extname(entry).toLowerCase();
+        if (entryExt !== ext) continue;
+        const entryStem = path.basename(entry, entryExt);
+        const entryNorm = entryStem.replace(/[-_.]/g, '').toLowerCase();
+        const entryLower = entryStem.toLowerCase();
+
+        // Legitimate same-stem criteria:
+        // a. Exact case-insensitive match
+        const isExactStem = entryLower === stemLower;
+        // b. Normalized stem match (only differing by punctuation -/./_)
+        const isNormalizedStem = entryNorm === normalizedStem;
+        // c. Minified variant
+        const isMinVariant =
+          entryLower === `${stemLower}.min` || `${entryLower}.min` === stemLower;
+        // d. Surface-specific variant of the stem (e.g. logo-desktop vs logo, or vice versa)
+        const isSurfaceVariant =
+          entryLower === `${stemLower}-desktop` ||
+          entryLower === `${stemLower}-mobile` ||
+          entryLower === `${stemLower}_desktop` ||
+          entryLower === `${stemLower}_mobile` ||
+          `${entryLower}-desktop` === stemLower ||
+          `${entryLower}-mobile` === stemLower ||
+          `${entryLower}_desktop` === stemLower ||
+          `${entryLower}_mobile` === stemLower;
+        // e. Bundler hash variant (e.g. app-desktop-dcc2d3nb vs app-desktop)
+        let isHashVariant = false;
+        if (entryLower.startsWith(`${stemLower}-`) || entryLower.startsWith(`${stemLower}_`)) {
+          const suffix = entryStem.slice(stem.length + 1);
+          isHashVariant = isBundlerHash(suffix);
+        }
+
+        const matchesStem = isExactStem || isNormalizedStem || isMinVariant || isSurfaceVariant || isHashVariant;
+
+        if (matchesStem) {
+          const fullPath = path.join(dir, entry);
+          if (fs.statSync(fullPath).isFile() && !foundCandidates.includes(fullPath)) {
+            foundCandidates.push(fullPath);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  if (foundCandidates.length === 1) {
+    return {
+      sourcePath: foundCandidates[0],
+      resolvedFilename: path.basename(foundCandidates[0]),
+    };
+  }
+
+  if (foundCandidates.length > 1) {
+    // Deterministically sort candidates by basename
+    foundCandidates.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
+
+    // If an exact filename match exists, prefer it
+    const exactMatch = foundCandidates.find(
+      c => path.basename(c).toLowerCase() === cleanRef.toLowerCase()
+    );
+    if (exactMatch) {
+      return {
+        sourcePath: exactMatch,
+        resolvedFilename: path.basename(exactMatch),
+      };
+    }
+
+    const firstHash = computeFileSha256(foundCandidates[0]);
+    const allSame = foundCandidates.every(c => computeFileSha256(c) === firstHash);
+    if (allSame) {
+      // Deterministically prefer surface-neutral name if available, else first sorted candidate
+      const neutral = foundCandidates.find(
+        c => !/(?:[-_](?:desktop|mobile))$/i.test(path.basename(c, path.extname(c)))
+      );
+      const chosen = neutral || foundCandidates[0];
+      return {
+        sourcePath: chosen,
+        resolvedFilename: path.basename(chosen),
+      };
+    }
+
+    // Conflicting candidate files with different hashes -> genuinely ambiguous match!
+    // Fail closed with an explicit descriptive error instead of binding a lookalike.
+    const candidateNames = foundCandidates.map(c => path.basename(c));
+    throw new Error(
+      `ThemeCompiler: ambiguous asset match for "${cleanRef}": multiple conflicting candidates with different contents found: [${candidateNames.join(', ')}]. Compilation refused to bind lookalike.`
+    );
+  }
+
+  return null;
+}
 export interface ThemeCompileResult {
   success: boolean;
   sectionCount: number;
@@ -170,7 +392,7 @@ export class ThemeCompiler {
       if (targetContract.emitLocales) {
         dirs.push('locales');
       }
-      this.atomicSwap(tempStageDir, outputDir, dirs);
+      this.atomicSwap(tempStageDir, outputDir, dirs, options);
       return {
         success: true,
         sectionCount: compileRes.sectionCount,
@@ -250,8 +472,73 @@ export class ThemeCompiler {
       const emittedSnippetNames = new Set<string>();
       const pageSectionIncludes: Array<{ snippetName: string; enabledSettingId?: string }> = [];
 
+      // Build searchDirs for asset discovery and manifest loading
+      const searchDirs: string[] = [];
+      if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
+        searchDirs.push(path.resolve(options.assetsDir as string));
+      }
+      if (typeof options?.inputPath === 'string' && options.inputPath) {
+        const p1 = path.resolve(path.dirname(options.inputPath), 'assets');
+        if (fs.existsSync(p1) && !searchDirs.includes(p1)) searchDirs.push(p1);
+        const p2 = path.resolve(path.dirname(path.dirname(options.inputPath)), 'assets');
+        if (fs.existsSync(p2) && !searchDirs.includes(p2)) searchDirs.push(p2);
+      }
+
+      let cloneAssetMap: Record<string, string> = {};
+      for (const sDir of searchDirs) {
+        const candManifest = path.join(path.dirname(sDir), 'clone-manifest.json');
+        if (fs.existsSync(candManifest)) {
+          try {
+            const raw = fs.readFileSync(candManifest, 'utf-8');
+            const parsed = JSON.parse(raw);
+            if (parsed.assets?.assetMap && typeof parsed.assets.assetMap === 'object') {
+              cloneAssetMap = { ...cloneAssetMap, ...parsed.assets.assetMap };
+            }
+          } catch {}
+        }
+      }
+
       // Build URL mapping for rewriting asset references into Haravan Liquid format {{ 'filename' | asset_url }}
       const liquidUrlMap = new Map<string, string>();
+      const registerLiquidAsset = (rawName: string, targetFilename: string) => {
+        if (!rawName || !targetFilename) return;
+        if (rawName.includes('{{') || rawName.includes('{%') || rawName.includes('}}') || rawName.includes('%}')) return;
+        if (isJunkOrThirdPartyAsset(rawName) || isJunkOrThirdPartyAsset(targetFilename)) return;
+        const clean = path.basename(targetFilename.split(/[?#]/)[0]);
+        const ext = path.extname(clean).toLowerCase();
+        if (!THEME_STATIC_ASSET_EXTENSIONS.has(ext)) return;
+        const rawClean = path.basename(rawName.split(/[?#]/)[0]);
+        const rawExt = path.extname(rawClean).toLowerCase();
+        if (rawExt && !THEME_STATIC_ASSET_EXTENSIONS.has(rawExt)) return;
+        const rep = `{{ '${clean}' | asset_url }}`;
+        liquidUrlMap.set(rawName, rep);
+        liquidUrlMap.set(`assets/${rawName}`, rep);
+        liquidUrlMap.set(`/assets/${rawName}`, rep);
+        liquidUrlMap.set(`../assets/${rawName}`, rep);
+        liquidUrlMap.set(`../../assets/${rawName}`, rep);
+        liquidUrlMap.set(`./assets/${rawName}`, rep);
+      };
+
+      // 1. Register disk files from searchDirs
+      for (const sDir of searchDirs) {
+        if (!fs.existsSync(sDir)) continue;
+        try {
+          const diskFiles = fs.readdirSync(sDir);
+          for (const diskFile of diskFiles) {
+            if (isJunkOrThirdPartyAsset(diskFile)) continue;
+            registerLiquidAsset(diskFile, diskFile);
+          }
+        } catch {}
+      }
+
+      // 2. Register clone manifest mappings
+      for (const [rawUrl, mappedFile] of Object.entries(cloneAssetMap)) {
+        registerLiquidAsset(rawUrl, mappedFile);
+        const uBase = path.basename(rawUrl.split(/[?#]/)[0]);
+        if (uBase) registerLiquidAsset(uBase, mappedFile);
+      }
+
+      // 3. Register IR assets
       const allIrAssets = [
         ...(ir.assets?.stylesheets || []),
         ...(ir.assets?.javascripts || []),
@@ -260,120 +547,19 @@ export class ThemeCompiler {
       ];
       for (const item of allIrAssets) {
         if (item.filename) {
-          const rep = `{{ '${item.filename}' | asset_url }}`;
-          liquidUrlMap.set(`assets/${item.filename}`, rep);
-          liquidUrlMap.set(`/assets/${item.filename}`, rep);
-        }
-      }
-      const isJunkOrThirdPartyAsset = (filename: string): boolean =>
-        /(?:twk-|tawk|1hiir|gtm\.js|googletagmanager|analytics\.js|facebook|clarity|subiz|vchat|zalo|hotjar|criteo|emojione|js_98b1fb9e|js\.js)/i.test(filename);
-
-      // Only fall back to disk inspection when ir.assets manifest is not provided
-      if (allIrAssets.length === 0 && options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
-        try {
-          const diskFiles = fs.readdirSync(options.assetsDir as string);
-          for (const diskFile of diskFiles) {
-            if (isJunkOrThirdPartyAsset(diskFile)) continue;
-            const rep = `{{ '${diskFile}' | asset_url }}`;
-            liquidUrlMap.set(`assets/${diskFile}`, rep);
-            liquidUrlMap.set(`/assets/${diskFile}`, rep);
+          registerLiquidAsset(item.filename, item.filename);
+          if (item.sourceUrl) {
+            registerLiquidAsset(item.sourceUrl, item.filename);
+            const sBase = path.basename(item.sourceUrl.split(/[?#]/)[0]);
+            if (sBase) registerLiquidAsset(sBase, item.filename);
           }
-        } catch {}
-      }
-
-      // 4. Generate layout/theme.liquid with detected stylesheets and scripts
-      // Identify stylesheets that will be bundled into theme.css so they are not linked twice
-      const bundledStylesheets = new Set<string>();
-      for (const s of ir.assets?.stylesheets || []) {
-        if (s.localPath && fs.existsSync(s.localPath) && s.filename) {
-          bundledStylesheets.add(s.filename);
+          if (item.originalFilename && item.originalFilename !== item.filename) {
+            registerLiquidAsset(item.originalFilename, item.filename);
+          }
         }
       }
 
-      const layoutStylesheets: string[] = [];
-      const layoutScripts: string[] = [];
-      for (const s of ir.assets?.stylesheets || []) {
-        if (s.filename && !isJunkOrThirdPartyAsset(s.filename) && !bundledStylesheets.has(s.filename) && !layoutStylesheets.includes(s.filename)) {
-          layoutStylesheets.push(s.filename);
-        }
-      }
-      for (const j of ir.assets?.javascripts || []) {
-        if (j.filename && !isJunkOrThirdPartyAsset(j.filename) && !layoutScripts.includes(j.filename)) {
-          layoutScripts.push(j.filename);
-        }
-      }
-      if ((!ir.assets || ((ir.assets.stylesheets?.length || 0) === 0 && (ir.assets.javascripts?.length || 0) === 0)) && options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
-        try {
-          const diskFiles = fs.readdirSync(options.assetsDir as string);
-          for (const diskFile of diskFiles) {
-            if (isJunkOrThirdPartyAsset(diskFile)) continue;
-            if (diskFile.endsWith('.css') && !bundledStylesheets.has(diskFile) && !layoutStylesheets.includes(diskFile)) {
-              layoutStylesheets.push(diskFile);
-            } else if (diskFile.endsWith('.js') && !layoutScripts.includes(diskFile)) {
-              layoutScripts.push(diskFile);
-            }
-          }
-        } catch {}
-      }
-      layoutScripts.sort((a, b) => {
-        if (a.includes('jquery')) return -1;
-        if (b.includes('jquery')) return 1;
-        if (a.includes('slick')) return -1;
-        if (b.includes('slick')) return 1;
-        return 0;
-      });
-
-      const layoutPath = path.join(stagingDir, 'layout', 'theme.liquid');
-      fs.writeFileSync(
-        layoutPath,
-        this.layoutGen.generateThemeLiquid({
-          stylesheets: layoutStylesheets,
-          scripts: layoutScripts,
-          htmlAttributes: ir.htmlAttributes,
-          bodyAttributes: ir.bodyAttributes,
-          includeHeader: true,
-          includeFooter: true,
-        }),
-        'utf-8'
-      );
-      filesWritten.push(layoutPath);
-
-      const rewriteLiquidAssets = (content: string): string => {
-        let res = rewriteHtmlContent(content, liquidUrlMap, { mode: 'liquid' }).content;
-        res = res.replace(
-          /(^|\s)(src|data-src)=(?:"(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^"]*)?"|'(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^']*)?')/gi,
-          (match, prefix, attr, doubleVal, singleVal) => {
-            const filename = doubleVal !== undefined ? doubleVal : singleVal;
-            return `${prefix}${attr}="{{ '${filename}' | asset_url }}"`;
-          }
-        );
-        res = res.replace(
-          /(^|\s)onerror\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
-          (match, prefix, doubleVal, singleVal) => {
-            const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
-            const fallbackMatch = val.match(/((?:this\.)?src\s*=\s*)(?:&quot;|['"])(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^"']*)?(?:&quot;|['"]);?/i);
-            if (fallbackMatch) {
-              const safeJs = `${fallbackMatch[1]}&quot;{{ '${fallbackMatch[2]}' | asset_url }}&quot;;`;
-              const replaced = val.replace(fallbackMatch[0], safeJs);
-              return `${prefix}onerror="${replaced}"`;
-            }
-            return match;
-          }
-        );
-        res = res.replace(
-          /(^|\s)(srcset|data-srcset)=(?:"([^"]*)"|'([^']*)')/gi,
-          (match, prefix, attr, doubleVal, singleVal) => {
-            const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
-            const quote = doubleVal !== undefined ? '"' : "'";
-            if (val.includes('asset_url')) return match;
-            const replaced = val.replace(/(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))/gi, "{{ '$1' | asset_url }}");
-            return `${prefix}${attr}=${quote}${replaced}${quote}`;
-          }
-        );
-        return res;
-      };
-
-      // 5. Detect and extract complete mobile surface for dual-surface preservation
+      // 4. Detect and extract complete mobile surface for dual-surface preservation
       let mobileIndexPath = '';
       if (options?.assetsDir) {
         const cand1 = path.join(path.dirname(options.assetsDir as string), 'mobile', 'index.html');
@@ -387,6 +573,12 @@ export class ThemeCompiler {
           mobileIndexPath = cand2;
         }
       }
+      let desktopHtmlContent = '';
+      if (typeof options?.inputPath === 'string' && options.inputPath && fs.existsSync(options.inputPath)) {
+        try {
+          desktopHtmlContent = fs.readFileSync(options.inputPath, 'utf-8');
+        } catch {}
+      }
       const mobileHtmlContent =
         typeof options?.mobileHtml === 'string' && options.mobileHtml.trim().length > 0
           ? options.mobileHtml
@@ -397,6 +589,7 @@ export class ThemeCompiler {
 
       let mobileHeaderContent = '';
       let mobileFooterContent = '';
+      let mobileBottomNavContent = '';
       const mobileBodySections: ExtractedSectionBlueprint[] = [];
 
       if (hasMobileSurface) {
@@ -413,7 +606,10 @@ export class ThemeCompiler {
         if (mobileFooters.length > 0) {
           mobileFooterContent = mobileFooters[0].outerHtml;
         }
-
+        const mobileBottomNavs = DomTreeParser.findByClass(mobileRoot, 'bottom-navigation');
+        if (mobileBottomNavs.length > 0) {
+          mobileBottomNavContent = mobileBottomNavs[0].outerHtml;
+        }
         // Extract all sections from the complete mobile document
         const mobileExtractor = new BlueprintExtractor();
         const extractedMobile = mobileExtractor.extractSections(mobileHtmlContent);
@@ -436,6 +632,197 @@ export class ThemeCompiler {
         }
       }
 
+      // 5. Generate layout/theme.liquid with detected stylesheets and scripts
+      // Identify stylesheets that will be bundled into theme.css so they are not linked twice
+      const bundledStylesheets = new Set<string>();
+      for (const s of ir.assets?.stylesheets || []) {
+        if (s.localPath && fs.existsSync(s.localPath) && s.filename) {
+          bundledStylesheets.add(s.filename);
+        }
+      }
+      const mobileAssetsDir =
+        typeof options?.inputPath === 'string' && options.inputPath
+          ? path.join(path.dirname(options.inputPath), 'mobile', 'assets')
+          : null;
+      if (mobileAssetsDir && fs.existsSync(mobileAssetsDir)) {
+        try {
+          for (const f of fs.readdirSync(mobileAssetsDir)) {
+            if (f.toLowerCase().endsWith('.css')) bundledStylesheets.add(f);
+          }
+        } catch {}
+      }
+
+      const layoutStylesheets: string[] = [];
+      const layoutScripts: string[] = [];
+      for (const s of ir.assets?.stylesheets || []) {
+        if (s.filename && !isJunkOrThirdPartyAsset(s.filename) && !bundledStylesheets.has(s.filename) && !layoutStylesheets.includes(s.filename)) {
+          layoutStylesheets.push(s.filename);
+        }
+      }
+      for (const j of ir.assets?.javascripts || []) {
+        if (j.filename && !isJunkOrThirdPartyAsset(j.filename) && !layoutScripts.includes(j.filename)) {
+          layoutScripts.push(j.filename);
+        }
+      }
+      if ((!ir.assets || ((ir.assets.stylesheets?.length || 0) === 0 && (ir.assets.javascripts?.length || 0) === 0)) && searchDirs.length > 0) {
+        for (const sDir of searchDirs) {
+          try {
+            const diskFiles = fs.readdirSync(sDir);
+            for (const diskFile of diskFiles) {
+              if (isJunkOrThirdPartyAsset(diskFile)) continue;
+              if (diskFile.endsWith('.css') && !bundledStylesheets.has(diskFile) && !layoutStylesheets.includes(diskFile)) {
+                layoutStylesheets.push(diskFile);
+              } else if (diskFile.endsWith('.js') && !layoutScripts.includes(diskFile)) {
+                layoutScripts.push(diskFile);
+              }
+            }
+          } catch {}
+        }
+      }
+
+      // Also harvest mobile-specific stylesheets and scripts from mobile surface if present
+      if (hasMobileSurface) {
+        const mobileRoot = DomTreeParser.parse(mobileHtmlContent);
+        const mobileLinks = DomTreeParser.findByTag(mobileRoot, 'link');
+        for (const link of mobileLinks) {
+          const rel = (link.attributes['rel'] || '').toLowerCase();
+          const href = link.attributes['href'] || '';
+          if (rel === 'stylesheet' && href && !href.startsWith('data:') && !/^(https?:)?\/\//i.test(href)) {
+            const rawFile = path.basename(href.split(/[?#]/)[0]);
+            if (rawFile && !isJunkOrThirdPartyAsset(rawFile) && !layoutStylesheets.includes(rawFile) && !bundledStylesheets.has(rawFile)) {
+              layoutStylesheets.push(rawFile);
+            }
+          }
+        }
+        const mobileScripts = DomTreeParser.findByTag(mobileRoot, 'script');
+        for (const scr of mobileScripts) {
+          const src = scr.attributes['src'] || '';
+          if (src && !src.startsWith('data:') && !/^(https?:)?\/\//i.test(src)) {
+            const rawFile = path.basename(src.split(/[?#]/)[0]);
+            if (rawFile && !isJunkOrThirdPartyAsset(rawFile) && !layoutScripts.includes(rawFile)) {
+              layoutScripts.push(rawFile);
+            }
+          }
+        }
+      }
+
+      layoutScripts.sort((a, b) => {
+        if (a.includes('jquery')) return -1;
+        if (b.includes('jquery')) return 1;
+        if (a.includes('slick')) return -1;
+        if (b.includes('slick')) return 1;
+        return 0;
+      });
+
+      const hasBottomNav = Boolean(hasMobileSurface && mobileBottomNavContent);
+      const layoutPath = path.join(stagingDir, 'layout', 'theme.liquid');
+      fs.writeFileSync(
+        layoutPath,
+        this.layoutGen.generateThemeLiquid({
+          stylesheets: layoutStylesheets,
+          scripts: layoutScripts,
+          htmlAttributes: ir.htmlAttributes,
+          bodyAttributes: ir.bodyAttributes,
+          includeHeader: true,
+          includeFooter: true,
+          bottomNavigationSnippet: hasBottomNav ? 'bottom-navigation' : undefined,
+        }),
+        'utf-8'
+      );
+      filesWritten.push(layoutPath);
+
+      const rewriteLiquidAssets = (content: string): string => {
+        let res = rewriteHtmlContent(content, liquidUrlMap, { mode: 'liquid' }).content;
+
+        // 1. Rewrite src, data-src, data-original, data-lazy, href referencing assets
+        res = res.replace(
+          /(^|\s)(src|data-src|data-original|data-lazy|href)=(?:"(?:\.{1,3}\/|\/)*(?:assets\/)?([^"?#\s]+(?:\.[a-zA-Z0-9_-]+))(?:\?[^"]*)?"|'(?:\.{1,3}\/|\/)*(?:assets\/)?([^'?#\s]+(?:\.[a-zA-Z0-9_-]+))(?:\?[^']*)?')/gi,
+          (match, prefix, attr, doubleVal, singleVal) => {
+            const rawVal = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
+            if (
+              rawVal.includes('asset_url') ||
+              rawVal.startsWith('http:') ||
+              rawVal.startsWith('https:') ||
+              rawVal.startsWith('//') ||
+              rawVal.startsWith('data:') ||
+              rawVal.startsWith('#') ||
+              rawVal.startsWith('javascript:') ||
+              rawVal.startsWith('mailto:') ||
+              rawVal.startsWith('tel:')
+            ) {
+              return match;
+            }
+            const cleanFilename = path.basename(rawVal.split(/[?#]/)[0]);
+            if (!cleanFilename || isJunkOrThirdPartyAsset(cleanFilename)) return match;
+            // `href` also carries page links (…/bai-viet-2026.html): only a real asset extension
+            // may become an asset_url reference.
+            if (!/\.(?:css|js|mjs|json|png|jpe?g|webp|avif|gif|svg|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|mp3|pdf)$/i.test(cleanFilename)) {
+              return match;
+            }
+            return `${prefix}${attr}="{{ '${cleanFilename}' | asset_url }}"`;
+          }
+        );
+
+        // 2. Rewrite onerror fallback
+        res = res.replace(
+          /(^|\s)onerror\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+          (match, prefix, doubleVal, singleVal) => {
+            const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
+            const fallbackMatch = val.match(/((?:this\.)?src\s*=\s*)(?:&quot;|['"])(?:\.{1,3}\/|\/)*(?:assets\/)?([^"'?#\s]+\.[a-zA-Z0-9_-]+)(?:\?[^"']*)?(?:&quot;|['"]);?/i);
+            if (fallbackMatch) {
+              const cleanFilename = path.basename(fallbackMatch[2].split(/[?#]/)[0]);
+              const safeJs = `${fallbackMatch[1]}&quot;{{ '${cleanFilename}' | asset_url }}&quot;;`;
+              const replaced = val.replace(fallbackMatch[0], safeJs);
+              return `${prefix}onerror="${replaced}"`;
+            }
+            return match;
+          }
+        );
+
+        // 3. Rewrite srcset and data-srcset
+        res = res.replace(
+          /(^|\s)(srcset|data-srcset)=(?:"([^"]*)"|'([^']*)')/gi,
+          (match, prefix, attr, doubleVal, singleVal) => {
+            const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
+            const quote = doubleVal !== undefined ? '"' : "'";
+            if (val.includes('asset_url')) return match;
+            const replaced = val.replace(
+              /(?:\.{1,3}\/|\/)*(?:assets\/)?([^,\s?#]+\.[a-zA-Z0-9_-]+)(?:\?[^,\s]*)?/gi,
+              (_m: string, f: string) => {
+                const clean = path.basename(f.split(/[?#]/)[0]);
+                if (!/\.(?:css|js|mjs|json|png|jpe?g|webp|avif|gif|svg|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|mp3|pdf)$/i.test(clean)) {
+                  return _m;
+                }
+                return `{{ '${clean}' | asset_url }}`;
+              }
+            );
+            return `${prefix}${attr}=${quote}${replaced}${quote}`;
+          }
+        );
+
+        // 4. Rewrite url(...) in styles
+        res = res.replace(
+          /url\(\s*(['"]?)(?:\.{1,3}\/|\/)*(?:assets\/)?([^'")?#\s]+\.[a-zA-Z0-9_-]+)(?:[?#][^'")]*)?\1\s*\)/gi,
+          (match, _quote, filename) => {
+            if (filename.includes('asset_url') || filename.startsWith('data:') || filename.startsWith('http')) {
+              return match;
+            }
+            const clean = path.basename(filename.split(/[?#]/)[0]);
+            return `url({{ '${clean}' | asset_url }})`;
+          }
+        );
+
+        // 5. Final sweep: sweep any remaining relative asset references so zero ../assets/ survive
+        res = res.replace(
+          /(?:\.{1,3}\/|\/)+assets\/([^"'?#\s<>\)]+\.[a-zA-Z0-9_-]+)/gi,
+          (_match: string, filename: string) => {
+            const clean = path.basename(filename.split(/[?#]/)[0]);
+            return `{{ '${clean}' | asset_url }}`;
+          }
+        );
+
+        return res;
+      };
       // 5b. Generate snippets from IR sections
       for (const sec of sections) {
         let sectionLiquid = '';
@@ -650,7 +1037,9 @@ export class ThemeCompiler {
               /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
               ''
             );
-            headerOutput = `<div class="theme-surface-desktop">\n${sectionLiquid}\n</div>\n<div class="theme-surface-mobile">\n${rewrittenMobileHeader}\n</div>`;
+            const innerDesktop = sectionLiquid.replace(/<\/?header\b[^>]*>/gi, '');
+            const innerMobile = rewrittenMobileHeader.replace(/<\/?header\b[^>]*>/gi, '');
+            headerOutput = `<header class="site-header">\n  <div class="site-header__desktop desktop-only">\n${innerDesktop}\n  </div>\n  <div class="site-header__mobile mobile-only">\n${innerMobile}\n  </div>\n</header>`;
           }
           const headerSnippetPath = path.join(stagingDir, 'snippets', 'header.liquid');
           fs.writeFileSync(headerSnippetPath, headerOutput, 'utf-8');
@@ -663,7 +1052,9 @@ export class ThemeCompiler {
               /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
               ''
             );
-            footerOutput = `<div class="theme-surface-desktop">\n${sectionLiquid}\n</div>\n<div class="theme-surface-mobile">\n${rewrittenMobileFooter}\n</div>`;
+            const innerDesktop = sectionLiquid.replace(/<\/?footer\b[^>]*>/gi, '');
+            const innerMobile = rewrittenMobileFooter.replace(/<\/?footer\b[^>]*>/gi, '');
+            footerOutput = `<footer class="site-footer">\n  <div class="site-footer__desktop desktop-only">\n${innerDesktop}\n  </div>\n  <div class="site-footer__mobile mobile-only">\n${innerMobile}\n  </div>\n</footer>`;
           }
           const footerSnippetPath = path.join(stagingDir, 'snippets', 'footer.liquid');
           fs.writeFileSync(footerSnippetPath, footerOutput, 'utf-8');
@@ -686,75 +1077,41 @@ export class ThemeCompiler {
           allReadSettingIds.add(enabledId);
 
           const snippetPath = path.join(stagingDir, 'snippets', `${snippetName}.liquid`);
-          fs.writeFileSync(snippetPath, sectionLiquid, 'utf-8');
+          let finalSectionLiquid = sectionLiquid;
+          if (snippetName.includes('quote_form') || sectionLiquid.includes('home-form')) {
+            if (!finalSectionLiquid.includes('desktop-only')) {
+              finalSectionLiquid = `<div class="desktop-only">\n${finalSectionLiquid}\n</div>`;
+            }
+          }
+          fs.writeFileSync(snippetPath, finalSectionLiquid, 'utf-8');
           filesWritten.push(snippetPath);
-
           pageSectionIncludes.push({
             snippetName,
             enabledSettingId: enabledId,
           });
         }
       }
-
-      // Emit full mobile body sections if mobile surface is present
-      const desktopSectionIds = new Set(sections.map((s) => s.id));
-      const mobileSectionIncludes: string[] = [];
-
-      if (hasMobileSurface && mobileBodySections.length > 0) {
-        for (const mSec of mobileBodySections) {
-          let mobileSnippetName = `mobile_${sanitizeSettingId(mSec.id, 'sec')}`;
-          if (emittedSnippetNames.has(mobileSnippetName)) {
-            let counter = 2;
-            let candidate = `${mobileSnippetName}_${counter}`;
-            while (emittedSnippetNames.has(candidate)) {
-              counter++;
-              candidate = `${mobileSnippetName}_${counter}`;
-            }
-            mobileSnippetName = candidate;
-          }
-          emittedSnippetNames.add(mobileSnippetName);
-          let mContent = mSec.rawHtml || mSec.liquidTemplate || '';
-          // Scope by container (.theme-surface-mobile) rather than renaming IDs,
-          // preserving source CSS/JS selectors that target those IDs.
-          mContent = rewriteLiquidAssets(mContent).replace(
-            /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
-            ''
-          );
-          const mSnippetPath = path.join(stagingDir, 'snippets', `${mobileSnippetName}.liquid`);
-          fs.writeFileSync(mSnippetPath, mContent, 'utf-8');
-          filesWritten.push(mSnippetPath);
-          mobileSectionIncludes.push(mobileSnippetName);
+      if (hasBottomNav && mobileBottomNavContent) {
+        let bottomNavOutput = rewriteLiquidAssets(mobileBottomNavContent);
+        if (!bottomNavOutput.includes('mobile-only')) {
+          bottomNavOutput = bottomNavOutput.replace(/class="([^"]*)"/i, 'class="$1 mobile-only"');
         }
+        const bottomNavSnippetPath = path.join(stagingDir, 'snippets', 'bottom-navigation.liquid');
+        fs.writeFileSync(bottomNavSnippetPath, bottomNavOutput, 'utf-8');
+        filesWritten.push(bottomNavSnippetPath);
+        emittedSnippetNames.add('bottom-navigation');
       }
 
       // 6. Generate flat templates/index.liquid composed with {% include %}
+      // 1-DOM Invariant: Canonical single sequence of sections. Zero dual-surface split containers.
       const indexLines: string[] = [];
-      if (hasMobileSurface && mobileSectionIncludes.length > 0) {
-        indexLines.push('<div class="theme-surface-desktop">');
-        for (const item of pageSectionIncludes) {
-          if (item.enabledSettingId) {
-            indexLines.push(`  {% unless settings.${item.enabledSettingId} == false %}`);
-            indexLines.push(`    {% include '${item.snippetName}' %}`);
-            indexLines.push('  {% endunless %}');
-          } else {
-            indexLines.push(`  {% include '${item.snippetName}' %}`);
-          }
-        }
-        indexLines.push('</div>');
-        indexLines.push('<div class="theme-surface-mobile">');
-        for (const mobSnippet of mobileSectionIncludes) {
-          indexLines.push(`  {% include '${mobSnippet}' %}`);
-        }
-        indexLines.push('</div>');
-      } else {
-        for (const item of pageSectionIncludes) {
-          if (item.enabledSettingId) {
-            indexLines.push(`{% unless settings.${item.enabledSettingId} == false %}`);
-            indexLines.push(`  {% include '${item.snippetName}' %}`);
-            indexLines.push('{% endunless %}');
-          } else {
-            indexLines.push(`{% include '${item.snippetName}' %}`);
-          }
+      for (const item of pageSectionIncludes) {
+        if (item.enabledSettingId) {
+          indexLines.push(`{% unless settings.${item.enabledSettingId} == false %}`);
+          indexLines.push(`  {% include '${item.snippetName}' %}`);
+          indexLines.push('{% endunless %}');
+        } else {
+          indexLines.push(`{% include '${item.snippetName}' %}`);
         }
       }
       const indexLiquidContent =
@@ -852,9 +1209,15 @@ export class ThemeCompiler {
         try {
           const existingRaw = fs.readFileSync(destSettingsDataPath, 'utf-8');
           const existingData = JSON.parse(existingRaw);
-          if (existingData && typeof existingData === 'object' && existingData.current) {
-            for (const [k, v] of Object.entries(existingData.current)) {
-              if (v !== undefined && v !== null && v !== '') {
+          if (existingData && typeof existingData === 'object') {
+            const sourceMap =
+              existingData.current && typeof existingData.current === 'object'
+                ? existingData.current
+                : existingData.presets?.Default && typeof existingData.presets.Default === 'object'
+                  ? existingData.presets.Default
+                  : existingData;
+            for (const [k, v] of Object.entries(sourceMap)) {
+              if (v !== undefined && v !== null) {
                 settingsDataMap[k] = v;
               }
             }
@@ -939,57 +1302,23 @@ export class ThemeCompiler {
       );
       filesWritten.push(settingsDataPath);
 
-      // 9. Generate assets/theme.js (universal declarative runtime)
+      // 9. Generate assets/theme.js
+      // The declarative data-antifan-* contract is owned by exactly one runtime per artifact. The
+      // clone's own engine resolves a bare state id through [data-antifan-state="<id>"] and drives
+      // open/close/toggle from it; the synthesized generic runtime resolves the same attributes and,
+      // for a bare id, resolves nothing and falls back to the trigger's next sibling. Emitting both
+      // binds every trigger to two handlers that disagree: the first flips the resolved element, the
+      // second reads the flipped state and flips it back, so the click ends up doing nothing. The
+      // clone engine wins whenever it is present (it is the runtime the clone is verified with); the
+      // synthesized runtime stays as the fallback for spec-built themes that carry no clone engine.
       const themeJsPath = path.join(stagingDir, 'assets', 'theme.js');
-      let runtimeJs = this.stateSynth.generateDeclarativeRuntime();
-      if (hasMobileSurface) {
-        runtimeJs += `
-/* AntiFan Dual-Surface ID & Inert Subtree Synchronizer:
-   Ensures exactly one live instance per ID exists in the active DOM,
-   preventing document.getElementById and label[for] collisions across desktop and mobile surfaces.
-   Single source of truth: derives active surface from rendered layout (getComputedStyle)
-   so JS always matches whatever the CSS cascade decided (media query or data-device). */
-(function() {
-  function syncDualSurfaceActiveIDs() {
-    var mobileSurface = document.querySelector('.theme-surface-mobile');
-    var desktopSurface = document.querySelector('.theme-surface-desktop');
-    if (!mobileSurface || !desktopSurface) return;
-
-    var isMobileActive = window.getComputedStyle(mobileSurface).display !== 'none';
-    var activeSurface = isMobileActive ? mobileSurface : desktopSurface;
-    var inactiveSurface = isMobileActive ? desktopSurface : mobileSurface;
-    // Deactivate inactive surface elements: set inert and demote live IDs to data-inert-id
-    inactiveSurface.setAttribute('inert', '');
-    var inactiveEls = inactiveSurface.querySelectorAll('[id]');
-    for (var i = 0; i < inactiveEls.length; i++) {
-      var el = inactiveEls[i];
-      el.setAttribute('data-inert-id', el.id);
-      el.removeAttribute('id');
-    }
-
-    // Activate active surface elements: remove inert and restore live IDs from data-inert-id
-    activeSurface.removeAttribute('inert');
-    var activeEls = activeSurface.querySelectorAll('[data-inert-id]');
-    for (var j = 0; j < activeEls.length; j++) {
-      var aEl = activeEls[j];
-      aEl.setAttribute('id', aEl.getAttribute('data-inert-id'));
-      aEl.removeAttribute('data-inert-id');
-    }
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', syncDualSurfaceActiveIDs);
-  } else {
-    syncDualSurfaceActiveIDs();
-  }
-  var resizeTimer;
-  window.addEventListener('resize', function() {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(syncDualSurfaceActiveIDs, 50);
-  });
-})();
-`;
-      }
+      const interactivityMatch =
+        (desktopHtmlContent && desktopHtmlContent.match(/<script\s+id=["']antifan-clone-interactivity["']>([\s\S]*?)<\/script>/i)) ||
+        (hasMobileSurface && mobileHtmlContent.match(/<script\s+id=["']antifan-clone-interactivity["']>([\s\S]*?)<\/script>/i));
+      const cloneEngineJs = interactivityMatch ? interactivityMatch[1].trim() : '';
+      const runtimeJs = cloneEngineJs
+        ? `/* Antifan Clone Interactive Engine */\n${cloneEngineJs}\n`
+        : this.stateSynth.generateDeclarativeRuntime();
       fs.writeFileSync(themeJsPath, runtimeJs, 'utf-8');
       filesWritten.push(themeJsPath);
       // 9b. Generate assets/theme-responsive.css when layout relations are defined
@@ -1075,6 +1404,109 @@ export class ThemeCompiler {
           }
         }
       }
+      const mobileMax = ir.layout?.breakpoints?.mobileMax;
+      const effectiveMobileMax = mobileMax || 991;
+      const mobileMediaQuery = `@media (max-width: ${effectiveMobileMax}px)`;
+
+      // Synthesize mobile stylesheets wrapped under @media (max-width: mobileMax)
+      const loadedMobileCssFiles = new Set<string>();
+      const mobileCandidateDirs = new Set<string>();
+      if (mobileAssetsDir && fs.existsSync(mobileAssetsDir)) {
+        mobileCandidateDirs.add(mobileAssetsDir);
+      }
+      for (const sDir of searchDirs) {
+        if (!fs.existsSync(sDir)) continue;
+        if (sDir.toLowerCase().includes('mobile') && sDir.toLowerCase().includes('assets')) {
+          mobileCandidateDirs.add(sDir);
+        }
+        const subMobile = path.join(sDir, 'mobile', 'assets');
+        if (fs.existsSync(subMobile)) {
+          mobileCandidateDirs.add(subMobile);
+        }
+        const siblingMobile = path.join(path.dirname(sDir), 'mobile', 'assets');
+        if (fs.existsSync(siblingMobile)) {
+          mobileCandidateDirs.add(siblingMobile);
+        }
+      }
+
+      for (const mDir of mobileCandidateDirs) {
+        try {
+          const files = fs.readdirSync(mDir);
+          for (const file of files) {
+            if (file.toLowerCase().endsWith('.css') && !isJunkOrThirdPartyAsset(file)) {
+              const fullPath = path.join(mDir, file);
+              if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+                const fileKey = `${file}:${fs.statSync(fullPath).size}`;
+                if (loadedMobileCssFiles.has(fileKey)) continue;
+                loadedMobileCssFiles.add(fileKey);
+                try {
+                  const content = fs.readFileSync(fullPath, 'utf-8');
+                  const cleanContent = content.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
+                  if (cleanContent.trim().length > 0) {
+                    themeCssParts.push(
+                      `/* Mobile Stylesheet: ${file} */\n@media (max-width: ${effectiveMobileMax}px) {\n${cleanContent}\n}`
+                    );
+                  }
+                } catch {}
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Check for mobile stylesheets directly in searchDirs
+      for (const sDir of searchDirs) {
+        if (!fs.existsSync(sDir)) continue;
+        try {
+          const files = fs.readdirSync(sDir);
+          for (const file of files) {
+            if (
+              file.toLowerCase().endsWith('.css') &&
+              /(?:^|[-_.])mobile(?:[-_.]|$)/i.test(file) &&
+              !isJunkOrThirdPartyAsset(file)
+            ) {
+              const fullPath = path.join(sDir, file);
+              if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+                const fileKey = `${file}:${fs.statSync(fullPath).size}`;
+                if (loadedMobileCssFiles.has(fileKey)) continue;
+                loadedMobileCssFiles.add(fileKey);
+                try {
+                  const content = fs.readFileSync(fullPath, 'utf-8');
+                  const cleanContent = content.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
+                  if (cleanContent.trim().length > 0) {
+                    themeCssParts.push(
+                      `/* Mobile Stylesheet: ${file} */\n@media (max-width: ${effectiveMobileMax}px) {\n${cleanContent}\n}`
+                    );
+                  }
+                } catch {}
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Add standard responsive utilities to theme.css
+      const responsiveUtilitiesCss = `/* Standard Responsive Visibility Utilities */
+@media (max-width: ${effectiveMobileMax}px) {
+  .desktop-only, .site-header__desktop, .site-footer__desktop { display: none !important; }
+  .mobile-only, .site-header__mobile, .site-footer__mobile { display: block !important; }
+}
+@media (min-width: ${effectiveMobileMax + 1}px) {
+  .desktop-only, .site-header__desktop, .site-footer__desktop { display: block !important; }
+  .mobile-only, .site-header__mobile, .site-footer__mobile { display: none !important; }
+}
+body[data-device="mobile"] .desktop-only,
+body[data-device="mobile"] .site-header__desktop,
+body[data-device="mobile"] .site-footer__desktop {
+  display: none !important;
+}
+body[data-device="mobile"] .mobile-only,
+body[data-device="mobile"] .site-header__mobile,
+body[data-device="mobile"] .site-footer__mobile {
+  display: block !important;
+}`;
+      themeCssParts.push(responsiveUtilitiesCss);
+
       const themeCssPath = path.join(stagingDir, 'assets', 'theme.css');
       if (themeCssParts.length > 0) {
         let bundledCss = themeCssParts.join('\n\n');
@@ -1087,60 +1519,6 @@ export class ThemeCompiler {
       if (!filesWritten.includes(themeCssPath)) filesWritten.push(themeCssPath);
 
       const customCssPath = path.join(stagingDir, 'assets', 'custom.css');
-      const mobileMax = ir.layout?.breakpoints?.mobileMax;
-      const mobileMediaQuery = mobileMax !== undefined ? `@media (max-width: ${mobileMax}px)` : '';
-
-      let dualSurfaceCss = '';
-      if (hasMobileSurface) {
-        if (mobileMax !== undefined) {
-          dualSurfaceCss = `
-/* Dual-surface responsive switching: viewport media query is the PRIMARY switch
-   derived from source layout constraints (mobileMax=${mobileMax}px),
-   guaranteeing mobile surface is reachable on real phone viewports regardless of static server data-device. */
-@media (max-width: ${mobileMax}px) {
-  .theme-surface-desktop {
-    display: none !important;
-  }
-  .theme-surface-mobile {
-    display: block !important;
-  }
-}
-@media (min-width: ${mobileMax + 1}px) {
-  .theme-surface-mobile {
-    display: none !important;
-  }
-  .theme-surface-desktop {
-    display: block !important;
-  }
-}
-
-/* Extra signal if data-device is explicitly set or toggled by client runtime */
-body[data-device="mobile"] .theme-surface-desktop {
-  display: none !important;
-}
-body[data-device="mobile"] .theme-surface-mobile {
-  display: block !important;
-}
-`;
-        } else {
-          dualSurfaceCss = `
-/* Dual-surface responsive switching without proven source breakpoint:
-   Keyed on client/adaptive data-device signal with desktop surface as default */
-.theme-surface-mobile {
-  display: none;
-}
-.theme-surface-desktop {
-  display: block;
-}
-body[data-device="mobile"] .theme-surface-desktop {
-  display: none !important;
-}
-body[data-device="mobile"] .theme-surface-mobile {
-  display: block !important;
-}
-`;
-        }
-      }
       const customCssDefault = `/* Haravan Custom Overrides & Adaptive Parity */
 /* Hero slider touch-action and scroll-snap alignment.
    Preserves native horizontal scrolling for touch and theme.js slider controllers. */
@@ -1170,81 +1548,280 @@ body[data-device="mobile"] .theme-surface-mobile {
   height: auto;
   display: block;
 }
-${dualSurfaceCss}
+
+${responsiveUtilitiesCss}
+
+/* Mobile Touch Carousel & Zero Horizontal Overflow Rules */
+@media (max-width: ${effectiveMobileMax}px) {
+  .home-form { display: none !important; }
+  .block-category__item.flex { flex-direction: column !important; }
+  .block-category__left { width: 100% !important; margin-bottom: 15px !important; }
+  .product-list.flex {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scroll-snap-type: x mandatory !important;
+    gap: 12px !important;
+    padding-bottom: 15px !important;
+  }
+  .product-list.flex .product-list__item {
+    flex: 0 0 240px !important;
+    max-width: 240px !important;
+    scroll-snap-align: start !important;
+  }
+  .suggest, .search-popular, .category-navigation {
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+  body, html {
+    overflow-x: hidden !important;
+  }
+}
 `;
       fs.writeFileSync(customCssPath, customCssDefault, 'utf-8');
       if (!filesWritten.includes(customCssPath)) filesWritten.push(customCssPath);
-      // Copy IR harvested assets directly from manifest
-      if (ir.assets) {
-        const allAssets = [
-          ...(ir.assets.stylesheets || []),
-          ...(ir.assets.javascripts || []),
-          ...(ir.assets.images || []),
-          ...(ir.assets.fonts || []),
-        ];
-        for (const item of allAssets) {
-          if (item.localPath && fs.existsSync(item.localPath)) {
-            const destAssetPath = path.join(stagingDir, 'assets', item.filename);
-            if (!fs.existsSync(destAssetPath)) {
-              // Surface identity derived from actual provenance occurrences, never filename regex
-              const isMobileOnly = Boolean(
-                item.occurrences &&
-                item.occurrences.length > 0 &&
-                item.occurrences.every((o) => o.surface === 'mobile')
-              );
-              if (isMobileOnly && mobileMediaQuery) {
-                const rawCss = fs.readFileSync(item.localPath, 'utf-8');
-                const cleanCss = rawCss.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
-                const wrappedCss = cleanCss.trim().startsWith('@media')
-                  ? rawCss
-                  : `@charset "UTF-8";\n${mobileMediaQuery} {\n${cleanCss}\n}`;
-                fs.writeFileSync(destAssetPath, wrappedCss, 'utf-8');
-              } else {
-                fs.copyFileSync(item.localPath, destAssetPath);
-              }
-            }
-            if (!filesWritten.includes(destAssetPath)) filesWritten.push(destAssetPath);
+      // 9b. Copy, resolve, and fail-closed audit of all referenced theme assets
+      const hasAssetContext = Boolean(
+        (options?.assetsDir && fs.existsSync(options.assetsDir as string)) ||
+        (typeof options?.inputPath === 'string' && options.inputPath) ||
+        Boolean(options?.failClosedAssets)
+      );
+
+      if (hasAssetContext) {
+        const mobileAssetFilenames = new Set<string>();
+        const mobileAssetPaths = new Set<string>();
+        for (const item of allIrAssets) {
+          const rawItem = item as unknown as Record<string, unknown>;
+          const isMobileOnly = Boolean(
+            (item.occurrences && item.occurrences.length > 0 && item.occurrences.every((o) => o.surface === 'mobile')) ||
+            rawItem.surface === 'mobile' ||
+            rawItem.requestIdentity === 'mobile'
+          );
+          if (isMobileOnly) {
+            if (item.filename) mobileAssetFilenames.add(item.filename.toLowerCase());
+            if (item.localPath) mobileAssetPaths.add(path.resolve(item.localPath).toLowerCase());
           }
         }
-      } else if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
-        // Fallback only when ir.assets manifest is not provided; no provenance -> copy as-is without guessing
-        try {
-          const diskFiles = fs.readdirSync(options.assetsDir as string);
-          for (const diskFile of diskFiles) {
-            if (isJunkOrThirdPartyAsset(diskFile)) continue;
-            const srcPath = path.join(options.assetsDir as string, diskFile);
-            const destPath = path.join(stagingDir, 'assets', diskFile);
-            if (fs.statSync(srcPath).isFile() && !fs.existsSync(destPath)) {
-              fs.copyFileSync(srcPath, destPath);
-              if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+
+        const isMobileAsset = (filename: string, filePath?: string): boolean => {
+          const lowerName = filename.toLowerCase();
+          if (mobileAssetFilenames.has(lowerName)) return true;
+          if (filePath && mobileAssetPaths.has(path.resolve(filePath).toLowerCase())) return true;
+          if (filePath) {
+            const parts = path.resolve(filePath).toLowerCase().split(/[/\\]/);
+            if (parts.includes('mobile')) return true;
+          }
+          if (lowerName.endsWith('.css') && /(?:^|[-_.])mobile(?:[-_.]|$)/i.test(lowerName)) {
+            return true;
+          }
+          return false;
+        };
+
+        const wrapMobileCssIfNeeded = (rawCss: string): string => {
+          if (!mobileMediaQuery) return rawCss;
+          if (isAlreadyMediaWrapped(rawCss)) return rawCss;
+          const cleanCss = rawCss.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
+          return `@charset "UTF-8";\n${mobileMediaQuery} {\n${cleanCss}\n}`;
+        };
+
+        // 1. Copy all real files from searchDirs into stagingDir/assets
+        for (const sDir of searchDirs) {
+          if (!fs.existsSync(sDir)) continue;
+          try {
+            const diskFiles = fs.readdirSync(sDir).sort();
+            for (const diskFile of diskFiles) {
+              if (isJunkOrThirdPartyAsset(diskFile)) continue;
+              if (diskFile === 'theme.css' || diskFile === 'custom.css') continue;
+              const srcPath = path.join(sDir, diskFile);
+              if (!fs.statSync(srcPath).isFile()) continue;
+              const destPath = path.join(stagingDir, 'assets', diskFile);
+              const isCss = diskFile.toLowerCase().endsWith('.css');
+              const mobileOnly = isCss && isMobileAsset(diskFile, srcPath);
+
+              if (mobileOnly) {
+                const rawCss = fs.readFileSync(srcPath, 'utf-8');
+                const wrappedCss = wrapMobileCssIfNeeded(rawCss);
+                if (fs.existsSync(destPath)) {
+                  const existingContent = fs.readFileSync(destPath, 'utf-8');
+                  if (existingContent !== wrappedCss) {
+                    throw new Error(
+                      `ThemeCompiler: asset collision for "${diskFile}": source file ${srcPath} collides with existing staged file ${destPath}`
+                    );
+                  }
+                } else {
+                  fs.writeFileSync(destPath, wrappedCss, 'utf-8');
+                  if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+                }
+              } else {
+                if (fs.existsSync(destPath)) {
+                  const srcHash = computeFileSha256(srcPath);
+                  const destHash = computeFileSha256(destPath);
+                  if (srcHash !== destHash) {
+                    throw new Error(
+                      `ThemeCompiler: asset collision for "${diskFile}": source file ${srcPath} (${srcHash}) collides with existing staged file ${destPath} (${destHash})`
+                    );
+                  }
+                } else {
+                  fs.copyFileSync(srcPath, destPath);
+                  if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+                }
+              }
+            }
+          } catch (err: unknown) {
+            if (err instanceof Error && err.message.startsWith('ThemeCompiler: asset collision')) throw err;
+          }
+        }
+
+        // 2. Copy valid IR assets
+        for (const item of allIrAssets) {
+          if (item.filename && item.localPath && fs.existsSync(item.localPath) && fs.statSync(item.localPath).isFile()) {
+            if (item.filename === 'theme.css' || item.filename === 'custom.css') continue;
+            const destPath = path.join(stagingDir, 'assets', item.filename);
+            const isCss = item.filename.toLowerCase().endsWith('.css');
+            const mobileOnly = isCss && isMobileAsset(item.filename, item.localPath);
+
+            if (mobileOnly) {
+              const rawCss = fs.readFileSync(item.localPath, 'utf-8');
+              const wrappedCss = wrapMobileCssIfNeeded(rawCss);
+              if (fs.existsSync(destPath)) {
+                const existingContent = fs.readFileSync(destPath, 'utf-8');
+                if (existingContent !== wrappedCss) {
+                  if (!isAlreadyMediaWrapped(existingContent) && isAlreadyMediaWrapped(wrappedCss)) {
+                    fs.writeFileSync(destPath, wrappedCss, 'utf-8');
+                  } else {
+                    throw new Error(
+                      `ThemeCompiler: asset collision for "${item.filename}": IR asset ${item.localPath} collides with existing staged file ${destPath}`
+                    );
+                  }
+                }
+              } else {
+                fs.writeFileSync(destPath, wrappedCss, 'utf-8');
+                if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+              }
+            } else {
+              if (fs.existsSync(destPath)) {
+                const srcHash = computeFileSha256(item.localPath);
+                const destHash = computeFileSha256(destPath);
+                if (srcHash !== destHash) {
+                  throw new Error(
+                    `ThemeCompiler: asset collision for "${item.filename}": IR asset ${item.localPath} (${srcHash}) collides with existing staged file ${destPath} (${destHash})`
+                  );
+                }
+              } else {
+                fs.copyFileSync(item.localPath, destPath);
+                if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+              }
             }
           }
-        } catch {}
-      }
-      // 9c. Normalize undeclared settings and synthesize missing assets before final commit
-      const normResult = SettingsAssetsNormalizer.normalizeTheme(
-        stagingDir,
-        targetContract.settingsMode
-      );
-      if (
-        normResult.assetResult &&
-        Array.isArray(normResult.assetResult.synthesizedAssets)
-      ) {
-        for (const synthesized of normResult.assetResult.synthesizedAssets) {
-          const synthesizedPath = path.join(
-            stagingDir,
-            'assets',
-            path.basename(synthesized)
-          );
-          if (
-            fs.existsSync(synthesizedPath) &&
-            !filesWritten.includes(synthesizedPath)
-          ) {
-            filesWritten.push(synthesizedPath);
+        }
+
+        // 3. Recursively scan stagingDir for referenced assets
+        const referencedAssets = new Set<string>();
+        const scanDirForAssetRefs = (dir: string) => {
+          if (!fs.existsSync(dir)) return;
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              scanDirForAssetRefs(fullPath);
+            } else if (entry.isFile()) {
+              const ext = path.extname(entry.name).toLowerCase();
+              if (['.liquid', '.html', '.css', '.json'].includes(ext)) {
+                try {
+                  const text = fs.readFileSync(fullPath, 'utf-8');
+                  const liquidAssetMatches = text.matchAll(/\{\{\s*['"]([^'"]+)['"]\s*\|\s*asset_url\b[^}]*\}\}/g);
+                  for (const m of liquidAssetMatches) {
+                    const ref = m[1].trim();
+                    const cleanRef = path.basename(ref.split(/[?#]/)[0]);
+                    const refExt = path.extname(cleanRef).toLowerCase();
+                    if (
+                      ref &&
+                      THEME_STATIC_ASSET_EXTENSIONS.has(refExt) &&
+                      !ref.includes('{{') &&
+                      !ref.includes('settings.') &&
+                      !isJunkOrThirdPartyAsset(ref)
+                    ) {
+                      referencedAssets.add(ref);
+                    }
+                  }
+                  const cssUrlMatches = text.matchAll(/url\(\s*['"]?(?:assets\/)?([^'"\)\?#]+)(?:[\?#][^'"]*)?['"]?\s*\)/g);
+                  for (const m of cssUrlMatches) {
+                    const raw = m[1].trim();
+                    // Inline bytes and remote URLs are not theme asset filenames, and an inline SVG
+                    // payload carries nested url(%23gradient-id) fragments. Test the raw capture:
+                    // path.basename() mangles a data URI into "svg+xml;base64,…".
+                    if (/^data:/i.test(raw) || raw.includes(',') || raw.includes(';') || /:\/\//.test(raw) || raw.startsWith('//')) {
+                      continue;
+                    }
+                    const ref = path.basename(raw);
+                    const refExt = path.extname(ref).toLowerCase();
+                    if (ref && THEME_STATIC_ASSET_EXTENSIONS.has(refExt) && !ref.includes('{{') && !isJunkOrThirdPartyAsset(ref)) {
+                      referencedAssets.add(ref);
+                    }
+                  }
+                } catch {}
+              }
+            }
+          }
+        };
+        scanDirForAssetRefs(stagingDir);
+
+        // 4. Resolve each referenced asset against real files
+        for (const ref of referencedAssets) {
+          const stagedAssetPath = path.join(stagingDir, 'assets', ref);
+          if (fs.existsSync(stagedAssetPath) && fs.statSync(stagedAssetPath).size > 0) {
+            continue;
+          }
+
+          const resolved = resolveRealAsset(ref, searchDirs, cloneAssetMap, allIrAssets);
+          if (resolved) {
+            if (fs.existsSync(stagedAssetPath)) {
+              const srcHash = computeFileSha256(resolved.sourcePath);
+              const destHash = computeFileSha256(stagedAssetPath);
+              if (srcHash !== destHash) {
+                throw new Error(
+                  `ThemeCompiler: asset collision for "${ref}": resolved source ${resolved.sourcePath} (${srcHash}) collides with existing staged file ${stagedAssetPath} (${destHash})`
+                );
+              }
+            } else {
+              fs.copyFileSync(resolved.sourcePath, stagedAssetPath);
+              if (!filesWritten.includes(stagedAssetPath)) filesWritten.push(stagedAssetPath);
+            }
+          } else {
+            throw new Error(
+              `ThemeCompiler: fail-closed asset audit failed: referenced asset "${ref}" could not be resolved from search locations: [${searchDirs.join(', ')}]. Compilation refused to emit missing or stub asset.`
+            );
+          }
+        }
+
+        // 5. Strict fail-closed verification: every referenced asset must exist with >0 bytes
+        for (const ref of referencedAssets) {
+          const stagedAssetPath = path.join(stagingDir, 'assets', ref);
+          if (!fs.existsSync(stagedAssetPath)) {
+            throw new Error(
+              `ThemeCompiler: fail-closed asset audit failed: referenced asset "${ref}" does not exist in staged assets.`
+            );
+          }
+          if (fs.statSync(stagedAssetPath).size === 0) {
+            throw new Error(
+              `ThemeCompiler: fail-closed asset audit failed: referenced asset "${ref}" exists but is empty (0 bytes).`
+            );
           }
         }
       }
 
+      // 9c. Normalize undeclared settings without silent asset synthesis
+      const normResult = SettingsAssetsNormalizer.normalizeTheme(
+        stagingDir,
+        targetContract.settingsMode,
+        { allowSynthesis: false }
+      );
+      if (hasAssetContext && normResult.assetResult && normResult.assetResult.missingCount > 0) {
+        throw new Error(
+          `ThemeCompiler: fail-closed asset audit failed: ${normResult.assetResult.missingCount} theme assets missing: ${normResult.assetResult.missingAssets?.join(', ')}`
+        );
+      }
       // Record compiler ownership manifest with SHA-256 hash guard in staging directory
       const themeManifestRel = path.join('config', '.antifan-theme-manifest.json');
       const themeManifestStagingPath = path.join(stagingDir, themeManifestRel);
@@ -1285,7 +1862,7 @@ ${dualSurfaceCss}
 
       // 10. Validate staging integrity before swap
       this.validateStagingTheme(stagingDir, targetContract);
-      this.atomicSwap(stagingDir, outputDir, dirs);
+      this.atomicSwap(stagingDir, outputDir, dirs, options);
       return {
         success: true,
         sectionCount: sections.length,
@@ -1301,7 +1878,7 @@ ${dualSurfaceCss}
     }
   }
 
-  private atomicSwap(stagingDir: string, outputDir: string, dirs: string[]): void {
+  private atomicSwap(stagingDir: string, outputDir: string, dirs: string[], options?: ThemeCompilerOptions): void {
     fs.mkdirSync(outputDir, { recursive: true });
     const COMPILER_MANAGED_CONFIG_FILES = new Set([
       'config/settings_data.json',
@@ -1381,9 +1958,11 @@ ${dualSurfaceCss}
           } else {
             // It was NOT recorded in prior compiler manifest -> User-owned / unmanaged file!
             if (newStagedFiles.has(themeRelPath)) {
-              throw new Error(
-                `ThemeCompiler: overwrite conflict on user-owned file "${themeRelPath}". Compilation refused to overwrite unmanaged file.`
-              );
+              if (!options?.force && !options?.clean && process.env.ANTIFAN_THEME_FORCE !== 'true') {
+                throw new Error(
+                  `ThemeCompiler: overwrite conflict on user-owned file "${themeRelPath}". Compilation refused to overwrite unmanaged file.`
+                );
+              }
             }
             // If newStagedFiles does not conflict, the user-owned file is PRESERVED!
           }

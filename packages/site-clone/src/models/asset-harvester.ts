@@ -437,7 +437,15 @@ export class AssetHarvester {
       queryQualifier?: string;
       buildHash?: string;
       assignedFilename?: string;
+      /**
+       * Real filename already present in assetsDir that this reference names. A clone writes
+       * localized references, so re-harvesting that output (theme compilation) must keep the
+       * file that is on disk instead of re-deriving a normalized name that does not exist.
+       */
+      onDiskFilename?: string;
     }
+
+    const onDiskNames = new Set<string>(fs.readdirSync(assetsDir));
 
     const analyzedAssets: AnalyzedAsset[] = sortedEntries.map(entry => {
       let pathname = '';
@@ -533,6 +541,7 @@ export class AssetHarvester {
       }
       const surface = (hasMobile && hasDesktop) ? 'shared' : hasMobile ? 'mobile' : hasDesktop ? 'desktop' : 'unknown';
 
+      const referencedBasename = path.basename(pathname);
       return {
         entry,
         cleanBase,
@@ -541,7 +550,8 @@ export class AssetHarvester {
         density,
         dimension,
         queryQualifier,
-        buildHash
+        buildHash,
+        onDiskFilename: referencedBasename && onDiskNames.has(referencedBasename) ? referencedBasename : undefined
       };
     });
 
@@ -593,9 +603,19 @@ export class AssetHarvester {
       throw new Error(`FATAL_FILENAME_COLLISION_EXHAUSTION: Unable to allocate unique filename for ${entityKey}`);
     };
 
+    // A reference that already names a file on disk is that file: reuse the real name so a
+    // re-harvest of localized output references the bytes that exist instead of a derived name.
+    for (const a of analyzedAssets) {
+      if (!a.onDiskFilename) continue;
+      a.assignedFilename = a.onDiskFilename;
+      allocatedFilenames.set(a.onDiskFilename.toLowerCase(), getEntityKey(a.entry));
+    }
+
     for (const [, group] of baseGroups) {
-      if (group.length === 1) {
-        const a = group[0];
+      const pending = group.filter(a => !a.assignedFilename);
+      if (pending.length === 0) continue;
+      if (pending.length === 1) {
+        const a = pending[0];
         let candidate = a.cleanBase;
         if (a.dimension) {
           candidate = `${candidate}-${a.dimension}`;
@@ -605,16 +625,16 @@ export class AssetHarvester {
         }
         a.assignedFilename = allocateUniqueFilename(a, candidate);
       } else {
-        const surfacesInGroup = new Set(group.map(x => x.surface));
-        const queryQualifiers = new Set(group.map(x => x.queryQualifier).filter(Boolean));
-        const buildHashes = new Set(group.map(x => x.buildHash).filter(Boolean));
-        const densities = new Set(group.map(x => x.density).filter(Boolean));
-        const dimensions = new Set(group.map(x => x.dimension).filter(Boolean));
+        const surfacesInGroup = new Set(pending.map(x => x.surface));
+        const queryQualifiers = new Set(pending.map(x => x.queryQualifier).filter(Boolean));
+        const buildHashes = new Set(pending.map(x => x.buildHash).filter(Boolean));
+        const densities = new Set(pending.map(x => x.density).filter(Boolean));
+        const dimensions = new Set(pending.map(x => x.dimension).filter(Boolean));
 
         const candidateMap = new Map<AnalyzedAsset, string>();
         const candidateCounts = new Map<string, number>();
 
-        for (const a of group) {
+        for (const a of pending) {
           let candidate = a.cleanBase;
           if (a.density && (densities.size > 1 || /@\d+(?:\.\d+)?x/i.test(a.entry.sourceUrl))) {
             const prefix = /@\d+(?:\.\d+)?x/i.test(a.entry.sourceUrl) ? '@' : '-';
@@ -638,7 +658,7 @@ export class AssetHarvester {
           candidateCounts.set(candKey, (candidateCounts.get(candKey) || 0) + 1);
         }
 
-        for (const a of group) {
+        for (const a of pending) {
           let candidate = candidateMap.get(a)!;
           const candKey = `${candidate}${a.ext}`.toLowerCase();
           if ((candidateCounts.get(candKey) || 0) > 1) {

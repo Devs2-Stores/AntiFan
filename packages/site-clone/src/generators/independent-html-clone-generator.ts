@@ -172,19 +172,50 @@ export function stripCaptureTimeSliderGeometry(html: string): string {
 }
 
 export function sanitizeSectionMarkup(html: string): string {
-  // 1. Synthesize declarative toggle bindings BEFORE stripping reactive framework attributes
+  // 1. Synthesize declarative state/open/close toggle bindings BEFORE stripping reactive framework attributes
   let processed = html
-    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click|x-on:click)\s*=\s*(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*!\s*\2\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*!\s*\3\s*')/gi, (match, openTag, p1, p2) => {
-      const prop = p1 || p2;
-      return `${openTag} data-antifan-toggle="${prop}"`;
+    // :class="{ 'show': varName }" or :class="{ 'active': varName }" -> data-antifan-state="varName" data-antifan-class="show|active"
+    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+:class=(?:"([^"]*)"|'([^']*)')/gi, (match, openTag, expr1, expr2) => {
+      const expr = expr1 || expr2;
+      const stateMatch = expr.match(/['"](show|active)['"]\s*:\s*([a-zA-Z0-9_$]+)/);
+      if (stateMatch) {
+        const cls = stateMatch[1];
+        const id = stateMatch[2];
+        return `${openTag} data-antifan-state="${id}" data-antifan-class="${cls}"`;
+      }
+      return openTag;
     })
+    // @click="varName = true" or x-on:click="varName = true" -> data-antifan-open="varName"
+    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*true\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*true\s*')/gi, (match, openTag, v1, v2) => {
+      const id = v1 || v2;
+      return `${openTag} data-antifan-open="${id}"`;
+    })
+    // @click="varName = false" or x-on:click="varName = false" -> data-antifan-close="varName"
+    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*')/gi, (match, openTag, v1, v2) => {
+      const id = v1 || v2;
+      return `${openTag} data-antifan-close="${id}"`;
+    })
+    // @click="varName = !varName" or x-on:click="varName = !varName" -> data-antifan-toggle="varName"
+    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*!\s*\2\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*!\s*\3\s*')/gi, (match, openTag, v1, v2) => {
+      const id = v1 || v2;
+      return `${openTag} data-antifan-toggle="${id}"`;
+    })
+    // x-show="varName" -> data-antifan-target="varName"
     .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+x-show\s*=\s*(?:"\s*([a-zA-Z0-9_$]+)\s*"|'\s*([a-zA-Z0-9_$]+)\s*')/gi, (match, openTag, p1, p2) => {
       const prop = p1 || p2;
       return `${openTag} data-antifan-target="${prop}"`;
     })
-    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click\.outside|x-on:click\.outside)\s*=\s*(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*')/gi, (match, openTag, p1, p2) => {
+    // @click.outside="varName = false" or x-on:click.outside="varName = false" -> data-antifan-close="varName" data-antifan-outside="varName"
+    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click\.outside|x-on:click\.outside)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*')/gi, (match, openTag, p1, p2) => {
       const prop = p1 || p2;
-      return `${openTag} data-antifan-outside="${prop}"`;
+      return `${openTag} data-antifan-close="${prop}" data-antifan-outside="${prop}"`;
+    })
+    // Strip captured inline display:none on data-antifan-target elements so parity rules govern display cleanly
+    .replace(/<[a-z0-9_\-]+(?:\s+[^>]*)?\s+data-antifan-target\s*=\s*["'][^"']+["'][^>]*>/gi, (tag) => {
+      return tag.replace(/(\sstyle\s*=\s*(["']))([\s\S]*?)\2/i, (_styleMatch, stylePrefix, q, styleContent) => {
+        const cleaned = styleContent.replace(/(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/gi, ';').replace(/^;+|;+$/g, '').trim();
+        return cleaned.length > 0 ? `${stylePrefix}${cleaned}${q}` : '';
+      });
     });
 
   // 2. Reset transient in-flight slider/carousel transforms to neutral origin
@@ -192,22 +223,46 @@ export function sanitizeSectionMarkup(html: string): string {
     .replace(/(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translateX\(-?[0-9]+(?:\.[0-9]+)?px\)\s*;?/gi, '$1transform: translateX(0px);')
     .replace(/(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translate3d\(-?[0-9]+(?:\.[0-9]+)?px,\s*0(?:px)?,\s*0(?:px)?\)\s*;?/gi, '$1transform: translate3d(0px, 0px, 0px);');
 
-  // 3. Drop geometry measured for the capture viewport so slides size per real viewport
+  // 3. Strip proven capture-time slider geometry and unwrap capture-time slick DOM
   processed = stripCaptureTimeSliderGeometry(processed);
 
-  return processed
-    .replace(/(?::|x-bind:|v-bind:)?(?:src|data-src)\s*=\s*(?:"[^"]*(?:https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)[^"']*)["']|'[^']*(?:https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)[^"']*)['"])/gi, (match) => {
-      const urlMatch = match.match(/(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^"'\s)]+)/i);
-      const cleanUrl = urlMatch ? urlMatch[1] : '';
-      return cleanUrl ? `data-src="${cleanUrl}" src=""` : 'src=""';
+  // Unwrap injected capture-time .slick-list and .slick-track, strip runtime classes/dots/clones
+  // so static markup holds original slide children that client scripts (home.js) cleanly initialize
+  processed = processed
+    .replace(/<ul\b[^>]*\bclass=["'][^"']*\bslick-dots\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/gi, '')
+    .replace(/<button\b[^>]*\bclass=["'][^"']*\bslick-(?:prev|next|arrow)\b[^"']*["'][^>]*>[\s\S]*?<\/button>/gi, '')
+    .replace(/<[a-z0-9_\-]+[^>]*\bclass=["'][^"']*\bslick-cloned\b[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9_\-]+>/gi, '')
+    .replace(/<div\b[^>]*\bclass=["'][^"']*\bslick-list\b[^"']*["'][^>]*>\s*<div\b[^>]*\bclass=["'][^"']*\bslick-track\b[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi, '$1')
+    .replace(/\bclass=(["'])([^"']*)\1/gi, (m, quote, cls) => {
+      const cleanedCls = cls
+        .split(/\s+/)
+        .filter((c: string) => !['slick-initialized', 'slick-slider', 'slick-dotted', 'slick-slide', 'slick-current', 'slick-active'].includes(c))
+        .join(' ');
+      return `class=${quote}${cleanedCls}${quote}`;
     })
-    .replace(/(?::|x-bind:|v-bind:)(src|data-src)\s*=\s*(?:"[^"]*(?:https?:)?\/\/[^"]*"|'[^']*(?:https?:)?\/\/[^']*')/gi, '')
+    .replace(/\s+data-slick-index=["'][^"']*["']/gi, '')
+    .replace(/\s+aria-describedby=["'][^"']*slick-slide[^"']*["']/gi, '');
+  // 4. Strip whole quote-aware bound attributes (:src, :data-src, x-bind:*, v-bind:*, @*, x-on:*, wire:*, x-*)
+  // Bound attributes whose expression contains string literals must be matched in their entirety
+  // so that expression bodies are never left behind as malformed text.
+  processed = processed.replace(/\s+(?:(?::|x-bind:|v-bind:|@|x-on:|wire:)[a-zA-Z0-9_\-\.:]+|x-(?:data|bind|on|show|model|transition|ref|init|cloak|html|text|teleport|for|if|effect|ignore)(?::[a-zA-Z0-9_\-\.]+)?)(?:=(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s>]+))?/gi, '');
+
+  // 5. Remove any lingering remote network URLs from data-src or src on iframe and media elements
+  processed = processed.replace(/\s+data-src=["'][^"']*(?:youtube\.com|youtu\.be|google\.com\/maps)[^"']*["']/gi, '');
+  processed = processed.replace(/(<iframe\b[^>]*?)\s+src=["'][^"']*(?:youtube\.com|youtu\.be|google\.com\/maps)[^"']*["']/gi, (_m, p1) => p1);
+  processed = processed.replace(/(<iframe\b[^>]*?)\s+src=["']['"]/gi, (_m, p1) => p1 + ' src="about:blank"');
+  processed = processed.replace(/<iframe\b([^>]*?)>/gi, (m, attrs) => {
+    if (!/\ssrc=/i.test(attrs)) {
+      return `<iframe${attrs} src="about:blank">`;
+    }
+    return m;
+  });
+
+  // 6. Strip inert framework, tracker, and dead third-party widget shells
+  return processed
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
     .replace(/<!--\[if (?:END)?BLOCK\]>[\s\S]*?<!\[endif\]-->/gi, '')
     .replace(/<!--\s*Livewire Component:[\s\S]*?-->/gi, '')
-    .replace(/\s+wire:[a-zA-Z0-9_\-\.]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
-    .replace(/\s+(?:x-(?:data|bind|on|show|model|transition|ref|init|cloak|html|text|teleport|for|if|effect|ignore)(?::[a-zA-Z0-9_\-\.]+)?|@[a-zA-Z0-9_\-\.:]+)(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
-    .replace(/\s+:class=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/\s+data-(?:update-uri|navigate-once|navigate-[a-zA-Z0-9_\-]+|livewire(?:-[a-zA-Z0-9_\-]+)?|csrf)(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
     .replace(/<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*\/?>/gi, '')
     .replace(/<meta\s+[^>]*(?:name|property)=["'](?:csrf[-_]token|csrf-param|_token)["'][^>]*\/?>/gi, '')
@@ -215,9 +270,10 @@ export function sanitizeSectionMarkup(html: string): string {
     .replace(/<script\b[^>]*src=["'][^"']*(?:livewire|googletagmanager|google-analytics|analytics\.js|gtag|clarity|tawk|twk-chunk|twk-|emojione|connect\.facebook\.net|gtm\.js|1hiir2bkg|js\.js)[^"']*["'][^>]*>(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
     .replace(/<script\b[^>]*>(?:(?!<\/script>)[\s\S])*?(?:Tawk_API|Tawk_|tawk\.to|gtag\(|dataLayer\.push|fbq\(|clarity\(|googletagmanager|Livewire\b|livewire_token|window\.livewire)(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
     .replace(/<div\b[^>]*id=["'](?:x2err|tawk|twk|subiz|vchat|fb-root|zalo)[^"']*["'][^>]*>(?:(?!<\/div>)[\s\S])*?<\/div>/gi, '')
-    .replace(/<div\b[^>]*style=["'][^"']*(?:z-index:\s*999999|z-index:\s*99999)[^"']*["'][^>]*>(?:(?!<\/div>)[\s\S])*?<iframe\b[^>]*title=["']chat widget["'][^>]*>(?:(?!<\/iframe>)[\s\S])*?<\/iframe>[\s\S]*?<\/div>/gi, '')
-    .replace(/<iframe\b[^>]*(?:googletagmanager|facebook\.com\/plugins|tawk|title=["']chat widget["'])[^>]*>(?:(?!<\/iframe>)[\s\S])*?<\/iframe>/gi, '')
-    .replace(/<style\b[^>]*>(?:(?!<\/style>)[\s\S])*?(?:tawk|#x2err)(?:(?!<\/style>)[\s\S])*?<\/style>/gi, '')
+    .replace(/<div\b[^>]*\bstyle=["'][^"']*(?:z-index:\s*999999|z-index:\s*99999|display:\s*block\s*!important)[^"']*["'][^>]*>(?:(?!<\/?div\b)[\s\S])*?<iframe\b[^>]*>(?:(?!<\/?div\b)[\s\S])*?<\/div>/gi, '')
+    .replace(/<iframe\b[^>]*(?:googletagmanager|recaptcha|google\.com\/recaptcha|facebook\.com\/plugins|tawk|title=["']chat widget["']|Microsoft\.Alpha\(Opacity 1\}\)|outline:none\s*!important)[^>]*>(?:(?!<\/iframe>)[\s\S])*?<\/iframe>/gi, '')
+    .replace(/<link\b[^>]*\brel=["'](?:profile|dns-prefetch|preconnect|pingback)["'][^>]*\/?>/gi, '')
+    .replace(/<style\b[^>]*>(?:(?!<\/style>)[\s\S])*?(?:tawk|twk|#x2err|Microsoft\.Alpha\(Opacity 1\}\)|tawkMaxOpen)(?:(?!<\/style>)[\s\S])*?<\/style>/gi, '')
     .replace(/<img\b[^>]*>/gi, (tag) => promoteLazyLoadTarget(tag));
 }
 
@@ -782,17 +838,17 @@ ${extractedEffectsScripts.join('\n\n')}
     .category-navigation__block.show .category-navigation {
       display: block;
     }
-    .category-navigation__header .bottom .back.show {
+    .category-navigation__block.show .category-navigation__header .bottom .back.show {
       display: block;
       visibility: visible;
       opacity: 1;
     }
-    .category-navigation__list > ul > li.show > .child-lv1 {
+    .category-navigation__block.show .category-navigation__list > ul > li.show > .child-lv1 {
       display: block;
       visibility: visible;
       opacity: 1;
     }
-    .child-lv1 > li.show > .child-lv2 {
+    .category-navigation__block.show .child-lv1 > li.show > .child-lv2 {
       display: block;
       visibility: visible;
       opacity: 1;
@@ -802,7 +858,10 @@ ${extractedEffectsScripts.join('\n\n')}
     /* Universal Declarative Toggle Targets */
     [data-antifan-target]:not(.active) { display: none; }
     [data-antifan-target].active { display: block; }
-    /* Universal Mobile Drawer & Offcanvas Scoped State */
+    /* Universal Mobile Drawer & Offcanvas Scoped State.
+       Only overlay markers hide by default: an element that merely carries a state binding
+       (a menu item, a tab) keeps the visibility the site's own CSS gives it, and the vendor
+       stylesheet already hides the real drawer until .show is present. */
     [data-antifan-drawer]:not(.active):not(.show),
     .category-navigation__block:not(.show),
     .drawer:not(.active):not(.show),
@@ -812,6 +871,7 @@ ${extractedEffectsScripts.join('\n\n')}
       visibility: hidden;
       pointer-events: none;
     }
+    [data-antifan-state].show, [data-antifan-state].active,
     [data-antifan-drawer].show, [data-antifan-drawer].active,
     .category-navigation__block.show,
     .drawer.show, .drawer.active,
@@ -1018,17 +1078,93 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
     // 1b. Mobile Drawer Navigation & Drilldown (Universal & Theme)
     var openDrawer = function(drawer) {
       if (!drawer) return;
-      drawer.classList.add('show', 'active');
+      var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
+      drawer.classList.add(targetClass, 'show', 'active');
+      drawer.setAttribute('data-antifan-opened', 'true');
+      if (drawer.hasAttribute('data-antifan-target')) {
+        drawer.style.removeProperty('display');
+      }
       document.body.style.overflow = 'hidden';
     };
     var closeDrawer = function(drawer) {
       if (!drawer) return;
-      drawer.classList.remove('show', 'active');
-      var anyOpen = document.querySelector('.category-navigation__block.show, [data-antifan-drawer].show, [data-antifan-drawer].active, .drawer.show, .drawer.active, .offcanvas.show, .offcanvas.active, .mobile-drawer.show, .mobile-drawer.active');
-      if (!anyOpen) {
+      var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
+      drawer.classList.remove(targetClass, 'show', 'active');
+      drawer.removeAttribute('data-antifan-opened');
+      if (drawer.classList.contains('category-navigation__block') || drawer.hasAttribute('data-antifan-drawer')) {
+        var openSubL2 = drawer.querySelectorAll('.category-navigation__list > ul > li.show, .child-lv1 > li.show, .category-navigation__header .bottom .back.show, .back.show');
+        openSubL2.forEach(function(li) { li.classList.remove('show', 'active'); });
+      }
+      var anyDrawerOpen = document.querySelector('[data-antifan-opened="true"], .category-navigation__block.show, [data-antifan-drawer].show, [data-antifan-drawer].active, .drawer.show, .drawer.active, .offcanvas.show, .offcanvas.active, .mobile-drawer.show, .mobile-drawer.active, [data-antifan-modal].show, [data-antifan-modal].active, .modal.show, .modal.active, .popup.show, .popup.active');
+      if (!anyDrawerOpen) {
         document.body.style.overflow = '';
       }
     };
+
+    // Declarative data-antifan-open triggers
+    var openTriggers = document.querySelectorAll('[data-antifan-open]');
+    openTriggers.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var stateId = btn.getAttribute('data-antifan-open');
+        var targets = document.querySelectorAll('[data-antifan-state="' + stateId + '"]');
+        if (!targets.length) {
+          var fallback = btn.closest('.category-navigation__block, [data-antifan-drawer], .drawer, .offcanvas, .mobile-drawer') ||
+                         document.querySelector('.category-navigation__block, [data-antifan-drawer], .mobile-drawer, .drawer, .offcanvas');
+          targets = fallback ? [fallback] : [];
+        }
+        targets.forEach(function(t) { openDrawer(t); });
+      });
+    });
+
+    // Declarative data-antifan-close triggers
+    var closeTriggers = document.querySelectorAll('[data-antifan-close]');
+    closeTriggers.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var stateId = btn.getAttribute('data-antifan-close');
+        var targets = document.querySelectorAll('[data-antifan-state="' + stateId + '"]');
+        if (!targets.length) {
+          var closestD = btn.closest('.category-navigation__block, [data-antifan-state], [data-antifan-drawer], .drawer, .offcanvas, .mobile-drawer');
+          if (closestD) targets = [closestD];
+        }
+        targets.forEach(function(t) { closeDrawer(t); });
+      });
+    });
+
+    // Declarative data-antifan-toggle triggers
+    var toggleTriggers = document.querySelectorAll('[data-antifan-toggle]');
+    toggleTriggers.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var prop = btn.getAttribute('data-antifan-toggle');
+        var target = btn.closest('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]') ||
+                     btn.querySelector('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]') ||
+                     (btn.parentElement && btn.parentElement.querySelector('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]')) ||
+                     document.querySelector('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]');
+        if (target) {
+          var isOverlay = target.classList.contains('category-navigation__block') || target.hasAttribute('data-antifan-drawer') || target.classList.contains('drawer') || target.classList.contains('mobile-drawer') || target.classList.contains('offcanvas') || target.classList.contains('modal') || target.classList.contains('popup') || target.hasAttribute('data-antifan-modal');
+          if (isOverlay) {
+            var targetClass = target.getAttribute('data-antifan-class') || 'show';
+            if (target.classList.contains(targetClass) || target.classList.contains('show') || target.classList.contains('active')) {
+              closeDrawer(target);
+            } else {
+              openDrawer(target);
+            }
+          } else {
+            var targetClass = target.getAttribute('data-antifan-class') || 'active';
+            if (target.classList.contains(targetClass) || target.classList.contains('show') || target.classList.contains('active')) {
+              target.classList.remove(targetClass, 'show', 'active');
+            } else {
+              target.classList.add(targetClass, 'show', 'active');
+              if (target.hasAttribute('data-antifan-target')) {
+                target.style.removeProperty('display');
+              }
+            }
+          }
+        }
+      });
+    });
 
     var menuMobileBtns = document.querySelectorAll('.menu-mobile, [data-toggle="menu-mobile"], [data-toggle="drawer"], [class*="hamburger"], [class*="nav-toggle"], [data-antifan-drawer-trigger]');
     menuMobileBtns.forEach(function(btn) {
@@ -1047,7 +1183,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
     drawerCloseBtns.forEach(function(btn) {
       btn.addEventListener('click', function(e) {
         e.preventDefault();
-        var drawer = btn.closest('.category-navigation__block, [data-antifan-drawer], .drawer, .offcanvas, .mobile-drawer');
+        var drawer = btn.closest('.category-navigation__block, [data-antifan-state], [data-antifan-drawer], .drawer, .offcanvas, .mobile-drawer');
         if (drawer) closeDrawer(drawer);
       });
     });
@@ -1089,9 +1225,10 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
     }
 
     // Drilldown level 2
-    var l2Spans = document.querySelectorAll('.child-lv1 > li > p > span, .child-lv1 > li > p > a ~ span');
+    var l2Spans = document.querySelectorAll('.child-lv1 > li > p > span:not([data-antifan-toggle]), .child-lv1 > li > p > a ~ span:not([data-antifan-toggle])');
     l2Spans.forEach(function(span) {
       span.addEventListener('click', function(e) {
+        if (span.hasAttribute('data-antifan-toggle')) return;
         e.preventDefault();
         e.stopPropagation();
         var parentLi = span.closest('li');
@@ -1104,8 +1241,9 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
     // Universal Escape key listener for modals and drawers
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' || e.keyCode === 27) {
-        allDrawers.forEach(function(d) {
-          d.classList.remove('show', 'active');
+        var openDrawers = document.querySelectorAll('[data-antifan-opened="true"], .category-navigation__block.show, .category-navigation__block.active, [data-antifan-drawer].show, [data-antifan-drawer].active, .drawer.show, .drawer.active, .offcanvas.show, .offcanvas.active, .mobile-drawer.show, .mobile-drawer.active');
+        openDrawers.forEach(function(d) {
+          closeDrawer(d);
         });
         var openModals = document.querySelectorAll('#popup-login.active, #popup-video.active, .popup.active, .modal.active');
         openModals.forEach(function(m) {
@@ -1127,8 +1265,10 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
           videoPopup.classList.add('active');
           var iframe = videoPopup.querySelector('iframe');
           if (iframe) {
-            var rawSrc = iframe.getAttribute('data-src') || iframe.getAttribute('src') || 'https://www.youtube.com/embed/Nt2J6ZXPuw0';
-            iframe.src = rawSrc.includes('?') ? rawSrc + '&autoplay=1' : rawSrc + '?autoplay=1';
+            var rawSrc = iframe.getAttribute('data-src') || iframe.getAttribute('src');
+            if (rawSrc && rawSrc !== 'about:blank') {
+              iframe.src = rawSrc.includes('?') ? rawSrc + '&autoplay=1' : rawSrc + '?autoplay=1';
+            }
           }
         });
       });
@@ -1515,8 +1655,7 @@ ${options.customInteractivityJs ? `\n    /* Custom User / Theme Interactivity */
       cleaned = cleaned.replace(/id="category-navigation__sub"(\s+class="")?/g, 'id="category-navigation__sub" class="category-navigation__sub"');
     }
     if (hasVideoPopup) {
-      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)\s*(data-src=""|data-src="(?:\s*)")([^>]*>)/gi, '$1 data-src="https://www.youtube.com/embed/Nt2J6ZXPuw0"$3');
-      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)src=""([^>]*>)/gi, '$1src="about:blank"$2');
+      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)\s*(data-src=""|data-src="(?:\s*)")([^>]*>)/gi, '$1$3');
       cleaned = cleaned.replace(/(<div id="popup-video"[^>]*?)\s+style="[^"]*"/gi, '$1');
     }
     if (hasLoginPopup) {
@@ -1534,18 +1673,18 @@ ${options.customInteractivityJs ? `\n    /* Custom User / Theme Interactivity */
     const isMobileDevice = targetDevice === 'mobile';
     if (relToRoot) {
       cleaned = cleaned.replace(
-        /(\b(?:href|src|data-src|poster)\s*=\s*["'])(?:(?:\.\/)?)(assets|css|js)\//gi,
+        /(\b(?:href|src|data-src|poster)\s*=\s*["'])(?:\/|\.\/)?(assets|css|js)\//gi,
         `$1${relToRoot}$2/`
       );
       cleaned = cleaned.replace(
         /(\b(?:srcset|data-srcset)\s*=\s*["'])([^"']+)(["'])/gi,
         (_m, p1, val, p3) => {
-          const rewrittenVal = val.replace(/(^|\s|,)(?:(?:\.\/)?)(assets|css|js)\//gi, `$1${relToRoot}$2/`);
+          const rewrittenVal = val.replace(/(^|\s|,)(?:\/|\.\/)?(assets|css|js)\//gi, `$1${relToRoot}$2/`);
           return `${p1}${rewrittenVal}${p3}`;
         }
       );
       cleaned = cleaned.replace(
-        /(url\s*\(\s*['"]?)(?:(?:\.\/)?)(assets|css|js)\//gi,
+        /(url\s*\(\s*['"]?)(?:\/|\.\/)?(assets|css|js)\//gi,
         `$1${relToRoot}$2/`
       );
     }

@@ -209,7 +209,7 @@ describe('SettingsAssetsNormalizer - Haravan Theme Schema & Asset Compliance', (
           'theme-styles.css',
         ];
 
-        const result = await normalizer.auditAndSynthesizeAssets(tempDir, declaredAssets);
+        const result = await normalizer.auditAndSynthesizeAssets(tempDir, declaredAssets, { allowSynthesis: true });
 
         assert.strictEqual(result.missingCount, 9);
         assert.strictEqual(result.synthesizedAssets.length, 9);
@@ -244,9 +244,24 @@ describe('SettingsAssetsNormalizer - Haravan Theme Schema & Asset Compliance', (
         assert.ok(fs.existsSync(cssPath), 'theme-styles.css must exist');
 
         // Re-run: should detect 0 missing assets
-        const rerunResult = await normalizer.auditAndSynthesizeAssets(tempDir, declaredAssets);
+        const rerunResult = await normalizer.auditAndSynthesizeAssets(tempDir, declaredAssets, { allowSynthesis: true });
         assert.strictEqual(rerunResult.missingCount, 0);
         assert.strictEqual(rerunResult.synthesizedAssets.length, 0);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('fails closed and writes zero stubs when allowSynthesis is not enabled', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-fail-closed-asset-test-'));
+      try {
+        const declaredAssets = ['missing-hero.jpg', 'missing-style.css'];
+        const result = await normalizer.auditAndSynthesizeAssets(tempDir, declaredAssets);
+        assert.strictEqual(result.missingCount, 2);
+        assert.strictEqual(result.synthesizedAssets.length, 0);
+        assert.deepStrictEqual(result.missingAssets, declaredAssets);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'assets', 'missing-hero.jpg')), false);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'assets', 'missing-style.css')), false);
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
@@ -271,7 +286,6 @@ describe('SettingsAssetsNormalizer - Haravan Theme Schema & Asset Compliance', (
       }
     });
   });
-
   describe('4. Full Theme Directory Normalization', () => {
     it('scans theme templates and normalizes schema and assets end-to-end', async () => {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-full-theme-test-'));
@@ -324,7 +338,7 @@ describe('SettingsAssetsNormalizer - Haravan Theme Schema & Asset Compliance', (
         );
 
         // Execute normalizeTheme
-        const result = await normalizer.normalizeTheme(tempDir);
+        const result = await normalizer.normalizeTheme(tempDir, undefined, { allowSynthesis: true });
 
         // Verify schema result
         assert.ok(result.schemaResult.addedSettingsCount >= 3);
@@ -341,8 +355,6 @@ describe('SettingsAssetsNormalizer - Haravan Theme Schema & Asset Compliance', (
         assert.ok(declaredIds.has('add_to_cart_show'));
         assert.ok(declaredIds.has('cart_deliverytime_start'));
 
-        // Verify asset synthesis on disk
-        assert.ok(result.assetResult.missingCount >= 2);
         assert.ok(fs.existsSync(path.join(tempDir, 'assets', 'global.css')));
         assert.ok(fs.existsSync(path.join(tempDir, 'assets', 'badge-sale.png')));
       } finally {

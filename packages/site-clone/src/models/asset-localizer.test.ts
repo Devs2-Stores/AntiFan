@@ -17,7 +17,8 @@ import {
   rewriteCssUrls,
   rewriteHtmlContent,
   sanitizeRequestHeaders,
-  type DownloadTransport
+  type DownloadTransport,
+  type DownloadedAssetResult
 } from './asset-localizer.js';
 import { AssetHarvester, type HarvestedAssetManifest, type HarvestFileInput, type HarvestedAssetItem } from './asset-harvester.js';
 
@@ -1863,6 +1864,470 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
       assert.throws(() => {
         localizer.rewriteFiles([{ path: 'unknown.html', content: '<img src="https://example.com/conflicting.png">' }], manifest, { mode: 'relative' });
       }, /AMBIGUOUS_ASSET_VARIANT/);
+    });
+
+    it('6.17. consolidateIdenticalContent collapses byte-identical items across contexts to surface-neutral file and preserves distinct-byte variants', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-consolidate-test-'));
+
+      try {
+        const pngContent = Buffer.from('FAKE_PNG_BYTE_IDENTICAL_HEADER_AND_BODY');
+        const pngSha = createHash('sha256').update(pngContent).digest('hex');
+
+        const cssDesktopContent = Buffer.from('body { color: red; font-size: 16px; }');
+        const cssDesktopSha = createHash('sha256').update(cssDesktopContent).digest('hex');
+
+        const cssMobileContent = Buffer.from('body { color: blue; font-size: 12px; margin: 0; }');
+        const cssMobileSha = createHash('sha256').update(cssMobileContent).digest('hex');
+
+        // Write all 4 files on disk in tempDir
+        fs.writeFileSync(path.join(tempDir, 'logo-desktop.png'), pngContent);
+        fs.writeFileSync(path.join(tempDir, 'logo-mobile.png'), pngContent);
+        fs.writeFileSync(path.join(tempDir, 'app-desktop.css'), cssDesktopContent);
+        fs.writeFileSync(path.join(tempDir, 'app-mobile.css'), cssMobileContent);
+
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [
+            {
+              type: 'css',
+              sourceUrl: 'https://example.com/assets/app.css',
+              filename: 'app-desktop.css',
+              localPath: path.join(tempDir, 'app-desktop.css'),
+              requestIdentity: 'desktop',
+              byteCount: cssDesktopContent.length,
+              sha256: cssDesktopSha
+            },
+            {
+              type: 'css',
+              sourceUrl: 'https://example.com/assets/app.css',
+              filename: 'app-mobile.css',
+              localPath: path.join(tempDir, 'app-mobile.css'),
+              requestIdentity: 'mobile',
+              byteCount: cssMobileContent.length,
+              sha256: cssMobileSha
+            }
+          ],
+          javascripts: [],
+          images: [
+            {
+              type: 'image',
+              sourceUrl: 'https://example.com/images/logo.png',
+              filename: 'logo-desktop.png',
+              localPath: path.join(tempDir, 'logo-desktop.png'),
+              requestIdentity: 'desktop',
+              byteCount: pngContent.length,
+              sha256: pngSha
+            },
+            {
+              type: 'image',
+              sourceUrl: 'https://example.com/images/logo.png',
+              filename: 'logo-mobile.png',
+              localPath: path.join(tempDir, 'logo-mobile.png'),
+              requestIdentity: 'mobile',
+              byteCount: pngContent.length,
+              sha256: pngSha
+            }
+          ],
+          fonts: [],
+          totalBytes: (pngContent.length * 2) + cssDesktopContent.length + cssMobileContent.length,
+          assetMap: {
+            'https://example.com/images/logo.png#desktop': 'logo-desktop.png',
+            'https://example.com/images/logo.png#mobile': 'logo-mobile.png',
+            'logo-desktop.png': 'logo-desktop.png',
+            'logo-mobile.png': 'logo-mobile.png',
+            'https://example.com/assets/app.css#desktop': 'app-desktop.css',
+            'https://example.com/assets/app.css#mobile': 'app-mobile.css',
+            'app-desktop.css': 'app-desktop.css',
+            'app-mobile.css': 'app-mobile.css'
+          }
+        };
+
+        const downloaded: DownloadedAssetResult[] = [
+          {
+            sourceUrl: 'https://example.com/images/logo.png',
+            filename: 'logo-desktop.png',
+            localPath: path.join(tempDir, 'logo-desktop.png'),
+            status: 'downloaded',
+            byteCount: pngContent.length,
+            sha256: pngSha,
+            requestIdentity: 'desktop'
+          },
+          {
+            sourceUrl: 'https://example.com/images/logo.png',
+            filename: 'logo-mobile.png',
+            localPath: path.join(tempDir, 'logo-mobile.png'),
+            status: 'downloaded',
+            byteCount: pngContent.length,
+            sha256: pngSha,
+            requestIdentity: 'mobile'
+          },
+          {
+            sourceUrl: 'https://example.com/assets/app.css',
+            filename: 'app-desktop.css',
+            localPath: path.join(tempDir, 'app-desktop.css'),
+            status: 'downloaded',
+            byteCount: cssDesktopContent.length,
+            sha256: cssDesktopSha,
+            requestIdentity: 'desktop'
+          },
+          {
+            sourceUrl: 'https://example.com/assets/app.css',
+            filename: 'app-mobile.css',
+            localPath: path.join(tempDir, 'app-mobile.css'),
+            status: 'downloaded',
+            byteCount: cssMobileContent.length,
+            sha256: cssMobileSha,
+            requestIdentity: 'mobile'
+          }
+        ];
+
+        const res = localizer.consolidateIdenticalContent(downloaded, manifest, tempDir);
+
+        // 1. Result metrics
+        assert.strictEqual(res.consolidated, 1, 'Exactly one duplicate copy must be eliminated');
+        assert.strictEqual(res.freedBytes, pngContent.length, 'Freed bytes must equal size of duplicate file');
+        assert.strictEqual(res.groups.length, 1);
+        assert.strictEqual(res.groups[0].canonical, 'logo.png', 'Canonical member must be renamed to surface-neutral name');
+        assert.strictEqual(res.groups[0].renamedFrom, 'logo-desktop.png', 'Renamed canonical must be documented in renamedFrom');
+        assert.deepStrictEqual(res.groups[0].removed, ['logo-mobile.png'], 'Only physically unlinked file must appear in removed');
+        assert.ok(res.groups[0].aliases?.includes('logo-desktop.png'));
+        assert.ok(res.groups[0].aliases?.includes('logo-mobile.png'));
+        // 2. On-disk verification
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'logo.png')), true, 'Neutral logo.png must exist on disk');
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'logo-desktop.png')), false, 'logo-desktop.png must be gone from disk');
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'logo-mobile.png')), false, 'logo-mobile.png must be gone from disk');
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'app-desktop.css')), true, 'Distinct-byte app-desktop.css must stay on disk');
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'app-mobile.css')), true, 'Distinct-byte app-mobile.css must stay on disk');
+
+        // 3. Manifest item verification
+        assert.strictEqual(manifest.images[0].filename, 'logo.png');
+        assert.strictEqual(manifest.images[0].localPath, path.join(tempDir, 'logo.png'));
+        assert.strictEqual(manifest.images[1].filename, 'logo.png');
+        assert.strictEqual(manifest.images[1].localPath, path.join(tempDir, 'logo.png'));
+        assert.strictEqual(manifest.stylesheets[0].filename, 'app-desktop.css');
+        assert.strictEqual(manifest.stylesheets[1].filename, 'app-mobile.css');
+
+        // 4. AssetMap aliases verification: both qualified aliases and bare URL resolve to canonical
+        assert.strictEqual(manifest.assetMap!['https://example.com/images/logo.png#desktop'], 'logo.png');
+        assert.strictEqual(manifest.assetMap!['https://example.com/images/logo.png#mobile'], 'logo.png');
+        assert.strictEqual(manifest.assetMap!['https://example.com/images/logo.png'], 'logo.png');
+        assert.strictEqual(manifest.assetMap!['logo-desktop.png'], 'logo.png');
+        assert.strictEqual(manifest.assetMap!['logo-mobile.png'], 'logo.png');
+        assert.strictEqual(manifest.assetMap!['https://example.com/assets/app.css#desktop'], 'app-desktop.css');
+        assert.strictEqual(manifest.assetMap!['https://example.com/assets/app.css#mobile'], 'app-mobile.css');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.18. localizeDownloadedStylesheets rewrites every on-disk stylesheet belonging to downloaded CSS rows sharing one source URL', async () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-multicss-rewrite-test-'));
+
+      try {
+        const cssDesktopContent = `@font-face { font-family: 'Roboto'; src: url('/build/assets/Roboto-Bold.ttf') format('truetype'); }\n.hero { background: url('https://example.com/images/hero-bg.png'); }`;
+        const cssMobileContent = `@font-face { font-family: 'Roboto'; src: url('/build/assets/Roboto-Bold.ttf') format('truetype'); }\n.hero { background: url('https://example.com/images/hero-bg.png'); }`;
+        const fontContent = Buffer.from('MOCK_ROBOTO_FONT_BYTES');
+        const imageContent = Buffer.from('MOCK_HERO_BG_PNG_BYTES');
+
+        fs.writeFileSync(path.join(tempDir, 'app-desktop-dcc2d3nb.css'), cssDesktopContent);
+        fs.writeFileSync(path.join(tempDir, 'app-mobile-dcc2d3nb.css'), cssMobileContent);
+        fs.writeFileSync(path.join(tempDir, 'Roboto-Bold.ttf'), fontContent);
+        fs.writeFileSync(path.join(tempDir, 'hero-bg.png'), imageContent);
+
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [
+            {
+              type: 'css',
+              sourceUrl: 'https://example.com/build/assets/app-DCc2d3nB.css',
+              filename: 'app-desktop-dcc2d3nb.css',
+              localPath: path.join(tempDir, 'app-desktop-dcc2d3nb.css'),
+              requestIdentity: 'desktop'
+            },
+            {
+              type: 'css',
+              sourceUrl: 'https://example.com/build/assets/app-DCc2d3nB.css',
+              filename: 'app-mobile-dcc2d3nb.css',
+              localPath: path.join(tempDir, 'app-mobile-dcc2d3nb.css'),
+              requestIdentity: 'mobile'
+            }
+          ],
+          javascripts: [],
+          images: [
+            {
+              type: 'image',
+              sourceUrl: 'https://example.com/images/hero-bg.png',
+              filename: 'hero-bg.png',
+              localPath: path.join(tempDir, 'hero-bg.png')
+            }
+          ],
+          fonts: [
+            {
+              type: 'font',
+              sourceUrl: 'https://example.com/build/assets/Roboto-Bold.ttf',
+              filename: 'Roboto-Bold.ttf',
+              localPath: path.join(tempDir, 'Roboto-Bold.ttf')
+            }
+          ],
+          totalBytes: cssDesktopContent.length + cssMobileContent.length + fontContent.length + imageContent.length
+        };
+
+        const res = await localizer.localizeDownloadedStylesheets(manifest, {
+          assetsDir: tempDir,
+          sourceBaseUrl: 'https://example.com/build/assets/app-DCc2d3nB.css',
+          skipDownload: true,
+          mode: 'relative'
+        });
+
+        // Both files must be rewritten in-place
+        const rewrittenDesktop = fs.readFileSync(path.join(tempDir, 'app-desktop-dcc2d3nb.css'), 'utf8');
+        const rewrittenMobile = fs.readFileSync(path.join(tempDir, 'app-mobile-dcc2d3nb.css'), 'utf8');
+
+        assert.strictEqual(rewrittenDesktop.includes('url("/build/assets/Roboto-Bold.ttf")'), false, 'Desktop must not contain raw /build/assets/');
+        assert.strictEqual(rewrittenDesktop.includes('https://example.com/images/hero-bg.png'), false, 'Desktop must not contain remote image URL');
+        assert.ok(rewrittenDesktop.includes('Roboto-Bold.ttf'), 'Desktop must reference localized font');
+        assert.ok(rewrittenDesktop.includes('hero-bg.png'), 'Desktop must reference localized image');
+
+        assert.strictEqual(rewrittenMobile.includes('url("/build/assets/Roboto-Bold.ttf")'), false, 'Mobile must not contain raw /build/assets/');
+        assert.strictEqual(rewrittenMobile.includes('https://example.com/images/hero-bg.png'), false, 'Mobile must not contain remote image URL');
+        assert.ok(rewrittenMobile.includes('Roboto-Bold.ttf'), 'Mobile must reference localized font');
+        assert.ok(rewrittenMobile.includes('hero-bg.png'), 'Mobile must reference localized image');
+
+        // Verify audit reports zero UNLOCALIZED_REMOTE_URL or UNRESOLVED_CSS_DEPENDENCY
+        const audit = localizer.verifyAndAudit(manifest, { assetsDir: tempDir, rewrittenFiles: [] });
+        const cssFindings = audit.findings.filter(f => f.code === 'UNLOCALIZED_REMOTE_URL' || f.code === 'UNRESOLVED_CSS_DEPENDENCY');
+        assert.strictEqual(cssFindings.length, 0, `Expected 0 CSS audit findings, got: ${JSON.stringify(cssFindings)}`);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.19. consolidateIdenticalContent groups strictly by on-disk sha256: preserves distinct-byte on-disk files and merges equal on-disk files recording canonical on-disk hash', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ondisk-sha-test-'));
+
+      try {
+        // Scenario 1: On-disk bytes differ -> NOT merged, nothing deleted
+        const desktopContent1 = Buffer.from('body { font-family: Roboto; color: red; }');
+        const mobileContent1 = Buffer.from('body { font-family: Arial; color: blue; }');
+
+        fs.writeFileSync(path.join(tempDir, 'style-desktop.css'), desktopContent1);
+        fs.writeFileSync(path.join(tempDir, 'style-mobile.css'), mobileContent1);
+
+        const staleServedHash = 'f1a989eebd43382c4aa86e122cfbe937da07c9f552455ef1586bf12ae101598f';
+        const manifest1: HarvestedAssetManifest = {
+          stylesheets: [
+            {
+              type: 'css',
+              sourceUrl: 'https://example.com/style.css',
+              filename: 'style-desktop.css',
+              localPath: path.join(tempDir, 'style-desktop.css'),
+              requestIdentity: 'desktop',
+              sha256: staleServedHash,
+              byteCount: 100
+            },
+            {
+              type: 'css',
+              sourceUrl: 'https://example.com/style.css',
+              filename: 'style-mobile.css',
+              localPath: path.join(tempDir, 'style-mobile.css'),
+              requestIdentity: 'mobile',
+              sha256: staleServedHash,
+              byteCount: 100
+            }
+          ],
+          javascripts: [],
+          images: [],
+          fonts: [],
+          totalBytes: 200
+        };
+
+        const dl1: DownloadedAssetResult[] = [
+          {
+            sourceUrl: 'https://example.com/style.css',
+            filename: 'style-desktop.css',
+            localPath: path.join(tempDir, 'style-desktop.css'),
+            status: 'downloaded',
+            sha256: staleServedHash,
+            byteCount: 100
+          },
+          {
+            sourceUrl: 'https://example.com/style.css',
+            filename: 'style-mobile.css',
+            localPath: path.join(tempDir, 'style-mobile.css'),
+            status: 'downloaded',
+            sha256: staleServedHash,
+            byteCount: 100
+          }
+        ];
+
+        const res1 = localizer.consolidateIdenticalContent(dl1, manifest1, tempDir);
+        assert.strictEqual(res1.consolidated, 0, 'Different on-disk bytes must not be merged');
+        assert.strictEqual(res1.freedBytes, 0);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'style-desktop.css')), true);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'style-mobile.css')), true);
+
+        // Scenario 2: On-disk bytes are equal -> merged, one file deleted, groups[].sha256 equals surviving on-disk hash
+        const identicalContent = Buffer.from('body { font-family: Roboto; font-size: 14px; margin: 0; }');
+        const expectedOnDiskHash = createHash('sha256').update(identicalContent).digest('hex');
+
+        fs.writeFileSync(path.join(tempDir, 'style-desktop.css'), identicalContent);
+        fs.writeFileSync(path.join(tempDir, 'style-mobile.css'), identicalContent);
+
+        const res2 = localizer.consolidateIdenticalContent(dl1, manifest1, tempDir);
+        assert.strictEqual(res2.consolidated, 1, 'Equal on-disk bytes must be merged');
+        assert.strictEqual(res2.freedBytes, identicalContent.length, 'Freed bytes must equal deleted file size');
+        assert.strictEqual(res2.groups.length, 1);
+        assert.strictEqual(res2.groups[0].canonical, 'style.css');
+        assert.strictEqual(res2.groups[0].sha256, expectedOnDiskHash, 'Reported sha256 must match surviving file on disk');
+
+        // Verify on disk
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'style.css')), true);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'style-desktop.css')), false);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'style-mobile.css')), false);
+
+        const actualOnDiskBytes = fs.readFileSync(path.join(tempDir, 'style.css'));
+        const actualOnDiskHash = createHash('sha256').update(actualOnDiskBytes).digest('hex');
+        assert.strictEqual(res2.groups[0].sha256, actualOnDiskHash);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.20. consolidateIdenticalContent yields qualifier-free canonical when all members carry surface qualifiers (<base>-desktop.<ext> + <base>-mobile.<ext>)', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-neutral-qualifier-test-'));
+
+      try {
+        const cssBytes = Buffer.from('/* identical css */ body { margin: 0; }');
+        const imgBytes = Buffer.from('/* identical img */ FAKE_PNG_DATA');
+        const cssSha = createHash('sha256').update(cssBytes).digest('hex');
+        const imgSha = createHash('sha256').update(imgBytes).digest('hex');
+
+        // Two groups with NO neutral member:
+        // Group 1: embedded surface qualifier before hash: app-desktop-dcc2d3nb.css + app-mobile-dcc2d3nb.css
+        // Group 2: trailing surface qualifier: autonics-ben-main-desktop.jpg + autonics-ben-main-mobile.jpg
+        fs.writeFileSync(path.join(tempDir, 'app-desktop-dcc2d3nb.css'), cssBytes);
+        fs.writeFileSync(path.join(tempDir, 'app-mobile-dcc2d3nb.css'), cssBytes);
+        fs.writeFileSync(path.join(tempDir, 'autonics-ben-main-desktop.jpg'), imgBytes);
+        fs.writeFileSync(path.join(tempDir, 'autonics-ben-main-mobile.jpg'), imgBytes);
+
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [
+            {
+              type: 'css',
+              sourceUrl: 'https://example.com/assets/app-DCc2d3nB.css',
+              filename: 'app-desktop-dcc2d3nb.css',
+              localPath: path.join(tempDir, 'app-desktop-dcc2d3nb.css'),
+              requestIdentity: 'desktop'
+            },
+            {
+              type: 'css',
+              sourceUrl: 'https://example.com/assets/app-DCc2d3nB.css',
+              filename: 'app-mobile-dcc2d3nb.css',
+              localPath: path.join(tempDir, 'app-mobile-dcc2d3nb.css'),
+              requestIdentity: 'mobile'
+            }
+          ],
+          javascripts: [],
+          images: [
+            {
+              type: 'image',
+              sourceUrl: 'https://example.com/images/autonics-ben-main.jpg',
+              filename: 'autonics-ben-main-desktop.jpg',
+              localPath: path.join(tempDir, 'autonics-ben-main-desktop.jpg'),
+              requestIdentity: 'desktop'
+            },
+            {
+              type: 'image',
+              sourceUrl: 'https://example.com/images/autonics-ben-main.jpg',
+              filename: 'autonics-ben-main-mobile.jpg',
+              localPath: path.join(tempDir, 'autonics-ben-main-mobile.jpg'),
+              requestIdentity: 'mobile'
+            }
+          ],
+          fonts: [],
+          totalBytes: (cssBytes.length * 2) + (imgBytes.length * 2),
+          assetMap: {
+            'https://example.com/assets/app-DCc2d3nB.css#desktop': 'app-desktop-dcc2d3nb.css',
+            'https://example.com/assets/app-DCc2d3nB.css#mobile': 'app-mobile-dcc2d3nb.css',
+            'https://example.com/images/autonics-ben-main.jpg#desktop': 'autonics-ben-main-desktop.jpg',
+            'https://example.com/images/autonics-ben-main.jpg#mobile': 'autonics-ben-main-mobile.jpg'
+          }
+        };
+
+        const dl: DownloadedAssetResult[] = [
+          {
+            sourceUrl: 'https://example.com/assets/app-DCc2d3nB.css',
+            filename: 'app-desktop-dcc2d3nb.css',
+            localPath: path.join(tempDir, 'app-desktop-dcc2d3nb.css'),
+            status: 'downloaded',
+            sha256: cssSha,
+            byteCount: cssBytes.length
+          },
+          {
+            sourceUrl: 'https://example.com/assets/app-DCc2d3nB.css',
+            filename: 'app-mobile-dcc2d3nb.css',
+            localPath: path.join(tempDir, 'app-mobile-dcc2d3nb.css'),
+            status: 'downloaded',
+            sha256: cssSha,
+            byteCount: cssBytes.length
+          },
+          {
+            sourceUrl: 'https://example.com/images/autonics-ben-main.jpg',
+            filename: 'autonics-ben-main-desktop.jpg',
+            localPath: path.join(tempDir, 'autonics-ben-main-desktop.jpg'),
+            status: 'downloaded',
+            sha256: imgSha,
+            byteCount: imgBytes.length
+          },
+          {
+            sourceUrl: 'https://example.com/images/autonics-ben-main.jpg',
+            filename: 'autonics-ben-main-mobile.jpg',
+            localPath: path.join(tempDir, 'autonics-ben-main-mobile.jpg'),
+            status: 'downloaded',
+            sha256: imgSha,
+            byteCount: imgBytes.length
+          }
+        ];
+
+        const res = localizer.consolidateIdenticalContent(dl, manifest, tempDir);
+
+        // 1. Accounting: exactly 2 files deleted (1 per group)
+        assert.strictEqual(res.consolidated, 2, 'Exactly 2 files physically deleted');
+        assert.strictEqual(res.freedBytes, cssBytes.length + imgBytes.length, 'Freed bytes must equal size of deleted files');
+        assert.strictEqual(res.groups.length, 2);
+
+        const cssGroup = res.groups.find(g => g.canonical === 'app-dcc2d3nb.css');
+        const imgGroup = res.groups.find(g => g.canonical === 'autonics-ben-main.jpg');
+        assert.ok(cssGroup, 'CSS canonical must be qualifier-free app-dcc2d3nb.css');
+        assert.ok(imgGroup, 'Image canonical must be qualifier-free autonics-ben-main.jpg');
+
+        assert.strictEqual(cssGroup?.renamedFrom, 'app-desktop-dcc2d3nb.css');
+        assert.deepStrictEqual(cssGroup?.removed, ['app-mobile-dcc2d3nb.css']);
+
+        assert.strictEqual(imgGroup?.renamedFrom, 'autonics-ben-main-desktop.jpg');
+        assert.deepStrictEqual(imgGroup?.removed, ['autonics-ben-main-mobile.jpg']);
+
+        // 2. On-disk check: qualifier-free files exist, surface-qualified files deleted
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'app-dcc2d3nb.css')), true);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'app-desktop-dcc2d3nb.css')), false);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'app-mobile-dcc2d3nb.css')), false);
+
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'autonics-ben-main.jpg')), true);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'autonics-ben-main-desktop.jpg')), false);
+        assert.strictEqual(fs.existsSync(path.join(tempDir, 'autonics-ben-main-mobile.jpg')), false);
+
+        // 3. AssetMap aliases check: all resolve to qualifier-free canonical
+        assert.strictEqual(manifest.assetMap!['https://example.com/assets/app-DCc2d3nB.css#desktop'], 'app-dcc2d3nb.css');
+        assert.strictEqual(manifest.assetMap!['https://example.com/assets/app-DCc2d3nB.css#mobile'], 'app-dcc2d3nb.css');
+        assert.strictEqual(manifest.assetMap!['https://example.com/assets/app-DCc2d3nB.css'], 'app-dcc2d3nb.css');
+        assert.strictEqual(manifest.assetMap!['https://example.com/images/autonics-ben-main.jpg#desktop'], 'autonics-ben-main.jpg');
+        assert.strictEqual(manifest.assetMap!['https://example.com/images/autonics-ben-main.jpg#mobile'], 'autonics-ben-main.jpg');
+        assert.strictEqual(manifest.assetMap!['https://example.com/images/autonics-ben-main.jpg'], 'autonics-ben-main.jpg');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 });

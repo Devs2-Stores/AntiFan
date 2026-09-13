@@ -87,6 +87,22 @@ const server = http.createServer((req, res) => {
   
   let filePath = path.join(baseDir, reqPath);
   
+  // Handle directory resolution (e.g. /cart or /product)
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+    const mIdx = path.join(filePath, 'mobile', 'index.html');
+    const dIdx = path.join(filePath, 'index.html');
+    if (isMobile && fs.existsSync(mIdx)) {
+      filePath = mIdx;
+    } else if (fs.existsSync(dIdx)) {
+      filePath = dIdx;
+    }
+  } else if (reqPath.endsWith('/index.html') && isMobile) {
+    const dir = path.dirname(filePath);
+    const mIdx = path.join(dir, 'mobile', 'index.html');
+    if (fs.existsSync(mIdx)) {
+      filePath = mIdx;
+    }
+  }
   if (!fs.existsSync(filePath)) {
     const basename = path.basename(reqPath);
     if (reqPath.endsWith('.css')) {

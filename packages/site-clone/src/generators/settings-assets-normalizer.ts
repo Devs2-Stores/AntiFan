@@ -51,6 +51,7 @@ export interface NormalizeSettingsResult {
 export interface AssetSynthesisResult {
   synthesizedAssets: string[];
   missingCount: number;
+  missingAssets?: string[];
 }
 
 export interface ThemeNormalizationResult {
@@ -159,7 +160,8 @@ export class SettingsAssetsNormalizer {
    */
   public auditAndSynthesizeAssetsSync(
     themeDir: string,
-    declaredAssets: string[] = []
+    declaredAssets: string[] = [],
+    options?: { allowSynthesis?: boolean }
   ): AssetSynthesisResult {
     const targetDir = path.resolve(themeDir);
     const candidateRefs = new Set<string>();
@@ -178,8 +180,8 @@ export class SettingsAssetsNormalizer {
     }
 
     const synthesizedAssets: string[] = [];
+    const missingAssets: string[] = [];
     let missingCount = 0;
-
     for (const rawRef of candidateRefs) {
       const cleanRef = rawRef
         .split(/[?#]/)[0]
@@ -193,9 +195,10 @@ export class SettingsAssetsNormalizer {
       if (this.localAssetExists(targetDir, cleanRef)) {
         continue;
       }
-
       missingCount += 1;
+      missingAssets.push(cleanRef);
 
+      if (options?.allowSynthesis) {
       let subDir = 'assets';
       let fileName = cleanRef;
 
@@ -211,21 +214,25 @@ export class SettingsAssetsNormalizer {
       const content = SettingsAssetsNormalizer.synthesizeAssetContent(fileName);
       fs.writeFileSync(filePath, content);
 
-      synthesizedAssets.push(cleanRef);
+        synthesizedAssets.push(cleanRef);
+      }
     }
 
     return {
       synthesizedAssets,
+      missingAssets,
       missingCount,
     };
   }
 
   public async auditAndSynthesizeAssets(
     themeDir: string,
-    declaredAssets: string[] = []
+    declaredAssets: string[] = [],
+    options?: { allowSynthesis?: boolean }
   ): Promise<AssetSynthesisResult> {
-    return this.auditAndSynthesizeAssetsSync(themeDir, declaredAssets);
+    return this.auditAndSynthesizeAssetsSync(themeDir, declaredAssets, options);
   }
+
 
   /**
    * Scans theme Liquid and HTML templates for `settings.<id>` reads.
@@ -304,7 +311,8 @@ export class SettingsAssetsNormalizer {
    */
   public normalizeThemeSync(
     themeDir: string,
-    settingsMode?: 'legacy-html' | 'f1genz-schema'
+    settingsMode?: 'legacy-html' | 'f1genz-schema',
+    options?: { allowSynthesis?: boolean }
   ): ThemeNormalizationResult {
     const resolvedThemeDir = path.resolve(themeDir);
     const schemaPath = path.join(resolvedThemeDir, 'config', 'settings_schema.json');
@@ -371,7 +379,7 @@ export class SettingsAssetsNormalizer {
       );
     }
 
-    const assetResult = this.auditAndSynthesizeAssetsSync(resolvedThemeDir, []);
+    const assetResult = this.auditAndSynthesizeAssetsSync(resolvedThemeDir, [], options);
 
     return {
       schemaResult,
@@ -381,17 +389,19 @@ export class SettingsAssetsNormalizer {
 
   public static normalizeTheme(
     themeDir: string,
-    settingsMode?: 'legacy-html' | 'f1genz-schema'
+    settingsMode?: 'legacy-html' | 'f1genz-schema',
+    options?: { allowSynthesis?: boolean }
   ): ThemeNormalizationResult {
     const normalizer = new SettingsAssetsNormalizer();
-    return normalizer.normalizeThemeSync(themeDir, settingsMode);
+    return normalizer.normalizeThemeSync(themeDir, settingsMode, options);
   }
 
   public async normalizeTheme(
     themeDir: string,
-    settingsMode?: 'legacy-html' | 'f1genz-schema'
+    settingsMode?: 'legacy-html' | 'f1genz-schema',
+    options?: { allowSynthesis?: boolean }
   ): Promise<ThemeNormalizationResult> {
-    return this.normalizeThemeSync(themeDir, settingsMode);
+    return this.normalizeThemeSync(themeDir, settingsMode, options);
   }
   /**
    * Inactive setting placement helper.

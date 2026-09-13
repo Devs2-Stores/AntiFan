@@ -23,6 +23,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   scanRenderFailures,
@@ -304,6 +305,59 @@ test('checkHaravanLiquidContracts does not absorb a whitespace trim marker into 
     [],
     'settings.addthis_live_show-%} declares addthis_live_show; the trailing hyphen belongs to the Liquid tag',
   );
+});
+
+test('checkHaravanLiquidContracts refuses themes with dual-surface wrappers (HARAVAN_NO_DUAL_SURFACE)', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-dual-surface-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, 'templates'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, 'templates', 'index.liquid'),
+      '<div class="theme-surface-desktop">Desktop</div>\n<div class="theme-surface-mobile">Mobile</div>',
+      'utf8'
+    );
+    const result = checkHaravanLiquidContracts(tempDir);
+    const dualFailures = result.failures.filter((f) => f.rule === 'HARAVAN_NO_DUAL_SURFACE');
+    assert.equal(dualFailures.length, 2);
+    assert.equal(dualFailures[0].file, 'templates/index.liquid');
+    assert.equal(dualFailures[0].line, 1);
+    assert.equal(dualFailures[1].file, 'templates/index.liquid');
+    assert.equal(dualFailures[1].line, 2);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('checkHaravanLiquidContracts refuses duplicate chrome (HARAVAN_SINGLE_CHROME)', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-single-chrome-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, 'snippets'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'layout'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, 'snippets', 'header.liquid'),
+      '<header class="desktop-header">Desktop</header>\n<header class="mobile-header">Mobile</header>',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'snippets', 'footer.liquid'),
+      '<footer class="desktop-footer">Desktop</footer>\n<footer class="mobile-footer">Mobile</footer>',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'layout', 'theme.liquid'),
+      "{% include 'header' %}\n{% include 'header-mobile' %}",
+      'utf8'
+    );
+    const result = checkHaravanLiquidContracts(tempDir);
+    const chromeFailures = result.failures.filter((f) => f.rule === 'HARAVAN_SINGLE_CHROME');
+    assert.equal(chromeFailures.length, 3);
+    const files = chromeFailures.map((f) => f.file);
+    assert.ok(files.includes('snippets/header.liquid'));
+    assert.ok(files.includes('snippets/footer.liquid'));
+    assert.ok(files.includes('layout/theme.liquid'));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('checkSettingsBinding tolerates a theme directory that does not exist', () => {
