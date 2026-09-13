@@ -372,7 +372,7 @@
       "severity": "P1",
       "status": "closed",
       "closedBy": "The campaign was refactored per the owner's decision to verify a single unified responsive bundle across all viewports (including 390) rather than requiring separate desktop and mobile bundles. The MOBILE_BUNDLE_ABSENT refusal was removed from campaign verdicts and provenance gates.",
-      "evidence": "MOBILE_BUNDLE_ABSENT removed from scripts/lib/campaign-verdicts.mjs, scripts/lib/evidence-provenance.mjs, and .canary/tools/fifteen-pages-run.mjs. All viewports verify against the responsive candidate.",
+      "evidence": "MOBILE_BUNDLE_ABSENT removed from scripts/lib/campaign-verdicts.mjs, scripts/lib/evidence-provenance.mjs, and .canary/tools/fifteen-pages-run.mjs. The campaign verdict logic and provenance gates now verify all viewports against the responsive candidate without refusing on mobile bundle absence.",
       "predicate": {
         "kind": "file-regex",
         "file": "scripts/lib/campaign-verdicts.mjs",

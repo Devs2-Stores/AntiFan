@@ -220,10 +220,47 @@ export class IndependentHtmlCloneGenerator {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title.replace(/</g, '&lt;')}</title>
-  <style>
+  <style id="antifan-clone-base">
     *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; padding: 0; }
-    img { max-width: 100%; }
+    html, body { margin: 0; padding: 0; max-width: 100vw; overflow-x: hidden; }
+    img { max-width: 100%; height: auto; }
+    /* Unhydrated modals & popups parity locks */
+    #popup-login:not(.active), #popup-video:not(.active), .popup:not(.active), .modal:not(.active) {
+      display: none !important;
+    }
+    #popup-login.active, #popup-video.active, .popup.active, .modal.active {
+      display: flex !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+    #popup-video.active iframe {
+      max-width: 100% !important;
+      max-height: 70vh !important;
+    }
+    /* Unified responsive defaults */
+    @media (max-width: 991px) {
+      .container, .container-fuild {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+      }
+      .main-header { flex-wrap: wrap !important; }
+      .main-header-cta { display: none !important; }
+      .main-header__search { order: 3 !important; flex: 0 0 100% !important; width: 100% !important; }
+      .slide-content { flex-direction: column !important; }
+      .category-navigation { display: none !important; }
+      .block-category__item { flex-direction: column !important; flex-wrap: nowrap !important; width: 100% !important; }
+      .block-category__left { width: 100% !important; max-width: 100% !important; flex: 0 0 auto !important; margin-bottom: 12px !important; }
+      .product-list { flex-wrap: wrap !important; width: 100% !important; left: 0 !important; margin-left: 0 !important; gap: 8px !important; }
+      .product-list__item { flex: 0 0 calc(50% - 4px) !important; max-width: calc(50% - 4px) !important; box-sizing: border-box !important; }
+      .home-form .container { flex-direction: column !important; }
+      .home-form .left, .home-form .right { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
+      .home-form .center { width: 100% !important; max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
+      .nav-next, .nav-prev, .s-nav-next, .s-nav-prev, .slick-next, .slick-prev { display: none !important; }
+      .notice-cart:not(.active) { display: none !important; }
+      .notice-cart.active { display: flex !important; right: 12px !important; max-width: calc(100vw - 24px) !important; }
+    }
   </style>
 ${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}</head>
 <body${ir.bodyAttributes || ''}>
@@ -248,6 +285,85 @@ ${footerHtmls.join('\n')}
   if (typeof window.flatsomeVars === 'undefined') {
     window.flatsomeVars = { ajaxurl: '', rtl: false, sticky_height: 70, lightbox: { close_markup: '' } };
   }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    // Navigation menu mapping
+    const navItems = document.querySelectorAll('.category-navigation__main li');
+    const subContainer = document.getElementById('category-navigation__sub');
+    const subMenus = subContainer ? subContainer.querySelectorAll('.sub-menu') : [];
+    if (navItems.length && subMenus.length && subContainer) {
+      navItems.forEach(function(item, idx) {
+        item.addEventListener('mouseenter', function() {
+          subContainer.classList.add('active');
+          subMenus.forEach(function(m, mIdx) {
+            m.style.display = (mIdx === idx) ? 'block' : 'none';
+          });
+        });
+      });
+      const navWrap = document.querySelector('.category-navigation');
+      if (navWrap) {
+        navWrap.addEventListener('mouseleave', function() {
+          subContainer.classList.remove('active');
+          subMenus.forEach(function(m) { m.style.display = 'none'; });
+        });
+      }
+    }
+
+    // Video modal popup & YouTube embed loader
+    const videoBtns = document.querySelectorAll('.video-content__button, [data-fancybox="video"], [href*="youtube.com"], [href*="youtu.be"]');
+    const videoPopup = document.getElementById('popup-video');
+    if (videoPopup) {
+      videoBtns.forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          videoPopup.classList.add('active');
+          const iframe = videoPopup.querySelector('iframe');
+          if (iframe) {
+            const src = iframe.getAttribute('data-src') || iframe.getAttribute('src');
+            if (src) iframe.src = src;
+          }
+        });
+      });
+      const closeBtn = videoPopup.querySelector('.popup-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+          videoPopup.classList.remove('active');
+          const iframe = videoPopup.querySelector('iframe');
+          if (iframe) iframe.src = '';
+        });
+      }
+      videoPopup.addEventListener('click', function(e) {
+        if (e.target === videoPopup) {
+          videoPopup.classList.remove('active');
+          const iframe = videoPopup.querySelector('iframe');
+          if (iframe) iframe.src = '';
+        }
+      });
+    }
+
+    // Login modal popup
+    const loginBtns = document.querySelectorAll('.open-login, [href*="/login"]');
+    const loginPopup = document.getElementById('popup-login');
+    if (loginPopup) {
+      loginBtns.forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          loginPopup.classList.add('active');
+        });
+      });
+      const closeBtn = loginPopup.querySelector('.popup-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+          loginPopup.classList.remove('active');
+        });
+      }
+      loginPopup.addEventListener('click', function(e) {
+        if (e.target === loginPopup) {
+          loginPopup.classList.remove('active');
+        }
+      });
+    }
+  });
 </script>
 ${javascriptTags ? javascriptTags + '\n' : ''}${extractedEffectsScripts.length > 0 ? `
 <script>
