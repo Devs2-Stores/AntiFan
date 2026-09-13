@@ -3,11 +3,26 @@
  * Compiles layout/theme.liquid with standard flat Haravan architecture
  */
 
+export interface HaravanLayoutOptions {
+  stylesheets?: string[];
+  scripts?: string[];
+}
+
 export class HaravanLayoutGenerator {
-  public generateThemeLiquid(): string {
+  public generateThemeLiquid(options?: HaravanLayoutOptions): string {
+    const additionalStylesheets = (options?.stylesheets || [])
+      .filter(s => s !== 'theme.css' && s !== 'custom.css')
+      .map(s => `    {{ '${s}' | asset_url | stylesheet_tag }}`)
+      .join('\n');
+
+    const additionalScripts = (options?.scripts || [])
+      .filter(s => s !== 'theme.js')
+      .map(s => `    {{ '${s}' | asset_url | script_tag }}`)
+      .join('\n');
+
     return `
 <!doctype html>
-<html class="no-js" lang="{{ request.locale.iso_code }}">
+<html class="no-js" lang="vi">
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -32,6 +47,7 @@ export class HaravanLayoutGenerator {
 
     {{ 'theme.css' | asset_url | stylesheet_tag }}
     {{ 'custom.css' | asset_url | stylesheet_tag }}
+${additionalStylesheets ? additionalStylesheets + '\n' : ''}
 
     {{ content_for_header }}
   </head>
@@ -45,7 +61,7 @@ export class HaravanLayoutGenerator {
 
     {% include 'footer' %}
 
-    <script src="{{ 'theme.js' | asset_url }}" defer></script>
+${additionalScripts ? additionalScripts + '\n' : ''}    <script src="{{ 'theme.js' | asset_url }}" defer></script>
   </body>
 </html>
     `.trim();

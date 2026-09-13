@@ -231,4 +231,31 @@ describe('BlueprintExtractor - AST DOM Parsing & Safety Invariants', () => {
     assert.strictEqual(plain.length, 2, 'A wrapper with no binding is still a layout container and is descended into');
     assert.deepStrictEqual(plain.map((s) => s.className), ['block-category', 'block-category']);
   });
+
+  it('11. Drops empty structural nodes and third-party chat widgets, generating clean semantic section IDs', () => {
+    const html = `
+      <body>
+        <section class="section-hero">
+          <div class="s-wrap"><div class="s-content"><div>Hero Banner</div></div></div>
+        </section>
+        <div></div>
+        <section class="section-category-list">
+          <h2>Danh mục nổi bật</h2>
+        </section>
+        <div style="   ">   </div>
+        <div id="x2errnp7n2v81789296829569" style="position:fixed; z-index:999999;">
+          <iframe title="chat widget" src="about:blank"></iframe>
+        </div>
+        <section class="section-news">
+          <h2>Tin tức mới</h2>
+        </section>
+      </body>
+    `;
+
+    const sections = extractor.extractSections(html);
+    assert.strictEqual(sections.length, 3, 'Empty divs and chat widget must be omitted');
+    assert.strictEqual(sections[0].id, 'section_hero_slider');
+    assert.strictEqual(sections[1].id, 'section_categories');
+    assert.strictEqual(sections[2].id, 'section_news');
+  });
 });

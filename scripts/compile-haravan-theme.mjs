@@ -88,8 +88,10 @@ async function main() {
   }
 
   const compiler = new ThemeCompiler();
+  const assetsDir = path.join(path.dirname(args.input), 'assets');
   const result = compiler.compileTheme(args.output, rawHtml, {
     settingsMode: args.settingsMode,
+    assetsDir,
   });
 
   console.log('[Haravan Compiler] Theme compilation completed successfully!');

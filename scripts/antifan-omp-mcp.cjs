@@ -467,7 +467,7 @@ function isRetryableTransportError(err) {
   if (RETRYABLE_TRANSPORT_CODES.has(code)) return true;
   const text = String((err && err.message) || err || '');
   if (OPERATION_TIMEOUT_CODES.has(text)) return false;
-  return /CONNECTION_CLOSED|CONNECTION_ERROR|CONNECTION_FAILED|Unauthorized|missing or invalid token|AUTHENTICATION_DENIED/i.test(text);
+  return /CONNECTION_CLOSED|CONNECTION_ERROR|CONNECTION_FAILED|Unauthorized|missing or invalid token|AUTHENTICATION_DENIED|WebSocket closed/i.test(text);
 }
 
 /**
@@ -715,49 +715,98 @@ async function autohealSession() {
         });
       });
 
-      const startId = 'autoheal-' + crypto.randomUUID();
-      const session = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('startSession timeout')), 5000);
-        const onMsg = (raw) => {
-          try {
-            const resp = JSON.parse(raw.toString());
-            if (resp && resp.id === startId) {
-              clearTimeout(timer);
-              ws.removeListener('message', onMsg);
-              if (resp.success && resp.data) {
-                resolve(resp.data);
-              } else {
-                reject(new Error(resp.error || 'startSession failed'));
-              }
+      let session = null;
+      if (pairedExchange && pairedExchange.secret && pairedExchange.attachmentId) {
+        let resolvedTabId = process.env.ANTIFAN_BOUND_TAB_ID;
+        try {
+          const tabListId = 'tabs-' + crypto.randomUUID();
+          const tabResult = await new Promise((resolve) => {
+            const timer = setTimeout(() => resolve(null), 3000);
+            const onMsg = (raw) => {
+              try {
+                const resp = JSON.parse(raw.toString());
+                if (resp && resp.id === tabListId) {
+                  clearTimeout(timer);
+                  ws.removeListener('message', onMsg);
+                  resolve(resp.data?.data || resp.data || []);
+                }
+              } catch {}
+            };
+            ws.on('message', onMsg);
+            ws.send(JSON.stringify({
+              id: tabListId,
+              method: 'antifan.capability.dispatch',
+              params: {
+                name: 'browser.list-tabs',
+                attachmentId: pairedExchange.attachmentId,
+                attachmentSecret: pairedExchange.secret,
+                authorityRevision: pairedExchange.authorityRevision,
+                params: { all: true },
+              },
+            }));
+          });
+          if (Array.isArray(tabResult) && tabResult.length > 0) {
+            const attached = tabResult.find((t) => t.attached) || tabResult.find((t) => !t.offscreen) || tabResult[0];
+            if (attached && attached.id) {
+              resolvedTabId = attached.id;
             }
-          } catch {}
+          }
+        } catch {}
+        session = {
+          attachmentId: pairedExchange.attachmentId,
+          secret: pairedExchange.secret,
+          authorityRevision: pairedExchange.authorityRevision,
+          tabId: resolvedTabId || 'default-tab',
+          runId: pairedExchange.runId,
+          attemptId: pairedExchange.attemptId,
+          projectId: pairedExchange.projectId,
+          workspaceId: pairedExchange.workspaceId,
         };
-        ws.on('message', onMsg);
-        const rawTerminalId = process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID;
-        const rawGeneration = process.env.ANTIFAN_TERMINAL_AFFINITY_GENERATION || process.env.ANTIFAN_TERMINAL_GENERATION;
-        const targetGrant = resolveSessionGrant();
-        const allowedCaps = resolveAllowedCapabilities();
-        const forbiddenCaps = resolveForbiddenCapabilities();
-        const startParams = {
-          backendId: 'cli',
-          grant: targetGrant,
-          cwd: process.cwd(),
-          attachmentId: pairedExchange?.attachmentId || undefined,
-          terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
-          terminalGeneration: rawGeneration ? String(rawGeneration).trim() : undefined,
-        };
-        if (allowedCaps && allowedCaps.length > 0) {
-          startParams.allowedCapabilityNames = allowedCaps;
-        }
-        if (forbiddenCaps && forbiddenCaps.length > 0) {
-          startParams.forbiddenCapabilityNames = forbiddenCaps;
-        }
-        ws.send(JSON.stringify({
-          id: startId,
-          method: 'antifan.cli.startSession',
-          params: startParams,
-        }));
-      });
+      } else {
+        const startId = 'autoheal-' + crypto.randomUUID();
+        session = await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('startSession timeout')), 5000);
+          const onMsg = (raw) => {
+            try {
+              const resp = JSON.parse(raw.toString());
+              if (resp && resp.id === startId) {
+                clearTimeout(timer);
+                ws.removeListener('message', onMsg);
+                if (resp.success && resp.data) {
+                  resolve(resp.data);
+                } else {
+                  reject(new Error(resp.error || 'startSession failed'));
+                }
+              }
+            } catch {}
+          };
+          ws.on('message', onMsg);
+          const rawTerminalId = process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID;
+          const rawGeneration = process.env.ANTIFAN_TERMINAL_AFFINITY_GENERATION || process.env.ANTIFAN_TERMINAL_GENERATION;
+          const targetGrant = resolveSessionGrant();
+          const allowedCaps = resolveAllowedCapabilities();
+          const forbiddenCaps = resolveForbiddenCapabilities();
+          const startParams = {
+            backendId: 'cli',
+            grant: targetGrant,
+            cwd: process.cwd(),
+            attachmentId: pairedExchange?.attachmentId || undefined,
+            terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
+            terminalGeneration: rawGeneration ? String(rawGeneration).trim() : undefined,
+          };
+          if (allowedCaps && allowedCaps.length > 0) {
+            startParams.allowedCapabilityNames = allowedCaps;
+          }
+          if (forbiddenCaps && forbiddenCaps.length > 0) {
+            startParams.forbiddenCapabilityNames = forbiddenCaps;
+          }
+          ws.send(JSON.stringify({
+            id: startId,
+            method: 'antifan.cli.startSession',
+            params: startParams,
+          }));
+        });
+      }
       if (!session || !session.attachmentId || !session.secret || !session.authorityRevision || !session.tabId) {
         const missing = [
           !session?.attachmentId && 'attachmentId',

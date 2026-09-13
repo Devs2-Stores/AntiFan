@@ -9,7 +9,7 @@ test('resolveThemeId falls back to the theme under work when the environment is 
 });
 
 test('resolveThemeId honours an explicit staging theme', () => {
-  assert.equal(resolveThemeId({ HARAVAN_THEME_ID: '1001514194' }), '1001514194');
+  assert.equal(resolveThemeId({ HARAVAN_THEME_ID: '1001514345' }), '1001514345');
   assert.equal(resolveThemeId({ HARAVAN_THEME_ID: ' 987654 ' }), '987654');
 });
 

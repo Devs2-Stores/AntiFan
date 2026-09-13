@@ -24,6 +24,7 @@ import {
   DEVICE_PRESETS,
   DevicePreset,
   getPresetUserAgent,
+  getPresetPlatform,
   getPresetCornerRadius,
   IPHONE_USER_AGENT,
   MAC_DESKTOP_USER_AGENT,
@@ -4594,7 +4595,7 @@ export class NativeTabHost extends EventEmitter {
         const desktopUA = getPresetUserAgent(desktopPreset, this.defaultUserAgent);
         this.setSafeUserAgent(tab.view.webContents, desktopUA || this.defaultUserAgent);
         this.applyCdpTouchEmulation(tab.view.webContents, false);
-
+        this.applyCdpDeviceEmulationState(tab.view.webContents, desktopPreset);
         this.safeEnableDeviceEmulation(tab.view.webContents, {
           screenPosition: 'desktop',
           screenSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
@@ -4623,6 +4624,7 @@ export class NativeTabHost extends EventEmitter {
         const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
         this.setSafeUserAgent(tab.mobileView.webContents, mobileUA || IPHONE_USER_AGENT);
         this.applyCdpTouchEmulation(tab.mobileView.webContents, true);
+        this.applyCdpDeviceEmulationState(tab.mobileView.webContents, mobilePreset);
         try {
           if (!tab.mobileView.webContents.isDestroyed()) {
             tab.mobileView.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
@@ -4707,6 +4709,7 @@ export class NativeTabHost extends EventEmitter {
         const ua = getPresetUserAgent(preset, preset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent);
         this.setSafeUserAgent(tab.view.webContents, ua || this.defaultUserAgent);
         this.applyCdpTouchEmulation(tab.view.webContents, Boolean(preset.mobile));
+        this.applyCdpDeviceEmulationState(tab.view.webContents, preset);
         if (preset.mobile) {
           try {
             if (!tab.view.webContents.isDestroyed()) {
@@ -4760,6 +4763,7 @@ export class NativeTabHost extends EventEmitter {
         this.applyDeviceCornerClipping(tab.view.webContents, 0);
         try { tab.view.setBackgroundColor('#ffffff'); } catch {}
         this.applyCdpTouchEmulation(tab.view.webContents, false);
+        this.applyCdpDeviceEmulationState(tab.view.webContents, null);
         this.setSafeUserAgent(tab.view.webContents, this.defaultUserAgent);
         this.safeDisableDeviceEmulation(tab.view.webContents);
 
@@ -4855,6 +4859,52 @@ export class NativeTabHost extends EventEmitter {
         }).catch(() => {});
       }
     } catch {}
+  }
+  private async applyCdpDeviceEmulationState(
+    wc: Electron.WebContents,
+    preset?: DevicePreset | null
+  ): Promise<void> {
+    if (!wc || (wc as unknown as { isDestroyed?: () => boolean }).isDestroyed?.() || !wc.debugger) return;
+    try {
+      if (!wc.debugger.isAttached()) {
+        try {
+          wc.debugger.attach('1.3');
+        } catch {}
+      }
+      if (!wc.debugger.isAttached()) return;
+
+      const devTools = this.getDevToolsHost();
+      if (preset && (preset.mobile || preset.category === 'mobile' || preset.category === 'tablet')) {
+        const ua = getPresetUserAgent(preset, IPHONE_USER_AGENT) || IPHONE_USER_AGENT;
+        const platform = getPresetPlatform(preset);
+        const dpr = preset.deviceScaleFactor || 3;
+        const targetW = Math.round(preset.width || 390);
+        const targetH = Math.round(preset.height || 844);
+
+        await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
+          userAgent: ua,
+          acceptLanguage: 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+          platform,
+        }).catch(() => {});
+
+        await devTools.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', {
+          width: targetW,
+          height: targetH,
+          deviceScaleFactor: dpr,
+          mobile: true,
+          screenWidth: targetW,
+          screenHeight: targetH,
+        }).catch(() => {});
+      } else {
+        await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
+          userAgent: this.defaultUserAgent,
+          platform: 'Win32',
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[native-tab-host] applyCdpDeviceEmulationState error:', err);
+    }
   }
 
   private setSafeUserAgent(wc: Electron.WebContents, targetUA: string): void {
@@ -6716,15 +6766,28 @@ export class NativeTabHost extends EventEmitter {
     const h = Math.round(options.height);
     if (w <= 0 || h <= 0) return false;
     const mobile = options.mobile ?? (w < 768);
+    const isIphoneDimensions = (w === 390 && h === 844) || (w === 393 && h === 852) || (w === 430 && h === 932) || (w === 440 && h === 956);
+    const resolvedDpr = options.deviceScaleFactor ?? (isIphoneDimensions ? 3 : (w < 768 ? 2 : 1));
     tab.customViewport = {
       width: w,
       height: h,
       mobile,
-      deviceScaleFactor: options.deviceScaleFactor ?? (w < 768 ? 2 : 1),
+      deviceScaleFactor: resolvedDpr,
     };
     tab.state.devicePresetId = `custom-${w}x${h}`;
     const applyForTarget = async (): Promise<boolean> => {
       await this.applyCdpTouchEmulation(tab.view.webContents, mobile);
+      const customPreset: DevicePreset = {
+        id: tab.state.devicePresetId || `custom-${w}x${h}`,
+        name: `Custom (${w}x${h})`,
+        width: w,
+        height: h,
+        deviceScaleFactor: resolvedDpr,
+        mobile,
+        category: mobile ? 'mobile' : (w < 1024 ? 'tablet' : 'desktop'),
+        platform: isIphoneDimensions || mobile ? 'iPhone' : undefined,
+      };
+      await this.applyCdpDeviceEmulationState(tab.view.webContents, customPreset);
       try {
         await tab.view.webContents.executeJavaScript(`
           window.dispatchEvent(new Event('resize'));

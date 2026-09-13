@@ -215,37 +215,53 @@ async function run() {
   // 3. Generic Asset Core Harvesting & Localization
   console.log('\n[Phase 3/4] Harvesting and Localizing Remote Subresources (Stylesheets, Fonts, Images)...');
   const harvester = new AssetHarvester();
-  const dManifest = harvester.harvestFromHtml(desktopHtml, assetsDir, targetUrl);
-  const mManifest = mobileHtml ? harvester.harvestFromHtml(mobileHtml, assetsDir, targetUrl) : null;
-
-  // Combine unique assets across surfaces
-  const combinedAssets = [...dManifest.images, ...dManifest.stylesheets, ...dManifest.fonts];
-  if (mManifest) {
-    for (const item of [...mManifest.images, ...mManifest.stylesheets, ...mManifest.fonts]) {
-      if (!combinedAssets.some(a => a.sourceUrl === item.sourceUrl)) {
-        combinedAssets.push(item);
-      }
-    }
+  const filesToHarvest = [{ path: 'index.html', content: desktopHtml }];
+  if (mobileHtml) {
+    filesToHarvest.push({ path: 'mobile/index.html', content: mobileHtml });
   }
+  const harvestedManifest = harvester.harvestFromFiles(filesToHarvest, assetsDir, { baseUrl: targetUrl });
+  const combinedAssets = [
+    ...harvestedManifest.images,
+    ...harvestedManifest.stylesheets,
+    ...harvestedManifest.fonts,
+    ...harvestedManifest.javascripts
+  ];
 
   console.log(`  Discovered ${combinedAssets.length} unique remote subresources.`);
   const localizer = new AssetLocalizer();
   const downloadResult = await localizer.downloadAssets(combinedAssets, {
     assetsDir,
     concurrency,
-    timeoutMs: 15000
+    timeoutMs: 15000,
+    sourceBaseUrl: targetUrl
   });
 
   console.log(`  ✓ Asset Download complete: ${downloadResult.downloaded.length} assets (${(downloadResult.totalBytes / (1024 * 1024)).toFixed(2)} MB), ${downloadResult.failedCount} failures.`);
 
+  // Discover and localize secondary subresources inside downloaded stylesheets (e.g. fonts, @imports)
+  const combinedManifest = {
+    stylesheets: combinedAssets.filter(a => a.type === 'css'),
+    javascripts: combinedAssets.filter(a => a.type === 'js'),
+    images: combinedAssets.filter(a => a.type === 'image'),
+    fonts: combinedAssets.filter(a => a.type === 'font'),
+    totalBytes: downloadResult.totalBytes,
+  };
+  const secondaryResult = await localizer.localizeDownloadedStylesheets(combinedManifest, {
+    assetsDir,
+    mode: 'relative',
+    sourceBaseUrl: targetUrl,
+  });
+  if (secondaryResult.secondaryDownloaded.length > 0) {
+    console.log(`  ✓ Secondary Asset Download complete: ${secondaryResult.secondaryDownloaded.length} secondary assets (fonts/stylesheets) downloaded.`);
+  }
   // Rewrite asset references in HTML
   console.log('  Rewriting Desktop HTML references to local assets/...');
-  const dRewriteResult = localizer.rewriteFiles([{ path: 'index.html', content: desktopHtml }], dManifest, { mode: 'relative' });
+  const dRewriteResult = localizer.rewriteFiles([{ path: 'index.html', content: desktopHtml }], harvestedManifest, { mode: 'relative' });
   desktopHtml = dRewriteResult.files[0].rewrittenContent;
 
-  if (mobileHtml && mManifest) {
+  if (mobileHtml) {
     console.log('  Rewriting Mobile HTML references to local /assets/...');
-    const mRewriteResult = localizer.rewriteFiles([{ path: 'mobile/index.html', content: mobileHtml }], mManifest, { mode: 'relative' });
+    const mRewriteResult = localizer.rewriteFiles([{ path: 'mobile/index.html', content: mobileHtml }], harvestedManifest, { mode: 'relative' });
     mobileHtml = mRewriteResult.files[0].rewrittenContent.replace(/(src|data-src|srcset)=["']assets\//g, '$1="/assets/');
   }
 
@@ -271,6 +287,18 @@ async function run() {
     });
     console.log(`  ✓ Mobile Surface finalized: ${mobileResult.outputPath} (${mobileResult.html.length} bytes)`);
   }
+    // Ensure mobile sub-directory has direct access to root assets/css/js
+    const mobileDir = path.join(outDir, 'mobile');
+    const mobileAssetsDir = path.join(mobileDir, 'assets');
+    const mobileCssDir = path.join(mobileDir, 'css');
+    const mobileJsDir = path.join(mobileDir, 'js');
+    try {
+      if (!fs.existsSync(mobileAssetsDir)) fs.symlinkSync(assetsDir, mobileAssetsDir, 'junction');
+      if (!fs.existsSync(mobileCssDir)) fs.symlinkSync(cssDir, mobileCssDir, 'junction');
+      if (!fs.existsSync(mobileJsDir)) fs.symlinkSync(jsDir, mobileJsDir, 'junction');
+    } catch (e) {
+      // Fallback: non-fatal if junctions cannot be created
+    }
 
   // Generate Manifest
   const manifestPath = path.join(outDir, 'clone-manifest.json');

@@ -80,18 +80,29 @@ export interface HarvestedAssetManifest {
   totalBytes: number;
 }
 export class AssetHarvester {
-  public harvestFromHtml(html: string, assetsDir: string, context?: { baseUrl?: string }): HarvestedAssetManifest {
-    return this.harvestFromFiles([{ path: 'inline.html', content: html }], assetsDir, context);
+  public harvestFromHtml(html: string, assetsDir: string, context?: { baseUrl?: string } | string): HarvestedAssetManifest {
+    const normContext = typeof context === 'string' ? { baseUrl: context } : context;
+    return this.harvestFromFiles([{ path: 'inline.html', content: html }], assetsDir, normContext);
   }
 
   public harvestFromFiles(
     files: Array<{ path: string; content: string }>,
     assetsDir: string,
-    context?: { baseUrl?: string }
+    context?: { baseUrl?: string } | string
   ): HarvestedAssetManifest {
     fs.mkdirSync(assetsDir, { recursive: true });
-    const normalizeRef = (raw: string): string => normalizeMalformedAbsoluteRef(raw, context?.baseUrl);
-
+    const normContext = typeof context === 'string' ? { baseUrl: context } : context;
+    const baseUrl = normContext?.baseUrl;
+    const normalizeRef = (raw: string): string => {
+      const trimmed = (raw || '').trim();
+      if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#')) return trimmed;
+      if (baseUrl && trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+        try {
+          return new URL(trimmed, baseUrl).href;
+        } catch {}
+      }
+      return normalizeMalformedAbsoluteRef(trimmed, baseUrl);
+    };
     const manifest: HarvestedAssetManifest = {
       stylesheets: [],
       javascripts: [],
@@ -109,17 +120,32 @@ export class AssetHarvester {
     const allocateFilename = (cleanUrl: string, sourceUrl: string, defaultPrefix: string, fallbackExt: string): string => {
       const rawExt = path.extname(cleanUrl);
       const ext = rawExt && rawExt.length <= 6 ? rawExt.toLowerCase() : fallbackExt;
-      const base = path.basename(cleanUrl, rawExt) || defaultPrefix;
+      let base = path.basename(cleanUrl, rawExt) || defaultPrefix;
+
+      // 1. Clean build hashes (Vite / Webpack / Laravel Mix) for CSS & JS
+      if (ext === '.css' || ext === '.js') {
+        base = base.replace(/[-_.][a-zA-Z0-9_-]{8,12}$/, '');
+      }
+
+      // 2. Clean image sizing tags and numeric indexing prefixes
+      if (/\.(png|jpe?g|webp|gif|svg|avif)$/i.test(ext)) {
+        base = base
+          .replace(/[-_]at[-_]\d+x$/i, '')
+          .replace(/@\d+x$/i, '')
+          .replace(/[-_]\d+x\d+$/i, '')
+          .replace(/^\d{2,3}[-_]/, '')
+          .replace(/^\d+([a-zA-Z])/, '$1');
+      }
+
       const cleanBase = base.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || defaultPrefix;
 
       let candidate = `${cleanBase}${ext}`;
       if (allocatedFilenames.has(candidate) && allocatedFilenames.get(candidate) !== sourceUrl) {
-        const hash = hashUrl(sourceUrl);
-        candidate = `${cleanBase}_${hash}${ext}`;
         let counter = 2;
+        candidate = `${cleanBase}_${counter}${ext}`;
         while (allocatedFilenames.has(candidate) && allocatedFilenames.get(candidate) !== sourceUrl) {
-          candidate = `${cleanBase}_${hash}_${counter}${ext}`;
           counter++;
+          candidate = `${cleanBase}_${counter}${ext}`;
         }
       }
       allocatedFilenames.set(candidate, sourceUrl);
@@ -152,7 +178,7 @@ export class AssetHarvester {
 
     const addScript = (rawUrl: string, provenance?: AssetProvenanceOccurrence, defer?: boolean) => {
       const raw = (rawUrl || '').trim();
-      if (!raw || raw.startsWith('data:') || raw.startsWith('#') || /livewire/i.test(raw)) return;
+      if (!raw || raw.startsWith('data:') || raw.startsWith('#') || /(?:livewire|tawk|twk-|googletagmanager|google-analytics|analytics\.js|gtag|clarity|connect\.facebook\.net|fbq|subiz|vchat|zalo|hotjar|criteo)/i.test(raw)) return;
       const trimmed = normalizeRef(raw);
       const existing = manifest.javascripts.find(item => item.sourceUrl === trimmed);
       if (existing) {
@@ -241,6 +267,20 @@ export class AssetHarvester {
         if (attrs.get('rel')?.toLowerCase() !== 'stylesheet') continue;
         const href = attrs.get('href');
         if (href) addStylesheet(href, { filePath, tag: 'link', attribute: 'href' });
+      }
+
+      // 1b. Extract icon links (<link rel="icon|shortcut icon|apple-touch-icon">).
+      //     These are document subresources like any stylesheet, and a bundle that
+      //     leaves them pointing at the source host is not offline.
+      const iconLinkRegex = /<link\b([^>]*)>/gi;
+      let iconMatch: RegExpExecArray | null;
+      while ((iconMatch = iconLinkRegex.exec(content)) !== null) {
+        const attrs = parseTagAttributes(iconMatch[0]);
+        const rel = (attrs.get('rel') || '').toLowerCase();
+        const isIcon = /(?:^|\s)(?:shortcut\s+icon|apple-touch-icon(?:-precomposed)?|mask-icon|icon)(?:\s|$)/.test(rel);
+        if (!isIcon) continue;
+        const href = attrs.get('href');
+        if (href) addImage(href, { filePath, tag: 'link', attribute: 'href' });
       }
 
       // 2. Extract Javascript assets (<script src="...">)

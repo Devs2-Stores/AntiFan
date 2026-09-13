@@ -632,7 +632,7 @@ export function rewriteHtmlContent(
     const onerrorRegex = /(^|\s)onerror\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
     newAttrs = newAttrs.replace(onerrorRegex, (attrMatch: string, prefix: string, doubleVal: string | undefined, singleVal: string | undefined) => {
       const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
-      const fallbackMatch = val.match(/((?:this\.)?src\s*=\s*)(['"])([^'"]+)\2/i);
+      const fallbackMatch = val.match(/((?:this\.)?src\s*=\s*)(['"]|&quot;)(.*?)\2/i);
       if (fallbackMatch && fallbackMatch[3]) {
         const srcPrefix = fallbackMatch[1];
         const innerUrl = fallbackMatch[3];
@@ -831,6 +831,11 @@ export class AssetLocalizer {
       } else if (item.sourceUrl.startsWith('http://')) {
         urlMap.set(item.sourceUrl.slice(5), replacement); // '//example.com/...'
       }
+
+      // Map local relative paths and base filenames so files already referencing local assets get rewritten
+      urlMap.set(`assets/${item.filename}`, replacement);
+      urlMap.set(`/assets/${item.filename}`, replacement);
+      urlMap.set(item.filename, replacement);
     }
 
     let totalReplacements = 0;

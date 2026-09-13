@@ -515,7 +515,14 @@ export async function createSafariSession(
 }> {
   const caps: Record<string, unknown> = {
     bundleId: 'com.apple.mobilesafari',
-    shouldWaitForQuiescence: true,
+    shouldWaitForQuiescence: false,
+    waitForIdleTimeout: 0,
+    animationCoolOffTimeout: 0,
+    shouldUseCompactResponses: true,
+    snapshotMaxDepth: 1,
+    mjpegServerFramerate: 60,
+    mjpegScalingFactor: 33,
+    mjpegServerScreenshotQuality: 22,
     appLaunchStateTimeoutSec: 60,
     forceAppLaunch: true,
   };

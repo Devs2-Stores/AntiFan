@@ -28,9 +28,11 @@ import {
   AssetLocalizer,
   LocalizeAssetOptions,
   AssetLocalizationPipelineResult,
+  rewriteHtmlContent,
 } from '../models/asset-localizer.js';
 import { LiquidBindingEngine } from './liquid-binding-engine.js';
 import { SettingsAssetsNormalizer } from './settings-assets-normalizer.js';
+import { DomTreeParser } from '../models/dom-tree-parser.js';
 
 export interface ThemeCompilerOptions {
   targetContract?: HaravanTargetContract;
@@ -68,8 +70,13 @@ export class ThemeCompiler {
       );
     }
     const ir: ComponentContractIR =
-      typeof input === 'string' ? this.irBuilder.buildFromHtml(input) : input;
-
+      typeof input === 'string'
+        ? this.irBuilder.buildFromHtml(
+            input,
+            (options?.sourceUrl as string) || 'https://example.com',
+            options?.assetsDir as string
+          )
+        : input;
     const targetContract =
       options?.targetContract || createHaravanTargetContract(options);
 
@@ -159,9 +166,22 @@ export class ThemeCompiler {
         'ThemeCompiler: input must be a valid non-empty string or ComponentContractIR'
       );
     }
+    const sanitizedInput =
+      typeof input === 'string'
+        ? input.replace(
+            /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
+            ''
+          )
+        : input;
 
     const ir: ComponentContractIR =
-      typeof input === 'string' ? this.irBuilder.buildFromHtml(input) : input;
+      typeof sanitizedInput === 'string'
+        ? this.irBuilder.buildFromHtml(
+            sanitizedInput,
+            (options?.sourceUrl as string) || 'https://example.com',
+            options?.assetsDir as string
+          )
+        : sanitizedInput;
     return this.compileThemeFromIR(outputDir, ir, options);
   }
 
@@ -193,16 +213,87 @@ export class ThemeCompiler {
       // 3. Map sections from ComponentContractIR
       const sections = ir.sections || [];
 
-      // 4. Generate layout/theme.liquid (uses {% include 'header' %} and {% include 'footer' %})
-      const layoutPath = path.join(stagingDir, 'layout', 'theme.liquid');
-      fs.writeFileSync(layoutPath, this.layoutGen.generateThemeLiquid(), 'utf-8');
-      filesWritten.push(layoutPath);
 
       // Track all settings read in Liquid to ensure complete settings declaration
       const allReadSettingIds = new Set<string>();
       const emittedSnippetNames = new Set<string>();
       const pageSectionIncludes: Array<{ snippetName: string; enabledSettingId?: string }> = [];
 
+      // Build URL mapping for rewriting asset references into Haravan Liquid format {{ 'filename' | asset_url }}
+      const liquidUrlMap = new Map<string, string>();
+      const allIrAssets = [
+        ...(ir.assets?.stylesheets || []),
+        ...(ir.assets?.javascripts || []),
+        ...(ir.assets?.images || []),
+        ...(ir.assets?.fonts || []),
+      ];
+      for (const item of allIrAssets) {
+        if (item.filename) {
+          const rep = `{{ '${item.filename}' | asset_url }}`;
+          liquidUrlMap.set(`assets/${item.filename}`, rep);
+          liquidUrlMap.set(`/assets/${item.filename}`, rep);
+        }
+      }
+      const isJunkOrThirdPartyAsset = (filename: string): boolean =>
+        /(?:twk-|tawk|1hiir|gtm\.js|googletagmanager|analytics\.js|facebook|clarity|subiz|vchat|zalo|hotjar|criteo|emojione|js_98b1fb9e|js\.js)/i.test(filename);
+
+      if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
+        try {
+          const diskFiles = fs.readdirSync(options.assetsDir as string);
+          for (const diskFile of diskFiles) {
+            if (isJunkOrThirdPartyAsset(diskFile)) continue;
+            const rep = `{{ '${diskFile}' | asset_url }}`;
+            liquidUrlMap.set(`assets/${diskFile}`, rep);
+            liquidUrlMap.set(`/assets/${diskFile}`, rep);
+          }
+        } catch {}
+      }
+
+      // 4. Generate layout/theme.liquid with detected stylesheets and scripts
+      // Identify stylesheets that will be bundled into theme.css so they are not linked twice
+      const bundledStylesheets = new Set<string>();
+      for (const s of ir.assets?.stylesheets || []) {
+        if (s.localPath && fs.existsSync(s.localPath) && s.filename) {
+          bundledStylesheets.add(s.filename);
+        }
+      }
+
+      const layoutStylesheets: string[] = [];
+      const layoutScripts: string[] = [];
+      for (const s of ir.assets?.stylesheets || []) {
+        if (s.filename && !isJunkOrThirdPartyAsset(s.filename) && !bundledStylesheets.has(s.filename) && !layoutStylesheets.includes(s.filename)) {
+          layoutStylesheets.push(s.filename);
+        }
+      }
+      for (const j of ir.assets?.javascripts || []) {
+        if (j.filename && !isJunkOrThirdPartyAsset(j.filename) && !layoutScripts.includes(j.filename)) {
+          layoutScripts.push(j.filename);
+        }
+      }
+      if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
+        try {
+          const diskFiles = fs.readdirSync(options.assetsDir as string);
+          for (const diskFile of diskFiles) {
+            if (isJunkOrThirdPartyAsset(diskFile)) continue;
+            if (diskFile.endsWith('.css') && !bundledStylesheets.has(diskFile) && !layoutStylesheets.includes(diskFile)) {
+              layoutStylesheets.push(diskFile);
+            } else if (diskFile.endsWith('.js') && !layoutScripts.includes(diskFile)) {
+              layoutScripts.push(diskFile);
+            }
+          }
+        } catch {}
+      }
+      layoutScripts.sort((a, b) => {
+        if (a.includes('jquery')) return -1;
+        if (b.includes('jquery')) return 1;
+        if (a.includes('slick')) return -1;
+        if (b.includes('slick')) return 1;
+        return 0;
+      });
+
+      const layoutPath = path.join(stagingDir, 'layout', 'theme.liquid');
+      fs.writeFileSync(layoutPath, this.layoutGen.generateThemeLiquid({ stylesheets: layoutStylesheets, scripts: layoutScripts }), 'utf-8');
+      filesWritten.push(layoutPath);
       // 5. Generate snippets from IR sections
       for (const sec of sections) {
         let sectionLiquid = '';
@@ -218,7 +309,7 @@ export class ThemeCompiler {
             : '';
           sectionLiquid = `
 <section class="${sec.className || sec.id}" id="${sec.id}">
-  <div class="container container-fluid">${headingMarkup}
+  <div class="container">${headingMarkup}
     <div class="content">
       <!-- Section Content -->
     </div>
@@ -358,16 +449,106 @@ export class ThemeCompiler {
         for (const match of sectionLiquid.matchAll(/settings\.([a-zA-Z0-9_]+)/g)) {
           allReadSettingIds.add(match[1]);
         }
+        const rewriteLiquidAssets = (content: string): string => {
+          let res = rewriteHtmlContent(content, liquidUrlMap, { mode: 'liquid' }).content;
+          res = res.replace(
+            /(^|\s)(src|data-src)=(?:"(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^"]*)?"|'(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^']*)?')/gi,
+            (match, prefix, attr, doubleVal, singleVal) => {
+              const filename = doubleVal !== undefined ? doubleVal : singleVal;
+              return `${prefix}${attr}="{{ '${filename}' | asset_url }}"`;
+            }
+          );
+          res = res.replace(
+            /(^|\s)onerror\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+            (match, prefix, doubleVal, singleVal) => {
+              const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
+              const fallbackMatch = val.match(/((?:this\.)?src\s*=\s*)(?:&quot;|['"])(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^"']*)?(?:&quot;|['"]);?/i);
+              if (fallbackMatch) {
+                const safeJs = `${fallbackMatch[1]}&quot;{{ '${fallbackMatch[2]}' | asset_url }}&quot;;`;
+                const replaced = val.replace(fallbackMatch[0], safeJs);
+                return `${prefix}onerror="${replaced}"`;
+              }
+              return match;
+            }
+          );
+          res = res.replace(
+            /(^|\s)(srcset|data-srcset)=(?:"([^"]*)"|'([^']*)')/gi,
+            (match, prefix, attr, doubleVal, singleVal) => {
+              const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
+              const quote = doubleVal !== undefined ? '"' : "'";
+              if (val.includes('asset_url')) return match;
+              const replaced = val.replace(/(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))/gi, "{{ '$1' | asset_url }}");
+              return `${prefix}${attr}=${quote}${replaced}${quote}`;
+            }
+          );
+          return res;
+        };
+
+        // Rewrite asset references into Haravan Liquid format and strip dynamic CSRF tokens
+        sectionLiquid = rewriteLiquidAssets(sectionLiquid);
+        sectionLiquid = sectionLiquid.replace(
+          /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
+          ''
+        );
 
         // Determine destination snippet name
+        const mobileIndexPath = options?.assetsDir
+          ? path.join(path.dirname(options.assetsDir as string), 'mobile', 'index.html')
+          : '';
+        const hasMobileSurface = Boolean(mobileIndexPath && fs.existsSync(mobileIndexPath));
+
         if (sec.archetype === 'header') {
+          let headerOutput = sectionLiquid;
+          if (hasMobileSurface) {
+            try {
+              const mobileHtml = fs.readFileSync(mobileIndexPath, 'utf-8');
+              const mobileRoot = DomTreeParser.parse(mobileHtml);
+              const mobileHeaders = DomTreeParser.findByTag(mobileRoot, 'header');
+              if (mobileHeaders.length > 0) {
+                let mobileHeaderContent = mobileHeaders[0].outerHtml;
+                if (!mobileHeaderContent.includes('category-navigation__block')) {
+                  const drawers = DomTreeParser.findByClass(mobileRoot, 'category-navigation__block');
+                  if (drawers.length > 0) {
+                    mobileHeaderContent += '\n' + drawers[0].outerHtml;
+                  }
+                }
+                // Strip CSRF token from mobile header
+                mobileHeaderContent = mobileHeaderContent.replace(
+                  /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
+                  ''
+                );
+                // Rewrite asset URLs with comprehensive liquid rewrite
+                mobileHeaderContent = rewriteLiquidAssets(mobileHeaderContent);
+
+                headerOutput = `<div class="desktop-only">\n${sectionLiquid}\n</div>\n<div class="mobile-only">\n${mobileHeaderContent}\n</div>`;
+              }
+            } catch {}
+          }
           const headerSnippetPath = path.join(stagingDir, 'snippets', 'header.liquid');
-          fs.writeFileSync(headerSnippetPath, sectionLiquid, 'utf-8');
+          fs.writeFileSync(headerSnippetPath, headerOutput, 'utf-8');
           filesWritten.push(headerSnippetPath);
           emittedSnippetNames.add('header');
         } else if (sec.archetype === 'footer') {
+          let footerOutput = sectionLiquid;
+          if (hasMobileSurface) {
+            try {
+              const mobileHtml = fs.readFileSync(mobileIndexPath, 'utf-8');
+              const mobileRoot = DomTreeParser.parse(mobileHtml);
+              const bottomNavs = DomTreeParser.findByClass(mobileRoot, 'bottom-navigation');
+              if (bottomNavs.length > 0) {
+                let mobileExtra = bottomNavs[0].outerHtml;
+                mobileExtra = mobileExtra.replace(
+                  /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
+                  ''
+                );
+                mobileExtra = rewriteLiquidAssets(mobileExtra);
+
+                footerOutput = `${sectionLiquid}\n<div class="mobile-only">\n${mobileExtra}\n</div>`;
+              }
+            } catch {}
+          }
           const footerSnippetPath = path.join(stagingDir, 'snippets', 'footer.liquid');
-          fs.writeFileSync(footerSnippetPath, sectionLiquid, 'utf-8');
+          fs.writeFileSync(footerSnippetPath, footerOutput, 'utf-8');
           filesWritten.push(footerSnippetPath);
           emittedSnippetNames.add('footer');
         } else {
@@ -380,6 +561,25 @@ export class ThemeCompiler {
           const enabledId = `${snippetName}_enabled`;
           allReadSettingIds.add(enabledId);
 
+          if (
+            hasMobileSurface &&
+            (sec.id.includes('hero_slider') || sec.id.includes('slide') || sec.archetype === 'hero_slider')
+          ) {
+            try {
+              const mobileHtml = fs.readFileSync(mobileIndexPath, 'utf-8');
+              const mobileRoot = DomTreeParser.parse(mobileHtml);
+              const mobileMenus = DomTreeParser.findByClass(mobileRoot, 'menu-header');
+              if (mobileMenus.length > 0) {
+                let menuContent = mobileMenus[0].outerHtml;
+                menuContent = menuContent.replace(
+                  /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
+                  ''
+                );
+                menuContent = rewriteLiquidAssets(menuContent);
+                sectionLiquid += `\n<div class="mobile-only">\n${menuContent}\n</div>`;
+              }
+            } catch {}
+          }
           const snippetPath = path.join(stagingDir, 'snippets', `${snippetName}.liquid`);
           fs.writeFileSync(snippetPath, sectionLiquid, 'utf-8');
           filesWritten.push(snippetPath);
@@ -395,9 +595,9 @@ export class ThemeCompiler {
       const indexLines: string[] = [];
       for (const item of pageSectionIncludes) {
         if (item.enabledSettingId) {
-          indexLines.push(`{% if settings.${item.enabledSettingId} %}`);
+          indexLines.push(`{% unless settings.${item.enabledSettingId} == false %}`);
           indexLines.push(`  {% include '${item.snippetName}' %}`);
-          indexLines.push('{% endif %}');
+          indexLines.push('{% endunless %}');
         } else {
           indexLines.push(`{% include '${item.snippetName}' %}`);
         }
@@ -555,6 +755,160 @@ export class ThemeCompiler {
         filesWritten.push(responsiveCssPath);
       }
 
+      // Bundle site stylesheets and head styles into theme.css
+      const themeCssParts: string[] = [];
+      if (ir.assets?.stylesheets) {
+        for (const sheet of ir.assets.stylesheets) {
+          if (sheet.localPath && fs.existsSync(sheet.localPath)) {
+            try {
+              themeCssParts.push(`/* Source: ${sheet.filename} */\n` + fs.readFileSync(sheet.localPath, 'utf-8'));
+            } catch {}
+          }
+        }
+      }
+      if (Array.isArray(ir.headStyles)) {
+        for (const styleBlock of ir.headStyles) {
+          const stripped = styleBlock.replace(/^<style\b[^>]*>/i, '').replace(/<\/style>$/i, '');
+          if (stripped.trim().length > 0) {
+            themeCssParts.push('/* Head Style Block */\n' + stripped.trim());
+          }
+        }
+      }
+      const themeCssPath = path.join(stagingDir, 'assets', 'theme.css');
+      if (themeCssParts.length > 0) {
+        let bundledCss = themeCssParts.join('\n\n');
+        // Clean absolute or build/ assets paths in CSS urls to relative filename
+        bundledCss = bundledCss.replace(/url\(\s*(['"]?)(?:\/build\/assets\/|\/assets\/|assets\/)?([-a-zA-Z0-9_.]+\.(?:ttf|woff2?|eot|otf|png|jpe?g|svg|webp|gif))\1\s*\)/gi, 'url("$2")');
+        fs.writeFileSync(themeCssPath, bundledCss, 'utf-8');
+      } else if (!fs.existsSync(themeCssPath)) {
+        fs.writeFileSync(themeCssPath, '/* Haravan Theme CSS */\n', 'utf-8');
+      }
+      if (!filesWritten.includes(themeCssPath)) filesWritten.push(themeCssPath);
+
+      const customCssPath = path.join(stagingDir, 'assets', 'custom.css');
+      const customCssDefault = `/* Haravan Custom Overrides & Adaptive Parity */
+/* Hero slider geometry. The compiler strips the pixel geometry the source slider
+   measured at capture time, so slides size from the viewport and the track is a
+   horizontal scroller for both theme.js and native touch. */
+.s-wrap, .s-slide {
+  overflow: hidden;
+  position: relative;
+}
+.s-wrap .s-content, .s-slide .s-content {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  touch-action: pan-y;
+}
+.s-wrap .s-content::-webkit-scrollbar, .s-slide .s-content::-webkit-scrollbar {
+  display: none;
+}
+.s-wrap .s-content > .item, .s-slide .s-content > .item {
+  flex: 0 0 100%;
+  max-width: 100%;
+  scroll-snap-align: start;
+}
+.s-wrap .s-content > .item img, .s-slide .s-content > .item img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+@media (min-width: 992px) {
+  .mobile-only {
+    display: none;
+  }
+}
+@media (max-width: 991px) {
+  .desktop-only {
+    display: none;
+  }
+  .mobile-only {
+    display: block;
+  }
+  .block-category .product-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .block-category .product-grid .product-card {
+    width: 100%;
+    max-width: 100%;
+  }
+  .accessory-content__list {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 12px;
+    padding-bottom: 10px;
+  }
+  .accessory-content__list > * {
+    flex: 0 0 45%;
+    max-width: 45%;
+  }
+  .news .s-content {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 12px;
+  }
+  .news .s-content .item {
+    flex: 0 0 75%;
+    max-width: 75%;
+  }
+  .slide-content > .category-navigation {
+    display: none;
+  }
+  .slide-content {
+    flex-direction: column;
+    padding: 10px 0;
+  }
+  .slide-content__detail {
+    flex: 0 0 100%;
+    max-width: 100%;
+    margin-left: 0;
+  }
+  .slide .menu-header {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 10px 0;
+  }
+  .slide .menu-header .menu-list {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 12px;
+    padding: 0 15px;
+    margin: 0;
+    list-style: none;
+  }
+  .slide .menu-header .menu-list__item {
+    flex: 0 0 auto;
+    text-align: center;
+  }
+  .slide .menu-header .menu-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-decoration: none;
+  }
+  .slide .menu-header .menu-link__icon {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 6px;
+  }
+  .slide .menu-header .menu-link__name {
+    font-size: 11px;
+    color: #333;
+    white-space: nowrap;
+  }
+}
+`;
+      fs.writeFileSync(customCssPath, customCssDefault, 'utf-8');
+      if (!filesWritten.includes(customCssPath)) filesWritten.push(customCssPath);
+
       // Copy IR harvested assets
       if (ir.assets) {
         const allAssets = [
@@ -566,12 +920,45 @@ export class ThemeCompiler {
         for (const item of allAssets) {
           if (item.localPath && fs.existsSync(item.localPath)) {
             const destAssetPath = path.join(stagingDir, 'assets', item.filename);
-            fs.copyFileSync(item.localPath, destAssetPath);
-            filesWritten.push(destAssetPath);
+            if (!fs.existsSync(destAssetPath)) {
+              if (/(?:_2|mobile|-mobile)\.css$/i.test(item.filename)) {
+                const rawCss = fs.readFileSync(item.localPath, 'utf-8');
+                const cleanCss = rawCss.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
+                const wrappedCss = cleanCss.trim().startsWith('@media (max-width: 991px)')
+                  ? rawCss
+                  : `@charset "UTF-8";\n@media (max-width: 991px) {\n${cleanCss}\n}`;
+                fs.writeFileSync(destAssetPath, wrappedCss, 'utf-8');
+              } else {
+                fs.copyFileSync(item.localPath, destAssetPath);
+              }
+            }
+            if (!filesWritten.includes(destAssetPath)) filesWritten.push(destAssetPath);
           }
         }
       }
-
+      if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
+        try {
+          const diskFiles = fs.readdirSync(options.assetsDir as string);
+          for (const diskFile of diskFiles) {
+            if (isJunkOrThirdPartyAsset(diskFile)) continue;
+            const srcPath = path.join(options.assetsDir as string, diskFile);
+            const destPath = path.join(stagingDir, 'assets', diskFile);
+            if (fs.statSync(srcPath).isFile() && !fs.existsSync(destPath)) {
+              if (/(?:_2|mobile|-mobile)\.css$/i.test(diskFile)) {
+                const rawCss = fs.readFileSync(srcPath, 'utf-8');
+                const cleanCss = rawCss.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
+                const wrappedCss = cleanCss.trim().startsWith('@media (max-width: 991px)')
+                  ? rawCss
+                  : `@charset "UTF-8";\n@media (max-width: 991px) {\n${cleanCss}\n}`;
+                fs.writeFileSync(destPath, wrappedCss, 'utf-8');
+              } else {
+                fs.copyFileSync(srcPath, destPath);
+              }
+              if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+            }
+          }
+        } catch {}
+      }
       // 9c. Normalize undeclared settings and synthesize missing assets before final commit
       const normResult = SettingsAssetsNormalizer.normalizeTheme(
         stagingDir,

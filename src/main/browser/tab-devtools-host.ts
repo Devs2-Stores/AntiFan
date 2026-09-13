@@ -1438,6 +1438,9 @@ export class TabDevToolsHost {
     } finally {
       if (!wc.isDestroyed()) {
         await this.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
+        try {
+          this.ctx.applyTabDeviceEmulation?.(targetId);
+        } catch {}
       }
     }
   }

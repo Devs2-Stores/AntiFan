@@ -306,19 +306,24 @@ export class IosDeviceAdapter implements DeviceControlPort {
 
   async tap(target: DeviceBinding, point: DevicePoint): Promise<DeviceActionResult> {
     const startedAt = Date.now();
-    await this.sendToSession(target, 'POST', '/actions', {
-      actions: [{
-        type: 'pointer',
-        id: 'finger1',
-        parameters: { pointerType: 'touch' },
-        actions: [
-          { type: 'pointerMove', duration: 0, x: point.x, y: point.y },
-          { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 80 },
-          { type: 'pointerUp', button: 0 },
-        ],
-      }],
-    });
+    try {
+      // Ultra-fast native WDA direct tap endpoint (~15-35ms)
+      await this.sendToSession(target, 'POST', '/wda/tap', { x: point.x, y: point.y });
+    } catch {
+      // Resilient fallback to zero-pause W3C action sequence
+      await this.sendToSession(target, 'POST', '/actions', {
+        actions: [{
+          type: 'pointer',
+          id: 'finger1',
+          parameters: { pointerType: 'touch' },
+          actions: [
+            { type: 'pointerMove', duration: 0, x: point.x, y: point.y },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pointerUp', button: 0 },
+          ],
+        }],
+      });
+    }
     return { ok: true, ms: Date.now() - startedAt };
   }
 
@@ -332,8 +337,7 @@ export class IosDeviceAdapter implements DeviceControlPort {
         actions: [
           { type: 'pointerMove', duration: 0, x: gesture.x1, y: gesture.y1 },
           { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 40 },
-          { type: 'pointerMove', duration: gesture.durationMs ?? 300, x: gesture.x2, y: gesture.y2 },
+          { type: 'pointerMove', duration: gesture.durationMs ?? 80, x: gesture.x2, y: gesture.y2 },
           { type: 'pointerUp', button: 0 },
         ],
       }],

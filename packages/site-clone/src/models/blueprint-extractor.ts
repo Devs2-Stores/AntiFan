@@ -94,16 +94,46 @@ export class BlueprintExtractor {
       }
     };
     collect(body);
+    const isNodeEmpty = (node: ParsedElementNode): boolean => {
+      const text = DomTreeParser.extractText(node).trim();
+      if (text.length > 0) return false;
+      const hasContent = DomTreeParser.findByTag(node, 'img').length > 0 ||
+        DomTreeParser.findByTag(node, 'svg').length > 0 ||
+        DomTreeParser.findByTag(node, 'video').length > 0 ||
+        DomTreeParser.findByTag(node, 'iframe').length > 0 ||
+        DomTreeParser.findByTag(node, 'input').length > 0 ||
+        DomTreeParser.findByTag(node, 'button').length > 0 ||
+        DomTreeParser.findByTag(node, 'form').length > 0;
+      return !hasContent;
+    };
+
+    const isThirdPartyWidget = (node: ParsedElementNode): boolean => {
+      const id = (node.attributes['id'] || '').toLowerCase();
+      const style = (node.attributes['style'] || '').toLowerCase();
+      if (/^(?:tawk|twk|x2err|subiz|vchat|fb-root|zalo)/i.test(id)) return true;
+      if (id.length > 18 && /^[a-z0-9_-]+$/i.test(id)) return true;
+      if (style.includes('z-index:999999') || style.includes('z-index: 999999')) return true;
+      const iframes = DomTreeParser.findByTag(node, 'iframe');
+      for (const iframe of iframes) {
+        const title = (iframe.attributes['title'] || '').toLowerCase();
+        const src = (iframe.attributes['src'] || '').toLowerCase();
+        if (title.includes('chat widget') || src.includes('tawk') || src.includes('facebook')) return true;
+      }
+      return false;
+    };
 
     let secIndex = 1;
     for (const node of blocks) {
+      if (isNodeEmpty(node) || isThirdPartyWidget(node)) {
+        continue;
+      }
+
       const rawClass = node.attributes['class'] || '';
       const cleanClass = this.sanitizeClassName(rawClass) || `section-${secIndex}`;
-      const rawId = node.attributes['id'] || `section_${cleanClass.replace(/\s+/g, '_')}_${secIndex}`;
-      const cleanId = this.sanitizeAndDedupeId(rawId, `section_${secIndex}`);
       const role = this.classifyTopLevelRole(node, rawClass);
 
       if (role === 'header') {
+        const cleanId = this.sanitizeAndDedupeId('header', 'header');
         sections.push({
           id: cleanId,
           type: 'header',
@@ -111,7 +141,9 @@ export class BlueprintExtractor {
           tagName: node.tag,
           className: cleanClass,
           rawHtml: node.outerHtml,
-          liquidTemplate: this.generateHeaderLiquid(),
+          liquidTemplate: (node.outerHtml && node.outerHtml.trim().length > 0)
+            ? this.generateSectionLiquid('header', cleanClass, 'Site Header', node.outerHtml)
+            : this.generateHeaderLiquid(),
           schemaSettings: [
             { type: 'image_picker', id: 'logo', label: 'Logo Image' },
             { type: 'text', id: 'logo_url', label: 'External Logo URL' },
@@ -125,6 +157,7 @@ export class BlueprintExtractor {
       }
 
       if (role === 'footer') {
+        const cleanId = this.sanitizeAndDedupeId('footer', 'footer');
         sections.push({
           id: cleanId,
           type: 'footer',
@@ -132,7 +165,9 @@ export class BlueprintExtractor {
           tagName: node.tag,
           className: cleanClass,
           rawHtml: node.outerHtml,
-          liquidTemplate: this.generateFooterLiquid(),
+          liquidTemplate: (node.outerHtml && node.outerHtml.trim().length > 0)
+            ? this.generateSectionLiquid('footer', cleanClass, 'Site Footer', node.outerHtml)
+            : this.generateFooterLiquid(),
           schemaSettings: [
             { type: 'text', id: 'company_name', label: 'Company Name', default: 'Cửa hàng trực tuyến' },
             { type: 'textarea', id: 'address', label: 'Company Address' },
@@ -150,6 +185,52 @@ export class BlueprintExtractor {
       const blueprintName = headingText || this.formatSectionName(cleanClass);
       const { blockDefinitions, blockInstances } = this.extractBlocksFromNode(sectionType, node);
 
+      let cleanId = '';
+      const rawNodeId = (node.attributes['id'] || '').trim();
+      const isTrackingOrHashId = /^(?:x2err|tawk|twk|subiz|vchat|fb-root|zalo)/i.test(rawNodeId) ||
+        (rawNodeId.length > 18 && /^[a-z0-9_-]+$/i.test(rawNodeId));
+
+      if (rawNodeId && !isTrackingOrHashId) {
+        cleanId = this.sanitizeAndDedupeId(rawNodeId, `section_${secIndex}`);
+      } else {
+        let baseName = '';
+        switch (sectionType) {
+          case 'hero-slider':
+            baseName = 'hero_slider';
+            break;
+          case 'category-grid':
+            baseName = 'categories';
+            break;
+          case 'featured-products':
+            baseName = 'featured_products';
+            break;
+          case 'accessory-showcase':
+            baseName = 'accessories';
+            break;
+          case 'news':
+            baseName = 'news';
+            break;
+          case 'partner-carousel':
+            baseName = 'partners';
+            break;
+          case 'quote-form':
+            baseName = 'quote_form';
+            break;
+          default: {
+            const primaryClass = cleanClass.split(/\s+/)[0] || '';
+            const stripped = primaryClass
+              .replace(/^section[-_]?/i, '')
+              .replace(/^block[-_]?/i, '')
+              .replace(/^home[-_]?/i, '')
+              .replace(/[-_]?container$/i, '')
+              .replace(/[-_]?wrapper$/i, '');
+            baseName = stripped ? stripped.replace(/[-_\s]+/g, '_') : `section_${secIndex}`;
+            break;
+          }
+        }
+        cleanId = this.sanitizeAndDedupeId(`section_${baseName}`, `section_${secIndex}`);
+      }
+
       sections.push({
         id: cleanId,
         type: sectionType,
@@ -158,7 +239,7 @@ export class BlueprintExtractor {
         className: cleanClass,
         heading: headingText,
         rawHtml: node.outerHtml,
-        liquidTemplate: this.generateSectionLiquid(sectionType, cleanClass, headingText),
+        liquidTemplate: this.generateSectionLiquid(sectionType, cleanClass, headingText, node.outerHtml),
         schemaSettings: this.deriveSchemaSettings(sectionType, headingText),
         blockDefinitions,
         blockInstances
@@ -386,7 +467,7 @@ export class BlueprintExtractor {
     <div class="container container-fluid">
       <div class="main-header flex flex-left-between w-100">
         <div class="main-header__logo">
-          <a href="{{ routes.root_url }}">
+          <a href="/">
             {% if section.settings.image_url != blank %}
               <img src="{{ section.settings.image_url }}" alt="{{ shop.name }}">
             {% elsif section.settings.logo != blank %}
@@ -397,7 +478,7 @@ export class BlueprintExtractor {
           </a>
         </div>
         <div class="main-header__search">
-          {% render 'search-bar' %}
+          {% include 'search-bar' %}
         </div>
         <div class="main-header__contact flex">
           <div class="hotline">
@@ -412,11 +493,31 @@ export class BlueprintExtractor {
     `.trim();
   }
 
-  private generateSectionLiquid(type: string, className: string, heading: string): string {
+  private generateSectionLiquid(type: string, className: string, heading: string, rawHtml?: string): string {
+    if (rawHtml && rawHtml.trim().length > 0) {
+      let cleaned = rawHtml.trim();
+      // Preserve source container and sibling classes (e.g. .container-fuild { max-width: 1470px })
+      if (type === 'hero-slider') {
+        let isFirst = true;
+        cleaned = cleaned.replace(/<img\b([^>]*)>/gi, (_imgTag, attrs: string) => {
+          let cleanAttrs = attrs.replace(/\s*loading=["'](?:lazy|eager)["']/gi, '');
+          if (isFirst) {
+            isFirst = false;
+            cleanAttrs = cleanAttrs.replace(/\s*fetchpriority=["'][^"']*["']/gi, '');
+            cleanAttrs += ' fetchpriority="high"';
+          } else {
+            cleanAttrs += ' loading="lazy"';
+          }
+          return `<img${cleanAttrs}>`;
+        });
+      }
+      return cleaned;
+    }
+
     if (type === 'hero-slider') {
       return `
 <section class="${className}">
-  <div class="container container-fluid">
+  <div class="container">
     <div class="slide-content flex flex-left-between">
       <div class="slide-content__detail w-100">
         <div class="s-content flex">
@@ -425,7 +526,7 @@ export class BlueprintExtractor {
             <div class="s-content__item" {{ block.haravan_attributes }}>
               <a href="{{ block.settings.link }}">
                 {% if slide_src != blank %}
-                  <img src="{{ slide_src }}" alt="{{ block.settings.title | escape }}" loading="lazy">
+                  <img src="{{ slide_src }}" alt="{{ block.settings.title | escape }}" fetchpriority="high">
                 {% endif %}
               </a>
             </div>
@@ -441,14 +542,14 @@ export class BlueprintExtractor {
     if (type === 'featured-products') {
       return `
 <section class="${className}">
-  <div class="container container-fluid">
+  <div class="container">
     <div class="block-category__header flex flex-left-between">
       <h2 class="title">{{ section.settings.heading | default: '${heading || "Sản Phẩm Nổi Bật"}' }}</h2>
       <a href="{{ section.settings.view_all_link }}" class="view-more">Xem thêm</a>
     </div>
     <div class="product-grid flex">
       {% for product in collections[section.settings.collection].products limit: section.settings.limit %}
-        {% render 'product-card', product: product %}
+        {% include 'product-card', product: product %}
       {% endfor %}
     </div>
   </div>
@@ -459,7 +560,7 @@ export class BlueprintExtractor {
     if (type === 'quote-form') {
       return `
 <section class="${className}">
-  <div class="container container-fluid">
+  <div class="container">
     <div class="home-form__wrapper">
       <h2 class="form-title">{{ section.settings.heading | default: '${heading || "Nhận Báo Giá Nhanh"}' }}</h2>
       <form action="/contact" method="post" id="quote-form">
@@ -477,7 +578,7 @@ export class BlueprintExtractor {
 
     return `
 <section class="${className}" id="{{ section.id }}">
-  <div class="container container-fluid">
+  <div class="container">
     {% if section.settings.heading != blank %}
       <h2 class="section-title">{{ section.settings.heading }}</h2>
     {% endif %}
@@ -496,7 +597,7 @@ export class BlueprintExtractor {
   private generateFooterLiquid(): string {
     return `
 <footer class="site-footer">
-  <div class="container container-fluid">
+  <div class="container">
     <div class="site-footer__top flex">
       <div class="footer-col col-info">
         <h3>{{ section.settings.company_name }}</h3>

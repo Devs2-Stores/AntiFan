@@ -349,6 +349,9 @@ const HARAVAN_FORBIDDEN_FILTERS = [
 ];
 const HARAVAN_FORBIDDEN_FILTER_REGEX = new RegExp(`\\|\\s*(${HARAVAN_FORBIDDEN_FILTERS.join('|')})\\b`, 'g');
 
+const HARAVAN_FORBIDDEN_OBJECTS = ['request\\.'];
+const HARAVAN_FORBIDDEN_OBJECT_REGEX = new RegExp(`\\b(${HARAVAN_FORBIDDEN_OBJECTS.join('|')})`, 'g');
+
 /**
  * Verify Haravan platform Liquid contracts and settings mode conditions.
  *
@@ -520,6 +523,20 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
             detail: `Filter '${filterName}' is not supported in Haravan DotLiquid (${relativePath}:${lineNum})`,
           });
         }
+        // Check forbidden Shopify objects
+        let objectMatch;
+        HARAVAN_FORBIDDEN_OBJECT_REGEX.lastIndex = 0;
+        while ((objectMatch = HARAVAN_FORBIDDEN_OBJECT_REGEX.exec(lineText)) !== null) {
+          const objName = objectMatch[1].replace('\\.', '.');
+          failures.push({
+            rule: 'HARAVAN_FORBIDDEN_OBJECT',
+            file: relativePath,
+            line: lineNum,
+            message: `Shopify-only object '${objName}' is forbidden in Haravan themes`,
+            detail: `Object '${objName}' is not supported in Haravan DotLiquid (${relativePath}:${lineNum})`,
+          });
+        }
+
 
         // Haravan documents `line_item` as the cart item object and prohibits the
         // aliases `cart_item` / `item_cart`; the loop variable name itself is free

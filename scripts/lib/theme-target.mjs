@@ -7,8 +7,8 @@
  * resolution is a single place to test.
  */
 
-const PROTECTED_THEME_IDS = Object.freeze(['1001510509']);
-const DEFAULT_THEME_ID = '1001514194';
+const PROTECTED_THEME_IDS = Object.freeze(['1001514194']);
+const DEFAULT_THEME_ID = '1001514345';
 
 export function resolveThemeId(env = process.env) {
   const raw = env.HARAVAN_THEME_ID;

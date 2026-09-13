@@ -99,11 +99,24 @@ export function getPresetCornerRadius(presetOrId?: DevicePreset | string | null)
   return 0;
 }
 
+export function getPresetPlatform(preset?: DevicePreset | null): string {
+  if (!preset) return 'Win32';
+  if (preset.platform) return preset.platform;
+  if (preset.id.includes('iphone') || preset.id.includes('ipad') || (preset.mobile && ((preset.width === 390 && preset.height === 844) || (preset.width === 393 && preset.height === 852) || (preset.width === 430 && preset.height === 932) || (preset.width === 440 && preset.height === 956)))) {
+    return 'iPhone';
+  }
+  if (preset.mobile) return 'Linux armv81';
+  return 'Win32';
+}
+
 export function getPresetUserAgent(preset?: DevicePreset | null, defaultUA?: string): string | undefined {
   if (!preset) return defaultUA;
   if (preset.userAgent) return preset.userAgent;
+  if (preset.platform === 'iPhone' || preset.id.includes('iphone') || preset.id.includes('ipad') || (preset.mobile && ((preset.width === 390 && preset.height === 844) || (preset.width === 393 && preset.height === 852) || (preset.width === 430 && preset.height === 932) || (preset.width === 440 && preset.height === 956)))) {
+    return IPHONE_USER_AGENT;
+  }
   if (preset.mobile) {
-    return preset.id.includes('iphone') || preset.id.includes('ipad') ? IPHONE_USER_AGENT : ANDROID_MOBILE_USER_AGENT;
+    return ANDROID_MOBILE_USER_AGENT;
   }
   return defaultUA;
 }

@@ -392,4 +392,21 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('10. Preserves already-wrapped asset_url in srcset and src without double-wrapping or quote corruption', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-test-srcset-'));
+    const html = '<section id="srcset_sec"><img src="{{ \'logo.png\' | asset_url }}" srcset="{{ \'hero.png\' | asset_url }} 1x, {{ \'hero@2x.png\' | asset_url }} 2x"></section>';
+
+    try {
+      compiler.compileTheme(tempDir, html);
+      const snippetPath = path.join(tempDir, 'snippets', 'srcset_sec.liquid');
+      assert.ok(fs.existsSync(snippetPath));
+      const content = fs.readFileSync(snippetPath, 'utf-8');
+      assert.ok(!content.includes("{{ '{{"), 'Must not double-wrap asset_url');
+      assert.ok(content.includes('srcset="{{ \'hero.png\' | asset_url }} 1x, {{ \'hero@2x.png\' | asset_url }} 2x"'), 'Must keep single-quoted filenames inside double-quoted srcset');
+      assert.ok(content.includes('src="{{ \'logo.png\' | asset_url }}"'), 'Must keep single-quoted filename inside double-quoted src');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

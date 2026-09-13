@@ -191,8 +191,27 @@ describe('IndependentHtmlCloneGenerator - generateFromMaterializedHtml', () => {
       });
       assert.ok(res.html.includes('id="antifan-clone-parity"'), 'must include parity CSS');
       assert.ok(res.html.includes('id="antifan-clone-interactivity"'), 'must include interactivity JS');
+      const scriptMatch = res.html.match(/<script id="antifan-clone-interactivity">([\s\S]*?)<\/script>/);
+      assert.ok(scriptMatch && scriptMatch[1].trim().length > 0, 'must contain non-empty interactivity script');
+      const vm = require('node:vm');
+      assert.doesNotThrow(() => {
+        new vm.Script(scriptMatch[1], { filename: 'test-antifan-interactivity-web.js' });
+      }, 'Interactivity script in web mode must be 100% valid JS syntax without parse errors');
       assert.ok(res.html.includes('data-device="web"'), 'must set data-device="web"');
       assert.ok(fs.existsSync(res.outputPath));
+
+      // Also test mobile device generation with category-navigation markup to cover the dynamic script branches
+      const mobileSample = `<!DOCTYPE html><html><head></head><body data-device="mobile"><div class="category-navigation"><div class="category-navigation__list"><li class="menu-item-1">Item 1</li></div><div id="category-navigation__sub"><div class="sub-menu">Sub 1</div></div></div><div class="slick-slider"><div class="slick-track"><div>Slide 1</div><div>Slide 2</div></div><ul class="slick-dots"><li>1</li><li>2</li></ul></div></body></html>`;
+      const mobileRes = generator.generateFromMaterializedHtml(mobileSample, {
+        outputDir: tmpDir,
+        entryFilename: 'mobile/index.html',
+        device: 'mobile'
+      });
+      const mobileScriptMatch = mobileRes.html.match(/<script id="antifan-clone-interactivity">([\s\S]*?)<\/script>/);
+      assert.ok(mobileScriptMatch && mobileScriptMatch[1].trim().length > 0, 'mobile must contain non-empty interactivity script');
+      assert.doesNotThrow(() => {
+        new vm.Script(mobileScriptMatch[1], { filename: 'test-antifan-interactivity-mobile.js' });
+      }, 'Interactivity script in mobile mode with category navigation must be 100% valid JS syntax');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

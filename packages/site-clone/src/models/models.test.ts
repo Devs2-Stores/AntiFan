@@ -33,6 +33,35 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+  it('1a. AssetHarvester normalizes hashed asset filenames and filters third-party scripts', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-clean-test-'));
+
+    const html = `
+      <link rel="stylesheet" href="https://example.com/assets/app-DCc2d3nB.css">
+      <link rel="stylesheet" href="https://example.com/assets/app-5WA_Jy_a.css">
+      <script src="https://example.com/assets/app-C8sMbhuE.js"></script>
+      <script src="https://embed.tawk.to/5f34df50b7f44f406e9476a6/1hiir2bkg.js"></script>
+      <script src="https://www.googletagmanager.com/gtag/js?id=G-123"></script>
+      <img src="https://example.com/images/04-best-workplace-in-asia-2025-at-15x.jpg" alt="Workplace">
+      <img src="https://example.com/images/02fast500.jpg" alt="Fast500">
+    `;
+
+    try {
+      const manifest = harvester.harvestFromHtml(html, tempDir);
+      assert.strictEqual(manifest.stylesheets.length, 2);
+      assert.strictEqual(manifest.stylesheets[0].filename, 'app.css');
+      assert.strictEqual(manifest.stylesheets[1].filename, 'app_2.css');
+      assert.strictEqual(manifest.javascripts.length, 1, 'Third-party tracking scripts must be filtered out');
+      assert.strictEqual(manifest.javascripts[0].filename, 'app.js');
+      assert.strictEqual(manifest.images.length, 2);
+      assert.strictEqual(manifest.images[0].filename, 'best-workplace-in-asia-2025.jpg');
+      assert.strictEqual(manifest.images[1].filename, 'fast500.jpg');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
 
   it('1a-2. AssetHarvester repairs a same-origin typo whose first segment cannot be a hostname', () => {
     const harvester = new AssetHarvester();
