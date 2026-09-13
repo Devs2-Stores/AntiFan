@@ -389,11 +389,17 @@ needs it. The harnesses used for these measurements are untracked local scratch 
      --testrunnerbundleid=com.facebook.WebDriverAgentRunner.xctrunner.<suffix> \
      --xctestconfig=WebDriverAgentRunner.xctest
    ```
-6. **Probe Hardware:**
+6. **Probe Hardware (Phase 0 gate):**
    ```bash
    npm run probe:device -- --forward 8100 --touch
    ```
-   Returns `VERDICT: GO`, establishing WDA session, deep-linking Safari to `https://example.com`, executing W3C `/actions` touch gesture (empirically verified by tapping the "Learn more" link causing full navigation to `iana.org` with 99.43% pixel delta, swiping to scroll content with 99.54% delta, tapping `MoreMenuButton` at (332, 786) popping up Safari's native system menu, and typing `"AntiFan"` into a focused input with visual text rendering in 727 ms), and capturing full-resolution 1170x2532 screenshot.
+   Returns `VERDICT: GO` (exit 0), confirming USB presence, usbmuxd listener, lockdown info, in-process port forward, WDA /status, screen metrics (`390x844 scale=3`), W3C Safari session creation, navigation to `https://example.com`, render settle, 1170x2532 screenshot capture, and a W3C pointer touch gesture at (195, 295).
+
+7. **Adapter Interactive Verification:**
+   Driving the live `IosDeviceAdapter` against the running WDA runner verified user-observable actions:
+   - `device.tap`: Tapping the "Learn more" link on `example.com` triggered live navigation to `iana.org` (99.43% pixel delta); tapping `MoreMenuButton` at (332, 786) popped up Safari's native iOS action sheet.
+   - `device.swipe`: Scrolling down 400 pt on the IANA page produced a 99.54% pixel delta with native device momentum.
+   - `device.type`: `typeLocked` dynamically resolved the focused input via `GET /element/active` and typed `"AntiFan"` in 727 ms, visually confirmed in the search input and suggestion list.
 
 ### Path to the deferred inspection milestone
 
