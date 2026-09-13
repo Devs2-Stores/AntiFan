@@ -110,14 +110,16 @@ export class BlueprintExtractor {
     const isThirdPartyWidget = (node: ParsedElementNode): boolean => {
       const id = (node.attributes['id'] || '').toLowerCase();
       const style = (node.attributes['style'] || '').toLowerCase();
+      const className = (node.attributes['class'] || '').toLowerCase();
       if (/^(?:tawk|twk|x2err|subiz|vchat|fb-root|zalo)/i.test(id)) return true;
       if (id.length > 18 && /^[a-z0-9_-]+$/i.test(id)) return true;
       if (style.includes('z-index:999999') || style.includes('z-index: 999999')) return true;
+      if (/(?:tawk|twk|x2err|subiz|vchat|fb-root|fb-customerchat|zalo-chat|chat-widget|livechat|intercom|drift-widget|crisp-client|sp-chat)/i.test(className)) return true;
       const iframes = DomTreeParser.findByTag(node, 'iframe');
       for (const iframe of iframes) {
         const title = (iframe.attributes['title'] || '').toLowerCase();
         const src = (iframe.attributes['src'] || '').toLowerCase();
-        if (title.includes('chat widget') || src.includes('tawk') || src.includes('facebook')) return true;
+        if (title.includes('chat widget') || src.includes('tawk') || src.includes('facebook') || src.includes('zalo')) return true;
       }
       return false;
     };
@@ -134,6 +136,7 @@ export class BlueprintExtractor {
 
       if (role === 'header') {
         const cleanId = this.sanitizeAndDedupeId('header', 'header');
+        const rawContent = (node.outerHtml && node.outerHtml.trim().length > 0) ? node.outerHtml.trim() : '';
         sections.push({
           id: cleanId,
           type: 'header',
@@ -141,9 +144,9 @@ export class BlueprintExtractor {
           tagName: node.tag,
           className: cleanClass,
           rawHtml: node.outerHtml,
-          liquidTemplate: (node.outerHtml && node.outerHtml.trim().length > 0)
-            ? this.generateSectionLiquid('header', cleanClass, 'Site Header', node.outerHtml)
-            : this.generateHeaderLiquid(),
+          liquidTemplate: rawContent
+            ? this.generateSectionLiquid('header', cleanClass, 'Site Header', rawContent)
+            : this.generateHeaderLiquid(cleanClass),
           schemaSettings: [
             { type: 'image_picker', id: 'logo', label: 'Logo Image' },
             { type: 'text', id: 'logo_url', label: 'External Logo URL' },
@@ -158,6 +161,7 @@ export class BlueprintExtractor {
 
       if (role === 'footer') {
         const cleanId = this.sanitizeAndDedupeId('footer', 'footer');
+        const rawContent = (node.outerHtml && node.outerHtml.trim().length > 0) ? node.outerHtml.trim() : '';
         sections.push({
           id: cleanId,
           type: 'footer',
@@ -165,11 +169,11 @@ export class BlueprintExtractor {
           tagName: node.tag,
           className: cleanClass,
           rawHtml: node.outerHtml,
-          liquidTemplate: (node.outerHtml && node.outerHtml.trim().length > 0)
-            ? this.generateSectionLiquid('footer', cleanClass, 'Site Footer', node.outerHtml)
-            : this.generateFooterLiquid(),
+          liquidTemplate: rawContent
+            ? this.generateSectionLiquid('footer', cleanClass, 'Site Footer', rawContent)
+            : this.generateFooterLiquid(cleanClass),
           schemaSettings: [
-            { type: 'text', id: 'company_name', label: 'Company Name', default: 'Cửa hàng trực tuyến' },
+            { type: 'text', id: 'company_name', label: 'Company Name', default: '' },
             { type: 'textarea', id: 'address', label: 'Company Address' },
             { type: 'text', id: 'phone', label: 'Phone Number', default: '' },
             { type: 'text', id: 'email', label: 'Support Email', default: '' }
@@ -228,7 +232,8 @@ export class BlueprintExtractor {
             break;
           }
         }
-        cleanId = this.sanitizeAndDedupeId(`section_${baseName}`, `section_${secIndex}`);
+        const prefix = baseName.startsWith('section') ? baseName : `section_${baseName}`;
+        cleanId = this.sanitizeAndDedupeId(prefix, `section_${secIndex}`);
       }
 
       sections.push({
@@ -276,8 +281,10 @@ export class BlueprintExtractor {
   }
 
   private classifyTopLevelRole(node: ParsedElementNode, className: string): 'header' | 'footer' | null {
-    if (node.tag === 'header' || /(^|\s)(?:site-)?header($|\s)/i.test(className)) return 'header';
-    if (node.tag === 'footer' || /(^|\s)(?:site-)?(?:header|footer)($|\s)/i.test(className)) return 'footer';
+    const id = (node.attributes['id'] || '').toLowerCase();
+    const roleAttr = (node.attributes['role'] || '').toLowerCase();
+    if (node.tag === 'header' || roleAttr === 'banner' || /(^|\s)(?:site[-_]?)?header($|\s)/i.test(className) || /(^|\s)(?:site[-_]?)?header($|\s)/i.test(id)) return 'header';
+    if (node.tag === 'footer' || roleAttr === 'contentinfo' || /(^|\s)(?:site[-_]?)?footer($|\s)/i.test(className) || /(^|\s)(?:site[-_]?)?footer($|\s)/i.test(id)) return 'footer';
     return this.classifyWrapperRole(node);
   }
 
@@ -460,32 +467,22 @@ export class BlueprintExtractor {
       .replace(/\b\w/g, char => char.toUpperCase());
   }
 
-  private generateHeaderLiquid(): string {
+  private generateHeaderLiquid(className: string = 'site-header'): string {
     return `
-<header class="site-header">
-  <div class="site-header__top w-100">
-    <div class="container container-fluid">
-      <div class="main-header flex flex-left-between w-100">
-        <div class="main-header__logo">
-          <a href="/">
-            {% if section.settings.image_url != blank %}
-              <img src="{{ section.settings.image_url }}" alt="{{ shop.name }}">
-            {% elsif section.settings.logo != blank %}
-              <img src="{{ section.settings.logo | img_url: 'master' }}" alt="{{ shop.name }}">
-            {% else %}
-              <span class="shop-name">{{ shop.name }}</span>
-            {% endif %}
-          </a>
-        </div>
-        <div class="main-header__search">
-          {% include 'search-bar' %}
-        </div>
-        <div class="main-header__contact flex">
-          <div class="hotline">
-            <span>Hotline:</span>
-            <strong>{{ section.settings.hotline }}</strong>
-          </div>
-        </div>
+<header class="${className}" role="banner">
+  <div class="container">
+    <div class="header-inner flex flex-left-between">
+      <div class="header-logo">
+        <a href="/">
+          {% if settings.logo != blank %}
+            <img src="{{ settings.logo | img_url: 'master' }}" alt="{{ shop.name }}">
+          {% else %}
+            <span class="shop-name">{{ shop.name }}</span>
+          {% endif %}
+        </a>
+      </div>
+      <div class="header-nav">
+        {% include 'search-bar' %}
       </div>
     </div>
   </div>
@@ -576,6 +573,13 @@ export class BlueprintExtractor {
       `.trim();
     }
 
+    if (type === 'header') {
+      return this.generateHeaderLiquid(className);
+    }
+    if (type === 'footer') {
+      return this.generateFooterLiquid(className);
+    }
+
     return `
 <section class="${className}" id="{{ section.id }}">
   <div class="container">
@@ -583,36 +587,18 @@ export class BlueprintExtractor {
       <h2 class="section-title">{{ section.settings.heading }}</h2>
     {% endif %}
     <div class="section-content">
-      {% for block in section.blocks %}
-        <div class="section-block" {{ block.haravan_attributes }}>
-          {{ block.settings.content }}
-        </div>
-      {% endfor %}
     </div>
   </div>
 </section>
     `.trim();
   }
 
-  private generateFooterLiquid(): string {
+  private generateFooterLiquid(className: string = 'site-footer'): string {
     return `
-<footer class="site-footer">
+<footer class="${className}" role="contentinfo">
   <div class="container">
-    <div class="site-footer__top flex">
-      <div class="footer-col col-info">
-        <h3>{{ section.settings.company_name }}</h3>
-        <p class="address">{{ section.settings.address }}</p>
-        <p class="hotline">Hotline: {{ section.settings.phone }}</p>
-        <p class="email">Email: {{ section.settings.email }}</p>
-      </div>
-      <div class="footer-col col-links">
-        <h4>Liên kết nhanh</h4>
-        <ul>
-          {% for link in linklists.footer.links %}
-            <li><a href="{{ link.url }}">{{ link.title }}</a></li>
-          {% endfor %}
-        </ul>
-      </div>
+    <div class="footer-inner">
+      <p class="copyright">&copy; {{ 'now' | date: '%Y' }} {{ shop.name }}. All rights reserved.</p>
     </div>
   </div>
 </footer>

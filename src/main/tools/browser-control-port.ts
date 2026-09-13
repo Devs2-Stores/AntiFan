@@ -113,7 +113,7 @@ export interface BrowserHostPort {
   setAutomationTabId?(tabId?: string): void;
   isTabOffscreen?(tabId?: string): boolean;
   isTabEphemeral?(tabId?: string): boolean;
-  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: any; ephemeral?: boolean; offscreen?: boolean }): string;
+  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: any; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean }): string;
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
@@ -122,8 +122,8 @@ export interface BrowserHostPort {
   getRedirectChain?(tabId: string): string[];
   getTabUrl?(tabId: string): string;
   getSemanticDocumentGeneration?(tabId: string, paneId?: 'desktop' | 'mobile'): number;
-  reload(tabId: string): Promise<boolean> | boolean;
-  reloadAndWait?(tabId: string, timeoutMs?: number): Promise<boolean>;
+  reload(tabId: string, options?: { ownedReloadToken?: string }): Promise<boolean> | boolean;
+  reloadAndWait?(tabId: string, timeoutMs?: number, options?: { ownedReloadToken?: string }): Promise<boolean>;
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
   captureVerificationScreenshot?(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }): Promise<VerificationCaptureEnvelope>;
@@ -1338,7 +1338,7 @@ export class BrowserControlPort {
     return [];
   }
 
-  async reload(target: BrowserTarget, explicitTabId?: string): Promise<{ reloaded: boolean; target: BrowserTarget; urlBefore?: string; urlAfter?: string; redirected?: boolean }> {
+  async reload(target: BrowserTarget, explicitTabId?: string, options?: { ownedReloadToken?: string }): Promise<{ reloaded: boolean; target: BrowserTarget; urlBefore?: string; urlAfter?: string; redirected?: boolean }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     let urlBefore: string | undefined;
     try {
@@ -1352,8 +1352,8 @@ export class BrowserControlPort {
     } catch {}
 
     const reloaded = typeof this.host.reloadAndWait === 'function'
-      ? await this.host.reloadAndWait(tabId)
-      : await this.host.reload(tabId);
+      ? await this.host.reloadAndWait(tabId, undefined, options)
+      : await this.host.reload(tabId, options);
     if (!reloaded) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available');
 
     let urlAfter: string | undefined;
@@ -2272,7 +2272,7 @@ export class BrowserControlPort {
       };
     }, { timeoutMs: params.timeoutMs, signal });
   }
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
     if (boundTabId && this.host.getManagedTabIds) {
@@ -2286,6 +2286,8 @@ export class BrowserControlPort {
     const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, {
       ephemeral: options.ephemeral,
       offscreen: options.offscreen,
+      devicePresetId: options.devicePresetId,
+      mobile: options.mobile,
     });
     if (boundTabId && this.host.adoptChildTab) {
       // A tab this session cannot own is a tab it can never list, address or
@@ -2738,7 +2740,7 @@ export class BrowserControlPort {
    */
   async setTrackerIsolation(target: BrowserTarget, active: boolean, paneId: 'desktop' | 'mobile' = 'desktop'): Promise<{ active: boolean; reason?: string }> {
     if (!this.host.setTrackerIsolation) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setTrackerIsolation is not supported by host');
-    const effectiveTabId = this.resolveTargetTab(target, undefined, 'write');
+    const effectiveTabId = this.resolveTargetTab(target, undefined, active ? 'write' : 'read');
     return this.host.setTrackerIsolation(effectiveTabId, paneId, active);
   }
 

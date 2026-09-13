@@ -6,6 +6,14 @@
 export interface HaravanLayoutOptions {
   stylesheets?: string[];
   scripts?: string[];
+  htmlAttributes?: string;
+  bodyAttributes?: string;
+  mainClass?: string;
+  mainAttributes?: string;
+  includeHeader?: boolean;
+  includeFooter?: boolean;
+  headerSnippet?: string;
+  footerSnippet?: string;
 }
 
 export class HaravanLayoutGenerator {
@@ -20,9 +28,36 @@ export class HaravanLayoutGenerator {
       .map(s => `    {{ '${s}' | asset_url | script_tag }}`)
       .join('\n');
 
+    const rawHtmlAttrs = (options?.htmlAttributes || '').trim();
+    const htmlAttrs = rawHtmlAttrs ? ` ${rawHtmlAttrs}` : ' class="no-js" lang="vi"';
+
+    const rawBodyAttrs = (options?.bodyAttributes || '').trim();
+    const defaultBodyClass = "template-{{ template | replace: '.', ' ' | truncatewords: 1, '' | handle }}";
+    let bodyAttrs = '';
+    if (rawBodyAttrs) {
+      if (/\bclass=["']([^"']*)["']/i.test(rawBodyAttrs)) {
+        bodyAttrs = ' ' + rawBodyAttrs.replace(/\bclass=["']([^"']*)["']/i, `class="${defaultBodyClass} $1"`);
+      } else {
+        bodyAttrs = ` class="${defaultBodyClass}" ${rawBodyAttrs}`;
+      }
+    } else {
+      bodyAttrs = ` class="${defaultBodyClass}"`;
+    }
+
+    const mainClass = options?.mainClass || 'content-for-layout focus-none';
+    const mainAttrs = options?.mainAttributes ? ` ${options.mainAttributes.trim()}` : '';
+
+    const includeHeader = options?.includeHeader !== false;
+    const includeFooter = options?.includeFooter !== false;
+    const headerSnippet = options?.headerSnippet || 'header';
+    const footerSnippet = options?.footerSnippet || 'footer';
+
+    const headerLiquid = includeHeader ? `    {% include '${headerSnippet}' %}\n` : '';
+    const footerLiquid = includeFooter ? `\n    {% include '${footerSnippet}' %}` : '';
+
     return `
 <!doctype html>
-<html class="no-js" lang="vi">
+<html${htmlAttrs}>
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -51,15 +86,10 @@ ${additionalStylesheets ? additionalStylesheets + '\n' : ''}
 
     {{ content_for_header }}
   </head>
-
-  <body class="template-{{ template | replace: '.', ' ' | truncatewords: 1, '' | handle }}">
-    {% include 'header' %}
-
-    <main id="MainContent" class="content-for-layout focus-none" role="main" tabindex="-1">
+  <body${bodyAttrs}>
+${headerLiquid}    <main id="MainContent" class="${mainClass}" role="main" tabindex="-1"${mainAttrs}>
       {{ content_for_layout }}
-    </main>
-
-    {% include 'footer' %}
+    </main>${footerLiquid}
 
 ${additionalScripts ? additionalScripts + '\n' : ''}    <script src="{{ 'theme.js' | asset_url }}" defer></script>
   </body>

@@ -94,7 +94,7 @@ async function walk(browser: InteractionBrowser, from: {x:number;y:number}, to: 
   for(let i=1;i<=steps;i++) {await browser.move(from.x+(to.x-from.x)*i/steps,from.y+(to.y-from.y)*i/steps);await pause(16);}
 }
 
-export async function runInteractionSuite(options: InteractionSuiteOptions): Promise<{verdict:string;summary:Record<string,number>}> {
+export async function runInteractionSuite(options: InteractionSuiteOptions): Promise<{verdict:string;summary:Record<string,number>;receipts:InteractionReceipt[];provenance:FinalProvenanceLedger}> {
   const receipts: InteractionReceipt[]=[];
   const provenance=new FinalProvenanceLedger({instrumentRevision:'native-interaction-suite-v1'});
   const save=async(path:string,content:string|Buffer)=>{await options.writeArtifact(path,content);provenance.recordArtifact(path,content);};
@@ -143,10 +143,21 @@ export async function runInteractionSuite(options: InteractionSuiteOptions): Pro
     finally {await reference?.close();await clone?.close();}
   }
   const summary:Record<string,number>={PASS:0,FAIL:0,BLOCKED:0,UNVERIFIED:0,total:receipts.length};
-  for(const receipt of receipts)summary[receipt.verdict]++;
+  for(const receipt of receipts) {
+    summary[receipt.verdict]++;
+    provenance.recordReceipt({
+      id: receipt.id,
+      verdict: receipt.verdict,
+      surface: receipt.viewport,
+      targetUrl: options.cloneUrl,
+      evidence: receipt.evidence,
+      reason: receipt.reason,
+      timestamp: new Date().toISOString(),
+    });
+  }
   const verdict=summary.FAIL?'HARD_FAILED':summary.BLOCKED||summary.UNVERIFIED?'INCONCLUSIVE':'VERIFIED';
   await save('interaction-results.json',JSON.stringify({schemaVersion:1,verdict,summary,receipts},null,2));
   provenance.sealLedger('native-interaction-suite');
   await options.writeArtifact('provenance-ledger.json',JSON.stringify(provenance.toJSON(),null,2));
-  return {verdict,summary};
+  return {verdict,summary,receipts,provenance};
 }

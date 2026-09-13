@@ -8,6 +8,7 @@ import {
   type DoDContext,
 } from './dod-validator.js';
 import { FixtureRegistry } from '../platform/haravan/entity-resolver.js';
+import { FinalProvenanceLedger } from './final-provenance-ledger.js';
 
 describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §68)', () => {
   const validator = new DoDValidator();
@@ -346,7 +347,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
       });
     });
 
-    // 13. realBrowserRender
+    // 13. realBrowserRender / Theme QA
     describe('13) realBrowserRender', () => {
       it('passes when browser render executes with HTTP 200 and DOM ready', () => {
         const res = validator.auditRealBrowserRender({
@@ -356,6 +357,63 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         assert.ok(res.evidence?.includes('status 200'));
       });
 
+      it('passes when Theme QA actual verdict is PASS with zero critical issues', () => {
+        const res = validator.auditRealBrowserRender({
+          surface: 'desktop',
+          targetUrl: 'https://demo.haravan.com/',
+          themeQa: {
+            summary: { verdict: 'PASS', criticalCount: 0, passed: true },
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/',
+            domLoaded: true,
+            rendered: true,
+          },
+        });
+        assert.strictEqual(res.passed, true);
+      });
+
+      it('fails when Theme QA detects critical issues', () => {
+        const res = validator.auditRealBrowserRender({
+          surface: 'desktop',
+          targetUrl: 'https://demo.haravan.com/',
+          themeQa: {
+            summary: { verdict: 'FAIL', criticalCount: 3, passed: false },
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/',
+          },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('Theme QA detected 3 critical issue(s)'));
+      });
+
+      it('fails when Theme QA verdict is INCONCLUSIVE', () => {
+        const res = validator.auditRealBrowserRender({
+          surface: 'desktop',
+          targetUrl: 'https://demo.haravan.com/',
+          themeQa: {
+            summary: { verdict: 'INCONCLUSIVE', criticalCount: 0, passed: false },
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/',
+          },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('INCONCLUSIVE'));
+      });
+
+      it('fails when Theme QA checklist reports failure on active checks', () => {
+        const res = validator.auditRealBrowserRender({
+          surface: 'desktop',
+          targetUrl: 'https://demo.haravan.com/',
+          themeQa: {
+            summary: { verdict: 'PASS', criticalCount: 0, passed: true },
+            checklist: { layout: false, responsive: true, overflow: true, liquidClean: true, assetsValid: true, hsCompliant: true },
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/',
+          },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('Theme QA checklist reported failure on: layout'));
+      });
       it('fails when browser reports crash or fatal error', () => {
         const res = validator.auditRealBrowserRender({
           browserRender: { status: 500, fatalError: 'Target crashed' },
@@ -367,20 +425,193 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
 
     // 14. strictVerification
     describe('14) strictVerification', () => {
-      it('passes when visual diff is within strict tolerance (e.g. 1.2% <= 5%)', () => {
+      it('passes when visual diff conforms to canonical comparator match/status metric contract', () => {
         const res = validator.auditStrictVerification({
-          visualDiff: { diffPercentage: 1.2, tolerance: 5.0 },
+          surface: 'desktop',
+          targetUrl: 'https://demo.haravan.com/products/polo',
+          visualDiff: {
+            match: true,
+            status: 'PASS',
+            mismatchPercentage: 1.2,
+            diffPercentage: 1.2,
+            tolerance: 5.0,
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/products/polo',
+            diffPixels: 48,
+            totalPixels: 4000,
+          },
         });
         assert.strictEqual(res.passed, true);
         assert.ok(res.evidence?.includes('diff 1.20%'));
+        assert.ok(res.evidence?.includes('diffPixels: 48/4000'));
+      });
+
+      it('passes when visual comparison provides canonical VisualEvidenceReceipt and MATCH status with mismatchedPixels fallback', () => {
+        const res = validator.auditStrictVerification({
+          surface: 'desktop',
+          targetUrl: 'https://demo.haravan.com/products/polo',
+          visualDiff: {
+            status: 'MATCH',
+            mismatchedPixels: 15,
+            totalPixels: 3000,
+            mismatchPercentage: 0.5,
+            receipt: {
+              match: true,
+              mismatchPercentage: 0.5,
+              dimensionsMatch: true,
+              captureStateCompatible: true,
+              maskResolutionStatus: 'ok',
+              settleComplete: true,
+            },
+          },
+        });
+        assert.strictEqual(res.passed, true);
+        assert.ok(res.evidence?.includes('diff 0.50%'));
+        assert.ok(res.evidence?.includes('diffPixels: 15/3000'));
+      });
+      it('supports explicit diagnostic mode for preflight diff check without full visual artifacts', () => {
+        const res = validator.auditStrictVerification({
+          mode: 'diagnostic',
+          visualDiff: { diffPercentage: 1.2, tolerance: 5.0 },
+        });
+        assert.strictEqual(res.passed, true);
+        assert.ok(res.evidence?.includes('[Diagnostic]'));
+      });
+
+      it('fails in final mode when bare diffPercentage lacks comparator metric contract', () => {
+        const res = validator.auditStrictVerification({
+          visualDiff: { diffPercentage: 1.2, tolerance: 5.0 },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('canonical comparator match/status metric contract'));
+      });
+
+      it('fails in final mode when candidate is only a loose string screenshot without comparator metrics', () => {
+        const res = validator.auditStrictVerification({
+          visualDiff: { screenshot: 'shot.png', passed: true },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('canonical comparator match/status metric contract'));
+      });
+
+      it('fails when canonical comparator reports match=false', () => {
+        const res = validator.auditStrictVerification({
+          visualDiff: {
+            match: false,
+            status: 'FAIL',
+            diffPixels: 500,
+            totalPixels: 4000,
+            diffPercentage: 12.5,
+          },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('match=false'));
+      });
+
+      it('fails when canonical comparator reports dimensions mismatch', () => {
+        const res = validator.auditStrictVerification({
+          visualDiff: {
+            match: true,
+            dimensionsMatch: false,
+            diffPixels: 10,
+            totalPixels: 4000,
+            diffPercentage: 0.25,
+          },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('dimensions mismatch'));
       });
 
       it('fails when visual diff exceeds tolerance', () => {
         const res = validator.auditStrictVerification({
-          visualDiff: { diffPercentage: 7.8, tolerance: 5.0 },
+          surface: 'desktop',
+          targetUrl: 'https://demo.haravan.com/products/polo',
+          visualDiff: {
+            diffPercentage: 7.8,
+            tolerance: 5.0,
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/products/polo',
+            diffPixels: 312,
+            totalPixels: 4000,
+          },
         });
         assert.strictEqual(res.passed, false);
         assert.ok(res.reason?.includes('exceeds tolerance'));
+      });
+
+      it('regression: fails closed when visual receipts array is empty', () => {
+        const res = validator.auditStrictVerification({
+          visualDiff: { receipts: [] },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('Missing visual verification receipts'));
+      });
+
+      it('regression: propagates failure when receipt verdict is FAIL, INCONCLUSIVE, or BLOCKED', () => {
+        const res1 = validator.auditStrictVerification({
+          visualDiff: { verdict: 'INCONCLUSIVE' },
+        });
+        assert.strictEqual(res1.passed, false);
+        assert.ok(res1.reason?.includes('INCONCLUSIVE'));
+
+        const res2 = validator.auditStrictVerification({
+          visualDiff: {
+            receipts: [{ id: 'r1', verdict: 'BLOCKED' }],
+          },
+        });
+        assert.strictEqual(res2.passed, false);
+        assert.ok(res2.reason?.includes('BLOCKED'));
+      });
+
+      it('regression: fails closed when visual verification surface target is mismatched', () => {
+        const res = validator.auditStrictVerification({
+          surface: 'desktop',
+          visualDiff: { surface: 'mobile', diffPercentage: 1.0 },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('Wrong surface target'));
+      });
+
+      it('regression: fails closed when target URL does not match expected target', () => {
+        const res = validator.auditStrictVerification({
+          referenceUrl: 'https://source-store.com/products/hat',
+          visualDiff: { targetUrl: 'https://source-store.com/products/shoes', diffPercentage: 1.0 },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('Wrong surface target URL'));
+      });
+
+      it('regression: fails closed when receipt revision does not match current artifact revision', () => {
+        const res = validator.auditStrictVerification({
+          revision: 'rev-v2-final',
+          visualDiff: { revision: 'rev-v1-draft', diffPercentage: 1.0 },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('Artifact revision change'));
+      });
+
+      it('regression: rejects static lint approval or proxy in place of visual parity', () => {
+        const res = validator.auditStrictVerification({
+          visualDiff: { isLint: true, diffPercentage: 0.0, passed: true },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('Static lint approval or proxy cannot replace visual comparison'));
+      });
+
+      it('regression: rejects stale or invalidated receipts', () => {
+        const res = validator.auditStrictVerification({
+          visualDiff: { isStale: true, diffPercentage: 0.5 },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason?.includes('stale or invalidated'));
+      });
+
+      it('regression: rejects bare ungrounded claims lacking visual diff telemetry', () => {
+        const res = validator.auditStrictVerification({
+          visualDiff: { passed: true },
+        });
+        assert.strictEqual(res.passed, false);
+        assert.ok(res.reason !== undefined);
       });
     });
 
@@ -536,11 +767,25 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         // 11. writeThemeCopy
         themeCopy: { success: true, filesWritten: ['layout/theme.liquid'] },
         // 12. haravanPreview
+        surface: 'desktop',
+        targetUrl: 'https://demo.haravan.com/products/polo',
+        // 12. haravanPreview
         previewUrl: 'https://demo.haravan.com/?themeid=987654321',
         // 13. realBrowserRender
-        browserRender: { status: 200, domLoaded: true, rendered: true },
+        browserRender: { status: 200, domLoaded: true, rendered: true, surface: 'desktop', url: 'https://demo.haravan.com/?themeid=987654321', screenshot: 'render.png' },
         // 14. strictVerification
-        visualDiff: { diffPercentage: 1.5, tolerance: 5.0 },
+        visualDiff: {
+          match: true,
+          status: 'PASS',
+          diffPercentage: 1.5,
+          mismatchPercentage: 1.5,
+          tolerance: 5.0,
+          surface: 'desktop',
+          targetUrl: 'https://demo.haravan.com/products/polo',
+          diffPixels: 60,
+          totalPixels: 4000,
+          dimensionsMatch: true,
+        },
         // 15. dynamicDataVerification
         dynamicBindings: { bindingsCount: 8, staticLeaksDetected: false },
         // 16. liquidVerification
@@ -581,9 +826,9 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         settingsBinding: { compliant: true },
         themeAssets: ['assets/main.css'],
         themeCopy: { success: true, filesWritten: ['layout/theme.liquid'] },
-        previewUrl: 'https://demo.haravan.com/?themeid=123',
-        browserRender: { status: 200, domLoaded: true },
-        visualDiff: { diffPercentage: 12.5, tolerance: 5.0 }, // FAILS: 12.5% > 5.0%
+        previewUrl: 'https://demo.haravan.com/?themeid=12345678',
+        browserRender: { status: 200, domLoaded: true, rendered: true, screenshot: 'render.png' },
+        visualDiff: { diffPercentage: 12.5, tolerance: 5.0, screenshot: 'diff.png' }, // FAILS: 12.5% > 5.0%
         dynamicBindings: { bindingsCount: 5 },
         dotLiquidSanitization: { sanitized: true },
         os2SchemaValidation: { valid: true },
@@ -631,6 +876,119 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
       const result2 = validator.evaluateDoD(null);
       assert.strictEqual(result2.isDoDComplete, false);
       assert.strictEqual(result2.passedCount, 0);
+    });
+
+    it('returns "DIAGNOSTIC" verdict and isDoDComplete=false in diagnostic mode', () => {
+      const registry = new FixtureRegistry();
+      registry.registerFixture({ id: 'fixture-test', type: 'product' });
+
+      const diagContext: DoDContext = {
+        mode: 'diagnostic',
+        referenceUrl: 'https://demo.haravan.com/products/polo',
+        staticClone: { success: true, entryHtmlPath: '/tmp/entry.html', filesWritten: ['/tmp/entry.html'] },
+        cloneIR: { sections: [{ id: 'header', name: 'Header' }] },
+        storeInventory: { products: [{ id: 1, title: 'Item' }], collections: [{ id: 2, title: 'Summer' }], themeAssets: ['theme.css'] },
+        entityMatches: { policy: 'EXISTING_DATA_FIRST', matchedCount: 3 },
+        fixtureRegistry: registry,
+        liquidOutput: { sectionCount: 2, sections: ['header.liquid', 'footer.liquid'] },
+        sectionSchemas: [{ name: 'Header', settings: [{ id: 'menu', type: 'link_list', label: 'Menu' }] }],
+        settingsBinding: { compliant: true, unmappedCount: 0 },
+        themeAssets: ['assets/theme.css', 'assets/theme.js'],
+        themeCopy: { success: true, filesWritten: ['layout/theme.liquid'] },
+        previewUrl: 'https://demo.haravan.com/?themeid=987654321',
+        browserRender: { status: 200, domLoaded: true, rendered: true },
+        visualDiff: { diffPercentage: 1.5, tolerance: 5.0 }, // In diagnostic mode, bare diffPercentage passes diagnostically
+        dynamicBindings: { bindingsCount: 8, staticLeaksDetected: false },
+        dotLiquidSanitization: { sanitized: true, violations: [] },
+        os2SchemaValidation: { valid: true },
+        routeResolver: { routeCount: 15, unmappedRoutes: 0 },
+        assetDependencies: { missingAssets: [], missingSnippets: [], brokenReferences: 0 },
+      };
+
+      const result = validator.evaluateDoD(diagContext);
+      assert.strictEqual(result.isDoDComplete, false, 'Diagnostic run must never certify isDoDComplete=true');
+      assert.strictEqual(result.verdict, 'DIAGNOSTIC', 'Diagnostic run must return DIAGNOSTIC verdict');
+      assert.strictEqual(result.passedCount, 19);
+      assert.strictEqual(result.score, 100);
+    });
+
+    it('rejects bare boolean true override attempting to bypass strictVerification', () => {
+      const result = validator.evaluateDoD({
+        criteria: {
+          strictVerification: true,
+        },
+      });
+      assert.strictEqual(result.criteria.strictVerification.passed, false);
+      assert.ok(result.criteria.strictVerification.reason?.includes('cannot be certified via bare boolean override'));
+    });
+  });
+
+  describe('4. Fail-Closed Acceptance & Provenance Invariants (§54, §63)', () => {
+    it('rejects static lint overrides attempting to force pass on behavioral visual criteria', () => {
+      const result = validator.evaluateDoD({
+        criteria: {
+          strictVerification: { passed: true, isLint: true, evidence: 'HTML linter passed 100%' } as unknown as boolean,
+        },
+      });
+
+      assert.strictEqual(result.criteria.strictVerification.passed, false);
+        assert.ok(result.criteria.strictVerification.reason !== undefined);
+    });
+
+    it('validates DoD with FinalProvenanceLedger receipt integration', () => {
+      const ledger = new FinalProvenanceLedger({ instrumentRevision: 'rev-2026' });
+      ledger.recordArtifact('templates/index.liquid', '<main>Storefront</main>');
+      const receipt = ledger.recordReceipt({
+        id: 'rec-idx-1',
+        verdict: 'PASS',
+        surface: 'desktop',
+        targetUrl: 'https://store.haravan.com/',
+        artifact: 'templates/index.liquid',
+        evidence: ['Visual diff 0.8% <= 5.0%'],
+      });
+
+      const res = validator.auditStrictVerification({
+        provenanceLedger: ledger,
+        surface: 'desktop',
+        referenceUrl: 'https://store.haravan.com/',
+        revision: 'rev-2026',
+        strictVerification: {
+          receiptId: receipt.id,
+          diffPercentage: 0.8,
+          tolerance: 5.0,
+        },
+      });
+      assert.strictEqual(res.passed, true);
+      assert.ok(res.evidence?.includes('diff 0.80%'));
+    });
+
+    it('fails closed when ledger receipt was invalidated after template modification', () => {
+      const ledger = new FinalProvenanceLedger({ instrumentRevision: 'rev-2026' });
+      ledger.recordArtifact('templates/index.liquid', '<main>Storefront v1</main>');
+      const receipt = ledger.recordReceipt({
+        id: 'rec-idx-2',
+        verdict: 'PASS',
+        surface: 'desktop',
+        targetUrl: 'https://store.haravan.com/',
+        artifact: 'templates/index.liquid',
+      });
+
+      // Modify template after receipt was issued
+      ledger.recordArtifact('templates/index.liquid', '<main>Storefront v2 modified</main>');
+
+      const res = validator.auditStrictVerification({
+        provenanceLedger: ledger,
+        surface: 'desktop',
+        referenceUrl: 'https://store.haravan.com/',
+        revision: 'rev-2026',
+        strictVerification: {
+          receiptId: receipt.id,
+          diffPercentage: 0.8,
+        },
+      });
+
+      assert.strictEqual(res.passed, false);
+      assert.ok(res.reason?.includes('stale') || res.reason?.includes('modified'));
     });
   });
 });

@@ -7,6 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as crypto from 'node:crypto';
 import { ComponentContractIR } from '../models/clone-ir.js';
 import { CloneIRBuilder } from '../models/clone-ir-builder.js';
 import { HaravanLayoutGenerator } from './haravan-layout-generator.js';
@@ -33,12 +34,18 @@ import {
 import { LiquidBindingEngine } from './liquid-binding-engine.js';
 import { SettingsAssetsNormalizer } from './settings-assets-normalizer.js';
 import { DomTreeParser } from '../models/dom-tree-parser.js';
+import {
+  BlueprintExtractor,
+  ExtractedSectionBlueprint,
+} from '../models/blueprint-extractor.js';
 
 export interface ThemeCompilerOptions {
   targetContract?: HaravanTargetContract;
   settingsMode?: HaravanSettingsMode | string;
   emitLocales?: boolean;
   localizedLocales?: string[];
+  mobileHtml?: string;
+  inputPath?: string;
   [key: string]: unknown;
 }
 
@@ -133,13 +140,37 @@ export class ThemeCompiler {
         }
       }
 
+      // Update compiler ownership manifest with all localized and compiled files in tempStageDir
+      const themeManifestRel = path.join('config', '.antifan-theme-manifest.json');
+      const themeManifestStagingPath = path.join(tempStageDir, themeManifestRel);
+      const stagedRelFiles = compileRes.filesWritten.map((f) =>
+        path.relative(tempStageDir, f).replace(/\\/g, '/')
+      );
+      const manifestNormalizedRel = themeManifestRel.replace(/\\/g, '/');
+      if (!stagedRelFiles.includes(manifestNormalizedRel)) {
+        stagedRelFiles.push(manifestNormalizedRel);
+      }
+      fs.writeFileSync(
+        themeManifestStagingPath,
+        JSON.stringify(
+          {
+            version: '1.0.0',
+            generator: 'AntiFan ThemeCompiler',
+            generatedAt: new Date().toISOString(),
+            generatedFiles: stagedRelFiles,
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
+
       // 3. Atomically swap tempStageDir into outputDir only AFTER localization and audit succeed 100%
       const dirs = ['layout', 'templates', 'snippets', 'assets', 'config'];
       if (targetContract.emitLocales) {
         dirs.push('locales');
       }
       this.atomicSwap(tempStageDir, outputDir, dirs);
-
       return {
         success: true,
         sectionCount: compileRes.sectionCount,
@@ -237,7 +268,8 @@ export class ThemeCompiler {
       const isJunkOrThirdPartyAsset = (filename: string): boolean =>
         /(?:twk-|tawk|1hiir|gtm\.js|googletagmanager|analytics\.js|facebook|clarity|subiz|vchat|zalo|hotjar|criteo|emojione|js_98b1fb9e|js\.js)/i.test(filename);
 
-      if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
+      // Only fall back to disk inspection when ir.assets manifest is not provided
+      if (allIrAssets.length === 0 && options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
         try {
           const diskFiles = fs.readdirSync(options.assetsDir as string);
           for (const diskFile of diskFiles) {
@@ -270,7 +302,7 @@ export class ThemeCompiler {
           layoutScripts.push(j.filename);
         }
       }
-      if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
+      if ((!ir.assets || ((ir.assets.stylesheets?.length || 0) === 0 && (ir.assets.javascripts?.length || 0) === 0)) && options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
         try {
           const diskFiles = fs.readdirSync(options.assetsDir as string);
           for (const diskFile of diskFiles) {
@@ -292,16 +324,128 @@ export class ThemeCompiler {
       });
 
       const layoutPath = path.join(stagingDir, 'layout', 'theme.liquid');
-      fs.writeFileSync(layoutPath, this.layoutGen.generateThemeLiquid({ stylesheets: layoutStylesheets, scripts: layoutScripts }), 'utf-8');
+      fs.writeFileSync(
+        layoutPath,
+        this.layoutGen.generateThemeLiquid({
+          stylesheets: layoutStylesheets,
+          scripts: layoutScripts,
+          htmlAttributes: ir.htmlAttributes,
+          bodyAttributes: ir.bodyAttributes,
+          includeHeader: true,
+          includeFooter: true,
+        }),
+        'utf-8'
+      );
       filesWritten.push(layoutPath);
-      // 5. Generate snippets from IR sections
+
+      const rewriteLiquidAssets = (content: string): string => {
+        let res = rewriteHtmlContent(content, liquidUrlMap, { mode: 'liquid' }).content;
+        res = res.replace(
+          /(^|\s)(src|data-src)=(?:"(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^"]*)?"|'(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^']*)?')/gi,
+          (match, prefix, attr, doubleVal, singleVal) => {
+            const filename = doubleVal !== undefined ? doubleVal : singleVal;
+            return `${prefix}${attr}="{{ '${filename}' | asset_url }}"`;
+          }
+        );
+        res = res.replace(
+          /(^|\s)onerror\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+          (match, prefix, doubleVal, singleVal) => {
+            const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
+            const fallbackMatch = val.match(/((?:this\.)?src\s*=\s*)(?:&quot;|['"])(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^"']*)?(?:&quot;|['"]);?/i);
+            if (fallbackMatch) {
+              const safeJs = `${fallbackMatch[1]}&quot;{{ '${fallbackMatch[2]}' | asset_url }}&quot;;`;
+              const replaced = val.replace(fallbackMatch[0], safeJs);
+              return `${prefix}onerror="${replaced}"`;
+            }
+            return match;
+          }
+        );
+        res = res.replace(
+          /(^|\s)(srcset|data-srcset)=(?:"([^"]*)"|'([^']*)')/gi,
+          (match, prefix, attr, doubleVal, singleVal) => {
+            const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
+            const quote = doubleVal !== undefined ? '"' : "'";
+            if (val.includes('asset_url')) return match;
+            const replaced = val.replace(/(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))/gi, "{{ '$1' | asset_url }}");
+            return `${prefix}${attr}=${quote}${replaced}${quote}`;
+          }
+        );
+        return res;
+      };
+
+      // 5. Detect and extract complete mobile surface for dual-surface preservation
+      let mobileIndexPath = '';
+      if (options?.assetsDir) {
+        const cand1 = path.join(path.dirname(options.assetsDir as string), 'mobile', 'index.html');
+        if (fs.existsSync(cand1)) {
+          mobileIndexPath = cand1;
+        }
+      }
+      if (!mobileIndexPath && typeof options?.inputPath === 'string' && options.inputPath) {
+        const cand2 = path.join(path.dirname(options.inputPath), 'mobile', 'index.html');
+        if (fs.existsSync(cand2)) {
+          mobileIndexPath = cand2;
+        }
+      }
+      const mobileHtmlContent =
+        typeof options?.mobileHtml === 'string' && options.mobileHtml.trim().length > 0
+          ? options.mobileHtml
+          : mobileIndexPath && fs.existsSync(mobileIndexPath)
+          ? fs.readFileSync(mobileIndexPath, 'utf-8')
+          : '';
+      const hasMobileSurface = Boolean(mobileHtmlContent && mobileHtmlContent.trim().length > 0);
+
+      let mobileHeaderContent = '';
+      let mobileFooterContent = '';
+      const mobileBodySections: ExtractedSectionBlueprint[] = [];
+
+      if (hasMobileSurface) {
+        const mobileRoot = DomTreeParser.parse(mobileHtmlContent);
+        const mobileHeaders = DomTreeParser.findByTag(mobileRoot, 'header');
+        if (mobileHeaders.length > 0) {
+          mobileHeaderContent = mobileHeaders[0].outerHtml;
+          const drawers = DomTreeParser.findByClass(mobileRoot, 'category-navigation__block');
+          if (drawers.length > 0 && !mobileHeaderContent.includes('category-navigation__block')) {
+            mobileHeaderContent += '\n' + drawers[0].outerHtml;
+          }
+        }
+        const mobileFooters = DomTreeParser.findByTag(mobileRoot, 'footer');
+        if (mobileFooters.length > 0) {
+          mobileFooterContent = mobileFooters[0].outerHtml;
+        }
+
+        // Extract all sections from the complete mobile document
+        const mobileExtractor = new BlueprintExtractor();
+        const extractedMobile = mobileExtractor.extractSections(mobileHtmlContent);
+        for (const mSec of extractedMobile) {
+          const isMHeader =
+            mSec.type === 'header' ||
+            mSec.id === 'header' ||
+            mSec.id === 'site_header' ||
+            /(?:^|\s)(?:site[-_]?)?header(?:$|\s)/i.test(mSec.className || '') ||
+            /^(?:site\s+)?header$/i.test(mSec.name || '');
+          const isMFooter =
+            mSec.type === 'footer' ||
+            mSec.id === 'footer' ||
+            mSec.id === 'site_footer' ||
+            /(?:^|\s)(?:site[-_]?)?footer(?:$|\s)/i.test(mSec.className || '') ||
+            /^(?:site\s+)?footer$/i.test(mSec.name || '');
+          if (!isMHeader && !isMFooter) {
+            mobileBodySections.push(mSec);
+          }
+        }
+      }
+
+      // 5b. Generate snippets from IR sections
       for (const sec of sections) {
         let sectionLiquid = '';
         const sectionControllers =
           ir.storefrontRuntime?.controllers?.filter((c) => c.sectionId === sec.id) || [];
 
-        if (sec.liquidTemplate) {
+        if (sec.liquidTemplate && sec.liquidTemplate.trim().length > 0) {
           sectionLiquid = sec.liquidTemplate;
+        } else if (sec.rawHtml && sec.rawHtml.trim().length > 0) {
+          sectionLiquid = sec.rawHtml.trim();
         } else {
           const secCleanId = sanitizeSettingId(sec.id, 'sec');
           const headingMarkup = sec.heading
@@ -310,14 +454,16 @@ export class ThemeCompiler {
           sectionLiquid = `
 <section class="${sec.className || sec.id}" id="${sec.id}">
   <div class="container">${headingMarkup}
-    <div class="content">
-      <!-- Section Content -->
-    </div>
+    <div class="content"></div>
   </div>
 </section>
           `.trim();
         }
 
+        // Prefer authentic rawHtml if liquidTemplate carries synthetic section.blocks loop
+        if (sectionLiquid.includes('section.blocks') && sec.rawHtml && sec.rawHtml.trim().length > 0) {
+          sectionLiquid = sec.rawHtml.trim();
+        }
         // 5a. Strip pre-existing {% schema %}...{% endschema %} blocks
         sectionLiquid = sectionLiquid
           .replace(/\{%\s*schema\s*%\Block?[\s\S]*?\{%\s*endschema\s*%\}/gi, '')
@@ -355,7 +501,7 @@ export class ThemeCompiler {
           }
         );
 
-        // 5f. Controller injection (carousel, modal, dropdown)
+        // 5f. Controller injection (carousel, dropdown)
         for (const ctrl of sectionControllers) {
           if (ctrl.type === 'carousel') {
             if (!sectionLiquid.includes('data-antifan-slider')) {
@@ -377,42 +523,70 @@ export class ThemeCompiler {
                 '$1 data-antifan-hover$2'
               );
             }
-          } else if (ctrl.type === 'modal') {
-            const modalTarget =
-              ctrl.targetSelector && ctrl.targetSelector.startsWith('#')
-                ? ctrl.targetSelector
-                : `#modal-${sec.id}`;
-            const modalId = modalTarget.replace(/^#/, '');
-
-            if (!sectionLiquid.includes('data-antifan-modal')) {
-              sectionLiquid = sectionLiquid.replace(
-                /(<button\b[^>]*class=["'][^"']*(?:modal-btn|popup-btn|item-cta)[^"']*["'])([^>]*>)/i,
-                `$1 data-antifan-modal="${modalTarget}"$2`
-              );
-            }
-            if (!sectionLiquid.includes('data-antifan-modal-dialog')) {
-              if (
-                /(<div\b[^>]*class=["'][^"']*(?:modal|popup|dialog)[^"']*["'])([^>]*>)/i.test(
-                  sectionLiquid
-                )
-              ) {
-                sectionLiquid = sectionLiquid.replace(
-                  /(<div\b[^>]*class=["'][^"']*(?:modal|popup|dialog)[^"']*["'])([^>]*>)/i,
-                  `$1 id="${modalId}" data-antifan-modal-dialog aria-hidden="true"$2`
-                );
-              } else {
-                sectionLiquid += `\n<div id="${modalId}" class="modal popup" data-antifan-modal-dialog aria-hidden="true"><div class="modal-content"><button class="close-btn" data-antifan-modal-close aria-label="Đóng">&times;</button><div class="modal-body"></div></div></div>`;
-              }
-            }
-            if (!sectionLiquid.includes('data-antifan-modal-close')) {
-              sectionLiquid = sectionLiquid.replace(
-                /(<button\b[^>]*class=["'][^"']*(?:close|modal-close|btn-close)[^"']*["'])([^>]*>)/i,
-                `$1 data-antifan-modal-close$2`
-              );
-            }
           }
         }
 
+        // Modal controller and markup-driven modal dialog binding
+        const explicitModalCtrl = sectionControllers.find((c) => c.type === 'modal');
+        const markupModalMatch = sectionLiquid.match(
+          /(?:<button\b[^>]*(?:class=["'][^"']*(?:modal-btn|popup-btn)[^"']*["']|data-target=["']#([^"']+)["'])|<a\b[^>]*data-target=["']#([^"']+)["'])/i
+        );
+        const inferredModalTarget = markupModalMatch
+          ? (markupModalMatch[1] || markupModalMatch[2]
+              ? `#${markupModalMatch[1] || markupModalMatch[2]}`
+              : `#modal-${sec.id}`)
+          : null;
+
+        if (explicitModalCtrl || (inferredModalTarget && /(?:modal|popup|dialog)/i.test(sectionLiquid))) {
+          const modalTarget = explicitModalCtrl
+            ? (explicitModalCtrl.targetSelector && explicitModalCtrl.targetSelector.startsWith('#')
+                ? explicitModalCtrl.targetSelector
+                : `#modal-${sec.id}`)
+            : inferredModalTarget!;
+          const modalId = modalTarget.replace(/^#/, '');
+
+          if (!sectionLiquid.includes('data-antifan-modal')) {
+            sectionLiquid = sectionLiquid.replace(
+              /(<button\b[^>]*class=["'][^"']*(?:modal-btn|popup-btn|item-cta)[^"']*["'])([^>]*>)/i,
+              `$1 data-antifan-modal="${modalTarget}"$2`
+            );
+            if (!sectionLiquid.includes('data-antifan-modal') && sectionLiquid.includes('data-target=')) {
+              sectionLiquid = sectionLiquid.replace(
+                /(<(?:button|a)\b[^>]*data-target=["']#[^"']+["'])([^>]*>)/i,
+                `$1 data-antifan-modal="${modalTarget}"$2`
+              );
+            }
+          }
+          if (!sectionLiquid.includes('data-antifan-modal-dialog')) {
+            if (
+              /(<div\b[^>]*class=["'][^"']*(?:modal|popup|dialog)[^"']*)/i.test(
+                sectionLiquid
+              )
+            ) {
+              sectionLiquid = sectionLiquid.replace(
+                /(<div\b[^>]*class=["'][^"']*(?:modal|popup|dialog)[^"']*[^>]*>)/i,
+                (fullTag) => {
+                  if (fullTag.includes('data-antifan-modal-dialog')) return fullTag;
+                  let tag = fullTag;
+                  if (/\bid=["'][^"']*["']/i.test(tag)) {
+                    tag = tag.replace(/\bid=["'][^"']*["']/i, `id="${modalId}"`);
+                  } else {
+                    tag = tag.replace(/^<div\b/i, `<div id="${modalId}"`);
+                  }
+                  return tag.replace(/>$/, ' data-antifan-modal-dialog aria-hidden="true">');
+                }
+              );
+            } else {
+              sectionLiquid += `\n<div id="${modalId}" class="modal popup" data-antifan-modal-dialog aria-hidden="true"><div class="modal-content"><button class="close-btn" data-antifan-modal-close aria-label="Đóng">&times;</button><div class="modal-body"></div></div></div>`;
+            }
+          }
+          if (!sectionLiquid.includes('data-antifan-modal-close')) {
+            sectionLiquid = sectionLiquid.replace(
+              /(<button\b[^>]*class=["'][^"']*(?:close|modal-close|btn-close)[^"']*["'])([^>]*>)/i,
+              `$1 data-antifan-modal-close$2`
+            );
+          }
+        }
         // 5g. Dynamic Liquid Binding via LiquidBindingEngine
         const sectionContext = `${sec.id} ${sec.name} ${sec.className || ''}`.toLowerCase();
 
@@ -449,41 +623,6 @@ export class ThemeCompiler {
         for (const match of sectionLiquid.matchAll(/settings\.([a-zA-Z0-9_]+)/g)) {
           allReadSettingIds.add(match[1]);
         }
-        const rewriteLiquidAssets = (content: string): string => {
-          let res = rewriteHtmlContent(content, liquidUrlMap, { mode: 'liquid' }).content;
-          res = res.replace(
-            /(^|\s)(src|data-src)=(?:"(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^"]*)?"|'(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^']*)?')/gi,
-            (match, prefix, attr, doubleVal, singleVal) => {
-              const filename = doubleVal !== undefined ? doubleVal : singleVal;
-              return `${prefix}${attr}="{{ '${filename}' | asset_url }}"`;
-            }
-          );
-          res = res.replace(
-            /(^|\s)onerror\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
-            (match, prefix, doubleVal, singleVal) => {
-              const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
-              const fallbackMatch = val.match(/((?:this\.)?src\s*=\s*)(?:&quot;|['"])(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))(?:\?[^"']*)?(?:&quot;|['"]);?/i);
-              if (fallbackMatch) {
-                const safeJs = `${fallbackMatch[1]}&quot;{{ '${fallbackMatch[2]}' | asset_url }}&quot;;`;
-                const replaced = val.replace(fallbackMatch[0], safeJs);
-                return `${prefix}onerror="${replaced}"`;
-              }
-              return match;
-            }
-          );
-          res = res.replace(
-            /(^|\s)(srcset|data-srcset)=(?:"([^"]*)"|'([^']*)')/gi,
-            (match, prefix, attr, doubleVal, singleVal) => {
-              const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
-              const quote = doubleVal !== undefined ? '"' : "'";
-              if (val.includes('asset_url')) return match;
-              const replaced = val.replace(/(?:\/?assets\/)?([-a-zA-Z0-9_.@]+\.(?:png|jpe?g|webp|gif|svg|avif|ico))/gi, "{{ '$1' | asset_url }}");
-              return `${prefix}${attr}=${quote}${replaced}${quote}`;
-            }
-          );
-          return res;
-        };
-
         // Rewrite asset references into Haravan Liquid format and strip dynamic CSRF tokens
         sectionLiquid = rewriteLiquidAssets(sectionLiquid);
         sectionLiquid = sectionLiquid.replace(
@@ -491,61 +630,40 @@ export class ThemeCompiler {
           ''
         );
 
-        // Determine destination snippet name
-        const mobileIndexPath = options?.assetsDir
-          ? path.join(path.dirname(options.assetsDir as string), 'mobile', 'index.html')
-          : '';
-        const hasMobileSurface = Boolean(mobileIndexPath && fs.existsSync(mobileIndexPath));
+        const isHeader =
+          sec.archetype === 'header' ||
+          sec.id === 'header' ||
+          sec.id === 'site_header' ||
+          /(?:^|\s)(?:site[-_]?)?header(?:$|\s)/i.test(sec.className || '') ||
+          /^(?:site\s+)?header$/i.test(sec.name || '');
+        const isFooter =
+          sec.archetype === 'footer' ||
+          sec.id === 'footer' ||
+          sec.id === 'site_footer' ||
+          /(?:^|\s)(?:site[-_]?)?footer(?:$|\s)/i.test(sec.className || '') ||
+          /^(?:site\s+)?footer$/i.test(sec.name || '');
 
-        if (sec.archetype === 'header') {
+        if (isHeader) {
           let headerOutput = sectionLiquid;
-          if (hasMobileSurface) {
-            try {
-              const mobileHtml = fs.readFileSync(mobileIndexPath, 'utf-8');
-              const mobileRoot = DomTreeParser.parse(mobileHtml);
-              const mobileHeaders = DomTreeParser.findByTag(mobileRoot, 'header');
-              if (mobileHeaders.length > 0) {
-                let mobileHeaderContent = mobileHeaders[0].outerHtml;
-                if (!mobileHeaderContent.includes('category-navigation__block')) {
-                  const drawers = DomTreeParser.findByClass(mobileRoot, 'category-navigation__block');
-                  if (drawers.length > 0) {
-                    mobileHeaderContent += '\n' + drawers[0].outerHtml;
-                  }
-                }
-                // Strip CSRF token from mobile header
-                mobileHeaderContent = mobileHeaderContent.replace(
-                  /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
-                  ''
-                );
-                // Rewrite asset URLs with comprehensive liquid rewrite
-                mobileHeaderContent = rewriteLiquidAssets(mobileHeaderContent);
-
-                headerOutput = `<div class="desktop-only">\n${sectionLiquid}\n</div>\n<div class="mobile-only">\n${mobileHeaderContent}\n</div>`;
-              }
-            } catch {}
+          if (hasMobileSurface && mobileHeaderContent) {
+            const rewrittenMobileHeader = rewriteLiquidAssets(mobileHeaderContent).replace(
+              /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
+              ''
+            );
+            headerOutput = `<div class="theme-surface-desktop">\n${sectionLiquid}\n</div>\n<div class="theme-surface-mobile">\n${rewrittenMobileHeader}\n</div>`;
           }
           const headerSnippetPath = path.join(stagingDir, 'snippets', 'header.liquid');
           fs.writeFileSync(headerSnippetPath, headerOutput, 'utf-8');
           filesWritten.push(headerSnippetPath);
           emittedSnippetNames.add('header');
-        } else if (sec.archetype === 'footer') {
+        } else if (isFooter) {
           let footerOutput = sectionLiquid;
-          if (hasMobileSurface) {
-            try {
-              const mobileHtml = fs.readFileSync(mobileIndexPath, 'utf-8');
-              const mobileRoot = DomTreeParser.parse(mobileHtml);
-              const bottomNavs = DomTreeParser.findByClass(mobileRoot, 'bottom-navigation');
-              if (bottomNavs.length > 0) {
-                let mobileExtra = bottomNavs[0].outerHtml;
-                mobileExtra = mobileExtra.replace(
-                  /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
-                  ''
-                );
-                mobileExtra = rewriteLiquidAssets(mobileExtra);
-
-                footerOutput = `${sectionLiquid}\n<div class="mobile-only">\n${mobileExtra}\n</div>`;
-              }
-            } catch {}
+          if (hasMobileSurface && mobileFooterContent) {
+            const rewrittenMobileFooter = rewriteLiquidAssets(mobileFooterContent).replace(
+              /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
+              ''
+            );
+            footerOutput = `<div class="theme-surface-desktop">\n${sectionLiquid}\n</div>\n<div class="theme-surface-mobile">\n${rewrittenMobileFooter}\n</div>`;
           }
           const footerSnippetPath = path.join(stagingDir, 'snippets', 'footer.liquid');
           fs.writeFileSync(footerSnippetPath, footerOutput, 'utf-8');
@@ -554,32 +672,19 @@ export class ThemeCompiler {
         } else {
           let snippetName = sanitizeSettingId(sec.id, 'sec');
           if (emittedSnippetNames.has(snippetName)) {
-            snippetName = `${snippetName}_${filesWritten.length}`;
+            let counter = 2;
+            let candidate = `${snippetName}_${counter}`;
+            while (emittedSnippetNames.has(candidate)) {
+              counter++;
+              candidate = `${snippetName}_${counter}`;
+            }
+            snippetName = candidate;
           }
           emittedSnippetNames.add(snippetName);
 
           const enabledId = `${snippetName}_enabled`;
           allReadSettingIds.add(enabledId);
 
-          if (
-            hasMobileSurface &&
-            (sec.id.includes('hero_slider') || sec.id.includes('slide') || sec.archetype === 'hero_slider')
-          ) {
-            try {
-              const mobileHtml = fs.readFileSync(mobileIndexPath, 'utf-8');
-              const mobileRoot = DomTreeParser.parse(mobileHtml);
-              const mobileMenus = DomTreeParser.findByClass(mobileRoot, 'menu-header');
-              if (mobileMenus.length > 0) {
-                let menuContent = mobileMenus[0].outerHtml;
-                menuContent = menuContent.replace(
-                  /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
-                  ''
-                );
-                menuContent = rewriteLiquidAssets(menuContent);
-                sectionLiquid += `\n<div class="mobile-only">\n${menuContent}\n</div>`;
-              }
-            } catch {}
-          }
           const snippetPath = path.join(stagingDir, 'snippets', `${snippetName}.liquid`);
           fs.writeFileSync(snippetPath, sectionLiquid, 'utf-8');
           filesWritten.push(snippetPath);
@@ -591,18 +696,67 @@ export class ThemeCompiler {
         }
       }
 
-      // 6. Generate flat templates/index.liquid composed with {% include %}
-      const indexLines: string[] = [];
-      for (const item of pageSectionIncludes) {
-        if (item.enabledSettingId) {
-          indexLines.push(`{% unless settings.${item.enabledSettingId} == false %}`);
-          indexLines.push(`  {% include '${item.snippetName}' %}`);
-          indexLines.push('{% endunless %}');
-        } else {
-          indexLines.push(`{% include '${item.snippetName}' %}`);
+      // Emit full mobile body sections if mobile surface is present
+      const desktopSectionIds = new Set(sections.map((s) => s.id));
+      const mobileSectionIncludes: string[] = [];
+
+      if (hasMobileSurface && mobileBodySections.length > 0) {
+        for (const mSec of mobileBodySections) {
+          let mobileSnippetName = `mobile_${sanitizeSettingId(mSec.id, 'sec')}`;
+          if (emittedSnippetNames.has(mobileSnippetName)) {
+            let counter = 2;
+            let candidate = `${mobileSnippetName}_${counter}`;
+            while (emittedSnippetNames.has(candidate)) {
+              counter++;
+              candidate = `${mobileSnippetName}_${counter}`;
+            }
+            mobileSnippetName = candidate;
+          }
+          emittedSnippetNames.add(mobileSnippetName);
+          let mContent = mSec.rawHtml || mSec.liquidTemplate || '';
+          // Scope by container (.theme-surface-mobile) rather than renaming IDs,
+          // preserving source CSS/JS selectors that target those IDs.
+          mContent = rewriteLiquidAssets(mContent).replace(
+            /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*>/gi,
+            ''
+          );
+          const mSnippetPath = path.join(stagingDir, 'snippets', `${mobileSnippetName}.liquid`);
+          fs.writeFileSync(mSnippetPath, mContent, 'utf-8');
+          filesWritten.push(mSnippetPath);
+          mobileSectionIncludes.push(mobileSnippetName);
         }
       }
 
+      // 6. Generate flat templates/index.liquid composed with {% include %}
+      const indexLines: string[] = [];
+      if (hasMobileSurface && mobileSectionIncludes.length > 0) {
+        indexLines.push('<div class="theme-surface-desktop">');
+        for (const item of pageSectionIncludes) {
+          if (item.enabledSettingId) {
+            indexLines.push(`  {% unless settings.${item.enabledSettingId} == false %}`);
+            indexLines.push(`    {% include '${item.snippetName}' %}`);
+            indexLines.push('  {% endunless %}');
+          } else {
+            indexLines.push(`  {% include '${item.snippetName}' %}`);
+          }
+        }
+        indexLines.push('</div>');
+        indexLines.push('<div class="theme-surface-mobile">');
+        for (const mobSnippet of mobileSectionIncludes) {
+          indexLines.push(`  {% include '${mobSnippet}' %}`);
+        }
+        indexLines.push('</div>');
+      } else {
+        for (const item of pageSectionIncludes) {
+          if (item.enabledSettingId) {
+            indexLines.push(`{% unless settings.${item.enabledSettingId} == false %}`);
+            indexLines.push(`  {% include '${item.snippetName}' %}`);
+            indexLines.push('{% endunless %}');
+          } else {
+            indexLines.push(`{% include '${item.snippetName}' %}`);
+          }
+        }
+      }
       const indexLiquidContent =
         indexLines.length > 0 ? indexLines.join('\n') + '\n' : '<!-- Empty Index -->\n';
       const indexLiquidPath = path.join(stagingDir, 'templates', 'index.liquid');
@@ -692,6 +846,86 @@ export class ThemeCompiler {
         }
       }
 
+      // Safely preserve existing destination merchant settings
+      const destSettingsDataPath = path.join(outputDir, 'config', 'settings_data.json');
+      if (fs.existsSync(destSettingsDataPath)) {
+        try {
+          const existingRaw = fs.readFileSync(destSettingsDataPath, 'utf-8');
+          const existingData = JSON.parse(existingRaw);
+          if (existingData && typeof existingData === 'object' && existingData.current) {
+            for (const [k, v] of Object.entries(existingData.current)) {
+              if (v !== undefined && v !== null && v !== '') {
+                settingsDataMap[k] = v;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Unambiguous merchant asset setting migration: strictly refuse ambiguous mappings
+      if (ir.assets) {
+        const allItems = [
+          ...(ir.assets.stylesheets || []),
+          ...(ir.assets.javascripts || []),
+          ...(ir.assets.images || []),
+          ...(ir.assets.fonts || []),
+        ];
+
+        // Track all targets per reference to detect any ambiguity across surfaces
+        const refToTargets = new Map<string, Set<string>>();
+        const registerRef = (ref: string, targetFilename: string): void => {
+          if (!ref || !targetFilename) return;
+          const trimmedRef = ref.trim();
+          if (!refToTargets.has(trimmedRef)) {
+            refToTargets.set(trimmedRef, new Set());
+          }
+          refToTargets.get(trimmedRef)!.add(targetFilename);
+        };
+
+        // Populate references from explicit assetMap if present
+        if (ir.assets.assetMap && typeof ir.assets.assetMap === 'object') {
+          for (const [ref, target] of Object.entries(ir.assets.assetMap)) {
+            if (typeof ref === 'string' && typeof target === 'string') {
+              registerRef(ref, target);
+              registerRef(ref.replace(/^\//, ''), target);
+              registerRef(`assets/${ref.replace(/^assets\//, '')}`, `assets/${target}`);
+            }
+          }
+        }
+
+        // Populate references from item.sourceUrl, item.rawSourceUrl, and item.originalFilename
+        for (const it of allItems) {
+          if (it.filename) {
+            if (it.sourceUrl) registerRef(it.sourceUrl, it.filename);
+            if (it.rawSourceUrl) registerRef(it.rawSourceUrl, it.filename);
+            if (it.originalFilename) {
+              registerRef(it.originalFilename, it.filename);
+              registerRef(`assets/${it.originalFilename}`, `assets/${it.filename}`);
+              registerRef(`/assets/${it.originalFilename}`, `/assets/${it.filename}`);
+            }
+          }
+        }
+
+        // Only references with EXACTLY 1 unique target are unambiguous.
+        // Ambiguous references (targets.size > 1) MUST BE REFUSED (no guessed reassignment).
+        const unambiguousMap = new Map<string, string>();
+        for (const [ref, targets] of refToTargets.entries()) {
+          if (targets.size === 1) {
+            unambiguousMap.set(ref, Array.from(targets)[0]);
+          }
+        }
+
+        // Apply only proven unambiguous mappings; preserve existing merchant values otherwise
+        for (const [k, v] of Object.entries(settingsDataMap)) {
+          if (typeof v === 'string') {
+            const trimmed = v.trim();
+            if (unambiguousMap.has(trimmed)) {
+              settingsDataMap[k] = unambiguousMap.get(trimmed)!;
+            }
+          }
+        }
+      }
+
       const settingsData = {
         current: settingsDataMap,
         presets: {
@@ -707,9 +941,57 @@ export class ThemeCompiler {
 
       // 9. Generate assets/theme.js (universal declarative runtime)
       const themeJsPath = path.join(stagingDir, 'assets', 'theme.js');
-      fs.writeFileSync(themeJsPath, this.stateSynth.generateDeclarativeRuntime(), 'utf-8');
-      filesWritten.push(themeJsPath);
+      let runtimeJs = this.stateSynth.generateDeclarativeRuntime();
+      if (hasMobileSurface) {
+        runtimeJs += `
+/* AntiFan Dual-Surface ID & Inert Subtree Synchronizer:
+   Ensures exactly one live instance per ID exists in the active DOM,
+   preventing document.getElementById and label[for] collisions across desktop and mobile surfaces.
+   Single source of truth: derives active surface from rendered layout (getComputedStyle)
+   so JS always matches whatever the CSS cascade decided (media query or data-device). */
+(function() {
+  function syncDualSurfaceActiveIDs() {
+    var mobileSurface = document.querySelector('.theme-surface-mobile');
+    var desktopSurface = document.querySelector('.theme-surface-desktop');
+    if (!mobileSurface || !desktopSurface) return;
 
+    var isMobileActive = window.getComputedStyle(mobileSurface).display !== 'none';
+    var activeSurface = isMobileActive ? mobileSurface : desktopSurface;
+    var inactiveSurface = isMobileActive ? desktopSurface : mobileSurface;
+    // Deactivate inactive surface elements: set inert and demote live IDs to data-inert-id
+    inactiveSurface.setAttribute('inert', '');
+    var inactiveEls = inactiveSurface.querySelectorAll('[id]');
+    for (var i = 0; i < inactiveEls.length; i++) {
+      var el = inactiveEls[i];
+      el.setAttribute('data-inert-id', el.id);
+      el.removeAttribute('id');
+    }
+
+    // Activate active surface elements: remove inert and restore live IDs from data-inert-id
+    activeSurface.removeAttribute('inert');
+    var activeEls = activeSurface.querySelectorAll('[data-inert-id]');
+    for (var j = 0; j < activeEls.length; j++) {
+      var aEl = activeEls[j];
+      aEl.setAttribute('id', aEl.getAttribute('data-inert-id'));
+      aEl.removeAttribute('data-inert-id');
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', syncDualSurfaceActiveIDs);
+  } else {
+    syncDualSurfaceActiveIDs();
+  }
+  var resizeTimer;
+  window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(syncDualSurfaceActiveIDs, 50);
+  });
+})();
+`;
+      }
+      fs.writeFileSync(themeJsPath, runtimeJs, 'utf-8');
+      filesWritten.push(themeJsPath);
       // 9b. Generate assets/theme-responsive.css when layout relations are defined
       if (ir.layout?.relations && ir.layout.relations.length > 0) {
         const desktopCols =
@@ -729,23 +1011,42 @@ export class ThemeCompiler {
           ir.layout.gridGapPx ||
           16;
 
-        const responsiveCssContent = [
+        const b = ir.layout.breakpoints;
+        const desktopMin = b?.desktopMin;
+        const tabletMin = b?.tabletMin;
+        const tabletMax = b?.tabletMax;
+        const mobileMax = b?.mobileMax;
+
+        const responsiveCssLines = [
           '/* Generated Responsive Layout Constraints */',
           ':root {',
           `  --antifan-container-max: ${ir.layout.containerMaxWidth}px;`,
           `  --antifan-container-pad: ${ir.layout.containerPaddingPx}px;`,
           `  --antifan-grid-gap: ${gap}px;`,
           '}',
-          '@media (min-width: 1025px) {',
-          `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${desktopCols}, 1fr); gap: var(--antifan-grid-gap); }`,
-          '}',
-          '@media (min-width: 768px) and (max-width: 1024px) {',
-          `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${tabletCols}, 1fr); gap: var(--antifan-grid-gap); }`,
-          '}',
-          '@media (max-width: 767px) {',
-          `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${mobileCols}, 1fr); gap: var(--antifan-grid-gap); }`,
-          '}',
-        ].join('\n');
+        ];
+        if (desktopMin !== undefined) {
+          responsiveCssLines.push(
+            `@media (min-width: ${desktopMin}px) {`,
+            `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${desktopCols}, 1fr); gap: var(--antifan-grid-gap); }`,
+            '}'
+          );
+        }
+        if (tabletMin !== undefined && tabletMax !== undefined) {
+          responsiveCssLines.push(
+            `@media (min-width: ${tabletMin}px) and (max-width: ${tabletMax}px) {`,
+            `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${tabletCols}, 1fr); gap: var(--antifan-grid-gap); }`,
+            '}'
+          );
+        }
+        if (mobileMax !== undefined) {
+          responsiveCssLines.push(
+            `@media (max-width: ${mobileMax}px) {`,
+            `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${mobileCols}, 1fr); gap: var(--antifan-grid-gap); }`,
+            '}'
+          );
+        }
+        const responsiveCssContent = responsiveCssLines.join('\n');
         const responsiveCssPath = path.join(
           stagingDir,
           'assets',
@@ -786,10 +1087,63 @@ export class ThemeCompiler {
       if (!filesWritten.includes(themeCssPath)) filesWritten.push(themeCssPath);
 
       const customCssPath = path.join(stagingDir, 'assets', 'custom.css');
+      const mobileMax = ir.layout?.breakpoints?.mobileMax;
+      const mobileMediaQuery = mobileMax !== undefined ? `@media (max-width: ${mobileMax}px)` : '';
+
+      let dualSurfaceCss = '';
+      if (hasMobileSurface) {
+        if (mobileMax !== undefined) {
+          dualSurfaceCss = `
+/* Dual-surface responsive switching: viewport media query is the PRIMARY switch
+   derived from source layout constraints (mobileMax=${mobileMax}px),
+   guaranteeing mobile surface is reachable on real phone viewports regardless of static server data-device. */
+@media (max-width: ${mobileMax}px) {
+  .theme-surface-desktop {
+    display: none !important;
+  }
+  .theme-surface-mobile {
+    display: block !important;
+  }
+}
+@media (min-width: ${mobileMax + 1}px) {
+  .theme-surface-mobile {
+    display: none !important;
+  }
+  .theme-surface-desktop {
+    display: block !important;
+  }
+}
+
+/* Extra signal if data-device is explicitly set or toggled by client runtime */
+body[data-device="mobile"] .theme-surface-desktop {
+  display: none !important;
+}
+body[data-device="mobile"] .theme-surface-mobile {
+  display: block !important;
+}
+`;
+        } else {
+          dualSurfaceCss = `
+/* Dual-surface responsive switching without proven source breakpoint:
+   Keyed on client/adaptive data-device signal with desktop surface as default */
+.theme-surface-mobile {
+  display: none;
+}
+.theme-surface-desktop {
+  display: block;
+}
+body[data-device="mobile"] .theme-surface-desktop {
+  display: none !important;
+}
+body[data-device="mobile"] .theme-surface-mobile {
+  display: block !important;
+}
+`;
+        }
+      }
       const customCssDefault = `/* Haravan Custom Overrides & Adaptive Parity */
-/* Hero slider geometry. The compiler strips the pixel geometry the source slider
-   measured at capture time, so slides size from the viewport and the track is a
-   horizontal scroller for both theme.js and native touch. */
+/* Hero slider touch-action and scroll-snap alignment.
+   Preserves native horizontal scrolling for touch and theme.js slider controllers. */
 .s-wrap, .s-slide {
   overflow: hidden;
   position: relative;
@@ -816,100 +1170,11 @@ export class ThemeCompiler {
   height: auto;
   display: block;
 }
-@media (min-width: 992px) {
-  .mobile-only {
-    display: none;
-  }
-}
-@media (max-width: 991px) {
-  .desktop-only {
-    display: none;
-  }
-  .mobile-only {
-    display: block;
-  }
-  .block-category .product-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-  }
-  .block-category .product-grid .product-card {
-    width: 100%;
-    max-width: 100%;
-  }
-  .accessory-content__list {
-    display: flex;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    gap: 12px;
-    padding-bottom: 10px;
-  }
-  .accessory-content__list > * {
-    flex: 0 0 45%;
-    max-width: 45%;
-  }
-  .news .s-content {
-    display: flex;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    gap: 12px;
-  }
-  .news .s-content .item {
-    flex: 0 0 75%;
-    max-width: 75%;
-  }
-  .slide-content > .category-navigation {
-    display: none;
-  }
-  .slide-content {
-    flex-direction: column;
-    padding: 10px 0;
-  }
-  .slide-content__detail {
-    flex: 0 0 100%;
-    max-width: 100%;
-    margin-left: 0;
-  }
-  .slide .menu-header {
-    width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 10px 0;
-  }
-  .slide .menu-header .menu-list {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 12px;
-    padding: 0 15px;
-    margin: 0;
-    list-style: none;
-  }
-  .slide .menu-header .menu-list__item {
-    flex: 0 0 auto;
-    text-align: center;
-  }
-  .slide .menu-header .menu-link {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-decoration: none;
-  }
-  .slide .menu-header .menu-link__icon {
-    width: 44px;
-    height: 44px;
-    margin-bottom: 6px;
-  }
-  .slide .menu-header .menu-link__name {
-    font-size: 11px;
-    color: #333;
-    white-space: nowrap;
-  }
-}
+${dualSurfaceCss}
 `;
       fs.writeFileSync(customCssPath, customCssDefault, 'utf-8');
       if (!filesWritten.includes(customCssPath)) filesWritten.push(customCssPath);
-
-      // Copy IR harvested assets
+      // Copy IR harvested assets directly from manifest
       if (ir.assets) {
         const allAssets = [
           ...(ir.assets.stylesheets || []),
@@ -921,12 +1186,18 @@ export class ThemeCompiler {
           if (item.localPath && fs.existsSync(item.localPath)) {
             const destAssetPath = path.join(stagingDir, 'assets', item.filename);
             if (!fs.existsSync(destAssetPath)) {
-              if (/(?:_2|mobile|-mobile)\.css$/i.test(item.filename)) {
+              // Surface identity derived from actual provenance occurrences, never filename regex
+              const isMobileOnly = Boolean(
+                item.occurrences &&
+                item.occurrences.length > 0 &&
+                item.occurrences.every((o) => o.surface === 'mobile')
+              );
+              if (isMobileOnly && mobileMediaQuery) {
                 const rawCss = fs.readFileSync(item.localPath, 'utf-8');
                 const cleanCss = rawCss.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
-                const wrappedCss = cleanCss.trim().startsWith('@media (max-width: 991px)')
+                const wrappedCss = cleanCss.trim().startsWith('@media')
                   ? rawCss
-                  : `@charset "UTF-8";\n@media (max-width: 991px) {\n${cleanCss}\n}`;
+                  : `@charset "UTF-8";\n${mobileMediaQuery} {\n${cleanCss}\n}`;
                 fs.writeFileSync(destAssetPath, wrappedCss, 'utf-8');
               } else {
                 fs.copyFileSync(item.localPath, destAssetPath);
@@ -935,8 +1206,8 @@ export class ThemeCompiler {
             if (!filesWritten.includes(destAssetPath)) filesWritten.push(destAssetPath);
           }
         }
-      }
-      if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
+      } else if (options?.assetsDir && fs.existsSync(options.assetsDir as string)) {
+        // Fallback only when ir.assets manifest is not provided; no provenance -> copy as-is without guessing
         try {
           const diskFiles = fs.readdirSync(options.assetsDir as string);
           for (const diskFile of diskFiles) {
@@ -944,16 +1215,7 @@ export class ThemeCompiler {
             const srcPath = path.join(options.assetsDir as string, diskFile);
             const destPath = path.join(stagingDir, 'assets', diskFile);
             if (fs.statSync(srcPath).isFile() && !fs.existsSync(destPath)) {
-              if (/(?:_2|mobile|-mobile)\.css$/i.test(diskFile)) {
-                const rawCss = fs.readFileSync(srcPath, 'utf-8');
-                const cleanCss = rawCss.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
-                const wrappedCss = cleanCss.trim().startsWith('@media (max-width: 991px)')
-                  ? rawCss
-                  : `@charset "UTF-8";\n@media (max-width: 991px) {\n${cleanCss}\n}`;
-                fs.writeFileSync(destPath, wrappedCss, 'utf-8');
-              } else {
-                fs.copyFileSync(srcPath, destPath);
-              }
+              fs.copyFileSync(srcPath, destPath);
               if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
             }
           }
@@ -983,10 +1245,47 @@ export class ThemeCompiler {
         }
       }
 
+      // Record compiler ownership manifest with SHA-256 hash guard in staging directory
+      const themeManifestRel = path.join('config', '.antifan-theme-manifest.json');
+      const themeManifestStagingPath = path.join(stagingDir, themeManifestRel);
+      const stagedRelFiles = filesWritten.map((f) =>
+        path.relative(stagingDir, f).replace(/\\/g, '/')
+      );
+      const manifestNormalizedRel = themeManifestRel.replace(/\\/g, '/');
+      if (!stagedRelFiles.includes(manifestNormalizedRel)) {
+        stagedRelFiles.push(manifestNormalizedRel);
+      }
+
+      const fileHashes: Record<string, string> = {};
+      for (const f of filesWritten) {
+        if (fs.existsSync(f) && fs.statSync(f).isFile()) {
+          const rel = path.relative(stagingDir, f).replace(/\\/g, '/');
+          fileHashes[rel] = crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+        }
+      }
+
+      fs.writeFileSync(
+        themeManifestStagingPath,
+        JSON.stringify(
+          {
+            version: '1.0.0',
+            generator: 'AntiFan ThemeCompiler',
+            generatedAt: new Date().toISOString(),
+            generatedFiles: stagedRelFiles,
+            fileHashes,
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
+      if (!filesWritten.includes(themeManifestStagingPath)) {
+        filesWritten.push(themeManifestStagingPath);
+      }
+
       // 10. Validate staging integrity before swap
       this.validateStagingTheme(stagingDir, targetContract);
       this.atomicSwap(stagingDir, outputDir, dirs);
-
       return {
         success: true,
         sectionCount: sections.length,
@@ -1004,9 +1303,46 @@ export class ThemeCompiler {
 
   private atomicSwap(stagingDir: string, outputDir: string, dirs: string[]): void {
     fs.mkdirSync(outputDir, { recursive: true });
-    // Directories a flat Haravan theme must never contain. A previous OS 2.0
-    // build leaves `sections/` (and `locales/` when not emitted) behind; they
-    // are backed up and removed so the output always matches the contract.
+    const COMPILER_MANAGED_CONFIG_FILES = new Set([
+      'config/settings_data.json',
+      'config/settings_schema.json',
+      'config/settings.html',
+      'config/.antifan-theme-manifest.json',
+    ]);
+    const themeManifestRel = path.join('config', '.antifan-theme-manifest.json');
+    const destManifestPath = path.join(outputDir, themeManifestRel);
+    let priorGeneratedFiles = new Set<string>();
+    if (fs.existsSync(destManifestPath)) {
+      try {
+        const raw = fs.readFileSync(destManifestPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed?.generatedFiles)) {
+          priorGeneratedFiles = new Set(
+            parsed.generatedFiles.map((s: string) => s.replace(/\\/g, '/'))
+          );
+        }
+      } catch {}
+    }
+
+    const collectFilesRecursive = (dir: string, base = ''): string[] => {
+      if (!fs.existsSync(dir)) return [];
+      const results: string[] = [];
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const ent of entries) {
+        const rel = base ? `${base}/${ent.name}` : ent.name;
+        if (ent.isDirectory()) {
+          results.push(...collectFilesRecursive(path.join(dir, ent.name), rel));
+        } else if (ent.isFile()) {
+          results.push(rel.replace(/\\/g, '/'));
+        }
+      }
+      return results;
+    };
+
+    const newStagedFiles = new Set(
+      collectFilesRecursive(stagingDir).map((f) => f.replace(/\\/g, '/'))
+    );
+
     const purgeDirs = ['sections', 'locales'].filter((d) => !dirs.includes(d));
     const swapDirs = [...dirs, ...purgeDirs];
     const backupDir = fs.mkdtempSync(
@@ -1019,16 +1355,44 @@ export class ThemeCompiler {
           fs.cpSync(destSub, path.join(backupDir, d), { recursive: true });
         }
       }
+
       for (const d of dirs) {
         const destSub = path.join(outputDir, d);
-        if (fs.existsSync(destSub)) {
-          fs.rmSync(destSub, { recursive: true, force: true });
-        }
         const srcSub = path.join(stagingDir, d);
-        if (fs.existsSync(srcSub)) {
-          fs.cpSync(srcSub, destSub, { recursive: true });
+        if (!fs.existsSync(srcSub)) continue;
+        fs.mkdirSync(destSub, { recursive: true });
+
+        // Examine existing files in destination directory
+        const existingInDest = collectFilesRecursive(destSub);
+        for (const rel of existingInDest) {
+          const themeRelPath = `${d}/${rel}`.replace(/\\/g, '/');
+          const isPriorGenerated = priorGeneratedFiles.has(themeRelPath);
+          const isCompilerConfigFile = COMPILER_MANAGED_CONFIG_FILES.has(themeRelPath);
+
+          if (isPriorGenerated || isCompilerConfigFile) {
+            // It was generated by the previous compiler run or is a compiler-managed config file.
+            // If the new run no longer generates it, it is a stale compiler artifact -> purge.
+            if (!newStagedFiles.has(themeRelPath) && !isCompilerConfigFile) {
+              const fullFilePath = path.join(destSub, rel);
+              if (fs.existsSync(fullFilePath)) {
+                fs.rmSync(fullFilePath, { force: true });
+              }
+            }
+          } else {
+            // It was NOT recorded in prior compiler manifest -> User-owned / unmanaged file!
+            if (newStagedFiles.has(themeRelPath)) {
+              throw new Error(
+                `ThemeCompiler: overwrite conflict on user-owned file "${themeRelPath}". Compilation refused to overwrite unmanaged file.`
+              );
+            }
+            // If newStagedFiles does not conflict, the user-owned file is PRESERVED!
+          }
         }
+
+        // Copy staged files into destination (overwriting prior generated files and new files)
+        fs.cpSync(srcSub, destSub, { recursive: true, force: true });
       }
+
       for (const d of purgeDirs) {
         const destSub = path.join(outputDir, d);
         if (fs.existsSync(destSub)) {

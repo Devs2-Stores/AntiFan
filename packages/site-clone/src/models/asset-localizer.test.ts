@@ -16,9 +16,10 @@ import {
   normalizeIp,
   rewriteCssUrls,
   rewriteHtmlContent,
+  sanitizeRequestHeaders,
   type DownloadTransport
 } from './asset-localizer.js';
-import type { HarvestedAssetManifest } from './asset-harvester.js';
+import { AssetHarvester, type HarvestedAssetManifest, type HarvestFileInput, type HarvestedAssetItem } from './asset-harvester.js';
 
 interface MockTransportWithState extends DownloadTransport {
   lookupCalls: number;
@@ -1218,6 +1219,650 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
       } finally {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
       }
+    });
+  });
+
+  // --- 6. Deterministic Naming, Surface Qualifiers & Behavioral Invariants ---
+  describe('6. Deterministic Naming, Surface Qualifiers & Behavioral Invariants', () => {
+    it('6.1. Reversed input order invariance: harvesting [desktop, mobile] vs [mobile, desktop] produces identical manifest filenames', () => {
+      const harvester = new AssetHarvester();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-order-invariance-'));
+
+      const desktopFile = {
+        path: 'index.html',
+        content: `
+          <link rel="stylesheet" href="https://example.com/assets/app-DCc2d3nB.css">
+          <script src="https://example.com/assets/bundle-1.js"></script>
+          <img src="https://example.com/images/hero.png">
+          <img src="https://example.com/shared/logo.png">
+        `
+      };
+
+      const mobileFile = {
+        path: 'mobile/index.html',
+        content: `
+          <link rel="stylesheet" href="https://example.com/assets/app-5WA_Jy_a.css">
+          <script src="https://example.com/assets/bundle-2.js"></script>
+          <img src="https://example.com/mobile-images/hero.png">
+          <img src="https://example.com/shared/logo.png">
+        `
+      };
+
+      try {
+        const manifestForward = harvester.harvestFromFiles([desktopFile, mobileFile], tempDir);
+        const manifestReversed = harvester.harvestFromFiles([mobileFile, desktopFile], tempDir);
+
+        const getFilenames = (m: HarvestedAssetManifest) => ({
+          stylesheets: m.stylesheets.map(s => `${s.sourceUrl} -> ${s.filename}`).sort(),
+          javascripts: m.javascripts.map(j => `${j.sourceUrl} -> ${j.filename}`).sort(),
+          images: m.images.map(i => `${i.sourceUrl} -> ${i.filename}`).sort(),
+        });
+
+        const forwardNames = getFilenames(manifestForward);
+        const reversedNames = getFilenames(manifestReversed);
+
+        assert.deepStrictEqual(forwardNames, reversedNames, 'Reversing file order MUST produce exact same allocated filenames');
+
+        // Confirm no arbitrary _2 or _3 sequential numbers
+        const allAllocated = [
+          ...manifestForward.stylesheets.map(s => s.filename),
+          ...manifestForward.javascripts.map(j => j.filename),
+          ...manifestForward.images.map(i => i.filename),
+        ];
+        for (const fn of allAllocated) {
+          assert.strictEqual(/_[2-9]\.[a-zA-Z0-9]+$/.test(fn), false, `Filename must not have traversal-order counter: ${fn}`);
+        }
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.2. Same stem across surfaces receives proven -desktop and -mobile qualifiers', () => {
+      const harvester = new AssetHarvester();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-surface-qualifiers-'));
+
+      const files = [
+        {
+          path: 'index.html',
+          content: `
+            <img src="https://example.com/desktop-assets/banner.jpg">
+            <img src="https://example.com/common/shared-logo.png">
+          `
+        },
+        {
+          path: 'mobile/index.html',
+          content: `
+            <img src="https://example.com/mobile-assets/banner.jpg">
+            <img src="https://example.com/common/shared-logo.png">
+          `
+        }
+      ];
+
+      try {
+        const manifest = harvester.harvestFromFiles(files, tempDir);
+        const desktopBanner = manifest.images.find(i => i.sourceUrl === 'https://example.com/desktop-assets/banner.jpg');
+        const mobileBanner = manifest.images.find(i => i.sourceUrl === 'https://example.com/mobile-assets/banner.jpg');
+        const sharedLogo = manifest.images.find(i => i.sourceUrl === 'https://example.com/common/shared-logo.png');
+
+        assert.ok(desktopBanner, 'Desktop banner harvested');
+        assert.ok(mobileBanner, 'Mobile banner harvested');
+        assert.ok(sharedLogo, 'Shared logo harvested');
+
+        assert.strictEqual(desktopBanner.filename, 'banner-desktop.jpg');
+        assert.strictEqual(mobileBanner.filename, 'banner-mobile.jpg');
+        assert.strictEqual(sharedLogo.filename, 'shared-logo.png');
+        assert.strictEqual(sharedLogo.occurrences?.length, 2);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.3. Preserves retina density (@2x), dimensions (1920x1080), and query variants without collapsing', () => {
+      const harvester = new AssetHarvester();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-retina-dims-'));
+
+      const html = `
+        <img src="https://example.com/images/hero.png">
+        <img src="https://example.com/images/hero@2x.png">
+        <img src="https://example.com/images/background-1920x1080.jpg">
+        <img src="https://example.com/images/background-480x320.jpg">
+        <img src="https://example.com/products/shirt.jpg?width=600">
+        <img src="https://example.com/products/shirt.jpg?width=1200">
+      `;
+
+      try {
+        const manifest = harvester.harvestFromHtml(html, tempDir);
+        assert.strictEqual(manifest.images.length, 6);
+
+        const hero = manifest.images.find(i => i.sourceUrl === 'https://example.com/images/hero.png');
+        const hero2x = manifest.images.find(i => i.sourceUrl === 'https://example.com/images/hero@2x.png');
+        const bg1080 = manifest.images.find(i => i.sourceUrl === 'https://example.com/images/background-1920x1080.jpg');
+        const bg320 = manifest.images.find(i => i.sourceUrl === 'https://example.com/images/background-480x320.jpg');
+        const shirt600 = manifest.images.find(i => i.sourceUrl === 'https://example.com/products/shirt.jpg?width=600');
+        const shirt1200 = manifest.images.find(i => i.sourceUrl === 'https://example.com/products/shirt.jpg?width=1200');
+
+        assert.strictEqual(hero?.filename, 'hero.png');
+        assert.strictEqual(hero2x?.filename, 'hero@2x.png');
+        assert.strictEqual(bg1080?.filename, 'background-1920x1080.jpg');
+        assert.strictEqual(bg320?.filename, 'background-480x320.jpg');
+        assert.strictEqual(shirt600?.filename, 'shirt-w600.jpg');
+        assert.strictEqual(shirt1200?.filename, 'shirt-w1200.jpg');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.4. Windows reserved names (CON, AUX, NUL) and case-insensitive collision safety', () => {
+      const harvester = new AssetHarvester();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-win-reserved-'));
+
+      const html = `
+        <img src="https://example.com/images/con.png">
+        <link rel="stylesheet" href="https://example.com/styles/aux.css">
+        <script src="https://example.com/scripts/nul.js"></script>
+        <img src="https://example.com/bucketA/Logo.png">
+        <img src="https://example.com/bucketB/logo.png">
+      `;
+
+      try {
+        const manifest = harvester.harvestFromHtml(html, tempDir);
+
+        const conImg = manifest.images.find(i => i.sourceUrl === 'https://example.com/images/con.png');
+        const auxCss = manifest.stylesheets.find(s => s.sourceUrl === 'https://example.com/styles/aux.css');
+        const nulJs = manifest.javascripts.find(j => j.sourceUrl === 'https://example.com/scripts/nul.js');
+
+        assert.strictEqual(conImg?.filename, 'asset-con.png');
+        assert.strictEqual(auxCss?.filename, 'asset-aux.css');
+        assert.strictEqual(nulJs?.filename, 'asset-nul.js');
+
+        const logoA = manifest.images.find(i => i.sourceUrl === 'https://example.com/bucketA/Logo.png');
+        const logoB = manifest.images.find(i => i.sourceUrl === 'https://example.com/bucketB/logo.png');
+
+        assert.ok(logoA);
+        assert.ok(logoB);
+        assert.notStrictEqual(
+          logoA.filename.toLowerCase(),
+          logoB.filename.toLowerCase(),
+          `Case-variant URLs must not collide case-insensitively on Windows: ${logoA.filename} vs ${logoB.filename}`
+        );
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.5. HTML entity (&amp;) and secondary CSS dependency rewriting without lingering remote URLs', () => {
+      const localizer = new AssetLocalizer();
+      const manifest: HarvestedAssetManifest = {
+        stylesheets: [{
+          type: 'css',
+          sourceUrl: 'https://example.com/styles/main.css',
+          filename: 'main.css',
+          localPath: '/tmp/main.css'
+        }],
+        javascripts: [],
+        images: [{
+          type: 'image',
+          sourceUrl: 'https://example.com/images/product.jpg?w=100&h=200',
+          filename: 'product-100x200.jpg',
+          localPath: '/tmp/product-100x200.jpg'
+        }],
+        fonts: [],
+        totalBytes: 0
+      };
+
+      const htmlWithEntity = '<img src="https://example.com/images/product.jpg?w=100&amp;h=200">';
+      const res = localizer.rewriteFiles([{ path: 'index.html', content: htmlWithEntity }], manifest, { mode: 'liquid' });
+
+      assert.strictEqual(res.totalReplacements, 1);
+      assert.strictEqual(res.files[0].rewrittenContent, '<img src="{{ \'product-100x200.jpg\' | asset_url }}">');
+
+      const cssWithImport = '@import url("https://example.com/styles/main.css");';
+      const cssRes = rewriteCssUrls(cssWithImport, new Map([
+        ['https://example.com/styles/main.css', 'main.css']
+      ]), { mode: 'relative' });
+
+      assert.strictEqual(cssRes.replacementCount, 1);
+      assert.strictEqual(cssRes.content, '@import url("main.css");');
+    });
+
+    it('6.6. Zero-byte failure cleanup removes aborted empty files from targetLocalPath', async () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-zerobyte-cleanup-'));
+
+      try {
+        const item = {
+          type: 'image' as const,
+          sourceUrl: 'https://invalid-host-that-cannot-resolve-12345.example/test.png',
+          filename: 'test.png',
+          localPath: path.join(tempDir, 'test.png')
+        };
+
+        // Simulate pre-existing zero-byte corrupted artifact
+        fs.writeFileSync(item.localPath, Buffer.alloc(0));
+        assert.strictEqual(fs.existsSync(item.localPath), true);
+
+        const res = await localizer.downloadAssets([item], {
+          assetsDir: tempDir,
+          concurrency: 1,
+          timeoutMs: 1000
+        });
+
+        assert.strictEqual(res.failedCount, 1);
+        assert.strictEqual(
+          fs.existsSync(item.localPath),
+          false,
+          'Corrupted zero-byte file must be cleaned up on download failure'
+        );
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.7. HarvestFileInput context with surface and UA partitions same-URL variants into distinct -desktop / -mobile items without Map collapse', () => {
+      const harvester = new AssetHarvester();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-context-harvest-'));
+
+      try {
+        const files: HarvestFileInput[] = [
+          {
+            path: 'index.html',
+            content: '<img src="https://example.com/banner.png">',
+            context: {
+              surface: 'desktop',
+              userAgent: 'Mozilla/5.0 (Windows NT 10.0)',
+              requestHeaders: { 'sec-ch-ua-mobile': '?0' }
+            }
+          },
+          {
+            path: 'mobile/index.html',
+            content: '<img src="https://example.com/banner.png">',
+            context: {
+              surface: 'mobile',
+              userAgent: 'Mozilla/5.0 (iPhone)',
+              requestHeaders: { 'sec-ch-ua-mobile': '?1' }
+            }
+          }
+        ];
+
+        const manifest = harvester.harvestFromFiles(files, tempDir);
+        assert.strictEqual(manifest.images.length, 2, 'Same URL with different surface context must partition into 2 items');
+
+        const desktopItem = manifest.images.find(img => img.requestIdentity === 'desktop');
+        const mobileItem = manifest.images.find(img => img.requestIdentity === 'mobile');
+
+        assert.ok(desktopItem, 'Desktop item must exist');
+        assert.ok(mobileItem, 'Mobile item must exist');
+
+        assert.strictEqual(desktopItem.filename, 'banner-desktop.png');
+        assert.strictEqual(mobileItem.filename, 'banner-mobile.png');
+
+        assert.strictEqual(desktopItem.requestHeaders?.['sec-ch-ua-mobile'], '?0');
+        assert.strictEqual(mobileItem.requestHeaders?.['sec-ch-ua-mobile'], '?1');
+
+        assert.strictEqual(desktopItem.originalFilename, 'banner.png');
+        assert.strictEqual(mobileItem.originalFilename, 'banner.png');
+
+        assert.ok(manifest.assetMap, 'Manifest assetMap must be present');
+        // Ambiguous bare alias must NOT clobber with last-wins; must only be accessible via qualified keys
+        assert.strictEqual(manifest.assetMap['https://example.com/banner.png'], undefined, 'Ambiguous alias with conflicting targets must not be assigned to bare key');
+        assert.strictEqual(manifest.assetMap['https://example.com/banner.png#desktop'], 'banner-desktop.png');
+        assert.strictEqual(manifest.assetMap['https://example.com/banner.png#mobile'], 'banner-mobile.png');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.8. rewriteFiles in relative mode outputs ../assets/ for mobile/index.html across all attributes (href, src, srcset, inline CSS)', () => {
+      const localizer = new AssetLocalizer();
+
+      const manifest: HarvestedAssetManifest = {
+        stylesheets: [{
+          type: 'css',
+          sourceUrl: 'https://example.com/app.css',
+          filename: 'app.css',
+          localPath: '/tmp/app.css'
+        }],
+        javascripts: [],
+        images: [
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/banner.png',
+            filename: 'banner-desktop.png',
+            localPath: '/tmp/banner-desktop.png',
+            requestIdentity: 'desktop'
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/banner.png',
+            filename: 'banner-mobile.png',
+            localPath: '/tmp/banner-mobile.png',
+            requestIdentity: 'mobile'
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/banner@2x.png',
+            filename: 'banner-2x.png',
+            localPath: '/tmp/banner-2x.png'
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/bg.png',
+            filename: 'bg.png',
+            localPath: '/tmp/bg.png'
+          }
+        ],
+        fonts: [],
+        totalBytes: 0
+      };
+
+      const html = [
+        '<link rel="stylesheet" href="https://example.com/app.css">',
+        '<img src="https://example.com/banner.png">',
+        '<picture><source srcset="https://example.com/banner.png 1x, https://example.com/banner@2x.png 2x"></picture>',
+        '<div style="background-image: url(&quot;https://example.com/bg.png&quot;)"></div>'
+      ].join('\n');
+
+      // 1. Mobile rewrite test: must output ../assets/ for all attributes and select banner-mobile.png
+      const mobileRes = localizer.rewriteFiles([
+        { path: 'mobile/index.html', content: html, context: { surface: 'mobile' } }
+      ], manifest, { mode: 'relative' });
+
+      const mobileContent = mobileRes.files[0].rewrittenContent;
+      assert.ok(mobileContent.includes('href="../assets/app.css"'), 'href must point to ../assets/');
+      assert.ok(mobileContent.includes('src="../assets/banner-mobile.png"'), 'src must point to ../assets/ with mobile variant');
+      assert.ok(mobileContent.includes('srcset="../assets/banner-mobile.png 1x, ../assets/banner-2x.png 2x"'), 'srcset must point to ../assets/');
+      assert.ok(mobileContent.includes('url(&quot;../assets/bg.png&quot;)'), 'inline style must point to ../assets/');
+      assert.strictEqual(mobileContent.includes('assets/banner-desktop.png'), false, 'Desktop variant must not leak into mobile');
+
+      // 2. Desktop rewrite test: must output assets/ for all attributes and select banner-desktop.png
+      const desktopRes = localizer.rewriteFiles([
+        { path: 'index.html', content: html, context: { surface: 'desktop' } }
+      ], manifest, { mode: 'relative' });
+
+      const desktopContent = desktopRes.files[0].rewrittenContent;
+      assert.ok(desktopContent.includes('href="assets/app.css"'), 'href must point to assets/');
+      assert.ok(desktopContent.includes('src="assets/banner-desktop.png"'), 'src must point to assets/ with desktop variant');
+      assert.ok(desktopContent.includes('srcset="assets/banner-desktop.png 1x, assets/banner-2x.png 2x"'), 'srcset must point to assets/');
+      assert.ok(desktopContent.includes('url(&quot;assets/bg.png&quot;)'), 'inline style must point to assets/');
+      assert.strictEqual(desktopContent.includes('assets/banner-mobile.png'), false, 'Mobile variant must not leak into desktop');
+    });
+
+    it('6.9. Downloaded asset content checksum (sha256) calculation and cache-read hashing', async () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-sha-test-'));
+
+      try {
+        const payload = Buffer.from('TEST_PAYLOAD_FOR_SHA256');
+        const expectedSha = createHash('sha256').update(payload).digest('hex');
+
+        const item: HarvestedAssetItem = {
+          type: 'image',
+          sourceUrl: 'https://example.com/cached.png',
+          filename: 'cached.png',
+          localPath: path.join(tempDir, 'cached.png'),
+          requestIdentity: 'desktop'
+        };
+
+        // Pre-create file on disk
+        fs.writeFileSync(item.localPath, payload);
+
+        const res = await localizer.downloadAssets([item], {
+          assetsDir: tempDir,
+          concurrency: 1
+        });
+
+        assert.strictEqual(res.downloaded.length, 1);
+        assert.strictEqual(res.downloaded[0].status, 'skipped_cached');
+        assert.strictEqual(res.downloaded[0].sha256, expectedSha);
+        assert.strictEqual(res.downloaded[0].requestIdentity, 'desktop');
+        assert.strictEqual(item.sha256, expectedSha);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.10. sanitizeRequestHeaders enforces strict allowlist (UA, accept, client hints) and drops secrets, Host, and header injection attempts', () => {
+      const dirty = {
+        'Authorization': 'Bearer secret_token_xyz',
+        'authorization': 'Bearer second_secret',
+        'Cookie': 'session=super_secret_cookie',
+        'set-cookie': 'id=123',
+        'x-haravan-access-token': 'token123',
+        'X-Shopify-Access-Token': 'token456',
+        'x-api-key': 'secret-api-key-999',
+        'proxy-authorization': 'Basic credentials',
+        'token': 'plain-token',
+        'Host': 'malicious-host.com',
+        'host': 'evil.internal',
+        'X-Forwarded-Host': 'spoofed.domain',
+        'User-Agent': 'ValidUA/1.0 (Windows NT 10.0)',
+        'sec-ch-ua-mobile': '?1',
+        'sec-ch-ua-platform': '"iOS"',
+        'Accept': 'image/webp,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'sec-ch-ua-injected': 'val\r\nInjected-Header: evil'
+      };
+
+      const clean = sanitizeRequestHeaders(dirty);
+      assert.ok(clean);
+      assert.strictEqual(clean['User-Agent'], 'ValidUA/1.0 (Windows NT 10.0)');
+      assert.strictEqual(clean['sec-ch-ua-mobile'], '?1');
+      assert.strictEqual(clean['sec-ch-ua-platform'], '"iOS"');
+      assert.strictEqual(clean['Accept'], 'image/webp,*/*');
+      assert.strictEqual(clean['Accept-Language'], 'en-US,en;q=0.9');
+
+      // Strict allowlist checks:
+      assert.strictEqual(clean['Authorization'], undefined);
+      assert.strictEqual(clean['authorization'], undefined);
+      assert.strictEqual(clean['Cookie'], undefined);
+      assert.strictEqual(clean['set-cookie'], undefined);
+      assert.strictEqual(clean['x-haravan-access-token'], undefined);
+      assert.strictEqual(clean['X-Shopify-Access-Token'], undefined);
+      assert.strictEqual(clean['x-api-key'], undefined);
+      assert.strictEqual(clean['proxy-authorization'], undefined);
+      assert.strictEqual(clean['token'], undefined);
+      assert.strictEqual(clean['Host'], undefined);
+      assert.strictEqual(clean['host'], undefined);
+      assert.strictEqual(clean['X-Forwarded-Host'], undefined);
+      // Header injection attempt must be dropped
+      assert.strictEqual(clean['sec-ch-ua-injected'], undefined);
+    });
+
+    it('6.11. Collision registry uses entityKey (type::sourceUrl::reqId) and progressively extends hash slice on collision', () => {
+      const harvester = new AssetHarvester();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-collision-harvest-'));
+
+      try {
+        const files: HarvestFileInput[] = [
+          {
+            path: 'a.html',
+            content: '<img src="https://cdn.example.com/v1/logo.png">'
+          },
+          {
+            path: 'b.html',
+            content: '<img src="https://other.example.com/v2/logo.png">'
+          }
+        ];
+
+        const manifest = harvester.harvestFromFiles(files, tempDir);
+        assert.strictEqual(manifest.images.length, 2);
+        assert.notStrictEqual(manifest.images[0].filename, manifest.images[1].filename);
+        // Both start with logo, but second has deterministic hash slice
+        assert.ok(manifest.images[0].filename.startsWith('logo'));
+        assert.ok(manifest.images[1].filename.startsWith('logo'));
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.12. Differing request headers on same surface generate distinct header fingerprints and prevent asset collapse', () => {
+      const harvester = new AssetHarvester();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-headerfp-harvest-'));
+
+      try {
+        const files: HarvestFileInput[] = [
+          {
+            path: 'index-en.html',
+            content: '<img src="https://example.com/dynamic-banner.png">',
+            context: {
+              surface: 'desktop',
+              requestHeaders: { 'Accept-Language': 'en-US,en;q=0.9' }
+            }
+          },
+          {
+            path: 'index-vi.html',
+            content: '<img src="https://example.com/dynamic-banner.png">',
+            context: {
+              surface: 'desktop',
+              requestHeaders: { 'Accept-Language': 'vi-VN,vi;q=0.9' }
+            }
+          }
+        ];
+
+        const manifest = harvester.harvestFromFiles(files, tempDir);
+        assert.strictEqual(manifest.images.length, 2, 'Differing request headers must prevent collapse into 1 item');
+        assert.notStrictEqual(manifest.images[0].requestIdentity, manifest.images[1].requestIdentity);
+        assert.notStrictEqual(manifest.images[0].filename, manifest.images[1].filename);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.13. rewriteFiles handles absolute caller file paths relative to options.assetsDir without ../../../ traversal bugs', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-abs-path-test-'));
+      const assetsDir = path.join(tempDir, 'assets');
+      const desktopHtmlPath = path.join(tempDir, 'index.html');
+      const mobileHtmlPath = path.join(tempDir, 'mobile', 'index.html');
+
+      try {
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [{
+            type: 'css',
+            sourceUrl: 'https://example.com/app.css',
+            filename: 'app.css',
+            localPath: path.join(assetsDir, 'app.css')
+          }],
+          javascripts: [],
+          images: [{
+            type: 'image',
+            sourceUrl: 'https://example.com/logo.png',
+            filename: 'logo.png',
+            localPath: path.join(assetsDir, 'logo.png')
+          }],
+          fonts: [],
+          totalBytes: 0
+        };
+
+        const res = localizer.rewriteFiles([
+          { path: desktopHtmlPath, content: '<link rel="stylesheet" href="https://example.com/app.css"><img src="https://example.com/logo.png">' },
+          { path: mobileHtmlPath, content: '<link rel="stylesheet" href="https://example.com/app.css"><img src="https://example.com/logo.png">' }
+        ], manifest, { mode: 'relative', assetsDir });
+
+        assert.strictEqual(res.files.length, 2);
+        const desktopRes = res.files.find(f => f.path === desktopHtmlPath)!;
+        const mobileRes = res.files.find(f => f.path === mobileHtmlPath)!;
+
+        assert.ok(desktopRes.rewrittenContent.includes('href="assets/app.css"'));
+        assert.ok(desktopRes.rewrittenContent.includes('src="assets/logo.png"'));
+        assert.strictEqual(desktopRes.rewrittenContent.includes('../'), false, 'Desktop must not contain ../ traversal');
+
+        assert.ok(mobileRes.rewrittenContent.includes('href="../assets/app.css"'));
+        assert.ok(mobileRes.rewrittenContent.includes('src="../assets/logo.png"'));
+        assert.strictEqual(mobileRes.rewrittenContent.includes('../../'), false, 'Mobile must resolve to clean ../assets/ not excessive ../');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('6.14. Same URL used across multiple types (css and js) rewrites link and script tags to distinct targets without collision', () => {
+      const localizer = new AssetLocalizer();
+      const manifest: HarvestedAssetManifest = {
+        stylesheets: [{
+          type: 'css',
+          sourceUrl: 'https://example.com/bundle',
+          filename: 'bundle.css',
+          localPath: '/tmp/bundle.css'
+        }],
+        javascripts: [{
+          type: 'js',
+          sourceUrl: 'https://example.com/bundle',
+          filename: 'bundle.js',
+          localPath: '/tmp/bundle.js'
+        }],
+        images: [],
+        fonts: [],
+        totalBytes: 0
+      };
+
+      const html = '<link rel="stylesheet" href="https://example.com/bundle"><script src="https://example.com/bundle"></script>';
+      const res = localizer.rewriteFiles([{ path: 'index.html', content: html }], manifest, { mode: 'relative' });
+
+      assert.strictEqual(res.totalReplacements, 2);
+      assert.ok(res.files[0].rewrittenContent.includes('href="assets/bundle.css"'), 'link tag must resolve to css target');
+      assert.ok(res.files[0].rewrittenContent.includes('src="assets/bundle.js"'), 'script tag must resolve to js target');
+    });
+
+    it('6.15. Provenance occurrence matching selects exact variant for file even when surface is identical', () => {
+      const localizer = new AssetLocalizer();
+      const manifest: HarvestedAssetManifest = {
+        stylesheets: [],
+        javascripts: [],
+        images: [
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/banner.png',
+            filename: 'banner-page1.png',
+            localPath: '/tmp/banner-page1.png',
+            occurrences: [{ filePath: 'pages/page1.html', tag: 'img', attribute: 'src' }]
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/banner.png',
+            filename: 'banner-page2.png',
+            localPath: '/tmp/banner-page2.png',
+            occurrences: [{ filePath: 'pages/page2.html', tag: 'img', attribute: 'src' }]
+          }
+        ],
+        fonts: [],
+        totalBytes: 0
+      };
+
+      const res1 = localizer.rewriteFiles([{ path: 'pages/page1.html', content: '<img src="https://example.com/banner.png">' }], manifest, { mode: 'relative' });
+      const res2 = localizer.rewriteFiles([{ path: 'pages/page2.html', content: '<img src="https://example.com/banner.png">' }], manifest, { mode: 'relative' });
+
+      assert.ok(res1.files[0].rewrittenContent.includes('banner-page1.png'), 'page1 must resolve to banner-page1');
+      assert.ok(res2.files[0].rewrittenContent.includes('banner-page2.png'), 'page2 must resolve to banner-page2');
+    });
+
+    it('6.16. Ambiguous asset variants without matching provenance, requestIdentity, or surface fail closed with AMBIGUOUS_ASSET_VARIANT', () => {
+      const localizer = new AssetLocalizer();
+      const manifest: HarvestedAssetManifest = {
+        stylesheets: [],
+        javascripts: [],
+        images: [
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/conflicting.png',
+            filename: 'conflicting-a.png',
+            localPath: '/tmp/a.png',
+            requestIdentity: 'custom-variant-a'
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/conflicting.png',
+            filename: 'conflicting-b.png',
+            localPath: '/tmp/b.png',
+            requestIdentity: 'custom-variant-b'
+          }
+        ],
+        fonts: [],
+        totalBytes: 0
+      };
+
+      assert.throws(() => {
+        localizer.rewriteFiles([{ path: 'unknown.html', content: '<img src="https://example.com/conflicting.png">' }], manifest, { mode: 'relative' });
+      }, /AMBIGUOUS_ASSET_VARIANT/);
     });
   });
 });

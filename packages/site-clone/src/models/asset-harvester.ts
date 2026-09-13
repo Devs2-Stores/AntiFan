@@ -24,6 +24,51 @@ function parseTagAttributes(tagHtml: string): Map<string, string> {
 function hashUrl(str: string): string {
   return createHash('sha256').update(str).digest('hex').slice(0, 8);
 }
+const ALLOWED_HEADER_REGEX = /^(?:user-agent|accept|accept-language|sec-ch-ua(?:-(?:mobile|platform|platform-version|model|arch|bitness|full-version-list))?)$/i;
+
+export function sanitizeRequestHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
+  if (!headers || typeof headers !== 'object') return undefined;
+  const clean: Record<string, string> = {};
+  for (const [rawKey, rawVal] of Object.entries(headers)) {
+    if (typeof rawKey !== 'string' || typeof rawVal !== 'string') continue;
+    const key = rawKey.trim().toLowerCase();
+    if (!ALLOWED_HEADER_REGEX.test(key)) continue;
+
+    const val = rawVal.trim();
+    if (!val || val.length > 1024 || /[\r\n\0]/.test(val)) continue;
+
+    clean[rawKey.trim()] = val;
+  }
+  return Object.keys(clean).length > 0 ? clean : undefined;
+}
+
+export function computeHeaderFingerprint(headers?: Record<string, string>): string | undefined {
+  const clean = sanitizeRequestHeaders(headers);
+  if (!clean || Object.keys(clean).length === 0) return undefined;
+  const sortedEntries = Object.entries(clean)
+    .map(([k, v]) => [k.toLowerCase().trim(), String(v).trim()])
+    .sort(([a], [b]) => a.localeCompare(b));
+  return createHash('sha256').update(JSON.stringify(sortedEntries)).digest('hex').slice(0, 8);
+}
+const WINDOWS_RESERVED_NAMES = new Set([
+  'CON', 'PRN', 'AUX', 'NUL',
+  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+]);
+
+function sanitizeStem(str: string, fallback: string): string {
+  let clean = str
+    .replace(/[^a-zA-Z0-9_@.-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || fallback;
+  if (WINDOWS_RESERVED_NAMES.has(clean.toUpperCase())) {
+    clean = `asset-${clean}`;
+  }
+  if (clean.length > 64) {
+    clean = clean.slice(0, 64).replace(/-+$/, '');
+  }
+  return clean;
+}
 
 /**
  * Repairs a scheme-relative typo that appears in upstream markup as an absolute
@@ -54,6 +99,9 @@ export interface AssetProvenanceOccurrence {
   filePath?: string;
   tag: string;
   attribute: string;
+  surface?: 'desktop' | 'mobile';
+  requestHeaders?: Record<string, string>;
+  requestIdentity?: string;
 }
 
 export interface HarvestedAssetItem {
@@ -65,11 +113,41 @@ export interface HarvestedAssetItem {
    * written back over the original text instead of leaving the typo in place.
    */
   rawSourceUrl?: string;
+  /**
+   * The raw filename/basename extracted from the source URL before any cleaning or collision allocation.
+   * Used by downstream compiler tools to migrate merchant asset references in settings_data.json.
+   */
+  originalFilename?: string;
   filename: string;
   localPath: string;
   byteCount?: number;
   occurrences?: AssetProvenanceOccurrence[];
   defer?: boolean;
+  requestHeaders?: Record<string, string>;
+  requestIdentity?: string;
+  sha256?: string;
+}
+
+export interface HarvestFileContext {
+  surface?: 'desktop' | 'mobile';
+  observedUrl?: string;
+  userAgent?: string;
+  requestHeaders?: Record<string, string>;
+  devicePixelRatio?: number;
+  requestIdentity?: string;
+}
+
+export interface HarvestFileInput {
+  path: string;
+  content: string;
+  context?: HarvestFileContext;
+}
+
+export interface HarvestContextOptions {
+  baseUrl?: string;
+  partitionBySurface?: boolean;
+  requestIdentity?: string;
+  requestHeaders?: Record<string, string>;
 }
 
 export interface HarvestedAssetManifest {
@@ -78,19 +156,31 @@ export interface HarvestedAssetManifest {
   images: HarvestedAssetItem[];
   fonts: HarvestedAssetItem[];
   totalBytes: number;
+  /**
+   * Map of original references (sourceUrl, rawSourceUrl, original basename, and relative paths)
+   * directly to the allocated destination filename (`item.filename`).
+   */
+  assetMap?: Record<string, string>;
 }
 export class AssetHarvester {
-  public harvestFromHtml(html: string, assetsDir: string, context?: { baseUrl?: string } | string): HarvestedAssetManifest {
+  public harvestFromHtml(html: string, assetsDir: string, context?: HarvestContextOptions | string): HarvestedAssetManifest {
     const normContext = typeof context === 'string' ? { baseUrl: context } : context;
     return this.harvestFromFiles([{ path: 'inline.html', content: html }], assetsDir, normContext);
   }
 
   public harvestFromFiles(
-    files: Array<{ path: string; content: string }>,
+    files: Array<HarvestFileInput>,
     assetsDir: string,
-    context?: { baseUrl?: string } | string
+    context?: HarvestContextOptions | string
   ): HarvestedAssetManifest {
     fs.mkdirSync(assetsDir, { recursive: true });
+    const manifest: HarvestedAssetManifest = {
+      stylesheets: [],
+      javascripts: [],
+      images: [],
+      fonts: [],
+      totalBytes: 0
+    };
     const normContext = typeof context === 'string' ? { baseUrl: context } : context;
     const baseUrl = normContext?.baseUrl;
     const normalizeRef = (raw: string): string => {
@@ -103,150 +193,99 @@ export class AssetHarvester {
       }
       return normalizeMalformedAbsoluteRef(trimmed, baseUrl);
     };
-    const manifest: HarvestedAssetManifest = {
-      stylesheets: [],
-      javascripts: [],
-      images: [],
-      fonts: [],
-      totalBytes: 0
-    };
 
-    let cssIdx = 1;
-    let jsIdx = 1;
-    let imgIdx = 1;
+    interface CollectedAssetEntry {
+      type: 'css' | 'js' | 'image' | 'font';
+      sourceUrl: string;
+      rawSourceUrl?: string;
+      originalFilename?: string;
+      occurrences: AssetProvenanceOccurrence[];
+      defer?: boolean;
+      requestIdentity?: string;
+      requestHeaders?: Record<string, string>;
+    }
 
-    const allocatedFilenames = new Map<string, string>(); // filename -> sourceUrl
+    const collectedMap = new Map<string, CollectedAssetEntry>();
 
-    const allocateFilename = (cleanUrl: string, sourceUrl: string, defaultPrefix: string, fallbackExt: string): string => {
-      const rawExt = path.extname(cleanUrl);
-      const ext = rawExt && rawExt.length <= 6 ? rawExt.toLowerCase() : fallbackExt;
-      let base = path.basename(cleanUrl, rawExt) || defaultPrefix;
+    const recordAsset = (
+      type: 'css' | 'js' | 'image' | 'font',
+      rawUrl: string,
+      provenance?: AssetProvenanceOccurrence,
+      defer?: boolean
+    ) => {
+      const raw = (rawUrl || '').trim();
+      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
+      if (type === 'js' && /(?:livewire|tawk|twk-|googletagmanager|google-analytics|analytics\.js|gtag|clarity|connect\.facebook\.net|fbq|subiz|vchat|zalo|hotjar|criteo)/i.test(raw)) return;
 
-      // 1. Clean build hashes (Vite / Webpack / Laravel Mix) for CSS & JS
-      if (ext === '.css' || ext === '.js') {
-        base = base.replace(/[-_.][a-zA-Z0-9_-]{8,12}$/, '');
-      }
+      const trimmed = normalizeRef(raw);
+      if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#')) return;
 
-      // 2. Clean image sizing tags and numeric indexing prefixes
-      if (/\.(png|jpe?g|webp|gif|svg|avif)$/i.test(ext)) {
-        base = base
-          .replace(/[-_]at[-_]\d+x$/i, '')
-          .replace(/@\d+x$/i, '')
-          .replace(/[-_]\d+x\d+$/i, '')
-          .replace(/^\d{2,3}[-_]/, '')
-          .replace(/^\d+([a-zA-Z])/, '$1');
-      }
+      const fileHeaders = activeFileContext?.requestHeaders
+        ? { ...(activeFileContext.userAgent ? { 'User-Agent': activeFileContext.userAgent } : {}), ...activeFileContext.requestHeaders }
+        : (activeFileContext?.userAgent ? { 'User-Agent': activeFileContext.userAgent } : undefined);
+      const effectiveHeaders = sanitizeRequestHeaders(provenance?.requestHeaders || fileHeaders || normContext?.requestHeaders);
+      const headerFp = computeHeaderFingerprint(effectiveHeaders);
 
-      const cleanBase = base.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || defaultPrefix;
+      const explicitReqId = provenance?.requestIdentity || activeFileContext?.requestIdentity || normContext?.requestIdentity;
+      const explicitSurface = provenance?.surface || activeFileContext?.surface;
+      const pathSurface = provenance?.filePath
+        ? (provenance.filePath.startsWith('mobile/') ? 'mobile' : 'desktop')
+        : undefined;
 
-      let candidate = `${cleanBase}${ext}`;
-      if (allocatedFilenames.has(candidate) && allocatedFilenames.get(candidate) !== sourceUrl) {
-        let counter = 2;
-        candidate = `${cleanBase}_${counter}${ext}`;
-        while (allocatedFilenames.has(candidate) && allocatedFilenames.get(candidate) !== sourceUrl) {
-          counter++;
-          candidate = `${cleanBase}_${counter}${ext}`;
+      let reqId: string | undefined = explicitReqId;
+      if (!reqId) {
+        if (explicitSurface) {
+          reqId = explicitSurface;
+        } else if (normContext?.partitionBySurface && pathSurface) {
+          reqId = pathSurface;
+        } else if (headerFp) {
+          reqId = `hdr-${headerFp}`;
         }
       }
-      allocatedFilenames.set(candidate, sourceUrl);
-      return candidate;
+
+      if (reqId && headerFp) {
+        const candidateKey = `${type}::${trimmed}::${reqId}`;
+        const existing = collectedMap.get(candidateKey);
+        if (existing && existing.requestHeaders && computeHeaderFingerprint(existing.requestHeaders) !== headerFp) {
+          reqId = `${reqId}-${headerFp}`;
+        }
+      }
+      const key = reqId ? `${type}::${trimmed}::${reqId}` : `${type}::${trimmed}`;
+      const cleanPath = trimmed.split('?')[0].split('#')[0];
+      const rawOriginalFilename = path.basename(cleanPath) || undefined;
+
+      const existing = collectedMap.get(key);
+      if (existing) {
+        if (trimmed !== raw && !existing.rawSourceUrl) {
+          existing.rawSourceUrl = raw;
+        }
+        if (provenance) {
+          existing.occurrences.push(provenance);
+        }
+        if (defer) existing.defer = true;
+      } else {
+        const defaultHeaders = effectiveHeaders || (
+          reqId?.startsWith('mobile')
+            ? { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1', 'sec-ch-ua-mobile': '?1' }
+            : (reqId?.startsWith('desktop') ? { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'sec-ch-ua-mobile': '?0' } : undefined)
+        );
+        collectedMap.set(key, {
+          type,
+          sourceUrl: trimmed,
+          rawSourceUrl: trimmed !== raw ? raw : undefined,
+          originalFilename: rawOriginalFilename,
+          occurrences: provenance ? [provenance] : [],
+          defer: defer ? true : undefined,
+          requestIdentity: reqId,
+          requestHeaders: defaultHeaders
+        });
+      }
     };
 
-    const addStylesheet = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => {
-      const raw = (rawUrl || '').trim();
-      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
-      const trimmed = normalizeRef(raw);
-      const existing = manifest.stylesheets.find(item => item.sourceUrl === trimmed);
-      if (existing) {
-        if (trimmed !== raw && !existing.rawSourceUrl) existing.rawSourceUrl = raw;
-        if (provenance && existing.occurrences) existing.occurrences.push(provenance);
-        return;
-      }
-      const cleanUrl = trimmed.split('?')[0].split('#')[0];
-      const filename = allocateFilename(cleanUrl, trimmed, `style_${cssIdx}`, '.css');
-      const item: HarvestedAssetItem = {
-        type: 'css',
-        sourceUrl: trimmed,
-        filename,
-        localPath: path.join(assetsDir, filename),
-        occurrences: provenance ? [provenance] : []
-      };
-      if (trimmed !== raw) item.rawSourceUrl = raw;
-      manifest.stylesheets.push(item);
-      cssIdx++;
-    };
-
-    const addScript = (rawUrl: string, provenance?: AssetProvenanceOccurrence, defer?: boolean) => {
-      const raw = (rawUrl || '').trim();
-      if (!raw || raw.startsWith('data:') || raw.startsWith('#') || /(?:livewire|tawk|twk-|googletagmanager|google-analytics|analytics\.js|gtag|clarity|connect\.facebook\.net|fbq|subiz|vchat|zalo|hotjar|criteo)/i.test(raw)) return;
-      const trimmed = normalizeRef(raw);
-      const existing = manifest.javascripts.find(item => item.sourceUrl === trimmed);
-      if (existing) {
-        if (trimmed !== raw && !existing.rawSourceUrl) existing.rawSourceUrl = raw;
-        if (provenance && existing.occurrences) existing.occurrences.push(provenance);
-        return;
-      }
-      const cleanUrl = trimmed.split('?')[0].split('#')[0];
-      const filename = allocateFilename(cleanUrl, trimmed, `script_${jsIdx}`, '.js');
-      const item: HarvestedAssetItem = {
-        type: 'js',
-        sourceUrl: trimmed,
-        filename,
-        localPath: path.join(assetsDir, filename),
-        occurrences: provenance ? [provenance] : [],
-        defer: defer ? true : undefined
-      };
-      if (trimmed !== raw) item.rawSourceUrl = raw;
-      manifest.javascripts.push(item);
-      jsIdx++;
-    };
-
-    const addImage = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => {
-      const raw = (rawUrl || '').trim();
-      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
-      const trimmed = normalizeRef(raw);
-      const existing = manifest.images.find(item => item.sourceUrl === trimmed);
-      if (existing) {
-        if (trimmed !== raw && !existing.rawSourceUrl) existing.rawSourceUrl = raw;
-        if (provenance && existing.occurrences) existing.occurrences.push(provenance);
-        return;
-      }
-      const cleanUrl = trimmed.split('?')[0].split('#')[0];
-      const filename = allocateFilename(cleanUrl, trimmed, `image_${imgIdx}`, '.png');
-      const item: HarvestedAssetItem = {
-        type: 'image',
-        sourceUrl: trimmed,
-        filename,
-        localPath: path.join(assetsDir, filename),
-        occurrences: provenance ? [provenance] : []
-      };
-      if (trimmed !== raw) item.rawSourceUrl = raw;
-      manifest.images.push(item);
-      imgIdx++;
-    };
-
-    const addFont = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => {
-      const raw = (rawUrl || '').trim();
-      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
-      const trimmed = normalizeRef(raw);
-      const existing = manifest.fonts.find(item => item.sourceUrl === trimmed);
-      if (existing) {
-        if (trimmed !== raw && !existing.rawSourceUrl) existing.rawSourceUrl = raw;
-        if (provenance && existing.occurrences) existing.occurrences.push(provenance);
-        return;
-      }
-      const cleanUrl = trimmed.split('?')[0].split('#')[0];
-      const filename = allocateFilename(cleanUrl, trimmed, `font_${manifest.fonts.length + 1}`, '.woff2');
-      const item: HarvestedAssetItem = {
-        type: 'font',
-        sourceUrl: trimmed,
-        filename,
-        localPath: path.join(assetsDir, filename),
-        occurrences: provenance ? [provenance] : []
-      };
-      if (trimmed !== raw) item.rawSourceUrl = raw;
-      manifest.fonts.push(item);
-    };
+    const addStylesheet = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => recordAsset('css', rawUrl, provenance);
+    const addScript = (rawUrl: string, provenance?: AssetProvenanceOccurrence, defer?: boolean) => recordAsset('js', rawUrl, provenance, defer);
+    const addImage = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => recordAsset('image', rawUrl, provenance);
+    const addFont = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => recordAsset('font', rawUrl, provenance);
 
     const parseSrcset = (srcsetValue: string, provenance?: AssetProvenanceOccurrence) => {
       if (!srcsetValue) return;
@@ -256,8 +295,10 @@ export class AssetHarvester {
         if (urlPart) addImage(urlPart, provenance);
       }
     };
+    let activeFileContext: HarvestFileContext | undefined;
     for (const file of files) {
-      const { path: filePath, content } = file;
+      const { path: filePath, content, context: fileContext } = file;
+      activeFileContext = fileContext;
 
       // 1. Extract CSS stylesheets (<link rel="stylesheet">)
       const linkTagRegex = /<link\b([^>]*)>/gi;
@@ -376,6 +417,295 @@ export class AssetHarvester {
         } else if (/\.(?:woff2?|ttf|eot|otf)(?:[?#]|$)/i.test(urlCandidate)) {
           addFont(urlCandidate, { filePath, tag: 'css', attribute: 'url()' });
         }
+      }
+    }
+
+    // 7. Deterministic Allocation of Asset Filenames across all collected assets
+    // Sort deterministically by type then sourceUrl to eliminate traversal-order dependencies
+    const sortedEntries = Array.from(collectedMap.values()).sort((a, b) => {
+      if (a.type !== b.type) return a.type.localeCompare(b.type);
+      return a.sourceUrl.localeCompare(b.sourceUrl);
+    });
+
+    interface AnalyzedAsset {
+      entry: CollectedAssetEntry;
+      cleanBase: string;
+      ext: string;
+      surface: 'desktop' | 'mobile' | 'shared' | 'unknown';
+      density?: string;
+      dimension?: string;
+      queryQualifier?: string;
+      buildHash?: string;
+      assignedFilename?: string;
+    }
+
+    const analyzedAssets: AnalyzedAsset[] = sortedEntries.map(entry => {
+      let pathname = '';
+      let search = '';
+      try {
+        const parsed = new URL(entry.sourceUrl.startsWith('//') ? 'https:' + entry.sourceUrl : entry.sourceUrl);
+        pathname = parsed.pathname;
+        search = parsed.search;
+      } catch {
+        const qIdx = entry.sourceUrl.indexOf('?');
+        const hIdx = entry.sourceUrl.indexOf('#');
+        const cutIdx = qIdx !== -1 && hIdx !== -1 ? Math.min(qIdx, hIdx) : qIdx !== -1 ? qIdx : hIdx;
+        pathname = cutIdx !== -1 ? entry.sourceUrl.slice(0, cutIdx) : entry.sourceUrl;
+        search = qIdx !== -1 ? entry.sourceUrl.slice(qIdx, hIdx !== -1 ? hIdx : undefined) : '';
+      }
+
+      const defaultPrefix = entry.type === 'css' ? 'style' : entry.type === 'js' ? 'script' : entry.type === 'font' ? 'font' : 'image';
+      const fallbackExt = entry.type === 'css' ? '.css' : entry.type === 'js' ? '.js' : entry.type === 'font' ? '.woff2' : '.png';
+
+      const rawExt = path.extname(pathname);
+      const ext = rawExt && rawExt.length <= 6 && /^\.[a-zA-Z0-9]+$/.test(rawExt) ? rawExt.toLowerCase() : fallbackExt;
+      let base = path.basename(pathname, rawExt) || defaultPrefix;
+
+      let buildHash: string | undefined;
+      if (ext === '.css' || ext === '.js') {
+        const hashMatch = base.match(/[-_.]([a-zA-Z0-9_-]{8,12})$/);
+        if (hashMatch) {
+          buildHash = hashMatch[1].toLowerCase();
+          base = base.slice(0, -hashMatch[0].length);
+        }
+      }
+
+      let density: string | undefined;
+      let dimension: string | undefined;
+      if (/\.(png|jpe?g|webp|gif|svg|avif)$/i.test(ext)) {
+        const densityMatch = base.match(/(?:@|[-_]at[-_]|[-_])(\d+(?:\.\d+)?x)$/i);
+        if (densityMatch) {
+          density = densityMatch[1].toLowerCase();
+          base = base.slice(0, -densityMatch[0].length);
+        }
+        const dimMatch = base.match(/[-_](\d{2,5}x\d{2,5})$/i);
+        if (dimMatch) {
+          dimension = dimMatch[1].toLowerCase();
+          base = base.slice(0, -dimMatch[0].length);
+        }
+        base = base.replace(/^\d{2,3}[-_]/, '').replace(/^\d+([a-zA-Z])/, '$1');
+      }
+
+      let queryQualifier: string | undefined;
+      if (search && search.length > 1) {
+        try {
+          const sp = new URLSearchParams(search);
+          const width = sp.get('width') || sp.get('w');
+          const height = sp.get('height') || sp.get('h');
+          const qDensity = sp.get('density') || sp.get('dpr') || sp.get('scale');
+          const variant = sp.get('variant') || sp.get('color') || sp.get('theme');
+
+          if (width && height) {
+            queryQualifier = `${width}x${height}`;
+          } else if (width) {
+            queryQualifier = `w${width}`;
+          } else if (qDensity && !density) {
+            density = `${qDensity}x`;
+          } else if (variant) {
+            queryQualifier = variant.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 16);
+          } else {
+            queryQualifier = `q${hashUrl(search).slice(0, 6)}`;
+          }
+        } catch {}
+      }
+
+      const cleanBase = sanitizeStem(base, defaultPrefix);
+
+      let hasMobile = false;
+      let hasDesktop = false;
+      if (entry.requestIdentity === 'mobile') {
+        hasMobile = true;
+      } else if (entry.requestIdentity === 'desktop') {
+        hasDesktop = true;
+      }
+      for (const occ of entry.occurrences) {
+        if (occ.surface === 'mobile' || occ.requestIdentity === 'mobile') {
+          hasMobile = true;
+        } else if (occ.surface === 'desktop' || occ.requestIdentity === 'desktop') {
+          hasDesktop = true;
+        }
+        const fp = (occ.filePath || '').toLowerCase();
+        if (/(?:^|[/\-_])mobile(?:[/\-_.]|$)/.test(fp)) {
+          hasMobile = true;
+        } else if (/(?:^|[/\-_])desktop(?:[/\-_.]|$)/.test(fp) || fp === 'index.html' || fp === 'inline.html') {
+          hasDesktop = true;
+        }
+      }
+      const surface = (hasMobile && hasDesktop) ? 'shared' : hasMobile ? 'mobile' : hasDesktop ? 'desktop' : 'unknown';
+
+      return {
+        entry,
+        cleanBase,
+        ext,
+        surface,
+        density,
+        dimension,
+        queryQualifier,
+        buildHash
+      };
+    });
+
+    const baseGroups = new Map<string, AnalyzedAsset[]>();
+    for (const asset of analyzedAssets) {
+      const groupKey = `${asset.cleanBase}${asset.ext}`.toLowerCase();
+      const list = baseGroups.get(groupKey) || [];
+      list.push(asset);
+      baseGroups.set(groupKey, list);
+    }
+
+    const allocatedFilenames = new Map<string, string>(); // lowerFilename -> entityKey (type::sourceUrl::requestIdentity)
+    const getEntityKey = (entry: CollectedAssetEntry): string => `${entry.type}::${entry.sourceUrl}::${entry.requestIdentity || ''}`;
+
+    const allocateUniqueFilename = (a: AnalyzedAsset, preferredBase: string): string => {
+      const entityKey = getEntityKey(a.entry);
+      let filename = `${preferredBase}${a.ext}`;
+      const candLower = filename.toLowerCase();
+
+      if (!allocatedFilenames.has(candLower) || allocatedFilenames.get(candLower) === entityKey) {
+        allocatedFilenames.set(candLower, entityKey);
+        return filename;
+      }
+
+      // Collision detected! Deterministically extend hash of entityKey until unique.
+      const fullHash = createHash('sha256').update(entityKey).digest('hex');
+      let hashSliceLen = 8;
+      while (hashSliceLen <= 32) {
+        filename = `${preferredBase}-${fullHash.slice(0, hashSliceLen)}${a.ext}`;
+        const lower = filename.toLowerCase();
+        if (!allocatedFilenames.has(lower) || allocatedFilenames.get(lower) === entityKey) {
+          allocatedFilenames.set(lower, entityKey);
+          return filename;
+        }
+        hashSliceLen += 4;
+      }
+
+      let counter = 2;
+      while (counter <= 1000) {
+        filename = `${preferredBase}-${fullHash.slice(0, 16)}-${counter}${a.ext}`;
+        const lower = filename.toLowerCase();
+        if (!allocatedFilenames.has(lower) || allocatedFilenames.get(lower) === entityKey) {
+          allocatedFilenames.set(lower, entityKey);
+          return filename;
+        }
+        counter++;
+      }
+
+      throw new Error(`FATAL_FILENAME_COLLISION_EXHAUSTION: Unable to allocate unique filename for ${entityKey}`);
+    };
+
+    for (const [, group] of baseGroups) {
+      if (group.length === 1) {
+        const a = group[0];
+        let candidate = a.cleanBase;
+        if (a.dimension) {
+          candidate = `${candidate}-${a.dimension}`;
+        }
+        if (a.density && /@\d+(?:\.\d+)?x/i.test(a.entry.sourceUrl)) {
+          candidate = `${candidate}@${a.density}`;
+        }
+        a.assignedFilename = allocateUniqueFilename(a, candidate);
+      } else {
+        const surfacesInGroup = new Set(group.map(x => x.surface));
+        const queryQualifiers = new Set(group.map(x => x.queryQualifier).filter(Boolean));
+        const buildHashes = new Set(group.map(x => x.buildHash).filter(Boolean));
+        const densities = new Set(group.map(x => x.density).filter(Boolean));
+        const dimensions = new Set(group.map(x => x.dimension).filter(Boolean));
+
+        const candidateMap = new Map<AnalyzedAsset, string>();
+        const candidateCounts = new Map<string, number>();
+
+        for (const a of group) {
+          let candidate = a.cleanBase;
+          if (a.density && (densities.size > 1 || /@\d+(?:\.\d+)?x/i.test(a.entry.sourceUrl))) {
+            const prefix = /@\d+(?:\.\d+)?x/i.test(a.entry.sourceUrl) ? '@' : '-';
+            candidate = `${candidate}${prefix}${a.density}`;
+          }
+          if (a.dimension && dimensions.size > 1) {
+            candidate = `${candidate}-${a.dimension}`;
+          }
+          if (surfacesInGroup.has('desktop') && surfacesInGroup.has('mobile') && (a.surface === 'desktop' || a.surface === 'mobile')) {
+            candidate = `${candidate}-${a.surface}`;
+          }
+          if (a.queryQualifier && queryQualifiers.size > 1) {
+            candidate = `${candidate}-${a.queryQualifier}`;
+          }
+          if (a.buildHash && buildHashes.size > 1) {
+            candidate = `${candidate}-${a.buildHash}`;
+          }
+
+          candidateMap.set(a, candidate);
+          const candKey = `${candidate}${a.ext}`.toLowerCase();
+          candidateCounts.set(candKey, (candidateCounts.get(candKey) || 0) + 1);
+        }
+
+        for (const a of group) {
+          let candidate = candidateMap.get(a)!;
+          const candKey = `${candidate}${a.ext}`.toLowerCase();
+          if ((candidateCounts.get(candKey) || 0) > 1) {
+            candidate = `${candidate}-${hashUrl(a.entry.sourceUrl).slice(0, 8)}`;
+          }
+
+          a.assignedFilename = allocateUniqueFilename(a, candidate);
+        }
+      }
+    }
+    const aliasCandidates = new Map<string, Set<string>>();
+    const recordAlias = (alias: string | undefined, filename: string) => {
+      if (!alias) return;
+      const set = aliasCandidates.get(alias) || new Set<string>();
+      set.add(filename);
+      aliasCandidates.set(alias, set);
+    };
+
+    const analyzedByEntry = new Map<CollectedAssetEntry, AnalyzedAsset>();
+    for (const a of analyzedAssets) {
+      analyzedByEntry.set(a.entry, a);
+    }
+
+    for (const entry of collectedMap.values()) {
+      const a = analyzedByEntry.get(entry);
+      if (!a) continue;
+      const filename = a.assignedFilename || `${a.cleanBase}${a.ext}`;
+      const item: HarvestedAssetItem = {
+        type: a.entry.type,
+        sourceUrl: a.entry.sourceUrl,
+        originalFilename: a.entry.originalFilename,
+        filename,
+        localPath: path.join(assetsDir, filename),
+        occurrences: a.entry.occurrences,
+        defer: a.entry.defer,
+        requestIdentity: a.entry.requestIdentity,
+        requestHeaders: a.entry.requestHeaders
+      };
+      if (a.entry.rawSourceUrl) {
+        item.rawSourceUrl = a.entry.rawSourceUrl;
+      }
+      if (item.type === 'css') manifest.stylesheets.push(item);
+      else if (item.type === 'js') manifest.javascripts.push(item);
+      else if (item.type === 'image') manifest.images.push(item);
+      else if (item.type === 'font') manifest.fonts.push(item);
+
+      recordAlias(item.sourceUrl, filename);
+      if (item.rawSourceUrl) {
+        recordAlias(item.rawSourceUrl, filename);
+      }
+      if (item.originalFilename) {
+        recordAlias(item.originalFilename, filename);
+        recordAlias(`assets/${item.originalFilename}`, filename);
+        recordAlias(`/assets/${item.originalFilename}`, filename);
+      }
+      if (item.requestIdentity) {
+        recordAlias(`${item.sourceUrl}#${item.requestIdentity}`, filename);
+        if (item.originalFilename) {
+          recordAlias(`${item.originalFilename}#${item.requestIdentity}`, filename);
+        }
+      }
+    }
+
+    manifest.assetMap = {};
+    for (const [alias, targets] of aliasCandidates) {
+      if (targets.size === 1) {
+        manifest.assetMap[alias] = Array.from(targets)[0];
       }
     }
 

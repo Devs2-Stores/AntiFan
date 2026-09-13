@@ -258,4 +258,58 @@ describe('BlueprintExtractor - AST DOM Parsing & Safety Invariants', () => {
     assert.strictEqual(sections[1].id, 'section_categories');
     assert.strictEqual(sections[2].id, 'section_news');
   });
+
+  it('12. Preserves authentic rawHtml for header and footer sections without placeholder content', () => {
+    const html = `
+      <body>
+        <header class="site-header">
+          <div class="logo"><a href="/"><span>My Authentic Store</span></a></div>
+        </header>
+        <section class="section-hero">
+          <div class="s-wrap"><div class="s-content"><div class="item">Slide 1</div></div></div>
+        </section>
+        <footer class="site-footer">
+          <div class="footer-info"><p>Authentic Company Address 123</p></div>
+        </footer>
+      </body>
+    `;
+
+    const sections = extractor.extractSections(html);
+    const headerSec = sections.find((s) => s.type === 'header');
+    const footerSec = sections.find((s) => s.type === 'footer');
+    assert.ok(headerSec, 'Header section should be extracted');
+    assert.ok(footerSec, 'Footer section should be extracted');
+    assert.ok(
+      headerSec.liquidTemplate.includes('My Authentic Store'),
+      'Header must preserve authentic DOM rather than placeholder text'
+    );
+    assert.ok(
+      !headerSec.liquidTemplate.includes('Cửa hàng thực nghiệm'),
+      'Header must not contain synthetic placeholder store name'
+    );
+    assert.ok(
+      footerSec.liquidTemplate.includes('Authentic Company Address 123'),
+      'Footer must preserve authentic DOM'
+    );
+  });
+
+  it('13. Drops tracking widgets with tracking classes and third party scripts', () => {
+    const html = `
+      <body>
+        <div id="fb-root"></div>
+        <div class="fb-customerchat" attribution="setup_tool" page_id="123456789"></div>
+        <div class="zalo-chat-widget" data-oaid="579745863508352884"></div>
+        <section class="section-real-content">
+          <h1>Real Content</h1>
+        </section>
+      </body>
+    `;
+
+    const sections = extractor.extractSections(html);
+    assert.strictEqual(sections.length, 1, 'Only real content section should be extracted');
+    assert.ok(
+      sections[0].rawHtml.includes('Real Content'),
+      'Real content section is preserved'
+    );
+  });
 });

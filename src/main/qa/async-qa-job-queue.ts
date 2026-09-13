@@ -33,12 +33,20 @@ export class AsyncThemeQaQueue {
       })
       .finally(() => {
         const current = this.activeJobs.get(tabId);
-        if (current && current.generation === generation) {
+        if (current === job) {
           this.activeJobs.delete(tabId);
         }
       });
   }
 
+  public rebindGeneration(tabId: string, newGeneration: number): boolean {
+    const job = this.activeJobs.get(tabId);
+    if (job) {
+      job.generation = newGeneration;
+      return true;
+    }
+    return false;
+  }
   public abort(tabId: string): void {
     const job = this.activeJobs.get(tabId);
     if (job) {

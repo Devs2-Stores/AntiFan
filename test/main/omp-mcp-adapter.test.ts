@@ -1126,4 +1126,14 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       await new Promise<void>((resolve) => wss.close(() => httpServer.close(() => resolve())));
     }
   });
+  it('exposes expectedTargetUrl, expectedBaselineUrl, expectedUrl, and maxGeometryDeltaPx in anti.visual.compare MCP tool schema', () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+    const content = fs.readFileSync(scriptPath, 'utf8');
+
+    assert.ok(content.includes('expectedTargetUrl'), 'MCP schema must expose expectedTargetUrl for route verification');
+    assert.ok(content.includes('expectedBaselineUrl'), 'MCP schema must expose expectedBaselineUrl for route verification');
+    assert.ok(content.includes('maxGeometryDeltaPx'), 'MCP schema must expose maxGeometryDeltaPx for structural comparison');
+  });
 });

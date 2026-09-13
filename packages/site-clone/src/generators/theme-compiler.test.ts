@@ -4,7 +4,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { ThemeCompiler } from './theme-compiler.js';
-import type { ComponentContractIR } from '../models/clone-ir.js';
+import {
+  type ComponentContractIR,
+  createDefaultComponentContractIR,
+} from '../models/clone-ir.js';
 
 describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit Phase 05)', () => {
   const compiler = new ThemeCompiler();
@@ -407,6 +410,557 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
       assert.ok(content.includes('src="{{ \'logo.png\' | asset_url }}"'), 'Must keep single-quoted filename inside double-quoted src');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('11. Safely preserves existing merchant-owned settings in config/settings_data.json on recompile', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-test-merchant-settings-'));
+    const configDir = path.join(tempDir, 'config');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'settings_data.json'),
+      JSON.stringify({
+        current: {
+          merchant_custom_announcement: 'Sale 50% Off Today',
+          merchant_theme_color: '#ff5500',
+        },
+      }),
+      'utf-8'
+    );
+
+    const html = '<section id="sec_welcome"><h2>Welcome</h2></section>';
+
+    try {
+      compiler.compileTheme(tempDir, html);
+      const dataPath = path.join(tempDir, 'config', 'settings_data.json');
+      assert.ok(fs.existsSync(dataPath));
+      const data = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
+      assert.strictEqual(
+        data.current.merchant_custom_announcement,
+        'Sale 50% Off Today',
+        'Merchant announcement setting must be preserved'
+      );
+      assert.strictEqual(
+        data.current.merchant_theme_color,
+        '#ff5500',
+        'Merchant theme color setting must be preserved'
+      );
+      assert.ok(
+        'sec_welcome_enabled' in data.current,
+        'Compiler generated setting should also be present'
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('12. Preserves authentic rawHtml when liquidTemplate carries synthetic section.blocks loop', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-test-rawhtml-blocks-'));
+    const ir: ComponentContractIR = {
+      ...createDefaultComponentContractIR('https://example.com'),
+      sections: [
+        {
+          id: 'sec_authentic_banner',
+          name: 'Authentic Banner',
+          archetype: 'custom_section',
+          layoutType: 'flow',
+          heading: 'Authentic Banner',
+          className: 'authentic-banner-class',
+          rawHtml: '<div class="authentic-banner-class"><div class="hero-inner"><h1>Hero Authentic</h1></div></div>',
+          liquidTemplate: '<div class="authentic-banner-class">{% for block in section.blocks %}<div class="slide">{{ block.settings.title }}</div>{% endfor %}</div>',
+          blockDefinitions: [],
+          settings: {},
+          blocks: [],
+        },
+      ],
+    };
+
+    try {
+      compiler.compileThemeFromIR(tempDir, ir);
+      const snippetPath = path.join(tempDir, 'snippets', 'sec_authentic_banner.liquid');
+      assert.ok(fs.existsSync(snippetPath));
+      const content = fs.readFileSync(snippetPath, 'utf-8');
+      assert.ok(
+        content.includes('Hero Authentic'),
+        'Must preserve authentic rawHtml content in snippet'
+      );
+      assert.ok(
+        !content.includes('{% for block in section.blocks %}'),
+        'Must not emit synthetic section.blocks loop in Haravan flat snippet'
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('13. Prevents duplicate id attribute injection in modal controller', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-test-modal-id-'));
+    const html = `
+      <section id="sec_modal_test">
+        <button class="modal-btn" data-target="#modal-dialog-1">Open Modal</button>
+        <div class="modal" id="modal-dialog-1">
+          <div class="modal-content"><p>Content</p></div>
+        </div>
+      </section>
+    `;
+
+    try {
+      compiler.compileTheme(tempDir, html);
+      const snippetPath = path.join(tempDir, 'snippets', 'sec_modal_test.liquid');
+      assert.ok(fs.existsSync(snippetPath));
+      const content = fs.readFileSync(snippetPath, 'utf-8');
+      const idMatches = content.match(/id=["']modal-dialog-1["']/gi);
+      assert.strictEqual(idMatches?.length, 1, 'Modal dialog should have exactly one id attribute');
+      assert.ok(content.includes('data-antifan-modal-dialog'), 'Must have modal dialog attribute');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('14. Uses defined IR layout breakpoint instead of invented 991px in custom CSS and responsive media queries', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-test-breakpoint-'));
+    const ir: ComponentContractIR = {
+      ...createDefaultComponentContractIR('https://example.com'),
+      layout: {
+        containerMaxWidth: 1280,
+        containerPaddingPx: 16,
+        gridGapPx: 20,
+        breakpoints: {
+          mobileMax: 768,
+          tabletMin: 769,
+          tabletMax: 1024,
+          desktopMin: 1025,
+        },
+      },
+      sections: [
+        {
+          id: 'sec_test',
+          name: 'Test Section',
+          archetype: 'custom_section',
+          layoutType: 'flow',
+          rawHtml: '<div class="test">Test</div>',
+          liquidTemplate: '<div class="test">Test</div>',
+          blockDefinitions: [],
+          settings: {},
+          blocks: [],
+        },
+      ],
+    };
+
+    try {
+      compiler.compileThemeFromIR(tempDir, ir);
+      const customCssPath = path.join(tempDir, 'assets', 'custom.css');
+      assert.ok(fs.existsSync(customCssPath));
+      const customCss = fs.readFileSync(customCssPath, 'utf-8');
+      assert.ok(
+        !customCss.includes('@media (max-width: 991px)'),
+        'Must not invent arbitrary 991px media queries in custom.css'
+      );
+      assert.ok(
+        !customCss.includes('.mobile-only { display: block; }'),
+        'Must not emit global hiding/display toggles in custom.css'
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('15. Preserves user-owned snippets not in compiler manifest and fails on overwrite conflict without waiver', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-test-user-preservation-'));
+    const snippetsDir = path.join(tempDir, 'snippets');
+    fs.mkdirSync(snippetsDir, { recursive: true });
+    const userSnippetPath = path.join(snippetsDir, 'user_custom_widget.liquid');
+    fs.writeFileSync(userSnippetPath, '<div>My Custom User Widget</div>', 'utf-8');
+
+    const html1 = '<section id="sec_standard"><h2>Standard Section</h2></section>';
+
+    try {
+      // Run 1: Compile theme with unrelated section
+      compiler.compileTheme(tempDir, html1);
+      assert.ok(fs.existsSync(userSnippetPath), 'User-owned snippet must be preserved');
+      assert.strictEqual(
+        fs.readFileSync(userSnippetPath, 'utf-8'),
+        '<div>My Custom User Widget</div>',
+        'User-owned snippet content must not be modified'
+      );
+
+      // Run 2: Compile with section ID that conflicts with user-owned snippet without waiver -> must throw
+      const conflictingHtml = '<section id="user_custom_widget"><h2>Conflict Section</h2></section>';
+      assert.throws(
+        () => {
+          compiler.compileTheme(tempDir, conflictingHtml);
+        },
+        /overwrite conflict on user-owned file/i,
+        'Compiler must fail closed on overwrite conflict with user-owned file'
+      );
+
+      // Run 3: Conflicting compilation without waiver always fails closed
+      assert.throws(
+        () => {
+          compiler.compileTheme(tempDir, conflictingHtml);
+        },
+        /overwrite conflict on user-owned file/i,
+        'Compilation must refuse to overwrite unmanaged file unconditionally'
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('16. Migrates merchant asset settings in settings_data.json when assets are renamed per manifest assetMap', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-test-asset-rename-migration-'));
+    const configDir = path.join(tempDir, 'config');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'settings_data.json'),
+      JSON.stringify({
+        current: {
+          site_logo: 'logo-original.png',
+          hero_bg: 'assets/hero-raw.jpg',
+          promo_banner: 'banner-promo.png',
+          ambiguous_asset: 'shared-icon.png',
+        },
+      }),
+      'utf-8'
+    );
+
+    const ir: ComponentContractIR = {
+      ...createDefaultComponentContractIR('https://example.com'),
+      assets: {
+        stylesheets: [],
+        javascripts: [],
+        fonts: [],
+        images: [
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/images/logo-original.png',
+            filename: 'logo-original-desktop.png',
+            localPath: '',
+            originalFilename: 'logo-original.png',
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/images/hero-raw.jpg',
+            filename: 'hero-raw-w1920.jpg',
+            localPath: '',
+            originalFilename: 'hero-raw.jpg',
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/images/shared-icon.png',
+            filename: 'shared-icon-desktop.png',
+            localPath: '',
+            originalFilename: 'shared-icon.png',
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/mobile/images/shared-icon.png',
+            filename: 'shared-icon-mobile.png',
+            localPath: '',
+            originalFilename: 'shared-icon.png',
+          },
+        ],
+        totalBytes: 1000,
+        assetMap: {
+          'logo-original.png': 'logo-original-desktop.png',
+          'hero-raw.jpg': 'hero-raw-w1920.jpg',
+        },
+      } as unknown as ComponentContractIR['assets'],
+      sections: [
+        {
+          id: 'sec_home',
+          name: 'Home Section',
+          archetype: 'custom_section',
+          layoutType: 'flow',
+          rawHtml: '<div>Home</div>',
+          liquidTemplate: '<div>Home</div>',
+          blockDefinitions: [],
+          settings: {},
+          blocks: [],
+        },
+      ],
+    };
+
+    try {
+      compiler.compileThemeFromIR(tempDir, ir);
+      const dataPath = path.join(tempDir, 'config', 'settings_data.json');
+      assert.ok(fs.existsSync(dataPath));
+      const data = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
+      assert.strictEqual(
+        data.current.site_logo,
+        'logo-original-desktop.png',
+        'Merchant logo asset reference must be migrated to renamed asset filename'
+      );
+      assert.strictEqual(
+        data.current.hero_bg,
+        'assets/hero-raw-w1920.jpg',
+        'Merchant asset path reference must be migrated to renamed asset path'
+      );
+      assert.strictEqual(
+        data.current.promo_banner,
+        'banner-promo.png',
+        'Unrenamed merchant asset reference must stay untouched'
+      );
+      assert.strictEqual(
+        data.current.ambiguous_asset,
+        'shared-icon.png',
+        'Ambiguous asset reference shared across multiple targets must be refused and preserved as-is'
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('17. Preserves full dual-surface DOM (header, body sections, footer) when options.mobileHtml is provided, keying layout primarily on source viewport breakpoint with data-device support', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-dual-surface-'));
+    const ir: ComponentContractIR = {
+      ...createDefaultComponentContractIR('https://example.com'),
+      layout: {
+        containerMaxWidth: 1200,
+        containerPaddingPx: 15,
+        gridGapPx: 16,
+        breakpoints: {
+          mobileMax: 768,
+          tabletMin: 769,
+          tabletMax: 1024,
+          desktopMin: 1025,
+        },
+      },
+      sections: [
+        {
+          id: 'site_header',
+          name: 'Desktop Header',
+          archetype: 'header',
+          layoutType: 'flow',
+          rawHtml: '<header class="desktop-header">Desktop Nav</header>',
+          liquidTemplate: '<header class="desktop-header">Desktop Nav</header>',
+          settings: {},
+          blocks: [],
+        },
+        {
+          id: 'featured_products',
+          name: 'Featured Products',
+          archetype: 'custom_section',
+          layoutType: 'flow',
+          rawHtml: '<div id="featured_products" class="products">Desktop Products</div>',
+          liquidTemplate: '<div id="featured_products" class="products">Desktop Products</div>',
+          settings: {},
+          blocks: [],
+        },
+        {
+          id: 'site_footer',
+          name: 'Desktop Footer',
+          archetype: 'footer',
+          layoutType: 'flow',
+          rawHtml: '<footer class="desktop-footer">Desktop Footer</footer>',
+          liquidTemplate: '<footer class="desktop-footer">Desktop Footer</footer>',
+          settings: {},
+          blocks: [],
+        },
+      ],
+    };
+
+    const mobileHtml = `
+<!DOCTYPE html>
+<html lang="vi">
+<head><title>Mobile Site</title></head>
+<body data-device="mobile">
+  <header class="site-header">
+    <div class="mobile-nav">Mobile Nav</div>
+  </header>
+  <div class="category-navigation__block">
+    <div class="drawer">Mobile Drawer</div>
+  </div>
+  <div id="mobile_promo" class="section banner-block">
+    <h1>Mobile Promo</h1>
+  </div>
+  <div id="featured_products" class="section mobile-products-block">
+    <h2>Mobile Products</h2>
+  </div>
+  <footer class="site-footer">
+    <div class="mobile-footer">Mobile Footer</div>
+  </footer>
+</body>
+</html>
+`.trim();
+
+    try {
+      const compiler = new ThemeCompiler();
+      const result = compiler.compileThemeFromIR(tempDir, ir, { mobileHtml });
+      assert.strictEqual(result.success, true);
+
+      // 1. Header snippet preserves both surfaces
+      const headerPath = path.join(tempDir, 'snippets', 'header.liquid');
+      assert.ok(fs.existsSync(headerPath));
+      const headerContent = fs.readFileSync(headerPath, 'utf-8');
+      assert.ok(headerContent.includes('theme-surface-desktop'), 'Header must contain desktop surface wrapper');
+      assert.ok(headerContent.includes('Desktop Nav'), 'Header must contain desktop nav markup');
+      assert.ok(headerContent.includes('theme-surface-mobile'), 'Header must contain mobile surface wrapper');
+      assert.ok(headerContent.includes('Mobile Nav'), 'Header must contain mobile nav markup');
+      assert.ok(headerContent.includes('Mobile Drawer'), 'Header must preserve mobile navigation drawer');
+
+      // 2. Footer snippet preserves both surfaces
+      const footerPath = path.join(tempDir, 'snippets', 'footer.liquid');
+      assert.ok(fs.existsSync(footerPath));
+      const footerContent = fs.readFileSync(footerPath, 'utf-8');
+      assert.ok(footerContent.includes('theme-surface-desktop'), 'Footer must contain desktop surface wrapper');
+      assert.ok(footerContent.includes('Desktop Footer'), 'Footer must contain desktop footer markup');
+      assert.ok(footerContent.includes('theme-surface-mobile'), 'Footer must contain mobile surface wrapper');
+      assert.ok(footerContent.includes('Mobile Footer'), 'Footer must contain mobile footer markup');
+
+      // 3. templates/index.liquid composes both surfaces
+      const indexPath = path.join(tempDir, 'templates', 'index.liquid');
+      assert.ok(fs.existsSync(indexPath));
+      const indexContent = fs.readFileSync(indexPath, 'utf-8');
+      assert.ok(indexContent.includes('<div class="theme-surface-desktop">'), 'Index must wrap desktop sections');
+      assert.ok(indexContent.includes("{% include 'featured_products' %}"), 'Index must include desktop featured_products');
+      assert.ok(indexContent.includes('<div class="theme-surface-mobile">'), 'Index must wrap mobile sections');
+
+      // 4. Mobile body sections emitted preserving source IDs (scoped by container .theme-surface-mobile)
+      const mobileSnippets = fs.readdirSync(path.join(tempDir, 'snippets')).filter(f => f.startsWith('mobile_'));
+      assert.ok(mobileSnippets.length >= 2, 'Must emit mobile section snippets for body sections');
+
+      // Check source ID preserved in mobile section snippet for CSS/JS selector stability
+      let foundPreservedId = false;
+      for (const mFile of mobileSnippets) {
+        const mContent = fs.readFileSync(path.join(tempDir, 'snippets', mFile), 'utf-8');
+        if (mContent.includes('id="featured_products"')) {
+          foundPreservedId = true;
+        }
+      }
+      assert.ok(foundPreservedId, 'Source ID featured_products must be preserved intact inside container rather than broken by renaming');
+
+      // 5. custom.css uses viewport media query as primary switch, with data-device as extra signal
+      const customCssPath = path.join(tempDir, 'assets', 'custom.css');
+      assert.ok(fs.existsSync(customCssPath));
+      const customCssContent = fs.readFileSync(customCssPath, 'utf-8');
+      assert.ok(
+        customCssContent.includes('@media (max-width: 768px)'),
+        'CSS must use source mobileMax viewport media query as primary switch'
+      );
+      assert.ok(
+        customCssContent.includes('.theme-surface-desktop {\n    display: none !important;'),
+        'CSS must hide desktop surface on mobile viewport'
+      );
+      assert.ok(
+        customCssContent.includes('.theme-surface-mobile {\n    display: block !important;'),
+        'CSS must show mobile surface on mobile viewport'
+      );
+      assert.ok(
+        customCssContent.includes('body[data-device="mobile"] .theme-surface-desktop'),
+        'CSS must also support body[data-device="mobile"] as extra explicit signal'
+      );
+
+      // 6. theme.js includes dual-surface ID & inert subtree synchronizer
+      const themeJsPath = path.join(tempDir, 'assets', 'theme.js');
+      assert.ok(fs.existsSync(themeJsPath));
+      const themeJsContent = fs.readFileSync(themeJsPath, 'utf-8');
+      assert.ok(
+        themeJsContent.includes('syncDualSurfaceActiveIDs'),
+        'theme.js must include dual-surface active ID synchronizer'
+      );
+      assert.ok(
+        themeJsContent.includes('data-inert-id'),
+        'theme.js must demote inactive surface IDs to data-inert-id'
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('18. Auto-derives mobile surface from sibling mobile/index.html clone artifact without explicit mobileHtml flag in production compileTheme call', () => {
+    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-clone-artifact-'));
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-clone-theme-out-'));
+
+    try {
+      // Set up documented AntiFan clone directory structure:
+      // <cloneDir>/index.html
+      // <cloneDir>/assets/
+      // <cloneDir>/mobile/index.html
+      const assetsDir = path.join(cloneDir, 'assets');
+      const mobileDir = path.join(cloneDir, 'mobile');
+      fs.mkdirSync(assetsDir, { recursive: true });
+      fs.mkdirSync(mobileDir, { recursive: true });
+
+      const desktopHtml = `
+<!DOCTYPE html>
+<html lang="vi">
+<head><title>Desktop Store</title></head>
+<body>
+  <header class="site-header"><h1>Desktop Brand</h1></header>
+  <main>
+    <section id="hero_promo"><h2>Desktop Promo</h2></section>
+  </main>
+  <footer class="site-footer"><p>Desktop Footer</p></footer>
+</body>
+</html>
+`.trim();
+
+      const mobileHtml = `
+<!DOCTYPE html>
+<html lang="vi">
+<head><title>Mobile Store</title></head>
+<body data-device="mobile">
+  <header class="site-header"><h1>Mobile Brand</h1></header>
+  <main>
+    <section id="mobile_deals"><h2>Mobile Deals</h2></section>
+  </main>
+  <footer class="site-footer"><p>Mobile Footer</p></footer>
+</body>
+</html>
+`.trim();
+
+      fs.writeFileSync(path.join(cloneDir, 'index.html'), desktopHtml, 'utf-8');
+      fs.writeFileSync(path.join(mobileDir, 'index.html'), mobileHtml, 'utf-8');
+
+      const compiler = new ThemeCompiler();
+      // Production call exactly matching scripts/compile-haravan-theme.mjs:
+      // compileTheme(outDir, rawHtml, { settingsMode, assetsDir }) without mobileHtml flag
+      const result = compiler.compileTheme(outDir, desktopHtml, {
+        settingsMode: 'legacy-html',
+        assetsDir,
+        inputPath: path.join(cloneDir, 'index.html'),
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.ok(result.sectionCount >= 1);
+
+      // 1. Verify header snippet auto-derived mobile surface from sibling artifact
+      const headerPath = path.join(outDir, 'snippets', 'header.liquid');
+      assert.ok(fs.existsSync(headerPath), 'Header snippet must exist');
+      const headerContent = fs.readFileSync(headerPath, 'utf-8');
+      assert.ok(headerContent.includes('theme-surface-desktop'), 'Header must contain desktop surface');
+      assert.ok(headerContent.includes('Desktop Brand'), 'Header must contain desktop markup');
+      assert.ok(headerContent.includes('theme-surface-mobile'), 'Header must auto-include mobile surface');
+      assert.ok(headerContent.includes('Mobile Brand'), 'Header must contain mobile markup');
+
+      // 2. Verify footer snippet auto-derived mobile surface from sibling artifact
+      const footerPath = path.join(outDir, 'snippets', 'footer.liquid');
+      assert.ok(fs.existsSync(footerPath), 'Footer snippet must exist');
+      const footerContent = fs.readFileSync(footerPath, 'utf-8');
+      assert.ok(footerContent.includes('theme-surface-desktop'), 'Footer must contain desktop surface');
+      assert.ok(footerContent.includes('Desktop Footer'), 'Footer must contain desktop markup');
+      assert.ok(footerContent.includes('theme-surface-mobile'), 'Footer must auto-include mobile surface');
+      assert.ok(footerContent.includes('Mobile Footer'), 'Footer must contain mobile markup');
+
+      // 3. Verify templates/index.liquid composes both surfaces
+      const indexPath = path.join(outDir, 'templates', 'index.liquid');
+      assert.ok(fs.existsSync(indexPath), 'templates/index.liquid must exist');
+      const indexContent = fs.readFileSync(indexPath, 'utf-8');
+      assert.ok(indexContent.includes('theme-surface-desktop'), 'Index must include desktop container');
+      assert.ok(indexContent.includes('theme-surface-mobile'), 'Index must include mobile container');
+
+      // 4. Verify theme.js has dual-surface synchronizer
+      const themeJsPath = path.join(outDir, 'assets', 'theme.js');
+      assert.ok(fs.existsSync(themeJsPath), 'assets/theme.js must exist');
+      const themeJsContent = fs.readFileSync(themeJsPath, 'utf-8');
+      assert.ok(
+        themeJsContent.includes('syncDualSurfaceActiveIDs'),
+        'theme.js must include dual-surface synchronizer'
+      );
+    } finally {
+      fs.rmSync(cloneDir, { recursive: true, force: true });
+      fs.rmSync(outDir, { recursive: true, force: true });
     }
   });
 });

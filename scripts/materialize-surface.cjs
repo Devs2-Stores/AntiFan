@@ -66,17 +66,16 @@ app.whenReady().then(async () => {
   const startTime = Date.now();
 
   try {
-    console.log(`[Core Dual-Surface Materializer] Loading ${targetUrl} [device: ${device}]...`);
-    await win.loadURL(targetUrl, {
-      userAgent,
-      extraHeaders
-    });
-
-    // Configure CDP emulation after navigation is established
+    // Configure the actual device before source scripts choose their layout.
+    // setDeviceMetricsOverride requires a committed renderer: applying it to a
+    // target that never loaded a document kills the Chromium process outright
+    // (observed as an abrupt non-zero worker exit), so commit a blank document
+    // first and apply the override before the real navigation begins.
     try {
       if (!win.webContents.debugger.isAttached()) {
         win.webContents.debugger.attach('1.3');
       }
+      await win.loadURL('about:blank');
       await win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
         width: viewportWidth,
         height: viewportHeight,
@@ -90,8 +89,14 @@ app.whenReady().then(async () => {
         });
       }
     } catch (cdpErr) {
-      // Offscreen window dimensions already provide exact viewport dimensions
+      throw new Error(`Device emulation failed: ${cdpErr.message}`);
     }
+    console.log(`[Core Dual-Surface Materializer] Loading ${targetUrl} [device: ${device}]...`);
+    await win.loadURL(targetUrl, {
+      userAgent,
+      extraHeaders
+    });
+
     console.log('[Core Dual-Surface Materializer] Page loaded. Initiating thorough multi-pass materialization walk...');
 
     // Allow initial client scripts and hydration hooks to initialize
@@ -281,6 +286,12 @@ app.whenReady().then(async () => {
       } else if (htmlBytes < ${minExpectedBytes}) {
         passed = false;
         reason = 'Unsettled: html bytes ' + htmlBytes + ' is below minimum expected document size (${minExpectedBytes} bytes)';
+      } else if (stableRounds < 2) {
+        passed = false;
+        reason = 'Unsettled: document did not converge within the stability window';
+      } else if (images.some((img, index) => !decodedStatuses[index] && img.getClientRects().length > 0 && (img.currentSrc || img.getAttribute('src')))) {
+        passed = false;
+        reason = 'Unsettled: visible image resources failed to load or decode';
       } else if (activeSkeletons.length > 0) {
         passed = false;
         reason = 'Unsettled: ' + activeSkeletons.length + ' active skeleton placeholder(s) still present';
@@ -326,9 +337,16 @@ app.whenReady().then(async () => {
     }
 
     const sha256 = crypto.createHash('sha256').update(result.html, 'utf8').digest('hex');
+    if (result.observedWidth !== viewportWidth || result.observedHeight !== viewportHeight) {
+      throw new Error(`Capture viewport mismatch: ${result.observedWidth}x${result.observedHeight}`);
+    }
     const captureReceipt = {
       schemaVersion: 1,
       url: targetUrl,
+      observedUrl: win.webContents.getURL(),
+      userAgent,
+      requestHeaders: { 'sec-ch-ua-mobile': isMobile ? '?1' : '?0' },
+      devicePixelRatio: result.devicePixelRatio,
       device,
       width: result.observedWidth,
       height: result.observedHeight,

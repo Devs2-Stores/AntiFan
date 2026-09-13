@@ -2,10 +2,10 @@
 /**
  * AntiFan Universal Site Clone CLI
  *
- * Generic, platform-agnostic CLI that clones ANY target website into a 100%
- * independent, offline-first HTML/CSS/JS standalone package:
- * 1. Probes target architecture (Adaptive Dual-Surface vs Responsive Single-Surface).
- * 2. Headless Materialization via Electron (1440x900 desktop, 390x844 mobile if adaptive).
+ * Platform-agnostic capture and localization CLI. Generated output requires
+ * separate offline, interaction, and visual parity verification.
+ * 1. Captures both device contexts by default without guessing site architecture.
+ * 2. Headless Materialization via Electron (1440x900 desktop, 390x844 mobile).
  * 3. Generic Asset Core Harvesting & Downloading (Stylesheets, Fonts, Images, Scripts).
  * 4. Core Sanitization & Parity Injection (IndependentHtmlCloneGenerator).
  * 5. Localizes same-origin references to root-relative paths.
@@ -25,8 +25,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AssetHarvester,
   AssetLocalizer,
-  IndependentHtmlCloneGenerator,
-  localizeSameOriginReferences
+  IndependentHtmlCloneGenerator
 } from '../packages/site-clone/dist/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -76,6 +75,12 @@ const concurrency = parseInt(getArgValue('--concurrency', '10'), 10);
 const deviceMode = getArgValue('--device', 'auto').toLowerCase();
 const shouldServe = args.includes('--serve');
 const servePort = getArgValue('--port', '3300');
+if (!['auto', 'both', 'desktop', 'mobile'].includes(deviceMode)) {
+  throw new Error(`Unsupported device mode: ${deviceMode}`);
+}
+if (!Number.isInteger(concurrency) || concurrency < 1) {
+  throw new Error('--concurrency must be a positive integer');
+}
 
 const assetsDir = path.join(outDir, 'assets');
 const cssDir = path.join(outDir, 'css');
@@ -102,11 +107,18 @@ function verifyCaptureReceipt(rawPath, expected) {
   }
   const receiptUrl = receipt.url || receipt.targetUrl;
   const expectedUrl = expected.url || expected.targetUrl;
-  if (receiptUrl && expectedUrl && receiptUrl.replace(/\/+$/, '') !== expectedUrl.replace(/\/+$/, '')) {
+  if (!receiptUrl || !expectedUrl || receiptUrl !== expectedUrl) {
     return { valid: false, reason: `Target URL mismatch (receipt: ${receiptUrl}, expected: ${expectedUrl})` };
   }
   if (receipt.device !== expected.device) {
     return { valid: false, reason: `Device mismatch (receipt: ${receipt.device}, expected: ${expected.device})` };
+  }
+  if (receipt.width !== expected.expectedWidth || receipt.height !== expected.expectedHeight) {
+    return { valid: false, reason: `Viewport mismatch (${receipt.width}x${receipt.height}, expected ${expected.expectedWidth}x${expected.expectedHeight})` };
+  }
+  if (typeof receipt.userAgent !== 'string' || !receipt.userAgent ||
+      receipt.requestHeaders?.['sec-ch-ua-mobile'] !== (expected.device === 'mobile' ? '?1' : '?0')) {
+    return { valid: false, reason: 'Capture receipt is missing the device request context' };
   }
   const content = fs.readFileSync(rawPath, 'utf8');
   const actualHash = crypto.createHash('sha256').update(content).digest('hex');
@@ -179,22 +191,11 @@ async function run() {
   });
   let desktopHtml = desktopCapture.content;
 
-  // 2. Probe Architecture: Adaptive vs Responsive
-  let isAdaptive = false;
-  if (deviceMode === 'both') {
-    isAdaptive = true;
-  } else if (deviceMode === 'desktop') {
-    isAdaptive = false;
-  } else if (deviceMode === 'mobile') {
-    isAdaptive = true;
-  } else {
-    // Auto-detection
-    const hasDataDevice = /data-device=["']web["']/i.test(desktopHtml);
-    const hasDrawerMarkers = /category-navigation__block|class=["'][^"']*drawer[^"']*["']|class=["'][^"']*offcanvas[^"']*["']/i.test(desktopHtml);
-    isAdaptive = hasDataDevice || (targetUrl.includes('hoplongtech') && hasDrawerMarkers);
-  }
+  // A desktop capture cannot prove the absence of a server-selected mobile DOM.
+  // Auto captures both; capture count is not an architecture classification.
+  const isAdaptive = deviceMode !== 'desktop';
 
-  console.log(`\n[Phase 2/4] Architecture Classification: ${isAdaptive ? 'Adaptive Dual-Surface' : 'Responsive Single-Surface'}`);
+  console.log(`\n[Phase 2/4] Capture mode: ${isAdaptive ? 'Desktop and mobile' : 'Desktop only'}`);
 
   let mobileHtml = null;
   let mobileCapture = null;
@@ -215,9 +216,11 @@ async function run() {
   // 3. Generic Asset Core Harvesting & Localization
   console.log('\n[Phase 3/4] Harvesting and Localizing Remote Subresources (Stylesheets, Fonts, Images)...');
   const harvester = new AssetHarvester();
-  const filesToHarvest = [{ path: 'index.html', content: desktopHtml }];
+  const desktopContext = { ...desktopCapture.receipt, surface: 'desktop' };
+  const mobileContext = mobileCapture ? { ...mobileCapture.receipt, surface: 'mobile' } : undefined;
+  const filesToHarvest = [{ path: 'index.html', content: desktopHtml, context: desktopContext }];
   if (mobileHtml) {
-    filesToHarvest.push({ path: 'mobile/index.html', content: mobileHtml });
+    filesToHarvest.push({ path: 'mobile/index.html', content: mobileHtml, context: mobileContext });
   }
   const harvestedManifest = harvester.harvestFromFiles(filesToHarvest, assetsDir, { baseUrl: targetUrl });
   const combinedAssets = [
@@ -237,6 +240,15 @@ async function run() {
   });
 
   console.log(`  ✓ Asset Download complete: ${downloadResult.downloaded.length} assets (${(downloadResult.totalBytes / (1024 * 1024)).toFixed(2)} MB), ${downloadResult.failedCount} failures.`);
+  const failedAssetUrls = downloadResult.downloaded
+    .filter(item => item.status === 'failed')
+    .map(item => ({ sourceUrl: item.sourceUrl, error: item.error ?? 'unknown failure' }));
+  if (failedAssetUrls.length > 0) {
+    console.warn(`  ! ${failedAssetUrls.length} remote subresource(s) could not be localized; the package is not offline-complete.`);
+    for (const failure of failedAssetUrls.slice(0, 20)) {
+      console.warn(`    - ${failure.sourceUrl} (${failure.error})`);
+    }
+  }
 
   // Discover and localize secondary subresources inside downloaded stylesheets (e.g. fonts, @imports)
   const combinedManifest = {
@@ -251,18 +263,24 @@ async function run() {
     mode: 'relative',
     sourceBaseUrl: targetUrl,
   });
+  if (secondaryResult.failedCount > 0 || secondaryResult.depthExceededUrls.length > 0) {
+    console.warn(`  ! Stylesheet dependency localization incomplete: ${secondaryResult.failedCount} failures, ${secondaryResult.depthExceededUrls.length} import depth refusals.`);
+    for (const url of secondaryResult.depthExceededUrls.slice(0, 20)) {
+      console.warn(`    - depth cutoff: ${url}`);
+    }
+  }
   if (secondaryResult.secondaryDownloaded.length > 0) {
     console.log(`  ✓ Secondary Asset Download complete: ${secondaryResult.secondaryDownloaded.length} secondary assets (fonts/stylesheets) downloaded.`);
   }
   // Rewrite asset references in HTML
   console.log('  Rewriting Desktop HTML references to local assets/...');
-  const dRewriteResult = localizer.rewriteFiles([{ path: 'index.html', content: desktopHtml }], harvestedManifest, { mode: 'relative' });
+  const dRewriteResult = localizer.rewriteFiles([{ path: 'index.html', content: desktopHtml, context: desktopContext }], harvestedManifest, { mode: 'relative' });
   desktopHtml = dRewriteResult.files[0].rewrittenContent;
 
   if (mobileHtml) {
-    console.log('  Rewriting Mobile HTML references to local /assets/...');
-    const mRewriteResult = localizer.rewriteFiles([{ path: 'mobile/index.html', content: mobileHtml }], harvestedManifest, { mode: 'relative' });
-    mobileHtml = mRewriteResult.files[0].rewrittenContent.replace(/(src|data-src|srcset)=["']assets\//g, '$1="/assets/');
+    console.log('  Rewriting Mobile HTML references to local ../assets/...');
+    const mRewriteResult = localizer.rewriteFiles([{ path: 'mobile/index.html', content: mobileHtml, context: mobileContext }], harvestedManifest, { mode: 'relative' });
+    mobileHtml = mRewriteResult.files[0].rewrittenContent;
   }
 
   // 4. Core Generator (Sanitization & Parity Injections)
@@ -287,18 +305,6 @@ async function run() {
     });
     console.log(`  ✓ Mobile Surface finalized: ${mobileResult.outputPath} (${mobileResult.html.length} bytes)`);
   }
-    // Ensure mobile sub-directory has direct access to root assets/css/js
-    const mobileDir = path.join(outDir, 'mobile');
-    const mobileAssetsDir = path.join(mobileDir, 'assets');
-    const mobileCssDir = path.join(mobileDir, 'css');
-    const mobileJsDir = path.join(mobileDir, 'js');
-    try {
-      if (!fs.existsSync(mobileAssetsDir)) fs.symlinkSync(assetsDir, mobileAssetsDir, 'junction');
-      if (!fs.existsSync(mobileCssDir)) fs.symlinkSync(cssDir, mobileCssDir, 'junction');
-      if (!fs.existsSync(mobileJsDir)) fs.symlinkSync(jsDir, mobileJsDir, 'junction');
-    } catch (e) {
-      // Fallback: non-fatal if junctions cannot be created
-    }
 
   // Generate Manifest
   const manifestPath = path.join(outDir, 'clone-manifest.json');
@@ -306,29 +312,34 @@ async function run() {
     schemaVersion: 1,
     targetUrl,
     clonedAt: new Date().toISOString(),
-    architecture: isAdaptive ? 'adaptive' : 'responsive',
-    offlineReady: true,
+    architecture: 'unclassified',
+    offlineReady: false,
+    verificationStatus: 'unverified',
     surfaces: {
       desktop: {
         entry: 'index.html',
-        size: desktopResult.html.length,
+        size: Buffer.byteLength(desktopResult.html),
+        sha256: crypto.createHash('sha256').update(desktopResult.html).digest('hex'),
         rawSha256: desktopCapture.receipt.sha256,
-        scrollHeight: desktopCapture.receipt.metrics?.finalHeight ?? null
+        scrollHeight: desktopCapture.receipt.metrics?.totalHeight ?? null
       },
       ...(mobileResult ? {
         mobile: {
           entry: 'mobile/index.html',
-          size: mobileResult.html.length,
+          size: Buffer.byteLength(mobileResult.html),
+          sha256: crypto.createHash('sha256').update(mobileResult.html).digest('hex'),
           rawSha256: mobileCapture.receipt.sha256,
-          scrollHeight: mobileCapture.receipt.metrics?.finalHeight ?? null
+          scrollHeight: mobileCapture.receipt.metrics?.totalHeight ?? null
         }
       } : {})
     },
     assets: {
-      totalDiscovered: combinedAssets.length,
-      downloaded: downloadResult.downloaded.length,
-      failed: downloadResult.failedCount,
-      totalBytes: downloadResult.totalBytes
+      totalDiscovered: combinedAssets.length + secondaryResult.secondaryDownloaded.length,
+      downloaded: downloadResult.downloaded.length + secondaryResult.secondaryDownloaded.length,
+      failed: downloadResult.failedCount + secondaryResult.failedCount,
+      totalBytes: downloadResult.totalBytes + secondaryResult.totalBytes,
+      unresolvedPrimary: failedAssetUrls,
+      unresolvedSecondary: secondaryResult.depthExceededUrls
     }
   };
 
@@ -336,7 +347,7 @@ async function run() {
   console.log(`  ✓ Saved clone manifest to ${manifestPath}`);
 
   console.log('\n===========================================================');
-  console.log('[AntiFan Universal Clone] COMPLETE! 100% Offline & Standalone.');
+  console.log('[AntiFan Universal Clone] Generated. Offline and visual parity verification still required.');
   console.log(`Preview command: node scripts/serve-clone.mjs "${outDir}"`);
   console.log('===========================================================');
 

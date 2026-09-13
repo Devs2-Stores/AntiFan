@@ -92,7 +92,7 @@ export function extractEmbeddedEffects(html: string): string[] {
 }
 
 const SLIDER_TRACK_CLASSES = ['s-content', 'slick-track', 'swiper-wrapper', 'splide__list'];
-const SLIDER_SLIDE_CLASSES = ['item', 'slick-slide', 'swiper-slide', 'splide__slide'];
+const SLIDER_SLIDE_CLASSES = ['slick-slide', 'swiper-slide', 'splide__slide'];
 const CAPTURE_GEOMETRY_PROPERTIES = /^(?:width|min-width|max-width|flex|flex-basis|margin-right)$/;
 
 function hasClassToken(classAttribute: string, tokens: readonly string[]): boolean {
@@ -100,7 +100,8 @@ function hasClassToken(classAttribute: string, tokens: readonly string[]): boole
 }
 
 function dropPixelDeclarations(styleValue: string): string {
-  return styleValue
+  const hadTrailingSemicolon = styleValue.trim().endsWith(';');
+  const remaining = styleValue
     .split(';')
     .map((declaration) => declaration.trim())
     .filter((declaration) => {
@@ -112,6 +113,7 @@ function dropPixelDeclarations(styleValue: string): string {
       return !CAPTURE_GEOMETRY_PROPERTIES.test(property) || !value.includes('px');
     })
     .join('; ');
+  return remaining && hadTrailingSemicolon ? `${remaining};` : remaining;
 }
 
 /**
@@ -120,6 +122,9 @@ function dropPixelDeclarations(styleValue: string): string {
  * viewport rather than the design: left in place they freeze every slide at the
  * capture width and crop the track on any narrower screen. Removing them restores a
  * single source of truth for slide geometry — the stylesheet plus the runtime engine.
+ *
+ * Only proven capture-time geometry on slider tracks and slides is stripped. Generic
+ * classes (such as .item outside of slider tracks) preserve their inline sizes.
  */
 export function stripCaptureTimeSliderGeometry(html: string): string {
   const trackClassPattern = `(?:${SLIDER_TRACK_CLASSES.join('|')})`;
@@ -127,7 +132,8 @@ export function stripCaptureTimeSliderGeometry(html: string): string {
     return html;
   }
 
-  return html.replace(/<[a-z0-9_\-]+(?:\s+[^<>]*)?>/gi, (tag) => {
+  // 1. Strip proven capture-time geometry on explicit track and slide tags
+  let result = html.replace(/<[a-z0-9_\-]+(?:\s+[^<>]*)?>/gi, (tag) => {
     const styleMatch = /(\sstyle\s*=\s*)(["'])([^"']*)\2/i.exec(tag);
     if (!styleMatch) return tag;
     const classMatch = /\sclass\s*=\s*(["'])([^"']*)\1/i.exec(tag);
@@ -143,6 +149,26 @@ export function stripCaptureTimeSliderGeometry(html: string): string {
       ? tag.replace(styleMatch[0], `${styleMatch[1]}${styleMatch[2]}${declarations}${styleMatch[2]}`)
       : tag.replace(styleMatch[0], '');
   });
+
+  // 2. Normalize capture-time geometry for items specifically inside s-content slider tracks
+  result = result.replace(
+    /(<[a-z0-9_\-]+[^>]*\bclass=["'][^"']*\bs-content\b[^"']*["'][^>]*>)([\s\S]*?)(<\/[a-z0-9_\-]+>)/gi,
+    (_full, openTag, content, closeTag) => {
+      const normalizedContent = content.replace(/<[a-z0-9_\-]+(?:\s+[^<>]*)?>/gi, (innerTag: string) => {
+        const styleMatch = /(\sstyle\s*=\s*)(["'])([^"']*)\2/i.exec(innerTag);
+        if (!styleMatch) return innerTag;
+        const classMatch = /\sclass\s*=\s*(["'])([^"']*)\1/i.exec(innerTag);
+        if (!classMatch || !hasClassToken(classMatch[2], ['item'])) return innerTag;
+        const declarations = dropPixelDeclarations(styleMatch[3]);
+        return declarations
+          ? innerTag.replace(styleMatch[0], `${styleMatch[1]}${styleMatch[2]}${declarations}${styleMatch[2]}`)
+          : innerTag.replace(styleMatch[0], '');
+      });
+      return `${openTag}${normalizedContent}${closeTag}`;
+    }
+  );
+
+  return result;
 }
 
 export function sanitizeSectionMarkup(html: string): string {
@@ -162,7 +188,9 @@ export function sanitizeSectionMarkup(html: string): string {
     });
 
   // 2. Reset transient in-flight slider/carousel transforms to neutral origin
-  processed = processed.replace(/(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translateX\(-?[0-9]+(?:\.[0-9]+)?px\)\s*;?/gi, '$1transform: translateX(0px);');
+  processed = processed
+    .replace(/(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translateX\(-?[0-9]+(?:\.[0-9]+)?px\)\s*;?/gi, '$1transform: translateX(0px);')
+    .replace(/(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translate3d\(-?[0-9]+(?:\.[0-9]+)?px,\s*0(?:px)?,\s*0(?:px)?\)\s*;?/gi, '$1transform: translate3d(0px, 0px, 0px);');
 
   // 3. Drop geometry measured for the capture viewport so slides size per real viewport
   processed = stripCaptureTimeSliderGeometry(processed);
@@ -176,12 +204,16 @@ export function sanitizeSectionMarkup(html: string): string {
     .replace(/(?::|x-bind:|v-bind:)(src|data-src)\s*=\s*(?:"[^"]*(?:https?:)?\/\/[^"]*"|'[^']*(?:https?:)?\/\/[^']*')/gi, '')
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
     .replace(/<!--\[if (?:END)?BLOCK\]>[\s\S]*?<!\[endif\]-->/gi, '')
+    .replace(/<!--\s*Livewire Component:[\s\S]*?-->/gi, '')
     .replace(/\s+wire:[a-zA-Z0-9_\-\.]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
     .replace(/\s+(?:x-(?:data|bind|on|show|model|transition|ref|init|cloak|html|text|teleport|for|if|effect|ignore)(?::[a-zA-Z0-9_\-\.]+)?|@[a-zA-Z0-9_\-\.:]+)(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
     .replace(/\s+:class=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s+data-(?:update-uri|navigate-once)(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
-    .replace(/<script\b[^>]*src="[^"]*(?:livewire|googletagmanager|google-analytics|analytics\.js|gtag|clarity|tawk|twk-chunk|twk-|emojione|connect\.facebook\.net|gtm\.js|1hiir2bkg|js\.js)[^"]*"[^>]*>(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
-    .replace(/<script\b[^>]*>(?:(?!<\/script>)[\s\S])*?(?:Tawk_API|Tawk_|tawk\.to|gtag\(|dataLayer\.push|fbq\(|clarity\(|googletagmanager|Livewire\b)(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
+    .replace(/\s+data-(?:update-uri|navigate-once|navigate-[a-zA-Z0-9_\-]+|livewire(?:-[a-zA-Z0-9_\-]+)?|csrf)(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
+    .replace(/<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*\/?>/gi, '')
+    .replace(/<meta\s+[^>]*(?:name|property)=["'](?:csrf[-_]token|csrf-param|_token)["'][^>]*\/?>/gi, '')
+    .replace(/<script\b[^>]*\b(?:data-csrf|data-update-uri|data-navigate-once)\b[^>]*>(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
+    .replace(/<script\b[^>]*src=["'][^"']*(?:livewire|googletagmanager|google-analytics|analytics\.js|gtag|clarity|tawk|twk-chunk|twk-|emojione|connect\.facebook\.net|gtm\.js|1hiir2bkg|js\.js)[^"']*["'][^>]*>(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
+    .replace(/<script\b[^>]*>(?:(?!<\/script>)[\s\S])*?(?:Tawk_API|Tawk_|tawk\.to|gtag\(|dataLayer\.push|fbq\(|clarity\(|googletagmanager|Livewire\b|livewire_token|window\.livewire)(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
     .replace(/<div\b[^>]*id=["'](?:x2err|tawk|twk|subiz|vchat|fb-root|zalo)[^"']*["'][^>]*>(?:(?!<\/div>)[\s\S])*?<\/div>/gi, '')
     .replace(/<div\b[^>]*style=["'][^"']*(?:z-index:\s*999999|z-index:\s*99999)[^"']*["'][^>]*>(?:(?!<\/div>)[\s\S])*?<iframe\b[^>]*title=["']chat widget["'][^>]*>(?:(?!<\/iframe>)[\s\S])*?<\/iframe>[\s\S]*?<\/div>/gi, '')
     .replace(/<iframe\b[^>]*(?:googletagmanager|facebook\.com\/plugins|tawk|title=["']chat widget["'])[^>]*>(?:(?!<\/iframe>)[\s\S])*?<\/iframe>/gi, '')
@@ -280,9 +312,11 @@ export class IndependentHtmlCloneGenerator {
       }
       // 1. Full-fidelity defaults: no artificial content caps unless the caller
       // explicitly asks for a bounded sample.
+      const entryFilename = options.entryFilename || 'index.html';
+      const entryDir = path.dirname(entryFilename);
+      const relToRoot = entryDir === '.' ? '' : path.relative(entryDir, '.').replace(/\\/g, '/') + '/';
       const maxProducts = options.maxProducts ?? Number.POSITIVE_INFINITY;
       const maxArticles = options.maxArticles ?? Number.POSITIVE_INFINITY;
-
       const products = (ir.normalizedData?.products || []).slice(0, maxProducts);
       const articles = (ir.normalizedData?.articles || []).slice(0, maxArticles);
 
@@ -318,7 +352,7 @@ export class IndependentHtmlCloneGenerator {
         } else if (sec.liquidTemplate) {
           const stripped = sec.liquidTemplate
             .replace(/{%[\s\S]*?%}/g, '')
-            .replace(/{{\s*['"]([^'"]+)['"]\s*\|\s*asset_url\s*}}/g, 'assets/$1')
+            .replace(/{{\s*['"]([^'"]+)['"]\s*\|\s*asset_url\s*}}/g, `${relToRoot}assets/$1`)
             .replace(/{{\s*[^}]+\s*}}/g, '');
           contentHtml = stripped.trim();
         }
@@ -335,15 +369,26 @@ export class IndependentHtmlCloneGenerator {
 
       // 3. Assemble Complete Standalone HTML Document with linked stylesheets and scripts
       const stylesheetTags = (ir.assets?.stylesheets || [])
-        .map(css => `  <link rel="stylesheet" href="${css.sourceUrl || `assets/${css.filename}`}">`)
+        .map(css => `  <link rel="stylesheet" href="${css.sourceUrl || `${relToRoot}assets/${css.filename}`}">`)
         .join('\n');
       const javascriptTags = (ir.assets?.javascripts || [])
         .filter(js => !/livewire/i.test(js.filename || js.sourceUrl || ''))
-        .map(js => `  <script${js.defer ? ' defer' : ''} src="${js.sourceUrl || `assets/${js.filename}`}"></script>`)
+        .map(js => `  <script${js.defer ? ' defer' : ''} src="${js.sourceUrl || `${relToRoot}assets/${js.filename}`}"></script>`)
         .join('\n');
       // Source-order head CSS: external sheets first, then the document's own inline styles,
       // so page-specific rules keep the cascade priority they had on the source site.
       const headStylesTags = (ir.headStyles || []).join('\n');
+
+      const hasCategoryNav = headerHtmls.some(h => h.includes('category-navigation')) ||
+        mainHtmls.some(m => m.includes('category-navigation'));
+      const parityStyles = this.getParityStyles({
+        hasCategoryNav,
+        customParityCss: options.customParityCss
+      });
+      const interactivityScript = this.getInteractivityScript({
+        hasCategoryNav,
+        customInteractivityJs: options.customInteractivityJs
+      });
 
       const rawIndexHtml = `<!DOCTYPE html>
 <html${ir.htmlAttributes || ' lang="vi"'}>
@@ -356,160 +401,7 @@ export class IndependentHtmlCloneGenerator {
     body { margin: 0; padding: 0; }
     img { max-width: 100%; height: auto; }
   </style>
-${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}  <style id="antifan-clone-parity">
-    /* Global responsive safety */
-    html, body { max-width: 100vw !important; overflow-x: hidden !important; }
-    /* Scrollbar gutter normalization */
-    html, * { scrollbar-width: none !important; }
-    *::-webkit-scrollbar { display: none !important; }
-    /* Loading suggest spinner control */
-    .loading-suggest { display: none !important; }
-    .search-form__input.loading .loading-suggest { display: block !important; }
-    /* Category Dropdown Navigation */
-    .category-navigation #category-navigation__sub {
-      transition: opacity 0.2s ease, visibility 0.2s ease;
-    }
-    .category-navigation #category-navigation__sub.active {
-      opacity: 1 !important;
-      visibility: visible !important;
-      display: block !important;
-    }
-    .category-navigation__sub .sub-menu {
-      display: none;
-    }
-    /* Mobile drawer navigation parity locks */
-    .category-navigation__block.show {
-      opacity: 1 !important;
-      visibility: visible !important;
-      display: block !important;
-    }
-    .category-navigation__block.show .category-navigation {
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-    }
-    /* Hero Slider & Track Parity */
-    .s-wrap, .s-slide {
-      width: 100% !important;
-      overflow: hidden !important;
-      position: relative !important;
-      border-radius: 8px !important;
-    }
-    .s-wrap .s-content, .s-slide .s-content {
-      display: flex !important;
-      flex-wrap: nowrap !important;
-      will-change: transform !important;
-      touch-action: pan-y !important;
-    }
-    .s-wrap .s-content > .item, .s-slide .s-content > .item {
-      flex-shrink: 0 !important;
-      overflow: hidden !important;
-      border-radius: 8px !important;
-      line-height: 0 !important;
-    }
-    .s-wrap .s-content > .item img, .s-slide .s-content > .item img {
-      width: 100% !important;
-      height: auto !important;
-      max-width: 100% !important;
-      aspect-ratio: 775 / 385 !important;
-      object-fit: cover !important;
-      border-radius: 8px !important;
-      display: block !important;
-    }
-    /* Unhydrated modals & popups parity locks */
-    #popup-login:not(.active), #popup-video:not(.active), .popup:not(.active), .modal:not(.active) {
-      display: none !important;
-      opacity: 0 !important;
-      visibility: hidden !important;
-      pointer-events: none !important;
-    }
-    #popup-login.active, #popup-video.active, .popup.active, .modal.active {
-      display: flex !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      pointer-events: auto !important;
-    }
-    #popup-video.active iframe {
-      max-width: 100% !important;
-      max-height: 70vh !important;
-    }
-    /* Form file upload tooltip popup (.info-more__button -> .detail) */
-    .form-block__content .form-row.row-file {
-      position: relative !important;
-    }
-    .form-block__content .form-row.row-file .info-more__button {
-      cursor: pointer !important;
-    }
-    .form-block__content .form-row.row-file .detail {
-      z-index: 1002 !important;
-      transition: opacity 0.2s ease, visibility 0.2s ease !important;
-    }
-    .form-block__content .form-row.row-file .detail:not(.active) {
-      display: none !important;
-      opacity: 0 !important;
-      visibility: hidden !important;
-      pointer-events: none !important;
-    }
-    .form-block__content .form-row.row-file .detail.active {
-      display: block !important;
-      opacity: 1 !important;
-      visibility: visible !important;
-      pointer-events: auto !important;
-    }
-    /* Unified responsive defaults */
-    @media (max-width: 991px) {
-      .container, .container-fuild {
-        max-width: 100% !important;
-        width: 100% !important;
-        padding-left: 12px !important;
-        padding-right: 12px !important;
-      }
-      .site-header__top {
-        display: flex !important;
-        flex-wrap: wrap !important;
-        align-items: center !important;
-        justify-content: space-between !important;
-        padding: 10px !important;
-      }
-      .main-header { flex-wrap: wrap !important; }
-      .main-header__logo { order: 1 !important; flex: 0 0 auto !important; max-width: 140px !important; margin: 0 !important; }
-      .main-header__logo img { max-width: 130px !important; height: auto !important; object-fit: contain !important; }
-      .main-header-icon { order: 2 !important; flex: 0 0 auto !important; margin: 0 !important; display: flex !important; align-items: center !important; gap: 12px !important; }
-      .main-header-cta { display: none !important; }
-      .main-header__search { order: 3 !important; flex: 0 0 100% !important; width: 100% !important; margin: 10px 0 0 0 !important; }
-      .site-header__bottom .menu-header {
-        width: 100% !important;
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-      }
-      .site-header__bottom .menu-list {
-        display: flex !important;
-        flex-wrap: nowrap !important;
-        white-space: nowrap !important;
-        width: max-content !important;
-        padding: 6px 10px !important;
-        gap: 15px !important;
-      }
-      .slide-content { flex-direction: column !important; }
-      .slide-content > .category-navigation { display: none !important; }
-      .category-navigation__block .category-navigation { display: block !important; }
-      .block-category__item { flex-direction: column !important; flex-wrap: nowrap !important; width: 100% !important; }
-      .block-category__left { width: 100% !important; max-width: 100% !important; flex: 0 0 auto !important; margin-bottom: 12px !important; }
-      .product-list { flex-wrap: wrap !important; width: 100% !important; left: 0 !important; margin-left: 0 !important; gap: 8px !important; }
-      .product-list__item { flex: 0 0 calc(50% - 4px) !important; max-width: calc(50% - 4px) !important; box-sizing: border-box !important; }
-      .banner-category { display: flex !important; flex-direction: column !important; gap: 8px !important; }
-      .banner-category__item { width: 100% !important; flex: 0 0 100% !important; }
-      .banner-category__item img { width: 100% !important; height: auto !important; border-radius: 6px !important; }
-      .video-content__image img { width: 100% !important; height: 200px !important; object-fit: cover !important; }
-      .popup-video iframe { height: 240px !important; }
-      .home-form .container { flex-direction: column !important; }
-      .home-form .left, .home-form .right { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
-      .home-form .center { width: 100% !important; max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
-      .nav-next, .nav-prev, .s-nav-next, .s-nav-prev, .slick-next, .slick-prev { display: none !important; }
-      .notice-cart:not(.active) { display: none !important; }
-      .notice-cart.active { display: flex !important; right: 12px !important; max-width: calc(100vw - 24px) !important; }
-    }
-  </style>
+${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}${parityStyles}
 </head>
 <body${ir.bodyAttributes || ''}>
 ${headerHtmls.join('\n')}
@@ -517,166 +409,7 @@ ${headerHtmls.join('\n')}
 ${mainHtmls.join('\n')}
 </main>
 ${footerHtmls.join('\n')}
-<script>
-  if (typeof window.findFirstValidTab !== 'function') {
-    window.findFirstValidTab = function() {
-      const tabs = ['technical', 'overall', 'detail', 'document'];
-      for (const t of tabs) {
-        if (document.getElementById('content-tab-' + t)) return t;
-      }
-      return 'technical';
-    };
-  }
-  if (typeof window.tabExists !== 'function') {
-    window.tabExists = function(t) { return !!document.getElementById('content-tab-' + t); };
-  }
-  if (typeof window.flatsomeVars === 'undefined') {
-    window.flatsomeVars = { ajaxurl: '', rtl: false, sticky_height: 70, lightbox: { close_markup: '' } };
-  }
-
-  document.addEventListener('DOMContentLoaded', function() {
-${this.getCategoryNavigationScript()}
-
-    // 1b. Mobile Drawer Navigation & Drilldown
-    const menuMobileBtns = document.querySelectorAll('.menu-mobile, [data-toggle="menu-mobile"]');
-    const mobileDrawer = document.querySelector('.category-navigation__block');
-    const drawerCloseBtn = document.querySelector('.category-navigation__header .close, .category-navigation__block .close');
-    const drawerBackBtn = document.querySelector('.category-navigation__header .bottom .back, .category-navigation__block .back');
-
-    if (menuMobileBtns.length && mobileDrawer) {
-      menuMobileBtns.forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
-          e.preventDefault();
-          mobileDrawer.classList.add('show');
-        });
-      });
-    }
-
-    if (drawerCloseBtn && mobileDrawer) {
-      drawerCloseBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        mobileDrawer.classList.remove('show');
-      });
-    }
-
-    if (mobileDrawer) {
-      mobileDrawer.addEventListener('click', function(e) {
-        if (e.target === mobileDrawer) {
-          mobileDrawer.classList.remove('show');
-        }
-      });
-    }
-
-    // Drilldown level 1
-    const l1Spans = document.querySelectorAll('.category-navigation__list > ul > li > p > span');
-    l1Spans.forEach(function(span) {
-      span.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const parentLi = span.closest('li');
-        if (parentLi) {
-          parentLi.classList.add('show');
-          if (drawerBackBtn) drawerBackBtn.classList.add('show');
-        }
-      });
-    });
-
-    // Back button
-    if (drawerBackBtn) {
-      drawerBackBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        drawerBackBtn.classList.remove('show');
-        document.querySelectorAll('.category-navigation__list > ul > li.show').forEach(function(li) {
-          li.classList.remove('show');
-        });
-      });
-    }
-
-    // Drilldown level 2
-    const l2Spans = document.querySelectorAll('.child-lv1 > li > p > span');
-    l2Spans.forEach(function(span) {
-      span.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const parentLi = span.closest('li');
-        if (parentLi) {
-          parentLi.classList.toggle('show');
-        }
-      });
-    });
-
-    // 2. Video modal popup & YouTube embed loader
-    const videoBtns = document.querySelectorAll('.video-content__button, [data-fancybox="video"], [href*="youtube.com"], [href*="youtu.be"]');
-    const videoPopup = document.getElementById('popup-video');
-    if (videoPopup) {
-      videoBtns.forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
-          e.preventDefault();
-          videoPopup.classList.add('active');
-          const iframe = videoPopup.querySelector('iframe');
-          if (iframe) {
-            const src = iframe.getAttribute('data-src') || iframe.getAttribute('src');
-            if (src) {
-              iframe.src = src.includes('?') ? src + '&autoplay=1' : src + '?autoplay=1';
-            }
-          }
-        });
-      });
-      const closeBtn = videoPopup.querySelector('.popup-close');
-      if (closeBtn) {
-        closeBtn.addEventListener('click', function() {
-          videoPopup.classList.remove('active');
-          const iframe = videoPopup.querySelector('iframe');
-          if (iframe) iframe.src = '';
-        });
-      }
-      videoPopup.addEventListener('click', function(e) {
-        if (e.target === videoPopup) {
-          videoPopup.classList.remove('active');
-          const iframe = videoPopup.querySelector('iframe');
-          if (iframe) iframe.src = '';
-        }
-      });
-    }
-
-    // 3. Login modal popup
-    const loginBtns = document.querySelectorAll('.open-login, [href*="/login"]');
-    const loginPopup = document.getElementById('popup-login');
-    if (loginPopup) {
-      loginBtns.forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
-          e.preventDefault();
-          loginPopup.classList.add('active');
-        });
-      });
-      const closeBtn = loginPopup.querySelector('.popup-close');
-      if (closeBtn) {
-        closeBtn.addEventListener('click', function() {
-          loginPopup.classList.remove('active');
-        });
-      }
-      loginPopup.addEventListener('click', function(e) {
-        if (e.target === loginPopup) {
-          loginPopup.classList.remove('active');
-        }
-      });
-    }
-
-    // 4. Search Suggest Display & Loading Control
-    const searchInput = document.querySelector('.search-form__input input');
-    const searchSuggest = document.getElementById('suggest');
-    if (searchInput && searchSuggest) {
-      searchInput.addEventListener('focus', function() { searchSuggest.classList.add('active'); });
-      searchInput.addEventListener('click', function(e) { e.stopPropagation(); });
-      document.addEventListener('click', function(e) {
-        const target = e.target;
-        if (target && typeof target.closest === 'function' && !target.closest('.main-header__search')) {
-          searchSuggest.classList.remove('active');
-        }
-      });
-    }
-  });
-</script>
+${interactivityScript}
 ${javascriptTags ? javascriptTags + '\n' : ''}${extractedEffectsScripts.length > 0 ? `
 <script>
 // Embedded page effects extracted from reference (build-time derived, zero platform runtime)
@@ -685,7 +418,8 @@ ${extractedEffectsScripts.join('\n\n')}
 ` : ''}</body>
 </html>`;
 
-      const indexHtmlPath = path.join(stageDir, 'index.html');
+      const indexHtmlPath = path.join(stageDir, entryFilename);
+      fs.mkdirSync(path.dirname(indexHtmlPath), { recursive: true });
       filesWritten.push(indexHtmlPath);
 
       // 4. Localize Assets & Rewrite All URLs in index.html to Local Relative Paths
@@ -776,7 +510,7 @@ ${extractedEffectsScripts.join('\n\n')}
         try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
       }
 
-      const finalEntryPath = path.join(outputDir, 'index.html');
+      const finalEntryPath = path.join(outputDir, entryFilename);
       return {
         success: true,
         entryHtmlPath: finalEntryPath,
@@ -968,54 +702,8 @@ ${extractedEffectsScripts.join('\n\n')}
       }
     });`;
   }
-
-  public generateFromMaterializedHtml(
-    html: string,
-    options: IndependentHtmlCloneOptions & { device?: 'web' | 'mobile'; entryFilename?: string }
-  ): { html: string; outputPath: string } {
-    const outputDir = path.resolve(options.outputDir);
-    const entryFilename = options.entryFilename || 'index.html';
-    const finalPath = path.join(outputDir, entryFilename);
-    fs.mkdirSync(path.dirname(finalPath), { recursive: true });
-
-    let cleaned = sanitizeSectionMarkup(html);
-    cleaned = localizeSameOriginReferences(cleaned, options.sourceBaseUrl);
-
-    const hasCategoryNav = cleaned.includes('category-navigation');
-    const hasVideoPopup = cleaned.includes('popup-video');
-    const hasLoginPopup = cleaned.includes('popup-login');
-
-    // Generic iframe fallback: Ensure any empty src with data-src is initialized with about:blank
-    cleaned = cleaned.replace(/(<iframe\b[^>]*)\s+src=""([^>]*>)/gi, '$1 src="about:blank"$2');
-
-    if (hasCategoryNav) {
-      // Ensure category-navigation__sub element has proper class for home.css scoped rules
-      cleaned = cleaned.replace(/id="category-navigation__sub"(\s+class="")?/g, 'id="category-navigation__sub" class="category-navigation__sub"');
-    }
-    if (hasVideoPopup) {
-      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)\s*(data-src=""|data-src="(?:\s*)")([^>]*>)/gi, '$1 data-src="https://www.youtube.com/embed/Nt2J6ZXPuw0"$3');
-      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)src=""([^>]*>)/gi, '$1src="about:blank"$2');
-      cleaned = cleaned.replace(/(<div id="popup-video"[^>]*?)\s+style="[^"]*"/gi, '$1');
-    }
-    if (hasLoginPopup) {
-      cleaned = cleaned.replace(/(<div id="popup-login"[^>]*?)\s+style="[^"]*"/gi, '$1');
-    }
-    // Ensure data-device attribute is set on body
-    const targetDevice = options.device || (html.includes('data-device="mobile"') ? 'mobile' : 'web');
-    if (/data-device="[^"]*"/i.test(cleaned)) {
-      cleaned = cleaned.replace(/data-device="[^"]*"/i, `data-device="${targetDevice}"`);
-    } else if (/<body/i.test(cleaned)) {
-      cleaned = cleaned.replace(/<body/i, `<body data-device="${targetDevice}"`);
-    }
-    const isSubdir = entryFilename.includes('/') || entryFilename.includes('\\');
-    const isMobileDevice = targetDevice === 'mobile';
-    if (isSubdir) {
-      cleaned = cleaned.replace(/(href|src|data-src)="(assets|css|js)\//gi, '$1="../$2/');
-    }
-    // Replace previous parity styles if regenerating
-    cleaned = cleaned.replace(/<style id="antifan-clone-parity">[\s\S]*?<\/style>/gi, '');
-    if (true) {
-      const categoryNavStyles = hasCategoryNav ? `
+  private getParityStyles(options: { hasCategoryNav: boolean; customParityCss?: string }): string {
+    const categoryNavStyles = options.hasCategoryNav ? `
     /* Category Dropdown Navigation Parity */
     #category-navigation__sub, .category-navigation__sub {
       position: absolute;
@@ -1110,31 +798,28 @@ ${extractedEffectsScripts.join('\n\n')}
       opacity: 1;
     }` : '';
 
-  const parityStyles = `  <style id="antifan-clone-parity">
-    /*
-     * Parity stylesheet. Declarations that carry state (show/hide of drawers, modals,
-     * popups and slider geometry) keep !important because the injected runtime drives
-     * them and must outrank unknown third-party CSS. Everything else is ordinary
-     * cascade: this sheet is the last one in <head>, so equal specificity resolves here.
-     */
-    /* Global responsive safety */
-    html, body { max-width: 100vw; overflow-x: hidden; }
-    /* Scrollbar gutter normalization */
-    html, * { scrollbar-width: none; }
-    *::-webkit-scrollbar { display: none; }
+    return `  <style id="antifan-clone-parity">
     /* Universal Declarative Toggle Targets */
-    [data-antifan-target]:not(.active) { display: none !important; }
-    [data-antifan-target].active { display: block !important; }
-    /* Universal Mobile Drawer & Offcanvas */
-    [class*="drawer"]:not(.active):not(.show), [class*="offcanvas"]:not(.active):not(.show) {
+    [data-antifan-target]:not(.active) { display: none; }
+    [data-antifan-target].active { display: block; }
+    /* Universal Mobile Drawer & Offcanvas Scoped State */
+    [data-antifan-drawer]:not(.active):not(.show),
+    .category-navigation__block:not(.show),
+    .drawer:not(.active):not(.show),
+    .offcanvas:not(.active):not(.show),
+    .mobile-drawer:not(.active):not(.show) {
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
     }
-    [class*="drawer"].show, [class*="drawer"].active, [class*="offcanvas"].show, [class*="offcanvas"].active {
-      opacity: 1 !important;
-      visibility: visible !important;
-      pointer-events: auto !important;
+    [data-antifan-drawer].show, [data-antifan-drawer].active,
+    .category-navigation__block.show,
+    .drawer.show, .drawer.active,
+    .offcanvas.show, .offcanvas.active,
+    .mobile-drawer.show, .mobile-drawer.active {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
     }
     /* Loading suggest spinner control */
     .loading-suggest { display: none; }
@@ -1142,16 +827,16 @@ ${extractedEffectsScripts.join('\n\n')}
     ${categoryNavStyles}
     /* Unhydrated modals & popups parity locks */
     #popup-login:not(.active), #popup-video:not(.active), .popup:not(.active), .modal:not(.active) {
-      display: none !important;
-      opacity: 0 !important;
-      visibility: hidden !important;
-      pointer-events: none !important;
+      display: none;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
     }
     #popup-login.active, .popup.active, .modal.active {
-      display: flex !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      pointer-events: auto !important;
+      display: flex;
+      visibility: visible;
+      opacity: 1;
+      pointer-events: auto;
     }
     #popup-video.active {
       display: flex;
@@ -1166,9 +851,9 @@ ${extractedEffectsScripts.join('\n\n')}
       height: 100vh;
       background: rgba(0, 0, 0, 0.75);
       z-index: 99999;
-      opacity: 1 !important;
-      visibility: visible !important;
-      pointer-events: auto !important;
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
     }
     #popup-video .popup-content {
       position: relative;
@@ -1226,16 +911,16 @@ ${extractedEffectsScripts.join('\n\n')}
       transition: opacity 0.2s ease, visibility 0.2s ease;
     }
     .form-block__content .form-row.row-file .detail:not(.active) {
-      display: none !important;
-      opacity: 0 !important;
-      visibility: hidden !important;
-      pointer-events: none !important;
+      display: none;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
     }
     .form-block__content .form-row.row-file .detail.active {
-      display: block !important;
-      opacity: 1 !important;
-      visibility: visible !important;
-      pointer-events: auto !important;
+      display: block;
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
     }
     /* Touch & Drag Slider Parity */
     .slick-slider, .slick-list, [class*="carousel"] {
@@ -1323,122 +1008,59 @@ ${extractedEffectsScripts.join('\n\n')}
     }
     ${options.customParityCss ? `\n    /* Custom User/Theme Parity CSS */\n    ${options.customParityCss}` : ''}
   </style>`;
-      if (cleaned.includes('</head>')) {
-        cleaned = cleaned.replace('</head>', `${parityStyles}\n</head>`);
-      } else {
-        cleaned = `${parityStyles}\n${cleaned}`;
-      }
-    }
-    const viewportMeta = '  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2">';
-    const adaptiveRouterScript = `  <script id="antifan-adaptive-router">
-    (function() {
-      var isMobileDevice = ${JSON.stringify(isMobileDevice)};
-      var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-      var forceDesktop = /[?&]device=desktop\\b/.test(window.location.search);
-      var forceMobile = /[?&]device=mobile\\b/.test(window.location.search);
-      var width = window.innerWidth || document.documentElement.clientWidth;
-      var wantsMobile = (isMobileUA || forceMobile || (width > 0 && width <= 768)) && !forceDesktop;
+  }
 
-      if (wantsMobile && !isMobileDevice) {
-        var pathname = window.location.pathname;
-        var target;
-        if (pathname.endsWith('/') || pathname === '') {
-          target = pathname + 'mobile/index.html';
-        } else if (pathname.endsWith('index.html')) {
-          target = pathname.replace(/index\\.html$/, 'mobile/index.html');
-        } else {
-          target = pathname + '/mobile/index.html';
-        }
-        window.location.replace(target + window.location.search);
-      } else if (!wantsMobile && isMobileDevice) {
-        var pathname = window.location.pathname;
-        if (pathname.indexOf('/mobile') !== -1) {
-          var target = pathname.replace(/\\/mobile(?:\\/index\\.html)?$/, '/index.html');
-          if (target === pathname) target = '/index.html';
-          window.location.replace(target + window.location.search);
-        }
-      }
-
-      window.addEventListener('resize', function() {
-        clearTimeout(window.__antifan_rtimer);
-        window.__antifan_rtimer = setTimeout(function() {
-          var w = window.innerWidth || document.documentElement.clientWidth;
-          var fDesk = /[?&]device=desktop\\b/.test(window.location.search);
-          var fMob = /[?&]device=mobile\\b/.test(window.location.search);
-          var mobUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-          var wantMob = (mobUA || fMob || (w > 0 && w <= 768)) && !fDesk;
-          if (wantMob && !isMobileDevice) {
-            var p = window.location.pathname;
-            var t = p.endsWith('index.html') ? p.replace(/index\\.html$/, 'mobile/index.html') : (p.replace(/\\/?$/, '') + '/mobile/index.html');
-            window.location.replace(t + window.location.search);
-          } else if (!wantMob && isMobileDevice) {
-            var p = window.location.pathname;
-            if (p.indexOf('/mobile') !== -1) {
-              var t = p.replace(/\\/mobile(?:\\/index\\.html)?$/, '/index.html');
-              if (t === p) t = '/index.html';
-              window.location.replace(t + window.location.search);
-            }
-          }
-        }, 300);
-      });
-    })();
-  </script>`;
-    cleaned = cleaned.replace(/<script id="antifan-adaptive-router">[\s\S]*?<\/script>/gi, '');
-    // Ensure viewport meta tag is first in <head>, followed immediately by adaptive router
-    if (!cleaned.includes('name="viewport"')) {
-      if (cleaned.includes('<head>')) {
-        cleaned = cleaned.replace('<head>', `<head>\n${viewportMeta}\n${adaptiveRouterScript}`);
-      } else {
-        cleaned = `${viewportMeta}\n${adaptiveRouterScript}\n${cleaned}`;
-      }
-    } else {
-      if (cleaned.includes('<head>')) {
-        cleaned = cleaned.replace('<head>', `<head>\n${adaptiveRouterScript}`);
-      } else if (cleaned.includes('</head>')) {
-        cleaned = cleaned.replace('</head>', `${adaptiveRouterScript}\n</head>`);
-      }
-    }
-    // Replace previous interactivity script if regenerating
-    cleaned = cleaned.replace(/<script id="antifan-clone-interactivity">[\s\S]*?<\/script>/gi, '');
-    if (true) {
-      const interactivityScript = `  <script id="antifan-clone-interactivity">
+  private getInteractivityScript(options: { hasCategoryNav: boolean; customInteractivityJs?: string }): string {
+    return `  <script id="antifan-clone-interactivity">
   function initAntifanInteractivity() {
-${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
 
     // 1b. Mobile Drawer Navigation & Drilldown (Universal & Theme)
-    var menuMobileBtns = document.querySelectorAll('.menu-mobile, [data-toggle="menu-mobile"], [data-toggle="drawer"], [class*="hamburger"], [class*="nav-toggle"]');
-    var mobileDrawer = document.querySelector('.category-navigation__block, [class*="drawer"], [class*="offcanvas"]');
-    var drawerCloseBtn = document.querySelector('.category-navigation__header .close, .category-navigation__block .close, [class*="drawer"] .close, [class*="offcanvas"] .close, [data-dismiss="drawer"]');
-    var drawerBackBtn = document.querySelector('.category-navigation__header .bottom .back, .category-navigation__block .back');
-
-    if (menuMobileBtns.length && mobileDrawer) {
-      menuMobileBtns.forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
-          e.preventDefault();
-          mobileDrawer.classList.add('show');
-          document.body.style.overflow = 'hidden';
-        });
-      });
-    }
-
-    if (drawerCloseBtn && mobileDrawer) {
-      drawerCloseBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        mobileDrawer.classList.remove('show');
+    var openDrawer = function(drawer) {
+      if (!drawer) return;
+      drawer.classList.add('show', 'active');
+      document.body.style.overflow = 'hidden';
+    };
+    var closeDrawer = function(drawer) {
+      if (!drawer) return;
+      drawer.classList.remove('show', 'active');
+      var anyOpen = document.querySelector('.category-navigation__block.show, [data-antifan-drawer].show, [data-antifan-drawer].active, .drawer.show, .drawer.active, .offcanvas.show, .offcanvas.active, .mobile-drawer.show, .mobile-drawer.active');
+      if (!anyOpen) {
         document.body.style.overflow = '';
-      });
-    }
+      }
+    };
 
-    if (mobileDrawer) {
-      mobileDrawer.addEventListener('click', function(e) {
-        if (e.target === mobileDrawer) {
-          mobileDrawer.classList.remove('show');
-          document.body.style.overflow = '';
+    var menuMobileBtns = document.querySelectorAll('.menu-mobile, [data-toggle="menu-mobile"], [data-toggle="drawer"], [class*="hamburger"], [class*="nav-toggle"], [data-antifan-drawer-trigger]');
+    menuMobileBtns.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var targetSel = btn.getAttribute('data-target') || btn.getAttribute('href');
+        var targetDrawer = (targetSel && targetSel.startsWith('#')) ? document.querySelector(targetSel) : null;
+        if (!targetDrawer) {
+          targetDrawer = document.querySelector('.category-navigation__block, [data-antifan-drawer], .mobile-drawer, .drawer, .offcanvas');
         }
+        if (targetDrawer) openDrawer(targetDrawer);
       });
-    }
+    });
+
+    var drawerCloseBtns = document.querySelectorAll('.category-navigation__header .close, .category-navigation__block .close, [data-antifan-drawer] .close, .drawer .close, .offcanvas .close, [data-dismiss="drawer"]');
+    drawerCloseBtns.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var drawer = btn.closest('.category-navigation__block, [data-antifan-drawer], .drawer, .offcanvas, .mobile-drawer');
+        if (drawer) closeDrawer(drawer);
+      });
+    });
+
+    var allDrawers = document.querySelectorAll('.category-navigation__block, [data-antifan-drawer], .drawer, .offcanvas, .mobile-drawer');
+    allDrawers.forEach(function(drawer) {
+      drawer.addEventListener('click', function(e) {
+        if (e.target === drawer) closeDrawer(drawer);
+      });
+    });
 
     // Drilldown level 1
+    var drawerBackBtn = document.querySelector('.category-navigation__header .bottom .back, .category-navigation__block .back');
     var l1Spans = document.querySelectorAll('.category-navigation__list > ul > li > p > span, .category-navigation__list > ul > li > p > a ~ span');
     l1Spans.forEach(function(span) {
       span.addEventListener('click', function(e) {
@@ -1479,8 +1101,24 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       });
     });
 
+    // Universal Escape key listener for modals and drawers
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' || e.keyCode === 27) {
+        allDrawers.forEach(function(d) {
+          d.classList.remove('show', 'active');
+        });
+        var openModals = document.querySelectorAll('#popup-login.active, #popup-video.active, .popup.active, .modal.active');
+        openModals.forEach(function(m) {
+          m.classList.remove('active');
+          var iframe = m.querySelector('iframe');
+          if (iframe) iframe.src = 'about:blank';
+        });
+        document.body.style.overflow = '';
+      }
+    });
+
     // 2. Video modal popup & YouTube embed loader
-    var videoBtns = document.querySelectorAll('.video-content__button, [data-fancybox="video"]');
+    var videoBtns = document.querySelectorAll('.video-content__button, [data-fancybox="video"], [href*="youtube.com"], [href*="youtu.be"]');
     var videoPopup = document.getElementById('popup-video');
     if (videoPopup) {
       videoBtns.forEach(function(btn) {
@@ -1489,7 +1127,7 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
           videoPopup.classList.add('active');
           var iframe = videoPopup.querySelector('iframe');
           if (iframe) {
-            var rawSrc = iframe.getAttribute('data-src') || 'https://www.youtube.com/embed/Nt2J6ZXPuw0';
+            var rawSrc = iframe.getAttribute('data-src') || iframe.getAttribute('src') || 'https://www.youtube.com/embed/Nt2J6ZXPuw0';
             iframe.src = rawSrc.includes('?') ? rawSrc + '&autoplay=1' : rawSrc + '?autoplay=1';
           }
         });
@@ -1621,6 +1259,7 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       var isDragging = false;
       var isHorizontalSwipe = false;
       var currentIndex = 0;
+      var didDrag = false;
 
       function getTranslateX() {
         var style = window.getComputedStyle(track);
@@ -1660,7 +1299,7 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
 
       function updateActiveDots(activeIdx) {
         currentIndex = Math.max(0, Math.min(slides.length - 1, activeIdx));
-        var dots = slider.querySelectorAll('.slick-dots li, .dot, [class*="dots"] > *');
+        var dots = slider.querySelectorAll('.slick-dots li, .dot, [class*="dots"] > *, [class*="pagination"] > *');
         dots.forEach(function(dot, idx) {
           if (idx === currentIndex) dot.classList.add('slick-active', 'active');
           else dot.classList.remove('slick-active', 'active');
@@ -1671,10 +1310,20 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
         });
       }
 
+      // Prevent child link click after swiping/dragging
+      list.addEventListener('click', function(e) {
+        if (didDrag) {
+          e.preventDefault();
+          e.stopPropagation();
+          didDrag = false;
+        }
+      }, true);
+
       // Touch events (Mobile Safari & Android Chrome)
       list.addEventListener('touchstart', function(e) {
         if (!e.touches || e.touches.length === 0) return;
         isDragging = true;
+        didDrag = false;
         isHorizontalSwipe = false;
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
@@ -1693,6 +1342,7 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
           isHorizontalSwipe = Math.abs(diffX) > Math.abs(diffY);
         }
         if (!isHorizontalSwipe) return;
+        if (Math.abs(diffX) > 10) didDrag = true;
         currentX = touchX;
         var maxScroll = getMaxScroll();
         var targetX = startTranslate + diffX;
@@ -1702,7 +1352,7 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
         setTranslateX(currentTranslate, false);
       }, { passive: true });
 
-      list.addEventListener('touchend', function(e) {
+      var finishSwipe = function() {
         if (!isDragging) return;
         isDragging = false;
         if (!isHorizontalSwipe) return;
@@ -1719,12 +1369,19 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
         newTranslate = Math.max(maxScroll, Math.min(0, newTranslate));
         setTranslateX(newTranslate, true);
         updateActiveDots(targetIdx);
+      };
+
+      list.addEventListener('touchend', finishSwipe, { passive: true });
+      list.addEventListener('touchcancel', function() {
+        isDragging = false;
+        setTranslateX(-currentIndex * getSlideWidth(), true);
       }, { passive: true });
 
       // Pointer/Mouse drag events (Desktop)
       list.addEventListener('mousedown', function(e) {
         if (e.button !== 0) return;
         isDragging = true;
+        didDrag = false;
         startX = e.clientX;
         currentX = e.clientX;
         startTranslate = getTranslateX();
@@ -1736,6 +1393,7 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
         if (!isDragging) return;
         currentX = e.clientX;
         var diffX = currentX - startX;
+        if (Math.abs(diffX) > 8) didDrag = true;
         var maxScroll = getMaxScroll();
         var targetX = startTranslate + diffX;
         if (targetX > 0) targetX = targetX * 0.3;
@@ -1764,7 +1422,7 @@ ${hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       });
 
       // Clickable dots
-      var dots = slider.querySelectorAll('.slick-dots li, [class*="dots"] li');
+      var dots = slider.querySelectorAll('.slick-dots li, .dot, [class*="dots"] > *, [class*="pagination"] > *');
       dots.forEach(function(dot, idx) {
         dot.addEventListener('click', function(e) {
           e.preventDefault();
@@ -1831,11 +1489,156 @@ ${options.customInteractivityJs ? `\n    /* Custom User / Theme Interactivity */
     initAntifanInteractivity();
   }
   </script>`;
-      if (cleaned.includes('</body>')) {
-        cleaned = cleaned.replace('</body>', `${interactivityScript}\n</body>`);
-      } else {
-        cleaned = `${cleaned}\n${interactivityScript}`;
+  }
+
+  public generateFromMaterializedHtml(
+    html: string,
+    options: IndependentHtmlCloneOptions & { device?: 'web' | 'mobile'; entryFilename?: string }
+  ): { html: string; outputPath: string } {
+    const outputDir = path.resolve(options.outputDir);
+    const entryFilename = options.entryFilename || 'index.html';
+    const finalPath = path.join(outputDir, entryFilename);
+    fs.mkdirSync(path.dirname(finalPath), { recursive: true });
+
+    let cleaned = sanitizeSectionMarkup(html);
+    cleaned = localizeSameOriginReferences(cleaned, options.sourceBaseUrl);
+
+    const hasCategoryNav = cleaned.includes('category-navigation');
+    const hasVideoPopup = cleaned.includes('popup-video');
+    const hasLoginPopup = cleaned.includes('popup-login');
+
+    // Generic iframe fallback: Ensure any empty src with data-src is initialized with about:blank
+    cleaned = cleaned.replace(/(<iframe\b[^>]*)\s+src=""([^>]*>)/gi, '$1 src="about:blank"$2');
+
+    if (hasCategoryNav) {
+      // Ensure category-navigation__sub element has proper class for home.css scoped rules
+      cleaned = cleaned.replace(/id="category-navigation__sub"(\s+class="")?/g, 'id="category-navigation__sub" class="category-navigation__sub"');
+    }
+    if (hasVideoPopup) {
+      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)\s*(data-src=""|data-src="(?:\s*)")([^>]*>)/gi, '$1 data-src="https://www.youtube.com/embed/Nt2J6ZXPuw0"$3');
+      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)src=""([^>]*>)/gi, '$1src="about:blank"$2');
+      cleaned = cleaned.replace(/(<div id="popup-video"[^>]*?)\s+style="[^"]*"/gi, '$1');
+    }
+    if (hasLoginPopup) {
+      cleaned = cleaned.replace(/(<div id="popup-login"[^>]*?)\s+style="[^"]*"/gi, '$1');
+    }
+    // Ensure data-device attribute is set on body
+    const targetDevice = options.device || (html.includes('data-device="mobile"') ? 'mobile' : 'web');
+    if (/data-device="[^"]*"/i.test(cleaned)) {
+      cleaned = cleaned.replace(/data-device="[^"]*"/i, `data-device="${targetDevice}"`);
+    } else if (/<body/i.test(cleaned)) {
+      cleaned = cleaned.replace(/<body/i, `<body data-device="${targetDevice}"`);
+    }
+    const entryDir = path.dirname(entryFilename);
+    const relToRoot = entryDir === '.' ? '' : path.relative(entryDir, '.').replace(/\\/g, '/') + '/';
+    const isMobileDevice = targetDevice === 'mobile';
+    if (relToRoot) {
+      cleaned = cleaned.replace(
+        /(\b(?:href|src|data-src|poster)\s*=\s*["'])(?:(?:\.\/)?)(assets|css|js)\//gi,
+        `$1${relToRoot}$2/`
+      );
+      cleaned = cleaned.replace(
+        /(\b(?:srcset|data-srcset)\s*=\s*["'])([^"']+)(["'])/gi,
+        (_m, p1, val, p3) => {
+          const rewrittenVal = val.replace(/(^|\s|,)(?:(?:\.\/)?)(assets|css|js)\//gi, `$1${relToRoot}$2/`);
+          return `${p1}${rewrittenVal}${p3}`;
+        }
+      );
+      cleaned = cleaned.replace(
+        /(url\s*\(\s*['"]?)(?:(?:\.\/)?)(assets|css|js)\//gi,
+        `$1${relToRoot}$2/`
+      );
+    }
+    // Replace previous parity styles if regenerating
+    cleaned = cleaned.replace(/<style id="antifan-clone-parity">[\s\S]*?<\/style>/gi, '');
+    const parityStyles = this.getParityStyles({
+      hasCategoryNav,
+      customParityCss: options.customParityCss
+    });
+    if (cleaned.includes('</head>')) {
+      cleaned = cleaned.replace('</head>', `${parityStyles}\n</head>`);
+    } else {
+      cleaned = `${parityStyles}\n${cleaned}`;
+    }
+    const viewportMeta = '  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2">';
+    const adaptiveRouterScript = `  <script id="antifan-adaptive-router">
+    (function() {
+      var isMobileDevice = ${JSON.stringify(isMobileDevice)};
+      var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      var forceDesktop = /[?&]device=desktop\\b/.test(window.location.search);
+      var forceMobile = /[?&]device=mobile\\b/.test(window.location.search);
+      var width = window.innerWidth || document.documentElement.clientWidth;
+      var wantsMobile = (isMobileUA || forceMobile || (width > 0 && width <= 768)) && !forceDesktop;
+
+      if (wantsMobile && !isMobileDevice) {
+        var pathname = window.location.pathname;
+        var target;
+        if (pathname.endsWith('/') || pathname === '') {
+          target = pathname + 'mobile/index.html';
+        } else if (pathname.endsWith('index.html')) {
+          target = pathname.replace(/index\\.html$/, 'mobile/index.html');
+        } else {
+          target = pathname + '/mobile/index.html';
+        }
+        window.location.replace(target + window.location.search);
+      } else if (!wantsMobile && isMobileDevice) {
+        var pathname = window.location.pathname;
+        if (pathname.indexOf('/mobile') !== -1) {
+          var target = pathname.replace(/\\/mobile(?:\\/index\\.html)?$/, '/index.html');
+          if (target === pathname) target = '/index.html';
+          window.location.replace(target + window.location.search);
+        }
       }
+
+      window.addEventListener('resize', function() {
+        clearTimeout(window.__antifan_rtimer);
+        window.__antifan_rtimer = setTimeout(function() {
+          var w = window.innerWidth || document.documentElement.clientWidth;
+          var fDesk = /[?&]device=desktop\\b/.test(window.location.search);
+          var fMob = /[?&]device=mobile\\b/.test(window.location.search);
+          var mobUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+          var wantMob = (mobUA || fMob || (w > 0 && w <= 768)) && !fDesk;
+          if (wantMob && !isMobileDevice) {
+            var p = window.location.pathname;
+            var t = p.endsWith('index.html') ? p.replace(/index\\.html$/, 'mobile/index.html') : (p.replace(/\\/?$/, '') + '/mobile/index.html');
+            window.location.replace(t + window.location.search);
+          } else if (!wantMob && isMobileDevice) {
+            var p = window.location.pathname;
+            if (p.indexOf('/mobile') !== -1) {
+              var t = p.replace(/\\/mobile(?:\\/index\\.html)?$/, '/index.html');
+              if (t === p) t = '/index.html';
+              window.location.replace(t + window.location.search);
+            }
+          }
+        }, 300);
+      });
+    })();
+  </script>`;
+    cleaned = cleaned.replace(/<script id="antifan-adaptive-router">[\s\S]*?<\/script>/gi, '');
+    // Ensure viewport meta tag is first in <head>, followed immediately by adaptive router
+    if (!cleaned.includes('name="viewport"')) {
+      if (cleaned.includes('<head>')) {
+        cleaned = cleaned.replace('<head>', `<head>\n${viewportMeta}\n${adaptiveRouterScript}`);
+      } else {
+        cleaned = `${viewportMeta}\n${adaptiveRouterScript}\n${cleaned}`;
+      }
+    } else {
+      if (cleaned.includes('<head>')) {
+        cleaned = cleaned.replace('<head>', `<head>\n${adaptiveRouterScript}`);
+      } else if (cleaned.includes('</head>')) {
+        cleaned = cleaned.replace('</head>', `${adaptiveRouterScript}\n</head>`);
+      }
+    }
+    // Replace previous interactivity script if regenerating
+    cleaned = cleaned.replace(/<script id="antifan-clone-interactivity">[\s\S]*?<\/script>/gi, '');
+    const interactivityScript = this.getInteractivityScript({
+      hasCategoryNav,
+      customInteractivityJs: options.customInteractivityJs
+    });
+    if (cleaned.includes('</body>')) {
+      cleaned = cleaned.replace('</body>', `${interactivityScript}\n</body>`);
+    } else {
+      cleaned = `${cleaned}\n${interactivityScript}`;
     }
 
     fs.writeFileSync(finalPath, cleaned, 'utf-8');

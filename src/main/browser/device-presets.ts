@@ -64,6 +64,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
   { id: 'iphone-16-pro', name: '📱 iPhone 16 / 15 Pro (393×852)', category: 'mobile', width: 393, height: 852, mobile: true, deviceScaleFactor: 3, userAgent: IPHONE_USER_AGENT, platform: 'iPhone', maxTouchPoints: 5, cornerRadius: 48 },
   { id: 'phone-iphone14pro', name: '📱 iPhone 14 / 13 / 12 (390×844)', category: 'mobile', width: 390, height: 844, mobile: true, deviceScaleFactor: 3, userAgent: IPHONE_USER_AGENT, platform: 'iPhone', maxTouchPoints: 5, cornerRadius: 48 },
   { id: 'iphone-14-15', name: '📱 iPhone 14 / 13 (390×844)', category: 'mobile', width: 390, height: 844, mobile: true, deviceScaleFactor: 3, userAgent: IPHONE_USER_AGENT, platform: 'iPhone', maxTouchPoints: 5, cornerRadius: 48 },
+  { id: 'iphone-15', name: '📱 iPhone 15 / 14 (390×844)', category: 'mobile', width: 390, height: 844, mobile: true, deviceScaleFactor: 3, userAgent: IPHONE_USER_AGENT, platform: 'iPhone', maxTouchPoints: 5, cornerRadius: 48 },
   { id: 'phone-iphonexr', name: '📱 iPhone XR / 11 (414×896)', category: 'mobile', width: 414, height: 896, mobile: true, deviceScaleFactor: 2, userAgent: IPHONE_USER_AGENT, platform: 'iPhone', maxTouchPoints: 5, cornerRadius: 44 },
   { id: 'phone-iphonese', name: '📱 iPhone SE 2/3 (375×667)', category: 'mobile', width: 375, height: 667, mobile: true, deviceScaleFactor: 2, userAgent: IPHONE_USER_AGENT, platform: 'iPhone', maxTouchPoints: 5, cornerRadius: 0 },
   { id: 'iphone-se', name: '📱 iPhone SE 2/3 (375×667)', category: 'mobile', width: 375, height: 667, mobile: true, deviceScaleFactor: 2, userAgent: IPHONE_USER_AGENT, platform: 'iPhone', maxTouchPoints: 5, cornerRadius: 0 },
@@ -82,11 +83,21 @@ export const DEVICE_PRESETS: DevicePreset[] = [
   { id: 'mobile-320-compact', name: '📱 Mobile 320 Compact (320×480)', category: 'mobile', width: 320, height: 480, mobile: true, deviceScaleFactor: 2, userAgent: ANDROID_MOBILE_USER_AGENT, platform: 'Linux armv81', maxTouchPoints: 5, cornerRadius: 0 },
 ];
 
+export function findDevicePreset(presetOrId?: DevicePreset | string | null): DevicePreset | undefined {
+  if (!presetOrId) return undefined;
+  if (typeof presetOrId === 'object' && presetOrId !== null) return presetOrId;
+  const target = String(presetOrId).trim().toLowerCase();
+  if (!target) return undefined;
+  if (target === 'iphone-15' || target === 'iphone15') {
+    return DEVICE_PRESETS.find((p) => p.id === 'iphone-15') || DEVICE_PRESETS.find((p) => p.id === 'iphone-14-15');
+  }
+  return DEVICE_PRESETS.find((p) => p.id.toLowerCase() === target);
+}
+
 export function getPresetCornerRadius(presetOrId?: DevicePreset | string | null): number {
   if (!presetOrId) return 0;
-  const preset = typeof presetOrId === 'string' ? DEVICE_PRESETS.find((p) => p.id === presetOrId) : presetOrId;
+  const preset = findDevicePreset(presetOrId);
   if (!preset) return 0;
-  if (typeof preset.cornerRadius === 'number') return preset.cornerRadius;
   if (preset.category === 'desktop' || preset.category === 'responsive') return 0;
   if (preset.id.includes('iphonese') || preset.id.includes('iphone-se') || preset.id.includes('surface')) return 0;
   if (preset.category === 'tablet') return 18;

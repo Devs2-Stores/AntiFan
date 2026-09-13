@@ -32,6 +32,10 @@ function parseArgs(args) {
       parsed.output = path.resolve(rootDir, args[++i]);
     } else if (arg.startsWith('--output=')) {
       parsed.output = path.resolve(rootDir, arg.slice('--output='.length));
+    } else if (arg === '--mobile' || arg === '-b') {
+      parsed.mobile = path.resolve(rootDir, args[++i]);
+    } else if (arg.startsWith('--mobile=')) {
+      parsed.mobile = path.resolve(rootDir, arg.slice('--mobile='.length));
     }
   }
 
@@ -87,11 +91,21 @@ async function main() {
     process.exit(1);
   }
 
+  const autoMobilePath = path.join(path.dirname(args.input), 'mobile', 'index.html');
+  const mobilePath = args.mobile || (fs.existsSync(autoMobilePath) ? autoMobilePath : undefined);
+  let mobileHtml;
+  if (mobilePath && fs.existsSync(mobilePath)) {
+    mobileHtml = fs.readFileSync(mobilePath, 'utf-8');
+    console.log(`  - Mobile Input:     ${mobilePath}`);
+  }
+
   const compiler = new ThemeCompiler();
   const assetsDir = path.join(path.dirname(args.input), 'assets');
   const result = compiler.compileTheme(args.output, rawHtml, {
     settingsMode: args.settingsMode,
-    assetsDir,
+    assetsDir: fs.existsSync(assetsDir) ? assetsDir : undefined,
+    inputPath: args.input,
+    mobileHtml,
   });
 
   console.log('[Haravan Compiler] Theme compilation completed successfully!');

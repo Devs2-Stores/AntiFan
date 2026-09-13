@@ -42,6 +42,13 @@ export interface ThemeQaDifferentialAttribution {
   hasRegressions: boolean;
 }
 
+export interface ThemeQaDiagnosticScreenshot {
+  artifactId?: string;
+  artifactRef?: unknown;
+  certifying: false;
+  reason: string;
+}
+
 export interface ThemeQaDetailedFindings {
   platform: PlatformDetectionResult;
   liquid: LiquidScanResult;
@@ -58,6 +65,7 @@ export interface ThemeQaDetailedFindings {
   };
   differential?: ThemeQaDifferentialAttribution;
   evidenceGaps?: string[];
+  diagnosticScreenshot?: ThemeQaDiagnosticScreenshot;
 }
 export interface ThemeQaSummary {
   passed: boolean;
@@ -134,7 +142,7 @@ export interface ThemeQaReport {
 export interface ThemeQaWorkflowPorts {
   browser: BrowserControlPort;
   artifacts: ArtifactStore;
-  reload: (target: BrowserTarget) => Promise<{ reloaded: boolean; target: BrowserTarget }> | { reloaded: boolean; target: BrowserTarget };
+  reload: (target: BrowserTarget, options?: { ownedReloadToken?: string }) => Promise<{ reloaded: boolean; target: BrowserTarget }> | { reloaded: boolean; target: BrowserTarget };
   transactionRegistry?: ThemeTransactionRegistry;
   /**
    * Ephemeral third-party tracker isolation. Called with `true` before the
@@ -239,11 +247,10 @@ export class ThemeQaWorkflow {
    */
   private async withTrackerIsolation<T>(
     target: BrowserTarget,
-    body: () => Promise<T>
+    body: (rebindTarget: (newTarget: BrowserTarget) => void) => Promise<T>
   ): Promise<{ result: T; isolation?: TrackerIsolationOutcome }> {
     const port = this.ports.trackerIsolation;
-    if (!port) return { result: await body() };
-
+    if (!port) return { result: await body(() => {}) };
     let opened = false;
     let outcome: TrackerIsolationOutcome | undefined;
     try {
@@ -262,13 +269,17 @@ export class ThemeQaWorkflow {
       rethrowTargetLifecycleError(error);
     }
 
+    let releaseTarget = target;
+    const rebindTarget = (newTarget: BrowserTarget) => {
+      releaseTarget = newTarget;
+    };
+
     try {
-      return { result: await body(), isolation: outcome };
+      return { result: await body(rebindTarget), isolation: outcome };
     } finally {
       if (opened && outcome) {
         try {
-          const release = await port(target, false, 'desktop');
-          // `active: true` on release means the blocklist could not be lifted.
+          const release = await port(releaseTarget, false, 'desktop');
           const released = release?.active !== true;
           outcome.released = released;
           if (!released) {
@@ -494,16 +505,28 @@ export class ThemeQaWorkflow {
     // stubs exist before the storefront JS runs) and is released in a `finally`,
     // so a settle failure cannot leave the tab blocked.
     let activeTarget: BrowserTarget = input.target;
-    const loadPhase = await this.withTrackerIsolation(input.target, async () => {
-      const reload = await this.ports.reload(input.target);
+    const liveDocGenBeforeReload = this.ports.browser.getDocumentGeneration?.(input.target.tabId);
+    const preReloadTarget: BrowserTarget =
+      typeof liveDocGenBeforeReload === 'number'
+        ? { ...input.target, documentGeneration: liveDocGenBeforeReload }
+        : input.target;
+
+    const ownedReloadToken = `owned-qa-reload-${activeTarget.tabId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const loadPhase = await this.withTrackerIsolation(preReloadTarget, async (rebindTarget) => {
+      const reload = await this.ports.reload(preReloadTarget, { ownedReloadToken });
       if (input.signal?.aborted) {
         throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
       }
       if (!reload || !reload.reloaded || !reload.target) {
         throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not reach a load-complete document');
       }
-      activeTarget = reload.target;
-
+      const postReloadGen = this.ports.browser.getDocumentGeneration?.(reload.target.tabId) ?? reload.target.documentGeneration;
+      activeTarget = {
+        ...reload.target,
+        ...(typeof postReloadGen === 'number' ? { documentGeneration: postReloadGen } : {}),
+      };
+      rebindTarget(activeTarget);
       // Stage 2 & 3: Composed Settle Barrier (Phase 4: settleCapture)
       let receipt: VisualSettleReceipt | undefined;
       let missingCapability = false;
@@ -593,25 +616,6 @@ export class ThemeQaWorkflow {
     // 4. Platform Detection
     const platformResult = PlatformDetector.detect(input.workspaceRoot, undefined, rawHtml);
     const detectedPlatform: EcommercePlatform = platformResult.platform;
-
-    // 5. Liquid Error Scanning (RT-01 isolated script + fallback)
-    await new Promise((r) => setImmediate(r));
-    let liquidResult: LiquidScanResult = { hasErrors: false, errors: [], scannedElementsCount: 0 };
-    try {
-      checkAborted();
-      const evalRes = await this.ports.browser.eval(activeTarget, LiquidErrorScanner.getBrowserScanScript());
-      checkAborted();
-      if (evalRes && typeof evalRes === 'object' && 'hasErrors' in evalRes) {
-        liquidResult = evalRes as LiquidScanResult;
-      } else if (rawHtml) {
-        liquidResult = LiquidErrorScanner.scanHtmlString(rawHtml);
-      }
-    } catch (error) {
-      rethrowTargetLifecycleError(error);
-      if (rawHtml) {
-        liquidResult = LiquidErrorScanner.scanHtmlString(rawHtml);
-      }
-    }
     // Separate evidence incompleteness from observed failure (do not inject into diagnosticIssues)
     const evidenceGaps: string[] = [];
     if (settleMissingCapability) {
@@ -622,6 +626,35 @@ export class ThemeQaWorkflow {
       evidenceGaps.push(mutationBarrierError);
     }
 
+    if (!rawHtml && !evidence.dom) {
+      evidenceGaps.push('DOM inspection returned empty content; cannot certify page structure');
+    }
+
+    // 5. Liquid Error Scanning (RT-01 isolated script + fallback)
+    await new Promise((r) => setImmediate(r));
+    let liquidResult: LiquidScanResult = { hasErrors: false, errors: [], scannedElementsCount: 0 };
+    let liquidScanRan = false;
+    try {
+      checkAborted();
+      const evalRes = await this.ports.browser.eval(activeTarget, LiquidErrorScanner.getBrowserScanScript());
+      checkAborted();
+      if (evalRes && typeof evalRes === 'object' && 'hasErrors' in evalRes) {
+        liquidResult = evalRes as LiquidScanResult;
+        liquidScanRan = true;
+      } else if (rawHtml) {
+        liquidResult = LiquidErrorScanner.scanHtmlString(rawHtml);
+        liquidScanRan = true;
+      }
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
+      if (rawHtml) {
+        liquidResult = LiquidErrorScanner.scanHtmlString(rawHtml);
+        liquidScanRan = true;
+      }
+    }
+    if (!liquidScanRan && !rawHtml) {
+      evidenceGaps.push('Liquid syntax scanner could not execute: browser eval failed and no HTML source was available; cannot certify liquid clean');
+    }
     // 6. Layout Overflow Engine (RT-06 sub-pixel deadband & RT-04 container limiting)
     let overflowResult: ViewportOverflowResult = {
       viewport: { name: 'desktop', width: 1440, height: 900 },
@@ -709,6 +742,7 @@ export class ThemeQaWorkflow {
       totalImagesScanned: 0,
       totalStylesheetsScanned: 0,
     };
+    let assetScanRan = false;
     await new Promise((r) => setImmediate(r));
     try {
       checkAborted();
@@ -716,6 +750,7 @@ export class ThemeQaWorkflow {
       checkAborted();
       if (evalRes && typeof evalRes === 'object' && 'hasBrokenAssets' in evalRes) {
         assetResult = evalRes as BrokenAssetScanResult;
+        assetScanRan = true;
       }
       const diagnostics = freshDiagnostics;
       if (diagnostics && Array.isArray(diagnostics.failures) && diagnostics.failures.length > 0) {
@@ -741,24 +776,32 @@ export class ThemeQaWorkflow {
     // 9. Platform-scoped HS gate evaluation
     await new Promise((r) => setImmediate(r));
     let hsResult: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+    let hsScanRan = false;
     try {
       checkAborted();
       const evalRes = await this.ports.browser.eval(activeTarget, HsGateRules.getBrowserEvaluationScript(detectedPlatform));
       checkAborted();
       if (evalRes && typeof evalRes === 'object' && 'passed' in evalRes) {
         hsResult = evalRes as HsEvaluationResult;
+        hsScanRan = true;
       } else if (rawHtml) {
         hsResult = HsGateRules.evaluateHtml(rawHtml, detectedPlatform);
+        hsScanRan = true;
       }
     } catch (error) {
       rethrowTargetLifecycleError(error);
       if (rawHtml) {
         hsResult = HsGateRules.evaluateHtml(rawHtml, detectedPlatform);
+        hsScanRan = true;
       }
+    }
+    if (!hsScanRan && !rawHtml) {
+      evidenceGaps.push('Platform compliance scanner could not execute: browser eval failed and no HTML source was available; cannot certify platform compliance');
     }
 
     // 9.5 Server Crash Scanner (Haravan 500, Shopify 500, Sapo 500, Cloudflare 5xx)
     let serverCrashResult: ServerCrashScanResult = { hasCrash: false, errorsCount: 0, findings: [] };
+    let serverCrashScanRan = false;
     await new Promise((r) => setImmediate(r));
     try {
       checkAborted();
@@ -766,14 +809,20 @@ export class ThemeQaWorkflow {
       checkAborted();
       if (evalRes && typeof evalRes === 'object' && 'hasCrash' in evalRes) {
         serverCrashResult = evalRes as ServerCrashScanResult;
+        serverCrashScanRan = true;
       } else if (rawHtml) {
         serverCrashResult = ServerCrashScanner.scanHtmlString(rawHtml);
+        serverCrashScanRan = true;
       }
     } catch (error) {
       rethrowTargetLifecycleError(error);
       if (rawHtml) {
         serverCrashResult = ServerCrashScanner.scanHtmlString(rawHtml);
+        serverCrashScanRan = true;
       }
+    }
+    if (!serverCrashScanRan && !rawHtml) {
+      evidenceGaps.push('Server crash scanner could not execute: browser eval failed and no HTML source was available; cannot certify server status');
     }
 
     // 9.5. Compute Canonical Differential Attribution across all diagnostics & scanner findings
@@ -1006,7 +1055,7 @@ export class ThemeQaWorkflow {
       (checkParticipates('hsCompliant') && hsResult.errorsCount > 0) ||
       serverCrashResult.hasCrash ||
       diagnosticIssues.length > 0;
-    const hasMissingEvidence = settleMissingCapability || mutationMissingBarrier || evidenceGaps.length > 0;
+    const hasMissingEvidence = settleMissingCapability || mutationMissingBarrier || evidenceGaps.length > 0 || activeChecklistEntries.length === 0;
 
     let summaryVerdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE' = 'PASS';
     if (hasObservedFailure) {
@@ -1024,6 +1073,22 @@ export class ThemeQaWorkflow {
       criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length,
     };
 
+    const screenshotArtifactId =
+      evidence.screenshot?.artifactRef &&
+      typeof evidence.screenshot.artifactRef === 'object' &&
+      'id' in (evidence.screenshot.artifactRef as unknown as Record<string, unknown>)
+        ? String((evidence.screenshot.artifactRef as unknown as Record<string, unknown>).id)
+        : (evidence.screenshot && typeof evidence.screenshot === 'object' && 'id' in (evidence.screenshot as unknown as Record<string, unknown>)
+          ? String((evidence.screenshot as unknown as Record<string, unknown>).id)
+          : undefined);
+
+    const diagnosticScreenshot: ThemeQaDiagnosticScreenshot = {
+      ...(screenshotArtifactId ? { artifactId: screenshotArtifactId } : {}),
+      artifactRef: evidence.screenshot?.artifactRef,
+      certifying: false,
+      reason: 'Diagnostic viewport capture only; cannot certify visual parity without multi-viewport baseline comparison (anti.visual.compare)',
+    };
+
     const findings: ThemeQaDetailedFindings = {
       platform: platformResult,
       liquid: liquidResult,
@@ -1036,6 +1101,7 @@ export class ThemeQaWorkflow {
       ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
       ...(differential ? { differential } : {}),
       ...(evidenceGaps.length > 0 ? { evidenceGaps } : {}),
+      diagnosticScreenshot,
     };
 
     const artifacts: ArtifactRef[] = [];

@@ -290,7 +290,7 @@ export class ControlPlaneRuntime {
     this.themeQaWorkflow = new ThemeQaWorkflow({
       browser,
       artifacts: this.artifacts,
-      reload: (target) => browser.reload(target),
+      reload: (target, options) => browser.reload(target, undefined, options),
       transactionRegistry: this.themeTransactions,
       trackerIsolation: (target, active, paneId) => browser.setTrackerIsolation(target, active, paneId),
     });

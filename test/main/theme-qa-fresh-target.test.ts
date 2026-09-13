@@ -583,4 +583,86 @@ describe('Theme QA Fresh Target Reliability', () => {
     assert.strictEqual(task2Completed, true, 'Task 2 must complete');
     assert.strictEqual(queue.isRunning('tab-1'), false, 'Queue must be empty after task 2 completes');
   });
+  it('rebinds owned reload lifecycle without queue abort and keeps external navigation abort intact', async () => {
+    const queue = new AsyncThemeQaQueue();
+    let taskAborted = false;
+    let taskCompleted = false;
+
+    queue.enqueue('tab-1', 1, async (signal) => {
+      signal.addEventListener('abort', () => {
+        taskAborted = true;
+      });
+      // Owned reload updates generation to 2
+      queue.rebindGeneration('tab-1', 2);
+      await new Promise((r) => setTimeout(r, 10));
+      taskCompleted = true;
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    assert.strictEqual(taskAborted, false, 'Task must NOT abort on owned reload rebind');
+    assert.strictEqual(taskCompleted, true, 'Task must complete successfully after rebind');
+
+    // External navigation aborts the queue
+    let extAborted = false;
+    queue.enqueue('tab-1', 2, async (signal) => {
+      signal.addEventListener('abort', () => {
+        extAborted = true;
+      });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    queue.abort('tab-1');
+    assert.strictEqual(extAborted, true, 'External navigation must abort the queue immediately');
+  });
+
+  it('marks diagnosticScreenshot as certifying: false and handles absent evidence as INCONCLUSIVE', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-qa-diag-screenshot-'));
+    const mockHost: any = {
+      evalJs: async (expr: string) => {
+        if (typeof expr === 'string') {
+          if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
+            return { settled: true, brokenImages: [] };
+          }
+          if (expr.includes('document.fonts') || expr.includes('requestAnimationFrame')) {
+            return true;
+          }
+        }
+        return undefined;
+      },
+      getNetworkTracker: () => ({
+        awaitQuiescence: async () => ({ settled: true, timedOut: false }),
+        isAttached: () => true,
+      }),
+      getTabList: () => [{ id: 'tab-fresh-1', url: 'https://example.com' }],
+      reload: async () => true,
+      getDom: async () => '', // Empty DOM
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      captureVerificationScreenshot: async (_rect?: unknown, _tabId?: string, _paneId?: unknown, options?: { fullPage?: boolean }) => {
+        return verificationCaptureEnvelope(
+          Buffer.from('mock-screenshot').toString('base64'),
+          { fullPage: options?.fullPage ?? false }
+        );
+      },
+    };
+    const port = new BrowserControlPort(mockHost, new ArtifactStore({ root }) as any);
+    const workflow = new ThemeQaWorkflow({
+      browser: port,
+      artifacts: new ArtifactStore({ root }),
+      reload: () => ({ reloaded: true, target: { ...makeTarget(1), documentGeneration: 2 } }),
+    });
+
+    const report = await workflow.validate({
+      runId: 'run-12345678901234567890',
+      attemptId: 'attempt-12345678901234567890',
+      workspaceRoot: root,
+      target: makeTarget(1),
+    });
+
+    assert.ok(report.findings?.diagnosticScreenshot, 'diagnosticScreenshot must be present in findings');
+    assert.strictEqual(report.findings?.diagnosticScreenshot?.certifying, false, 'diagnosticScreenshot must be non-certifying');
+    assert.ok(report.findings?.diagnosticScreenshot?.reason.includes('cannot certify visual parity'), 'Must include reason');
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE', 'Absent DOM and scanner evidence must fail closed to INCONCLUSIVE, not PASS');
+    assert.strictEqual(report.summary.passed, false, 'Summary passed must be false when inconclusive');
+
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 });

@@ -58,6 +58,32 @@ export interface VerificationResult {
 }
 
 /**
+ * QA verification receipt recorded in the provenance ledger.
+ */
+export interface ProvenanceReceipt {
+  id: string;
+  artifact?: string;
+  targetUrl?: string;
+  surface?: 'desktop' | 'mobile' | 'tablet' | string;
+  revision?: string;
+  sha256?: string;
+  verdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE' | 'UNVERIFIED' | 'BLOCKED' | 'HARD_FAILED' | string;
+  reason?: string;
+  evidence?: string[];
+  isLint?: boolean;
+  isStale?: boolean;
+  timestamp: string;
+}
+
+/**
+ * Result returned when verifying receipt integrity against ledger state.
+ */
+export interface ReceiptVerificationResult {
+  valid: boolean;
+  reason?: string;
+}
+
+/**
  * Full serialized ledger manifest structure.
  */
 export interface FinalProvenanceManifest {
@@ -68,6 +94,7 @@ export interface FinalProvenanceManifest {
   ledgerHash: string;
   sealedAt: string;
   signer: string;
+  receipts?: ProvenanceReceipt[];
 }
 
 /**
@@ -89,6 +116,7 @@ export class FinalProvenanceLedger {
   public static readonly MANIFEST_VERSION = '1.0.0';
 
   private _records: ProvenanceRecord[] = [];
+  private _receipts: ProvenanceReceipt[] = [];
   private _environment: ProvenanceEnvironment;
   private _signatures: ProvenanceSignatures;
   private _sealed = false;
@@ -119,6 +147,15 @@ export class FinalProvenanceLedger {
    */
   public get records(): ProvenanceRecord[] {
     return this._records.map((r) => ({ ...r }));
+  }
+  /**
+   * Returns a copy of the recorded QA verification receipts.
+   */
+  public get receipts(): ProvenanceReceipt[] {
+    return this._receipts.map((r) => ({
+      ...r,
+      evidence: r.evidence ? [...r.evidence] : undefined,
+    }));
   }
 
   /**
@@ -213,7 +250,14 @@ export class FinalProvenanceLedger {
 
     const existingIndex = this._records.findIndex((r) => r.artifact === normalizedPath);
     if (existingIndex >= 0) {
+      const oldSha = this._records[existingIndex].sha256;
       this._records[existingIndex] = record;
+      if (oldSha !== sha256) {
+        this.invalidateReceipts({
+          artifact: normalizedPath,
+          reason: `Artifact content modified (SHA-256 changed from ${oldSha.slice(0, 8)}... to ${sha256.slice(0, 8)}...)`
+        });
+      }
     } else {
       this._records.push(record);
     }
@@ -240,6 +284,148 @@ export class FinalProvenanceLedger {
     return sha256 === record.sha256;
   }
 
+
+  /**
+   * Records a QA verification receipt in the ledger.
+   * Binds receipt to current artifact SHA-256 and instrument revision if applicable.
+   */
+  public recordReceipt(
+    receipt: Omit<ProvenanceReceipt, 'timestamp'> & { timestamp?: string }
+  ): ProvenanceReceipt {
+    if (this._sealed) {
+      throw new Error(`Cannot record receipt '${receipt.id}': ledger is already sealed`);
+    }
+    if (!receipt.id || typeof receipt.id !== 'string' || receipt.id.trim() === '') {
+      throw new Error('Receipt id must be a non-empty string');
+    }
+
+    const normalizedArtifact = receipt.artifact
+      ? FinalProvenanceLedger.normalizeArtifactPath(receipt.artifact)
+      : undefined;
+
+    let boundSha = receipt.sha256;
+    if (normalizedArtifact && !boundSha) {
+      const rec = this.getRecord(normalizedArtifact);
+      if (rec) {
+        boundSha = rec.sha256;
+      }
+    }
+
+    const recordedReceipt: ProvenanceReceipt = {
+      id: receipt.id.trim(),
+      ...(normalizedArtifact ? { artifact: normalizedArtifact } : {}),
+      ...(receipt.targetUrl ? { targetUrl: receipt.targetUrl } : {}),
+      ...(receipt.surface ? { surface: receipt.surface } : {}),
+      revision: receipt.revision || this._environment.instrumentRevision,
+      ...(boundSha ? { sha256: boundSha } : {}),
+      verdict: receipt.verdict,
+      ...(receipt.reason ? { reason: receipt.reason } : {}),
+      ...(Array.isArray(receipt.evidence) ? { evidence: [...receipt.evidence] } : {}),
+      ...(receipt.isLint !== undefined ? { isLint: Boolean(receipt.isLint) } : {}),
+      isStale: Boolean(receipt.isStale),
+      timestamp: receipt.timestamp || new Date().toISOString()
+    };
+
+    const existingIndex = this._receipts.findIndex((r) => r.id === recordedReceipt.id);
+    if (existingIndex >= 0) {
+      this._receipts[existingIndex] = recordedReceipt;
+    } else {
+      this._receipts.push(recordedReceipt);
+    }
+
+    return { ...recordedReceipt };
+  }
+
+  /**
+   * Looks up a recorded receipt by id.
+   */
+  public getReceipt(id: string): ProvenanceReceipt | undefined {
+    const found = this._receipts.find((r) => r.id === id);
+    return found ? { ...found } : undefined;
+  }
+
+  /**
+   * Invalidates previously recorded receipts matching artifact or revision filter.
+   */
+  public invalidateReceipts(filter?: { artifact?: string; revision?: string; reason?: string }): number {
+    if (this._sealed) {
+      throw new Error('Cannot invalidate receipts: ledger is already sealed');
+    }
+    let count = 0;
+    const normalizedArt = filter?.artifact ? FinalProvenanceLedger.normalizeArtifactPath(filter.artifact) : undefined;
+    for (const r of this._receipts) {
+      const artMatch = !normalizedArt || r.artifact === normalizedArt;
+      const revMatch = !filter?.revision || r.revision === filter.revision;
+      if (artMatch && revMatch && !r.isStale) {
+        r.isStale = true;
+        if (filter?.reason) {
+          r.reason = r.reason ? `${r.reason}; ${filter.reason}` : filter.reason;
+        }
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Returns valid, non-stale, passing behavioral receipts.
+   */
+  public getValidReceipts(options?: { artifact?: string; surface?: string; targetUrl?: string }): ProvenanceReceipt[] {
+    const normalizedArt = options?.artifact ? FinalProvenanceLedger.normalizeArtifactPath(options.artifact) : undefined;
+    return this._receipts
+      .filter((r) => {
+        if (r.isStale) return false;
+        if (r.verdict !== 'PASS') return false;
+        if (r.isLint) return false;
+        if (normalizedArt && r.artifact !== normalizedArt) return false;
+        if (options?.surface && r.surface && r.surface !== options.surface) return false;
+        if (options?.targetUrl && r.targetUrl && r.targetUrl !== options.targetUrl) return false;
+        if (r.artifact) {
+          const rec = this.getRecord(r.artifact);
+          if (rec && r.sha256 && r.sha256 !== rec.sha256) return false;
+        }
+        return true;
+      })
+      .map((r) => ({ ...r }));
+  }
+
+  /**
+   * Verifies the integrity of a receipt against ledger state, target URL, surface, and artifact revision.
+   */
+  public verifyReceiptIntegrity(
+    receiptId: string,
+    expected?: { artifact?: string; surface?: string; targetUrl?: string; revision?: string }
+  ): ReceiptVerificationResult {
+    const receipt = this.getReceipt(receiptId);
+    if (!receipt) {
+      return { valid: false, reason: `Missing receipt: '${receiptId}' not found in ledger` };
+    }
+    if (receipt.isStale) {
+      return { valid: false, reason: `Stale receipt '${receiptId}': invalidated after artifact or revision change (${receipt.reason || 'stale'})` };
+    }
+    if (receipt.isLint) {
+      return { valid: false, reason: `Receipt '${receiptId}' is a static lint approval, cannot replace behavioral QA` };
+    }
+    if (receipt.verdict !== 'PASS') {
+      return { valid: false, reason: `Receipt '${receiptId}' has non-passing verdict '${receipt.verdict}': ${receipt.reason || 'verification failed'}` };
+    }
+    if (expected?.revision && receipt.revision && receipt.revision !== expected.revision) {
+      return { valid: false, reason: `Artifact revision mismatch: expected '${expected.revision}', receipt has '${receipt.revision}'` };
+    }
+    if (expected?.surface && receipt.surface && receipt.surface !== expected.surface) {
+      return { valid: false, reason: `Wrong surface target: expected '${expected.surface}', receipt evaluated '${receipt.surface}'` };
+    }
+    if (expected?.targetUrl && receipt.targetUrl && receipt.targetUrl !== expected.targetUrl) {
+      return { valid: false, reason: `Wrong surface target URL: expected '${expected.targetUrl}', receipt evaluated '${receipt.targetUrl}'` };
+    }
+    if (receipt.artifact) {
+      const rec = this.getRecord(receipt.artifact);
+      if (rec && receipt.sha256 && receipt.sha256 !== rec.sha256) {
+        return { valid: false, reason: `Artifact revision change: artifact '${receipt.artifact}' was modified after receipt was issued` };
+      }
+    }
+    return { valid: true };
+  }
   /**
    * Cryptographically seals the ledger and signs it.
    * Once sealed, records become immutable.
@@ -258,20 +444,25 @@ export class FinalProvenanceLedger {
       throw new Error('Ledger is already sealed and cannot be resealed with a different signer');
     }
 
-    // Deterministically sort records by artifact path
+    // Deterministically sort records and receipts
     this._records.sort((a, b) => a.artifact.localeCompare(b.artifact));
+    this._receipts.sort((a, b) => a.id.localeCompare(b.id));
 
     const sealedAt = new Date().toISOString();
 
     // Canonical payload for ledger hash
-    const canonicalPayload = JSON.stringify({
+    const payloadObj: Record<string, unknown> = {
       records: this._records,
       environment: this._environment,
       executionFingerprint: this._signatures.executionFingerprint,
       signer: trimmedSigner,
       sealedAt
-    });
+    };
+    if (this._receipts.length > 0) {
+      payloadObj.receipts = this._receipts;
+    }
 
+    const canonicalPayload = JSON.stringify(payloadObj);
     const ledgerHash = createHash('sha256').update(canonicalPayload).digest('hex');
 
     // Cryptographic verification stamp
@@ -303,7 +494,7 @@ export class FinalProvenanceLedger {
       throw new Error('Cannot export manifest: ledger must be sealed first');
     }
 
-    return {
+    const manifest: FinalProvenanceManifest = {
       version: FinalProvenanceLedger.MANIFEST_VERSION,
       records: this.records,
       environment: this.environment,
@@ -312,8 +503,11 @@ export class FinalProvenanceLedger {
       sealedAt: this._signatures.sealedAt,
       signer: this._signatures.signer
     };
+    if (this._receipts.length > 0) {
+      manifest.receipts = this.receipts;
+    }
+    return manifest;
   }
-
   /**
    * Exports the ledger as a formatted JSON file to the target path.
    * Auto-seals with 'system-custody' if not already sealed.
@@ -430,6 +624,43 @@ export class FinalProvenanceLedger {
       }
     }
 
+    let sortedReceipts: ProvenanceReceipt[] | undefined;
+    if (candidate.receipts !== undefined) {
+      if (!Array.isArray(candidate.receipts)) {
+        mismatches.push('receipts must be an array when present');
+      } else {
+        const seenReceiptIds = new Set<string>();
+        for (let i = 0; i < candidate.receipts.length; i++) {
+          const r = candidate.receipts[i];
+          if (!r || typeof r !== 'object') {
+            mismatches.push(`Receipt at index ${i} is not an object`);
+            continue;
+          }
+          if (typeof r.id !== 'string' || r.id.trim() === '') {
+            mismatches.push(`Receipt at index ${i} has empty or missing id`);
+          } else {
+            if (seenReceiptIds.has(r.id)) {
+              mismatches.push(`Duplicate receipt id detected: '${r.id}'`);
+            }
+            seenReceiptIds.add(r.id);
+          }
+          if (typeof r.verdict !== 'string' || r.verdict.trim() === '') {
+            mismatches.push(`Receipt '${r.id ?? i}' has missing or empty verdict`);
+          }
+          if (typeof r.timestamp !== 'string' || Number.isNaN(Date.parse(r.timestamp))) {
+            mismatches.push(`Receipt '${r.id ?? i}' has invalid timestamp: ${r.timestamp}`);
+          }
+        }
+        sortedReceipts = [...candidate.receipts].sort((a, b) => a.id.localeCompare(b.id));
+        for (let i = 0; i < candidate.receipts.length; i++) {
+          if (candidate.receipts[i].id !== sortedReceipts[i].id) {
+            mismatches.push(`Receipts are not deterministically sorted by id at index ${i}`);
+            break;
+          }
+        }
+      }
+    }
+
     // If structural checks failed, return early
     if (mismatches.length > 0) {
       return { verified: false, mismatches };
@@ -453,14 +684,18 @@ export class FinalProvenanceLedger {
     }
 
     // Recompute canonical ledger hash
-    const canonicalPayload = JSON.stringify({
+    const payloadObj: Record<string, unknown> = {
       records: sortedRecords,
       environment,
       executionFingerprint: signatures.executionFingerprint,
       signer,
       sealedAt
-    });
+    };
+    if (sortedReceipts && sortedReceipts.length > 0) {
+      payloadObj.receipts = sortedReceipts;
+    }
 
+    const canonicalPayload = JSON.stringify(payloadObj);
     const expectedLedgerHash = createHash('sha256').update(canonicalPayload).digest('hex');
     if (expectedLedgerHash !== recordedLedgerHash) {
       mismatches.push(
@@ -507,6 +742,9 @@ export class FinalProvenanceLedger {
 
     ledger._records = manifest.records.map((r) => ({ ...r }));
     ledger._signatures = { ...manifest.signatures };
+    if (Array.isArray(manifest.receipts)) {
+      ledger._receipts = manifest.receipts.map((r) => ({ ...r }));
+    }
     ledger._ledgerHash = manifest.ledgerHash;
     ledger._sealed = true;
     ledger._sealResult = {

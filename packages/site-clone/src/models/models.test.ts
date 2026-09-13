@@ -50,8 +50,8 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     try {
       const manifest = harvester.harvestFromHtml(html, tempDir);
       assert.strictEqual(manifest.stylesheets.length, 2);
-      assert.strictEqual(manifest.stylesheets[0].filename, 'app.css');
-      assert.strictEqual(manifest.stylesheets[1].filename, 'app_2.css');
+      assert.strictEqual(manifest.stylesheets[0].filename, 'app-dcc2d3nb.css');
+      assert.strictEqual(manifest.stylesheets[1].filename, 'app-5wa_jy_a.css');
       assert.strictEqual(manifest.javascripts.length, 1, 'Third-party tracking scripts must be filtered out');
       assert.strictEqual(manifest.javascripts[0].filename, 'app.js');
       assert.strictEqual(manifest.images.length, 2);
@@ -267,7 +267,9 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
 
   it('1f. run-asset-discovery CLI enforces fail-closed path safety and generates manifest', () => {
     const nodeBin = process.execPath;
-    const runnerScript = path.resolve(__dirname, '../../../../scripts/run-asset-discovery.cjs');
+    const candidatePath1 = path.resolve(process.cwd(), 'scripts/run-asset-discovery.cjs');
+    const candidatePath2 = path.resolve(__dirname, '../../../../scripts/run-asset-discovery.cjs');
+    const runnerScript = fs.existsSync(candidatePath1) ? candidatePath1 : candidatePath2;
     assert.ok(fs.existsSync(runnerScript), 'run-asset-discovery.cjs must exist');
     // Test 1: missing required arguments -> status 1
     const res1 = spawnSync(nodeBin, [runnerScript], { encoding: 'utf8' });

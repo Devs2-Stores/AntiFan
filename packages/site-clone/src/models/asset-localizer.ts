@@ -34,18 +34,28 @@ import * as dns from 'node:dns';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { createHash, randomBytes } from 'node:crypto';
-import type { HarvestedAssetManifest, HarvestedAssetItem } from './asset-harvester.js';
+import {
+  type HarvestedAssetManifest,
+  type HarvestedAssetItem,
+  sanitizeRequestHeaders,
+  computeHeaderFingerprint
+} from './asset-harvester.js';
+
+export { sanitizeRequestHeaders, computeHeaderFingerprint };
 
 export interface LocalizeAssetOptions {
   assetsDir: string;
   sourceBaseUrl?: string;
   mode?: 'liquid' | 'relative'; // default: 'liquid'
+  surface?: 'desktop' | 'mobile';
   concurrency?: number; // default: 5
   timeoutMs?: number; // default: 15000
   maxAssetBytes?: number; // default: 50MB (52,428,800 bytes)
   allowedHostnames?: string[];
   skipDownload?: boolean; // if true, bypasses network downloads (useful for offline/pre-cached runs)
+  requestHeaders?: Record<string, string>;
 }
+
 
 export interface DownloadTransport {
   request?: (options: http.RequestOptions, callback?: (res: http.IncomingMessage) => void) => http.ClientRequest;
@@ -61,8 +71,8 @@ export interface DownloadedAssetResult {
   sha256?: string;
   mimeType?: string;
   error?: string;
+  requestIdentity?: string;
 }
-
 export interface RewrittenFileResult {
   path: string;
   replacementCount: number;
@@ -293,6 +303,7 @@ export async function downloadUrlWithPinning(
     timeoutMs: number;
     maxAssetBytes: number;
     assetType: 'css' | 'js' | 'image' | 'font';
+    requestHeaders?: Record<string, string>;
   },
   transport?: DownloadTransport
 ): Promise<{ byteCount: number; sha256: string; mimeType: string }> {
@@ -377,11 +388,15 @@ export async function downloadUrlWithPinning(
             method: 'GET',
             lookup: pinnedLookup,
             headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': '*/*',
-              ...(options.sourceBaseUrl ? { 'Referer': options.sourceBaseUrl } : {})
+              'User-Agent': options.requestHeaders?.['User-Agent']
+                || options.requestHeaders?.['user-agent']
+                || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': options.requestHeaders?.['Accept']
+                || options.requestHeaders?.['accept']
+                || '*/*',
+              ...(options.sourceBaseUrl ? { 'Referer': options.sourceBaseUrl } : {}),
+              ...(options.requestHeaders || {})
             },
-            timeout: options.timeoutMs
           },
           async (res: http.IncomingMessage) => {
             const remoteIp = res.socket?.remoteAddress;
@@ -516,6 +531,75 @@ export async function downloadUrlWithPinning(
   }
 }
 
+const WINDOWS_RESERVED_NAMES = new Set([
+  'CON', 'PRN', 'AUX', 'NUL',
+  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+]);
+
+export function lookupUrlInMap(
+  urlMap: Map<string, string>,
+  ref: string,
+  assetType?: 'css' | 'js' | 'image' | 'font'
+): string | undefined {
+  if (!ref) return undefined;
+
+  const tryLookup = (key: string): string | undefined => {
+    const direct = urlMap.get(key);
+    if (direct) return direct;
+
+    if (key.includes('&amp;')) {
+      const unescaped = key.replace(/&amp;/g, '&');
+      const match = urlMap.get(unescaped);
+      if (match) return match;
+    }
+    if (key.includes('&')) {
+      const escaped = key.replace(/&(?!(?:amp|quot|lt|gt|#39);)/g, '&amp;');
+      const match = urlMap.get(escaped);
+      if (match) return match;
+    }
+
+    if (key.startsWith('//')) {
+      const httpsMatch = urlMap.get('https:' + key);
+      if (httpsMatch) return httpsMatch;
+      const httpMatch = urlMap.get('http:' + key);
+      if (httpMatch) return httpMatch;
+    } else if (key.startsWith('https://')) {
+      const protoRel = key.slice(6);
+      const match = urlMap.get(protoRel);
+      if (match) return match;
+    } else if (key.startsWith('http://')) {
+      const protoRel = key.slice(5);
+      const match = urlMap.get(protoRel);
+      if (match) return match;
+    }
+    return undefined;
+  };
+
+  // 1. If assetType provided, check type-scoped key first
+  if (assetType) {
+    const typePrefixed = tryLookup(`${assetType}::${ref}`);
+    if (typePrefixed) return typePrefixed;
+    if (ref.startsWith('//')) {
+      const httpsMatch = tryLookup(`${assetType}::https:${ref}`);
+      if (httpsMatch) return httpsMatch;
+      const httpMatch = tryLookup(`${assetType}::http:${ref}`);
+      if (httpMatch) return httpMatch;
+    } else if (ref.startsWith('https://')) {
+      const protoRel = ref.slice(6);
+      const match = tryLookup(`${assetType}::${protoRel}`);
+      if (match) return match;
+    } else if (ref.startsWith('http://')) {
+      const protoRel = ref.slice(5);
+      const match = tryLookup(`${assetType}::${protoRel}`);
+      if (match) return match;
+    }
+  }
+
+  // 2. Fall back to generic / bare URL lookup
+  return tryLookup(ref);
+}
+
 /**
  * Syntax-Aware CSS Rewriter: Rewrites url(...) and @import declarations in CSS stylesheets.
  */
@@ -533,7 +617,7 @@ export function rewriteCssUrls(
   content = content.replace(importRegex, (match, q1, url1, u1, q2, url2, suffix) => {
     const rawUrl = (url1 || u1 || url2 || '').trim();
     if (!rawUrl || rawUrl.startsWith('data:') || isInternalFragmentRef(rawUrl)) return match;
-    const replacement = urlMap.get(rawUrl);
+    const replacement = lookupUrlInMap(urlMap, rawUrl, 'css');
     if (replacement) {
       replacementCount++;
       const rawQualifier = (suffix || ';').replace(/;$/, '').trim();
@@ -546,11 +630,18 @@ export function rewriteCssUrls(
 
   // 2. Rewrite url(...) declarations (handles url("..."), url('...'), url(...))
   // Always wraps replacement in controlled outer double-quotes to prevent quote collisions with Liquid syntax
-  const urlRegex = /url\(\s*(?:(['"])([^'"]+)\1|([^)'"]+))\s*\)/gi;
+  const urlRegex = /url\(\s*(?:(['"]|&quot;|&#39;|&apos;)([\s\S]*?)\1|([^)'"]+))\s*\)/gi;
   content = content.replace(urlRegex, (match, _q, quotedUrl, unquotedUrl) => {
-    const rawUrl = (quotedUrl || unquotedUrl || '').trim();
+    let rawUrl = (quotedUrl || unquotedUrl || '').trim();
+    rawUrl = rawUrl.replace(/^&quot;|&quot;$/g, '').replace(/^&#39;|&#39;$/g, '').replace(/^&apos;|&apos;$/g, '').trim();
     if (!rawUrl || rawUrl.startsWith('data:') || isInternalFragmentRef(rawUrl)) return match;
-    const replacement = urlMap.get(rawUrl);
+    let replacement = lookupUrlInMap(urlMap, rawUrl, 'image');
+    if (!replacement) {
+      replacement = lookupUrlInMap(urlMap, rawUrl, 'font');
+    }
+    if (!replacement) {
+      replacement = lookupUrlInMap(urlMap, rawUrl);
+    }
     if (replacement) {
       replacementCount++;
       return `url("${replacement}")`;
@@ -586,7 +677,13 @@ export function rewriteHtmlContent(
       const trimmed = val.trim();
       if (!trimmed || trimmed.startsWith('data:') || isInternalFragmentRef(trimmed)) return attrMatch;
 
-      const replacement = urlMap.get(trimmed);
+      const tagLower = tagName.toLowerCase();
+      let inferredType: 'css' | 'js' | 'image' | 'font' | undefined;
+      if (tagLower === 'script') inferredType = 'js';
+      else if (tagLower === 'link') inferredType = 'css';
+      else if (tagLower === 'img' || tagLower === 'source' || tagLower === 'video' || attrName.toLowerCase() === 'poster') inferredType = 'image';
+
+      const replacement = lookupUrlInMap(urlMap, trimmed, inferredType);
       if (replacement) {
         tagModified = true;
         totalReplacements++;
@@ -611,7 +708,7 @@ export function rewriteHtmlContent(
         const descriptor = parts.slice(1).join(' ');
         if (!urlPart) return candidate;
 
-        const replacement = urlMap.get(urlPart);
+        const replacement = lookupUrlInMap(urlMap, urlPart, 'image');
         if (replacement) {
           modifiedAny = true;
           totalReplacements++;
@@ -636,7 +733,7 @@ export function rewriteHtmlContent(
       if (fallbackMatch && fallbackMatch[3]) {
         const srcPrefix = fallbackMatch[1];
         const innerUrl = fallbackMatch[3];
-        const replacement = urlMap.get(innerUrl);
+        const replacement = lookupUrlInMap(urlMap, innerUrl);
         if (replacement) {
           tagModified = true;
           totalReplacements++;
@@ -653,7 +750,8 @@ export function rewriteHtmlContent(
     const styleAttrRegex = /(^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
     newAttrs = newAttrs.replace(styleAttrRegex, (attrMatch: string, prefix: string, doubleVal: string | undefined, singleVal: string | undefined) => {
       const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
-      const cssRes = rewriteCssUrls(val, urlMap, options);
+      const normalizedCss = val.replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'");
+      const cssRes = rewriteCssUrls(normalizedCss, urlMap, options);
       if (cssRes.replacementCount > 0) {
         tagModified = true;
         totalReplacements += cssRes.replacementCount;
@@ -681,6 +779,12 @@ export function rewriteHtmlContent(
 }
 
 export class AssetLocalizer {
+  public transport?: DownloadTransport;
+
+  constructor(transport?: DownloadTransport) {
+    this.transport = transport;
+  }
+
   /**
    * Phase A1: Downloads assets with SSRF protection, IP-pinned DNS lookup, connection verification,
    * manual redirect management, bounded streaming, content validation, and atomic file transactions.
@@ -732,6 +836,7 @@ export class AssetLocalizer {
           if (stat.size > 0) {
             const buf = fs.readFileSync(targetLocalPath);
             const sha = createHash('sha256').update(buf).digest('hex');
+            item.sha256 = sha;
             totalBytes += stat.size;
             results.push({
               sourceUrl: item.sourceUrl,
@@ -739,7 +844,8 @@ export class AssetLocalizer {
               localPath: targetLocalPath,
               status: 'skipped_cached',
               byteCount: stat.size,
-              sha256: sha
+              sha256: sha,
+              requestIdentity: item.requestIdentity
             });
             continue;
           }
@@ -752,20 +858,27 @@ export class AssetLocalizer {
             filename: item.filename,
             localPath: targetLocalPath,
             status: 'skipped_offline',
-            byteCount: 0
+            byteCount: 0,
+            requestIdentity: item.requestIdentity
           });
           continue;
         }
 
         try {
+          const dlHeaders = sanitizeRequestHeaders({
+            ...(options.requestHeaders || {}),
+            ...(item.requestHeaders || {})
+          });
           const dlRes = await downloadUrlWithPinning(item.sourceUrl, targetLocalPath, {
             sourceBaseUrl: options.sourceBaseUrl,
             allowedHostnames: options.allowedHostnames,
             timeoutMs,
             maxAssetBytes,
-            assetType: item.type
-          });
+            assetType: item.type,
+            requestHeaders: dlHeaders
+          }, this.transport);
 
+          item.sha256 = dlRes.sha256;
           totalBytes += dlRes.byteCount;
           results.push({
             sourceUrl: item.sourceUrl,
@@ -774,10 +887,19 @@ export class AssetLocalizer {
             status: 'downloaded',
             byteCount: dlRes.byteCount,
             sha256: dlRes.sha256,
-            mimeType: dlRes.mimeType
+            mimeType: dlRes.mimeType,
+            requestIdentity: item.requestIdentity
           });
         } catch (err: unknown) {
           failedCount++;
+          if (fs.existsSync(targetLocalPath)) {
+            try {
+              const st = fs.statSync(targetLocalPath);
+              if (st.size === 0) {
+                fs.rmSync(targetLocalPath, { force: true });
+              }
+            } catch {}
+          }
           const message = err instanceof Error ? err.message : String(err);
           results.push({
             sourceUrl: item.sourceUrl,
@@ -785,7 +907,8 @@ export class AssetLocalizer {
             localPath: targetLocalPath,
             status: 'failed',
             byteCount: 0,
-            error: message
+            error: message,
+            requestIdentity: item.requestIdentity
           });
         }
       }
@@ -799,9 +922,9 @@ export class AssetLocalizer {
    * Phase A2: Rewrites remote URLs in HTML/Liquid/CSS source files into local asset references using syntax-aware rewriters.
    */
   public rewriteFiles(
-    files: Array<{ path: string; content: string }>,
+    files: Array<{ path: string; content: string; context?: { surface?: 'desktop' | 'mobile'; requestIdentity?: string; [key: string]: unknown } }>,
     manifest: HarvestedAssetManifest,
-    options: { mode?: 'liquid' | 'relative' } = {}
+    options: { mode?: 'liquid' | 'relative'; surface?: 'desktop' | 'mobile'; [key: string]: unknown } = {}
   ): { files: RewrittenFileResult[]; totalReplacements: number } {
     const mode = options.mode ?? 'liquid';
 
@@ -812,43 +935,202 @@ export class AssetLocalizer {
       ...manifest.fonts
     ];
 
-    const urlMap = new Map<string, string>();
-    for (const item of allItems) {
-      const replacement = mode === 'liquid'
-        ? `{{ '${item.filename}' | asset_url }}`
-        : `assets/${item.filename}`;
-
-      urlMap.set(item.sourceUrl, replacement);
-      // A reference that the harvester repaired from an upstream typo must still
-      // match the text that is actually in the document, otherwise the repaired
-      // URL is downloaded but the typo keeps pointing at a missing local file.
-      if (item.rawSourceUrl && item.rawSourceUrl !== item.sourceUrl) {
-        urlMap.set(item.rawSourceUrl, replacement);
-      }
-
-      if (item.sourceUrl.startsWith('https://')) {
-        urlMap.set(item.sourceUrl.slice(6), replacement); // '//example.com/...'
-      } else if (item.sourceUrl.startsWith('http://')) {
-        urlMap.set(item.sourceUrl.slice(5), replacement); // '//example.com/...'
-      }
-
-      // Map local relative paths and base filenames so files already referencing local assets get rewritten
-      urlMap.set(`assets/${item.filename}`, replacement);
-      urlMap.set(`/assets/${item.filename}`, replacement);
-      urlMap.set(item.filename, replacement);
-    }
-
     let totalReplacements = 0;
     const fileResults: RewrittenFileResult[] = [];
 
+    const targetAssetsDir = options.assetsDir ? path.resolve(String(options.assetsDir)) : undefined;
+
     for (const file of files) {
+      const normalizedPath = file.path.replace(/\\/g, '/');
+      let relAssetsDir = 'assets';
+
+      if (targetAssetsDir) {
+        const fileDirPath = path.isAbsolute(file.path)
+          ? path.dirname(path.resolve(file.path))
+          : path.dirname(path.resolve(process.cwd(), file.path));
+        const rel = path.relative(fileDirPath, targetAssetsDir).replace(/\\/g, '/');
+        relAssetsDir = rel || 'assets';
+      } else if (path.isAbsolute(file.path)) {
+        if (/(?:^|\/)mobile(?:[/\-_.]|$)/i.test(normalizedPath)) {
+          relAssetsDir = '../assets';
+        } else {
+          relAssetsDir = 'assets';
+        }
+      } else {
+        const fileDir = path.posix.dirname(normalizedPath);
+        if (fileDir === '.' || fileDir === '') {
+          relAssetsDir = 'assets';
+        } else {
+          relAssetsDir = path.posix.relative(fileDir, 'assets') || 'assets';
+        }
+      }
+
+      const fileContext = file.context;
+      const fileSurface: 'desktop' | 'mobile' | undefined = fileContext?.surface
+        || (fileContext?.requestIdentity === 'desktop' || fileContext?.requestIdentity === 'mobile' ? fileContext.requestIdentity : undefined)
+        || options.surface
+        || (/(?:^|[/\-_])mobile(?:[/\-_.]|$)/i.test(normalizedPath) ? 'mobile' : undefined);
+
+      const fileReqIdentity = fileContext?.requestIdentity;
+      const fileHeaders = fileContext?.requestHeaders as Record<string, string> | undefined;
+      const fileHeaderFp = fileHeaders ? computeHeaderFingerprint(fileHeaders) : undefined;
+
+      // Group items by type AND sourceUrl to prevent cross-type collapse (e.g. stylesheet and script sharing URL)
+      const itemsByTypeAndUrl = new Map<string, HarvestedAssetItem[]>();
+      for (const item of allItems) {
+        const key = `${item.type}::${item.sourceUrl}`;
+        const list = itemsByTypeAndUrl.get(key) || [];
+        list.push(item);
+        itemsByTypeAndUrl.set(key, list);
+
+        if (item.rawSourceUrl && item.rawSourceUrl !== item.sourceUrl) {
+          const rawKey = `${item.type}::${item.rawSourceUrl}`;
+          const rawList = itemsByTypeAndUrl.get(rawKey) || [];
+          rawList.push(item);
+          itemsByTypeAndUrl.set(rawKey, rawList);
+        }
+      }
+
+      const selectedItems: HarvestedAssetItem[] = [];
+      for (const [groupKey, list] of itemsByTypeAndUrl) {
+        if (list.length === 1) {
+          selectedItems.push(list[0]);
+          continue;
+        }
+
+        // Multi-variant disambiguation:
+        // Priority 1: Exact file path provenance
+        const provMatch = list.find(it =>
+          it.occurrences?.some(o => {
+            if (!o.filePath) return false;
+            const normO = o.filePath.replace(/\\/g, '/');
+            return normO === normalizedPath ||
+              normO.endsWith('/' + normalizedPath) ||
+              normalizedPath.endsWith('/' + normO);
+          })
+        );
+        if (provMatch) {
+          selectedItems.push(provMatch);
+          continue;
+        }
+
+        // Priority 2: Exact requestIdentity match
+        if (fileReqIdentity) {
+          const reqIdMatches = list.filter(it => it.requestIdentity === fileReqIdentity);
+          if (reqIdMatches.length === 1) {
+            selectedItems.push(reqIdMatches[0]);
+            continue;
+          }
+        }
+
+        // Priority 3: Header fingerprint match
+        if (fileHeaderFp) {
+          const fpMatches = list.filter(it =>
+            it.requestIdentity?.includes(fileHeaderFp) ||
+            computeHeaderFingerprint(it.requestHeaders) === fileHeaderFp
+          );
+          if (fpMatches.length === 1) {
+            selectedItems.push(fpMatches[0]);
+            continue;
+          }
+        }
+
+        // Priority 4: Proven surface match (e.g. desktop vs mobile)
+        if (fileSurface) {
+          const surfaceMatches = list.filter(it => {
+            if (it.requestIdentity === fileSurface || it.requestIdentity?.startsWith(`${fileSurface}-`)) return true;
+            return it.occurrences?.some(o => {
+              if (o.surface === fileSurface || o.requestIdentity === fileSurface) return true;
+              if (o.filePath) {
+                const isMob = /(?:^|[/\-_])mobile(?:[/\-_.]|$)/i.test(o.filePath);
+                return (isMob ? 'mobile' : 'desktop') === fileSurface;
+              }
+              return false;
+            });
+          });
+          if (surfaceMatches.length === 1) {
+            selectedItems.push(surfaceMatches[0]);
+            continue;
+          }
+        }
+
+        // Ambiguous and cannot resolve! Fail-closed instead of picking arbitrary list[0]
+        throw new Error(
+          `AMBIGUOUS_ASSET_VARIANT: Multiple asset variants exist for ${groupKey} in file "${file.path}" (candidates: [${list.map(x => x.filename).join(', ')}]), but none uniquely matches provenance, requestIdentity ("${fileReqIdentity}"), header fingerprint ("${fileHeaderFp}"), or surface ("${fileSurface}").`
+        );
+      }
+
+      const fileUrlMap = new Map<string, string>();
+      // Track which URLs are used across multiple types to avoid clobbering bare keys
+      const typesBySourceUrl = new Map<string, Set<string>>();
+      for (const item of selectedItems) {
+        const set1 = typesBySourceUrl.get(item.sourceUrl) || new Set<string>();
+        set1.add(item.type);
+        typesBySourceUrl.set(item.sourceUrl, set1);
+        if (item.rawSourceUrl && item.rawSourceUrl !== item.sourceUrl) {
+          const set2 = typesBySourceUrl.get(item.rawSourceUrl) || new Set<string>();
+          set2.add(item.type);
+          typesBySourceUrl.set(item.rawSourceUrl, set2);
+        }
+      }
+
+      const registerMapping = (source: string, target: string, type?: string) => {
+        if (!source) return;
+        const keysToRegister = [source];
+        if (source.includes('&')) {
+          keysToRegister.push(source.replace(/&(?!(?:amp|quot|lt|gt|#39);)/g, '&amp;'));
+        }
+        if (source.includes('&amp;')) {
+          keysToRegister.push(source.replace(/&amp;/g, '&'));
+        }
+        if (source.startsWith('https://')) {
+          const p = source.slice(6);
+          keysToRegister.push(p);
+          if (p.includes('&')) keysToRegister.push(p.replace(/&(?!(?:amp|quot|lt|gt|#39);)/g, '&amp;'));
+          if (p.includes('&amp;')) keysToRegister.push(p.replace(/&amp;/g, '&'));
+        } else if (source.startsWith('http://')) {
+          const p = source.slice(5);
+          keysToRegister.push(p);
+          if (p.includes('&')) keysToRegister.push(p.replace(/&(?!(?:amp|quot|lt|gt|#39);)/g, '&amp;'));
+          if (p.includes('&amp;')) keysToRegister.push(p.replace(/&amp;/g, '&'));
+        }
+
+        for (const k of keysToRegister) {
+          if (type) {
+            fileUrlMap.set(`${type}::${k}`, target);
+          }
+          const typesForUrl = typesBySourceUrl.get(source);
+          if (!typesForUrl || typesForUrl.size <= 1) {
+            fileUrlMap.set(k, target);
+          }
+        }
+      };
+
+      for (const item of selectedItems) {
+        const replacement = mode === 'liquid'
+          ? `{{ '${item.filename}' | asset_url }}`
+          : `${relAssetsDir}/${item.filename}`;
+
+        registerMapping(item.sourceUrl, replacement, item.type);
+        if (item.rawSourceUrl && item.rawSourceUrl !== item.sourceUrl) {
+          registerMapping(item.rawSourceUrl, replacement, item.type);
+        }
+
+        // Map local relative paths and base filenames so files already referencing local assets get rewritten
+        fileUrlMap.set(`assets/${item.filename}`, replacement);
+        fileUrlMap.set(`/assets/${item.filename}`, replacement);
+        fileUrlMap.set(item.filename, replacement);
+        if (relAssetsDir !== 'assets') {
+          fileUrlMap.set(`${relAssetsDir}/${item.filename}`, replacement);
+        }
+      }
       const isCss = file.path.endsWith('.css') || file.path.endsWith('.css.liquid');
       let res: { content: string; replacementCount: number };
 
       if (isCss) {
-        res = rewriteCssUrls(file.content, urlMap, { mode });
+        res = rewriteCssUrls(file.content, fileUrlMap, { mode });
       } else {
-        res = rewriteHtmlContent(file.content, urlMap, { mode });
+        res = rewriteHtmlContent(file.content, fileUrlMap, { mode });
       }
 
       totalReplacements += res.replacementCount;
@@ -882,7 +1164,9 @@ export class AssetLocalizer {
   }> {
     const mode = options.mode ?? 'liquid';
     const assetsDir = path.resolve(options.assetsDir);
-    const allocatedFilenames = new Map<string, string>();
+    const allocatedFilenames = new Map<string, string>(); // lowerFilename -> entityKey (type::sourceUrl::requestIdentity)
+    const getEntityKey = (type: string, sourceUrl: string, requestIdentity?: string): string =>
+      `${type}::${sourceUrl}::${requestIdentity || ''}`;
 
     // Seed allocatedFilenames with all existing items in manifest
     const allManifestItems = [
@@ -892,31 +1176,61 @@ export class AssetLocalizer {
       ...manifest.fonts
     ];
     for (const item of allManifestItems) {
-      allocatedFilenames.set(item.filename, item.sourceUrl);
+      allocatedFilenames.set(item.filename.toLowerCase(), getEntityKey(item.type, item.sourceUrl, item.requestIdentity));
     }
 
-    const hashUrl = (str: string): string => {
-      return createHash('sha256').update(str).digest('hex').slice(0, 8);
-    };
-
-    const allocateFilename = (cleanUrl: string, sourceUrl: string, defaultPrefix: string, fallbackExt: string): string => {
+    const allocateFilename = (
+      cleanUrl: string,
+      sourceUrl: string,
+      defaultPrefix: string,
+      fallbackExt: string,
+      assetType: 'css' | 'js' | 'image' | 'font',
+      requestIdentity?: string
+    ): string => {
+      const entityKey = getEntityKey(assetType, sourceUrl, requestIdentity);
       const rawExt = path.extname(cleanUrl);
-      const ext = rawExt && rawExt.length <= 6 ? rawExt.toLowerCase() : fallbackExt;
-      const base = path.basename(cleanUrl, rawExt) || defaultPrefix;
-      const cleanBase = base.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || defaultPrefix;
+      const ext = rawExt && rawExt.length <= 6 && /^\.[a-zA-Z0-9]+$/.test(rawExt) ? rawExt.toLowerCase() : fallbackExt;
+      let base = path.basename(cleanUrl, rawExt) || defaultPrefix;
+      let cleanBase = base.replace(/[^a-zA-Z0-9_@.-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || defaultPrefix;
+      if (WINDOWS_RESERVED_NAMES.has(cleanBase.toUpperCase())) {
+        cleanBase = `asset-${cleanBase}`;
+      }
+      if (cleanBase.length > 64) {
+        cleanBase = cleanBase.slice(0, 64).replace(/-+$/, '');
+      }
 
       let candidate = `${cleanBase}${ext}`;
-      if (allocatedFilenames.has(candidate) && allocatedFilenames.get(candidate) !== sourceUrl) {
-        const hash = hashUrl(sourceUrl);
-        candidate = `${cleanBase}_${hash}${ext}`;
-        let counter = 2;
-        while (allocatedFilenames.has(candidate) && allocatedFilenames.get(candidate) !== sourceUrl) {
-          candidate = `${cleanBase}_${hash}_${counter}${ext}`;
-          counter++;
-        }
+      const candLower = candidate.toLowerCase();
+      if (!allocatedFilenames.has(candLower) || allocatedFilenames.get(candLower) === entityKey) {
+        allocatedFilenames.set(candLower, entityKey);
+        return candidate;
       }
-      allocatedFilenames.set(candidate, sourceUrl);
-      return candidate;
+
+      // Progressive deterministic hash slice extension
+      const fullHash = createHash('sha256').update(entityKey).digest('hex');
+      let hashLen = 8;
+      while (hashLen <= 32) {
+        candidate = `${cleanBase}_${fullHash.slice(0, hashLen)}${ext}`;
+        const lower = candidate.toLowerCase();
+        if (!allocatedFilenames.has(lower) || allocatedFilenames.get(lower) === entityKey) {
+          allocatedFilenames.set(lower, entityKey);
+          return candidate;
+        }
+        hashLen += 4;
+      }
+
+      let counter = 2;
+      while (counter <= 1000) {
+        candidate = `${cleanBase}_${fullHash.slice(0, 16)}_${counter}${ext}`;
+        const lower = candidate.toLowerCase();
+        if (!allocatedFilenames.has(lower) || allocatedFilenames.get(lower) === entityKey) {
+          allocatedFilenames.set(lower, entityKey);
+          return candidate;
+        }
+        counter++;
+      }
+
+      throw new Error(`FATAL_FILENAME_COLLISION_EXHAUSTION: Unable to allocate unique filename for ${entityKey}`);
     };
 
     const processedStylesheets = new Set<string>();
@@ -924,6 +1238,8 @@ export class AssetLocalizer {
       localCssPath: string;
       sourceUrl: string;
       depth: number;
+      requestIdentity?: string;
+      requestHeaders?: Record<string, string>;
     }
 
     const queue: StylesheetQueueItem[] = [];
@@ -933,7 +1249,9 @@ export class AssetLocalizer {
         queue.push({
           localCssPath,
           sourceUrl: sheet.sourceUrl,
-          depth: 0
+          depth: 0,
+          requestIdentity: sheet.requestIdentity,
+          requestHeaders: sheet.requestHeaders
         });
       }
     }
@@ -1002,7 +1320,9 @@ export class AssetLocalizer {
             cleanUrl,
             resolvedUrl,
             isFont ? 'font_dep' : 'style_dep',
-            isFont ? '.woff2' : '.css'
+            isFont ? '.woff2' : '.css',
+            isFont ? 'font' : 'css',
+            current.requestIdentity
           );
 
           const newItem: HarvestedAssetItem = {
@@ -1010,7 +1330,9 @@ export class AssetLocalizer {
             sourceUrl: resolvedUrl,
             filename: targetFilename,
             localPath: path.join(assetsDir, targetFilename),
-            occurrences: [{ filePath: current.localCssPath, tag: 'css', attribute: '@import' }]
+            occurrences: [{ filePath: current.localCssPath, tag: 'css', attribute: '@import' }],
+            requestIdentity: current.requestIdentity,
+            requestHeaders: current.requestHeaders
           };
 
           discoveredItems.push(newItem);
@@ -1071,7 +1393,9 @@ export class AssetLocalizer {
             cleanUrl,
             resolvedUrl,
             isFont ? 'font_dep' : 'image_dep',
-            isFont ? '.woff2' : '.png'
+            isFont ? '.woff2' : '.png',
+            isFont ? 'font' : 'image',
+            current.requestIdentity
           );
 
           const newItem: HarvestedAssetItem = {
@@ -1079,7 +1403,9 @@ export class AssetLocalizer {
             sourceUrl: resolvedUrl,
             filename: targetFilename,
             localPath: path.join(assetsDir, targetFilename),
-            occurrences: [{ filePath: current.localCssPath, tag: 'css', attribute: 'url()' }]
+            occurrences: [{ filePath: current.localCssPath, tag: 'css', attribute: 'url()' }],
+            requestIdentity: current.requestIdentity,
+            requestHeaders: current.requestHeaders
           };
 
           discoveredItems.push(newItem);
@@ -1131,6 +1457,9 @@ export class AssetLocalizer {
             } else if (item.type === 'css') {
               if (!manifest.stylesheets.some(s => s.sourceUrl === item.sourceUrl)) manifest.stylesheets.push(item);
             }
+            if (manifest.assetMap) {
+              manifest.assetMap[item.sourceUrl] = item.filename;
+            }
           }
         }
       }
@@ -1142,12 +1471,13 @@ export class AssetLocalizer {
           queue.push({
             localCssPath: item.localPath,
             sourceUrl: item.sourceUrl,
-            depth: current.depth + 1
+            depth: current.depth + 1,
+            requestIdentity: current.requestIdentity,
+            requestHeaders: current.requestHeaders
           });
         }
       }
     }
-
     // Now rewrite all downloaded CSS files in-place using per-sheet maps + global manifest fallback
     if (allDownloadedCssPaths.size > 0) {
       const globalMap = new Map<string, string>();

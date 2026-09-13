@@ -6,7 +6,8 @@ import * as os from 'node:os';
 import {
   FinalProvenanceLedger,
   type ProvenanceRecord,
-  type FinalProvenanceManifest
+  type FinalProvenanceManifest,
+  type ProvenanceReceipt,
 } from './final-provenance-ledger.js';
 
 describe('FinalProvenanceLedger - Chain of Custody & Cryptographic Ledger (Audit §54)', () => {
@@ -355,6 +356,185 @@ describe('FinalProvenanceLedger - Chain of Custody & Cryptographic Ledger (Audit
         false,
         'Unrecorded artifact must return false'
       );
+    });
+  });
+
+  describe('6. QA Verification Receipts, Staleness Invalidation, & Integrity Checks', () => {
+    it('records QA verification receipt bound to artifact, surface, URL, and revision', () => {
+      const ledger = new FinalProvenanceLedger({ instrumentRevision: 'rev-2026' });
+      ledger.recordArtifact('templates/product.liquid', '<h1>{{ product.title }}</h1>');
+
+      const receipt = ledger.recordReceipt({
+        id: 'receipt-product-desktop-1',
+        verdict: 'PASS',
+        surface: 'desktop',
+        targetUrl: 'https://store.haravan.com/products/test-item',
+        artifact: 'templates/product.liquid',
+        evidence: ['Visual diff 0.4% <= 5.0% tolerance'],
+      });
+
+      assert.strictEqual(receipt.id, 'receipt-product-desktop-1');
+      assert.strictEqual(receipt.verdict, 'PASS');
+      assert.strictEqual(receipt.surface, 'desktop');
+      assert.strictEqual(receipt.revision, 'rev-2026');
+      assert.strictEqual(receipt.isStale, false);
+      assert.ok(receipt.sha256, 'Receipt must auto-bind artifact SHA-256');
+
+      const verifyRes = ledger.verifyReceiptIntegrity('receipt-product-desktop-1', {
+        surface: 'desktop',
+        targetUrl: 'https://store.haravan.com/products/test-item',
+        revision: 'rev-2026',
+      });
+      assert.strictEqual(verifyRes.valid, true);
+    });
+
+    // Regression test: missing receipts
+    it('regression: detects missing receipts and fails closed', () => {
+      const ledger = new FinalProvenanceLedger();
+      const check = ledger.verifyReceiptIntegrity('non-existent-receipt-id');
+      assert.strictEqual(check.valid, false);
+      assert.ok(check.reason?.includes('not found in ledger'));
+
+      const validReceipts = ledger.getValidReceipts();
+      assert.strictEqual(validReceipts.length, 0);
+    });
+
+    // Regression test: artifact revision change & invalidating old receipts
+    it('regression: invalidates old receipts when artifact revision or content changes', () => {
+      const ledger = new FinalProvenanceLedger({ instrumentRevision: 'rev-1' });
+      ledger.recordArtifact('templates/collection.liquid', '<div>original collection</div>');
+
+      ledger.recordReceipt({
+        id: 'rec-collection-1',
+        verdict: 'PASS',
+        surface: 'desktop',
+        targetUrl: 'https://store.haravan.com/collections/all',
+        artifact: 'templates/collection.liquid',
+      });
+
+      // Immediately after recording, receipt is valid
+      let verifyRes = ledger.verifyReceiptIntegrity('rec-collection-1');
+      assert.strictEqual(verifyRes.valid, true);
+
+      // Artifact content is updated/mutated
+      ledger.recordArtifact('templates/collection.liquid', '<div>updated collection modified</div>');
+
+      // Receipt must be marked stale immediately
+      const receipt = ledger.getReceipt('rec-collection-1');
+      assert.strictEqual(receipt?.isStale, true, 'Receipt must be marked stale on artifact modification');
+
+      // Verification must fail closed
+      verifyRes = ledger.verifyReceiptIntegrity('rec-collection-1');
+      assert.strictEqual(verifyRes.valid, false);
+      assert.ok(verifyRes.reason?.includes('stale') || verifyRes.reason?.includes('modified'));
+
+      // Valid receipts filter must exclude it
+      const validReceipts = ledger.getValidReceipts();
+      assert.strictEqual(validReceipts.length, 0);
+    });
+
+    // Regression test: wrong surface target
+    it('regression: fails closed on wrong surface target or URL mismatch', () => {
+      const ledger = new FinalProvenanceLedger();
+      ledger.recordReceipt({
+        id: 'rec-surface-test',
+        verdict: 'PASS',
+        surface: 'mobile',
+        targetUrl: 'https://store.haravan.com/cart',
+      });
+
+      // Verify requesting desktop surface against mobile receipt
+      const surfaceCheck = ledger.verifyReceiptIntegrity('rec-surface-test', {
+        surface: 'desktop',
+      });
+      assert.strictEqual(surfaceCheck.valid, false);
+      assert.ok(surfaceCheck.reason !== undefined);
+      // Verify requesting different URL
+      const urlCheck = ledger.verifyReceiptIntegrity('rec-surface-test', {
+        targetUrl: 'https://store.haravan.com/checkout',
+      });
+      assert.strictEqual(urlCheck.valid, false);
+      assert.ok(urlCheck.reason !== undefined);
+    });
+
+    // Regression test: failure propagation
+    it('regression: propagates failure for non-PASS verdicts (FAIL, INCONCLUSIVE, BLOCKED)', () => {
+      const ledger = new FinalProvenanceLedger();
+      ledger.recordReceipt({
+        id: 'rec-fail-1',
+        verdict: 'FAIL',
+        surface: 'desktop',
+        reason: 'Visual diff 8.5% exceeded 5.0% threshold',
+      });
+      ledger.recordReceipt({
+        id: 'rec-inconclusive-1',
+        verdict: 'INCONCLUSIVE',
+        surface: 'desktop',
+        reason: 'Network timeout loading webfonts',
+      });
+      ledger.recordReceipt({
+        id: 'rec-blocked-1',
+        verdict: 'BLOCKED',
+        surface: 'mobile',
+        reason: 'Drawer animation intercept prevented screenshot',
+      });
+
+      for (const id of ['rec-fail-1', 'rec-inconclusive-1', 'rec-blocked-1']) {
+        const check = ledger.verifyReceiptIntegrity(id);
+        assert.strictEqual(check.valid, false, `Receipt ${id} must not verify as valid`);
+        assert.ok(check.reason !== undefined);
+      }
+
+      // None should be returned in getValidReceipts()
+      assert.strictEqual(ledger.getValidReceipts().length, 0);
+    });
+
+    // Rejection of static lint / proxy substitutions
+    it('rejects static lint and proxy substitutions from being certified as behavioral QA', () => {
+      const ledger = new FinalProvenanceLedger();
+      ledger.recordReceipt({
+        id: 'rec-lint-1',
+        verdict: 'PASS',
+        surface: 'desktop',
+        isLint: true,
+        evidence: ['HTML syntax validator passed 0 errors'],
+      });
+
+      const check = ledger.verifyReceiptIntegrity('rec-lint-1');
+      assert.strictEqual(check.valid, false);
+      assert.ok(check.reason?.includes('static lint approval'));
+      assert.strictEqual(ledger.getValidReceipts().length, 0);
+    });
+
+    // Cryptographic sealing and export with receipts
+    it('seals, exports, and verifies cryptographic integrity of receipts', async () => {
+      const ledger = new FinalProvenanceLedger();
+      ledger.recordArtifact('layout/theme.liquid', '<html>{{ content_for_layout }}</html>');
+      ledger.recordReceipt({
+        id: 'rec-theme-layout',
+        verdict: 'PASS',
+        surface: 'desktop',
+        artifact: 'layout/theme.liquid',
+      });
+
+      const seal = ledger.sealLedger('QALeadAuditor');
+      assert.strictEqual(seal.sealed, true);
+
+      const json = JSON.stringify(ledger.toJSON());
+      const verifyRes = FinalProvenanceLedger.verifyLedgerIntegrity(json);
+      assert.strictEqual(verifyRes.verified, true);
+
+      // Rehydrate
+      const rehydrated = FinalProvenanceLedger.fromJSON(json);
+      assert.strictEqual(rehydrated.receipts.length, 1);
+      assert.strictEqual(rehydrated.receipts[0].id, 'rec-theme-layout');
+      assert.strictEqual(rehydrated.receipts[0].verdict, 'PASS');
+
+      // Tampering with receipt verdict in JSON causes integrity check failure
+      const tamperedObj = JSON.parse(json);
+      tamperedObj.receipts[0].verdict = 'FAIL';
+      const tamperedCheck = FinalProvenanceLedger.verifyLedgerIntegrity(JSON.stringify(tamperedObj));
+      assert.strictEqual(tamperedCheck.verified, false, 'Tampered receipt must invalidate ledger hash');
     });
   });
 });

@@ -209,10 +209,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Open a Chromium browser tab without changing the visible tab by default',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' } } },
-    execute: (params: { url?: string; activate?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        activate: { type: 'boolean' },
+        devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
+        mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
+      },
+    },
+    execute: (params: { url?: string; activate?: boolean; devicePresetId?: string; mobile?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
   });
-
   catalogue.register({
     name: 'browser.close-tab',
     description: 'Close a Chromium browser tab by ID',
@@ -1716,10 +1723,19 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.open-tab',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, ephemeral: { type: 'boolean' }, offscreen: { type: 'boolean' } } },
-    execute: (params: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        activate: { type: 'boolean' },
+        ephemeral: { type: 'boolean' },
+        offscreen: { type: 'boolean' },
+        devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
+        mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
+      },
+    },
+    execute: (params: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
   });
-
   catalogue.register({
     name: 'anti.browser.tabs.activate',
     description: 'Alias for browser.switch-tab',
@@ -2469,12 +2485,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         },
         heightTolerance: { type: 'number', description: 'Maximum acceptable height delta ratio (0.0 to 1.0) before triggering STRUCTURAL_TRUNCATION_DETECTED. Default 0.10' },
         allowHeightDrift: { type: 'boolean', description: 'When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation' },
+        maxGeometryDeltaPx: { type: 'number', description: 'Maximum acceptable structural component geometry shift in pixels. On responsive mobile/tablet, defaults to 16px when pixel diff matches' },
         expectedUrl: { type: 'string', description: 'Expected route URL for target side' },
         expectedTargetUrl: { type: 'string', description: 'Expected route URL for target side' },
         expectedBaselineUrl: { type: 'string', description: 'Expected route URL for baseline side' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean; expectedUrl?: string; expectedTargetUrl?: string; expectedBaselineUrl?: string }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean; maxGeometryDeltaPx?: number; expectedUrl?: string; expectedTargetUrl?: string; expectedBaselineUrl?: string }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
   });
 

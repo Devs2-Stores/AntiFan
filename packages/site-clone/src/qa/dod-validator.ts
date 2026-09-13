@@ -32,6 +32,22 @@ import { SettingsAssetsNormalizer, type SettingGroup } from '../generators/setti
 import { LiquidBindingEngine } from '../generators/liquid-binding-engine.js';
 import { RouteResolver } from '../platform/haravan/route-resolver.js';
 import { FixtureRegistry } from '../platform/haravan/entity-resolver.js';
+import { FinalProvenanceLedger, type ProvenanceReceipt } from './final-provenance-ledger.js';
+
+/**
+ * Compares two URLs to verify target surface identity without being tripped by query/fragment variations.
+ */
+function urlsMatch(urlA: string, urlB: string): boolean {
+  if (!urlA || !urlB) return false;
+  if (urlA === urlB) return true;
+  try {
+    const parsedA = new URL(urlA, 'https://anti-fan.local');
+    const parsedB = new URL(urlB, 'https://anti-fan.local');
+    return parsedA.hostname === parsedB.hostname && parsedA.pathname.replace(/\/+$/, '') === parsedB.pathname.replace(/\/+$/, '');
+  } catch {
+    return urlA.trim().toLowerCase() === urlB.trim().toLowerCase();
+  }
+}
 
 /**
  * The 19 canonical criteria keys mandated by Audit §63.
@@ -78,9 +94,8 @@ export interface DoDEvaluationResult {
   passedCount: number;
   totalCount: 19;
   criteria: Record<DoDCriterionKey, DoDCriterionResult>;
-  verdict: 'FINAL' | 'INCOMPLETE';
+  verdict: 'FINAL' | 'INCOMPLETE' | 'DIAGNOSTIC';
 }
-
 /**
  * Context input for DoD evaluation.
  * Accepts structured objects or raw pipeline artifacts for each phase.
@@ -176,6 +191,17 @@ export interface DoDContext {
   dependencyVerification?: unknown;
   assetDependencies?: unknown;
 
+  // Evaluation mode contract (§63, §68)
+  mode?: 'final' | 'diagnostic' | string;
+  diagnosticOnly?: boolean;
+
+  // Provenance & Identity contracts (§54, §63)
+  provenanceLedger?: unknown;
+  receipts?: unknown;
+  targetUrl?: string;
+  surface?: string;
+  revision?: string;
+  artifactRevision?: string;
   // Allow explicit criteria overrides or additional telemetry
   criteria?: Partial<Record<DoDCriterionKey, DoDCriterionResult | boolean>>;
   [key: string]: unknown;
@@ -330,15 +356,28 @@ export class DoDValidator {
       let result: DoDCriterionResult;
 
       if (typeof explicitOverride === 'boolean') {
-        result = explicitOverride
-          ? { passed: true, evidence: `Criterion '${key}' marked as passed via explicit override` }
-          : { passed: false, reason: `Criterion '${key}' marked as failed via explicit override` };
+        if (explicitOverride && (key === 'strictVerification' || key === 'realBrowserRender')) {
+          result = { passed: false, reason: `Criterion '${key}' cannot be certified via bare boolean override: real visual telemetry/receipts required` };
+        } else {
+          result = explicitOverride
+            ? { passed: true, evidence: `Criterion '${key}' marked as passed via explicit override` }
+            : { passed: false, reason: `Criterion '${key}' marked as failed via explicit override` };
+        }
       } else if (explicitOverride && typeof explicitOverride === 'object') {
-        result = {
-          passed: Boolean(explicitOverride.passed),
-          evidence: explicitOverride.evidence,
-          reason: explicitOverride.reason || (!explicitOverride.passed ? `Criterion '${key}' failed validation` : undefined),
-        };
+        const obj = explicitOverride as unknown as Record<string, unknown>;
+        if (obj.isLint === true || obj.lintOnly === true || obj.proxy === true || obj.staticLint === true) {
+          result = { passed: false, reason: `Criterion '${key}' failed: static lint approval or proxy cannot replace behavioral QA` };
+        } else if (obj.stale === true || obj.isStale === true || obj.invalidated === true) {
+          result = { passed: false, reason: `Criterion '${key}' failed: evidence receipt is stale or invalidated after changes` };
+        } else if (obj.verdict && ['INCONCLUSIVE', 'UNVERIFIED', 'BLOCKED', 'HARD_FAILED', 'FAIL'].includes(String(obj.verdict).toUpperCase())) {
+          result = { passed: false, reason: `Criterion '${key}' failed: receipt verdict is ${obj.verdict}` };
+        } else {
+          result = {
+            passed: Boolean(explicitOverride.passed),
+            evidence: explicitOverride.evidence,
+            reason: explicitOverride.reason || (!explicitOverride.passed ? `Criterion '${key}' failed validation` : undefined),
+          };
+        }
       } else {
         // Run dedicated audit method
         result = this.auditCriterion(key, ctx);
@@ -351,10 +390,12 @@ export class DoDValidator {
     }
 
     const totalCount = 19 as const;
-    const isDoDComplete = passedCount === totalCount;
+    const isDiagnostic = ctx.mode === 'diagnostic' || ctx.diagnosticOnly === true;
+    const isDoDComplete = !isDiagnostic && passedCount === totalCount;
     const score = Number(((passedCount / totalCount) * 100).toFixed(2));
-    const verdict = isDoDComplete ? 'FINAL' : 'INCOMPLETE';
-
+    const verdict = isDiagnostic
+      ? (passedCount === totalCount ? 'DIAGNOSTIC' : 'INCOMPLETE')
+      : (isDoDComplete ? 'FINAL' : 'INCOMPLETE');
     return {
       isDoDComplete,
       score,
@@ -458,6 +499,12 @@ export class DoDValidator {
 
     if (typeof candidate === 'object') {
       const obj = candidate as Record<string, unknown>;
+      if (obj.isLint === true || obj.lintOnly === true || obj.proxy === true || obj.staticLint === true) {
+        return { passed: false, reason: 'Static lint approval cannot replace visual baseline HTML / CSS assets' };
+      }
+      if (obj.stale === true || obj.isStale === true || obj.invalidated === true) {
+        return { passed: false, reason: 'Visual baseline is stale or invalidated after artifact change' };
+      }
       if (obj.passed === false || obj.success === false) {
         return { passed: false, reason: (obj.reason || obj.error || 'Visual baseline generation failed') as string };
       }
@@ -478,6 +525,9 @@ export class DoDValidator {
       }
 
       if (obj.passed === true) {
+        if (!obj.evidence && !obj.screenshot && !obj.filesWritten) {
+          return { passed: false, reason: 'Visual baseline marked valid but contains no HTML or CSS assets' };
+        }
         return { passed: true, evidence: (obj.evidence as string) || 'Visual baseline marked valid' };
       }
     }
@@ -557,7 +607,7 @@ export class DoDValidator {
   // 5. existingDataMatching: check EntityResolver EXISTING_DATA_FIRST
   // =========================================================================
   public auditExistingDataMatching(ctx: DoDContext): DoDCriterionResult {
-    const candidate = ctx.existingDataMatching ?? ctx.entityResolver ?? ctx.entityMatches;
+    const candidate = ctx.existingDataMatching ?? ctx.entityResolver ?? ctx.entityMatches ?? ctx.entityMatching;
     if (!candidate) {
       return { passed: false, reason: 'Existing data matching missing: EXISTING_DATA_FIRST policy check not performed.' };
     }
@@ -651,9 +701,16 @@ export class DoDValidator {
   // 7. haravanLiquidGenerator: check Liquid generation
   // =========================================================================
   public auditHaravanLiquidGenerator(ctx: DoDContext): DoDCriterionResult {
-    const candidate = ctx.haravanLiquidGenerator ?? ctx.liquidOutput ?? ctx.liquidGeneration;
+    const candidate = ctx.haravanLiquidGenerator ?? ctx.liquidOutput ?? ctx.liquidGeneration ?? ctx.liquidSections;
     if (!candidate) {
       return { passed: false, reason: 'Haravan Liquid generation missing: no generated templates or sections found.' };
+    }
+
+    if (Array.isArray(candidate)) {
+      if (candidate.length === 0) {
+        return { passed: false, reason: 'Liquid generation output contains zero sections or templates.' };
+      }
+      return { passed: true, evidence: `Haravan Liquid generator produced ${candidate.length} valid flat template/snippet components` };
     }
 
     if (typeof candidate === 'object') {
@@ -712,7 +769,7 @@ export class DoDValidator {
   // 8. schemaGeneration: check Haravan settings declaration generation
   // =========================================================================
   public auditSchemaGeneration(ctx: DoDContext): DoDCriterionResult {
-    const candidate = ctx.schemaGeneration ?? ctx.schemas ?? ctx.sectionSchemas;
+    const candidate = ctx.schemaGeneration ?? ctx.schemas ?? ctx.sectionSchemas ?? ctx.schemaValidation;
     if (!candidate) {
       return { passed: false, reason: 'Dynamic schema generation missing: section schemas not extracted.' };
     }
@@ -724,7 +781,9 @@ export class DoDValidator {
       }
 
       // Check for forbidden section presets/blocks
-      const rawList = Array.isArray(candidate) ? candidate : (Array.isArray(obj.schemas) ? obj.schemas : [obj]);
+      const rawList = Array.isArray(candidate)
+        ? candidate
+        : (Array.isArray(obj.schemas) ? obj.schemas : (Array.isArray(obj.sections) ? obj.sections : [obj]));
       for (const item of rawList) {
         if (item && typeof item === 'object') {
           const rec = item as Record<string, unknown>;
@@ -735,7 +794,9 @@ export class DoDValidator {
       }
 
       // Check array of theme settings groups
-      const schemasList = Array.isArray(candidate) ? candidate : (Array.isArray(obj.schemas) ? obj.schemas : null);
+      const schemasList = Array.isArray(candidate)
+        ? candidate
+        : (Array.isArray(obj.schemas) ? obj.schemas : (Array.isArray(obj.sections) ? obj.sections : null));
       if (schemasList && schemasList.length > 0) {
         let validCount = 0;
         for (const s of schemasList) {
@@ -748,6 +809,9 @@ export class DoDValidator {
         }
       }
 
+      if (obj.valid === true) {
+        return { passed: true, evidence: 'Haravan settings declaration schema validation verified' };
+      }
       // Single settings group or settings.html object
       if (typeof obj.name === 'string' && Array.isArray(obj.settings)) {
         return { passed: true, evidence: `Haravan settings group generated: "${obj.name}" with ${obj.settings.length} settings` };
@@ -825,6 +889,12 @@ export class DoDValidator {
 
     if (typeof candidate === 'object') {
       const obj = candidate as Record<string, unknown>;
+      if (obj.isLint === true || obj.lintOnly === true || obj.proxy === true) {
+        return { passed: false, reason: 'Static lint approval cannot replace synthesized theme assets' };
+      }
+      if (obj.stale === true || obj.isStale === true || obj.invalidated === true) {
+        return { passed: false, reason: 'Theme asset generation is stale after changes' };
+      }
       if (obj.passed === false) {
         return { passed: false, reason: (obj.reason as string) || 'Theme asset generation marked failed' };
       }
@@ -839,10 +909,12 @@ export class DoDValidator {
       }
 
       if (obj.passed === true) {
+        if (!obj.evidence && assetList && assetList.length === 0) {
+          return { passed: false, reason: 'Theme asset generation incomplete: zero theme assets found.' };
+        }
         return { passed: true, evidence: (obj.evidence as string) || 'Theme asset generation confirmed' };
       }
     }
-
     return { passed: false, reason: 'Theme asset generation incomplete: zero theme assets found.' };
   }
 
@@ -927,33 +999,123 @@ export class DoDValidator {
   // 13. realBrowserRender: check render execution
   // =========================================================================
   public auditRealBrowserRender(ctx: DoDContext): DoDCriterionResult {
-    const candidate = ctx.realBrowserRender ?? ctx.browserRender ?? ctx.renderResult;
+    const candidate = ctx.realBrowserRender ?? ctx.browserRender ?? ctx.renderResult ?? ctx.themeQa ?? ctx.themeQaReport;
     if (!candidate) {
-      return { passed: false, reason: 'Real browser render execution missing: Chromium CDP render not executed.' };
+      return { passed: false, reason: 'Real browser render execution missing: Chromium CDP render or Theme QA not executed.' };
     }
 
     if (typeof candidate === 'object') {
       const obj = candidate as Record<string, unknown>;
-      if (obj.passed === false || obj.success === false) {
-        return { passed: false, reason: (obj.reason || obj.error || 'Browser rendering failed') as string };
+      if (obj.isLint === true || obj.lintOnly === true || obj.staticLint === true || obj.type === 'lint' || obj.proxy === true) {
+        return { passed: false, reason: 'Static lint approval cannot replace real browser render execution' };
       }
 
-      if (obj.crash === true || obj.fatalError) {
+      if (obj.stale === true || obj.isStale === true || obj.invalidated === true) {
+        return { passed: false, reason: 'Browser render receipt is stale or invalidated after artifact revision change' };
+      }
+
+      // Theme QA actual verdict, checklist, and critical issues check (§63.13)
+      const themeSummary = (obj.summary || obj) as Record<string, unknown>;
+      const criticalCount = typeof themeSummary.criticalCount === 'number'
+        ? themeSummary.criticalCount
+        : typeof obj.criticalCount === 'number'
+        ? obj.criticalCount
+        : undefined;
+      if (criticalCount !== undefined && criticalCount > 0) {
+        return { passed: false, reason: `Theme QA detected ${criticalCount} critical issue(s): cannot certify theme render` };
+      }
+
+      const rawVerdict = typeof themeSummary.verdict === 'string'
+        ? themeSummary.verdict
+        : typeof obj.verdict === 'string'
+        ? obj.verdict
+        : typeof obj.status === 'string'
+        ? obj.status
+        : undefined;
+      const verdict = rawVerdict?.toUpperCase();
+      if (verdict && ['INCONCLUSIVE', 'UNVERIFIED', 'BLOCKED', 'HARD_FAILED', 'FAIL', 'STRUCTURAL_TRUNCATION_DETECTED'].includes(verdict)) {
+        return { passed: false, reason: `Theme QA / browser render verdict is ${verdict}: verification failed or was blocked` };
+      }
+      if (obj.passed === false || themeSummary.passed === false || obj.success === false) {
+        return { passed: false, reason: (obj.reason || themeSummary.reason || obj.error || 'Browser rendering or Theme QA failed') as string };
+      }
+
+      // Theme QA checklist verification (layout, responsive, overflow, interactions, diagnostics, liquidClean, assetsValid, hsCompliant)
+      const checklist = (obj.checklist || (obj.report as Record<string, unknown> | undefined)?.checklist) as Record<string, unknown> | undefined;
+      if (checklist && typeof checklist === 'object') {
+        const failedChecklist = Object.entries(checklist)
+          .filter(([key, val]) => val === false && !['preExistingIssues', 'resolvedIssues', 'findings'].includes(key))
+          .map(([key]) => key);
+        if (failedChecklist.length > 0) {
+          return { passed: false, reason: `Theme QA checklist reported failure on: ${failedChecklist.join(', ')}` };
+        }
+      }
+
+      if (obj.crash === true || obj.crashed === true || obj.fatalError) {
         return { passed: false, reason: `Browser crash during render: ${obj.fatalError || 'unknown crash'}` };
       }
 
-      const statusCode = typeof obj.statusCode === 'number' ? obj.statusCode : (typeof obj.status === 'number' ? obj.status : 200);
-      if (statusCode >= 400) {
+      if (Array.isArray(obj.renderErrors) && obj.renderErrors.length > 0) {
+        return { passed: false, reason: `Browser render reported fatal runtime errors: ${obj.renderErrors.join('; ')}` };
+      }
+
+      const statusCode = typeof obj.statusCode === 'number' ? obj.statusCode : (typeof obj.status === 'number' ? obj.status : undefined);
+      if (statusCode !== undefined && statusCode >= 400) {
         return { passed: false, reason: `Browser render returned HTTP error status: ${statusCode}` };
+      }
+
+      // Wrong surface target check (supports candidate.surface or candidate.target.surface)
+      const targetObj = (obj.target || (obj.report as Record<string, unknown> | undefined)?.target) as Record<string, unknown> | undefined;
+      const candSurface = (typeof obj.surface === 'string' ? obj.surface : (typeof targetObj?.surface === 'string' ? targetObj.surface : undefined));
+      const expectedSurface = ctx.surface || (ctx as Record<string, unknown>).targetSurface || (obj.expectedSurface as string);
+      if (expectedSurface && candSurface && candSurface.toLowerCase() !== String(expectedSurface).toLowerCase()) {
+        return { passed: false, reason: `Wrong surface target for browser render: expected '${expectedSurface}', got '${candSurface}'` };
+      }
+
+      const candUrl = (typeof obj.targetUrl === 'string' ? obj.targetUrl : (typeof obj.url === 'string' ? obj.url : (typeof targetObj?.url === 'string' ? targetObj.url : undefined)));
+      if (candUrl) {
+        const matchesAny =
+          (ctx.previewUrl && urlsMatch(candUrl, ctx.previewUrl)) ||
+          (ctx.targetUrl && urlsMatch(candUrl, ctx.targetUrl)) ||
+          (ctx.referenceUrl && urlsMatch(candUrl, ctx.referenceUrl));
+        const expectedUrl = ctx.previewUrl || ctx.targetUrl || ctx.referenceUrl;
+        if (expectedUrl && !matchesAny) {
+          return { passed: false, reason: `Wrong target URL for browser render: expected '${expectedUrl}', got '${candUrl}'` };
+        }
+      }
+
+      // Artifact revision change check
+      const expectedRevision = ctx.revision || ctx.artifactRevision || (ctx.provenanceLedger as Record<string, unknown> | undefined)?.environment;
+      const expRevStr = typeof expectedRevision === 'string' ? expectedRevision : (typeof (expectedRevision as Record<string, unknown> | undefined)?.instrumentRevision === 'string' ? (expectedRevision as Record<string, unknown>).instrumentRevision as string : undefined);
+      if (expRevStr && (obj.revision || obj.artifactRevision)) {
+        const candRev = (obj.revision || obj.artifactRevision) as string;
+        if (candRev !== expRevStr) {
+          return { passed: false, reason: `Artifact revision change: render execution receipt revision '${candRev}' does not match current revision '${expRevStr}'` };
+        }
+      }
+      // Check for real render execution telemetry
+      const hasRenderTelemetry =
+        obj.domLoaded !== undefined ||
+        obj.rendered !== undefined ||
+        obj.viewport !== undefined ||
+        typeof obj.status === 'number' ||
+        typeof obj.statusCode === 'number' ||
+        typeof obj.domNodeCount === 'number' ||
+        Boolean(obj.screenshot) ||
+        Boolean(obj.html) ||
+        obj.passed === true;
+
+      if (!hasRenderTelemetry || Object.keys(obj).length === 0) {
+        return { passed: false, reason: 'Real browser render execution missing: no DOM, viewport, or render telemetry recorded.' };
       }
 
       const domReady = obj.domLoaded !== false && obj.rendered !== false;
       if (domReady) {
+        const finalStatus = statusCode ?? 200;
         const viewportInfo = obj.viewport ? ` at ${JSON.stringify(obj.viewport)}` : '';
-        return { passed: true, evidence: `Real browser render executed successfully (status ${statusCode})${viewportInfo}` };
+        return { passed: true, evidence: `Real browser render executed successfully (status ${finalStatus})${viewportInfo}` };
       }
     }
-
     return { passed: false, reason: 'Real browser render execution failed.' };
   }
 
@@ -966,36 +1128,232 @@ export class DoDValidator {
       return { passed: false, reason: 'Strict visual verification missing: visual diff comparison not executed.' };
     }
 
+    // Numeric candidate support e.g. visualDiff: 1.2
+    if (typeof candidate === 'number') {
+      const isDiagnostic = ctx.mode === 'diagnostic' || ctx.diagnosticOnly === true;
+      if (!isDiagnostic) {
+        return {
+          passed: false,
+          reason: 'Strict visual verification requires canonical comparator match/status metric contract (match, status, diffPixels, mismatchPercentage); bare numeric metric cannot certify final parity',
+        };
+      }
+      const maxTolerance = 5.0;
+      const normalizedDiff = candidate <= 1.0 && maxTolerance > 1.0 ? candidate * 100 : candidate;
+      if (normalizedDiff > maxTolerance) {
+        return {
+          passed: false,
+          reason: `[Diagnostic] Visual comparison diff (${normalizedDiff.toFixed(2)}%) exceeds tolerance limit (${maxTolerance}%)`,
+        };
+      }
+      return {
+        passed: true,
+        evidence: `[Diagnostic] Visual comparison passed within tolerance: diff ${normalizedDiff.toFixed(2)}% (tolerance <= ${maxTolerance}%)`,
+      };
+    }
     if (typeof candidate === 'object') {
       const obj = candidate as Record<string, unknown>;
-      if (obj.passed === false) {
-        return { passed: false, reason: (obj.reason as string) || 'Visual diff comparison exceeded tolerance' };
+
+      // Reject static lint / proxy substitutions
+      if (obj.isLint === true || obj.lintOnly === true || obj.staticLint === true || obj.type === 'lint' || obj.proxy === true || obj.staticOnly === true) {
+        return { passed: false, reason: 'Static lint approval or proxy cannot replace visual comparison and live theme parity verification' };
+      }
+
+      // Reject stale or invalidated receipts
+      if (obj.stale === true || obj.isStale === true || obj.invalidated === true) {
+        return { passed: false, reason: 'Visual comparison receipt is stale or invalidated after artifact revision change' };
+      }
+
+      // Canonical comparator match & status verification
+      const receiptObj = (obj.receipt || obj) as Record<string, unknown>;
+      const candMatch = typeof obj.match === 'boolean' ? obj.match : (typeof receiptObj.match === 'boolean' ? receiptObj.match : undefined);
+      if (candMatch === false) {
+        return { passed: false, reason: 'Visual comparison failed: canonical comparator reported match=false' };
+      }
+      const status = typeof obj.status === 'string'
+        ? obj.status.toUpperCase()
+        : (typeof receiptObj.status === 'string' ? receiptObj.status.toUpperCase() : undefined);
+      if (status && ['FAIL', 'MISMATCH', 'INCONCLUSIVE', 'BLOCKED', 'HARD_FAILED', 'STRUCTURAL_TRUNCATION_DETECTED'].includes(status)) {
+        return { passed: false, reason: `Visual comparison status is ${status}: cannot certify visual parity` };
+      }
+
+      // Reject inconclusive / unverified / blocked verdicts
+      const verdict = typeof obj.verdict === 'string'
+        ? obj.verdict.toUpperCase()
+        : (typeof receiptObj.verdict === 'string' ? receiptObj.verdict.toUpperCase() : undefined);
+      if (verdict && ['INCONCLUSIVE', 'UNVERIFIED', 'BLOCKED', 'HARD_FAILED', 'FAIL', 'STRUCTURAL_TRUNCATION_DETECTED'].includes(verdict)) {
+        return { passed: false, reason: `Visual comparison verdict is ${verdict}: cannot certify visual parity` };
+      }
+
+      // Dimensions match check from comparator
+      const dimMatch = typeof obj.dimensionsMatch === 'boolean' ? obj.dimensionsMatch : (typeof receiptObj.dimensionsMatch === 'boolean' ? receiptObj.dimensionsMatch : undefined);
+      if (dimMatch === false) {
+        return { passed: false, reason: 'Visual comparison failed: dimensions mismatch between baseline and candidate' };
+      }
+
+      // Failure propagation
+      if (obj.passed === false || obj.success === false) {
+        return { passed: false, reason: (obj.reason as string) || (obj.error as string) || 'Visual diff comparison exceeded tolerance' };
+      }
+      if (Array.isArray(obj.renderErrors) && obj.renderErrors.length > 0) {
+        return { passed: false, reason: `Visual comparison reported render errors: ${obj.renderErrors.join('; ')}` };
+      }
+      if (typeof obj.failures === 'number' && obj.failures > 0) {
+        return { passed: false, reason: `Visual comparison reported ${obj.failures} failed checks` };
+      }
+
+      // Wrong surface target check
+      const expectedSurface = ctx.surface || (ctx as Record<string, unknown>).targetSurface || (obj.expectedSurface as string);
+      if (expectedSurface && obj.surface && typeof obj.surface === 'string' && obj.surface.toLowerCase() !== String(expectedSurface).toLowerCase()) {
+        return { passed: false, reason: `Wrong surface target: comparison surface '${obj.surface}' does not match expected surface '${expectedSurface}'` };
+      }
+
+      const expectedUrl = ctx.referenceUrl || ctx.previewUrl || ctx.targetUrl;
+      if (expectedUrl && obj.targetUrl && typeof obj.targetUrl === 'string') {
+        if (!urlsMatch(obj.targetUrl, expectedUrl)) {
+          return { passed: false, reason: `Wrong surface target URL: comparison URL '${obj.targetUrl}' does not match expected target '${expectedUrl}'` };
+        }
+      }
+
+      // Artifact revision change check
+      const expectedRevision = ctx.revision || ctx.artifactRevision || (ctx.provenanceLedger as Record<string, unknown> | undefined)?.environment;
+      const expRevStr = typeof expectedRevision === 'string' ? expectedRevision : (typeof (expectedRevision as Record<string, unknown> | undefined)?.instrumentRevision === 'string' ? (expectedRevision as Record<string, unknown>).instrumentRevision as string : undefined);
+      if (expRevStr && (obj.revision || obj.artifactRevision)) {
+        const candRev = (obj.revision || obj.artifactRevision) as string;
+        if (candRev !== expRevStr) {
+          return { passed: false, reason: `Artifact revision change: visual verification receipt revision '${candRev}' does not match current revision '${expRevStr}'` };
+        }
+      }
+
+      // Receipts verification (missing receipts, failure propagation, stale)
+      const receiptsList = Array.isArray(obj.receipts) ? obj.receipts : (Array.isArray(ctx.receipts) ? ctx.receipts : null);
+      if (receiptsList !== null) {
+        if (receiptsList.length === 0) {
+          return { passed: false, reason: 'Missing visual verification receipts: receipts array is empty' };
+        }
+        for (const rec of receiptsList) {
+          if (!rec || typeof rec !== 'object') continue;
+          const r = rec as Record<string, unknown>;
+          if (r.verdict && r.verdict !== 'PASS') {
+            return { passed: false, reason: `Visual verification receipt '${r.id || 'unknown'}' has non-passing verdict '${r.verdict}'` };
+          }
+          if (r.isStale) {
+            return { passed: false, reason: `Visual verification receipt '${r.id || 'unknown'}' is stale` };
+          }
+          if (r.isLint) {
+            return { passed: false, reason: `Visual verification receipt '${r.id || 'unknown'}' is a static lint approval` };
+          }
+        }
+      }
+
+      // Provenance ledger receipt verification
+      let hasVerifiedLedgerReceipt = false;
+      if (ctx.provenanceLedger instanceof FinalProvenanceLedger && typeof obj.receiptId === 'string') {
+        const verifyRes = ctx.provenanceLedger.verifyReceiptIntegrity(obj.receiptId, {
+          surface: expectedSurface ? String(expectedSurface) : undefined,
+          targetUrl: expectedUrl ? String(expectedUrl) : undefined,
+          revision: expRevStr,
+        });
+        if (!verifyRes.valid) {
+          return { passed: false, reason: verifyRes.reason || 'Provenance receipt verification failed' };
+        }
+        hasVerifiedLedgerReceipt = true;
       }
 
       // Diff percentage check (standard tolerance <= 5% or 0.05)
-      const rawDiff = typeof obj.diffPercentage === 'number' ? obj.diffPercentage : (typeof obj.diffRate === 'number' ? obj.diffRate : (typeof obj.mismatchPercentage === 'number' ? obj.mismatchPercentage : undefined));
-      const maxTolerance = typeof obj.tolerance === 'number' ? obj.tolerance : 5.0; // default 5%
+      const rawDiff = typeof obj.diffPercentage === 'number'
+        ? obj.diffPercentage
+        : typeof obj.mismatchPercentage === 'number'
+        ? obj.mismatchPercentage
+        : typeof receiptObj.mismatchPercentage === 'number'
+        ? receiptObj.mismatchPercentage
+        : typeof obj.diffRate === 'number'
+        ? obj.diffRate
+        : typeof obj.visualDiff === 'number'
+        ? obj.visualDiff
+        : undefined;
+      const maxTolerance = typeof obj.tolerance === 'number'
+        ? obj.tolerance
+        : typeof obj.visualDiffThreshold === 'number'
+        ? obj.visualDiffThreshold
+        : 5.0; // default 5%
+
+      const diffPixels = typeof obj.diffPixels === 'number'
+        ? obj.diffPixels
+        : (typeof obj.mismatchedPixels === 'number'
+        ? obj.mismatchedPixels
+        : (typeof receiptObj.diffPixels === 'number' ? receiptObj.diffPixels as number : undefined));
+      const totalPixels = typeof obj.totalPixels === 'number'
+        ? obj.totalPixels
+        : (typeof receiptObj.totalPixels === 'number' ? receiptObj.totalPixels as number : undefined);
 
       if (rawDiff !== undefined) {
         // Normalize diff if provided as decimal e.g. 0.02 -> 2.0%
-        const normalizedDiff = rawDiff <= 1.0 && maxTolerance > 1.0 ? rawDiff * 100 : rawDiff;
+        const normalizedDiff = typeof obj.diffRate === 'number' && obj.diffRate <= 1.0 && maxTolerance > 1.0
+          ? obj.diffRate * 100
+          : rawDiff;
         if (normalizedDiff > maxTolerance) {
           return {
             passed: false,
             reason: `Visual comparison diff (${normalizedDiff.toFixed(2)}%) exceeds tolerance limit (${maxTolerance}%)`,
           };
         }
+
+        // Canonical comparator-produced match/status metric contract verification
+        const isDiagnostic = ctx.mode === 'diagnostic' || ctx.diagnosticOnly === true;
+        const hasComparatorMetrics = (
+          hasVerifiedLedgerReceipt === true ||
+          (receiptsList && receiptsList.length > 0) ||
+          (typeof diffPixels === 'number' && typeof totalPixels === 'number') ||
+          typeof obj.mismatchPercentage === 'number' ||
+          typeof receiptObj.mismatchPercentage === 'number' ||
+          candMatch === true ||
+          status === 'PASS' ||
+          status === 'MATCH'
+        );
+
+        if (!hasComparatorMetrics) {
+          if (isDiagnostic) {
+            return {
+              passed: true,
+              evidence: `[Diagnostic] Visual comparison diff ${normalizedDiff.toFixed(2)}% passed within tolerance <= ${maxTolerance}% (diagnostic only; canonical comparator metrics required for final parity)`,
+            };
+          }
+          return {
+            passed: false,
+            reason: 'Strict visual verification requires canonical comparator match/status metric contract (match, status, diffPixels, mismatchPercentage) with surface and URL identity',
+          };
+        }
+
+        const pixelInfo = typeof diffPixels === 'number' && typeof totalPixels === 'number'
+          ? ` (diffPixels: ${diffPixels}/${totalPixels})`
+          : '';
         return {
           passed: true,
-          evidence: `Visual comparison passed within tolerance: diff ${normalizedDiff.toFixed(2)}% (tolerance <= ${maxTolerance}%)`,
+          evidence: `Visual comparison passed within tolerance: diff ${normalizedDiff.toFixed(2)}% (tolerance <= ${maxTolerance}%)${pixelInfo}`,
         };
       }
 
-      if (obj.passed === true) {
+      if (obj.passed === true || candMatch === true || status === 'PASS' || status === 'MATCH') {
+        const isDiagnostic = ctx.mode === 'diagnostic' || ctx.diagnosticOnly === true;
+        const hasComparatorMetrics = (
+          hasVerifiedLedgerReceipt === true ||
+          (receiptsList && receiptsList.length > 0) ||
+          (typeof diffPixels === 'number' && typeof totalPixels === 'number') ||
+          typeof obj.mismatchPercentage === 'number' ||
+          typeof receiptObj.mismatchPercentage === 'number' ||
+          candMatch === true ||
+          status === 'PASS' ||
+          status === 'MATCH'
+        );
+        if (!hasComparatorMetrics) {
+          if (isDiagnostic && obj.evidence) {
+            return { passed: true, evidence: `[Diagnostic] ${obj.evidence}` };
+          }
+          return { passed: false, reason: 'Strict visual verification requires canonical comparator match/status metric contract (match, status, diffPixels, mismatchPercentage); loose presence claims rejected' };
+        }
         return { passed: true, evidence: (obj.evidence as string) || 'Strict visual verification confirmed within tolerance' };
       }
     }
-
     return { passed: false, reason: 'Strict visual comparison verification failed.' };
   }
 
@@ -1042,8 +1400,18 @@ export class DoDValidator {
 
     if (typeof candidate === 'object') {
       const obj = candidate as Record<string, unknown>;
+      if (obj.isLint === true || obj.lintOnly === true || obj.proxy === true) {
+        return { passed: false, reason: 'Static lint approval cannot replace DotLiquid runtime sanitization verification' };
+      }
+      if (obj.stale === true || obj.isStale === true || obj.invalidated === true) {
+        return { passed: false, reason: 'Liquid DotLiquid sanitization verification is stale after template changes' };
+      }
       if (obj.passed === false) {
         return { passed: false, reason: (obj.reason as string) || 'DotLiquid sanitization check failed' };
+      }
+
+      if (Array.isArray(obj.syntaxErrors) && obj.syntaxErrors.length > 0) {
+        return { passed: false, reason: `Liquid syntax errors detected: ${obj.syntaxErrors.join('; ')}` };
       }
 
       const violations = Array.isArray(obj.violations) ? obj.violations : null;
@@ -1100,6 +1468,12 @@ export class DoDValidator {
 
     if (typeof candidate === 'object') {
       const obj = candidate as Record<string, unknown>;
+      if (obj.isLint === true || obj.lintOnly === true || obj.proxy === true) {
+        return { passed: false, reason: 'Static lint approval cannot replace Haravan settings schema validation' };
+      }
+      if (obj.stale === true || obj.isStale === true || obj.invalidated === true) {
+        return { passed: false, reason: 'Haravan settings schema verification is stale after schema changes' };
+      }
       if (obj.passed === false) {
         return { passed: false, reason: (obj.reason as string) || 'Settings schema validation failed' };
       }

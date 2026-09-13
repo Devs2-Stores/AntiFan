@@ -23,6 +23,7 @@ import { RULER_SCRIPT } from './ruler';
 import {
   DEVICE_PRESETS,
   DevicePreset,
+  findDevicePreset,
   getPresetUserAgent,
   getPresetPlatform,
   getPresetCornerRadius,
@@ -415,6 +416,27 @@ export class NativeTabHost extends EventEmitter {
   private semanticDocumentGenerations = new Map<string, number>();
   private targetOperationQueues = new Map<string, Promise<void>>();
   private lastNavigationFailures = new Map<string, { cause: string; message: string; timedOut: boolean }>();
+  private ownedReloadTokens = new Map<string, { token: string; expiresAt: number }>();
+
+  public registerOwnedReload(tabId: string, token?: string): string {
+    const effectiveToken = token || `owned-reload-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    this.ownedReloadTokens.set(tabId, { token: effectiveToken, expiresAt: Date.now() + 15000 });
+    return effectiveToken;
+  }
+
+  public consumeOwnedReload(tabId: string, token?: string): boolean {
+    const entry = this.ownedReloadTokens.get(tabId);
+    if (!entry) return false;
+    if (Date.now() > entry.expiresAt) {
+      this.ownedReloadTokens.delete(tabId);
+      return false;
+    }
+    if (token && entry.token !== token) {
+      return false;
+    }
+    this.ownedReloadTokens.delete(tabId);
+    return true;
+  }
   public agentInputInFlight = 0;
   private viewportGate: ViewportGate | null = null;
 
@@ -3158,13 +3180,16 @@ export class NativeTabHost extends EventEmitter {
       const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
       if (isMainFrame && !isInPlace && authorityPane === paneId) {
-        this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
-        this.asyncQaQueue?.abort(id);
-        // cho QA. Không clear trên hash navigation (did-navigate-in-page,
-        // isInPlace=true) hoặc subframe; split-mode mirror navigation ở pane
-        // khác cũng không clear (gate authorityPane).
-        this.diagnosticsManager.clear(id);
-        this.tabThemeQaStates?.set(id, { status: 'idle', issueCount: 0, updatedAt: Date.now() });
+        const nextGen = (this.documentGenerations.get(id) || 0) + 1;
+        this.documentGenerations.set(id, nextGen);
+        const isOwnedReload = this.consumeOwnedReload(id);
+        if (isOwnedReload) {
+          this.asyncQaQueue?.rebindGeneration(id, nextGen);
+        } else {
+          this.asyncQaQueue?.abort(id);
+          this.diagnosticsManager.clear(id);
+          this.tabThemeQaStates?.set(id, { status: 'idle', issueCount: 0, updatedAt: Date.now() });
+        }
         if (id === this.activeTabId) {
           this.broadcastState();
         }
@@ -3547,6 +3572,8 @@ export class NativeTabHost extends EventEmitter {
       offscreen?: boolean;
       /** Explicit terminal session that should own this tab. Omit for user-opened tabs. */
       terminalSessionId?: string;
+      devicePresetId?: string;
+      mobile?: boolean;
     }
   ): string {
     if (this.isDisposed) return '';
@@ -3611,6 +3638,9 @@ export class NativeTabHost extends EventEmitter {
     });
     try { view.setBackgroundColor('#080c14'); } catch {}
     const isBlankUrl = !url || url === 'about:blank';
+    const rawPresetId = options?.devicePresetId || (options?.mobile ? 'iphone-15' : undefined);
+    const initialPreset = findDevicePreset(rawPresetId);
+    const initialDevicePresetId = initialPreset?.id || (options?.mobile ? 'iphone-15' : 'responsive');
     const state: AntiFanTab = {
       id,
       url,
@@ -3619,7 +3649,7 @@ export class NativeTabHost extends EventEmitter {
       canGoBack: false,
       canGoForward: false,
       zoomFactor: 1.0,
-      devicePresetId: 'responsive',
+      devicePresetId: initialDevicePresetId,
       crashed: false,
       capsuleId: capsuleIdForTab,
       userAgentMode,
@@ -3629,7 +3659,18 @@ export class NativeTabHost extends EventEmitter {
     };
     this.setupTabWebContentsEvents(id, view, state, 'desktop');
 
-    this.tabs.set(id, { view, state, focusedPane: 'desktop' });
+    const effectivePreset = initialPreset || (options?.mobile ? findDevicePreset('iphone-15') : undefined);
+
+    const tabEntry: { view: WebContentsView; state: AntiFanTab; focusedPane: 'desktop' | 'mobile'; customViewport?: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number } } = { view, state, focusedPane: 'desktop' };
+    if (effectivePreset) {
+      tabEntry.customViewport = {
+        width: effectivePreset.width || 390,
+        height: effectivePreset.height || 844,
+        mobile: Boolean(effectivePreset.mobile),
+        deviceScaleFactor: effectivePreset.deviceScaleFactor || 3,
+      };
+    }
+    this.tabs.set(id, tabEntry);
     const isAgentTab = isEphemeral || isOffscreen;
     if (!isAgentTab) {
       this.tabOrder.push(id);
@@ -3671,7 +3712,15 @@ export class NativeTabHost extends EventEmitter {
       this.fetchAndLoadPageSource(wc, sourceTargetUrl, state);
     } else if (url !== 'about:blank') {
       if (!isAllowedNavigation(url)) return '';
-      wc.loadURL(url)
+      let initialUa: string | undefined;
+      if (effectivePreset) {
+        const fallbackUa = effectivePreset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent;
+        initialUa = getPresetUserAgent(effectivePreset, fallbackUa) || fallbackUa;
+        this.setSafeUserAgent(wc, initialUa);
+        this.applyCdpTouchEmulation(wc, Boolean(effectivePreset.mobile));
+        this.applyCdpDeviceEmulationState(wc, effectivePreset);
+      }
+      wc.loadURL(url, initialUa ? { userAgent: initialUa } : undefined)
         .then(() => this.clearInitialNavigationHistory(wc, state))
         .catch((err: unknown) => {
           if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
@@ -3954,6 +4003,7 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     this.clearTabAgentWorking(tabId);
+    this.ownedReloadTokens.delete(tabId);
     const isAgent = target.state.ephemeral === true || target.state.offscreen === true;
     if (!isAgent && target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
@@ -4151,9 +4201,12 @@ export class NativeTabHost extends EventEmitter {
     if (!loadOk) return false;
     return true;
   }
-  public reload(tabId: string): boolean {
+  public reload(tabId: string, options?: { ownedReloadToken?: string }): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+    if (options?.ownedReloadToken) {
+      this.registerOwnedReload(tabId, options.ownedReloadToken);
+    }
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
       if (!tab.view.webContents.isDestroyed()) {
         tab.view.webContents.reload();
@@ -4168,10 +4221,12 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
-  public async reloadAndWait(tabId: string, timeoutMs: number = 8000): Promise<boolean> {
+  public async reloadAndWait(tabId: string, timeoutMs: number = 8000, options?: { ownedReloadToken?: string }): Promise<boolean> {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-
+    if (options?.ownedReloadToken) {
+      this.registerOwnedReload(tabId, options.ownedReloadToken);
+    }
     const isBackground = tabId !== this.activeTabId;
     const effectiveTimeoutMs = timeoutMs !== 8000 ? timeoutMs : (isBackground ? 10000 : 8000);
     const isSplit = Boolean(tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed());
@@ -4198,7 +4253,7 @@ export class NativeTabHost extends EventEmitter {
       mobileWaiter = this.createLoadCompletionWaiter(tab.mobileView.webContents, effectiveTimeoutMs);
     }
 
-    const initiated = this.reload(tabId);
+    const initiated = this.reload(tabId, options);
     if (!initiated) {
       desktopWaiter.cancel();
       mobileWaiter?.cancel();
@@ -4938,18 +4993,57 @@ export class NativeTabHost extends EventEmitter {
   public setDevicePreset(tabId: string, presetId: string, options?: { reload?: boolean }): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    const oldPreset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
-    const newPreset = DEVICE_PRESETS.find((p) => p.id === presetId);
+    const resolvedPreset = findDevicePreset(presetId);
+    const effectivePresetId = resolvedPreset ? resolvedPreset.id : presetId;
+    const oldPreset = findDevicePreset(tab.state.devicePresetId);
+    const newPreset = resolvedPreset;
     const oldCategory = oldPreset?.category || (tab.state.devicePresetId === 'responsive' ? 'desktop' : undefined);
-    const newCategory = newPreset?.category || (presetId === 'responsive' ? 'desktop' : undefined);
+    const newCategory = newPreset?.category || (effectivePresetId === 'responsive' ? 'desktop' : undefined);
     const categoryChanged = Boolean(
       (oldCategory && newCategory && oldCategory !== newCategory) ||
       (newCategory === 'mobile' && oldCategory !== 'mobile') ||
       (oldCategory === 'mobile' && newCategory !== 'mobile')
     );
+    const shouldReload = options?.reload ?? categoryChanged;
+
+    if (shouldReload && !tab.view.webContents.isDestroyed()) {
+      try {
+        const wc = tab.view.webContents;
+        if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.insertCSS === 'function') {
+          let curtainKey: string | null = null;
+          let cleanedUp = false;
+          let timeoutId: NodeJS.Timeout | null = null;
+          const cleanup = () => {
+            if (cleanedUp) return;
+            cleanedUp = true;
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              timeoutId = null;
+            }
+            if (curtainKey && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeInsertedCSS === 'function') {
+              try { wc.removeInsertedCSS(curtainKey); } catch {}
+              curtainKey = null;
+            }
+          };
+          if (typeof wc.once === 'function') {
+            wc.once('did-finish-load', cleanup);
+          }
+          timeoutId = setTimeout(cleanup, 2500);
+          wc.insertCSS('html { opacity: 0 !important; }').then((key) => {
+            curtainKey = key;
+            if (cleanedUp) {
+              if (typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeInsertedCSS === 'function') {
+                try { wc.removeInsertedCSS(key); } catch {}
+              }
+              curtainKey = null;
+            }
+          }).catch(() => {});
+        }
+      } catch {}
+    }
 
     tab.customViewport = undefined;
-    tab.state.devicePresetId = presetId;
+    tab.state.devicePresetId = effectivePresetId;
     this.updateLayout();
     // Keep the toolbar Device cluster in sync when the preset is applied from
     // outside the toolbar (MCP set_device_preset), same pair as setZoom.
@@ -4963,13 +5057,13 @@ export class NativeTabHost extends EventEmitter {
         `).catch(() => {});
       } catch {}
 
-      const shouldReload = options?.reload ?? categoryChanged;
       if (shouldReload) {
         try {
+          const wc = tab.view.webContents;
           if (typeof this.reloadAndWait === 'function') {
             this.reloadAndWait(tabId).catch(() => {});
-          } else {
-            tab.view.webContents.reload();
+          } else if (wc && typeof wc.reload === 'function') {
+            wc.reload();
           }
         } catch {}
       }
@@ -5284,7 +5378,12 @@ export class NativeTabHost extends EventEmitter {
       this.sessionTabPools.set(sessionId, pool);
     }
     if (pool.size >= 10 && !pool.has(childTabId)) {
-      return false;
+      for (const id of Array.from(pool)) {
+        if (!this.tabs.has(id)) pool.delete(id);
+      }
+      if (pool.size >= 10 && !pool.has(childTabId)) {
+        return false;
+      }
     }
     pool.add(childTabId);
     const tab = this.tabs.get(childTabId);
@@ -5366,9 +5465,13 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    // Hard limit: max 10 tabs per terminal session - reject before mutating sessionTabPools
     if (entry && entry.managedTabIds && entry.managedTabIds.size >= 10 && !entry.managedTabIds.has(childTabId)) {
-      return false;
+      for (const mId of Array.from(entry.managedTabIds)) {
+        if (!this.tabs?.has(String(mId))) entry.managedTabIds.delete(mId);
+      }
+      if (entry.managedTabIds.size >= 10 && !entry.managedTabIds.has(childTabId)) {
+        return false;
+      }
     }
 
     let adoptedIntoPool = false;
@@ -6776,29 +6879,69 @@ export class NativeTabHost extends EventEmitter {
     };
     tab.state.devicePresetId = `custom-${w}x${h}`;
     const applyForTarget = async (): Promise<boolean> => {
-      await this.applyCdpTouchEmulation(tab.view.webContents, mobile);
-      const customPreset: DevicePreset = {
-        id: tab.state.devicePresetId || `custom-${w}x${h}`,
-        name: `Custom (${w}x${h})`,
-        width: w,
-        height: h,
-        deviceScaleFactor: resolvedDpr,
-        mobile,
-        category: mobile ? 'mobile' : (w < 1024 ? 'tablet' : 'desktop'),
-        platform: isIphoneDimensions || mobile ? 'iPhone' : undefined,
+      let curtainKey: string | null = null;
+      let cleanedUp = false;
+      const wc = tab.view.webContents;
+
+      const cleanupCurtain = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        if (curtainKey && wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeInsertedCSS === 'function') {
+          try { wc.removeInsertedCSS(curtainKey); } catch {}
+          curtainKey = null;
+        }
       };
-      await this.applyCdpDeviceEmulationState(tab.view.webContents, customPreset);
-      try {
-        await tab.view.webContents.executeJavaScript(`
-          window.dispatchEvent(new Event('resize'));
-          window.dispatchEvent(new Event('orientationchange'));
-        `);
-      } catch {}
-      if (options.reload) {
-        const reloadOk = await this.reloadAndWait(targetId);
-        if (!reloadOk) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available', { tabId: targetId, operation: 'setViewport' });
+
+      if (options.reload && wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.insertCSS === 'function') {
+        try {
+          if (typeof wc.once === 'function') {
+            wc.once('did-finish-load', cleanupCurtain);
+          }
+          const key = await wc.insertCSS('html { opacity: 0 !important; }');
+          curtainKey = key;
+          if (cleanedUp) {
+            if (typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeInsertedCSS === 'function') {
+              try { wc.removeInsertedCSS(key); } catch {}
+            }
+            curtainKey = null;
+          }
+        } catch {}
       }
-      return true;
+
+      try {
+        await this.applyCdpTouchEmulation(wc, mobile);
+        const customPreset: DevicePreset = {
+          id: tab.state.devicePresetId || `custom-${w}x${h}`,
+          name: `Custom (${w}x${h})`,
+          width: w,
+          height: h,
+          deviceScaleFactor: resolvedDpr,
+          mobile,
+          category: mobile ? 'mobile' : (w < 1024 ? 'tablet' : 'desktop'),
+          platform: isIphoneDimensions || mobile ? 'iPhone' : undefined,
+        };
+        await this.applyCdpDeviceEmulationState(wc, customPreset);
+        if (wc && typeof wc.executeJavaScript === 'function') {
+          try {
+            await wc.executeJavaScript(`
+              window.dispatchEvent(new Event('resize'));
+              window.dispatchEvent(new Event('orientationchange'));
+            `);
+          } catch {}
+        }
+        if (options.reload) {
+          const reloadOk = await this.reloadAndWait(targetId);
+          if (!reloadOk) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available', { tabId: targetId, operation: 'setViewport' });
+        }
+        return true;
+      } finally {
+        if (curtainKey) {
+          if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeListener === 'function') {
+            try { wc.removeListener('did-finish-load', cleanupCurtain); } catch {}
+          }
+          cleanupCurtain();
+        }
+      }
     };
     if (targetId === this.activeTabId) {
       this.updateLayout();
