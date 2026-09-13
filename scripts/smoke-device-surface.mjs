@@ -233,9 +233,9 @@ async function run() {
   check('an unreachable WebDriverAgent is reported as a failed gate with an action, not as no device', deadStatus?.readiness?.physical?.status === 'pass' && deadStatus.readiness.wda.status === 'fail' && Boolean(deadStatus.readiness.wda.action), deadStatus?.readiness ?? deadStatus);
 
   console.log('\n[7] live discovery path (no injected enumerator)');
-  // The injected enumerator above proves the surface; this proves the failure path a real host hits
-  // first. This machine has no Apple Mobile Device Support, so usbmuxd-absent is the only live
-  // discovery path reachable here, and it must surface typed + actionable instead of a raw socket error.
+  // The injected enumerator above proves the surface; this proves live discovery, which differs by host:
+  // a host with no USB stack must surface typed + actionable instead of a raw socket error, and a host
+  // whose stack works must report real readiness rather than a fabricated failure.
   const bareRuntime = new ControlPlaneRuntime({
     dataRoot: mkdtempSync(path.join(tmpdir(), 'antifan-device-live-')),
     projectId: makeControlPlaneId('project'),

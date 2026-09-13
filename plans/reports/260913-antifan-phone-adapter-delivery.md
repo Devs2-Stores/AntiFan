@@ -80,7 +80,10 @@ comparable with the Chromium capture that preceded it.
    empty, 21 changed paths vs `HEAD`, device symbols present in every restored file).
    A single-file swap would not have covered `control-plane-contracts.ts`, which those suites import;
    the full-diff baseline does. No assertion in those suites was touched or relaxed.
-4. `npm run smoke:device` — **34 passed, 0 failed**, exit 0. It drives the real control plane → policy
+4. `npm run smoke:device` — **0 failed** on both host states: 34 passed with no device attached and 31
+   passed with a device attached. The difference is phase [7], which branches on live discovery (a
+   device-less host takes the typed-absence branch, an attached device takes the readiness branch); no
+   check is skipped silently. It drives the real control plane → policy
    freeze → device authorization → real adapter → real HTTP against a WebDriverAgent-contract fixture,
    and additionally exercises the **live discovery path** (no injected enumerator) so the absent-USB-stack
    host reports a typed `DEVICE_TRANSPORT_UNREACHABLE` with the fix attached, `device.status` reports a
@@ -88,8 +91,10 @@ comparable with the Chromium capture that preceded it.
    reports `DEVICE_NOT_CONNECTED`. Phase [8] adds the concurrency contract on a fresh runtime:
    simultaneous session establishments → exactly one `POST /session` and a shared generation; two
    concurrent `tap`s and a mixed `screenshot`/`wait` pair all complete on the serialized chain.
-5. `npm run probe:device` — hardware gate, currently `INCONCLUSIVE` (exit 2) on this host: no transport
-   reachable (usbmuxd absent). `INCONCLUSIVE` means "not set up yet", never "hardware unusable".
+5. `npm run probe:device` — hardware gate, currently `INCONCLUSIVE` (exit 2) on this host: every host-side
+   layer passes and the single failure is the runner port, where usbmuxd relays the connection and the
+   device refuses it because no WebDriverAgent is listening. `INCONCLUSIVE` means "not set up yet", never
+   "hardware unusable".
 
 ### Evidence labelling (important)
 

@@ -92,6 +92,12 @@ export class IosDeviceAdapter implements DeviceControlPort {
   private readonly devices: DeviceRegistryPort;
   private readonly artifacts?: DeviceArtifactSink;
   private readonly candidates: string[];
+  /**
+   * Bridging the device port is a self-contained default, never a second guess: it applies only while the
+   * candidate list is this adapter's own default. An explicit list — or ANTIFAN_WDA_URL / _CANDIDATES —
+   * means the caller has decided how to reach the runner, so a failure there is reported as a failure.
+   */
+  private readonly allowBridge: boolean;
   private readonly defaultTimeoutMs: number;
   private readonly wdaDevicePort: number;
   private readonly sessions = new IosSessionManager();
@@ -105,6 +111,8 @@ export class IosDeviceAdapter implements DeviceControlPort {
     this.devices = options.devices;
     this.artifacts = options.artifacts;
     this.candidates = options.candidates && options.candidates.length ? options.candidates : readCandidateEnv();
+    const envConfigured = Boolean(process.env.ANTIFAN_WDA_URL || process.env.ANTIFAN_WDA_CANDIDATES);
+    this.allowBridge = !(options.candidates && options.candidates.length) && !envConfigured;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 15_000;
     const envPort = Number(process.env.ANTIFAN_WDA_DEVICE_PORT ?? '');
     this.wdaDevicePort = options.wdaDevicePort ?? (Number.isFinite(envPort) && envPort > 0 ? envPort : 8100);
@@ -468,6 +476,9 @@ export class IosDeviceAdapter implements DeviceControlPort {
   private async transportFor(binding: DeviceBinding): Promise<WdaTransport> {
     const live = this.devices.getBinding(binding.deviceId);
     if (live && live.deviceEpoch !== binding.deviceEpoch) {
+      // The bridge pins a usbmux deviceNumber, so a re-plug invalidates it: drop it before reporting, so
+      // the next call re-resolves against the device that is actually attached.
+      this.releaseBridgedTransport();
       throw new CapabilityError('DEVICE_TARGET_STALE', `Device attachment changed: binding epoch ${binding.deviceEpoch} does not match live epoch ${live.deviceEpoch}`, {
         expectedDeviceEpoch: live.deviceEpoch,
         actualDeviceEpoch: binding.deviceEpoch,
@@ -490,7 +501,7 @@ export class IosDeviceAdapter implements DeviceControlPort {
 
     // Nothing answered: bridge the phone's own runner port over usbmux before giving up. This is what
     // removes the external `iproxy` / `go-ios forward` dependency from the device path.
-    const bridgedBaseUrl = await this.bridgeDeviceWdaPort();
+    const bridgedBaseUrl = this.allowBridge ? await this.bridgeDeviceWdaPort() : undefined;
     if (bridgedBaseUrl) {
       const transport = createWdaTransport(bridgedBaseUrl, this.defaultTimeoutMs);
       this.cachedTransport = { baseUrl: bridgedBaseUrl, transport, checkedAt: Date.now() };

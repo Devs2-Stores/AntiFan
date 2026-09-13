@@ -261,6 +261,29 @@ RemoteXPC tunnel: it reaches a port the device already exposes, which is what a 
 A phone's `localhost` is its own loopback, not this workstation's, and there is no reverse-USB tunnel
 for localhost in this milestone: use a forwarded port, a LAN address, or a tunnel URL.
 
+### Known host traps (measured on this workstation)
+
+- **Explorer shows the iPhone, yet no tool can reach it.** Windows' inbox MTP/WPD stack is what makes the
+  phone appear in Explorer; the usbmux interface only gets a device node once Apple's driver package is
+  installed (here `oem44.inf` binds the composite and the `Apple Mobile Device USB Device` node). Before
+  that, no userspace binary — `iproxy`, `pymobiledevice3`, `idevice_id` — can reach the device even
+  though the cable works. Swapping in a WinUSB driver is not a shortcut; it only creates a conflict with
+  Apple's INF later.
+- **Microsoft Store iTunes is what provides usbmuxd here.** `C:\Program Files\WindowsApps\AppleInc.iTunes_*\
+  AMDS64\AppleMobileDeviceProcess.exe` answers on tcp 27015, while `C:\Program Files\Common Files\Apple`
+  does not exist. Signing tools that document the classic non-Store iTunes as a prerequisite may not see
+  the device in this configuration.
+- **This machine's root store contains no Apple roots at all** (285 trusted roots, none issued by Apple),
+  so `gs.apple.com` fails TLS verification with `SELF_SIGNED_CERT_IN_CHAIN`. That endpoint is Apple's TSS,
+  which `ios image auto` needs in order to mount the developer image, and the same class of failure
+  affects any tool that signs through Apple's servers. Apple publishes the certificate at
+  `https://www.apple.com/appleca/AppleIncRootCertificate.cer` (`CN=Apple Root CA`, self-signed); installing
+  it is a trust decision for the operator — the user-store form needs no Administrator and is reversible
+  with `certutil -user -delstore Root <thumbprint>`.
+- **A free-Apple-ID signature lasts roughly seven days.** Fine for one verification run; a durable setup
+  needs a paid identity or a periodic re-sign, otherwise the runner silently stops launching and the
+  failure looks like a broken adapter.
+
 ### Path to the deferred inspection milestone
 
 The forwarding facts above do not depend on Appium, and neither does inspection: go-ios 1.3.2 ships

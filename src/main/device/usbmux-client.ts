@@ -569,7 +569,7 @@ export async function connectDevicePort(
 
   // Branch based on observed reply:
   if (plistReply.Port !== undefined && plistReply.Port !== null) {
-    // Branch A: Apple Windows usbmuxd / AppleMobileDeviceService behavior -> port redirect
+    // Branch A: the reply carried a redirect port, so usbmuxd opened the stream elsewhere on loopback.
     const localPort = Number(plistReply.Port);
     console.log(`[antifan:device] usbmuxd Connect established via reply-port -> 127.0.0.1:${localPort}`);
     let freshSocket: net.Socket;
@@ -595,7 +595,9 @@ export async function connectDevicePort(
     };
   }
 
-  // Branch B: macOS / Linux / libimobiledevice stream handover on the same socket
+  // Branch B: stream handover on this socket. Measured against Apple's Windows usbmuxd (the Store-flavour
+  // AppleMobileDeviceProcess answering on tcp 27015) this is the branch it takes, so the two branches are
+  // empirically discriminated rather than predicted from the platform.
   console.log(`[antifan:device] usbmuxd Connect established via same-socket stream handover`);
   if (unconsumed.length > 0) {
     controlSocket.unshift(unconsumed);
