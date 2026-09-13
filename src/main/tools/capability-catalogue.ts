@@ -7,12 +7,16 @@ import {
   AuthenticatedCapabilityContext,
   RuntimeFeatureSwitch,
   assertExactBrowserTarget,
+  assertExactDeviceTarget,
   assertRuntimeLease,
   RuntimeLease,
   WorkspaceRecord,
   computePolicyDigest,
+  DeviceBinding,
+  DeviceTarget,
 } from '../../shared/control-plane-contracts';
 import { WorkspaceRegistry } from '../project/workspace-registry';
+import { DEVICE_ERROR_REMEDIATION } from '../../shared/device-control-contracts';
 
 export interface SessionCapabilityFilter {
   allowedCapabilityNames?: string[];
@@ -28,6 +32,57 @@ export function matchCapabilityPattern(name: string, pattern: string): boolean {
     .replace(/\*/g, '.*')
     .replace(/\?/g, '.');
   return new RegExp(`^${escaped}$`).test(name);
+}
+
+/**
+ * Device counterpart to `CapabilityCatalogue.authorizeAndResolveEffectiveTarget`.
+ *
+ * Authority model: the LIVE BINDING is the authority, because it comes from the adapter's own
+ * enumeration. A caller-supplied `deviceTarget` is never trusted — when one is present it must match
+ * the live binding exactly (attachment epoch, session generation, ownership) or the call fails closed.
+ * That is what makes a target captured before a re-plug or a WebDriverAgent restart refuse to run.
+ *
+ * A host-bound target is not required to act: the capability then runs against the live binding the
+ * host itself observed, which is strictly more trustworthy than anything a caller could send.
+ */
+function authorizeAndResolveEffectiveDeviceTarget(
+  context: CapabilityRequestContext,
+  liveBinding: (DeviceBinding & { sessionId?: string }) | undefined,
+  allowMissingSession: boolean,
+  surfaceRegistered: boolean
+): void {
+  if (!surfaceRegistered) {
+    // A runtime that never registered a device adapter is a configuration fact, not a caller error:
+    // say so plainly instead of reporting a missing device.
+    throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Device capability rejected: this runtime has no device surface registered');
+  }
+  if (!liveBinding) {
+    // The adapter is registered but nothing is attached or selected. Failing open here is what would
+    // let an operation run against a device identity the host never observed.
+    throw new CapabilityError('DEVICE_NOT_CONNECTED', 'Device capability rejected: no device is currently attached or selected', {
+      remediation: DEVICE_ERROR_REMEDIATION.DEVICE_NOT_CONNECTED,
+      canRebind: true,
+    });
+  }
+  if (context.deviceTarget) {
+    assertExactDeviceTarget(context.deviceTarget, liveBinding, { allowMissingSession });
+  }
+  if (!allowMissingSession && !liveBinding.sessionId) {
+    throw new CapabilityError('TARGET_REQUIRED', 'Device has no automation session; call device.open_safari first', {
+      remediation: DEVICE_ERROR_REMEDIATION.DEVICE_SESSION_FAILED,
+      canRebind: true,
+    });
+  }
+  // Publish the authoritative identity for the capability body and the receipt.
+  context.deviceOperation = {
+    projectId: liveBinding.projectId,
+    workspaceId: liveBinding.workspaceId,
+    runtimeId: liveBinding.runtimeId,
+    deviceId: liveBinding.deviceId,
+    deviceEpoch: liveBinding.deviceEpoch,
+    sessionId: liveBinding.sessionId,
+    sessionGeneration: liveBinding.sessionGeneration,
+  };
 }
 
 export function isCapabilityNamePermitted(name: string, filter?: SessionCapabilityFilter): boolean {
@@ -83,6 +138,12 @@ export interface CapabilityCatalogueOptions {
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
   resolveFailoverTabId?: (staleTabId: string) => string | undefined;
   getDocumentGeneration?: (tabId?: string) => number;
+  /**
+   * Live device attachment/session binding, written by the registered device adapter. Absent when no
+   * device surface is registered, in which case device capabilities fail closed (`TARGET_REQUIRED`)
+   * rather than trusting a caller-supplied device identity.
+   */
+  getDeviceBinding?: () => (DeviceBinding & { sessionId?: string }) | undefined;
 }
 
 export class CapabilityCatalogue {
@@ -137,12 +198,18 @@ export class CapabilityCatalogue {
   private validateAndFreezePolicy<TParams, TResult>(definition: CapabilityDefinition<TParams, TResult>): CapabilityEffectPolicy {
     if (!definition.policy) throw new Error(`Capability ${definition.name} missing required CapabilityEffectPolicy`);
 
-    const p = definition.policy;
+    // `requiresDeviceTarget` is optional on input (policies authored before the device surface never
+    // mention it) but always present on the frozen policy, so the mirror check and the digest below
+    // compare one concrete value instead of treating `undefined` and `false` as different policies.
+    const p = { ...definition.policy, requiresDeviceTarget: Boolean(definition.policy.requiresDeviceTarget) };
     if (definition.risk !== p.risk) {
       throw new Error(`Capability ${definition.name} definition risk '${definition.risk}' does not match policy risk '${p.risk}'`);
     }
     if (Boolean(definition.requiresBrowserTarget) !== Boolean(p.requiresBrowserTarget)) {
       throw new Error(`Capability ${definition.name} definition requiresBrowserTarget '${Boolean(definition.requiresBrowserTarget)}' does not match policy '${Boolean(p.requiresBrowserTarget)}'`);
+    }
+    if (Boolean(definition.requiresDeviceTarget) !== Boolean(p.requiresDeviceTarget)) {
+      throw new Error(`Capability ${definition.name} definition requiresDeviceTarget '${Boolean(definition.requiresDeviceTarget)}' does not match policy '${Boolean(p.requiresDeviceTarget)}'`);
     }
     if (!p.timeoutMs || p.timeoutMs <= 0) {
       throw new Error(`Capability ${definition.name} policy timeoutMs must be positive`);
@@ -196,8 +263,11 @@ export class CapabilityCatalogue {
     if (p.schedulerLane === 'short-passive' && p.effect !== 'read') {
       throw new Error(`Capability ${definition.name} uses short-passive lane but has non-read effect`);
     }
-    if (p.schedulerLane === 'viewport-gate' && !p.requiresBrowserTarget) {
-      throw new Error(`Capability ${definition.name} uses viewport-gate lane but requiresBrowserTarget is false`);
+    // A viewport-gate operation mutates a rendering surface, and either surface qualifies: a Chromium
+    // tab (browser target) or a physical device panel (device target). Requiring a browser target
+    // unconditionally would make the device surface impossible to register at all.
+    if (p.schedulerLane === 'viewport-gate' && !p.requiresBrowserTarget && !p.requiresDeviceTarget) {
+      throw new Error(`Capability ${definition.name} uses viewport-gate lane but requires neither a browser nor a device target`);
     }
     const digest = computePolicyDigest(p);
     return Object.freeze({
@@ -327,6 +397,14 @@ export class CapabilityCatalogue {
     if (definition.requiresBrowserTarget) {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
+    if (definition.requiresDeviceTarget || context.deviceTarget) {
+      authorizeAndResolveEffectiveDeviceTarget(
+        context,
+        this.options.getDeviceBinding?.(),
+        definition.allowMissingDeviceSession === true,
+        typeof this.options.getDeviceBinding === 'function'
+      );
+    }
     return definition.execute(params, context);
   }
 
@@ -368,6 +446,14 @@ export class CapabilityCatalogue {
 
     if (definition.requiresBrowserTarget) {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
+    }
+    if (definition.requiresDeviceTarget || context.deviceTarget) {
+      authorizeAndResolveEffectiveDeviceTarget(
+        context,
+        this.options.getDeviceBinding?.(),
+        definition.allowMissingDeviceSession === true,
+        typeof this.options.getDeviceBinding === 'function'
+      );
     }
     return definition.execute(params, context);
   }

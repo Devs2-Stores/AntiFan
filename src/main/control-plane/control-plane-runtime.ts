@@ -12,6 +12,8 @@ import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { BrowserControlPort } from '../tools/browser-control-port';
 import { registerBrowserCapabilities } from '../tools/browser-capabilities';
+import { registerDeviceCapabilities } from '../tools/device-capabilities';
+import type { DeviceControlPort, DeviceRegistryPort } from '../device/device-control-port';
 import { WorkspaceFilePort } from '../tools/workspace-file-port';
 import { registerFileCapabilities } from '../tools/file-capabilities';
 import { registerArtifactCapabilities } from '../tools/artifact-capabilities';
@@ -107,6 +109,12 @@ export class ControlPlaneRuntime {
   private readonly dataRoot: string;
   private readonly isDefaultWorkspaceSynthesized: boolean;
   private themeQaWorkflow: ThemeQaWorkflow | null = null;
+  /**
+   * Physical-device execution surface. Null until `registerDevice` runs: the adapter needs the host's
+   * lease and artifact store, which only exist once the owning runtime is constructed.
+   */
+  private devicePort: DeviceControlPort | null = null;
+  private deviceManager: DeviceRegistryPort | null = null;
   // Memoized workspace-root resolution: wether resolving from a workspace record
   // or the fallback chain, the sync fs.existsSync checks only need to run once
   // per (workspaceId, explicitRoot) pair. Invalidation is explicit below.
@@ -186,6 +194,9 @@ export class ControlPlaneRuntime {
       resolveTabId: options.resolveTabId,
       resolveFailoverTabId: options.resolveFailoverTabId,
       getDocumentGeneration: options.getDocumentGeneration,
+      // Read lazily at dispatch time: the device adapter registers after this runtime is constructed,
+      // so the binding must be resolved per request rather than captured here.
+      getDeviceBinding: () => this.deviceManager?.getLiveBinding(),
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
     this.terminal = options.terminal ?? TerminalManager.getInstance();
@@ -283,6 +294,24 @@ export class ControlPlaneRuntime {
       transactionRegistry: this.themeTransactions,
     });
     registerBrowserCapabilities(this.capabilities, browser, this.themeQaWorkflow, () => this.getWorkspaceRoot(), this.receipts);
+  }
+
+  /**
+   * Registers the physical-device surface as a PEER execution adapter.
+   *
+   * The phone is not a mobile pane of the browser port: it gets its own port, its own capability
+   * family and its own lifecycle, while publishing evidence through the same ArtifactStore and the
+   * same ledger as the Chromium fast loop. That shared evidence path is what lets a Tier-2 device
+   * receipt be compared against the Tier-1 capture that preceded it.
+   */
+  registerDevice(device: DeviceControlPort, manager: DeviceRegistryPort): void {
+    this.deviceManager = manager;
+    this.devicePort = device;
+    registerDeviceCapabilities(this.capabilities, device);
+  }
+
+  getDevicePort(): DeviceControlPort | null {
+    return this.devicePort;
   }
   async validateThemeQa(target: BrowserTarget, options: { runId?: string; attemptId?: string; workspaceRoot?: string; multiBreakpoint?: boolean; signal?: AbortSignal } = {}): Promise<ThemeQaReport> {
     if (!this.themeQaWorkflow) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Browser control is not registered');

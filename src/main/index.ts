@@ -36,6 +36,8 @@ import { chromeSessionUserAgent } from './browser/google-auth-identity';
 import { ControlPlaneRuntime, resolveArtifactStoreOptionsFromEnv } from './control-plane/control-plane-runtime';
 import { BrowserControlPort } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
+import { DeviceManager } from './device/device-manager';
+import { IosDeviceAdapter } from './device/ios-device-adapter';
 import { validateControlPlaneId } from '../shared/control-plane-contracts';
 import { preparePersistentProfile, ProfileMigrationError, ProfileOwnership, ProfileOwnershipError, type PersistentProfileResult, type ProfileLease } from './browser/profile-ownership';
 import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled } from './benchmark/telemetry';
@@ -359,6 +361,18 @@ async function createWindow(): Promise<void> {
   }, controlPlane.artifacts);
   tabHost.setViewportGate(browserPort.viewportGate);
   controlPlane.registerBrowser(browserPort);
+
+  // Tier-2 reality gate: the physical phone is registered as a peer adapter beside the browser port,
+  // never inside it. Its lifecycle (attachment epoch + automation session generation) is independent
+  // of tab/document generation, and it stages evidence into the same artifact store.
+  const deviceManager = new DeviceManager({
+    projectId: controlPlane.getLease().projectId,
+    workspaceId: controlPlane.getLease().workspaceId || '',
+    runtimeId: controlPlane.getLease().runtimeId,
+  });
+  const deviceAdapter = new IosDeviceAdapter({ devices: deviceManager, artifacts: controlPlane.artifacts });
+  controlPlane.registerDevice(deviceAdapter, deviceManager);
+
   const capabilityTransport = controlPlane.transport;
 
   // One-time migration of legacy capsule partitions to the unified profile

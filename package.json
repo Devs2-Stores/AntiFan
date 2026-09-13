@@ -62,7 +62,9 @@
     "test:terminal-transport": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-transport-sync.cjs",
     "test:terminal-rename": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-rename-space.test.cjs",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs",
-    "certify:dual-plane": "node scripts/smoke-dual-plane-cutover-runner.cjs"
+    "certify:dual-plane": "node scripts/smoke-dual-plane-cutover-runner.cjs",
+    "smoke:device": "npm run compile && node scripts/smoke-device-surface.mjs",
+    "probe:device": "node scripts/probe-iphone-hardware.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

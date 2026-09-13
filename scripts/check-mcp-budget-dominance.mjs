@@ -77,6 +77,7 @@ const registrationTargets = [
   ['main/tools/artifact-capabilities.js', 'registerArtifactCapabilities'],
   ['main/tools/terminal-capabilities.js', 'registerTerminalCapabilities'],
   ['main/tools/theme-transaction-capabilities.js', 'registerThemeTransactionCapabilities'],
+  ['main/tools/device-capabilities.js', 'registerDeviceCapabilities'],
   ['main/workflow/workflow-capabilities.js', 'registerWorkflowCapabilities'],
 ];
 
@@ -108,6 +109,8 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
     registerArtifactCapabilities: [{}],
     registerTerminalCapabilities: [{}],
     registerThemeTransactionCapabilities: [{}, getWorkspaceRoot],
+    // The device port is only dereferenced when a device capability executes, never while registering.
+    registerDeviceCapabilities: [{}],
     registerWorkflowCapabilities: [{}],
   };
   for (const [rel, fnName] of registrationTargets) {

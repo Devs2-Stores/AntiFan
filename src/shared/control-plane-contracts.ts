@@ -2,6 +2,9 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type { DeviceBinding, DeviceTarget } from './device-control-contracts';
+export type { DeviceBinding, DeviceTarget } from './device-control-contracts';
+
 export const CONTROL_PLANE_PROTOCOL_VERSION = 1;
 export const SESSION_FORMAT_VERSION = 1;
 export * from './theme-task-context';
@@ -249,6 +252,13 @@ export interface CapabilityRequestContext {
   runId?: string;
   attemptId?: string;
   browserTarget?: BrowserTarget;
+  deviceTarget?: DeviceTarget;
+  /**
+   * Host-resolved device identity + session, written by the catalogue from the adapter's live binding.
+   * This — not a caller-supplied `deviceTarget` — is what device operations execute against, so a
+   * session can never drive a device identity the host did not itself observe.
+   */
+  deviceOperation?: DeviceBinding;
   grant?: 'read' | 'write' | 'execute' | 'eval';
   signal?: AbortSignal;
   control?: CapabilityExecutionControl;
@@ -339,6 +349,11 @@ export interface CapabilityEffectPolicy {
   effect: 'read' | 'idempotent-write' | 'destructive-mutation' | 'interactive-effect' | 'management';
   risk: CapabilityRisk;
   requiresBrowserTarget: boolean;
+  /**
+   * Device-scoped authority. Independent of `requiresBrowserTarget`: a physical device is a peer
+   * execution surface, not a browser tab, so a capability may need one, the other, or (rarely) both.
+   */
+  requiresDeviceTarget: boolean;
   schedulerLane: 'short-passive' | 'event-wait' | 'viewport-gate' | 'unbounded';
   duplicateMode: 'in-process-join' | 'reject-concurrent';
   recordedVisibility: 'public' | 'tenant-scoped' | 'run-scoped' | 'redacted';
@@ -351,7 +366,13 @@ export interface CapabilityEffectPolicy {
   policyVersion: number;
   policyDigest: string;
 }
-export type CapabilityEffectPolicyInput = Omit<CapabilityEffectPolicy, 'policyDigest'>;
+/**
+ * Policy as authored by a capability. `requiresDeviceTarget` may be omitted: capabilities written
+ * before the device surface existed are host- or browser-scoped and must not be forced to state a
+ * device requirement they can never have. The catalogue normalizes it to `false` while freezing, so
+ * the frozen policy and its digest are never ambiguous.
+ */
+export type CapabilityEffectPolicyInput = Omit<CapabilityEffectPolicy, 'policyDigest' | 'requiresDeviceTarget'> & { requiresDeviceTarget?: boolean };
 export interface InvocationBinding {
   attachmentId: string;
   idempotencyKey: string;
@@ -498,11 +519,12 @@ export function canonicalDigest(val: unknown): string {
   return crypto.createHash('sha256').update(canonicalJsonStringify(val), 'utf8').digest('hex');
 }
 
-export function computePolicyDigest(policy: Omit<CapabilityEffectPolicy, 'policyDigest'>): string {
+export function computePolicyDigest(policy: CapabilityEffectPolicyInput): string {
   return canonicalDigest({
     effect: policy.effect,
     risk: policy.risk,
     requiresBrowserTarget: policy.requiresBrowserTarget,
+    requiresDeviceTarget: Boolean(policy.requiresDeviceTarget),
     schedulerLane: policy.schedulerLane,
     duplicateMode: policy.duplicateMode,
     recordedVisibility: policy.recordedVisibility,
@@ -542,6 +564,8 @@ export interface AuthenticatedCapabilityContext {
   lease: RuntimeLease;
   leaseToken: string;
   browserTarget?: BrowserTarget;
+  deviceTarget?: DeviceTarget;
+  deviceOperation?: DeviceBinding;
   grant?: 'read' | 'write' | 'execute' | 'eval';
   signal?: AbortSignal;
   control?: CapabilityExecutionControl;
@@ -584,6 +608,13 @@ export interface CapabilityDefinition<TParams = Record<string, unknown>, TResult
   description: string;
   risk: CapabilityRisk;
   requiresBrowserTarget?: boolean;
+  requiresDeviceTarget?: boolean;
+  /**
+   * Set only on the capability that establishes the device automation session (opening Safari): it
+   * must run against a device that has no session yet, so a session-less target is legal for it and
+   * for nothing else.
+   */
+  allowMissingDeviceSession?: boolean;
   inputSchema: Record<string, unknown>;
   policy: CapabilityEffectPolicyInput;
   execute: (params: TParams, context: CapabilityRequestContext) => Promise<TResult> | TResult;
@@ -697,7 +728,16 @@ export type CapabilityErrorCode =
   | 'URL_HOST_MISMATCH'
   | 'URL_THEME_MISMATCH'
   | 'URL_PATH_MISMATCH'
-  | 'URL_EXPECTATION_MISSING';
+  | 'URL_EXPECTATION_MISSING'
+  | 'DEVICE_TRANSPORT_UNREACHABLE'
+  | 'DEVICE_NOT_CONNECTED'
+  | 'DEVICE_NOT_TRUSTED'
+  | 'DEVICE_DEVELOPER_MODE_REQUIRED'
+  | 'DEVICE_UI_AUTOMATION_REQUIRED'
+  | 'DEVICE_WDA_NOT_READY'
+  | 'DEVICE_SESSION_FAILED'
+  | 'DEVICE_OPERATION_UNSUPPORTED'
+  | 'DEVICE_TARGET_STALE';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;
@@ -917,6 +957,54 @@ export function assertExactBrowserTarget(
   if (expected.browserEpoch !== undefined && target.browserEpoch !== expected.browserEpoch) throw new CapabilityError('TARGET_STALE', 'Browser target epoch is stale');
   if (expected.documentGeneration !== undefined && target.documentGeneration !== expected.documentGeneration) throw new CapabilityError('TARGET_STALE', 'Browser target document generation is stale');
   if (!allowMissingTab && !target.tabId) throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
+  return target;
+}
+
+/**
+ * Device counterpart to `assertExactBrowserTarget`.
+ *
+ * Two independent staleness dimensions are reported separately because recovery differs:
+ *   - `deviceEpoch` — the physical attachment changed; the caller must re-discover the device.
+ *   - `sessionGeneration` — the automation session was recreated on the same attached device; the
+ *     caller may rebind without re-discovering. A phone still plugged in after WebDriverAgent crashed
+ *     must never be reported as a removed device.
+ * Ownership mismatch stays `WORKSPACE_MISMATCH`: cross-tenant targeting is not recoverable by retry.
+ */
+export function assertExactDeviceTarget(
+  target: DeviceTarget | undefined,
+  expected: Pick<DeviceBinding, 'projectId' | 'workspaceId' | 'runtimeId' | 'deviceId'> & Partial<Pick<DeviceBinding, 'deviceEpoch' | 'sessionGeneration'>> & { sessionId?: string },
+  options: { allowMissingSession?: boolean } = {}
+): DeviceTarget {
+  if (!target) throw new CapabilityError('TARGET_REQUIRED', 'An explicit DeviceTarget is required');
+  if (target.projectId !== expected.projectId || target.workspaceId !== expected.workspaceId || target.runtimeId !== expected.runtimeId) {
+    throw new CapabilityError('WORKSPACE_MISMATCH', 'Device target ownership does not match request');
+  }
+  if (target.deviceId !== expected.deviceId) {
+    // Multi-device host: two phones can be attached at once, so an otherwise fresh target can still
+    // name the wrong one. Epoch equality alone would accept it, because epochs are per-device.
+    throw new CapabilityError(
+      'DEVICE_TARGET_STALE',
+      `Device target names '${target.deviceId}' but the live device is '${expected.deviceId}'`,
+      { expectedDeviceId: expected.deviceId, actualDeviceId: target.deviceId, canRebind: true }
+    );
+  }
+  if (expected.deviceEpoch !== undefined && target.deviceEpoch !== expected.deviceEpoch) {
+    throw new CapabilityError(
+      'DEVICE_TARGET_STALE',
+      `Device attachment changed: target epoch ${target.deviceEpoch} does not match live epoch ${expected.deviceEpoch}`,
+      { expectedDeviceEpoch: expected.deviceEpoch, actualDeviceEpoch: target.deviceEpoch, canRebind: true }
+    );
+  }
+  if (expected.sessionGeneration !== undefined && target.sessionGeneration !== expected.sessionGeneration) {
+    throw new CapabilityError(
+      'DEVICE_TARGET_STALE',
+      `Device automation session was recreated: target session generation ${target.sessionGeneration} does not match live generation ${expected.sessionGeneration}`,
+      { expectedSessionGeneration: expected.sessionGeneration, actualSessionGeneration: target.sessionGeneration, canRebind: true }
+    );
+  }
+  if (!options.allowMissingSession && !target.sessionId) {
+    throw new CapabilityError('TARGET_REQUIRED', 'Device target sessionId is required');
+  }
   return target;
 }
 

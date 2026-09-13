@@ -112,3 +112,113 @@ The semantic ref subsystem (`SemanticRefRegistry` & `executeJavaScriptInIsolated
 - **Main Process Authority**: The Main process assigns monotonic `@e1`, `@e2`, ... ref tags directly from collected raw element descriptors.
 - **Fingerprint Invalidation & Stale Ref Protection**: Each published snapshot increments document generation. Click and move actions verify exact fingerprint tags, element centers, and bounding boxes, failing closed with clear error if the node detached or changed.
 - **FIFO Target Operation Queue**: Operations (`agentSnapshot`, `agentClick`, `agentMove`, `agentType`) targeting a specific tab and pane (`desktop` | `mobile`) are serialized on a per-target FIFO queue, preventing race conditions during navigation or hydration.
+
+---
+
+## Real-Device (Phone Adapter) Operations
+
+The Phone Adapter drives a physically attached iPhone as the **Tier-2 reality gate**: the Chromium
+surface stays the fast loop, and the real device answers what emulation cannot (Safari's live layout
+viewport, native momentum scrolling, on-device rendering). It is a peer execution adapter registered
+beside the browser port — never a mobile pane of it — and it stages evidence into the same artifact
+store, so a device receipt is directly comparable with the Chromium capture that preceded it.
+
+### Prerequisites
+
+- **Attachment (USB)**: Apple Mobile Device Support must be installed and running, because
+  enumeration goes through `usbmuxd`. On Windows that means the standalone (non-Microsoft-Store)
+  iTunes installer or the Apple Devices app. Without it there is no USB path at all, and
+  `device.status` reports a transport failure instead of claiming no device is attached.
+- **WebDriverAgent runner**: the automation surface is WebDriverAgent over plain HTTP. No Appium
+  server is involved in this path.
+- **Reaching it**: either forward the device port to the host, or point the adapter at the device's
+  own address:
+  - `ANTIFAN_WDA_URL=http://<host>:8100`
+  - `ANTIFAN_WDA_CANDIDATES=http://127.0.0.1:8100,http://<iphone-lan-ip>:8100`
+
+  An iPhone's `localhost` is the phone's own loopback, not the workstation's, so a forwarded port or
+  a network address is required. A reverse-USB tunnel for localhost is out of scope for this milestone.
+
+### Capabilities
+
+| Tool | Purpose |
+| --- | --- |
+| `device.list` | Enumerate attached devices (live `usbmuxd` enumeration). |
+| `device.status` | Tri-state readiness gates (attachment, trust, Developer Mode, UI Automation, WebDriverAgent) plus the current device binding. Never fails on absence. |
+| `device.open_safari` | Establish the Safari automation surface (WebDriverAgent session) and return the bound target; optionally deep-link a url. |
+| `device.navigate` / `device.reload` | Deep-link open / re-open the remembered url. |
+| `device.screenshot` | Real-device screenshot into the artifact store (Tier-2 receipt). |
+| `device.tap` / `device.swipe` / `device.type` | Native input; coordinates are CSS points, not raw pixels. |
+| `device.wait` | Explicit `timeout`, or `page_loaded` / `stable` frame-stability sampling. |
+
+### Honest semantics (do not over-claim)
+
+- `device.navigate` is a deep-link open: WebDriverAgent returns immediately, never waits for load, and
+  exposes no URL readback. A load guarantee cannot be expressed on this transport, so `device.wait`
+  reports a **rendering heuristic** and says so in its result.
+- `device.reload` has no refresh route to call: it re-opens the last url this adapter navigated to and
+  refuses with `DEVICE_OPERATION_UNSUPPORTED` when no url is remembered.
+- The viewport reported by `device.status` is `panel-derived` (panel pixels ÷ scale). Safari's live
+  layout viewport is only measurable by the page itself, which belongs to the inspection milestone.
+- DOM / CSS / console / network inspection is **not** part of this surface. It needs Safari's Web
+  Inspector plus Remote Automation, tracked as separate readiness gates (`webInspector`,
+  `remoteAutomation`) that stay `unknown` until that milestone lands.
+- Three lifetimes stay distinct: `deviceEpoch` (physical attachment), `sessionGeneration` (automation
+  session) and the derived rendering surface. A phone still plugged in after WebDriverAgent crashed is
+  a session-generation change, not a removed device.
+
+### Failure codes
+
+Every device failure carries a code plus an operator action: `DEVICE_TRANSPORT_UNREACHABLE`,
+`DEVICE_NOT_CONNECTED`, `DEVICE_NOT_TRUSTED`, `DEVICE_DEVELOPER_MODE_REQUIRED`,
+`DEVICE_UI_AUTOMATION_REQUIRED`, `DEVICE_WDA_NOT_READY`, `DEVICE_SESSION_FAILED`,
+`DEVICE_OPERATION_UNSUPPORTED`, `DEVICE_TARGET_STALE`. `DEVICE_TARGET_STALE` distinguishes an
+attachment change (`deviceEpoch`) from a recreated session (`sessionGeneration`); both are rebindable
+from a fresh `device.status`.
+
+### Verification
+
+```bash
+# Control plane → capability family → adapter, against a WebDriverAgent-contract fixture (no phone needed)
+npm run smoke:device
+```
+
+The fixture speaks the exact WebDriverAgent routes and payload shapes taken from its source, so policy
+freeze, device authorization, session generations, artifact staging and request wire format are all
+exercised for real; only the USB socket itself needs hardware. It also drives the live discovery path
+(no injected enumerator), so a host with no Apple Mobile Device Support must report
+`DEVICE_TRANSPORT_UNREACHABLE` with the fix attached instead of a raw socket error.
+
+**This smoke is contract evidence, not device evidence.** A fixture verdict can never be cited as the
+Phase 0 hardware gate result.
+
+### First-run runbook (Windows, real hardware)
+
+1. **Confirm the USB stack** — `sc query AppleMobileDeviceService` must report `RUNNING`. `FAILED 1060`
+   means Apple Mobile Device Support is missing: install the standalone (non-Microsoft-Store) iTunes for
+   Windows or the Apple Devices app first. Without it there is no enumeration path, and the probe says so
+   explicitly rather than blaming the phone.
+2. **On-device prerequisites** — unlock the phone, tap *Trust This Computer*, enable
+   Settings → Privacy & Security → Developer Mode, and Settings → Developer → Enable UI Automation.
+3. **Start WebDriverAgent on the phone** (pre-signed runner). On iOS 17+/18+ over Windows this normally
+   needs a RemoteXPC tunnel first: install go-ios (`npm i -g go-ios`), copy `wintun.dll` into
+   `C:\Windows\system32`, and run `ios tunnel start` from an **Administrator** shell. Runner-launch
+   commands change between iOS releases — follow the current go-ios / `appium-ios-remotexpc`
+   documentation rather than a copied snippet.
+4. **Run the hardware probe**:
+
+   ```bash
+   npm run probe:device                                            # sweep http://127.0.0.1:8100
+   npm run probe:device -- --candidates http://192.168.1.24:8100   # or the device's own LAN address
+   npm run probe:device -- --touch                                 # add the gesture layer
+   ```
+
+   Verdicts: `GO` (exit 0) — the whole path works; `NO_GO` (exit 1) — something answered but a required
+   layer failed, and each failing layer is named with its typed code; `INCONCLUSIVE` (exit 2) — no
+   transport was reachable at all, which means "not set up yet", never "hardware unusable". Evidence
+   (JSON report + PNGs) lands in `scratch/spike-out/`.
+5. **Point the app at the same transport** — set `ANTIFAN_WDA_URL` (or `ANTIFAN_WDA_CANDIDATES`) before
+   launching, then `device.status` reports the same gates the probe exercised.
+
+A phone's `localhost` is its own loopback, not this workstation's, and there is no reverse-USB tunnel
+for localhost in this milestone: use a forwarded port, a LAN address, or a tunnel URL.
