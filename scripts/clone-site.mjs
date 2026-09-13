@@ -383,7 +383,7 @@ async function run() {
   const assetProvenance = [];
   const absorbedRequests = [];
   const hashToFirstFilename = new Map();
-  const seenFilenames = new Set();
+  const packageFilenames = new Set();
   for (const item of allDownloaded) {
     let sha256 = item.sha256 || null;
     if (!sha256 && item.localPath && fs.existsSync(item.localPath)) {
@@ -413,6 +413,9 @@ async function run() {
       continue;
     }
     seenFilenames.add(item.filename);
+    if (item.status !== 'failed') {
+      packageFilenames.add(item.filename);
+    }
     const duplicateOf = sha256 ? hashToFirstFilename.get(sha256) || null : null;
     if (sha256 && !duplicateOf) {
       hashToFirstFilename.set(sha256, item.filename);
@@ -456,11 +459,11 @@ async function run() {
       // Request-level counts (what was asked for) and file-level counts (what the package holds)
       // are reported separately: a URL requested from two device contexts is two requests but one
       // file, and a failed request is not a downloaded asset.
-      totalDiscovered: combinedAssets.length + secondaryResult.secondaryDownloaded.length,
+      totalDiscovered: combinedAssets.length + secondaryResult.secondaryDownloaded.length + secondaryResult.depthExceededUrls.length,
       requestsAttempted: allDownloaded.length,
       downloaded: allDownloaded.filter(item => item.status !== 'failed').length,
       failed: downloadResult.failedCount + secondaryResult.failedCount,
-      filesInPackage: seenFilenames.size,
+      filesInPackage: packageFilenames.size,
       totalBytes: downloadResult.totalBytes + secondaryResult.totalBytes,
       unresolvedPrimary: failedAssetUrls,
       unresolvedSecondary: [

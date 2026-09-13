@@ -85,7 +85,13 @@ const server = http.createServer((req, res) => {
     reqPath = '/mobile/index.html';
   }
   
-  let filePath = path.join(baseDir, reqPath);
+  const resolvedBase = path.resolve(baseDir);
+  let filePath = path.resolve(resolvedBase, '.' + path.normalize(reqPath));
+  if (!filePath.startsWith(resolvedBase)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('403 Forbidden');
+    return;
+  }
   
   // Handle directory resolution (e.g. /cart or /product)
   if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
@@ -101,6 +107,14 @@ const server = http.createServer((req, res) => {
     const mIdx = path.join(dir, 'mobile', 'index.html');
     if (fs.existsSync(mIdx)) {
       filePath = mIdx;
+    }
+  }
+
+  // Fall back to desktop index.html if mobile index does not exist (e.g. desktop-only clone)
+  if (!fs.existsSync(filePath) && (reqPath === '/mobile/index.html' || reqPath === '/mobile')) {
+    const dIdx = path.join(resolvedBase, 'index.html');
+    if (fs.existsSync(dIdx)) {
+      filePath = dIdx;
     }
   }
   if (!fs.existsSync(filePath)) {
@@ -137,7 +151,14 @@ const server = http.createServer((req, res) => {
     'Access-Control-Allow-Origin': '*'
   });
   
-  fs.createReadStream(filePath).pipe(res);
+  const stream = fs.createReadStream(filePath);
+  stream.on('error', (err) => {
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+    }
+    res.end('Internal Server Error');
+  });
+  stream.pipe(res);
 });
 server.on('error', (err) => {
   console.error('[Clone Server] Server error:', err);

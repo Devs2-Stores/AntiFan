@@ -172,6 +172,34 @@ describe('IndependentHtmlCloneGenerator - section sanitation', () => {
     assert.ok(!sanitized.includes('slick-track'), 'must unwrap slick-track');
     assert.ok(sanitized.includes('Slide 1') && sanitized.includes('Slide 2'), 'slide contents must be preserved cleanly');
   });
+  it('unwraps capture-time slick DOM with deeply nested <div> elements inside slides', () => {
+    const input = [
+      '<div class="slider slick-initialized slick-slider">',
+      '  <div class="slick-list">',
+      '    <div class="slick-track">',
+      '      <div class="slide slick-slide">',
+      '        <div class="product-card">',
+      '          <div class="thumb"><img src="item1.jpg"></div>',
+      '          <div class="info"><h3 class="title">Product A</h3></div>',
+      '        </div>',
+      '      </div>',
+      '      <div class="slide slick-slide">',
+      '        <div class="product-card">',
+      '          <div class="thumb"><img src="item2.jpg"></div>',
+      '          <div class="info"><h3 class="title">Product B</h3></div>',
+      '        </div>',
+      '      </div>',
+      '    </div>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+    const sanitized = sanitizeSectionMarkup(input);
+    assert.ok(!sanitized.includes('slick-list'), 'must unwrap slick-list');
+    assert.ok(!sanitized.includes('slick-track'), 'must unwrap slick-track');
+    assert.ok(sanitized.includes('Product A') && sanitized.includes('Product B'), 'nested slide contents must be preserved');
+    assert.ok(sanitized.includes('<div class="product-card">'), 'nested wrapper divs must not be truncated');
+    assert.ok(sanitized.includes('<div class="thumb">'), 'nested inner divs must survive');
+  });
 
   it('strips bound attributes with quoted string literals without leaving expression fragments or duplicate src', () => {
     const sample = '<iframe width="1280" height="536" :data-src="openVideo ? \'\' : \'https://www.youtube.com/embed/Nt2J6ZXPuw0\'" :src="openVideo ? \'https://www.youtube.com/embed/Nt2J6ZXPuw0\' : \'\'" frameborder="0" allowfullscreen="" data-src="https://www.youtube.com/embed/Nt2J6ZXPuw0" src=""></iframe>';
@@ -989,6 +1017,10 @@ describe('IndependentHtmlCloneGenerator - Mobile Drilldown and Overlay Controls'
         add(...names: string[]) { names.forEach(n => this.set.add(n)); }
         remove(...names: string[]) { names.forEach(n => this.set.delete(n)); }
         contains(n: string) { return this.set.has(n); }
+        toggle(n: string) {
+          if (this.set.has(n)) { this.set.delete(n); return false; }
+          this.set.add(n); return true;
+        }
       }
 
       class MockNode {
@@ -1021,21 +1053,71 @@ describe('IndependentHtmlCloneGenerator - Mobile Drilldown and Overlay Controls'
           return this.parentElement ? this.parentElement.closest(sel) : null;
         }
         matches(sel: string): boolean {
-          const parts = sel.split(',').map(s => s.trim());
-          return parts.some(p => {
-            if (p.startsWith('[')) {
-              const attrMatch = p.match(/^\[([a-zA-Z0-9_\-]+)(?:="([^"]*)")?\]$/);
-              if (attrMatch) {
-                const name = attrMatch[1];
-                const val = attrMatch[2];
-                if (val !== undefined) return this.getAttribute(name) === val;
-                return this.getAttribute(name) !== null;
-              }
+          const groups = sel.split(',').map(s => s.trim()).filter(Boolean);
+          return groups.some(g => this.matchSingleSelector(g));
+        }
+        private matchCompound(compound: string): boolean {
+          if (!compound || compound === '*') return true;
+          let target = compound;
+          const notMatches = target.match(/:not\(([^)]+)\)/g);
+          if (notMatches) {
+            for (const notSel of notMatches) {
+              const inner = notSel.slice(5, -1);
+              if (this.matchCompound(inner)) return false;
+              target = target.replace(notSel, '');
             }
-            if (p.startsWith('#')) return this.attrs.id === p.slice(1);
-            if (p.startsWith('.')) return this.classList.contains(p.slice(1));
-            return this.tagName.toLowerCase() === p.toLowerCase();
-          });
+          }
+          if (!target) return true;
+          const re = /([.#\[]?[a-zA-Z0-9_\-]+(?:="[^"]*")?\]?)/g;
+          let part: RegExpExecArray | null;
+          while ((part = re.exec(target)) !== null) {
+            const p = part[0];
+            if (p.startsWith('.')) {
+              if (!this.classList.contains(p.slice(1))) return false;
+            } else if (p.startsWith('#')) {
+              if (this.attrs.id !== p.slice(1)) return false;
+            } else if (p.startsWith('[')) {
+              const m = p.match(/^\[([a-zA-Z0-9_\-]+)(?:="([^"]*)")?\]$/);
+              if (m) {
+                const [, name, val] = m;
+                if (val !== undefined) {
+                  if (this.getAttribute(name) !== val) return false;
+                } else {
+                  if (!this.hasAttribute(name)) return false;
+                }
+              }
+            } else {
+              if (this.tagName.toLowerCase() !== p.toLowerCase()) return false;
+            }
+          }
+          return true;
+        }
+        private matchSingleSelector(sel: string): boolean {
+          const parts = sel.split(/\s*(>|\s)\s*/).filter(Boolean);
+          if (parts.length === 1) return this.matchCompound(parts[0]);
+          let cur: MockNode | null = this;
+          for (let i = parts.length - 1; i >= 0; i--) {
+            const part = parts[i];
+            if (part === '>') {
+              i--;
+              const parentSel = parts[i];
+              cur = cur ? cur.parentElement : null;
+              if (!cur || !cur.matchCompound(parentSel)) return false;
+            } else if (part === ' ') {
+              i--;
+              const ancestorSel = parts[i];
+              cur = cur ? cur.parentElement : null;
+              let matched = false;
+              while (cur) {
+                if (cur.matchCompound(ancestorSel)) { matched = true; break; }
+                cur = cur.parentElement;
+              }
+              if (!matched) return false;
+            } else {
+              if (!cur || !cur.matchCompound(part)) return false;
+            }
+          }
+          return true;
         }
         querySelector(sel: string): MockNode | null {
           const all = this.querySelectorAll(sel);
@@ -1053,14 +1135,11 @@ describe('IndependentHtmlCloneGenerator - Mobile Drilldown and Overlay Controls'
 
       const body = new MockNode('body');
 
-      // Setup 2 rows with the exact category-navigation structure:
-      // Row 1:
+      // Setup 3 rows with the exact category-navigation structure:
+      // Row 1: Drilldown-only (NO data-antifan-toggle attribute, tests drilldown listener)
       const row1 = new MockNode('li');
-      row1.setAttribute('data-antifan-state', 'isOpen');
-      row1.setAttribute('data-antifan-class', 'show');
       const row1P = new MockNode('p');
       const row1Span = new MockNode('span');
-      row1Span.setAttribute('data-antifan-toggle', 'isOpen');
       const row1Child = new MockNode('ul', ['child-lv2']);
       row1P.children.push(row1Span);
       row1Span.parentElement = row1P;
@@ -1068,7 +1147,7 @@ describe('IndependentHtmlCloneGenerator - Mobile Drilldown and Overlay Controls'
       row1P.parentElement = row1;
       row1Child.parentElement = row1;
 
-      // Row 2:
+      // Row 2: Scoped toggle (WITH data-antifan-toggle, tests relative toggle listener)
       const row2 = new MockNode('li');
       row2.setAttribute('data-antifan-state', 'isOpen');
       row2.setAttribute('data-antifan-class', 'show');
@@ -1082,10 +1161,20 @@ describe('IndependentHtmlCloneGenerator - Mobile Drilldown and Overlay Controls'
       row2P.parentElement = row2;
       row2Child.parentElement = row2;
 
+      // Row 3: Sibling drilldown
+      const row3 = new MockNode('li');
+      const row3P = new MockNode('p');
+      const row3Span = new MockNode('span');
+      row3P.children.push(row3Span);
+      row3Span.parentElement = row3P;
+      row3.children.push(row3P);
+      row3P.parentElement = row3;
+
       const list = new MockNode('ul', ['child-lv1']);
-      list.children.push(row1, row2);
+      list.children.push(row1, row2, row3);
       row1.parentElement = list;
       row2.parentElement = list;
+      row3.parentElement = list;
 
       body.children.push(list);
       list.parentElement = body;
@@ -1114,29 +1203,30 @@ describe('IndependentHtmlCloneGenerator - Mobile Drilldown and Overlay Controls'
 
       script.runInContext(ctx);
 
-      // Verify Initial State: both rows closed
+      // Verify Initial State: all rows closed
       assert.strictEqual(row1.classList.contains('show'), false);
       assert.strictEqual(row2.classList.contains('show'), false);
+      assert.strictEqual(row3.classList.contains('show'), false);
 
-      // Action: Click Row 2 chevron
+      // Part A: Exercise pure drilldown listener on Row 1 (.child-lv1 > li > p > span:not([data-antifan-toggle]))
+      row1Span.dispatchEvent({ type: 'click' });
+      assert.strictEqual(row1.classList.contains('show'), true, 'Row 1 must open via drilldown listener');
+      assert.strictEqual(row2.classList.contains('show'), false, 'Row 2 remains closed');
+      assert.strictEqual(row3.classList.contains('show'), false, 'Row 3 remains closed');
+
+      row1Span.dispatchEvent({ type: 'click' });
+      assert.strictEqual(row1.classList.contains('show'), false, 'Row 1 must close on second drilldown click');
+
+      // Part B: Exercise relative scoped toggle on Row 2 ([data-antifan-toggle])
       row2Span.dispatchEvent({ type: 'click' });
+      assert.strictEqual(row2.classList.contains('show'), true, 'Row 2 must gain .show class on scoped toggle');
+      assert.strictEqual(row2.classList.contains('active'), true, 'Row 2 must gain .active class on scoped toggle');
+      assert.strictEqual(row1.classList.contains('show'), false, 'Row 1 remains untouched');
+      assert.strictEqual(row3.classList.contains('show'), false, 'Row 3 remains untouched');
 
-      // Row 2 must gain show and active, and Row 1 must remain untouched
-      assert.strictEqual(row2.classList.contains('show'), true, 'Row 2 must gain .show class on toggle');
-      assert.strictEqual(row2.classList.contains('active'), true, 'Row 2 must gain .active class on toggle');
-      assert.strictEqual(row1.classList.contains('show'), false, 'Row 1 must remain closed when Row 2 is toggled');
-      assert.strictEqual(row1.classList.contains('active'), false, 'Row 1 must remain inactive');
-
-      // Action: Click Row 2 chevron again (close)
       row2Span.dispatchEvent({ type: 'click' });
       assert.strictEqual(row2.classList.contains('show'), false, 'Row 2 must close on second toggle');
       assert.strictEqual(row2.classList.contains('active'), false, 'Row 2 must lose .active on second toggle');
-      assert.strictEqual(row1.classList.contains('show'), false, 'Row 1 remains untouched');
-
-      // Action: Click Row 1 chevron (open)
-      row1Span.dispatchEvent({ type: 'click' });
-      assert.strictEqual(row1.classList.contains('show'), true, 'Row 1 must open when its chevron is clicked');
-      assert.strictEqual(row2.classList.contains('show'), false, 'Row 2 remains closed');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

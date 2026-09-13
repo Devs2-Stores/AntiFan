@@ -2027,12 +2027,12 @@ export class AssetLocalizer {
         const matchedUrl = urlMatch[0].trim();
         // Plain navigating hyperlinks (<a href="https://...">) and metadata links (<link rel="profile|dns-prefetch|preconnect|canonical|alternate">) are not loaded as page sub-resources
         if (attrName === 'href') {
-          const tagStart = Math.max(0, match.index - 100);
-          const tagSlice = contentToScan.slice(tagStart, match.index);
-          const linkMatch = tagSlice.match(/<link\b([^>]*)$/i);
-          if (!linkMatch) continue;
-          const linkAttrs = linkMatch[1].toLowerCase();
-          const relMatch = linkAttrs.match(/\brel=["']?([^"'\s>]+)/i);
+          const lastOpen = contentToScan.lastIndexOf('<', match.index);
+          if (lastOpen === -1) continue;
+          const tagEnd = contentToScan.indexOf('>', match.index);
+          const fullTag = contentToScan.slice(lastOpen, tagEnd !== -1 ? tagEnd + 1 : match.index + 200);
+          if (!/^<link\b/i.test(fullTag)) continue;
+          const relMatch = fullTag.match(/\brel=["']?([^"'\s>]+)/i);
           const rel = relMatch ? relMatch[1] : '';
           const isSubresourceLink = /(?:^|\s)(?:stylesheet|icon|shortcut\s+icon|apple-touch-icon|preload)(?:\s|$)/i.test(rel);
           if (!isSubresourceLink) continue;

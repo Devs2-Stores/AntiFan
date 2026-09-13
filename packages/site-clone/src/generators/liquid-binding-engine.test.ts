@@ -364,7 +364,7 @@ describe('LiquidBindingEngine', () => {
       const sanitized = engine.sanitizeDotLiquid(raw);
       assert.ok(sanitized.includes('{{ settings.max_items | plus: 0 }}'), 'Must sanitize .to_i inside {{ }}');
       assert.ok(sanitized.includes('<p>Check file.to_i and script.to_s here</p>'), 'Must NOT touch .to_i or .to_s outside Liquid tags');
-      assert.ok(sanitized.includes("{% if item.count | append: '' != blank %}"), 'Must sanitize .to_s inside {% %}');
+      assert.ok(sanitized.includes('{% if item.count != blank %}'), 'Must sanitize .to_s inside {% %} without invalid pipe filter');
       assert.ok(sanitized.includes('{{ items | size }}'), 'Must sanitize .length inside {{ }}');
     });
   });

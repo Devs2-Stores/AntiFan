@@ -607,8 +607,12 @@ export class AssetHarvester {
     // re-harvest of localized output references the bytes that exist instead of a derived name.
     for (const a of analyzedAssets) {
       if (!a.onDiskFilename) continue;
-      a.assignedFilename = a.onDiskFilename;
-      allocatedFilenames.set(a.onDiskFilename.toLowerCase(), getEntityKey(a.entry));
+      const lower = a.onDiskFilename.toLowerCase();
+      const entityKey = getEntityKey(a.entry);
+      if (!allocatedFilenames.has(lower) || allocatedFilenames.get(lower) === entityKey) {
+        a.assignedFilename = a.onDiskFilename;
+        allocatedFilenames.set(lower, entityKey);
+      }
     }
 
     for (const [, group] of baseGroups) {

@@ -293,10 +293,16 @@ export class LiquidBindingEngine {
       /(\{\{(?:(?!}}).)*?\}\}|\{%(?:(?!%}).)*?%\})/gs,
       (tag) => {
         let cleaned = tag;
-        cleaned = cleaned.replace(/\.to_i\b/g, ' | plus: 0');
-        cleaned = cleaned.replace(/\.to_s\b/g, " | append: ''");
-        cleaned = cleaned.replace(/\.to_f\b/g, ' | plus: 0.0');
-        cleaned = cleaned.replace(/\.length\b/g, ' | size');
+        if (/^\{%\s*(?:if|unless|elsif)\b/i.test(tag)) {
+          // Inside conditional tags, Liquid does not allow pipe filters (| append, | plus)
+          cleaned = cleaned.replace(/\.(?:to_s|to_i|to_f)\b/g, '');
+          cleaned = cleaned.replace(/\.length\b/g, '.size');
+        } else {
+          cleaned = cleaned.replace(/\.to_i\b/g, ' | plus: 0');
+          cleaned = cleaned.replace(/\.to_s\b/g, " | append: ''");
+          cleaned = cleaned.replace(/\.to_f\b/g, ' | plus: 0.0');
+          cleaned = cleaned.replace(/\.length\b/g, ' | size');
+        }
         return cleaned;
       }
     );

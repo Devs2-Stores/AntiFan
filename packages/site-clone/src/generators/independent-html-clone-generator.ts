@@ -231,9 +231,44 @@ export function sanitizeSectionMarkup(html: string): string {
   processed = processed
     .replace(/<ul\b[^>]*\bclass=["'][^"']*\bslick-dots\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/gi, '')
     .replace(/<button\b[^>]*\bclass=["'][^"']*\bslick-(?:prev|next|arrow)\b[^"']*["'][^>]*>[\s\S]*?<\/button>/gi, '')
-    .replace(/<[a-z0-9_\-]+[^>]*\bclass=["'][^"']*\bslick-cloned\b[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9_\-]+>/gi, '')
-    .replace(/<div\b[^>]*\bclass=["'][^"']*\bslick-list\b[^"']*["'][^>]*>\s*<div\b[^>]*\bclass=["'][^"']*\bslick-track\b[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi, '$1')
-    .replace(/\bclass=(["'])([^"']*)\1/gi, (m, quote, cls) => {
+    .replace(/<[a-z0-9_\-]+[^>]*\bclass=["'][^"']*\bslick-cloned\b[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9_\-]+>/gi, '');
+    // Balanced tag unwrapper for injected .slick-list and .slick-track, handling nested <div>s safely
+    const openerRegex = /<div\b[^>]*\bclass=["'][^"']*\bslick-list\b[^"']*["'][^>]*>\s*<div\b[^>]*\bclass=["'][^"']*\bslick-track\b[^"']*["'][^>]*>/gi;
+    let slickMatch: RegExpExecArray | null;
+    let slickLastIdx = 0;
+    let slickUnwrapped = '';
+    while ((slickMatch = openerRegex.exec(processed)) !== null) {
+      slickUnwrapped += processed.slice(slickLastIdx, slickMatch.index);
+      const contentStart = slickMatch.index + slickMatch[0].length;
+      let depth = 2;
+      let trackEnd = -1;
+      let listEnd = -1;
+      const tagRe = /<\/?div\b[^>]*>/gi;
+      tagRe.lastIndex = contentStart;
+      let tMatch: RegExpExecArray | null;
+      while ((tMatch = tagRe.exec(processed)) !== null) {
+        if (tMatch[0].startsWith('</')) {
+          depth--;
+          if (depth === 1 && trackEnd === -1) {
+            trackEnd = tMatch.index;
+          } else if (depth === 0) {
+            listEnd = tagRe.lastIndex;
+            break;
+          }
+        } else if (!tMatch[0].endsWith('/>')) {
+          depth++;
+        }
+      }
+      if (trackEnd !== -1 && listEnd !== -1) {
+        slickUnwrapped += processed.slice(contentStart, trackEnd);
+        slickLastIdx = listEnd;
+      } else {
+        slickUnwrapped += slickMatch[0];
+        slickLastIdx = contentStart;
+      }
+    }
+    processed = (slickLastIdx > 0 ? (slickUnwrapped + processed.slice(slickLastIdx)) : processed)
+      .replace(/\bclass=(["'])([^"']*)\1/gi, (m, quote, cls) => {
       const cleanedCls = cls
         .split(/\s+/)
         .filter((c: string) => !['slick-initialized', 'slick-slider', 'slick-dotted', 'slick-slide', 'slick-current', 'slick-active'].includes(c))
@@ -1107,7 +1142,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       btn.addEventListener('click', function(e) {
         e.preventDefault();
         var stateId = btn.getAttribute('data-antifan-open');
-        var targets = document.querySelectorAll('[data-antifan-state="' + stateId + '"]');
+        var targets = document.querySelectorAll('[data-antifan-state="' + stateId + '"], [data-antifan-target="' + stateId + '"]');
         if (!targets.length) {
           var fallback = btn.closest('.category-navigation__block, [data-antifan-drawer], .drawer, .offcanvas, .mobile-drawer') ||
                          document.querySelector('.category-navigation__block, [data-antifan-drawer], .mobile-drawer, .drawer, .offcanvas');
@@ -1123,7 +1158,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       btn.addEventListener('click', function(e) {
         e.preventDefault();
         var stateId = btn.getAttribute('data-antifan-close');
-        var targets = document.querySelectorAll('[data-antifan-state="' + stateId + '"]');
+        var targets = document.querySelectorAll('[data-antifan-state="' + stateId + '"], [data-antifan-target="' + stateId + '"]');
         if (!targets.length) {
           var closestD = btn.closest('.category-navigation__block, [data-antifan-state], [data-antifan-drawer], .drawer, .offcanvas, .mobile-drawer');
           if (closestD) targets = [closestD];
@@ -1168,6 +1203,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
 
     var menuMobileBtns = document.querySelectorAll('.menu-mobile, [data-toggle="menu-mobile"], [data-toggle="drawer"], [class*="hamburger"], [class*="nav-toggle"], [data-antifan-drawer-trigger]');
     menuMobileBtns.forEach(function(btn) {
+      if (btn.hasAttribute('data-antifan-toggle') || btn.hasAttribute('data-antifan-open')) return;
       btn.addEventListener('click', function(e) {
         e.preventDefault();
         var targetSel = btn.getAttribute('data-target') || btn.getAttribute('href');
@@ -1218,8 +1254,8 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       drawerBackBtn.addEventListener('click', function(e) {
         e.preventDefault();
         drawerBackBtn.classList.remove('show');
-        document.querySelectorAll('.category-navigation__list > ul > li.show').forEach(function(li) {
-          li.classList.remove('show');
+        document.querySelectorAll('.category-navigation__list > ul > li.show, .child-lv1 > li.show').forEach(function(li) {
+          li.classList.remove('show', 'active');
         });
       });
     }
@@ -1245,9 +1281,9 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
         openDrawers.forEach(function(d) {
           closeDrawer(d);
         });
-        var openModals = document.querySelectorAll('#popup-login.active, #popup-video.active, .popup.active, .modal.active');
+        var openModals = document.querySelectorAll('#popup-login.active, #popup-video.active, .popup.active, .modal.active, .popup.show, .modal.show');
         openModals.forEach(function(m) {
-          m.classList.remove('active');
+          m.classList.remove('active', 'show');
           var iframe = m.querySelector('iframe');
           if (iframe) iframe.src = 'about:blank';
         });
