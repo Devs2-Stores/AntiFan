@@ -304,6 +304,34 @@ async function run() {
   const [shot, settled] = await Promise.all([raceCall('device.screenshot'), raceCall('device.wait', { type: 'stable', timeoutMs: 3_000 })]);
   check('a mixed concurrent screenshot/wait pair completes on the serialized chain', shot.kind === 'screenshot' && settled.settled === true, { kind: shot.kind, settled: settled.settled });
 
+  console.log('\n[9] default-candidate bridge path');
+  // Every other phase passes explicit candidates, which deliberately disables the in-process bridge. This
+  // one leaves the adapter on its defaults so that path is executed on every run: the outcome must be a
+  // real status whose wda gate is either satisfied or failing with an action - never a raw socket error
+  // escaping from usbmux. Whether a runner is listening depends on the machine, so the count of attached
+  // devices is recorded in the label rather than assumed.
+  const bridgeRuntime = new ControlPlaneRuntime({
+    dataRoot: mkdtempSync(path.join(tmpdir(), 'antifan-device-bridge-')),
+    projectId: makeControlPlaneId('project'),
+    workspaceId: makeControlPlaneId('workspace'),
+  });
+  const bridgeLease = bridgeRuntime.getLease();
+  const bridgeManager = new DeviceManager({ projectId: bridgeLease.projectId, workspaceId: bridgeLease.workspaceId, runtimeId: bridgeLease.runtimeId });
+  const bridgeAdapter = new IosDeviceAdapter({ devices: bridgeManager, artifacts: bridgeRuntime.artifacts, defaultTimeoutMs: 3000 });
+  bridgeRuntime.registerDevice(bridgeAdapter, bridgeManager);
+  const bridgeOutcome = await bridgeAdapter.status('').then(
+    (status) => ({ kind: 'status', wda: status.readiness.wda, physical: status.readiness.physical }),
+    (err) => ({ kind: 'error', code: err?.code, message: String(err?.message ?? err) })
+  );
+  const attachedForBridge = await bridgeManager.refresh().then((list) => list.length, () => 0);
+  check(
+    `default candidates resolve without leaking a raw transport error (devices enumerated: ${attachedForBridge})`,
+    bridgeOutcome.kind === 'status'
+      ? bridgeOutcome.wda?.status === 'pass' || (bridgeOutcome.wda?.status === 'fail' && Boolean(bridgeOutcome.wda.action))
+      : bridgeOutcome.code === 'DEVICE_TRANSPORT_UNREACHABLE' || bridgeOutcome.code === 'DEVICE_WDA_NOT_READY',
+    bridgeOutcome
+  );
+
   server.closeAllConnections?.();
   server.close();
   console.log(`\n${passed} passed, ${failures.length} failed`);

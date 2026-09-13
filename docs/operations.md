@@ -232,10 +232,15 @@ RemoteXPC tunnel: it reaches a port the device already exposes, which is what a 
         enable and the toggle has to be flipped on the device (Settings → Privacy & Security →
         Developer Mode → on → restart → confirm). `ios devmode enable` still reveals the menu.
      4. `ios ui download wda` fetches an unsigned WebDriverAgentRunner (13.2.0 verified) and prints
-        the `.app` path. Sign it with your own identity and install:
-        `ios ui install wda --p12file=<p12> --profile=<mobileprovision>` (or `ios sign app --path=<app>
-        --p12file=<p12> --profile=<mobileprovision> --install`), or sign it outside go-ios
-        (Sideloadly/AltStore with a free Apple ID) and `ios install --path=<ipa>`.
+        the `.app` path. Sign it with your own identity and install it: `ios ui install wda` with
+        `--p12file=` and `--profile=` (its usage also lists `--install`), or the equivalent
+        `ios sign app` with those flags plus `--path=<app>`; or sign it outside go-ios
+        (Sideloadly/AltStore with a free Apple ID) and `ios install --path=<ipa>`. Two things break this
+        step in practice: Sideloadly and AltStore both document the **web** (non-Microsoft-Store) iTunes
+        *and* iCloud as prerequisites and tell you to uninstall the Store versions first, and any external
+        signer must keep app extensions — the test bundle lives in
+        `WebDriverAgentRunner-Runner.app/PlugIns/WebDriverAgentRunner.xctest`, so an install that strips
+        extensions produces an app `runwda` cannot launch.
      5. `ios runwda --bundleid=com.facebook.WebDriverAgentRunner.xctrunner
         --testrunnerbundleid=com.facebook.WebDriverAgentRunner.xctrunner`, then confirm the port with
         `npm run probe:device -- --forward 8100`.
@@ -255,11 +260,16 @@ RemoteXPC tunnel: it reaches a port the device already exposes, which is what a 
    layer failed, and each failing layer is named with its typed code; `INCONCLUSIVE` (exit 2) — no
    transport was reachable at all, which means "not set up yet", never "hardware unusable". Evidence
    (JSON report + PNGs) lands in `scratch/spike-out/`.
-5. **Point the app at the same transport** — set `ANTIFAN_WDA_URL` (or `ANTIFAN_WDA_CANDIDATES`) before
-   launching, then `device.status` reports the same gates the probe exercised.
+5. **Point the app at the runner** — usually nothing to set. With no `ANTIFAN_WDA_URL`, no
+   `ANTIFAN_WDA_CANDIDATES` and no explicit candidates, the adapter bridges the runner's device-side port
+   over usbmux on its own (`ANTIFAN_WDA_DEVICE_PORT`, default 8100). Setting either variable — or passing
+   candidates — deliberately turns that bridge **off** and makes the operator the owner of the transport;
+   that is the case where a forwarded port, a LAN address or a tunnel URL is required. Then
+   `device.status` reports the same gates the probe exercised.
 
-A phone's `localhost` is its own loopback, not this workstation's, and there is no reverse-USB tunnel
-for localhost in this milestone: use a forwarded port, a LAN address, or a tunnel URL.
+A phone's `localhost` is its own loopback, not this workstation's, and nothing here assumes a reverse-USB
+tunnel for localhost: the adapter bridges the runner's own port over usbmux, so a forwarder, a LAN
+address or a tunnel URL is only needed once an explicit transport is configured.
 
 ### Known host traps (measured on this workstation)
 
