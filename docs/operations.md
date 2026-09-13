@@ -294,7 +294,7 @@ Mode plus the mounted developer image are enough. Verified live against the atta
 
 | Command | Measured result |
 | --- | --- |
-| `ios screenshot --output=<file>` | a real PNG at native panel resolution (1170x2532), complete and valid (253 chunks, IEND present). The first attempt timed out with `TakeScreenshot: Timed out waiting for response` and the immediate retry succeeded, so treat that timeout as retryable rather than as a wiring fault |
+| `ios screenshot --output=<file>` | a real PNG at native panel resolution — 1170x2532 (390x844 pt at scale 3, matching this `iPhone14,5`) — and provably complete: 253 chunks ending in `IEND`, and the concatenated IDAT streams inflate to exactly `height * (1 + width * 6) = 17777172` bytes, so no scanline is missing (a 16-bit RGB IHDR is why the stride is 6 bytes per pixel). The first attempt timed out with `TakeScreenshot: Timed out waiting for response` and the immediate retry succeeded, so treat that timeout as retryable. A locked or screen-off device can return a *valid* all-black frame, so confirm the pixels are not uniform before calling a capture evidence |
 | `ios ps` | the device's real process list with system paths and start times |
 | `ios info` | full lockdown identity (build `23F84`, baseband, Bluetooth address, boot session) |
 | `ios rsd ls` | the full RSD service list |
