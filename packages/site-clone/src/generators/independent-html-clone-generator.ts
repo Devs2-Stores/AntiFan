@@ -299,6 +299,9 @@ export class IndependentHtmlCloneGenerator {
 ${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}  <style id="antifan-clone-parity">
     /* Global responsive safety */
     html, body { max-width: 100vw !important; overflow-x: hidden !important; }
+    /* Scrollbar gutter normalization */
+    html, * { scrollbar-width: none !important; }
+    *::-webkit-scrollbar { display: none !important; }
     /* Loading suggest spinner control */
     .loading-suggest { display: none !important; }
     .search-form__input.loading .loading-suggest { display: block !important; }
@@ -1017,6 +1020,9 @@ ${extractedEffectsScripts.join('\n\n')}
       const parityStyles = `  <style id="antifan-clone-parity">
     /* Global responsive safety */
     html, body { max-width: 100vw !important; overflow-x: hidden !important; }
+    /* Scrollbar gutter normalization */
+    html, * { scrollbar-width: none !important; }
+    *::-webkit-scrollbar { display: none !important; }
     /* Universal Declarative Toggle Targets */
     [data-antifan-target]:not(.active) { display: none !important; }
     [data-antifan-target].active { display: block !important; }

@@ -58,7 +58,7 @@ import { OAuthPopupManager } from './oauth-popup-manager';
 import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
 import { TabAutomationHost } from './tab-automation-host';
 import { TabDevToolsHost, type TabDevToolsStats } from './tab-devtools-host';
-import { isTrackerBlockedUrl } from './tracker-isolation';
+import { isTrackerBlockedUrl, isTrackerIsolationConsoleNoise } from './tracker-isolation';
 import type { TrackerIsolationReceipt } from './tracker-isolation';
 import {
   buildIsolatedExecutorScript,
@@ -3121,10 +3121,23 @@ export class NativeTabHost extends EventEmitter {
       const rawSource = hasParams ? event.sourceId : legacyArgs[3];
 
       const source = String(rawSource || '');
+      const message = String(rawMessage || '');
+      // The failure channel is filtered in `did-fail-load`; this is the other
+      // half of the same damage. Chromium's "Failed to load resource:
+      // net::ERR_BLOCKED_BY_CLIENT" entry names the document as its source and is
+      // error level, so the diagnostics classifier promotes it to a critical
+      // first-party issue — an isolation window would flip QA's diagnostics check
+      // from PASS to FAIL with no real defect on the page.
+      if (
+        this.devToolsHost?.isTrackerIsolationActive(id, paneId) &&
+        isTrackerIsolationConsoleNoise(message, source, true)
+      ) {
+        return;
+      }
       const origin = computeOrigin(source, wc.getURL());
       this.diagnosticsManager.recordConsole(id, {
         level: normalizeConsoleLevel(rawLevel),
-        message: String(rawMessage || ''),
+        message,
         source,
         line: Number(line || 0),
         timestamp: Date.now(),

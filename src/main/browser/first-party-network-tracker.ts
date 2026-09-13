@@ -25,6 +25,29 @@ interface AttachedTargetState {
   detach: () => void;
 }
 
+/** One tracked first-party request that has not completed yet. */
+export interface InflightRequestSnapshot {
+  type: string;
+  url: string;
+  ageMs: number;
+}
+
+/**
+ * Renders what a `network=false` settle gate is waiting on, for messages built
+ * outside the port (visual compare and the Theme QA settle gate share it so the
+ * same failure reads the same way in both).
+ *
+ * The empty case is worth stating rather than leaving blank: a network gate that
+ * is open with nothing inflight is a lost completion event or a request that
+ * finished after the ceiling, which is a different problem from a slow asset.
+ */
+export function formatInflightNote(inflight: readonly InflightRequestSnapshot[]): string {
+  if (inflight.length === 0) {
+    return '; network gate open with no first-party requests in flight (completion event lost or arrived after the ceiling)';
+  }
+  return `; inflight first-party requests: ${inflight.map((r) => `${r.type} ${r.url} (${r.ageMs}ms)`).join(', ')}`;
+}
+
 export class FirstPartyNetworkTracker {
   private inflightByTarget = new Map<string, Map<number | string, { type: string; url: string; startedAt: number }>>();
   private listenersByTarget = new Map<string, Set<() => void>>();
@@ -137,12 +160,12 @@ export class FirstPartyNetworkTracker {
   public getInflightSnapshot(
     tabId: string,
     paneId: string = 'desktop'
-  ): Array<{ type: string; url: string; ageMs: number }> {
+  ): InflightRequestSnapshot[] {
     const key = this.makeKey(tabId, paneId);
     const targetMap = this.inflightByTarget.get(key);
     if (!targetMap || targetMap.size === 0) return [];
     const now = Date.now();
-    const snapshot: Array<{ type: string; url: string; ageMs: number }> = [];
+    const snapshot: InflightRequestSnapshot[] = [];
     let expired = false;
     for (const [reqId, entry] of targetMap.entries()) {
       const ageMs = now - entry.startedAt;

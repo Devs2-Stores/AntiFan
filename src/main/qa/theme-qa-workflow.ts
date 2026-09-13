@@ -12,6 +12,7 @@ import { BrokenAssetScanner, BrokenAssetScanResult, BrokenAssetFinding } from '.
 import { LayoutOverflowEngine, ViewportOverflowResult } from './scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
 import { classifyDiagnostics, extractCorrelatableAssetFailures, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
+import { formatInflightNote } from '../browser/first-party-network-tracker';
 import type { ThemeTransactionRegistry } from './theme-transaction-registry';
 import type { TerminalSyncCursor, SyncSettleResult } from './haravan-sync-barrier';
 export interface ThemeQaChecklist {
@@ -250,6 +251,14 @@ export class ThemeQaWorkflow {
       opened = receipt?.active === true;
       outcome = { opened, released: !opened, reason: receipt?.reason };
     } catch (error) {
+      // A throwing open must still be visible: without this the report omits
+      // `trackerIsolation` entirely and an isolation that never applied looks the
+      // same as one that was never requested.
+      outcome = {
+        opened: false,
+        released: true,
+        reason: `Tracker isolation could not be opened: ${error instanceof Error ? error.message : String(error)}`,
+      };
       rethrowTargetLifecycleError(error);
     }
 
@@ -260,22 +269,48 @@ export class ThemeQaWorkflow {
         try {
           const release = await port(target, false, 'desktop');
           // `active: true` on release means the blocklist could not be lifted.
-          outcome.released = release?.active !== true;
-          outcome.reason = release?.reason;
-          if (!outcome.released) {
+          const released = release?.active !== true;
+          outcome.released = released;
+          if (!released) {
             // A release that fails leaves analytics blocked on the user's tab, and
             // a report field alone is not loud enough for that: it is the one
             // outcome of this window that must be visible in the app log too.
+            outcome.reason = release?.reason || outcome.reason || 'unknown reason';
             console.warn(
-              `[theme-qa] Tracker isolation could not be released on tab '${target.tabId}': ${outcome.reason || 'unknown reason'}`
+              `[theme-qa] Tracker isolation could not be released on tab '${target.tabId}': ${outcome.reason}`
             );
           }
         } catch (error) {
+          // The same reasoning on the throwing path: `rethrowTargetLifecycleError`
+          // swallows everything that is not a target-lifecycle error, so this is
+          // the last chance to say the tab is still blocked.
+          outcome.released = false;
+          outcome.reason = `Tracker isolation release failed: ${error instanceof Error ? error.message : String(error)}`;
+          console.warn(
+            `[theme-qa] Tracker isolation could not be released on tab '${target.tabId}': ${outcome.reason}`
+          );
           rethrowTargetLifecycleError(error);
         }
       }
     }
   }
+  /**
+   * Names what an open network gate is waiting on.
+   *
+   * The gates alone say that something did not finish; the URLs are what make
+   * the message diagnosable, and `network=false` is the gate a storefront hang
+   * reports as. Only attached when the network gate is the one that failed, so a
+   * font or image failure is not buried under an unrelated request list.
+   */
+  private describeInflight(target: BrowserTarget, receipt?: VisualSettleReceipt): string {
+    if (!receipt || receipt.gates.network !== false) return '';
+    const snapshot = typeof this.ports.browser.getInflightDiagnostics === 'function'
+      ? this.ports.browser.getInflightDiagnostics(target.tabId, 'desktop')
+      : null;
+    if (snapshot === null) return '; first-party network snapshot unavailable on this host';
+    return formatInflightNote(snapshot);
+  }
+
   async inspect(input: { runId: string; attemptId: string; workspaceRoot: string; target: BrowserTarget; selector?: string }): Promise<{ dom: ArtifactRef | string; screenshot: EvidenceCaptureEnvelope }> {
     this.assertOwnership(input.target);
     const dom = await this.ports.browser.dom(input.target, input.runId, input.attemptId, input.selector);
@@ -485,7 +520,7 @@ export class ThemeQaWorkflow {
           if (!receipt || !receipt.settleComplete) {
             throw new CapabilityError(
               'SETTLE_INCOMPLETE',
-              `Theme QA settle gate incomplete: gates not all settled (network=${receipt?.gates?.network}, fonts=${receipt?.gates?.fonts}, images=${receipt?.gates?.images}, dom=${receipt?.gates?.dom})`
+              `Theme QA settle gate incomplete: gates not all settled (network=${receipt?.gates?.network}, fonts=${receipt?.gates?.fonts}, images=${receipt?.gates?.images}, dom=${receipt?.gates?.dom})${this.describeInflight(activeTarget, receipt)}`
             );
           }
         } else {

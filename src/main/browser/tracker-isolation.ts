@@ -205,6 +205,35 @@ export function isTrackerBlockedUrl(url: string): boolean {
   return TRACKER_BLOCK_PATTERNS.some((pattern) => TRACKER_BLOCK_MATCHERS.get(pattern)?.test(url) === true);
 }
 
+/**
+ * Chromium reports a resource stopped by `Network.setBlockedURLs` to the page's
+ * console as this net error, at error level.
+ */
+const TRACKER_BLOCKED_RESOURCE_CONSOLE = /net::ERR_BLOCKED_BY_CLIENT/;
+
+/**
+ * True when a console entry is damage this module caused, so it must never be
+ * recorded as a page defect.
+ *
+ * The failure channel carries the blocked URL and can be matched directly. The
+ * console channel cannot: Chromium's "Failed to load resource" entry reports the
+ * *document* as its source, not the resource, and the diagnostics classifier
+ * promotes error-level entries from first-party origins to critical issues — so
+ * an isolation window would manufacture a PASS→FAIL regression out of its own
+ * blocklist. Only the isolation window can produce `ERR_BLOCKED_BY_CLIENT`
+ * entries on that tab (this app installs no other blocklist), which is why the
+ * caller gates on {@link TabDevToolsHost.isTrackerIsolationActive}.
+ */
+export function isTrackerIsolationConsoleNoise(
+  message: string,
+  source: string,
+  isolationActive: boolean
+): boolean {
+  if (!isolationActive) return false;
+  if (source && isTrackerBlockedUrl(source)) return true;
+  return TRACKER_BLOCKED_RESOURCE_CONSOLE.test(message);
+}
+
 export interface TrackerIsolationReceipt {
   /** True when blocking + stubs are now applied to the target. */
   active: boolean;

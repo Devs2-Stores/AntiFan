@@ -517,11 +517,15 @@ export class TabAutomationHost {
       }
       rect = res.rect;
       touchCapable = res.metadata?.touchCapable === true;
-      if (typeof clickX !== 'number' || typeof clickY !== 'number') {
-        if (rect && typeof rect.centerX === 'number' && typeof rect.centerY === 'number') {
-          clickX = rect.centerX;
-          clickY = rect.centerY;
-        }
+      // A resolved target is clicked where the pre-flight verified it.
+      // `rect.centerX/Y` is that point — the gate replaces the geometric center
+      // when occlusion moved it — so honouring a caller-supplied offset instead
+      // would dispatch the click to whatever covers that offset, i.e. exactly
+      // the click the gate refused a moment earlier. Caller coordinates steer
+      // only the coordinate-only form, which has no target to verify.
+      if (rect && typeof rect.centerX === 'number' && typeof rect.centerY === 'number') {
+        clickX = rect.centerX;
+        clickY = rect.centerY;
       }
     }
 
@@ -661,11 +665,11 @@ export class TabAutomationHost {
         return { success: false, reason: res.error || 'Failed to resolve element for trusted hover', fallbackNeeded: true };
       }
       rect = res.rect;
-      if (typeof hoverX !== 'number' || typeof hoverY !== 'number') {
-        if (rect && typeof rect.centerX === 'number' && typeof rect.centerY === 'number') {
-          hoverX = rect.centerX;
-          hoverY = rect.centerY;
-        }
+      // Same rule as the click path: a resolved target is hovered at the point
+      // the pre-flight proved, never at a caller offset the gate did not check.
+      if (rect && typeof rect.centerX === 'number' && typeof rect.centerY === 'number') {
+        hoverX = rect.centerX;
+        hoverY = rect.centerY;
       }
     }
 

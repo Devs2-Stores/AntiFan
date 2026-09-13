@@ -70,7 +70,7 @@ import {
   readPngDimensions,
   type VisualBaselineRef,
 } from '../verification/baseline-authority.js';
-import type { NetworkTrackerOptions } from '../browser/first-party-network-tracker.js';
+import { formatInflightNote, type InflightRequestSnapshot, type NetworkTrackerOptions } from '../browser/first-party-network-tracker.js';
 import type { AntiFanTab } from '../../shared/contracts';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 
@@ -1603,7 +1603,7 @@ export class BrowserControlPort {
         tabId,
         paneId: effectivePane,
         gates: settle.gates,
-        inflight: this.inflightDiagnostics(tabId, effectivePane),
+        inflight: this.getInflightDiagnostics(tabId, effectivePane),
       });
     }
     // The staged DOM is only meaningful if this tab still describes a laid-out
@@ -4068,10 +4068,17 @@ export class BrowserControlPort {
   /**
    * Evidence for a failed settle barrier: which first-party requests were still
    * open, with their age. See `FirstPartyNetworkTracker.getInflightSnapshot`.
+   *
+   * Public because a `network=false` gate is also reported outside this class —
+   * the Theme QA settle gate builds its own message, and without the URLs that
+   * message only says a gate failed, not what it was waiting on.
    */
-  private inflightDiagnostics(tabId: string, paneId: 'desktop' | 'mobile'): Array<{ type: string; url: string; ageMs: number }> {
+  public getInflightDiagnostics(tabId: string, paneId: 'desktop' | 'mobile'): InflightRequestSnapshot[] | null {
     const tracker = typeof this.host.getNetworkTracker === 'function' ? this.host.getNetworkTracker() : undefined;
-    if (!tracker || typeof tracker.getInflightSnapshot !== 'function') return [];
+    // `null` means this host cannot answer, which is not the same claim as "no
+    // requests in flight" — a caller reporting a settle failure must be able to
+    // tell an idle network apart from an absent tracker.
+    if (!tracker || typeof tracker.getInflightSnapshot !== 'function') return null;
     return tracker.getInflightSnapshot(tabId, paneId);
   }
   /**
@@ -4617,10 +4624,8 @@ export class BrowserControlPort {
       // The gate names which condition failed; these URLs name what it was
       // waiting on, so a network gate failure is diagnosable from the receipt
       // alone instead of by re-running the compare.
-      const inflight = this.inflightDiagnostics(tabId, txn.paneId);
-      const inflightNote = inflight.length > 0
-        ? `; inflight first-party requests: ${inflight.map((r) => `${r.type} ${r.url} (${r.ageMs}ms)`).join(', ')}`
-        : '';
+      const inflight = this.getInflightDiagnostics(tabId, txn.paneId) ?? [];
+      const inflightNote = inflight.length > 0 ? formatInflightNote(inflight) : '';
       return {
         ok: false,
         settle,
