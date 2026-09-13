@@ -398,9 +398,17 @@ export class CapabilityCatalogue {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
-      // Nothing in this codebase populates `context.deviceTarget` (it is not part of any caller-supplied
-      // request context), so this branch is entered by device capabilities only. The strict form is kept
-      // on purpose: were a foreign target ever supplied, it must fail closed rather than be ignored.
+      // Strict on purpose, and the reachable paths are unaffected by it:
+      //   * Every operation-capable device capability sets `requiresDeviceTarget: true`, so its target is
+      //     always validated exactly; the inner check could never skip validation for a device action.
+      //   * `device.list` / `device.status` / `device.open_safari` are target-optional, but the whole
+      //     branch is skipped for them unless a `deviceTarget` is supplied - and nothing in this codebase
+      //     populates that field (no assignment, no spread into a context), so their "never fails on
+      //     absence" contract holds on every path a caller can actually reach.
+      // The only divergence is a caller that supplies a foreign or stale target to one of those three.
+      // Then `device.open_safari` would otherwise silently ignore the device it was told to use, so a
+      // typed refusal is the better answer. Callers that just want readiness on a phone-less host pass
+      // `deviceId` (or nothing) and never set `deviceTarget`.
       authorizeAndResolveEffectiveDeviceTarget(
         context,
         this.options.getDeviceBinding?.(),
@@ -451,7 +459,7 @@ export class CapabilityCatalogue {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
-      // Same strict contract as the authenticated path (see the note there).
+      // Same strict contract as the authenticated path, for the same reasons (see the note there).
       authorizeAndResolveEffectiveDeviceTarget(
         context,
         this.options.getDeviceBinding?.(),
