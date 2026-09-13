@@ -4,8 +4,8 @@
   "device": "mobile",
   "width": 390,
   "height": 844,
-  "capturedAt": "2026-09-13T10:42:01.278Z",
-  "sha256": "f6e3955c3bed54abb8f552c3ff674f206676fece9ab7d174e6c44316baeceb79",
+  "capturedAt": "2026-09-13T10:54:19.219Z",
+  "sha256": "c0d0e655adc593778f9f9adfe08b3cf6c464dfa18e2708d0a78712486484d677",
   "settlement": {
     "passed": true,
     "reason": "Settled with height stability, image decodes, and 0 active placeholders"
@@ -16,9 +16,9 @@
     "productCardsCount": 25,
     "imagesCount": 98,
     "imagesLoaded": 98,
-    "htmlBytes": 599774,
+    "htmlBytes": 599639,
     "mutationsCount": 110,
     "passesCount": 2,
-    "durationMs": 15914
+    "durationMs": 15710
   }
 }

@@ -4,8 +4,8 @@
   "device": "desktop",
   "width": 1440,
   "height": 900,
-  "capturedAt": "2026-09-13T10:41:40.072Z",
-  "sha256": "de02eb054830db87890462971d3fee252271f7d6599816f7e693e39a9ffbaf12",
+  "capturedAt": "2026-09-13T10:54:02.256Z",
+  "sha256": "223e9c315c0129d0d784c0e596e69df3e64e99e9cfc0c81cea7207ee10747436",
   "settlement": {
     "passed": true,
     "reason": "Settled with height stability, image decodes, and 0 active placeholders"
@@ -17,8 +17,8 @@
     "imagesCount": 105,
     "imagesLoaded": 104,
     "htmlBytes": 843888,
-    "mutationsCount": 109,
+    "mutationsCount": 105,
     "passesCount": 2,
-    "durationMs": 18236
+    "durationMs": 18803
   }
 }

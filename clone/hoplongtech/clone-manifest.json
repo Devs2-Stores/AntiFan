@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "targetUrl": "https://hoplongtech.com/",
+  "clonedAt": "2026-09-13T10:54:35.581Z",
+  "architecture": "adaptive",
+  "offlineReady": true,
+  "surfaces": {
+    "desktop": {
+      "entry": "index.html",
+      "size": 431831,
+      "rawSha256": "223e9c315c0129d0d784c0e596e69df3e64e99e9cfc0c81cea7207ee10747436",
+      "scrollHeight": null
+    },
+    "mobile": {
+      "entry": "mobile/index.html",
+      "size": 212959,
+      "rawSha256": "c0d0e655adc593778f9f9adfe08b3cf6c464dfa18e2708d0a78712486484d677",
+      "scrollHeight": null
+    }
+  },
+  "assets": {
+    "totalDiscovered": 108,
+    "downloaded": 108,
+    "failed": 2,
+    "totalBytes": 33101113
+  }
+}
