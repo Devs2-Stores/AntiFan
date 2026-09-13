@@ -368,6 +368,7 @@ app.whenReady().then(async () => {
       true,
       "the document that lived through the window must still resolve fbq() after the blocklist is lifted"
     );
+    console.log('  ✔ the released window kept its stubs: the live document still resolves fbq(), the next document has none');
     assert.ok(
       cdpLedger.some((c) => c.method === 'Page.removeScriptToEvaluateOnNewDocument'),
       'release must drop the pre-document registration'

@@ -502,9 +502,6 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       selector: '#animated-btn',
     });
 
-    assert.ok(script.includes('requestAnimationFrame'), 'Executor script must include rAF velocity decay loop');
-    assert.ok(script.includes('delta <= 2'), 'Executor script must enforce <= 2px threshold');
-
     let clickDispatched = false;
     let framesWaited = 0;
     const mockPositions = [
@@ -565,6 +562,174 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       assert.strictEqual(result.executed, true);
       assert.ok(framesWaited >= 3, `Must wait for velocity decay across rAF frames, waited: ${framesWaited}`);
       assert.strictEqual(clickDispatched, true, 'Click event must be dispatched after settling');
+    } finally {
+      (global as any).window = prevWindow;
+      (global as any).document = prevDoc;
+      (global as any).requestAnimationFrame = prevRaf;
+      (global as any).MouseEvent = prevMouseEvent;
+    }
+  });
+
+  it('9b. An infinitely animating target settles on its oscillation instead of burning the whole drift budget', async () => {
+    const { buildIsolatedExecutorScript } = require('../../src/main/browser/semantic-ref-executor');
+
+    const script = buildIsolatedExecutorScript({
+      action: 'click',
+      selector: '#pulsing-badge',
+    });
+
+    let clickDispatched = false;
+    let framesWaited = 0;
+    // A pulse badge that never stops: the center oscillates by ~3.5px every
+    // frame, so a 2px tolerance can never be met and the walk can only give up
+    // after the full 5-frame budget. The relaxation to 4px is what lets the
+    // click land on the first frame instead.
+    const oscillation = [
+      { x: 100, y: 150 },
+      { x: 103.5, y: 150 },
+    ];
+    let posIdx = 0;
+
+    const mockElement: any = {
+      tagName: 'BUTTON',
+      id: 'pulsing-badge',
+      isConnected: true,
+      disabled: false,
+      style: { display: 'block', visibility: 'visible', opacity: '1' },
+      getAttribute: () => null,
+      getAnimations: () => [
+        {
+          playState: 'running',
+          effect: { getComputedTiming: () => ({ iterations: Infinity, duration: 1000, endTime: Infinity }) },
+        },
+      ],
+      getBoundingClientRect: () => {
+        const p = oscillation[posIdx % oscillation.length]!;
+        return { x: p.x, y: p.y, width: 100, height: 40 };
+      },
+      scrollIntoView: () => {},
+      focus: () => {},
+      dispatchEvent: (evt: any) => {
+        if (evt.type === 'click') clickDispatched = true;
+      },
+    };
+
+    const prevWindow = (global as any).window;
+    const prevDoc = (global as any).document;
+    const prevRaf = (global as any).requestAnimationFrame;
+    const prevMouseEvent = (global as any).MouseEvent;
+
+    try {
+      (global as any).window = {
+        location: { href: 'https://test.storefront.local/' },
+        getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
+      };
+      (global as any).document = {
+        querySelector: (sel: string) => (sel === '#pulsing-badge' ? mockElement : null),
+        documentElement: { isConnected: true },
+      };
+      (global as any).requestAnimationFrame = (cb: () => void) => {
+        posIdx++;
+        framesWaited++;
+        setImmediate(cb);
+      };
+      (global as any).MouseEvent = class MouseEvent {
+        type: string;
+        constructor(type: string) {
+          this.type = type;
+        }
+      };
+
+      const result = await eval(script);
+      assert.strictEqual(result.ok, true, `Script execution failed: ${result.error}`);
+      assert.strictEqual(result.executed, true);
+      assert.strictEqual(clickDispatched, true, 'An endlessly animating target must still be clicked');
+      assert.ok(
+        framesWaited <= 2,
+        `A pulse badge must settle within the relaxed tolerance instead of exhausting the 5-frame budget (waited ${framesWaited})`
+      );
+    } finally {
+      (global as any).window = prevWindow;
+      (global as any).document = prevDoc;
+      (global as any).requestAnimationFrame = prevRaf;
+      (global as any).MouseEvent = prevMouseEvent;
+    }
+  });
+
+  it('9c. A target that never settles below 2px consumes the whole drift budget instead of being declared stable', async () => {
+    // The negative half of test 9. There, the deltas decay to 1.41px, which any
+    // tolerance <= 1.41px accepts — so it cannot detect a silently widened
+    // threshold. This fixture moves a constant 3px per frame with no animation
+    // declared, which is above the 2px tolerance and below the 4px relaxation:
+    // every frame must be spent waiting. A tolerance widened to 4px would settle
+    // on frame 1 and turn this red.
+    const { buildIsolatedExecutorScript } = require('../../src/main/browser/semantic-ref-executor');
+
+    const script = buildIsolatedExecutorScript({
+      action: 'click',
+      selector: '#drifting-btn',
+    });
+
+    let clickDispatched = false;
+    let framesWaited = 0;
+    let posIdx = 0;
+
+    const mockElement: any = {
+      tagName: 'BUTTON',
+      id: 'drifting-btn',
+      isConnected: true,
+      disabled: false,
+      style: { display: 'block', visibility: 'visible', opacity: '1' },
+      getAttribute: () => null,
+      getBoundingClientRect: () => {
+        const x = 100 + posIdx * 3;
+        return { x, y: 150, width: 100, height: 40 };
+      },
+      scrollIntoView: () => {},
+      focus: () => {},
+      dispatchEvent: (evt: any) => {
+        if (evt.type === 'click') clickDispatched = true;
+      },
+    };
+
+    const prevWindow = (global as any).window;
+    const prevDoc = (global as any).document;
+    const prevRaf = (global as any).requestAnimationFrame;
+    const prevMouseEvent = (global as any).MouseEvent;
+
+    try {
+      (global as any).window = {
+        location: { href: 'https://test.storefront.local/' },
+        getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
+      };
+      (global as any).document = {
+        querySelector: (sel: string) => (sel === '#drifting-btn' ? mockElement : null),
+        documentElement: { isConnected: true },
+      };
+      (global as any).requestAnimationFrame = (cb: () => void) => {
+        posIdx++;
+        framesWaited++;
+        setImmediate(cb);
+      };
+      (global as any).MouseEvent = class MouseEvent {
+        type: string;
+        constructor(type: string) {
+          this.type = type;
+        }
+      };
+
+      const result = await eval(script);
+      assert.strictEqual(result.ok, true, `Script execution failed: ${result.error}`);
+      assert.strictEqual(
+        framesWaited,
+        5,
+        `a 3px-per-frame target must spend the full 5-frame budget, not be declared stable (waited ${framesWaited})`
+      );
+      assert.strictEqual(
+        clickDispatched,
+        true,
+        'the budget is a bound, not a refusal: an element that keeps drifting must still be clicked'
+      );
     } finally {
       (global as any).window = prevWindow;
       (global as any).document = prevDoc;

@@ -115,11 +115,17 @@ export class TabDevToolsHost {
   private isolatedContextIds = new Map<number, number>();
   /**
    * Per-target tracker-isolation state, keyed by WebContents id. Presence means
-   * the target currently has a pre-document stub script registered and/or a
+   * the target may still have a pre-document stub script registered and/or a
    * `Network.setBlockedURLs` blocklist applied, so `endTrackerIsolation` knows
    * exactly what to undo.
+   *
+   * `releasePending` records that a release was attempted and came back
+   * incomplete. The two halves fail independently, so neither the identifier
+   * being null nor being set can express "this entry is a release that stopped
+   * halfway" — the flag is what keeps a later `beginTrackerIsolation` from
+   * reporting a half-undone window as installed.
    */
-  private trackerIsolation = new Map<number, { stubIdentifier: string | null; blockedPatterns: string[]; stubsInstalled: string[] }>();
+  private trackerIsolation = new Map<number, { stubIdentifier: string | null; blockedPatterns: string[]; stubsInstalled: string[]; releasePending: boolean }>();
   constructor(ctx: TabDevToolsContext) {
     this.ctx = ctx;
   }
@@ -759,13 +765,35 @@ export class TabDevToolsHost {
 
     const wcId = wc.id;
     const existing = this.trackerIsolation.get(wcId);
-    if (existing) {
+    if (existing && existing.stubIdentifier && !existing.releasePending) {
       return {
         active: true,
-        stubsInstalled: existing.stubsInstalled,
-        blockedPatterns: existing.blockedPatterns,
+        stubsInstalled: [...existing.stubsInstalled],
+        blockedPatterns: [...existing.blockedPatterns],
         preDocumentScriptIdentifier: existing.stubIdentifier,
       };
+    }
+    if (existing) {
+      // Either half of the previous release may be outstanding: no registration
+      // (the stub half came off, the blocklist did not) or a registration with
+      // the blocklist already lifted. Both are entry states that must not be
+      // reported as an installed window — the first would send QA into a reload
+      // that blocks vendor tags with no stub, the second would claim blocking
+      // that is no longer applied — so the outstanding half is retried here and
+      // a failure refuses to build a window on top of it.
+      const retry = await this.rollbackTrackerIsolation(wc, existing.stubIdentifier);
+      if (retry.stubRemoved) existing.stubIdentifier = null;
+      if (retry.reason) {
+        existing.releasePending = true;
+        return {
+          active: false,
+          stubsInstalled: [...existing.stubsInstalled],
+          blockedPatterns: [...existing.blockedPatterns],
+          preDocumentScriptIdentifier: existing.stubIdentifier,
+          degradedReason: `Previous window was not fully released (${retry.reason}); refusing to report it as installed`,
+        };
+      }
+      this.trackerIsolation.delete(wcId);
     }
 
     const receipt: TrackerIsolationReceipt = {
@@ -837,6 +865,7 @@ export class TabDevToolsHost {
       stubIdentifier: receipt.preDocumentScriptIdentifier,
       blockedPatterns: [...TRACKER_BLOCK_PATTERNS],
       stubsInstalled: [...receipt.stubsInstalled],
+      releasePending: false,
     });
     receipt.active = true;
     return receipt;
@@ -877,7 +906,10 @@ export class TabDevToolsHost {
       // The entry is the only record of what still needs undoing. Dropping it on
       // a failed rollback would leave the blocklist applied to the user's tab
       // with no way to retry, detect or even describe the leak, so it survives
-      // until the release actually succeeds.
+      // until the release actually succeeds — flagged, because the halves fail
+      // independently and the surviving fields alone cannot say that a release
+      // is outstanding.
+      state.releasePending = true;
       return { released: false, reason: outcome.reason };
     }
     this.trackerIsolation.delete(wc.id);

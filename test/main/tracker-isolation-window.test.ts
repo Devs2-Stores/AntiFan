@@ -172,6 +172,108 @@ describe('Tracker isolation window', () => {
     assert.strictEqual(h.devTools.isTrackerIsolationActive('tab-1'), false);
   });
 
+  it('refuses to reopen a window whose previous release left the blocklist applied', async () => {
+    // The half-released state is the dangerous one: registration gone, blocklist
+    // still on. Reopening must not answer `active: true`, because the caller would
+    // then reload into blocked vendor tags with no stub while believing the window
+    // is installed.
+    const h = createHarness();
+    const registrations = () => h.commands.filter((c) => c.method === 'Page.addScriptToEvaluateOnNewDocument').length;
+    h.setReleaseFails(true);
+
+    await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
+    const partial = await h.devTools.endTrackerIsolation('tab-1', 'desktop');
+    assert.strictEqual(partial.released, false);
+    assert.strictEqual(registrations(), 1);
+
+    const reopened = await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
+    assert.strictEqual(reopened.active, false, 'a half-released window must never be reported as active');
+    assert.strictEqual(reopened.preDocumentScriptIdentifier, null);
+    assert.match(String(reopened.degradedReason), /not fully released/);
+    assert.strictEqual(
+      registrations(),
+      1,
+      'no pre-document registration may be added while the previous blocklist is still applied'
+    );
+    assert.strictEqual(h.devTools.isTrackerIsolationActive('tab-1'), true, 'the leftover blocklist stays tracked and retryable');
+  });
+
+  it('re-establishes the window from scratch once the leftover blocklist clears', async () => {
+    const h = createHarness();
+    const registrations = () => h.commands.filter((c) => c.method === 'Page.addScriptToEvaluateOnNewDocument').length;
+    h.setReleaseFails(true);
+
+    await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
+    await h.devTools.endTrackerIsolation('tab-1', 'desktop');
+
+    h.setReleaseFails(false);
+    const reopened = await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
+
+    assert.strictEqual(reopened.active, true);
+    assert.strictEqual(reopened.preDocumentScriptIdentifier, 'stub-1', 'the reopened window installs a fresh registration');
+    assert.strictEqual(registrations(), 2);
+    assert.deepStrictEqual(
+      h.blockedCalls().at(-1)?.params,
+      { urls: reopened.blockedPatterns },
+      'the reopened window must re-apply its blocklist after the leftover one is cleared'
+    );
+  });
+
+  it('refuses to reopen when the release failed to remove the registration', async () => {
+    // The mirror of the blocklist-only failure: here the *registration* half
+    // fails and the blocklist is lifted, so the entry survives with a non-null
+    // identifier over a window that is no longer blocking anything. Keying the
+    // reopen check on the identifier alone would report that as installed and
+    // claim blocking that is not applied.
+    const h = createHarness();
+    const registrations = () => h.commands.filter((c) => c.method === 'Page.addScriptToEvaluateOnNewDocument').length;
+    let removalFails = true;
+    (h.devTools as unknown as { sendCdpCommand: (w: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand =
+      async (_w, method, params) => {
+        h.commands.push({ method, params });
+        if (method === 'Page.addScriptToEvaluateOnNewDocument') return { identifier: 'stub-1' };
+        if (method === 'Page.removeScriptToEvaluateOnNewDocument' && removalFails) {
+          throw new Error('Script not found');
+        }
+        return {};
+      };
+
+    await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
+    const partial = await h.devTools.endTrackerIsolation('tab-1', 'desktop');
+    assert.strictEqual(partial.released, false);
+    assert.match(String(partial.reason), /removeScriptToEvaluateOnNewDocument failed/);
+    assert.deepStrictEqual(
+      h.blockedCalls().at(-1)?.params,
+      { urls: [] },
+      'the blocklist half must have completed, leaving the registration as the only outstanding half'
+    );
+    assert.strictEqual(registrations(), 1);
+
+    const blocked = await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
+    assert.strictEqual(
+      blocked.active,
+      false,
+      'a window whose registration could not be removed must not be reported as installed'
+    );
+    assert.match(String(blocked.degradedReason), /not fully released/);
+    assert.strictEqual(
+      registrations(),
+      1,
+      'no fresh registration may be added while the previous one is still installed'
+    );
+
+    removalFails = false;
+    const reopened = await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
+    assert.strictEqual(reopened.active, true);
+    assert.strictEqual(reopened.preDocumentScriptIdentifier, 'stub-1');
+    assert.strictEqual(registrations(), 2);
+    assert.deepStrictEqual(
+      h.blockedCalls().at(-1)?.params,
+      { urls: reopened.blockedPatterns },
+      'the reopened window must re-apply the blocklist the failed release had already lifted'
+    );
+  });
+
   it('reports the release failure reason instead of an opaque false', async () => {
     const h = createHarness();
     await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
