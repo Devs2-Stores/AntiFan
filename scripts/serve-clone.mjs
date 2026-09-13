@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const PORT = parseInt(process.env.PORT || '3300', 10);
-const baseDir = path.resolve('clone/hoplongtech');
+const baseDir = path.resolve(process.env.CLONE_DIR || process.argv[2] || 'clone/hoplongtech');
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -71,9 +71,10 @@ const server = http.createServer((req, res) => {
   const userAgent = req.headers['user-agent'] || '';
   const isMobileUA = /Mobile|Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
   const isMobileSecCh = req.headers['sec-ch-ua-mobile'] === '?1';
+  const hasDesktopParam = req.url.includes('device=desktop') || req.url.includes('desktop=1');
   const hasMobileParam = req.url.includes('device=mobile') || req.url.includes('mobile=1');
   const isMobilePath = req.url.startsWith('/mobile/') || req.url === '/mobile';
-  const isMobile = isMobileUA || isMobileSecCh || hasMobileParam || isMobilePath;
+  const isMobile = !hasDesktopParam && (isMobileUA || isMobileSecCh || hasMobileParam || isMobilePath);
 
   let reqPath = req.url.split('?')[0];
   if (reqPath === '/' || reqPath === '') {
@@ -85,12 +86,22 @@ const server = http.createServer((req, res) => {
   let filePath = path.join(baseDir, reqPath);
   
   if (!fs.existsSync(filePath)) {
-    if (reqPath.startsWith('/assets/')) {
-      const mobileAsset = path.join(baseDir, 'mobile', reqPath);
-      if (fs.existsSync(mobileAsset)) filePath = mobileAsset;
-    } else if (reqPath.startsWith('/mobile/assets/')) {
-      const rootAsset = path.join(baseDir, reqPath.replace('/mobile', ''));
+    const basename = path.basename(reqPath);
+    if (reqPath.endsWith('.css')) {
+      const rootCss = path.join(baseDir, 'css', basename);
+      if (fs.existsSync(rootCss)) filePath = rootCss;
+    } else if (reqPath.startsWith('/assets/')) {
+      const rootAsset = path.join(baseDir, 'assets', reqPath.replace('/assets/', ''));
       if (fs.existsSync(rootAsset)) filePath = rootAsset;
+    } else if (reqPath.startsWith('/mobile/assets/')) {
+      const rootAsset = path.join(baseDir, 'assets', reqPath.replace('/mobile/assets/', ''));
+      if (fs.existsSync(rootAsset)) filePath = rootAsset;
+    } else if (reqPath.startsWith('/mobile/css/')) {
+      const rootCss = path.join(baseDir, 'css', basename);
+      if (fs.existsSync(rootCss)) filePath = rootCss;
+    } else if (reqPath.startsWith('/css/')) {
+      const rootCss = path.join(baseDir, 'css', basename);
+      if (fs.existsSync(rootCss)) filePath = rootCss;
     }
   }
   
