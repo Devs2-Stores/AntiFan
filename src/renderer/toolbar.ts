@@ -1221,17 +1221,30 @@ function renderPhoneModalContent(status: ToolbarPhoneStatus | null) {
     `;
     return;
   }
+  if (status.state === 'unknown') {
+    phoneStatusBody.innerHTML = `
+      <div style="text-align:center;padding:24px 0;color:#eab308;">
+        <div style="font-size:32px;margin-bottom:8px;">⚠️</div>
+        <div style="font-weight:600;font-size:14px;color:#facc15;">Dịch vụ kết nối usbmuxd tạm dừng</div>
+        <div style="font-size:12px;margin-top:8px;color:#94a3b8;line-height:1.5;">
+          ${status.detail || 'Cổng kết nối usbmuxd (tcp:27015) chưa phản hồi.'}<br/>
+          Tiến trình AppleMobileDeviceProcess có thể đã bị ngắt.
+        </div>
+        <div style="font-size:11px;margin-top:12px;color:#64748b;">
+          Hãy đảm bảo iTunes đang chạy ngầm hoặc bấm <strong>"🔄 Làm mới"</strong> ở góc trên.
+        </div>
+      </div>
+    `;
+    return;
+  }
   const is13 = status.model?.includes('14,5');
   const friendlyModel = is13 ? 'iPhone 13 (A2633/iPhone14,5)' : (status.model || 'Apple iPhone');
-  const statusBadge = status.state === 'connected'
-    ? '<span style="color:#4ade80;font-weight:600;">🟢 Đã kết nối USB (usbmuxd tcp:27015)</span>'
-    : '<span style="color:#eab308;font-weight:600;">🟡 Dịch vụ kết nối tạm dừng (usbmuxd offline)</span>';
 
   phoneStatusBody.innerHTML = `
     <div style="margin-bottom:14px;">
       <div class="phone-card-row">
         <span class="phone-card-label">Tên thiết bị</span>
-        <span class="phone-card-value">${status.name || "Admin's iPhone"}</span>
+        <span class="phone-card-value">${status.name || 'Apple iPhone'}</span>
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">Model phần cứng</span>
@@ -1239,19 +1252,19 @@ function renderPhoneModalContent(status: ToolbarPhoneStatus | null) {
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">Phiên bản iOS</span>
-        <span class="phone-card-value">iOS ${status.osVersion || '26.5.2'}</span>
+        <span class="phone-card-value">${status.osVersion ? `iOS ${status.osVersion}` : 'Chưa xác định'}</span>
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">Giao tiếp</span>
-        <span class="phone-card-value">${status.connection === 'usb' ? 'Cáp USB vật lý' : (status.connection || 'USB')}</span>
+        <span class="phone-card-value">${status.connection === 'usb' ? 'Cáp USB vật lý (usbmuxd)' : (status.connection || 'USB')}</span>
       </div>
       <div class="phone-card-row">
-        <span class="phone-card-label">Trạng thái kết nối</span>
-        <span class="phone-card-value">${statusBadge}</span>
+        <span class="phone-card-label">Trạng thái</span>
+        <span class="phone-card-value"><span style="color:#4ade80;font-weight:600;">🟢 Đã kết nối</span></span>
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">UDID</span>
-        <span class="phone-card-value" style="font-size:11px;">${status.deviceId || 'N/A'}</span>
+        <span class="phone-card-value" style="font-size:11px;">${status.deviceId || 'Chưa cung cấp'}</span>
       </div>
       ${status.detail ? `
       <div class="phone-card-row" style="margin-top:6px;">
@@ -1261,7 +1274,6 @@ function renderPhoneModalContent(status: ToolbarPhoneStatus | null) {
     </div>
   `;
 }
-
 function openPhoneStatusModal() {
   if (!phoneStatusOverlay) return;
   renderPhoneModalContent(lastPhoneStatus);
