@@ -192,12 +192,21 @@ exercised for real; only the USB socket itself needs hardware. It also drives th
 **This smoke is contract evidence, not device evidence.** A fixture verdict can never be cited as the
 Phase 0 hardware gate result.
 
+`npm run probe:device` reports its host layers in order: `usb_presence` (Windows device tree — does the
+OS itself see an Apple USB device, and which serial), `host_service` (usbmuxd reachable), `transport` (a
+WDA base URL answers). A phone that is visible over USB while usbmuxd is missing means the cable, port and
+pairing are fine and only Apple Mobile Device Support is absent — a different fix from an empty USB bus.
+The probe writes the serial into its JSON report, which is what `--udid` style targeting needs later.
+
 ### First-run runbook (Windows, real hardware)
 
-1. **Confirm the USB stack** — `sc query AppleMobileDeviceService` must report `RUNNING`. `FAILED 1060`
-   means Apple Mobile Device Support is missing: install the standalone (non-Microsoft-Store) iTunes for
-   Windows or the Apple Devices app first. Without it there is no enumeration path, and the probe says so
-   explicitly rather than blaming the phone.
+1. **Confirm the USB stack** — run `npm run probe:device` and read `usb_presence` first: it reports what
+   Windows itself sees (the Apple USB composite device and its serial). Then `sc query
+   AppleMobileDeviceService` must report `RUNNING`. `FAILED 1060` while `usb_presence` passes means Apple
+   Mobile Device Support is missing — install the standalone (non-Microsoft-Store) iTunes for Windows or
+   the Apple Devices app. In that state the probe names the missing driver rather than blaming the phone.
+   If `usb_presence` itself fails, fix the cable, the port or the *Trust This Computer* prompt before
+   installing anything.
 2. **On-device prerequisites** — unlock the phone, tap *Trust This Computer*, enable
    Settings → Privacy & Security → Developer Mode, and Settings → Developer → Enable UI Automation.
 3. **Start WebDriverAgent on the phone** (pre-signed runner). On iOS 17+/18+ over Windows this normally

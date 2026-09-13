@@ -100,8 +100,22 @@ session is made.
 
 ## Blocked on hardware (one host prerequisite)
 
-`AppleMobileDeviceService` is absent (`sc query` → FAILED 1060), so Windows has no `usbmuxd` and no
-enumeration path exists. Unblock by either:
+Measured with the iPhone attached (`npm run probe:device`, this host):
+
+| Layer | Result |
+| --- | --- |
+| `usb_presence` | **pass** — Windows sees 2 Apple USB devices, serial `0000811000013942210A401E` (`Apple Mobile Device USB Composite Device`, WPD `Apple iPhone`) |
+| `host_service` | **fail** — `\\.\pipe\usbmuxd` ENOENT, `tcp 127.0.0.1:27015` ECONNREFUSED, no forwarder on PATH |
+| `transport` | **fail** — `http://127.0.0.1:8100` ECONNREFUSED |
+| verdict | **INCONCLUSIVE** (`NO_DEVICE_TRANSPORT_REACHABLE`) |
+
+The cable, port and pairing are therefore fine and exactly one prerequisite is missing: Apple Mobile
+Device Support. Confirmed three ways — `sc query AppleMobileDeviceService`/`usbaapl64`/`AppleUSBDevice`
+all FAILED 1060, no Apple entry in the uninstall registry, and no `usbmuxd.exe`/`Common Files/Apple`
+anywhere on disk. Windows' own WPD stack is what makes the phone appear in Explorer without it, which is
+why "the phone shows up" is not evidence that a usbmuxd path exists.
+
+Unblock by either:
 
 - installing the **standalone (non-Microsoft-Store) iTunes for Windows** or the **Apple Devices** app; or
 - reaching the device over the network: launch WebDriverAgent on the phone and set

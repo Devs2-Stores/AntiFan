@@ -3,7 +3,8 @@
  * AntiFan — Phase 0 hardware spike: Real iPhone automation path.
  *
  * WHAT THIS PROVES (and nothing else):
- *   host usbmux service -> WDA HTTP transport -> Safari session -> navigate -> screenshot -> cleanup
+ *   Windows USB presence -> host usbmux service -> WDA HTTP transport -> Safari session -> navigate
+ *   -> screenshot -> cleanup
  *
  * WHAT THIS DOES NOT PROVE (Phase 3, requires Web Inspector + Remote Automation):
  *   DOM, CSS, JS, console, network, URL readback.
@@ -34,6 +35,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +72,13 @@ Transports that expose WDA to a Windows host (pick one; the spike itself needs n
   pip install pymobiledevice3     then:  pymobiledevice3 usbmux forward 8100 8100
   libimobiledevice build          then:  iproxy 8100 8100       (NOT the npm "iproxy" package - that is an image proxy)
   same Wi-Fi, no forwarder        then:  --candidates http://<iphone-wifi-ip>:8100
+
+Host layers, in the order the spike reports them
+  usb_presence    Windows sees an Apple USB device (VID_05AC): cable, port and "Trust This Computer"
+  host_service    usbmuxd is reachable (named pipe, or tcp 127.0.0.1:27015)
+  transport       a WDA base URL answers
+A phone that is visible over USB while usbmuxd is missing means the cable and pairing are fine and
+only Apple Mobile Device Support is absent - a different fix from "nothing on the USB bus at all".
 
 Exit codes
   0 GO            every required layer passed
@@ -240,7 +249,68 @@ function detectForwarders() {
 
 // ---------------------------------------------------------------- layers
 
-async function layerHostService(opts) {
+const APPLE_USB_VENDOR = 'VID_05AC';
+
+/**
+ * Does Windows itself see an Apple USB device? A lone usbmuxd check conflates three very different
+ * states: nothing on the bus (cable/port/pairing), the phone enumerated but without Apple Mobile
+ * Device Support, and usbmuxd up. Non-Windows hosts report unknown - this layer is diagnostic only.
+ */
+function probeAppleUsbPresence(timeoutMs) {
+  if (process.platform !== 'win32') {
+    return Promise.resolve({ state: UNKNOWN, detail: 'Apple USB presence check is Windows-only', devices: [], serial: null });
+  }
+  const { promise, resolve } = Promise.withResolvers();
+  const script = "$ErrorActionPreference='SilentlyContinue'; "
+    + `Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like '*${APPLE_USB_VENDOR}*' } | `
+    + 'Select-Object Status,Class,FriendlyName,InstanceId | ConvertTo-Json -Compress';
+  execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: timeoutMs }, (error, stdout) => {
+    if (error) {
+      resolve({ state: UNKNOWN, detail: `could not read the Windows device tree (${error.message})`, devices: [], serial: null });
+      return;
+    }
+    const text = String(stdout || '').trim();
+    if (!text) {
+      resolve({ state: FAIL, code: 'USB_DEVICE_ABSENT', detail: `Windows sees no Apple USB device (${APPLE_USB_VENDOR})`, devices: [], serial: null });
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      resolve({ state: UNKNOWN, detail: `unparsable Windows device data (${err.message})`, devices: [], serial: null });
+      return;
+    }
+    const devices = (Array.isArray(parsed) ? parsed : [parsed]).map((entry) => ({
+      status: entry.Status,
+      className: entry.Class,
+      name: entry.FriendlyName,
+      instanceId: entry.InstanceId,
+    }));
+    const serial = devices.map((device) => /VID_05AC[^\\]*\\([0-9A-Za-z-]{8,})/.exec(device.instanceId || '')).find(Boolean)?.[1] ?? null;
+    const names = [...new Set(devices.map((device) => device.name).filter(Boolean))].join(', ');
+    resolve({
+      state: PASS,
+      detail: `Windows sees ${devices.length} Apple USB device(s)${serial ? ` (serial ${serial})` : ''}: ${names}`,
+      devices,
+      serial,
+    });
+  });
+  return promise;
+}
+
+async function layerUsbPresence(opts) {
+  const evidence = await probeAppleUsbPresence(Math.max(opts.probeTimeoutMs, 20000));
+  if (evidence.state === PASS) return gate('usb_presence', PASS, null, evidence.detail, null, evidence);
+  if (evidence.state === FAIL) {
+    return gate('usb_presence', FAIL, evidence.code, evidence.detail,
+      'Reconnect the iPhone with a data-capable cable, unlock it, accept "Trust This Computer", then rerun.',
+      evidence);
+  }
+  return gate('usb_presence', UNKNOWN, null, evidence.detail, null, evidence);
+}
+
+async function layerHostService(opts, presence) {
   const evidence = { forwarders: detectForwarders(), usbmuxd: null };
   const probes = [];
 
@@ -261,9 +331,14 @@ async function layerHostService(opts) {
       evidence.forwarders.length ? null : 'No forwarder binary on PATH. A direct Wi-Fi candidate (http://<iphone-ip>:8100) still works without one.',
       evidence);
   }
+  const action = presence?.state === PASS
+    ? `Windows already enumerates the iPhone over USB${presence.serial ? ` (serial ${presence.serial})` : ''}, so the cable, port and pairing are fine: only Apple Mobile Device Support (the usbmuxd host service) is missing. Install the standalone (non-Microsoft-Store) iTunes for Windows, or the Apple Devices app.`
+    : presence?.state === FAIL
+      ? 'Windows sees no Apple USB device at all - fix the cable, port and "Trust This Computer" prompt before installing anything.'
+      : 'Install Apple Mobile Device Support (standalone iTunes for Windows, non-Microsoft-Store installer) and connect the iPhone by USB. If the phone is NOT connected yet, this is expected - rerun after connecting.';
   return gate('host_service', FAIL, 'HOST_SERVICE_MISSING',
-    `usbmuxd not reachable (${results.map((r) => r.detail).join(' | ')}); forwarders on PATH: ${evidence.forwarders.join(', ') || 'none'}`,
-    'Install Apple Mobile Device Support (standalone iTunes for Windows, non-Microsoft-Store installer) and connect the iPhone by USB. If the phone is NOT connected yet, this is expected - rerun after connecting.',
+    `usbmuxd not reachable (${results.map((r) => r.detail).join(' | ')}); forwarders on PATH: ${evidence.forwarders.join(', ') || 'none'}${presence?.serial ? `; Windows USB serial ${presence.serial}` : ''}`,
+    action,
     evidence);
 }
 
@@ -539,7 +614,10 @@ async function main() {
   console.log(`candidates: ${opts.candidates.join(', ')}`);
   console.log('');
 
-  const host = record(await layerHostService(opts));
+  const usbPresence = record(await layerUsbPresence(opts));
+  emit(usbPresence);
+
+  const host = record(await layerHostService(opts, usbPresence.evidence));
   emit(host);
 
   let transportBase = null;
@@ -646,6 +724,7 @@ function finish(opts, startedAt, gates, screenshotArtifact, transportBase) {
     reason,
     transport: transportBase,
     testUrl: opts.testUrl,
+    deviceSerial: gates.find((entry) => entry.id === 'usb_presence')?.evidence?.serial ?? null,
     automationReady: verdict === 'GO',
     inspectionReady: false,
     gates,
