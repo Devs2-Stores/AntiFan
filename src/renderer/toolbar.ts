@@ -1185,32 +1185,49 @@ btnThemeQaRerun?.addEventListener('click', async () => {
 themeQaClose?.addEventListener('click', () => { if (themeQaOverlay) themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); });
 themeQaOverlay?.addEventListener('click', (event) => { if (event.target === themeQaOverlay) { themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); } });
 
+/**
+ * True once this renderer session has actually seen an attached phone.
+ *
+ * It is the difference between "the phone was here and something broke" (worth an amber badge) and
+ * "this host has no phone" (worth nothing at all). An unanswered usbmuxd is indistinguishable from an
+ * absent phone, so the badge only appears once attachment has been observed for real.
+ */
+let sawPhoneConnected = false;
+
 function renderPhoneStatus(status: ToolbarPhoneStatus | null | undefined) {
   if (!btnPhoneStatus || !phoneStatusText) return;
   lastPhoneStatus = status || null;
+  const connected = status?.state === 'connected';
+  if (connected) sawPhoneConnected = true;
+
   if (!status || status.state === 'disconnected') {
     btnPhoneStatus.style.display = 'none';
     btnPhoneStatus.classList.remove('phone-wda-offline', 'phone-offline');
-    return;
-  }
-  btnPhoneStatus.style.display = 'inline-flex';
-  const shortModel = status.model?.replace(/iPhone(\d+),.*/, 'iPhone') || 'iPhone';
-  const displayName = status.model?.includes('14,5') ? 'iPhone 13' : (status.name || shortModel);
-
-  if (status.state === 'connected') {
+  } else if (connected) {
+    const displayName = status.name || status.model || 'iPhone';
+    btnPhoneStatus.style.display = 'inline-flex';
     btnPhoneStatus.classList.remove('phone-wda-offline', 'phone-offline');
-    btnPhoneStatus.title = `${displayName} Connected • iOS ${status.osVersion || ''} • USB`;
+    btnPhoneStatus.title = [`${displayName} Connected`, status.osVersion ? `iOS ${status.osVersion}` : undefined, 'USB']
+      .filter(Boolean)
+      .join(' • ');
     phoneStatusText.textContent = `${displayName} Connected`;
-  } else if (status.state === 'unknown') {
-    btnPhoneStatus.classList.add('phone-wda-offline');
-    btnPhoneStatus.title = `${displayName} • usbmuxd transport offline (click for detail)`;
+  } else {
+    const displayName = status.name || status.model || 'iPhone';
+    btnPhoneStatus.style.display = sawPhoneConnected ? 'inline-flex' : 'none';
+    btnPhoneStatus.classList.remove('phone-offline');
+    btnPhoneStatus.classList.toggle('phone-wda-offline', sawPhoneConnected);
+    btnPhoneStatus.title = `${displayName} • usbmuxd chưa phản hồi (bấm để xem chi tiết)`;
     phoneStatusText.textContent = `${displayName} (Muxer Offline)`;
   }
-  renderPhoneModalContent(status);
+
+  // Always re-render, including on disconnect: returning early on the hidden badge left an open panel
+  // showing "🟢 Đã kết nối" for a phone that had already been unplugged.
+  renderPhoneModalContent(status || null);
 }
 
 function renderPhoneModalContent(status: ToolbarPhoneStatus | null) {
   if (!phoneStatusBody) return;
+  const detail = status?.detail ? escapeHtml(status.detail) : '';
   if (!status || status.state === 'disconnected') {
     phoneStatusBody.innerHTML = `
       <div style="text-align:center;padding:24px 0;color:#94a3b8;">
@@ -1225,10 +1242,9 @@ function renderPhoneModalContent(status: ToolbarPhoneStatus | null) {
     phoneStatusBody.innerHTML = `
       <div style="text-align:center;padding:24px 0;color:#eab308;">
         <div style="font-size:32px;margin-bottom:8px;">⚠️</div>
-        <div style="font-weight:600;font-size:14px;color:#facc15;">Dịch vụ kết nối usbmuxd tạm dừng</div>
+        <div style="font-weight:600;font-size:14px;color:#facc15;">Chưa đọc được trạng thái thiết bị</div>
         <div style="font-size:12px;margin-top:8px;color:#94a3b8;line-height:1.5;">
-          ${status.detail || 'Cổng kết nối usbmuxd (tcp:27015) chưa phản hồi.'}<br/>
-          Tiến trình AppleMobileDeviceProcess có thể đã bị ngắt.
+          ${detail || 'Cổng kết nối usbmuxd (tcp:27015) chưa phản hồi.'}
         </div>
         <div style="font-size:11px;margin-top:12px;color:#64748b;">
           Hãy đảm bảo iTunes đang chạy ngầm hoặc bấm <strong>"🔄 Làm mới"</strong> ở góc trên.
@@ -1237,26 +1253,32 @@ function renderPhoneModalContent(status: ToolbarPhoneStatus | null) {
     `;
     return;
   }
-  const is13 = status.model?.includes('14,5');
-  const friendlyModel = is13 ? 'iPhone 13 (A2633/iPhone14,5)' : (status.model || 'Apple iPhone');
+  // Every value below is device-reported. When the device did not report one, the panel says so rather
+  // than substituting a default that would read as an observation.
+  const name = status.name ? escapeHtml(status.name) : 'Chưa xác định';
+  const model = status.model ? escapeHtml(status.model) : 'Chưa xác định';
+  const osVersion = status.osVersion ? `iOS ${escapeHtml(status.osVersion)}` : 'Chưa xác định';
+  const connection = status.connection
+    ? (status.connection === 'usb' ? 'Cáp USB vật lý (usbmuxd)' : escapeHtml(status.connection))
+    : 'Chưa xác định';
 
   phoneStatusBody.innerHTML = `
     <div style="margin-bottom:14px;">
       <div class="phone-card-row">
         <span class="phone-card-label">Tên thiết bị</span>
-        <span class="phone-card-value">${status.name || 'Apple iPhone'}</span>
+        <span class="phone-card-value">${name}</span>
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">Model phần cứng</span>
-        <span class="phone-card-value">${friendlyModel}</span>
+        <span class="phone-card-value">${model}</span>
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">Phiên bản iOS</span>
-        <span class="phone-card-value">${status.osVersion ? `iOS ${status.osVersion}` : 'Chưa xác định'}</span>
+        <span class="phone-card-value">${osVersion}</span>
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">Giao tiếp</span>
-        <span class="phone-card-value">${status.connection === 'usb' ? 'Cáp USB vật lý (usbmuxd)' : (status.connection || 'USB')}</span>
+        <span class="phone-card-value">${connection}</span>
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">Trạng thái</span>
@@ -1264,12 +1286,12 @@ function renderPhoneModalContent(status: ToolbarPhoneStatus | null) {
       </div>
       <div class="phone-card-row">
         <span class="phone-card-label">UDID</span>
-        <span class="phone-card-value" style="font-size:11px;">${status.deviceId || 'Chưa cung cấp'}</span>
+        <span class="phone-card-value" style="font-size:11px;">${status.deviceId ? escapeHtml(status.deviceId) : 'Chưa cung cấp'}</span>
       </div>
-      ${status.detail ? `
+      ${detail ? `
       <div class="phone-card-row" style="margin-top:6px;">
         <span class="phone-card-label">Chi tiết</span>
-        <span class="phone-card-value" style="font-size:11px;color:#94a3b8;">${status.detail}</span>
+        <span class="phone-card-value" style="font-size:11px;color:#94a3b8;">${detail}</span>
       </div>` : ''}
     </div>
   `;
@@ -1284,7 +1306,10 @@ function openPhoneStatusModal() {
 function closePhoneStatusModal() {
   if (!phoneStatusOverlay) return;
   phoneStatusOverlay.style.display = 'none';
-  getApi()?.setOverlay(false);
+  // Another overlay may own the popped-out state; collapsing it here would resize that panel's layout.
+  if (themeQaOverlay?.style.display !== 'flex' && workflowHubOverlay?.style.display !== 'flex') {
+    getApi()?.setOverlay(false);
+  }
 }
 
 if (btnPhoneStatus) {
@@ -1300,6 +1325,9 @@ btnPhoneStatusRefresh?.addEventListener('click', async () => {
 phoneStatusClose?.addEventListener('click', () => closePhoneStatusModal());
 phoneStatusOverlay?.addEventListener('click', (e) => {
   if (e.target === phoneStatusOverlay) closePhoneStatusModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && phoneStatusOverlay?.style.display === 'flex') closePhoneStatusModal();
 });
 if (btnQuickInspect) btnQuickInspect.addEventListener('click', () => getApi()?.toggleInspect());
 if (btnFontFinder) btnFontFinder.addEventListener('click', () => getApi()?.toggleFontFinder());
@@ -2217,6 +2245,12 @@ async function initToolbar() {
   const api = getApi();
   if (!api) return;
 
+  // Registered before the first `await`: the main process pushes the phone state during bootstrap, and a
+  // listener attached after `getInitialState()` resolves can miss that push entirely.
+  api.onPhoneStatusChanged?.((status) => {
+    renderPhoneStatus(status);
+  });
+
   try {
     const state = await api.getInitialState();
     if (state) {
@@ -2423,16 +2457,23 @@ async function initToolbar() {
       closeWorkflowHub();
     }
   });
-  api.onPhoneStatusChanged?.((status) => {
-    renderPhoneStatus(status);
-  });
 
+  let phonePollInFlight = false;
   async function pollPhoneStatus() {
+    // The 10s tick, a window focus and a manual refresh coincide routinely; one query at a time keeps a
+    // single enumeration per burst instead of three overlapping walks of the USB bus.
+    if (phonePollInFlight) return;
+    phonePollInFlight = true;
     try {
       const currentApi = getApi();
       const st = await currentApi?.getPhoneStatus?.();
       if (st) renderPhoneStatus(st);
-    } catch {}
+    } catch {
+      // The badge is decorative: a failed poll leaves the previous state on screen and the next tick
+      // retries. It must never surface as a toolbar error.
+    } finally {
+      phonePollInFlight = false;
+    }
   }
   void pollPhoneStatus();
   setInterval(pollPhoneStatus, 10000);

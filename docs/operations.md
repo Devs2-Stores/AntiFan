@@ -131,6 +131,12 @@ store, so a device receipt is directly comparable with the Chromium capture that
   iTunes serves the same port from `AppleMobileDeviceProcess.exe` (measured on this workstation — see the
   host traps below for what that changes for third-party tools). Without either there is no USB path at
   all, and `device.status` reports a transport failure instead of claiming no device is attached.
+- **Device identity**: measured on this workstation, Apple's Windows usbmuxd answers `ListDevices` with
+  the device number and serial only. The name, `ProductType` and iOS version therefore come from the
+  device's own **lockdownd** (`GetValue` on port 62078, no pairing session, no elevation), cached per
+  attachment. When a device does not report a fact it is reported as absent — never as a placeholder
+  like `iPhone` / `unknown`, and the UI panel prints "Chưa xác định" for it. Raw `ProductType`
+  (`iPhone14,5`) is what the device said; a marketing name is not invented from it.
 - **WebDriverAgent runner**: the automation surface is WebDriverAgent over plain HTTP. No Appium
   server is involved in this path. On iOS 17 and later the runner must be launched through a RemoteXPC
   tunnel, which is what the runbook below covers.
@@ -183,18 +189,66 @@ Every device failure carries a code plus an operator action: `DEVICE_TRANSPORT_U
 attachment change (`deviceEpoch`) from a recreated session (`sessionGeneration`); both are rebindable
 from a fresh `device.status`.
 
+### Toolbar surface
+
+The toolbar's phone chip (`#btnPhoneStatus`) is an independent surface from the device-presets picker:
+it reports the **physical** phone, not the emulated viewport, and it is pushed from the main process
+(`antifan:toolbar:phone-status`) plus polled every 10s and on window focus.
+
+- Silent on a host that never had a phone attached. An unanswered usbmuxd is indistinguishable from an
+  absent phone, so the amber "Muxer Offline" chip only appears once this renderer session has actually
+  observed an attachment — otherwise the feature would be a permanent false alarm for anyone who does
+  not use it.
+- Device-supplied strings are escaped before they reach the panel; they are data, not markup.
+- Disconnecting re-renders the open panel instead of leaving it claiming a connected phone, and Escape
+  closes it. Closing the panel does not collapse the popped-out toolbar if another overlay owns it.
+
+### Background usbmuxd (Windows startup)
+
+`scripts/start-itunes-hidden.vbs` → `scripts/start-itunes-background.ps1` is wired into the user's
+Startup folder (`AntiFan-iTunes-Background.lnk`) so the usbmuxd endpoint exists after logon without a
+window. The script is a launcher, not a service, and it holds to a bounded contract:
+
+- idempotent — exits `0` immediately when `tcp:27015` is already served (verified live: it prints
+  "already listening … nothing to do" and touches no process);
+- bounded — at most 20s waiting for the port, then at most 20s for a window to hide;
+- scoped — it hides **only** the window of the iTunes process it started. iTunes is single-instance, so
+  when it is already running the script only waits and never hides the user's window. On a cold start the
+  owner is resolved **after** the port opens (iTunes takes seconds to appear, and the protocol launch does
+  not hand back a process handle), which is what makes the hide step work on the first logon instead of
+  leaving a visible window;
+- honest — exit `1` plus a warning when the port never opened. Nothing is reported as successful on a
+  timeout, and failures are not swallowed by a global `SilentlyContinue`.
+
+Run it manually with
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-itunes-background.ps1`.
+To disable it, delete the `AntiFan-iTunes-Background.lnk` shortcut from the Startup folder.
+
 ### Verification
 
 ```bash
 # Control plane → capability family → adapter, against a WebDriverAgent-contract fixture (no phone needed)
 npm run smoke:device
+
+# Toolbar phone chip + panel in real Electron WebContents (synthetic status payloads)
+npm run smoke:phone-ui
 ```
 
 The fixture speaks the exact WebDriverAgent routes and payload shapes taken from its source, so policy
 freeze, device authorization, session generations, artifact staging and request wire format are all
 exercised for real; only the USB socket itself needs hardware. It also drives the live discovery path
 (no injected enumerator), so a host with no Apple Mobile Device Support must report
-`DEVICE_TRANSPORT_UNREACHABLE` with the fix attached instead of a raw socket error.
+`DEVICE_TRANSPORT_UNREACHABLE` with the fix attached instead of a raw socket error, and it asserts the
+lifecycle contracts directly: a re-plug on the same UDID advances the attachment epoch and clears the
+session the retired attachment owned, a pre-re-plug binding is refused rather than driven, and a client
+that resets during the usbmux handshake is accounted for instead of taking the process down (the pre-fix
+shape crashes with an unhandled `ECONNRESET` on the accepted socket — reproduced by reverting the guard
+placement in the compiled module).
+
+`smoke:phone-ui` mounts the real `toolbar.html` with the real preload and asserts the panel's
+truthfulness contracts: quiet on a phone-less host, device facts only (no invented model code), escaped
+device strings, no stale "connected" content after a disconnect, and Escape closing the panel. Its
+status payloads are **synthetic** renderer fixtures, not hardware evidence.
 
 **This smoke is contract evidence, not device evidence.** A fixture verdict can never be cited as the
 Phase 0 hardware gate result.
@@ -214,6 +268,11 @@ runner's device port (`ANTIFAN_WDA_DEVICE_PORT`, default 8100) over usbmux and o
 WebDriverAgent answers there. An explicit candidate list, whether from the argument or the environment,
 means the operator owns the transport and keeps the bridge off. Bridging is not a RemoteXPC tunnel: it
 reaches a port the device already exposes, which is what a running runner provides.
+
+That bridge is pinned to **one** `deviceNumber`, because that is what its open sockets carry. A cached
+bridge is reused only while its own device is still attached and still answers there, and only for a
+request naming that same device: on a host with two phones, asking about the other one drops the bridge
+and rebuilds it rather than answering with the wrong phone's screen and status.
 
 ### First-run runbook (Windows, real hardware)
 

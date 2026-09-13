@@ -103,6 +103,10 @@ export class IosDeviceAdapter implements DeviceControlPort {
   private readonly sessions = new IosSessionManager();
   private cachedTransport?: { baseUrl: string; transport: WdaTransport; checkedAt: number };
   private bridgedForwarder?: UsbmuxPortForwarder;
+  /** Which phone the loopback bridge is pinned to; usbmux Connect is addressed by deviceNumber. */
+  private bridgedDeviceId?: string;
+  private pendingTransport?: Promise<WdaTransport>;
+  private pendingTransportDeviceId: string | undefined;
   private lastUrl?: string;
   /** Per-device work chains: a physical panel executes one operation at a time. */
   private readonly deviceLocks = new Map<string, Promise<unknown>>();
@@ -134,6 +138,15 @@ export class IosDeviceAdapter implements DeviceControlPort {
 
     const info = deviceId ? devices.find((entry) => entry.deviceId === deviceId) : devices[0];
     if (deviceId && !info) {
+      // An unreachable usbmuxd is not the same fact as "this phone is not plugged in", and the caller
+      // cannot act on the second when the first is true. Report the transport outage as itself.
+      if (enumerationFailure) {
+        throw new CapabilityError(
+          'DEVICE_TRANSPORT_UNREACHABLE',
+          `Cannot look up device '${deviceId}': ${enumerationFailure.detail}`,
+          { remediation: DEVICE_ERROR_REMEDIATION.DEVICE_TRANSPORT_UNREACHABLE, canRebind: true }
+        );
+      }
       throw new CapabilityError('DEVICE_NOT_CONNECTED', `Device '${deviceId}' is not visible to the host (usbmuxd enumerated ${devices.length} device(s))`, {
         remediation: DEVICE_ERROR_REMEDIATION.DEVICE_NOT_CONNECTED,
       });
@@ -149,7 +162,8 @@ export class IosDeviceAdapter implements DeviceControlPort {
     let screen: WdaScreenInfo | undefined;
     if (info) {
       try {
-        const transport = await this.resolveTransport();
+        const transport = await this.resolveTransport(info.deviceId);
+        this.assertBridgeIsFor(info.deviceId);
         statusPayload = await readWdaStatus(transport, this.defaultTimeoutMs);
         screen = await readWdaScreenInfo(transport, this.defaultTimeoutMs);
       } catch (err) {
@@ -200,12 +214,15 @@ export class IosDeviceAdapter implements DeviceControlPort {
     }
     this.devices.select(info.deviceId);
 
-    const transport = await this.resolveTransport();
+    await this.handoffToDevice(info.deviceId);
+
+    const transport = await this.resolveTransport(info.deviceId);
+    this.assertBridgeIsFor(info.deviceId);
     const statusPayload = await readWdaStatus(transport, this.defaultTimeoutMs);
     assertDeviceAutomationReady(evaluateDeviceReadiness({ device: info, wdaStatus: statusPayload }));
 
     const screen = await readWdaScreenInfo(transport, this.defaultTimeoutMs);
-    const session = await this.sessions.ensureSafariSession(transport, { initialUrl: options?.initialUrl, osVersion: info.osVersion });
+    const session = await this.sessions.ensureSafariSession(transport, info.deviceId, { initialUrl: options?.initialUrl, osVersion: info.osVersion });
     if (options?.initialUrl) this.lastUrl = options.initialUrl;
     this.devices.setSession(info.deviceId, session.sessionId, session.generation);
     console.log(`[antifan:device] Safari session ${session.sessionId} (generation ${session.generation}) on ${info.model || info.deviceId}`);
@@ -332,7 +349,18 @@ export class IosDeviceAdapter implements DeviceControlPort {
     const sessionId = this.requireSession(target);
     const transport = await this.transportFor(target);
     const active = await transport.request('GET', `/session/${sessionId}/element/active`, undefined, this.defaultTimeoutMs);
-    const focused = active.ok ? elementIdOf((active.json as { value?: unknown } | undefined)?.value) : undefined;
+    if (!active.ok) {
+      // A 404/500 here is the session or the runner being gone, not "Safari has no focused field". Left
+      // unchecked, the focus branch below would report a transport fault as a UI condition and send the
+      // caller off to tap an input on a phone that is not answering at all.
+      const message = describeWdaFailure(active);
+      this.noteFailure(message);
+      throw new CapabilityError('DEVICE_SESSION_FAILED', `Cannot read the device's active element: ${message}`, {
+        remediation: DEVICE_ERROR_REMEDIATION.DEVICE_SESSION_FAILED,
+        canRebind: true,
+      });
+    }
+    const focused = elementIdOf((active.json as { value?: unknown } | undefined)?.value);
     if (!focused) {
       throw new CapabilityError(
         'DEVICE_OPERATION_UNSUPPORTED',
@@ -432,7 +460,18 @@ export class IosDeviceAdapter implements DeviceControlPort {
       });
     }
     const current = this.sessions.current;
-    if (current && current.sessionId !== binding.sessionId) {
+    if (!current) {
+      // WDA tore the session down (runner restart, crash, screen lock, or a DELETE issued elsewhere)
+      // while the caller still holds a binding for it. Returning that sessionId would send the next
+      // request into a session WDA has forgotten and report its 404 as a transport fault. A dead
+      // session is not a live one, so it is reported as a session that needs re-establishing.
+      throw new CapabilityError(
+        'DEVICE_SESSION_FAILED',
+        'The device automation session is no longer alive (the runner restarted or the session was released); call device.open_safari to establish a new one',
+        { remediation: DEVICE_ERROR_REMEDIATION.DEVICE_SESSION_FAILED, canRebind: true }
+      );
+    }
+    if (current.sessionId !== binding.sessionId) {
       // A recreated session on a still-attached phone is a generation change, not a lost device.
       throw new CapabilityError(
         'DEVICE_TARGET_STALE',
@@ -445,13 +484,44 @@ export class IosDeviceAdapter implements DeviceControlPort {
 
   private noteFailure(message: string): void {
     if (!sessionIsGone(message)) return;
+    const owner = this.sessions.currentDeviceId;
     this.sessions.markLost();
+    // Drop the registry's session record too, otherwise the live binding keeps advertising the session
+    // that just died and every later capability call fails on a stale generation instead of asking for
+    // a new session. Only the owning device is touched; another attached phone is not implicated.
+    if (owner) this.devices.clearSession(owner);
     this.releaseBridgedTransport();
+  }
+
+  /**
+   * Drops state pinned to a *different* phone before a session is established on `deviceId`.
+   *
+   * Both the WDA session and the usbmux bridge are device-scoped: the bridge addresses a deviceNumber
+   * and a session lives inside one phone's WDA. Reusing either against another attachment would drive
+   * the wrong hardware, so the session is released on the wire (best effort) and the bridge is dropped
+   * before the new resolution.
+   */
+  private async handoffToDevice(deviceId: string): Promise<void> {
+    const owner = this.sessions.currentDeviceId;
+    if (owner && owner !== deviceId) {
+      let previousTransport: WdaTransport | undefined;
+      try {
+        previousTransport = await this.resolveTransport(owner);
+      } catch {
+        // The previous phone may already be gone; releasing the local record is still required.
+        previousTransport = undefined;
+      }
+      await this.sessions.releaseSession(previousTransport);
+    }
+    if (this.bridgedDeviceId && this.bridgedDeviceId !== deviceId) {
+      this.releaseBridgedTransport();
+    }
   }
 
   /** A lost session invalidates the bridge too: the next call re-resolves it against live hardware. */
   private releaseBridgedTransport(): void {
     this.cachedTransport = undefined;
+    this.bridgedDeviceId = undefined;
     const forwarder = this.bridgedForwarder;
     this.bridgedForwarder = undefined;
     if (forwarder) void forwarder.close();
@@ -475,7 +545,16 @@ export class IosDeviceAdapter implements DeviceControlPort {
   /** Second gate for direct callers: a binding minted before a re-plug must not drive the new attachment. */
   private async transportFor(binding: DeviceBinding): Promise<WdaTransport> {
     const live = this.devices.getBinding(binding.deviceId);
-    if (live && live.deviceEpoch !== binding.deviceEpoch) {
+    if (!live) {
+      // The attachment is gone entirely. There is no epoch to compare, and a cached transport would
+      // keep pointing at a phone that is no longer on the bus.
+      this.releaseBridgedTransport();
+      throw new CapabilityError('DEVICE_NOT_CONNECTED', `Device '${binding.deviceId}' is no longer attached (binding epoch ${binding.deviceEpoch})`, {
+        remediation: DEVICE_ERROR_REMEDIATION.DEVICE_NOT_CONNECTED,
+        canRebind: true,
+      });
+    }
+    if (live.deviceEpoch !== binding.deviceEpoch) {
       // The bridge pins a usbmux deviceNumber, so a re-plug invalidates it: drop it before reporting, so
       // the next call re-resolves against the device that is actually attached.
       this.releaseBridgedTransport();
@@ -485,13 +564,65 @@ export class IosDeviceAdapter implements DeviceControlPort {
         canRebind: true,
       });
     }
-    return this.resolveTransport();
+    this.assertBridgeIsFor(binding.deviceId);
+    const transport = await this.resolveTransport(binding.deviceId);
+    // Re-checked after resolution: two devices can share one in-flight resolution, so the bridge that
+    // resolution produced may belong to the other phone.
+    this.assertBridgeIsFor(binding.deviceId);
+    return transport;
   }
 
-  private async resolveTransport(): Promise<WdaTransport> {
-    const cached = this.cachedTransport;
-    if (cached && Date.now() - cached.checkedAt < TRANSPORT_CACHE_MS) return cached.transport;
+  /**
+   * A loopback bridge addresses one usbmux deviceNumber. Serving a different phone through it would send
+   * this operation to the wrong physical device, so it fails closed and drops the bridge instead.
+   */
+  private assertBridgeIsFor(deviceId: string): void {
+    if (!this.bridgedDeviceId || this.bridgedDeviceId === deviceId) return;
+    const bridged = this.bridgedDeviceId;
+    this.releaseBridgedTransport();
+    throw new CapabilityError('DEVICE_TARGET_STALE', `Device transport is bridged to '${bridged}', not '${deviceId}'; call device.open_safari for this device`, {
+      remediation: DEVICE_ERROR_REMEDIATION.DEVICE_TARGET_STALE,
+      canRebind: true,
+    });
+  }
 
+  private async resolveTransport(expectedDeviceId: string | undefined): Promise<WdaTransport> {
+    const cached = this.cachedTransport;
+    // A candidate transport serves any phone; a bridged one is pinned to one deviceNumber and must not
+    // be handed to a caller asking about the other phone.
+    if (cached && Date.now() - cached.checkedAt < TRANSPORT_CACHE_MS && this.bridgeMatches(expectedDeviceId)) return cached.transport;
+
+    const pending = this.pendingTransport;
+    if (pending && this.pendingTransportDeviceId === expectedDeviceId) return pending;
+    if (pending) {
+      // Another phone's resolution is in flight. Wait it out rather than adopting its result: that result
+      // may be a bridge pinned to the other deviceNumber.
+      await pending.catch(() => undefined);
+    }
+
+    // Single-flight per device: concurrent callers for the same phone share one probe/bridge attempt.
+    // Without this, two callers that arrive while a bridge is being established each spawn their own
+    // loopback forwarder, leaking ports and leaving one of them driving a bridge nothing points at.
+    const promise = this.resolveTransportUncached(expectedDeviceId);
+    this.pendingTransport = promise;
+    this.pendingTransportDeviceId = expectedDeviceId;
+    try {
+      return await promise;
+    } finally {
+      if (this.pendingTransport === promise) {
+        this.pendingTransport = undefined;
+        this.pendingTransportDeviceId = undefined;
+      }
+    }
+  }
+
+  /** True when the current transport is not a bridge, or is a bridge built for exactly this phone. */
+  private bridgeMatches(expectedDeviceId: string | undefined): boolean {
+    if (!this.bridgedDeviceId) return true;
+    return expectedDeviceId !== undefined && this.bridgedDeviceId === expectedDeviceId;
+  }
+
+  private async resolveTransportUncached(expectedDeviceId: string | undefined): Promise<WdaTransport> {
     const probed = await probeWdaCandidates(this.candidates);
     if (probed) {
       const transport = createWdaTransport(probed.baseUrl, this.defaultTimeoutMs);
@@ -501,7 +632,7 @@ export class IosDeviceAdapter implements DeviceControlPort {
 
     // Nothing answered: bridge the phone's own runner port over usbmux before giving up. This is what
     // removes the external `iproxy` / `go-ios forward` dependency from the device path.
-    const bridgedBaseUrl = this.allowBridge ? await this.bridgeDeviceWdaPort() : undefined;
+    const bridgedBaseUrl = this.allowBridge ? await this.bridgeDeviceWdaPort(expectedDeviceId) : undefined;
     if (bridgedBaseUrl) {
       const transport = createWdaTransport(bridgedBaseUrl, this.defaultTimeoutMs);
       this.cachedTransport = { baseUrl: bridgedBaseUrl, transport, checkedAt: Date.now() };
@@ -520,7 +651,7 @@ export class IosDeviceAdapter implements DeviceControlPort {
    * no usbmuxd host service, or no runner listening - all of which are "not reachable yet", never a
    * transport fault, so the caller keeps its candidate-list error.
    */
-  private async bridgeDeviceWdaPort(): Promise<string | undefined> {
+  private async bridgeDeviceWdaPort(expectedDeviceId: string | undefined): Promise<string | undefined> {
     try {
       const attached = await listUsbmuxDevices(5_000);
       const cached = this.bridgedForwarder;
@@ -530,17 +661,23 @@ export class IosDeviceAdapter implements DeviceControlPort {
         // every Connect targets a deviceNumber a re-plug already retired. The establishment probe is the
         // only check that covers the whole chain (listener, device socket, runner), so reuse the cached
         // bridge only while its own device is still attached *and* still answers there; otherwise drop it
-        // and rebuild rather than publish a URL that cannot serve a request.
+        // and rebuild rather than publish a URL that cannot serve a request - or that serves the other
+        // attached phone's screen under this phone's identity.
+        const ownerMatches = expectedDeviceId ? this.bridgedDeviceId === expectedDeviceId : attached.length === 1;
         const pinnedStillAttached = attached.some((entry) => entry.deviceNumber === cached.deviceNumber);
-        if (pinnedStillAttached && (await probeWdaCandidates([cachedBaseUrl]))) return cachedBaseUrl;
+        if (pinnedStillAttached && ownerMatches && (await probeWdaCandidates([cachedBaseUrl]))) return cachedBaseUrl;
         this.releaseBridgedTransport();
-        console.log('[antifan:device] released the usbmux bridge: its device was re-attached or the runner stopped answering');
+        console.log('[antifan:device] released the usbmux bridge: its device was re-attached, the runner stopped answering, or another phone asked for the transport');
       }
       if (!attached.length) return undefined;
-      const liveDeviceId = this.devices.getLiveBinding()?.deviceId;
-      const device =
-        (liveDeviceId ? attached.find((entry) => entry.deviceId === liveDeviceId) : undefined) ??
-        (attached.length === 1 ? attached[0] : undefined);
+      const liveDeviceId = expectedDeviceId ?? this.devices.getLiveBinding()?.deviceId;
+      // An explicit expectation is authoritative: when that phone is not attached there is nothing to
+      // bridge, and the only other attached phone is not an acceptable substitute.
+      const device = liveDeviceId
+        ? attached.find((entry) => entry.deviceId === liveDeviceId)
+        : attached.length === 1
+          ? attached[0]
+          : undefined;
       if (!device) return undefined;
 
       const forwarder = await createUsbmuxPortForwarder({ deviceNumber: device.deviceNumber, devicePort: this.wdaDevicePort });
@@ -550,6 +687,7 @@ export class IosDeviceAdapter implements DeviceControlPort {
         return undefined;
       }
       this.bridgedForwarder = forwarder;
+      this.bridgedDeviceId = device.deviceId;
       console.log(`[antifan:device] bridged device port ${this.wdaDevicePort} over usbmux to ${baseUrl} (no iproxy/go-ios needed)`);
       return baseUrl;
     } catch {

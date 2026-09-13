@@ -488,21 +488,171 @@ export async function listUsbmuxDevices(timeoutMs = 5000): Promise<UsbmuxDevice[
       const props = entry?.Properties ?? {};
       const devId = Number(props.DeviceID ?? entry?.DeviceID ?? 0);
       const udid = String(props.UDID ?? props.SerialNumber ?? entry?.SerialNumber ?? devId);
-      const name = String(props.DeviceName ?? props.ProductType ?? 'iPhone');
-      const model = String(props.ProductType ?? 'iPhone');
-      const osVersion = String(props.ProductVersion ?? 'unknown');
+      // Empty means "usbmuxd did not report this", never a guess. Measured on this workstation: Apple's
+      // Windows usbmuxd answers ListDevices with DeviceID and the serial only, so name/model/iOS are
+      // absent here and are filled by `listUsbmuxDevicesEnriched` from the device's own lockdownd.
+      // Substituting 'iPhone'/'unknown' would present a prior as observed telemetry.
       return {
         deviceNumber: devId,
         deviceId: udid,
-        name,
-        model,
-        osVersion,
+        name: String(props.DeviceName ?? ''),
+        model: String(props.ProductType ?? ''),
+        osVersion: String(props.ProductVersion ?? ''),
         connection: 'usb' as const,
       };
     });
   } finally {
     socket.destroy();
   }
+}
+
+// ---------------------------------------------------------------- Lockdown Metadata Enrichment
+
+/** lockdownd's own service port on the device; the same one go-ios / libimobiledevice use. */
+const LOCKDOWN_PORT = 62078;
+
+/**
+ * Hardware facts `ListDevices` does not carry.
+ *
+ * Measured on this workstation: Apple's Windows usbmuxd answers `ListDevices` with `DeviceID` and the
+ * serial only, so name/model/iOS fall back to placeholders. Reporting "iPhone / unknown" as if it were
+ * observed is exactly the fabrication this project refuses, so the facts are read from the device's own
+ * lockdownd instead — the same unprivileged `GetValue` exchange `scripts/probe-iphone-hardware.mjs`
+ * proved against the attached iPhone. These keys need no pairing session and no elevated privilege.
+ */
+export interface LockdownFacts {
+  name?: string;
+  model?: string;
+  osVersion?: string;
+}
+
+const LOCKDOWN_FACT_KEYS: Array<{ key: string; field: keyof LockdownFacts }> = [
+  { key: 'DeviceName', field: 'name' },
+  { key: 'ProductType', field: 'model' },
+  { key: 'ProductVersion', field: 'osVersion' },
+];
+const LOCKDOWN_CACHE_TTL_MS = 10 * 60_000;
+const LOCKDOWN_EMPTY_CACHE_TTL_MS = 30_000;
+const LOCKDOWN_CACHE_LIMIT = 32;
+/** Keyed by attachment, not just UDID: a re-plug gets a new deviceNumber and must be re-read. */
+const lockdownFactsCache = new Map<string, { at: number; facts: LockdownFacts }>();
+
+/**
+ * One length-prefixed XML exchange with lockdownd. Framing differs from usbmuxd: lockdownd prefixes
+ * each plist with a 4-byte big-endian length and nothing else, so this cannot reuse `encodePlistFrame`.
+ */
+function exchangeLockdown(
+  socket: net.Socket,
+  buffered: { rest: Buffer },
+  payload: Record<string, unknown>,
+  timeoutMs: number,
+  broken: Promise<Error>
+): Promise<any> {
+  const xml = Buffer.from(toPlistXml({ Label: 'antifan.device', ...payload }), 'utf8');
+  const header = Buffer.alloc(4);
+  header.writeUInt32BE(xml.length, 0);
+  socket.write(Buffer.concat([header, xml]));
+
+  const pending = Promise.withResolvers<any>();
+  let timer: NodeJS.Timeout | undefined;
+  const settle = (fn: () => void) => {
+    clearTimeout(timer);
+    socket.off('data', onData);
+    fn();
+  };
+  const onData = (chunk: Buffer) => {
+    buffered.rest = Buffer.concat([buffered.rest, chunk]);
+    if (buffered.rest.length < 4) return;
+    const length = buffered.rest.readUInt32BE(0);
+    if (buffered.rest.length < 4 + length) return;
+    const reply = parsePlistXml(buffered.rest.subarray(4, 4 + length).toString('utf8'));
+    buffered.rest = buffered.rest.subarray(4 + length);
+    settle(() => pending.resolve(reply ?? {}));
+  };
+  timer = setTimeout(() => {
+    settle(() => pending.reject(new Error(`lockdownd reply timeout (${String(payload.Key ?? payload.Request)})`)));
+  }, timeoutMs);
+  socket.on('data', onData);
+  // A phone unplugged mid-query must fail this exchange now, not after its timeout, and it must fail as
+  // a rejection on this promise rather than as an event nobody is listening for.
+  void broken.then((error) => {
+    settle(() => pending.reject(error));
+  });
+  return pending.promise;
+}
+
+/**
+ * Reads identity through lockdownd for one attached device.
+ *
+ * Never throws: a locked, untrusted or developer-mode-less device legitimately refuses some of these,
+ * and the caller's job is to report what was actually observed rather than to fail enumeration. An
+ * empty result means "not read", which the caller renders as absent rather than as a placeholder.
+ */
+export async function readLockdownFacts(deviceNumber: number, timeoutMs = 3000): Promise<LockdownFacts> {
+  let socket: net.Socket | undefined;
+  try {
+    const connection = await connectDevicePort(deviceNumber, LOCKDOWN_PORT, timeoutMs);
+    socket = connection.socket;
+    // An 'error' with no listener is thrown, and in this process that means Electron's main process.
+    // It is also the signal in-flight exchanges need, so it is captured once and handed to them.
+    const broken = Promise.withResolvers<Error>();
+    socket.on('error', (error: Error) => broken.resolve(error));
+    socket.on('close', () => broken.resolve(new Error('lockdownd connection closed')));
+    const buffered = { rest: Buffer.alloc(0) };
+    const facts: LockdownFacts = {};
+    for (const { key, field } of LOCKDOWN_FACT_KEYS) {
+      try {
+        const reply = await exchangeLockdown(socket, buffered, { Request: 'GetValue', Key: key }, timeoutMs, broken.promise);
+        const value = reply?.Value;
+        if (typeof value === 'string' && value.trim()) {
+          facts[field] = value.trim();
+        }
+      } catch {
+        // One refused key must not discard the keys that did answer.
+      }
+    }
+    return facts;
+  } catch {
+    return {};
+  } finally {
+    socket?.destroy();
+  }
+}
+
+/**
+ * Enumeration plus the identity facts usbmuxd omits.
+ *
+ * The lockdown reads are cached per attachment and bounded, because this runs on the same polling path
+ * the toolbar uses: an uncached read per poll would open a lockdownd connection every ten seconds. A
+ * failed read is cached briefly so a locked phone is not re-probed on every tick.
+ */
+export async function listUsbmuxDevicesEnriched(timeoutMs = 5000): Promise<UsbmuxDevice[]> {
+  const devices = await listUsbmuxDevices(timeoutMs);
+  const now = Date.now();
+  const enriched: UsbmuxDevice[] = [];
+  for (const device of devices) {
+    const cacheKey = `${device.deviceId}#${device.deviceNumber}`;
+    const cached = lockdownFactsCache.get(cacheKey);
+    const ttl = cached && Object.keys(cached.facts).length > 0 ? LOCKDOWN_CACHE_TTL_MS : LOCKDOWN_EMPTY_CACHE_TTL_MS;
+    let facts: LockdownFacts;
+    if (cached && now - cached.at < ttl) {
+      facts = cached.facts;
+    } else {
+      facts = await readLockdownFacts(device.deviceNumber);
+      lockdownFactsCache.set(cacheKey, { at: now, facts });
+      if (lockdownFactsCache.size > LOCKDOWN_CACHE_LIMIT) {
+        const oldest = lockdownFactsCache.keys().next();
+        if (!oldest.done) lockdownFactsCache.delete(oldest.value);
+      }
+    }
+    enriched.push({
+      ...device,
+      name: facts.name ?? device.name,
+      model: facts.model ?? device.model,
+      osVersion: facts.osVersion ?? device.osVersion,
+    });
+  }
+  return enriched;
 }
 
 /**

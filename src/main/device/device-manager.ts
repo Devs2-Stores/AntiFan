@@ -1,7 +1,7 @@
 import { CapabilityError } from '../../shared/control-plane-contracts';
 import { DEVICE_ERROR_REMEDIATION, type DeviceBinding, type DeviceInfo } from '../../shared/device-control-contracts';
 import type { DeviceRegistryPort } from './device-control-port';
-import { listUsbmuxDevices, type UsbmuxDevice } from './usbmux-client';
+import { listUsbmuxDevicesEnriched, type UsbmuxDevice } from './usbmux-client';
 
 /**
  * Device discovery and binding state.
@@ -66,7 +66,7 @@ export class DeviceManager implements DeviceRegistryPort {
     this.projectId = options.projectId;
     this.workspaceId = options.workspaceId;
     this.runtimeId = options.runtimeId;
-    this.enumerate = options.enumerate ?? (() => listUsbmuxDevices());
+    this.enumerate = options.enumerate ?? (() => listUsbmuxDevicesEnriched());
   }
 
   /** Last enumerated view. Use `refresh()` to observe the host now. */
@@ -96,6 +96,17 @@ export class DeviceManager implements DeviceRegistryPort {
       present.add(device.deviceId);
       const existing = this.records.get(device.deviceId);
       if (existing) {
+        // A different `deviceNumber` for the same UDID is a re-attachment, even though the UDID never
+        // left the map (a fast re-plug is not observed as an absence). usbmux retires the old device
+        // number, so the epoch must advance and the session must be dropped: any target or forwarder
+        // minted for the previous attachment is now driving a handle the port stack no longer owns.
+        if (existing.deviceNumber !== device.deviceNumber) {
+          const deviceEpoch = (this.epochs.get(device.deviceId) ?? 0) + 1;
+          this.epochs.set(device.deviceId, deviceEpoch);
+          existing.deviceEpoch = deviceEpoch;
+          existing.sessionId = undefined;
+          existing.sessionGeneration = 0;
+        }
         existing.info = toDeviceInfo(device);
         existing.deviceNumber = device.deviceNumber;
         continue;
@@ -160,6 +171,18 @@ export class DeviceManager implements DeviceRegistryPort {
     record.sessionId = sessionId;
     record.sessionGeneration = generation;
     this.selectedDeviceId = deviceId;
+  }
+
+  /**
+   * Drops the recorded session and keeps the attachment. `sessionGeneration` returns to 0 because the
+   * binding carries no session at all: generation is only meaningful next to a sessionId, and a
+   * leftover generation would compare equal to a target minted for the session that just died.
+   */
+  clearSession(deviceId: string): void {
+    const record = this.records.get(deviceId);
+    if (!record) return;
+    record.sessionId = undefined;
+    record.sessionGeneration = 0;
   }
 
   /** Device numbers are only meaningful to the USB stack (port forwarding); kept for that use. */

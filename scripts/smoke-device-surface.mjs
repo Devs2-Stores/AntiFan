@@ -14,12 +14,14 @@ import { createServer } from 'node:http';
 import { deflateSync } from 'node:zlib';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import * as net from 'node:net';
 import * as path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const { ControlPlaneRuntime } = require('../.compiled/src/main/control-plane/control-plane-runtime.js');
 const { DeviceManager } = require('../.compiled/src/main/device/device-manager.js');
 const { IosDeviceAdapter } = require('../.compiled/src/main/device/ios-device-adapter.js');
+const { createUsbmuxPortForwarder } = require('../.compiled/src/main/device/usbmux-forwarder.js');
 const { makeControlPlaneId } = require('../.compiled/src/shared/control-plane-contracts.js');
 
 // Control-plane tenancy ids are validated on construction; mint them the same way the host does.
@@ -260,8 +262,8 @@ async function run() {
 
   const bareStatus = await bareCall('device.status');
   if (!enumeration.ok) {
-    // Host without a USB stack (this machine): the diagnostic capabilities must still answer, and the
-    // answer must carry the fix, not a socket error.
+    // Host without a working USB stack: the diagnostic capabilities must still answer, and the answer
+    // must carry the fix, not a socket error.
     await expectError('device.list reports an unreachable USB stack with a typed code', 'DEVICE_TRANSPORT_UNREACHABLE', () => bareCall('device.list'));
     check('device.status answers with a failed attachment gate and the operator remediation', bareStatus.readiness.physical.status === 'fail' && /Apple Mobile Device Support/.test(String(bareStatus.readiness.physical.action)), bareStatus.readiness.physical);
     check('device.status exposes no fabricated device identity or binding', bareStatus.device === undefined && bareStatus.target === undefined, bareStatus.device);
@@ -331,6 +333,74 @@ async function run() {
       : bridgeOutcome.code === 'DEVICE_TRANSPORT_UNREACHABLE' || bridgeOutcome.code === 'DEVICE_WDA_NOT_READY',
     bridgeOutcome
   );
+
+  console.log('\n[10] re-plug on the same UDID invalidates the old attachment and session');
+  // A fast re-plug is not observed as an absence: the UDID never leaves the map, but usbmux retires the
+  // old device number. Without this the binding keeps its epoch and the dead sessionId, and the next
+  // operation drives a handle the port stack no longer owns.
+  let replugDevice = { ...DEVICE, name: 'Replug iPhone', model: 'iPhone15,3', osVersion: '18.5' };
+  const replugManager = new DeviceManager({
+    projectId: PROJECT_ID,
+    workspaceId: WORKSPACE_ID,
+    runtimeId: 'smoke-replug',
+    enumerate: async () => [replugDevice],
+  });
+  await replugManager.refresh();
+  const beforeReplug = replugManager.getBinding(DEVICE.deviceId);
+  const replugRuntime = new ControlPlaneRuntime({
+    dataRoot: mkdtempSync(path.join(tmpdir(), 'antifan-device-replug-')),
+    projectId: makeControlPlaneId('project'),
+    workspaceId: makeControlPlaneId('workspace'),
+  });
+  const replugLease = replugRuntime.getLease();
+  const replugAdapter = new IosDeviceAdapter({ devices: replugManager, artifacts: replugRuntime.artifacts, candidates: [`http://127.0.0.1:${port}`] });
+
+  // Establish a real session through the fixture first: a target is only refused as *stale* when the
+  // adapter has a live session to compare it against. Without this the call would fail earlier with
+  // "no session", and the phase would pass even if the epoch never changed.
+  const preReplugTarget = await replugAdapter.openSafari(DEVICE.deviceId);
+  const sessionBinding = replugManager.getBinding(DEVICE.deviceId);
+  check(
+    'the pre-re-plug target carries the live attachment epoch and session',
+    preReplugTarget.deviceEpoch === sessionBinding.deviceEpoch &&
+      Boolean(preReplugTarget.sessionId) &&
+      preReplugTarget.sessionId === sessionBinding.sessionId,
+    { epoch: preReplugTarget.deviceEpoch, sessionId: preReplugTarget.sessionId }
+  );
+
+  replugDevice = { ...replugDevice, deviceNumber: replugDevice.deviceNumber + 1 };
+  await replugManager.refresh();
+  const afterReplug = replugManager.getBinding(DEVICE.deviceId);
+  check('a re-plug advances the attachment epoch for the same UDID', afterReplug.deviceEpoch === beforeReplug.deviceEpoch + 1, { before: beforeReplug.deviceEpoch, after: afterReplug.deviceEpoch });
+  check('a re-plug clears the session the retired attachment owned', !afterReplug.sessionId && afterReplug.sessionGeneration === 0, afterReplug);
+
+  // The session is still live on the adapter and the target's sessionId still matches it, so the only
+  // gate left is the attachment epoch: the operation must be refused rather than replayed against the
+  // device number the port stack just retired.
+  await expectError('a target minted before a re-plug is refused as a stale attachment', 'DEVICE_TARGET_STALE', () =>
+    replugAdapter.tap(preReplugTarget, { x: 3, y: 4 }));
+
+  console.log('\n[11] an aborted client cannot take the host process down');
+  // The loopback forwarder must guard both ends before the usbmux handshake starts. A client that errors
+  // while the device port is still connecting used to hit a listener-less socket, and an unhandled
+  // 'error' on a net.Socket is thrown - in Electron that is the whole main process. Reaching the summary
+  // below at all is the survival evidence; the stats are the accounting evidence.
+  const forwarder = await createUsbmuxPortForwarder({ deviceNumber: 99_999, devicePort: 8100, connectTimeoutMs: 400 });
+  const abortingClient = net.connect(forwarder.localPort, forwarder.localHost);
+  // This end owns its own errors; the point of the phase is what the *forwarder's* accepted socket does
+  // with the reset that follows, so the reset must be a real one (RST), not a graceful close.
+  abortingClient.on('error', () => {});
+  abortingClient.on('connect', () => {
+    abortingClient.resetAndDestroy();
+  });
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  const forwarderStats = forwarder.stats();
+  check(
+    'an aborted client during the usbmux handshake is accounted for rather than crashing the process',
+    forwarderStats.failed >= 1 && forwarderStats.active === 0,
+    forwarderStats
+  );
+  await forwarder.close();
 
   server.closeAllConnections?.();
   server.close();

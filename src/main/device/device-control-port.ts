@@ -68,6 +68,12 @@ export interface DeviceRegistryPort {
   select(deviceId: string): void;
   /** Records the live automation session so target staleness can be judged against the host. */
   setSession(deviceId: string, sessionId: string, generation: number): void;
+  /**
+   * Forgets the automation session while keeping the attachment. The session manager loses a session
+   * the moment WDA tears it down, and a record that still advertises that sessionId would let the
+   * next capability call reuse a dead one instead of asking for `openSafari` again.
+   */
+  clearSession(deviceId: string): void;
 }
 
 export interface DeviceStatusResult {

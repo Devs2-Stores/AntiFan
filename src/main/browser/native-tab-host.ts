@@ -58,6 +58,8 @@ import { OAuthPopupManager } from './oauth-popup-manager';
 import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
 import { TabAutomationHost } from './tab-automation-host';
 import { TabDevToolsHost, type TabDevToolsStats } from './tab-devtools-host';
+import { isTrackerBlockedUrl } from './tracker-isolation';
+import type { TrackerIsolationReceipt } from './tracker-isolation';
 import {
   buildIsolatedExecutorScript,
   buildIsolatedCollectorScript,
@@ -593,6 +595,7 @@ export class NativeTabHost extends EventEmitter {
       drainingTargetCount: 0,
       stylesheetTargetCount: 0,
       isolatedContextCount: 0,
+      trackerIsolationTargetCount: 0,
     };
     return {
       disposed: this.isDisposed,
@@ -3186,6 +3189,14 @@ export class NativeTabHost extends EventEmitter {
       }
       this.broadcastState();
       const rawUrl = String(validatedURL || '');
+      // A blocked tracker still arrives here as `net::ERR_BLOCKED_BY_CLIENT`,
+      // and the diagnostics filter accepts any negative code as a real failure.
+      // Left alone, an isolation window would manufacture third-party network
+      // warnings on the page under test and evict genuine entries from the
+      // FIFO-capped bucket, so this tool filters out its own damage.
+      if (rawUrl && this.devToolsHost?.isTrackerIsolationActive(id, paneId) && isTrackerBlockedUrl(rawUrl)) {
+        return;
+      }
       const origin = computeOrigin(rawUrl, wc.getURL());
       this.diagnosticsManager.recordFailure(id, {
         errorCode,
@@ -4980,18 +4991,18 @@ export class NativeTabHost extends EventEmitter {
     return this.getAutomationHost().executeInIsolatedWorld(wc, script);
   }
 
-  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentClick(params);
   }
 
-  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentType(params);
   }
   public async agentScroll(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentScroll(params);
   }
 
-  public async agentHover(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentHover(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentHover(params);
   }
 
@@ -5863,6 +5874,35 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().readRenderSurface(tabId, paneId, timeoutMs);
   }
 
+  public async beginTrackerIsolation(tabId?: string, paneId?: SplitPaneId): Promise<TrackerIsolationReceipt> {
+    return this.getDevToolsHost().beginTrackerIsolation(tabId, paneId);
+  }
+
+  public async endTrackerIsolation(tabId?: string, paneId?: SplitPaneId): Promise<{ released: boolean; reason?: string }> {
+    return this.getDevToolsHost().endTrackerIsolation(tabId, paneId);
+  }
+
+  public isTrackerIsolationActive(tabId?: string, paneId?: SplitPaneId): boolean {
+    return this.getDevToolsHost().isTrackerIsolationActive(tabId, paneId);
+  }
+
+  public async agentDrag(params: {
+    fromRef?: string;
+    fromSelector?: string;
+    fromX?: number;
+    fromY?: number;
+    toRef?: string;
+    toSelector?: string;
+    toX?: number;
+    toY?: number;
+    steps?: number;
+    force?: boolean;
+    tabId?: string;
+    paneId?: SplitPaneId;
+  }): Promise<{ success: boolean; reason?: string; data?: unknown }> {
+    return this.getAutomationHost().agentDrag(params);
+  }
+
   public async reapplyTabGeometry(
     tabId: string,
     paneId: SplitPaneId | undefined,
@@ -6339,29 +6379,44 @@ export class NativeTabHost extends EventEmitter {
 
   private cachedPhoneStatus: ToolbarPhoneStatus | null = null;
   private lastPhoneStatusCheck = 0;
+  private pendingPhoneStatus?: Promise<ToolbarPhoneStatus>;
 
   public async getPhoneStatus(forceRefresh = false): Promise<ToolbarPhoneStatus> {
     const now = Date.now();
     if (!forceRefresh && this.cachedPhoneStatus && now - this.lastPhoneStatusCheck < 5000) {
       return this.cachedPhoneStatus;
     }
+    // The poll tick, a window focus and a manual refresh can land together, and each query walks the USB
+    // bus. Share one in-flight enumeration between concurrent callers.
+    if (!this.pendingPhoneStatus) {
+      this.pendingPhoneStatus = this.queryPhoneStatus().finally(() => {
+        this.pendingPhoneStatus = undefined;
+      });
+    }
+    return await this.pendingPhoneStatus;
+  }
+
+  private async queryPhoneStatus(): Promise<ToolbarPhoneStatus> {
+    const now = Date.now();
     const port = this.controlPlane?.getDevicePort();
     if (!port) {
-      this.cachedPhoneStatus = { state: 'unknown', detail: 'Device control port not registered', lastChecked: now };
-      this.lastPhoneStatusCheck = now;
-      return this.cachedPhoneStatus;
+      // Registration is a later bootstrap step than `setControlPlane`, so this answer is a real
+      // observation of an incomplete bootstrap — but caching it would pin the toolbar to a false
+      // "unknown" for the whole cache window. Return it uncached: the next tick sees the adapter.
+      return { state: 'unknown', detail: 'Device adapter not registered yet', lastChecked: now };
     }
+    let status: ToolbarPhoneStatus;
     try {
       const devices = await port.list();
       const dev = devices?.[0];
       if (!dev) {
-        this.cachedPhoneStatus = { state: 'disconnected', detail: 'No physical iOS device attached via USB', lastChecked: now };
+        status = { state: 'disconnected', detail: 'No physical iOS device attached via USB', lastChecked: now };
       } else {
-        this.cachedPhoneStatus = {
+        status = {
           state: 'connected',
-          name: dev.name,
-          model: dev.model,
-          osVersion: dev.osVersion,
+          name: dev.name || undefined,
+          model: dev.model || undefined,
+          osVersion: dev.osVersion || undefined,
           deviceId: dev.deviceId,
           connection: dev.connection,
           detail: 'Physical iPhone connected via USB (usbmuxd)',
@@ -6369,14 +6424,22 @@ export class NativeTabHost extends EventEmitter {
         };
       }
     } catch (err) {
-      this.cachedPhoneStatus = {
+      status = {
         state: 'unknown',
         detail: err instanceof Error ? err.message : String(err),
         lastChecked: now,
       };
     }
-    this.lastPhoneStatusCheck = now;
-    return this.cachedPhoneStatus;
+    this.cachedPhoneStatus = status;
+    this.lastPhoneStatusCheck = Date.now();
+    return status;
+  }
+
+  /** Re-reads the phone after a bootstrap step that changed what the adapter can observe. */
+  public refreshPhoneStatus(): void {
+    void this.getPhoneStatus(true)
+      .then((st) => this.broadcastPhoneStatus(st))
+      .catch(() => {});
   }
 
   public broadcastPhoneStatus(status?: ToolbarPhoneStatus): void {
@@ -6389,7 +6452,7 @@ export class NativeTabHost extends EventEmitter {
 
   public setControlPlane(cp: ControlPlaneRuntime): void {
     this.controlPlane = cp;
-    void this.getPhoneStatus(true).then((st) => this.broadcastPhoneStatus(st)).catch(() => {});
+    this.refreshPhoneStatus();
   }
   public getThemeQaState(tabId?: string): { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number } {
     const id = tabId || this.activeTabId;
@@ -6598,7 +6661,7 @@ export class NativeTabHost extends EventEmitter {
     return this.getAutomationHost().agentTrajectory(params);
   }
 
-  public async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentMove(args);
   }
 

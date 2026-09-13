@@ -57,6 +57,7 @@ export async function createUsbmuxPortForwarder(options: {
     stats.active += 1;
     openSockets.add(client);
     let settled = false;
+    let device: net.Socket | undefined;
     const release = (outcome: 'completed' | 'failed') => {
       if (settled) return;
       settled = true;
@@ -64,10 +65,30 @@ export async function createUsbmuxPortForwarder(options: {
       else stats.failed += 1;
       stats.active -= 1;
       openSockets.delete(client);
+      if (device) openSockets.delete(device);
+    };
+    const abort = (outcome: 'completed' | 'failed') => {
+      release(outcome);
+      client.destroy();
+      device?.destroy();
     };
 
+    // Both ends are guarded BEFORE the handshake starts. `connectDevicePort` can take seconds, and a
+    // client that resets in that window would emit 'error' on a socket with no listener — an unhandled
+    // 'error' on a net.Socket is thrown, and in this process that is the Electron main process. So the
+    // handlers go on first and the device side is attached the moment it exists.
+    client.on('error', () => abort('failed'));
+    client.on('close', () => abort('completed'));
+
     connectDevicePort(options.deviceNumber, options.devicePort, connectTimeoutMs)
-      .then(({ socket: device }) => {
+      .then(({ socket }) => {
+        if (settled) {
+          // The client already left while usbmuxd was connecting: close the device side instead of
+          // piping into a destroyed socket.
+          socket.destroy();
+          return;
+        }
+        device = socket;
         openSockets.add(device);
         client.on('data', (chunk) => {
           stats.bytesToDevice += chunk.length;
@@ -75,26 +96,8 @@ export async function createUsbmuxPortForwarder(options: {
         device.on('data', (chunk) => {
           stats.bytesFromDevice += chunk.length;
         });
-        device.on('error', () => {
-          release('failed');
-          device.destroy();
-          client.destroy();
-        });
-        client.on('error', () => {
-          release('failed');
-          client.destroy();
-          device.destroy();
-        });
-        device.on('close', () => {
-          release('completed');
-          openSockets.delete(device);
-          client.destroy();
-        });
-        client.on('close', () => {
-          release('completed');
-          openSockets.delete(device);
-          device.destroy();
-        });
+        device.on('error', () => abort('failed'));
+        device.on('close', () => abort('completed'));
         client.pipe(device);
         device.pipe(client);
       })

@@ -337,6 +337,16 @@ async function createWindow(): Promise<void> {
     agentHover: (params) => tabHost!.agentHover(params),
     agentHighlight: (params) => tabHost!.agentHighlight(params),
     agentClear: (tabId, paneId) => tabHost!.agentClear(tabId, paneId),
+    agentDrag: (params) => tabHost!.agentDrag(params),
+    setTrackerIsolation: (tabId, paneId, active) => (active
+      ? tabHost!.beginTrackerIsolation(tabId, paneId).then((receipt) => ({ active: receipt.active, reason: receipt.degradedReason }))
+      // `active` means "isolation is still applied to this target", matching
+      // `isTrackerIsolationActive`. A failed rollback leaves the blocklist in
+      // place, so reporting `active: false` here would tell the QA workflow and
+      // the port that a tab which is still blocked was released cleanly.
+      : tabHost!.endTrackerIsolation(tabId, paneId).then((receipt) => (receipt.released
+        ? { active: false, reason: receipt.reason }
+        : { active: true, reason: receipt.reason }))),
     agentSnapshot: (tabId, paneId) => tabHost!.agentSnapshot(tabId, paneId),
     agentFind: (params) => tabHost!.agentFind(params),
     sendKeyboardPress: (params) => tabHost!.sendKeyboardPress(params),
@@ -372,6 +382,10 @@ async function createWindow(): Promise<void> {
   });
   const deviceAdapter = new IosDeviceAdapter({ devices: deviceManager, artifacts: controlPlane.artifacts });
   controlPlane.registerDevice(deviceAdapter, deviceManager);
+  // `setControlPlane` above ran before the device surface existed, so its status query correctly saw an
+  // unregistered adapter. Now that the port is live, re-read and push the real state instead of letting
+  // the toolbar wait for its next poll tick to stop showing "not registered yet".
+  tabHost.refreshPhoneStatus();
 
   const capabilityTransport = controlPlane.transport;
 

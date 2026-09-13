@@ -398,12 +398,18 @@ export class CapabilityCatalogue {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
-      authorizeAndResolveEffectiveDeviceTarget(
-        context,
-        this.options.getDeviceBinding?.(),
-        definition.allowMissingDeviceSession === true,
-        typeof this.options.getDeviceBinding === 'function'
-      );
+      const liveDeviceBinding = this.options.getDeviceBinding?.();
+      // A browser capability must never be refused because a phone is absent. When the capability does
+      // not require a device, a caller-supplied deviceTarget is only checked against a device that is
+      // actually present, so an unrelated operation cannot be blocked by the device surface.
+      if (definition.requiresDeviceTarget || liveDeviceBinding) {
+        authorizeAndResolveEffectiveDeviceTarget(
+          context,
+          liveDeviceBinding,
+          definition.allowMissingDeviceSession === true,
+          typeof this.options.getDeviceBinding === 'function'
+        );
+      }
     }
     return definition.execute(params, context);
   }
@@ -448,12 +454,17 @@ export class CapabilityCatalogue {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
-      authorizeAndResolveEffectiveDeviceTarget(
-        context,
-        this.options.getDeviceBinding?.(),
-        definition.allowMissingDeviceSession === true,
-        typeof this.options.getDeviceBinding === 'function'
-      );
+      const liveDeviceBinding = this.options.getDeviceBinding?.();
+      // Same isolation rule as the authenticated path: a non-device capability is never blocked by a
+      // missing phone, and a supplied deviceTarget is validated only against a present device.
+      if (definition.requiresDeviceTarget || liveDeviceBinding) {
+        authorizeAndResolveEffectiveDeviceTarget(
+          context,
+          liveDeviceBinding,
+          definition.allowMissingDeviceSession === true,
+          typeof this.options.getDeviceBinding === 'function'
+        );
+      }
     }
     return definition.execute(params, context);
   }
