@@ -68,10 +68,31 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const userAgent = req.headers['user-agent'] || '';
+  const isMobileUA = /Mobile|Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+  const isMobileSecCh = req.headers['sec-ch-ua-mobile'] === '?1';
+  const hasMobileParam = req.url.includes('device=mobile') || req.url.includes('mobile=1');
+  const isMobilePath = req.url.startsWith('/mobile/') || req.url === '/mobile';
+  const isMobile = isMobileUA || isMobileSecCh || hasMobileParam || isMobilePath;
+
   let reqPath = req.url.split('?')[0];
-  if (reqPath === '/' || reqPath === '') reqPath = '/index.html';
+  if (reqPath === '/' || reqPath === '') {
+    reqPath = isMobile ? '/mobile/index.html' : '/index.html';
+  } else if (reqPath === '/index.html' && isMobile) {
+    reqPath = '/mobile/index.html';
+  }
   
-  const filePath = path.join(baseDir, reqPath);
+  let filePath = path.join(baseDir, reqPath);
+  
+  if (!fs.existsSync(filePath)) {
+    if (reqPath.startsWith('/assets/')) {
+      const mobileAsset = path.join(baseDir, 'mobile', reqPath);
+      if (fs.existsSync(mobileAsset)) filePath = mobileAsset;
+    } else if (reqPath.startsWith('/mobile/assets/')) {
+      const rootAsset = path.join(baseDir, reqPath.replace('/mobile', ''));
+      if (fs.existsSync(rootAsset)) filePath = rootAsset;
+    }
+  }
   
   if (!fs.existsSync(filePath)) {
     res.writeHead(404, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });

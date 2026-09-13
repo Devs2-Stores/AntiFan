@@ -242,11 +242,16 @@ reaches a port the device already exposes, which is what a running runner provid
         enable and the toggle has to be flipped on the device (Settings → Privacy & Security →
         Developer Mode → on → restart → confirm). `ios devmode enable` still reveals the menu.
      4. `ios ui download wda` fetches an unsigned WebDriverAgentRunner (13.2.0 verified) and prints
-        the `.app` path. Sign it with your own identity and install it: `ios ui install wda` with
-        `--p12file=` and `--profile=` (its usage also lists `--install`), or the equivalent
-        `ios sign app` with those flags plus `--path=<app>`; or sign it outside go-ios
-        (Sideloadly/AltStore with a free Apple ID) and `ios install --path=<ipa>`. Two things break this
-        step in practice: Sideloadly and AltStore both document the **web** (non-Microsoft-Store) iTunes
+        the `.app` path. Sign and install it with go-ios — note `--install` belongs to `sign app`, while
+        `ui install` signs *and* installs in one step:
+        - `ios ui install wda --p12file=<p12> --profile=<mobileprovision> [--p12password=…]`
+        - `ios sign app --path=<app> --p12file=<p12> --profile=<mobileprovision> --install`
+        - a paid Apple Developer account mints both assets without a Mac:
+          `ios sign provision appstoreconnect --bundleid=com.facebook.WebDriverAgentRunner.xctrunner
+          --asc-key-id=<keyid> --asc-issuer-id=<issuerid> --asc-private-key=<AuthKey_XXXX.p8>
+          --p12-output=<p12> --profile-output=<mobileprovision>`
+        - or sign it outside go-ios (Sideloadly/AltStore with a free Apple ID) and `ios install
+          --path=<ipa>`. Two things break this step in practice: Sideloadly and AltStore both document the **web** (non-Microsoft-Store) iTunes
         *and* iCloud as prerequisites and tell you to uninstall the Store versions first, and any external
         signer must keep app extensions — the test bundle lives in
         `WebDriverAgentRunner-Runner.app/PlugIns/WebDriverAgentRunner.xctest`, so an install that strips
