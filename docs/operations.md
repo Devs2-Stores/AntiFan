@@ -393,7 +393,7 @@ needs it. The harnesses used for these measurements are untracked local scratch 
    ```bash
    npm run probe:device -- --forward 8100 --touch
    ```
-   Returns `VERDICT: GO`, establishing WDA session, deep-linking Safari to `https://example.com`, executing W3C `/actions` touch gesture at (195, 295), and capturing full-resolution 1170x2532 screenshot.
+   Returns `VERDICT: GO`, establishing WDA session, deep-linking Safari to `https://example.com`, executing W3C `/actions` touch gesture (empirically verified by tapping the "Learn more" link causing full navigation to `iana.org` with 99.43% pixel delta, swiping to scroll content with 99.54% delta, and tapping `MoreMenuButton` at (332, 786) popping up Safari's native system menu), and capturing full-resolution 1170x2532 screenshot.
 
 ### Path to the deferred inspection milestone
 

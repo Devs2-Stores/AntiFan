@@ -136,8 +136,8 @@ Apple Mobile Device Support was installed and the phone unlocked, which moved th
 | Native runner execution | **verified live**: WebDriverAgentRunner 13.1.3 launched under `testmanagerd` (PID 1068, plan formed via `_XCT_didFormPlanWithData:`), CocoaHTTPServer bound port 8100 on the device |
 | In-process usbmux port bridge | **verified live**: `usbmux-forwarder` forwarded `127.0.0.1:63902 -> 00008110-00013942210A401E:8100` via same-socket stream handover without external forwarders (`iproxy`) |
 | WDA Safari session & navigation | **verified live**: W3C `POST /session` established Safari session, deep-linked `https://example.com` in 735 ms, render settled in 4 samples (0.00% delta) |
-| Native touch gesture (`device.tap`) | **verified live**: `W3C /actions` pointer tap executed at (195, 295) in 540–604 ms |
-| Native swipe gesture (`device.swipe`) | **verified live**: `W3C /actions` swipe executed from (195, 500) to (195, 200) in 1478 ms; native momentum scrolling produced by iOS device hardware |
+| Native touch gesture (`device.tap`) | **verified live with visual state change**: `W3C /actions` pointer tap executed at (119, 309) on the "Learn more" link on `example.com`, triggering real navigation to `https://www.iana.org/help/example-domains` (99.43% pixel delta); tap at (332, 786) on `MoreMenuButton` visually popped up Safari's native system action sheet menu |
+| Native swipe gesture (`device.swipe`) | **verified live with visual scroll displacement**: `W3C /actions` swipe executed from (195, 600) to (195, 200) on the IANA page, scrolling the page downward by ~400 pt, moving the header off-screen and revealing footer links (99.54% pixel delta) |
 | Screen metrics | **verified live**: screen=390x844 pt, scale=3 (pixel 1170x2532), statusBar=390x47 pt |
 | Full-resolution device capture | **verified live**: `GET /screenshot` captured 1170x2532 PNG (290,356 bytes) showing live Mobile Safari with `Example Domain` content |
 | Probe Phase 0 verdict | **`VERDICT: GO`** (Exit code: 0, with all layers passing including `--touch`) |
