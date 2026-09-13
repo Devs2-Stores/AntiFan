@@ -55,6 +55,10 @@ const CHANNELS = {
   SET_SPLIT_FOCUSED_PANE: 'antifan:toolbar:set-split-focused-pane',
   THEME_QA_RUN: 'antifan:toolbar:theme-qa-run',
   THEME_QA_STATE: 'antifan:toolbar:theme-qa-state',
+  DEVICE_STATUS: 'antifan:toolbar:device-status',
+  GET_DEVICE_STATUS: 'antifan:toolbar:get-device-status',
+  DEVICE_OPEN_SAFARI: 'antifan:toolbar:device-open-safari',
+  DEVICE_SCREENSHOT: 'antifan:toolbar:device-screenshot',
 };
 
 const toolbarApi = {
@@ -189,6 +193,16 @@ const toolbarApi = {
     };
   },
   popoutTerminal: () => ipcRenderer.invoke('antifan:terminal:popout'),
+  getDeviceStatus: (forceRefresh?: boolean) => ipcRenderer.invoke(CHANNELS.GET_DEVICE_STATUS, forceRefresh),
+  deviceOpenSafari: (options?: { url?: string }) => ipcRenderer.invoke(CHANNELS.DEVICE_OPEN_SAFARI, options),
+  deviceScreenshot: () => ipcRenderer.invoke(CHANNELS.DEVICE_SCREENSHOT),
+  onDeviceStatusChanged: (callback: (status: unknown) => void) => {
+    const handler = (_event: unknown, status: unknown) => callback(status);
+    ipcRenderer.on(CHANNELS.DEVICE_STATUS, handler);
+    return () => {
+      ipcRenderer.removeListener(CHANNELS.DEVICE_STATUS, handler);
+    };
+  },
 };
 
 try {

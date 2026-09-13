@@ -33,6 +33,18 @@ interface AntiFanTab {
   aliasColor?: string;
 }
 interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: Record<string, unknown>; error?: string; updatedAt: number; }
+interface ToolbarDeviceStatus {
+  connected: boolean;
+  name?: string;
+  model?: string;
+  osVersion?: string;
+  deviceId?: string;
+  connection?: string;
+  automationReady?: boolean;
+  wdaReady?: boolean;
+  detail?: string;
+  lastChecked?: number;
+}
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
   createTab: (url?: string) => Promise<string>;
@@ -102,6 +114,10 @@ interface AntiFanToolbarApi {
   onScreenshotCaptured?: (callback: () => void) => () => void;
   runThemeQa: (options?: { workspaceRoot?: string }) => Promise<{ ok: boolean; report?: any; error?: string }>;
   onThemeQaState: (callback: (state: ThemeQaState) => void) => () => void;
+  getDeviceStatus?: (forceRefresh?: boolean) => Promise<ToolbarDeviceStatus>;
+  deviceOpenSafari?: (options?: { url?: string }) => Promise<{ success: boolean; error?: string }>;
+  deviceScreenshot?: () => Promise<{ success: boolean; artifactId?: string; error?: string }>;
+  onDeviceStatusChanged?: (callback: (status: ToolbarDeviceStatus) => void) => () => void;
 }
 
 declare global {
@@ -226,6 +242,13 @@ const themeQaText = document.getElementById('themeQaText') as HTMLElement | null
 const themeQaOverlay = document.getElementById('themeQaOverlay') as HTMLElement | null;
 const themeQaClose = document.getElementById('themeQaClose') as HTMLButtonElement | null;
 const themeQaSummary = document.getElementById('themeQaSummary') as HTMLElement | null;
+const btnDeviceStatus = document.getElementById('btnDeviceStatus') as HTMLButtonElement | null;
+const deviceStatusText = document.getElementById('deviceStatusText') as HTMLElement | null;
+const deviceStatusOverlay = document.getElementById('deviceStatusOverlay') as HTMLElement | null;
+const deviceStatusBody = document.getElementById('deviceStatusBody') as HTMLElement | null;
+const deviceStatusClose = document.getElementById('deviceStatusClose') as HTMLButtonElement | null;
+const btnDeviceStatusRefresh = document.getElementById('btnDeviceStatusRefresh') as HTMLButtonElement | null;
+let lastDeviceStatus: ToolbarDeviceStatus | null = null;
 const btnFontFinder = document.getElementById('btnFontFinder') as HTMLButtonElement;
 const btnRuler = document.getElementById('btnRuler') as HTMLButtonElement;
 const btnCaptureFullPage = document.getElementById('btnCaptureFullPage') as HTMLButtonElement;
@@ -1165,6 +1188,135 @@ btnThemeQaRerun?.addEventListener('click', async () => {
 });
 themeQaClose?.addEventListener('click', () => { if (themeQaOverlay) themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); });
 themeQaOverlay?.addEventListener('click', (event) => { if (event.target === themeQaOverlay) { themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); } });
+
+function renderDeviceStatus(status: ToolbarDeviceStatus | null | undefined) {
+  if (!btnDeviceStatus || !deviceStatusText) return;
+  lastDeviceStatus = status || null;
+  if (!status || !status.connected) {
+    btnDeviceStatus.style.display = 'none';
+    btnDeviceStatus.classList.remove('device-wda-offline');
+    return;
+  }
+  btnDeviceStatus.style.display = 'inline-flex';
+  const shortModel = status.model?.replace(/iPhone(\d+),.*/, 'iPhone') || 'iPhone';
+  const displayName = status.model?.includes('14,5') ? 'iPhone 13' : (status.name || shortModel);
+
+  if (status.wdaReady) {
+    btnDeviceStatus.classList.remove('device-wda-offline');
+    btnDeviceStatus.title = `${displayName} Connected • iOS ${status.osVersion || ''} • WDA Ready`;
+    deviceStatusText.textContent = `${displayName} Connected`;
+  } else {
+    btnDeviceStatus.classList.add('device-wda-offline');
+    btnDeviceStatus.title = `${displayName} Connected • WDA Runner Idle (Click for info)`;
+    deviceStatusText.textContent = `${displayName} (WDA Idle)`;
+  }
+  renderDeviceModalContent(status);
+}
+
+function renderDeviceModalContent(status: ToolbarDeviceStatus | null) {
+  if (!deviceStatusBody) return;
+  if (!status || !status.connected) {
+    deviceStatusBody.innerHTML = `
+      <div style="text-align:center;padding:24px 0;color:#94a3b8;">
+        <div style="font-size:32px;margin-bottom:8px;">🔌</div>
+        <div>Không phát hiện thiết bị iPhone nào cắm qua USB.</div>
+        <div style="font-size:11px;margin-top:6px;color:#64748b;">Hãy cắm cáp USB và mở khóa màn hình iPhone.</div>
+      </div>
+    `;
+    return;
+  }
+  const is13 = status.model?.includes('14,5');
+  const friendlyModel = is13 ? 'iPhone 13 (A2633/iPhone14,5)' : (status.model || 'Apple iPhone');
+  const wdaBadge = status.wdaReady
+    ? '<span style="color:#4ade80;font-weight:600;">🟢 Sẵn sàng (Port 8100 bridged)</span>'
+    : '<span style="color:#eab308;font-weight:600;">🟡 Đang chờ chạy Runner (WDA Idle)</span>';
+
+  deviceStatusBody.innerHTML = `
+    <div style="margin-bottom:14px;">
+      <div class="device-card-row">
+        <span class="device-card-label">Tên thiết bị</span>
+        <span class="device-card-value">${status.name || "Admin's iPhone"}</span>
+      </div>
+      <div class="device-card-row">
+        <span class="device-card-label">Model phần cứng</span>
+        <span class="device-card-value">${friendlyModel}</span>
+      </div>
+      <div class="device-card-row">
+        <span class="device-card-label">Phiên bản iOS</span>
+        <span class="device-card-value">iOS ${status.osVersion || '26.5.2'}</span>
+      </div>
+      <div class="device-card-row">
+        <span class="device-card-label">Giao tiếp</span>
+        <span class="device-card-value">USB (usbmuxd tcp:27015)</span>
+      </div>
+      <div class="device-card-row">
+        <span class="device-card-label">Tự động hóa (WDA)</span>
+        <span class="device-card-value">${wdaBadge}</span>
+      </div>
+      <div class="device-card-row">
+        <span class="device-card-label">UDID</span>
+        <span class="device-card-value" style="font-size:11px;">${status.deviceId || 'N/A'}</span>
+      </div>
+    </div>
+    <div class="device-actions-grid">
+      <button class="btn-device-run-action primary" id="btnDeviceModalOpenSafari">
+        <span>🌐</span> Mở Safari iPhone
+      </button>
+      <button class="btn-device-run-action" id="btnDeviceModalScreenshot">
+        <span>📸</span> Chụp ảnh màn hình
+      </button>
+    </div>
+  `;
+
+  document.getElementById('btnDeviceModalOpenSafari')?.addEventListener('click', async () => {
+    showToolbarToast('Đang mở Safari trên iPhone 13...');
+    const res = await getApi()?.deviceOpenSafari?.();
+    if (res?.success) {
+      showToolbarToast('Đã mở trang trên Safari iPhone 13!');
+    } else {
+      showToolbarToast(`Lỗi mở Safari: ${res?.error || 'Unknown error'}`);
+    }
+  });
+
+  document.getElementById('btnDeviceModalScreenshot')?.addEventListener('click', async () => {
+    showToolbarToast('Đang chụp màn hình iPhone 13...');
+    const res = await getApi()?.deviceScreenshot?.();
+    if (res?.success) {
+      showToolbarToast(`Đã lưu ảnh màn hình (${res.artifactId || 'Artifact'})!`);
+    } else {
+      showToolbarToast(`Chụp ảnh thất bại: ${res?.error || 'Unknown error'}`);
+    }
+  });
+}
+
+function openDeviceStatusModal() {
+  if (!deviceStatusOverlay) return;
+  renderDeviceModalContent(lastDeviceStatus);
+  deviceStatusOverlay.style.display = 'flex';
+  getApi()?.setOverlay(true);
+}
+
+function closeDeviceStatusModal() {
+  if (!deviceStatusOverlay) return;
+  deviceStatusOverlay.style.display = 'none';
+  getApi()?.setOverlay(false);
+}
+
+if (btnDeviceStatus) {
+  btnDeviceStatus.addEventListener('click', () => {
+    openDeviceStatusModal();
+  });
+}
+btnDeviceStatusRefresh?.addEventListener('click', async () => {
+  showToolbarToast('Đang kiểm tra kết nối thiết bị...');
+  const res = await getApi()?.getDeviceStatus?.(true);
+  if (res) renderDeviceStatus(res);
+});
+deviceStatusClose?.addEventListener('click', () => closeDeviceStatusModal());
+deviceStatusOverlay?.addEventListener('click', (e) => {
+  if (e.target === deviceStatusOverlay) closeDeviceStatusModal();
+});
+
 if (btnQuickInspect) btnQuickInspect.addEventListener('click', () => getApi()?.toggleInspect());
 if (btnFontFinder) btnFontFinder.addEventListener('click', () => getApi()?.toggleFontFinder());
 if (btnRuler) btnRuler.addEventListener('click', () => getApi()?.toggleRuler());
@@ -2094,6 +2246,7 @@ async function initToolbar() {
       isLensActive = !!state.isLensActive;
       isRulerActive = !!state.isRulerActive;
       if (state.themeQa) renderThemeQa(state.themeQa);
+      if ('deviceStatus' in state) renderDeviceStatus(state.deviceStatus as ToolbarDeviceStatus);
       renderTabs();
       renderBookmarks();
       renderChromeProfiles();
@@ -2115,7 +2268,7 @@ async function initToolbar() {
       isLensActive = !!s.isLensActive;
       isRulerActive = !!s.isRulerActive;
       if (s.themeQa) renderThemeQa(s.themeQa as unknown as ThemeQaState);
-
+      if ('deviceStatus' in s) renderDeviceStatus(s.deviceStatus as ToolbarDeviceStatus);
       const newTabsSig = computeTabsSignature(currentTabs, activeTabId);
       if (newTabsSig !== lastTabsSignature) {
         renderTabs();
@@ -2286,6 +2439,20 @@ async function initToolbar() {
       closeWorkflowHub();
     }
   });
+  api.onDeviceStatusChanged?.((status) => {
+    renderDeviceStatus(status);
+  });
+
+  async function pollDeviceStatus() {
+    try {
+      const currentApi = getApi();
+      const dev = await currentApi?.getDeviceStatus?.();
+      if (dev) renderDeviceStatus(dev);
+    } catch {}
+  }
+  void pollDeviceStatus();
+  setInterval(pollDeviceStatus, 15000);
+  window.addEventListener('focus', () => void pollDeviceStatus());
 }
 
 if (document.readyState === 'loading') {

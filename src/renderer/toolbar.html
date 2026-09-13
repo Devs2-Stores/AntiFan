@@ -181,6 +181,12 @@
 
         <!-- Group 2: Inspection & Dev Tools -->
         <div class="toolbar-group toolbar-group-tools">
+          <button class="nav-btn btn-device-status" id="btnDeviceStatus" style="display:none;" title="iPhone 13 Connected">
+            <span class="device-status-dot"></span>
+            <span class="device-status-icon">📱</span>
+            <span class="device-status-text" id="deviceStatusText">iPhone 13 Connected</span>
+          </button>
+
           <button class="nav-btn btn-theme-qa" id="btnThemeQa" title="Run Theme QA Validation (Zero-Liquid & Responsive Overflow)">
             <span class="theme-qa-badge-icon">🛡️</span>
             <span class="theme-qa-badge-text" id="themeQaText">QA</span>
@@ -394,6 +400,24 @@
           </p>
           <div id="mobileRemoteQrContainer" class="mobile-remote-qr-box"></div>
           <div class="mobile-remote-urls" id="mobileRemoteUrlsList"></div>
+        </div>
+      </div>
+    </div>
+    <!-- REAL IPHONE DEVICE STATUS MODAL -->
+    <div class="device-status-overlay" id="deviceStatusOverlay" style="display:none;">
+      <div class="device-status-modal" role="dialog" aria-modal="true" aria-labelledby="deviceStatusModalTitle">
+        <div class="device-status-modal-header">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:18px;">📱</span>
+            <strong id="deviceStatusModalTitle">Apple iPhone Hardware</strong>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button id="btnDeviceStatusRefresh" class="btn-device-modal-action" title="Làm mới trạng thái">🔄 Làm mới</button>
+            <button class="shortcuts-close" id="deviceStatusClose" aria-label="Đóng">&times;</button>
+          </div>
+        </div>
+        <div class="device-status-modal-body" id="deviceStatusBody">
+          <div class="device-status-empty">Đang kiểm tra kết nối thiết bị...</div>
         </div>
       </div>
     </div>

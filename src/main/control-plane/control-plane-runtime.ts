@@ -313,6 +313,10 @@ export class ControlPlaneRuntime {
   getDevicePort(): DeviceControlPort | null {
     return this.devicePort;
   }
+
+  getDeviceManager(): DeviceRegistryPort | null {
+    return this.deviceManager;
+  }
   async validateThemeQa(target: BrowserTarget, options: { runId?: string; attemptId?: string; workspaceRoot?: string; multiBreakpoint?: boolean; signal?: AbortSignal } = {}): Promise<ThemeQaReport> {
     if (!this.themeQaWorkflow) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Browser control is not registered');
     return this.themeQaWorkflow.validate({
