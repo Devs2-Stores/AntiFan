@@ -218,12 +218,13 @@ reaches a port the device already exposes, which is what a running runner provid
 ### First-run runbook (Windows, real hardware)
 
 1. **Confirm the USB stack** — run `npm run probe:device` and read `usb_presence` first: it reports what
-   Windows itself sees (the Apple USB composite device and its serial). Then `sc query
-   AppleMobileDeviceService` must report `RUNNING`. `FAILED 1060` while `usb_presence` passes means Apple
-   Mobile Device Support is missing — install the standalone (non-Microsoft-Store) iTunes for Windows or
-   the Apple Devices app. In that state the probe names the missing driver rather than blaming the phone.
-   If `usb_presence` itself fails, fix the cable, the port or the *Trust This Computer* prompt before
-   installing anything.
+   Windows itself sees (the Apple USB composite device and its serial). Then trust `host_service` for
+   usbmuxd: a `FAILED 1060` from `sc query AppleMobileDeviceService` is **not** proof that support is
+   missing, because this workstation has no such service and still serves usbmuxd from the Store iTunes
+   (`AppleMobileDeviceProcess.exe` on the port). Real absence looks like `usb_presence` passing while
+   nothing answers the port, and either installer flavour restores it (see the host traps for which one
+   signing tools expect). If `usb_presence` itself fails, fix the cable, the port or the *Trust This
+   Computer* prompt before installing anything.
 2. **On-device prerequisites** — unlock the phone, tap *Trust This Computer*, enable
    Settings → Privacy & Security → Developer Mode, and Settings → Developer → Enable UI Automation.
 3. **Start WebDriverAgent on the phone** — this is the one step that cannot be done from this host, and
@@ -298,14 +299,16 @@ address or a tunnel URL is only needed once an explicit transport is configured.
   go-ios, `iproxy` and the libimobiledevice guides assume, and the pairing record under
   `C:\ProgramData\Apple\Lockdown` is shared between flavours, so the device returns after a re-trust and
   a tunnel restart.
-- **This machine's root store contains no Apple roots at all** (285 trusted roots, none issued by Apple),
-  so `gs.apple.com` fails TLS verification with `SELF_SIGNED_CERT_IN_CHAIN`. That endpoint is Apple's TSS,
-  which `ios image auto` needs in order to mount the developer image, and the same class of failure
-  affects any tool that signs through Apple's servers. Both of Apple's published roots — `CN=Apple Root CA`
-  (`AppleIncRootCertificate.cer`, SHA-256 `B0:B1:73:0E:…:F0:24`) and `CN=Apple Root CA - G3`
-  (SHA-256 `63:34:3A:BF:…:91:79`) — were installed into the **CurrentUser** store on 2026-09-13 without
-  Administrator rights, after which `gs.apple.com` verifies and `ios image auto` signs and mounts the
-  developer image successfully. Remove them with `certutil -user -delstore Root <thumbprint>`; reinstall
+- **The machine had no Apple roots at all until 2026-09-13** (285 trusted roots, none issued by Apple),
+  which made `gs.apple.com` fail TLS verification with `SELF_SIGNED_CERT_IN_CHAIN`. That endpoint is
+  Apple's TSS, which `ios image auto` needs in order to mount the developer image, and the same class of
+  failure affects any tool that signs through Apple's servers. Both of Apple's published roots —
+  `CN=Apple Root CA` (`AppleIncRootCertificate.cer`, SHA-256 `B0:B1:73:0E:…:F0:24`, byte-identical to the
+  anchor `gs.apple.com` serves, so this was a missing anchor and never an interception) and
+  `CN=Apple Root CA - G3` (SHA-256 `63:34:3A:BF:…:91:79`) — were installed into the **CurrentUser** store
+  on 2026-09-13 without Administrator rights, after which `gs.apple.com` verifies and `ios image auto`
+  signs and mounts the developer image successfully. Do not re-diagnose this: if verification fails
+  again, check the store first. Remove them with `certutil -user -delstore Root <thumbprint>`; reinstall
   from `https://www.apple.com/certificateauthority/` if the store is ever rebuilt.
 - **A free-Apple-ID signature lasts roughly seven days.** Fine for one verification run; a durable setup
   needs a paid identity or a periodic re-sign, otherwise the runner silently stops launching and the
