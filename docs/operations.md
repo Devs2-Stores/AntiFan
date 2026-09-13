@@ -313,6 +313,18 @@ needs it. The harnesses used for these measurements are untracked local scratch 
 
 ### Known host traps (measured on this workstation)
 
+- **Installing 3uTools (9.08.006, tested 2026-09-13) tears down the usbmuxd path that it also needs.**
+  The elevated installer stopped Apple's user-mode stack: the `Apple Mobile Device USB Device` node
+  disappeared from `Win32_PnPSignedDriver`, `AppleMobileDeviceProcess.exe` was gone and nothing listened
+  on `tcp 27015`, so `ios list` failed with `actively refused`. Launching the Store iTunes again restored
+  everything — AMDS process back on 27015, both Apple nodes bound to `oem44.inf` v538.0.0.0 exactly as
+  before. After any 3uTools install or update, relaunch iTunes and re-check `ios list` before believing a
+  device failure is the cable or the phone.
+- **A free-Apple-ID signer that does not require iCloud.** 3u's own documentation for the IPA Signature
+  feature says it accepts an ordinary Apple ID (7-day certificate) or an imported P12 (1 year), and needs
+  only Apple's mobile device drivers — no iCloud login on the PC. That is what makes it worth testing
+  here: Sideloadly and AltStore both document the web (non-Store) iTunes *and* iCloud as prerequisites,
+  and this machine has neither.
 - **Explorer shows the iPhone, yet no tool can reach it.** Windows' inbox MTP/WPD stack is what makes the
   phone appear in Explorer; the usbmux interface only gets a device node once Apple's driver package is
   installed (here `oem44.inf` binds the composite and the `Apple Mobile Device USB Device` node). Before
