@@ -220,10 +220,14 @@ export class IndependentHtmlCloneGenerator {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title.replace(/</g, '&lt;')}</title>
-  <style id="antifan-clone-base">
+  <style>
     *, *::before, *::after { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; max-width: 100vw; overflow-x: hidden; }
+    body { margin: 0; padding: 0; }
     img { max-width: 100%; height: auto; }
+  </style>
+${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}  <style id="antifan-clone-parity">
+    /* Global responsive safety */
+    html, body { max-width: 100vw !important; overflow-x: hidden !important; }
     /* Unhydrated modals & popups parity locks */
     #popup-login:not(.active), #popup-video:not(.active), .popup:not(.active), .modal:not(.active) {
       display: none !important;
@@ -262,7 +266,7 @@ export class IndependentHtmlCloneGenerator {
       .notice-cart.active { display: flex !important; right: 12px !important; max-width: calc(100vw - 24px) !important; }
     }
   </style>
-${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}</head>
+</head>
 <body${ir.bodyAttributes || ''}>
 ${headerHtmls.join('\n')}
 <main>
