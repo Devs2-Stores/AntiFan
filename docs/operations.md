@@ -223,12 +223,24 @@ RemoteXPC tunnel: it reaches a port the device already exposes, which is what a 
    - **With a Mac (any, borrowed is fine)**: open the WebDriverAgent project in Xcode, select the device,
      Run. Once it reports "listening on port 8100" the phone side is done — this host needs nothing
      installed, because the adapter bridges that port over usbmux itself.
-   - **Windows-only**: sign and install a WDA runner (Sideloadly/AltStore with a free Apple ID), then
-     install go-ios (`npm i -g go-ios`), copy `wintun.dll` into `C:\Windows\system32` as Administrator,
-     `ios tunnel start`, and run the runner. Heavier, needs admin, and tunnel support for the newest iOS
-     releases varies — check the current go-ios / `appium-ios-remotexpc` docs rather than a copied snippet.
+   - **Windows-only (verified on this host, iOS 26.5.2, no Administrator and no wintun.dll)**:
+     1. `npm i -g go-ios` (verified with 1.3.2 — it sees the device through usbmuxd).
+     2. `ios tunnel start --userspace` — the userspace tunnel needs neither `wintun.dll` nor elevation;
+        it negotiates over the existing usbmux connection and exposes the full RSD service list
+        (`ios rsd ls`). The README's `wintun.dll`/`sudo` advice applies to the kernel tunnel mode.
+     3. Developer Mode must be ON: `ios devmode get`. With a passcode set, iOS refuses the remote
+        enable and the toggle has to be flipped on the device (Settings → Privacy & Security →
+        Developer Mode → on → restart → confirm). `ios devmode enable` still reveals the menu.
+     4. `ios ui download wda` fetches an unsigned WebDriverAgentRunner (13.2.0 verified) and prints
+        the `.app` path. Sign it with your own identity and install:
+        `ios ui install wda --p12file=<p12> --profile=<mobileprovision>` (or `ios sign app --path=<app>
+        --p12file=<p12> --profile=<mobileprovision> --install`), or sign it outside go-ios
+        (Sideloadly/AltStore with a free Apple ID) and `ios install --path=<ipa>`.
+     5. `ios runwda --bundleid=com.facebook.WebDriverAgentRunner.xctrunner
+        --testrunnerbundleid=com.facebook.WebDriverAgentRunner.xctrunner`, then confirm the port with
+        `npm run probe:device -- --forward 8100`.
 
-   Confirm the port is open before going further: `npm run probe:device -- --forward 8100`. When no runner
+   When no runner
    is listening, usbmuxd answers the connection and then refuses the port, and the probe reports exactly
    that instead of a generic timeout.
 4. **Run the hardware probe**:
@@ -248,3 +260,10 @@ RemoteXPC tunnel: it reaches a port the device already exposes, which is what a 
 
 A phone's `localhost` is its own loopback, not this workstation's, and there is no reverse-USB tunnel
 for localhost in this milestone: use a forwarded port, a LAN address, or a tunnel URL.
+
+### Path to the deferred inspection milestone
+
+The forwarding facts above do not depend on Appium, and neither does inspection: go-ios 1.3.2 ships
+`webinspector list|cdp|eval|js-shell|launch`, which bridges Safari's Remote Automation to CDP over the
+same tunnel. That is a concrete vendor path for the `webInspector` / `remoteAutomation` gates that
+currently report `unknown`, and it is why those gates were left tri-state instead of hard-coded false.

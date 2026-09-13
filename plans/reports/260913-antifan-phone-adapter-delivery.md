@@ -131,9 +131,15 @@ one step that cannot be performed from this host:
 
 - **A Mac (any, borrowed is fine)** — open WebDriverAgent in Xcode, select the device, Run. Nothing needs
   installing here: the adapter bridges port 8100 over usbmux on its own.
-- **Windows-only** — sign and install a runner (Sideloadly/AltStore with a free Apple ID) and launch it
-  through a tunnel (`npm i -g go-ios`, `wintun.dll` in `C:\Windows\system32` as Administrator,
-  `ios tunnel start`). Heavier, needs admin, and support for the newest iOS releases varies by tool.
+- **Windows-only (verified on this host, no Administrator and no `wintun.dll`)** — go-ios 1.3.2 sees the
+  device, and `ios tunnel start --userspace` negotiates over usbmux and exposes the full RSD service list,
+  so the kernel-tunnel `wintun.dll` advice does not apply. `ios ui download wda` fetched an unsigned
+  WebDriverAgentRunner 13.2.0. The two remaining inputs are on the device side: Developer Mode is
+  `false` and, with a passcode set, iOS refuses a remote enable, so the toggle must be flipped in
+  Settings (the menu is already revealed); and the runner needs signing assets (a P12 + mobileprovision,
+  an App Store Connect key for `sign provision appstoreconnect`, or an external signer such as
+  Sideloadly/AltStore). After that: `ios runwda --bundleid=com.facebook.WebDriverAgentRunner.xctrunner`
+  and `npm run probe:device -- --forward 8100`.
 
 Either way the host side needs no further work: `npm run probe:device -- --forward 8100` confirms the port,
 and the adapter's own fallback bridges it without `iproxy` or `go-ios forward`. The step-by-step runbook is
