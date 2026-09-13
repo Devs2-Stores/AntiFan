@@ -273,6 +273,15 @@ async function run() {
     enumeration
   );
 
+  // State which of the three host states this run proves: a green run otherwise reads as if it covered
+  // the attached-device path too, and the checks it ran are the only evidence for that branch.
+  const hostState = !enumeration.ok
+    ? 'transport unreachable'
+    : enumeration.count === 0
+      ? 'transport up, no device attached (the attached-device branch is NOT covered by this run)'
+      : `${enumeration.count} device(s) attached`;
+  console.log(`[7] host state under test: ${hostState}`);
+
   const bareStatus = await bareCall('device.status');
   if (!enumeration.ok) {
     // Host without a working USB stack: the diagnostic capabilities must still answer, and the answer
