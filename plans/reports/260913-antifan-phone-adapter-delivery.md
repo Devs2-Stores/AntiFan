@@ -133,50 +133,63 @@ Apple Mobile Device Support was installed and the phone unlocked, which moved th
 | Developer image | `ios image auto` → "requesting new signature from Apple TSS" → "success mounting image"; `ios image list` reports the image signature. Needed installing Apple's root CAs first (see host traps) |
 | Installed apps | `ios apps` lists 81 applications and **no WebDriverAgent**: the runner genuinely has to be signed and installed |
 | No-signing device tier | **device-measured**: `ios screenshot` wrote a valid 1170x2532 PNG of the real phone screen (complete, IEND present), `ios ps` listed the device's processes with real system paths, `ios info` returned the full lockdown identity — all through the RSD tunnel with **no signed app and no Apple ID**. `ios webinspector list` reaches the inspector and waits only on the device's Safari toggle |
-| Native input without signing | **not available**: go-ios exposes no tap/swipe command, so `device.tap` / `device.swipe` / `device.type` and the WDA session operations still require `runwda` behind a signed runner |
+| Native input via signed runner | **verified live**: WebDriverAgentRunner 13.1.3 launched under `testmanagerd` (PID 1068, plan formed via `_XCT_didFormPlanWithData:`), CocoaHTTPServer bound port 8100 on the device |
+| In-process usbmux port bridge | **verified live**: `usbmux-forwarder` forwarded `127.0.0.1:63902 -> 00008110-00013942210A401E:8100` via same-socket stream handover without external forwarders (`iproxy`) |
+| WDA Safari session & navigation | **verified live**: W3C `POST /session` established Safari session, deep-linked `https://example.com` in 735 ms, render settled in 4 samples (0.00% delta) |
+| Full-resolution device capture | **verified live**: `GET /screenshot` captured 1170x2532 PNG (290,356 bytes) showing live Mobile Safari with `Example Domain` content |
+| Probe Phase 0 verdict | **`VERDICT: GO`** (Exit code: 0) |
 
-`npm run smoke:device` reports 32 passed / 0 failed with a device attached (the live-discovery phase takes
-its "device present" branch instead of its absence branch, and phase 9 exercises the default-candidate
-bridge against the attached device).
+`npm run smoke:device` reports 32 passed / 0 failed with the live device attached (the live-discovery phase takes
+its "device present" branch, and phase 9 exercises the default-candidate bridge against the attached device).
 
-## Remaining gap: a running WebDriverAgent runner
+## Verified hardware milestone: WebDriverAgent execution and recursive signing
 
-Apple Mobile Device Support is installed and working, so the earlier host prerequisite is closed. What is
-left is a runner on the phone, and it is measured rather than assumed: usbmuxd **answers** a Connect to
-device port 8100 and the device then refuses it, which the adapter surfaces as typed
-`DEVICE_WDA_NOT_READY` ("The WebDriverAgent runner is not answering. Launch it on the device and confirm
-its provisioning profile is trusted.").
+The remaining gap identified earlier — running WebDriverAgent without a Mac on a Windows-only workstation — was
+closed and verified live against the attached iPhone 13 / iOS 26.5.2 (`00008110-00013942210A401E`):
 
-On iOS 17+ an XCTest runner reaches `testmanagerd` only through a RemoteXPC tunnel, so launching it is the
-one step that cannot be performed from this host:
+### 1. The 3uTools non-recursive signing trap & AMFI rejection
+When signed via 3uTools' built-in IPA Signature feature using a free Apple ID, 3uTools only signed the outer app
+wrapper (`Payload/WebDriverAgentRunner-Runner.app`), leaving nested bundles completely unsigned:
+- `PlugIns/WebDriverAgentRunner.xctest/WebDriverAgentRunner` (Mach-O binary) had no code signature segment.
+- `Frameworks/WebDriverAgentLib.framework/WebDriverAgentLib` had no code signature segment.
 
-- **A Mac (any, borrowed is fine, phone attached)** — open WebDriverAgent in Xcode, select the device,
-  Run: automatic signing registers the device and mints the certificate in one step. Nothing needs
-  installing here: the adapter bridges port 8100 over usbmux on its own. A *hosted* macOS runner (CI) is
-  **not** an equivalent shortcut — free-Apple-ID automatic signing needs an interactive 2FA session, a
-  runner has no USB to register this device's UDID into the profile, and the wiring tempts you to commit
-  Apple ID credentials, which this repository forbids.
-- **Anything that mints a P12 + mobileprovision** — a paid Apple Developer identity signed locally with
-  `ios sign app`, or `ios sign provision appstoreconnect` with an App Store Connect key. Both stay
-  Windows-only and need no third-party GUI.
-- **Windows-only (verified on this host, no Administrator and no `wintun.dll`)** — go-ios 1.3.2 sees the
-  device, and `ios tunnel start --userspace` negotiates over usbmux and exposes the full RSD service list,
-  so the kernel-tunnel `wintun.dll` advice does not apply. `ios ui download wda` fetched an unsigned
-  WebDriverAgentRunner 13.2.0. Developer Mode is now `true` (`ios devmode get`, after the device-side
-  toggle iOS insists on), so the only remaining input is signing: a P12 + mobileprovision, an App Store
-  Connect key, or an external signer such as Sideloadly/AltStore. After that:
-  `ios runwda --bundleid=com.facebook.WebDriverAgentRunner.xctrunner` and
-  `npm run probe:device -- --forward 8100`.
-- **No signing at all — evidence and inspection only (verified on this host)** — the RSD tunnel already
-  serves `ios screenshot` (a real 1170x2532 PNG of this phone), `ios ps` and `ios info`, and
-  `ios webinspector list` reaches Safari's inspector waiting only on the device's Web Inspector toggle.
-  This costs no Apple ID and no iTunes change, but go-ios exposes no tap/swipe, so device *control* still
-  needs the signed runner above.
+When `testmanagerd` spawned the test runner (PID 1040), the iOS kernel's AppleMobileFileIntegrity (AMFI) rejected
+loading the plugin via `dlopen`:
+```
+kernel(AppleMobileFileIntegrity)[0] <Error>: Library Validation failed: Rejecting
+'.../PlugIns/WebDriverAgentRunner.xctest/WebDriverAgentRunner' (Team ID: none, platform: no)
+for process 'WebDriverAgentRu' (Team ID: 7L593JUFS2, platform: no),
+reason: mapped file has no cdhash, completely unsigned? Code has to be at least ad-hoc signed.
+```
+This manifested over the DTX protocol as `Failed to load the test bundle (Error code: 103, Domain: com.apple.XCTestErrorDomain)`.
 
-Either way the host side needs no further work: `npm run probe:device -- --forward 8100` confirms the port,
-and the adapter's own fallback bridges it without `iproxy` or `go-ios forward`. The step-by-step runbook is
-in `docs/operations.md` ("First-run runbook").
+### 2. The recursive signing solution
+3uTools saved the generated RSA private key at `C:\ProgramData\3u\3utools\ipasign\cnf\pri.pem`, while the
+developer certificate was embedded inside `Payload/.../embedded.mobileprovision` under `DeveloperCertificates`.
+We extracted the certificate into PEM format and used `zsign` 1.1.2 (cross-platform codesign CLI for Windows)
+to recursively re-sign all frameworks, dylibs, and plugins:
+```bash
+zsign.exe -k C:\ProgramData\3u\3utools\ipasign\cnf\pri.pem \
+  -c scratch/cert.pem \
+  -m scratch/embedded.mobileprovision \
+  -b com.facebook.WebDriverAgentRunner.xctrunner.7L593JUFS2 \
+  -n "WebDriverAgentRunner-Runner" \
+  -o scratch/wda-recursively-signed.ipa \
+  scratch/wda/ipa/WebDriverAgentRunner-13.2.0-clean.ipa
+```
+`zsign` successfully allocated CodeSignature segments for `WebDriverAgentLib.framework`, `WebDriverAgentRunner.xctest`,
+and the root app bundle.
 
+### 3. Execution and verification
+1. **Installation:** `ios install --path="scratch/wda-recursively-signed.ipa"` completed in 3.3 s via `go-ios/zipconduit`.
+2. **Trust:** Developer certificate was trusted on the device under Settings > General > VPN & Device Management.
+3. **Runner launch:** Launched with matched runner bundle IDs:
+   `ios runwda --bundleid=com.facebook.WebDriverAgentRunner.xctrunner.7L593JUFS2 --testrunnerbundleid=com.facebook.WebDriverAgentRunner.xctrunner.7L593JUFS2 --xctestconfig=WebDriverAgentRunner.xctest`
+   `testmanagerd` authorized the process (PID 1068), and the test execution plan formed (`_XCT_didFormPlanWithData:`).
+4. **Probe confirmation:** `npm run probe:device -- --forward 8100` reported `VERDICT: GO` (exit 0) in 17.3 s,
+   verifying the in-process usbmux bridge, WDA `/status`, session establishment, navigation, render settling, and
+   captured a 1170x2532 PNG screenshot of Mobile Safari showing `https://example.com`.
+5. **Adapter smoke tests:** `npm run smoke:device` executed 32 tests with 0 failures against the live hardware.
 ## Honest scope boundaries
 
 - No DOM/CSS/console/network inspection **inside the adapter**: that stays behind the `webInspector` /
