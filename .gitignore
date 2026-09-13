@@ -51,3 +51,7 @@ plans/reports/haravan-live-store-fixture.json
 
 # Bản pull theme Haravan theo ngày (12 MB, không commit)
 /15092026/
+
+# go-ios artifacts (developer image ~1 GB; selfIdentity.plist is this host's pairing identity)
+/devimages/
+/selfIdentity.plist
