@@ -119,6 +119,10 @@ Apple Mobile Device Support was installed and the phone unlocked, which moved th
 | Pairing | trusted — privileged keys answer `GetProhibited` (needs a paired `StartSession`), not `PairingRequired` |
 | Adapter transport fallback | with no candidate answering, the adapter bridged device port 8100 over usbmux itself — **no `iproxy`/`go-ios` involved** |
 | Runner gate | **device-measured**: usbmuxd answered the Connect to port 8100 and the device refused it, surfaced as typed `DEVICE_WDA_NOT_READY` ("The WebDriverAgent runner is not answering") — i.e. no runner is running, which is now the only remaining gap |
+| Developer Mode | `ios devmode get` → `DeveloperModeEnabled: true`, after the device-side toggle and restart that iOS requires when a passcode is set |
+| iOS 17+ tunnel | `ios tunnel start --userspace` → `{"userspaceTun":true,"rsdPort":54932}` and `ios rsd ls` lists the full RSD service set — **no `wintun.dll`, no Administrator** |
+| Developer image | `ios image auto` → "requesting new signature from Apple TSS" → "success mounting image"; `ios image list` reports the image signature. Needed installing Apple's root CAs first (see host traps) |
+| Installed apps | `ios apps` lists 81 applications and **no WebDriverAgent**: the runner genuinely has to be signed and installed |
 
 `npm run smoke:device` reports 31 passed / 0 failed with a device attached (the live-discovery phase takes
 its "device present" branch instead of its absence branch).

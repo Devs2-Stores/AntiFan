@@ -276,10 +276,12 @@ for localhost in this milestone: use a forwarded port, a LAN address, or a tunne
 - **This machine's root store contains no Apple roots at all** (285 trusted roots, none issued by Apple),
   so `gs.apple.com` fails TLS verification with `SELF_SIGNED_CERT_IN_CHAIN`. That endpoint is Apple's TSS,
   which `ios image auto` needs in order to mount the developer image, and the same class of failure
-  affects any tool that signs through Apple's servers. Apple publishes the certificate at
-  `https://www.apple.com/appleca/AppleIncRootCertificate.cer` (`CN=Apple Root CA`, self-signed); installing
-  it is a trust decision for the operator — the user-store form needs no Administrator and is reversible
-  with `certutil -user -delstore Root <thumbprint>`.
+  affects any tool that signs through Apple's servers. Both of Apple's published roots — `CN=Apple Root CA`
+  (`AppleIncRootCertificate.cer`, SHA-256 `B0:B1:73:0E:…:F0:24`) and `CN=Apple Root CA - G3`
+  (SHA-256 `63:34:3A:BF:…:91:79`) — were installed into the **CurrentUser** store on 2026-09-13 without
+  Administrator rights, after which `gs.apple.com` verifies and `ios image auto` signs and mounts the
+  developer image successfully. Remove them with `certutil -user -delstore Root <thumbprint>`; reinstall
+  from `https://www.apple.com/certificateauthority/` if the store is ever rebuilt.
 - **A free-Apple-ID signature lasts roughly seven days.** Fine for one verification run; a durable setup
   needs a paid identity or a periodic re-sign, otherwise the runner silently stops launching and the
   failure looks like a broken adapter.
