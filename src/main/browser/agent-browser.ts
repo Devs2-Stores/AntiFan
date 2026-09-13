@@ -729,7 +729,7 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     };
   };
 
-  window.__antifanAgentClick = (selector, x, y, label) => {
+  window.__antifanAgentClick = (selector, x, y, label, dispatchInput = true) => {
     let targetX = x;
     let targetY = y;
     let targetEl = null;
@@ -759,6 +759,13 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
       
       setTimeout(() => {
         createClickRipple(targetX, targetY);
+        // The visual affordance always renders. The input dispatch is opt-out
+        // because the trusted path already delivers a real CDP click at exactly
+        // these coordinates: replaying a synthetic click here would make every
+        // agent click land twice (two add-to-cart items, two form submits), and
+        // it re-resolves the point through elementFromPoint, which is the
+        // covering element whenever a sticky bar sits over the target.
+        if (!dispatchInput) return;
         if (targetEl) {
           if (typeof targetEl.focus === 'function') targetEl.focus();
           targetEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: targetX, clientY: targetY }));

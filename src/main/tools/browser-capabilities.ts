@@ -413,8 +413,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentMove(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentMove(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -423,8 +423,86 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
+  });
+
+  catalogue.register({
+    name: 'browser.agent-drag',
+    description: 'Drag an element or coordinate to another with a bounded interpolated pointer gesture (price sliders, range handles, drag-to-reorder)',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromRef: { type: 'string', description: 'Origin semantic ref (@e1) from a snapshot' },
+        fromSelector: { type: 'string', description: 'Origin CSS selector (unused when fromRef or fromX/fromY is given)' },
+        fromX: { type: 'number' },
+        fromY: { type: 'number' },
+        toRef: { type: 'string', description: 'Destination semantic ref (@e1)' },
+        toSelector: { type: 'string', description: 'Destination CSS selector' },
+        toX: { type: 'number' },
+        toY: { type: 'number' },
+        steps: { type: 'number', description: 'Interpolated pointer-move steps, clamped to 4..20 (default 10)' },
+        force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered target' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: {
+      fromRef?: string;
+      fromSelector?: string;
+      fromX?: number;
+      fromY?: number;
+      toRef?: string;
+      toSelector?: string;
+      toX?: number;
+      toY?: number;
+      steps?: number;
+      force?: boolean;
+      tabId?: string;
+      paneId?: 'desktop' | 'mobile';
+    }, context) => browser.agentDrag(params, context.browserTarget, context.signal),
+  });
+
+  catalogue.register({
+    name: 'anti.agent.drag',
+    description: 'Alias for browser.agent-drag',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromRef: { type: 'string' },
+        fromSelector: { type: 'string' },
+        fromX: { type: 'number' },
+        fromY: { type: 'number' },
+        toRef: { type: 'string' },
+        toSelector: { type: 'string' },
+        toX: { type: 'number' },
+        toY: { type: 'number' },
+        steps: { type: 'number' },
+        force: { type: 'boolean' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: {
+      fromRef?: string;
+      fromSelector?: string;
+      fromX?: number;
+      fromY?: number;
+      toRef?: string;
+      toSelector?: string;
+      toX?: number;
+      toY?: number;
+      steps?: number;
+      force?: boolean;
+      tabId?: string;
+      paneId?: 'desktop' | 'mobile';
+    }, context) => browser.agentDrag(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -433,8 +511,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
+    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -463,8 +541,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1031,8 +1109,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1041,8 +1119,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
+    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1141,8 +1219,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1792,8 +1870,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1802,8 +1880,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
+    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1812,8 +1890,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1822,8 +1900,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({

@@ -20,6 +20,7 @@ import * as zlib from 'node:zlib';
 import type { MetricSample, VisualEvidenceReceipt } from './verification-contract';
 import type { RouteRefusalCode as SharedRouteRefusalCode } from '../../shared/control-plane-contracts';
 import type { GroupStructuralMetrics } from './visual-region';
+import type { ScrollPrewarmReceipt } from './scroll-prewarm';
 
 export interface RasterBox {
   x: number;
@@ -881,6 +882,14 @@ export interface VerificationCaptureEnvelope {
   expectationMarker?: 'URL_EXPECTATION_MISSING';
   missingExpectation?: boolean;
   routeAssertion?: RouteAssertionResult;
+  /**
+   * Full-page scroll pre-warm receipt. Present only for full-page captures;
+   * `stoppedReason` and `infiniteScrollSuspected` say whether the document was
+   * fully materialized or a growth ceiling stopped the walk before the raster.
+   */
+  prewarm?: ScrollPrewarmReceipt;
+  /** Set when the pre-warm walk could not complete; the capture itself still ran. */
+  prewarmError?: string;
 }
 
 /**
@@ -900,6 +909,15 @@ export interface VerificationCaptureReceipt {
   expectationMarker?: 'URL_EXPECTATION_MISSING';
   missingExpectation?: boolean;
   routeAssertion?: RouteAssertionResult;
+  /**
+   * Full-page scroll pre-warm outcome, projected like `viewportTransaction` so
+   * the result metadata names it: without this a caller cannot tell whether the
+   * walk ran, was skipped, hit the height ceiling, or suspected infinite scroll
+   * — and a capture that rasterized a fraction of the document would look
+   * identical to a complete one.
+   */
+  prewarm?: ScrollPrewarmReceipt;
+  prewarmError?: string;
 }
 
 export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): VerificationCaptureReceipt {
@@ -917,6 +935,8 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     ...(env.expectationMarker ? { expectationMarker: env.expectationMarker } : {}),
     ...(env.missingExpectation ? { missingExpectation: env.missingExpectation } : {}),
     ...(env.routeAssertion ? { routeAssertion: env.routeAssertion } : {}),
+    ...(env.prewarm ? { prewarm: env.prewarm } : {}),
+    ...(env.prewarmError ? { prewarmError: env.prewarmError } : {}),
   };
 }
 

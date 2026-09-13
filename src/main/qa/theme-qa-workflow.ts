@@ -105,6 +105,17 @@ export interface QaMatrixReport {
     mobile: QaMatrixViewportItem;
   };
 }
+/**
+ * How the ephemeral tracker-isolation window ended. `released: false` while
+ * `opened: true` means the user's tab is still running with vendor origins
+ * blocked and the release must be retried.
+ */
+export interface TrackerIsolationOutcome {
+  opened: boolean;
+  released: boolean;
+  reason?: string;
+}
+
 export interface ThemeQaReport {
   runId: string;
   attemptId: string;
@@ -116,6 +127,7 @@ export interface ThemeQaReport {
   artifacts: ArtifactRef[];
   qaMatrix?: QaMatrixReport;
   settleReceipt?: VisualSettleReceipt;
+  trackerIsolation?: TrackerIsolationOutcome;
   createdAt: number;
 }
 export interface ThemeQaWorkflowPorts {
@@ -123,6 +135,24 @@ export interface ThemeQaWorkflowPorts {
   artifacts: ArtifactStore;
   reload: (target: BrowserTarget) => Promise<{ reloaded: boolean; target: BrowserTarget }> | { reloaded: boolean; target: BrowserTarget };
   transactionRegistry?: ThemeTransactionRegistry;
+  /**
+   * Ephemeral third-party tracker isolation. Called with `true` before the
+   * QA reload and `false` once the settle barrier has returned, so the block
+   * window covers exactly the load-to-quiescence phase.
+   *
+   * This is a determinism measure, not a network remedy: the settle gate's
+   * network counter only tracks first-party critical resources (same-origin or
+   * theme-asset document/stylesheet/script/font) and explicitly excludes
+   * analytics hosts, so blocking beacons cannot turn a `network=false` gate
+   * settled. What it removes is third-party DOM noise — popups and widgets that
+   * mutate the document mid-settle — and the `ReferenceError` a blocked tag
+   * script would otherwise throw in the page under test.
+   *
+   * The pane is passed explicitly so isolation is applied to the same pane the
+   * settle barrier measures. Optional: a host without it runs the workflow
+   * unchanged, it just tolerates the third-party noise.
+   */
+  trackerIsolation?: (target: BrowserTarget, active: boolean, paneId: 'desktop' | 'mobile') => Promise<{ active: boolean; reason?: string }>;
 }
 
 /**
@@ -193,6 +223,59 @@ const VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT = 10;
 
 export class ThemeQaWorkflow {
   constructor(private readonly ports: ThemeQaWorkflowPorts) {}
+
+  /**
+   * Runs `body` with ephemeral tracker isolation applied to `target`, releasing
+   * it in a `finally` so no failure path — including a `SETTLE_INCOMPLETE`
+   * refusal — can leave the tab with a blocklist applied. A host without the
+   * port runs `body` unchanged; an isolation that fails to open is routed
+   * through the target-lifecycle channel and the body still runs, because QA
+   * must never become less able to run than it was without the port.
+   *
+   * The release result is returned, not discarded: a failed release leaves the
+   * user's tab with analytics blocked, and that is the one outcome that must not
+   * disappear silently.
+   */
+  private async withTrackerIsolation<T>(
+    target: BrowserTarget,
+    body: () => Promise<T>
+  ): Promise<{ result: T; isolation?: TrackerIsolationOutcome }> {
+    const port = this.ports.trackerIsolation;
+    if (!port) return { result: await body() };
+
+    let opened = false;
+    let outcome: TrackerIsolationOutcome | undefined;
+    try {
+      const receipt = await port(target, true, 'desktop');
+      opened = receipt?.active === true;
+      outcome = { opened, released: !opened, reason: receipt?.reason };
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
+    }
+
+    try {
+      return { result: await body(), isolation: outcome };
+    } finally {
+      if (opened && outcome) {
+        try {
+          const release = await port(target, false, 'desktop');
+          // `active: true` on release means the blocklist could not be lifted.
+          outcome.released = release?.active !== true;
+          outcome.reason = release?.reason;
+          if (!outcome.released) {
+            // A release that fails leaves analytics blocked on the user's tab, and
+            // a report field alone is not loud enough for that: it is the one
+            // outcome of this window that must be visible in the app log too.
+            console.warn(
+              `[theme-qa] Tracker isolation could not be released on tab '${target.tabId}': ${outcome.reason || 'unknown reason'}`
+            );
+          }
+        } catch (error) {
+          rethrowTargetLifecycleError(error);
+        }
+      }
+    }
+  }
   async inspect(input: { runId: string; attemptId: string; workspaceRoot: string; target: BrowserTarget; selector?: string }): Promise<{ dom: ArtifactRef | string; screenshot: EvidenceCaptureEnvelope }> {
     this.assertOwnership(input.target);
     const dom = await this.ports.browser.dom(input.target, input.runId, input.attemptId, input.selector);
@@ -365,14 +448,62 @@ export class ThemeQaWorkflow {
     }
 
     // Stage 2: Reload to reach load-complete document
-    const reload = await this.ports.reload(input.target);
-    if (input.signal?.aborted) {
-      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
-    }
-    if (!reload || !reload.reloaded || !reload.target) {
-      throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not reach a load-complete document');
-    }
-    const activeTarget = reload.target;
+    //
+    // Tracker isolation spans exactly the load-to-quiescence window: third-party
+    // measurement tags are pure noise for QA and actively harmful to it. Note
+    // the limit of that claim — the settle gate's first-party tracker excludes
+    // analytics origins, so this window does not make a `network=false` gate
+    // settle. What it prevents is widgets and popups mutating the document
+    // mid-settle, and the `ReferenceError` a blocked tag script would throw in
+    // the page under test. The window opens before the reload (so the vendor
+    // stubs exist before the storefront JS runs) and is released in a `finally`,
+    // so a settle failure cannot leave the tab blocked.
+    let activeTarget: BrowserTarget = input.target;
+    const loadPhase = await this.withTrackerIsolation(input.target, async () => {
+      const reload = await this.ports.reload(input.target);
+      if (input.signal?.aborted) {
+        throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+      }
+      if (!reload || !reload.reloaded || !reload.target) {
+        throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not reach a load-complete document');
+      }
+      activeTarget = reload.target;
+
+      // Stage 2 & 3: Composed Settle Barrier (Phase 4: settleCapture)
+      let receipt: VisualSettleReceipt | undefined;
+      let missingCapability = false;
+      try {
+        if (typeof this.ports.browser.freezeMedia === 'function') {
+          try {
+            await this.ports.browser.freezeMedia(activeTarget, { freeze: true, normalizeSliders: true });
+          } catch {
+            // Best effort freeze before settle barrier
+          }
+        }
+        if (typeof this.ports.browser.settleCapture === 'function') {
+          receipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { signal: input.signal });
+          if (!receipt || !receipt.settleComplete) {
+            throw new CapabilityError(
+              'SETTLE_INCOMPLETE',
+              `Theme QA settle gate incomplete: gates not all settled (network=${receipt?.gates?.network}, fonts=${receipt?.gates?.fonts}, images=${receipt?.gates?.images}, dom=${receipt?.gates?.dom})`
+            );
+          }
+        } else {
+          missingCapability = true;
+        }
+      } catch (err) {
+        rethrowTargetLifecycleError(err);
+        if (err instanceof CapabilityError) throw err;
+        throw new CapabilityError(
+          'SETTLE_INCOMPLETE',
+          `Theme QA settle gate failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      return { receipt, missingCapability };
+    });
+    const settleReceipt: VisualSettleReceipt | undefined = loadPhase.result.receipt;
+    const settleMissingCapability = loadPhase.result.missingCapability;
+    const isolationOutcome = loadPhase.isolation;
 
     const checkAborted = () => {
       if (input.signal?.aborted) {
@@ -384,36 +515,6 @@ export class ThemeQaWorkflow {
       }
     };
 
-    // Stage 2 & 3: Composed Settle Barrier (Phase 4: settleCapture)
-    let settleReceipt: VisualSettleReceipt | undefined;
-    let settleMissingCapability = false;
-    try {
-      if (typeof this.ports.browser.freezeMedia === 'function') {
-        try {
-          await this.ports.browser.freezeMedia(activeTarget, { freeze: true, normalizeSliders: true });
-        } catch {
-          // Best effort freeze before settle barrier
-        }
-      }
-      if (typeof this.ports.browser.settleCapture === 'function') {
-        settleReceipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { signal: input.signal });
-        if (!settleReceipt || !settleReceipt.settleComplete) {
-          throw new CapabilityError(
-            'SETTLE_INCOMPLETE',
-            `Theme QA settle gate incomplete: gates not all settled (network=${settleReceipt?.gates?.network}, fonts=${settleReceipt?.gates?.fonts}, images=${settleReceipt?.gates?.images}, dom=${settleReceipt?.gates?.dom})`
-          );
-        }
-      } else {
-        settleMissingCapability = true;
-      }
-    } catch (err) {
-      rethrowTargetLifecycleError(err);
-      if (err instanceof CapabilityError) throw err;
-      throw new CapabilityError(
-        'SETTLE_INCOMPLETE',
-        `Theme QA settle gate failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
     checkAborted();
     let freshDiagnostics: DiagnosticsInput = { console: [], failures: [] };
     try {
@@ -922,6 +1023,7 @@ export class ThemeQaWorkflow {
         checklist,
         findings,
         artifactIds: artifacts.map((item) => item.id),
+        ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
         createdAt: Date.now(),
       },
       null,
@@ -969,6 +1071,7 @@ export class ThemeQaWorkflow {
       artifacts,
       qaMatrix,
       ...(settleReceipt ? { settleReceipt } : {}),
+      ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
       createdAt: Date.now(),
     };
   }

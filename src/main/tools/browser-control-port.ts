@@ -142,11 +142,11 @@ export interface BrowserHostPort {
   runResponsiveCheck?(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string): Promise<Record<string, unknown>>;
   agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   dispatchAgentAction?(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: Record<string, unknown>): Promise<{ success: boolean; data?: unknown; reason?: string }>;
-  agentMove?(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
-  agentClick?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
-  agentType?(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentMove?(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentClick?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentType?(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentScroll?(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
-  agentHover?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentHover?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentHighlight?(params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentClear?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<boolean>;
   agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile', selector?: string, viewportOnly?: boolean): Promise<string>;
@@ -165,12 +165,37 @@ export interface BrowserHostPort {
   bumpMutationRevision?(tabId?: string): number;
   uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
   dropFiles?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; droppedCount: number; reason?: string }>;
+  /**
+   * Bounded interpolated pointer drag for slider/range controls. A press and
+   * release at the destination does not move a slider library: those bind to
+   * `pointermove` between the two, so the handle snaps back.
+   */
+  agentDrag?(params: {
+    fromRef?: string;
+    fromSelector?: string;
+    fromX?: number;
+    fromY?: number;
+    toRef?: string;
+    toSelector?: string;
+    toX?: number;
+    toY?: number;
+    steps?: number;
+    force?: boolean;
+    tabId?: string;
+    paneId?: 'desktop' | 'mobile';
+  }): Promise<{ success: boolean; reason?: string; data?: unknown }>;
+  /** Apply or release ephemeral third-party tracker isolation on a target. */
+  setTrackerIsolation?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, active: boolean): Promise<{ active: boolean; reason?: string }>;
   executeActionSequence?(params: { actions: unknown[]; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }): Promise<unknown>;
   inspectStyles?(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectFont?(params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   getMatchedStylesForNode?(params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown> | null>;
-  getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: NetworkTrackerOptions, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
+  getNetworkTracker?(): {
+    isAttached: (tabId: string, paneId?: string) => boolean;
+    awaitQuiescence: (tabId: string, paneId?: string, options?: NetworkTrackerOptions, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }>;
+    getInflightSnapshot?: (tabId: string, paneId?: string) => Array<{ type: string; url: string; ageMs: number }>;
+  };
   wait?(params: BrowserWaitParams, signal?: AbortSignal): Promise<BrowserWaitResult>;
   observe?(params: BrowserObserveParams): Promise<BrowserObserveResult>;
   getTabDebugger?(tabId: string): CdpDebuggerInterface | undefined;
@@ -1578,6 +1603,7 @@ export class BrowserControlPort {
         tabId,
         paneId: effectivePane,
         gates: settle.gates,
+        inflight: this.inflightDiagnostics(tabId, effectivePane),
       });
     }
     // The staged DOM is only meaningful if this tab still describes a laid-out
@@ -2504,38 +2530,74 @@ export class BrowserControlPort {
     }, { tabId, signal });
   }
 
-  async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ moved: boolean }> {
-    if (!this.host.agentMove) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
+  /**
+   * Runs an agent action through the receipt-bearing dispatch path and turns a
+   * fail-closed obstruction refusal into a typed error.
+   *
+   * The convenience host methods (`agentClick`, `agentType`, `agentHover`)
+   * answer a bare boolean, which cannot express *why* a click was refused: an
+   * element covered by a newsletter overlay and an element that simply is not
+   * there both come back `false`. Routing through `dispatchAgentAction` is the
+   * same execution path those methods use internally, so behaviour is
+   * unchanged except that an obstructed action now reaches the caller as
+   * TARGET_OBSCURED with the covering element attached.
+   */
+  private async runAgentAction(
+    action: 'click' | 'type' | 'hover',
+    params: Record<string, unknown>,
+    tabId: string,
+    fallback?: () => Promise<boolean>
+  ): Promise<{ success: boolean }> {
+    if (!this.host.dispatchAgentAction) {
+      if (!fallback) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Agent action '${action}' is not supported by host`);
+      return { success: await fallback() };
+    }
+
+    const res = await this.host.dispatchAgentAction(action, params);
+    if (res?.success) return { success: true };
+
+    const data = res?.data && typeof res.data === 'object' ? (res.data as Record<string, unknown>) : undefined;
+    const code = data && typeof data.code === 'string' ? data.code : undefined;
+    if (code === 'TARGET_OBSCURED') {
+      const metadata = data && data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : {};
+      throw new CapabilityError('TARGET_OBSCURED', res?.reason || 'Action target is covered by another element', { ...metadata, tabId });
+    }
+    return { success: false };
+  }
+
+  async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ moved: boolean }> {
+    if (!this.host.agentMove && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
-      return { moved: await this.host.agentMove!({ ...args, tabId }) };
+      const outcome = await this.runAgentAction('hover', { ...args, tabId }, tabId, () => this.host.agentMove!({ ...args, tabId }));
+      return { moved: outcome.success };
     }, { tabId, signal });
   }
 
-  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean }> {
-    if (!this.host.agentClick) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
+  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean }> {
+    if (!this.host.agentClick && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
-      const clicked = Boolean(await this.host.agentClick!({ ...args, tabId }));
-      if (clicked) {
+      const outcome = await this.runAgentAction('click', { ...args, tabId }, tabId, () => this.host.agentClick!({ ...args, tabId }));
+      if (outcome.success) {
         this.bumpMutationRevision(tabId);
       }
-      return { clicked };
+      return { clicked: outcome.success };
     }, { tabId, signal });
   }
 
-  async agentType(args: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean }> {
-    if (!this.host.agentType) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
+  async agentType(args: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean }> {
+    if (!this.host.agentType && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
-      const typed = Boolean(await this.host.agentType!({ ...args, tabId }));
-      if (typed) {
+      const outcome = await this.runAgentAction('type', { ...args, tabId }, tabId, () => this.host.agentType!({ ...args, tabId }));
+      if (outcome.success) {
         this.bumpMutationRevision(tabId);
       }
-      return { typed };
+      return { typed: outcome.success };
     }, { tabId, signal });
   }
   async keyboardPress(args: { key: string; modifiers?: string[]; tabId?: string }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; key: string; modifiers: string[] }> {
@@ -2571,12 +2633,13 @@ export class BrowserControlPort {
       return { scrolled };
     }, { tabId, signal });
   }
-  async agentHover(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ hovered: boolean }> {
-    if (!this.host.agentHover) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
+  async agentHover(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ hovered: boolean }> {
+    if (!this.host.agentHover && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
-      return { hovered: await this.host.agentHover!({ ...args, tabId }) };
+      const outcome = await this.runAgentAction('hover', { ...args, tabId }, tabId, () => this.host.agentHover!({ ...args, tabId }));
+      return { hovered: outcome.success };
     }, { tabId, signal });
   }
 
@@ -2638,6 +2701,45 @@ export class BrowserControlPort {
       this.revalidateTargetInsideLock(target, effectiveTabId);
       return this.host.dropFiles!({ ...params, tabId: effectiveTabId });
     }, { tabId: effectiveTabId, signal });
+  }
+
+  async agentDrag(params: {
+    fromRef?: string;
+    fromSelector?: string;
+    fromX?: number;
+    fromY?: number;
+    toRef?: string;
+    toSelector?: string;
+    toX?: number;
+    toY?: number;
+    steps?: number;
+    force?: boolean;
+    tabId?: string;
+    paneId?: 'desktop' | 'mobile';
+  }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; reason?: string; data?: unknown }> {
+    if (!this.host.agentDrag) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentDrag is not supported by host');
+    const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write');
+    return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, effectiveTabId);
+      const result = await this.host.agentDrag!({ ...params, tabId: effectiveTabId });
+      if (result.success) {
+        this.bumpMutationRevision(effectiveTabId);
+      }
+      return result;
+    }, { tabId: effectiveTabId, signal });
+  }
+
+  /**
+   * Applies or releases ephemeral third-party tracker isolation. Deliberately
+   * outside the viewport gate: the QA workflow must open the window *before* it
+   * reloads the tab, and a configuration change on the CDP session moves no
+   * layout, so serializing it behind the viewport lock would only deadlock the
+   * reload it exists to precede.
+   */
+  async setTrackerIsolation(target: BrowserTarget, active: boolean, paneId: 'desktop' | 'mobile' = 'desktop'): Promise<{ active: boolean; reason?: string }> {
+    if (!this.host.setTrackerIsolation) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setTrackerIsolation is not supported by host');
+    const effectiveTabId = this.resolveTargetTab(target, undefined, 'write');
+    return this.host.setTrackerIsolation(effectiveTabId, paneId, active);
   }
 
   private revalidateTargetInsideLock(target?: BrowserTarget, tabId?: string): void {
@@ -3964,6 +4066,15 @@ export class BrowserControlPort {
     };
   }
   /**
+   * Evidence for a failed settle barrier: which first-party requests were still
+   * open, with their age. See `FirstPartyNetworkTracker.getInflightSnapshot`.
+   */
+  private inflightDiagnostics(tabId: string, paneId: 'desktop' | 'mobile'): Array<{ type: string; url: string; ageMs: number }> {
+    const tracker = typeof this.host.getNetworkTracker === 'function' ? this.host.getNetworkTracker() : undefined;
+    if (!tracker || typeof tracker.getInflightSnapshot !== 'function') return [];
+    return tracker.getInflightSnapshot(tabId, paneId);
+  }
+  /**
    * Phase 4: Composed Settle Barrier (Audit v5 §14, V-16..V-18).
    * Unconditionally verifies first-party network quiescence, document fonts,
    * in-viewport image decode, and DOM quiet (double-rAF).
@@ -4462,7 +4573,7 @@ export class BrowserControlPort {
   private async prepareCompareSide(
     txn: CompareTransaction,
     args: { tabId: string; params: VisualCompareParams; normalizeReceipt: NormalizationReceipt }
-  ): Promise<{ ok: true; metrics: CssMetrics | null; scroll: { x: number; y: number } | null; settle: VisualSettleReceipt } | { ok: false; reason: string; settle?: VisualSettleReceipt }> {
+  ): Promise<{ ok: true; metrics: CssMetrics | null; scroll: { x: number; y: number } | null; settle: VisualSettleReceipt } | { ok: false; reason: string; settle?: VisualSettleReceipt; inflight?: Array<{ type: string; url: string; ageMs: number }> }> {
     const { tabId, params, normalizeReceipt } = args;
     const budget = txn.budget;
     // A comparison side is never foregrounded: the host attaches a background
@@ -4503,10 +4614,18 @@ export class BrowserControlPort {
       SETTLE_BOUND_MS
     );
     if (!settle.settleComplete) {
+      // The gate names which condition failed; these URLs name what it was
+      // waiting on, so a network gate failure is diagnosable from the receipt
+      // alone instead of by re-running the compare.
+      const inflight = this.inflightDiagnostics(tabId, txn.paneId);
+      const inflightNote = inflight.length > 0
+        ? `; inflight first-party requests: ${inflight.map((r) => `${r.type} ${r.url} (${r.ageMs}ms)`).join(', ')}`
+        : '';
       return {
         ok: false,
         settle,
-        reason: `Visual capture settle barrier incomplete on tab '${tabId}' (gates: network=${settle.gates.network}, fonts=${settle.gates.fonts}, images=${settle.gates.images}, dom=${settle.gates.dom})`,
+        inflight,
+        reason: `Visual capture settle barrier incomplete on tab '${tabId}' (gates: network=${settle.gates.network}, fonts=${settle.gates.fonts}, images=${settle.gates.images}, dom=${settle.gates.dom})${inflightNote}`,
       };
     }
     const metrics = await this.readSideMetrics(txn, tabId);

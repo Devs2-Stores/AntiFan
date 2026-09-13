@@ -15,6 +15,9 @@ export { ISOLATED_AGENT_WORLD_ID, validateActionResponse };
 export function buildIsolatedExecutorScript(request: RendererActionRequest): string {
   const reqJson = JSON.stringify(request);
 
+  // The body below is a template literal, so a bare backtick anywhere inside it - including inside a
+  // comment - ends the string and turns the following JavaScript into TypeScript. Write markdown-style
+  // references as \`name\` with the backslash, and leave regular expressions double-escaped (\\s).
   return `(async () => {
     try {
       const req = ${reqJson};
@@ -204,6 +207,150 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         return true;
       }
 
+      // A pulsing CTA (transform: scale) or a spinning icon never reaches zero
+      // position drift, so a naive frame-by-frame wait would burn every click
+      // budget on a control that is perfectly clickable. Detect a running
+      // infinite animation on the target itself and relax both the drift anchor
+      // and the tolerance instead of waiting for motion that never stops.
+      function hasRunningInfiniteAnimation(el) {
+        try {
+          if (!el || typeof el.getAnimations !== 'function') return false;
+          const animations = el.getAnimations({ subtree: false });
+          for (let i = 0; i < animations.length; i++) {
+            const animation = animations[i];
+            if (!animation || animation.playState === 'paused' || animation.playState === 'idle') continue;
+            const effect = animation.effect;
+            const timing = effect && typeof effect.getComputedTiming === 'function' ? effect.getComputedTiming() : null;
+            if (!timing) continue;
+            if (timing.iterations === Infinity || timing.duration === Infinity || timing.endTime === Infinity) {
+              return true;
+            }
+          }
+        } catch {}
+        return false;
+      }
+
+      function describeNode(node) {
+        if (!node || !node.tagName) return 'unknown';
+        const tag = String(node.tagName).toLowerCase();
+        const id = node.id ? '#' + node.id : '';
+        let cls = '';
+        try {
+          const raw = typeof node.className === 'string' ? node.className : (node.getAttribute ? node.getAttribute('class') : '');
+          if (raw) cls = '.' + String(raw).trim().split(/\\s+/).slice(0, 2).join('.');
+        } catch {}
+        return tag + id + cls;
+      }
+
+      // Does \`node\` sit inside \`ancestor\` in the COMPOSED tree? \`contains\` stops
+      // at a shadow boundary, and this executor resolves refs inside open shadow
+      // roots, so a shadow-inner target would otherwise read as a foreign
+      // overlay covering itself.
+      function composedContains(ancestor, node) {
+        let current = node;
+        while (current) {
+          if (current === ancestor) return true;
+          if (current.parentNode) {
+            current = current.parentNode;
+            continue;
+          }
+          // A shadow root has no parentNode; its host is the way out.
+          const root = typeof current.getRootNode === 'function' ? current.getRootNode() : null;
+          if (root && root !== current && root.host) {
+            current = root.host;
+            continue;
+          }
+          break;
+        }
+        return false;
+      }
+
+      // Is the point (cx, cy) still owned by the target, or did something else
+      // swallow it? \`elementsFromPoint\` returns the z-order stack, so the first
+      // element that can actually receive pointer input is the real owner of the
+      // click. A non-interactive decorator (svg path, span) inside the target is
+      // not an obstruction; an unrelated overlay in front of it is, and that is
+      // reported instead of being clicked through.
+      function resolveInputReceiver(cx, cy) {
+        let stack = [];
+        try {
+          if (typeof document.elementsFromPoint === 'function') {
+            stack = document.elementsFromPoint(cx, cy) || [];
+          } else if (typeof document.elementFromPoint === 'function') {
+            const single = document.elementFromPoint(cx, cy);
+            stack = single ? [single] : [];
+          }
+        } catch {
+          return null;
+        }
+        for (let i = 0; i < stack.length; i++) {
+          const node = stack[i];
+          if (!node || node.nodeType !== 1) continue;
+          let style = null;
+          try {
+            style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+          } catch {}
+          if (style) {
+            if (style.pointerEvents === 'none') continue;
+            if (style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0) continue;
+          }
+          // First pointer-receiving element owns the point: decide on it.
+          if (composedContains(targetElement, node)) return null;
+          // A label wrapping (or bound to) the target forwards its activation to
+          // the control, so it is a legitimate receiver, not an obstruction.
+          if (node.tagName === 'LABEL') {
+            let bound = null;
+            try {
+              bound = node.control || (node.htmlFor ? document.getElementById(node.htmlFor) : null);
+            } catch {}
+            if (bound === targetElement) return null;
+            try {
+              if (targetElement.closest && targetElement.closest('label') === node) return null;
+            } catch {}
+          }
+          // Both remaining cases are refusals, but they are different defects:
+          // an ancestor receiver means the target itself cannot be hit here
+          // (typically pointer-events: none on it), while a foreign node means
+          // something else is genuinely on top.
+          return { node: node, relation: composedContains(node, targetElement) ? 'ancestor' : 'foreign' };
+        }
+        return null;
+      }
+
+      // A target's center is not always the point it accepts input: a footer
+      // link under a sticky add-to-cart bar, or a CTA under a fixed header, is
+      // genuinely clickable slightly off-center. Sample the center first, then
+      // an inset ring, and use the first point the target actually owns — only
+      // when every sample belongs to something else is the target obscured.
+      function samplePoints(rect) {
+        const points = [{ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }];
+        const insetX = Math.min(rect.width * 0.25, 24);
+        const insetY = Math.min(rect.height * 0.25, 24);
+        if (rect.width > 2 * insetX) {
+          points.push({ x: rect.x + insetX, y: rect.y + rect.height / 2 });
+          points.push({ x: rect.x + rect.width - insetX, y: rect.y + rect.height / 2 });
+        }
+        if (rect.height > 2 * insetY) {
+          points.push({ x: rect.x + rect.width / 2, y: rect.y + insetY });
+          points.push({ x: rect.x + rect.width / 2, y: rect.y + rect.height - insetY });
+        }
+        return points;
+      }
+
+      function readValueSignature(el) {
+        const signature = { tag: '', value: null, ariaValueNow: null, ariaValueText: null };
+        if (!el) return signature;
+        signature.tag = String(el.tagName || '').toLowerCase();
+        if ('value' in el && el.value !== undefined && el.value !== null) {
+          signature.value = String(el.value).slice(0, 64);
+        }
+        if (typeof el.getAttribute === 'function') {
+          signature.ariaValueNow = el.getAttribute('aria-valuenow');
+          signature.ariaValueText = el.getAttribute('aria-valuetext');
+        }
+        return signature;
+      }
+
       // 3. Resolve target node with MutationObserver / rAF auto-wait (up to 1500ms for element to become connected AND actionable)
       const needsTarget = Boolean(req.descriptor || req.selector);
       let targetElement = null;
@@ -311,7 +458,9 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
       // 5. Actionability, Visibility Pre-flight, and Post-Scroll Rect Calculation
       let computedRect = undefined;
       if (targetElement) {
-        if (typeof targetElement.scrollIntoView === 'function') {
+        // Scrolling is opt-out: a caller taking before/after measurements (the
+        // drag engine) must not have the page move between them.
+        if (req.scrollIntoView !== false && typeof targetElement.scrollIntoView === 'function') {
           targetElement.scrollIntoView({ block: 'center', inline: 'center' });
         }
 
@@ -332,27 +481,43 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           };
         }
 
-        // Wait for CSS animations / scrolling velocity decay (rect movement <= 2px across consecutive rAF frames with 50ms timer fallback)
-        let prevRect = targetElement.getBoundingClientRect();
-        for (let frame = 0; frame < 5; frame++) {
-          await new Promise((resolve) => {
+        // Wait for motion to settle before computing the click anchor. Drift is
+        // measured on the CENTER, not the corner: a scale-keyframe pulse leaves
+        // (x, y) still while the center walks, so a corner anchor declares a
+        // moving button stable. A running infinite animation can never settle,
+        // so it relaxes the tolerance to 4px (harmonic oscillation of a pulse
+        // badge) instead of spending the whole budget waiting for motion that
+        // never stops. The budget is hard-bounded to 5 rAF frames (~83ms).
+        if (!req.force) {
+          const infiniteMotion = hasRunningInfiniteAnimation(targetElement);
+          const tolerance = infiniteMotion ? 4 : 2;
+          const firstRect = targetElement.getBoundingClientRect();
+          let prevX = firstRect.x + firstRect.width / 2;
+          let prevY = firstRect.y + firstRect.height / 2;
+          for (let frame = 0; frame < 5; frame++) {
+            const frameGate = Promise.withResolvers();
             let settled = false;
             const step = () => {
               if (!settled) {
                 settled = true;
-                resolve(undefined);
+                frameGate.resolve(undefined);
               }
             };
             if (typeof requestAnimationFrame === 'function') {
               requestAnimationFrame(step);
             }
             setTimeout(step, 50);
-          });
-          const currentRect = targetElement.getBoundingClientRect();
-          const delta = Math.hypot(currentRect.x - prevRect.x, currentRect.y - prevRect.y);
-          prevRect = currentRect;
-          if (delta <= 2) {
-            break;
+            await frameGate.promise;
+            if (!targetElement.isConnected) break;
+            const currentRect = targetElement.getBoundingClientRect();
+            const centerX = currentRect.x + currentRect.width / 2;
+            const centerY = currentRect.y + currentRect.height / 2;
+            const delta = Math.hypot(prevX - centerX, prevY - centerY);
+            prevX = centerX;
+            prevY = centerY;
+            if (delta <= tolerance) {
+              break;
+            }
           }
         }
         // Re-validate post-settle invariants immediately before final rect computation & event dispatch
@@ -389,6 +554,51 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           centerX: rect.x + rect.width / 2,
           centerY: rect.y + rect.height / 2,
         };
+
+        // Occlusion gate: only requests that hand input to the page (or that
+        // pre-flight such a hand-off, which is what 'focus' is used for) can be
+        // stolen by a covering element. highlight/scroll/probe are observations
+        // and must never be refused because a newsletter modal sits on top.
+        const inputBearing = req.action === 'focus' || req.action === 'click' || req.action === 'type' || req.action === 'hover' || req.action === 'move';
+        if (inputBearing && !req.force) {
+          const deliveredAt = { x: computedRect.centerX, y: computedRect.centerY };
+          let obstruction = null;
+          for (const candidate of samplePoints(computedRect)) {
+            const receiver = resolveInputReceiver(candidate.x, candidate.y);
+            if (!receiver) {
+              deliveredAt.x = candidate.x;
+              deliveredAt.y = candidate.y;
+              obstruction = null;
+              break;
+            }
+            if (!obstruction) obstruction = { receiver: receiver, point: candidate };
+          }
+          if (obstruction) {
+            let receiverText = '';
+            try {
+              receiverText = String(obstruction.receiver.node.textContent || '').trim().slice(0, 80);
+            } catch {}
+            return {
+              ok: false,
+              error: 'Target obscured by ' + describeNode(obstruction.receiver.node) + ' at every sampled point on ' + describeNode(targetElement) + '; refusing to dispatch input through a covering element',
+              code: 'TARGET_OBSCURED',
+              metadata: {
+                target: describeNode(targetElement),
+                obscuredBy: describeNode(obstruction.receiver.node),
+                obscuredByRelation: obstruction.receiver.relation,
+                obscuredByText: receiverText,
+                point: obstruction.point,
+                forceAvailable: true,
+              },
+            };
+          }
+          // Publish the point that was proven to accept input, so the trusted
+          // CDP path clicks where the gate actually verified instead of guessing
+          // the geometric center again. x/y/width/height remain the true element
+          // box; a caller doing its own geometry (the drag engine) uses those.
+          computedRect.centerX = deliveredAt.x;
+          computedRect.centerY = deliveredAt.y;
+        }
       }
 
       // 6. Synchronous DOM event dispatch
@@ -516,6 +726,24 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         return { ok: true, executed: true, executionTier: 'isolated_synthetic' };
       } else if (req.action === 'highlight') {
         return { ok: true, executed: true, executionTier: 'isolated_synthetic', rect: computedRect };
+      } else if (req.action === 'probe') {
+        // Measurement only: no scroll, no dispatch, no occlusion gate. The drag
+        // engine needs an element's true rect and value signature immediately
+        // before and after a gesture, and reusing the mutating focus/click
+        // pre-flight there would move the page between the two measurements and
+        // re-arm the gate on the post-read.
+        if (!targetElement) {
+          return { ok: false, error: 'Target element required for probe action', code: 'REF_NOT_FOUND' };
+        }
+        return {
+          ok: true,
+          executed: false,
+          rect: computedRect,
+          metadata: {
+            touchCapable: typeof navigator === 'object' && Number(navigator.maxTouchPoints || 0) > 0,
+            valueSignature: readValueSignature(targetElement),
+          },
+        };
       } else if (req.action === 'focus') {
         if (!targetElement) {
           return { ok: false, error: 'Target element required for focus action', code: 'REF_NOT_FOUND' };
@@ -545,6 +773,10 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           rect: computedRect,
           metadata: {
             touchCapable: typeof navigator === 'object' && Number(navigator.maxTouchPoints || 0) > 0,
+            // Slider/range controls expose their state through value or
+            // aria-valuenow; capturing it at pre-flight time lets a caller prove
+            // a gesture actually moved the control instead of assuming it did.
+            valueSignature: readValueSignature(targetElement),
           },
         };
       }

@@ -292,6 +292,7 @@ export class ControlPlaneRuntime {
       artifacts: this.artifacts,
       reload: (target) => browser.reload(target),
       transactionRegistry: this.themeTransactions,
+      trackerIsolation: (target, active, paneId) => browser.setTrackerIsolation(target, active, paneId),
     });
     registerBrowserCapabilities(this.capabilities, browser, this.themeQaWorkflow, () => this.getWorkspaceRoot(), this.receipts);
   }

@@ -7,6 +7,7 @@
 import path from 'node:path';
 import { net, clipboard, Rectangle } from 'electron';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../shared/contracts';
+import { CapabilityError } from '../../shared/control-plane-contracts';
 import { FONT_FINDER_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
@@ -30,13 +31,24 @@ import {
   type RenderSurfaceSnapshot,
   type VerificationCaptureEnvelope,
 } from '../verification/visual-capture';
+import { buildStaircasePrewarmScript, normalizeScrollPrewarmResult } from '../verification/scroll-prewarm';
+import type { ScrollPrewarmReceipt } from '../verification/scroll-prewarm';
 import { evaluatePreCaptureQuiescence } from '../verification/capture-settle';
+import { buildTrackerStubScript, buildTrackerStubTeardownScript, TRACKER_BLOCK_PATTERNS } from './tracker-isolation';
+import type { TrackerIsolationReceipt } from './tracker-isolation';
 
 const delay = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, ms);
   return promise;
 };
+
+/**
+ * Execution budget for the full-page pre-warm walk. The walk itself is bounded
+ * to ~12 steps x 40ms plus a bounded image decode, so this ceiling only has to
+ * absorb a slow renderer, never an unbounded lazy-loading loop.
+ */
+const PREWARM_EXEC_BUDGET_MS = 15_000;
 
 export interface TabDevToolsContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
@@ -73,6 +85,7 @@ export interface TabDevToolsStats {
   drainingTargetCount: number;
   stylesheetTargetCount: number;
   isolatedContextCount: number;
+  trackerIsolationTargetCount: number;
 }
 
 /**
@@ -100,6 +113,13 @@ export class TabDevToolsHost {
   private cdpListeners = new Map<number, { onDetach: () => void; onNavigate?: () => void; onMessage?: (_event: Electron.Event, method: string, params: Record<string, unknown>) => void }>();
   private stylesheetUrls = new Map<number, Map<string, string>>();
   private isolatedContextIds = new Map<number, number>();
+  /**
+   * Per-target tracker-isolation state, keyed by WebContents id. Presence means
+   * the target currently has a pre-document stub script registered and/or a
+   * `Network.setBlockedURLs` blocklist applied, so `endTrackerIsolation` knows
+   * exactly what to undo.
+   */
+  private trackerIsolation = new Map<number, { stubIdentifier: string | null; blockedPatterns: string[]; stubsInstalled: string[] }>();
   constructor(ctx: TabDevToolsContext) {
     this.ctx = ctx;
   }
@@ -122,6 +142,7 @@ export class TabDevToolsHost {
       drainingTargetCount: this.cdpDrainingTargets.size,
       stylesheetTargetCount: this.stylesheetUrls.size,
       isolatedContextCount: this.isolatedContextIds.size,
+      trackerIsolationTargetCount: this.trackerIsolation.size,
     };
   }
 
@@ -689,6 +710,10 @@ export class TabDevToolsHost {
     this.cdpDrainingTargets.delete(wcId);
     this.stylesheetUrls.delete(wcId);
     this.isolatedContextIds.delete(wcId);
+    // The stub registration and URL blocklist live in the CDP session, so a
+    // detached target loses them with the session; keeping the bookkeeping would
+    // make a later isolation look active while nothing is applied.
+    this.trackerIsolation.delete(wcId);
     const listeners = this.cdpListeners.get(wcId);
     if (listeners && wc && !wc.isDestroyed()) {
       if (listeners.onNavigate && typeof wc.removeListener === 'function') {
@@ -699,6 +724,182 @@ export class TabDevToolsHost {
       }
     }
     this.cdpListeners.delete(wcId);
+  }
+
+  /**
+   * Apply ephemeral tracker isolation to a target: install the vendor stubs so
+   * a blocked script does not leave a `ReferenceError` behind, register the same
+   * stubs for every future document in this target, and block third-party
+   * measurement endpoints.
+   *
+   * The stub script is registered BEFORE navigation on purpose. Registering it
+   * after the document loads only helps the next page, and the page currently
+   * throwing `fbq is not defined` is the one under test.
+   *
+   * Everything here is per-target state with an explicit teardown; nothing is
+   * applied browser-wide, because blocking these origins breaks Google OAuth,
+   * Cloudflare Turnstile and the platform admin bar for every other tab.
+   */
+  public async beginTrackerIsolation(
+    tabId?: string,
+    paneId?: SplitPaneId
+  ): Promise<TrackerIsolationReceipt> {
+    const targetId = tabId || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    const wc = this.ctx.getTabWebContents(targetId, paneId || target?.focusedPane);
+    if (!wc || wc.isDestroyed()) {
+      return {
+        active: false,
+        stubsInstalled: [],
+        blockedPatterns: [],
+        preDocumentScriptIdentifier: null,
+        degradedReason: `WebContents unavailable for tab '${targetId}'`,
+      };
+    }
+
+    const wcId = wc.id;
+    const existing = this.trackerIsolation.get(wcId);
+    if (existing) {
+      return {
+        active: true,
+        stubsInstalled: existing.stubsInstalled,
+        blockedPatterns: existing.blockedPatterns,
+        preDocumentScriptIdentifier: existing.stubIdentifier,
+      };
+    }
+
+    const receipt: TrackerIsolationReceipt = {
+      active: false,
+      stubsInstalled: [],
+      blockedPatterns: [...TRACKER_BLOCK_PATTERNS],
+      preDocumentScriptIdentifier: null,
+    };
+
+    try {
+      await this.sendCdpCommand(wc, 'Page.enable', {});
+      await this.sendCdpCommand(wc, 'Network.enable', {});
+    } catch (err: unknown) {
+      receipt.degradedReason = `CDP domain enable failed: ${err instanceof Error ? err.message : String(err)}`;
+      return receipt;
+    }
+
+    try {
+      const registered = await this.sendCdpCommand<{ identifier?: string }>(wc, 'Page.addScriptToEvaluateOnNewDocument', {
+        source: buildTrackerStubScript(),
+      });
+      receipt.preDocumentScriptIdentifier = typeof registered?.identifier === 'string' && registered.identifier.length > 0
+        ? registered.identifier
+        : null;
+    } catch (err: unknown) {
+      receipt.degradedReason = `Pre-document stub registration failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+
+    if (!receipt.preDocumentScriptIdentifier) {
+      // Fail closed. The live-document injection below covers only the page that
+      // is already loaded, so blocking vendor origins without a pre-document
+      // registration would leave the *next* document — the reload QA is about to
+      // perform — with blocked tag scripts and no stubs, turning a benign
+      // `fbq()` no-op into a ReferenceError on the page under test. That is
+      // strictly worse than the condition isolation exists to relieve, so
+      // nothing is blocked unless both halves can be installed.
+      await wc.executeJavaScript(buildTrackerStubTeardownScript()).catch(() => undefined);
+      receipt.degradedReason = receipt.degradedReason || 'Pre-document stub registration returned no identifier';
+      return receipt;
+    }
+
+    // Existing document: the pre-document script cannot reach a page that is
+    // already loaded, and that is exactly the document a QA probe inspects.
+    try {
+      const installed: unknown = await wc.executeJavaScript(buildTrackerStubScript());
+      if (installed && typeof installed === 'object' && 'installed' in installed && Array.isArray(installed.installed)) {
+        const names: unknown[] = installed.installed;
+        receipt.stubsInstalled = names.filter((name): name is string => typeof name === 'string');
+      }
+    } catch (err: unknown) {
+      receipt.degradedReason = receipt.degradedReason
+        ? `${receipt.degradedReason}; live-document stub injection failed: ${err instanceof Error ? err.message : String(err)}`
+        : `Live-document stub injection failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+
+    try {
+      await this.sendCdpCommand(wc, 'Network.setBlockedURLs', { urls: [...TRACKER_BLOCK_PATTERNS] });
+    } catch (err: unknown) {
+      await this.rollbackTrackerIsolation(wc, receipt.preDocumentScriptIdentifier);
+      receipt.preDocumentScriptIdentifier = null;
+      receipt.blockedPatterns = [];
+      receipt.degradedReason = `Network.setBlockedURLs failed: ${err instanceof Error ? err.message : String(err)}`;
+      return receipt;
+    }
+
+    this.trackerIsolation.set(wcId, {
+      stubIdentifier: receipt.preDocumentScriptIdentifier,
+      blockedPatterns: [...TRACKER_BLOCK_PATTERNS],
+      stubsInstalled: [...receipt.stubsInstalled],
+    });
+    receipt.active = true;
+    return receipt;
+  }
+
+  /**
+   * Release tracker isolation: remove the pre-document stub registration and
+   * lift the URL blocklist so the next navigation loads the real vendors.
+   *
+   * The stubs already installed in a live document are deliberately left in
+   * place. That document loaded while its vendor script was blocked, so those
+   * stubs are the only implementations of `fbq`/`gtag` it will ever see —
+   * deleting them would turn the benign no-op into the very `ReferenceError`
+   * this feature exists to prevent, at the moment QA ends. Dropping the
+   * registration is what stops the stubs reaching any later document.
+   */
+  public async endTrackerIsolation(tabId?: string, paneId?: SplitPaneId): Promise<{ released: boolean; reason?: string }> {
+    const targetId = tabId || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    const wc = this.ctx.getTabWebContents(targetId, paneId || target?.focusedPane);
+    if (!wc || wc.isDestroyed()) {
+      return { released: false, reason: `WebContents unavailable for tab '${targetId}'` };
+    }
+
+    const state = this.trackerIsolation.get(wc.id);
+    if (!state) {
+      return { released: false, reason: `Tracker isolation was not active for tab '${targetId}'` };
+    }
+
+    const reason = await this.rollbackTrackerIsolation(wc, state.stubIdentifier);
+    if (reason) {
+      // The entry is the only record of what still needs undoing. Dropping it on
+      // a failed rollback would leave the blocklist applied to the user's tab
+      // with no way to retry, detect or even describe the leak, so it survives
+      // until the release actually succeeds.
+      return { released: false, reason };
+    }
+    this.trackerIsolation.delete(wc.id);
+    return { released: true };
+  }
+
+  /** True while the target still has a stub registration or URL block applied. */
+  public isTrackerIsolationActive(tabId?: string, paneId?: SplitPaneId): boolean {
+    const targetId = tabId || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    const wc = this.ctx.getTabWebContents(targetId, paneId || target?.focusedPane);
+    if (!wc || wc.isDestroyed()) return false;
+    return this.trackerIsolation.has(wc.id);
+  }
+
+  private async rollbackTrackerIsolation(wc: Electron.WebContents, stubIdentifier: string | null): Promise<string | undefined> {
+    const failures: string[] = [];
+    if (stubIdentifier) {
+      try {
+        await this.sendCdpCommand(wc, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: stubIdentifier });
+      } catch (err: unknown) {
+        failures.push(`removeScriptToEvaluateOnNewDocument failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    try {
+      await this.sendCdpCommand(wc, 'Network.setBlockedURLs', { urls: [] });
+    } catch (err: unknown) {
+      failures.push(`clearing Network.setBlockedURLs failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return failures.length > 0 ? failures.join('; ') : undefined;
   }
 
   private isWebContentsDraining(wc: Electron.WebContents | null | undefined): boolean {
@@ -1477,6 +1678,8 @@ export class TabDevToolsHost {
 
     let captureEnvelope: VerificationCaptureEnvelope | undefined;
     let captureError: Error | undefined;
+    let lastPrewarmReceipt: ScrollPrewarmReceipt | undefined;
+    let prewarmFailure: string | undefined;
     try {
       captureEnvelope = await this.ctx.withTabAgentWorking(targetId, async () => {
         // Screenshot Guard: Temporarily suppress agent overlay & visual cursor during capture
@@ -1514,6 +1717,27 @@ export class TabDevToolsHost {
           }
           const dpr = surface.dpr;
           const cssViewport = { width: surface.vw, height: surface.vh };
+          // A full-page raster is one compositor snapshot, so lazily mounted
+          // content must already be in the document. Walk the page once before
+          // the quiescence gate measures it, otherwise the gate certifies a
+          // document that then grows during the raster and the capture either
+          // misses the tail or allocates a buffer the GPU cannot honour.
+          if (mode === 'full-page' && !options?.skipQuiescence) {
+            try {
+              const prewarmRaw = await this.evalJs(
+                buildStaircasePrewarmScript(),
+                targetId,
+                effectivePane,
+                false,
+                PREWARM_EXEC_BUDGET_MS
+              );
+              lastPrewarmReceipt = normalizeScrollPrewarmResult(prewarmRaw);
+            } catch (err: unknown) {
+              lastPrewarmReceipt = undefined;
+              prewarmFailure = err instanceof Error ? err.message : String(err);
+            }
+          }
+
           if (!options?.skipQuiescence) {
             const quiescence = await evaluatePreCaptureQuiescence(
               {
@@ -1639,6 +1863,11 @@ export class TabDevToolsHost {
             rasterSize,
             captureMode: mode,
             timestamp: Date.now(),
+            // The walk's receipt travels with the evidence: a caller reading a
+            // full-page capture needs to know whether the document was fully
+            // materialized or whether a growth ceiling stopped the walk early.
+            prewarm: lastPrewarmReceipt,
+            prewarmError: prewarmFailure,
           };
         };
 
@@ -1893,7 +2122,8 @@ export class TabDevToolsHost {
     userGesture = false,
     timeoutMs = EVAL_JS_DEFAULT_TIMEOUT_MS
   ): Promise<unknown> {
-    const execBudgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.round(timeoutMs) : EVAL_JS_DEFAULT_TIMEOUT_MS;
+    const softBudgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.round(timeoutMs) : EVAL_JS_DEFAULT_TIMEOUT_MS;
+    const hardBudgetMs = Math.max(softBudgetMs + 3000, Math.round(softBudgetMs * 2.5));
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return undefined;
@@ -1902,7 +2132,7 @@ export class TabDevToolsHost {
     if (!wc || wc.isDestroyed()) return undefined;
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const execute = async (): Promise<unknown> => {
-      const wrapped = `(async () => {
+        const wrapped = `(async () => {
         function serializeCircularSafe(val, seen = new WeakSet(), depth = 0) {
           if (val === null || typeof val !== 'object') {
             if (typeof val === 'bigint') return val.toString() + 'n';
@@ -1935,9 +2165,8 @@ export class TabDevToolsHost {
           return out;
         }
         try {
-          // Guard against background tab rAF freeze with a caller-declared
-          // ceiling (default ${EVAL_JS_DEFAULT_TIMEOUT_MS}ms).
-          const execBudgetMs = ${JSON.stringify(execBudgetMs)};
+          // In-page execution budget guard
+          const execBudgetMs = ${JSON.stringify(softBudgetMs)};
           const execPromise = (async () => (0, eval)(${JSON.stringify(expression)}))();
           let timer;
           const timeoutPromise = new Promise((_, reject) => {
@@ -1949,46 +2178,71 @@ export class TabDevToolsHost {
           throw err;
         }
       })()`;
-      try {
-        return await wc.executeJavaScript(wrapped, userGesture);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (
-          msg.includes('Trusted Type') ||
-          msg.includes('CSP') ||
-          msg.includes('Content Security Policy') ||
-          msg.includes('violates this document')
-        ) {
-          const cdpRes = await this.sendCdpCommand<{
-            result?: { value?: unknown };
-            exceptionDetails?: { text?: string; exception?: { description?: string } };
-          }>(wc, 'Runtime.evaluate', {
-            expression: `(${wrapped})`,
-            returnByValue: true,
-            awaitPromise: true,
-            userGesture,
-          });
-          if (cdpRes?.exceptionDetails) {
-            const detail = cdpRes.exceptionDetails.exception?.description || cdpRes.exceptionDetails.text || 'CDP evaluation exception';
-            throw new Error(detail);
+        try {
+          return await wc.executeJavaScript(wrapped, userGesture);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (
+            msg.includes('Trusted Type') ||
+            msg.includes('CSP') ||
+            msg.includes('Content Security Policy') ||
+            msg.includes('violates this document')
+          ) {
+            const cdpRes = await this.sendCdpCommand<{
+              result?: { value?: unknown };
+              exceptionDetails?: { text?: string; exception?: { description?: string } };
+            }>(wc, 'Runtime.evaluate', {
+              expression: `(${wrapped})`,
+              returnByValue: true,
+              awaitPromise: true,
+              userGesture,
+            });
+            if (cdpRes?.exceptionDetails) {
+              const detail = cdpRes.exceptionDetails.exception?.description || cdpRes.exceptionDetails.text || 'CDP evaluation exception';
+              throw new Error(detail);
+            }
+            return cdpRes?.result?.value;
           }
-          return cdpRes?.result?.value;
+          throw err;
         }
-        throw err;
-      }
       };
-      // A background target has no compositor surface, so a script that reads or
-      // writes layout geometry would run against a zero-width document. Run it inside
-      // a temporary in-place attach (below the active tab's view, released when the
-      // script settles) so the evaluation observes the page the caller can capture.
-      const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
-      const isActiveTarget = targetId === this.ctx.getActiveTabId();
-      const isOffscreenTarget = target.state?.offscreen === true;
-      if (!isActiveTarget && !isOffscreenTarget && paneView && this.ctx.runWithAttachedTabView) {
-        const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
-        return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane);
+
+      // Out-of-Band 2-Tier Watchdog Timers (Node.js level)
+      let softTimer: NodeJS.Timeout | undefined;
+      let hardTimer: NodeJS.Timeout | undefined;
+
+      softTimer = setTimeout(() => {
+        console.warn(`[evalJs:SoftWarning] Script evaluation on tab ${targetId} reached soft budget ${softBudgetMs}ms (running on laptop CPU). Awaiting hard ceiling ${hardBudgetMs}ms...`);
+      }, softBudgetMs);
+
+      const hardWatchdogPromise = new Promise<never>((_, reject) => {
+        hardTimer = setTimeout(async () => {
+          try {
+            if (wc && !wc.isDestroyed()) {
+              await this.sendCdpCommand(wc, 'Runtime.terminateExecution', {}).catch(() => {});
+            }
+          } catch {}
+          reject(new CapabilityError('EVAL_HARD_TIMEOUT', `Script execution hung and exceeded hard ceiling of ${hardBudgetMs}ms`));
+        }, hardBudgetMs);
+      });
+
+      try {
+        const runner = async (): Promise<unknown> => {
+          const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
+          const isActiveTarget = targetId === this.ctx.getActiveTabId();
+          const isOffscreenTarget = target.state?.offscreen === true;
+          if (!isActiveTarget && !isOffscreenTarget && paneView && this.ctx.runWithAttachedTabView) {
+            const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
+            return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane);
+          }
+          return await execute();
+        };
+
+        return await Promise.race([runner(), hardWatchdogPromise]);
+      } finally {
+        if (softTimer) clearTimeout(softTimer);
+        if (hardTimer) clearTimeout(hardTimer);
       }
-      return await execute();
     });
   }
   // ─── Auto JSON Viewer & View Page Source ───
@@ -2952,5 +3206,6 @@ export class TabDevToolsHost {
     this.cdpDrainingTargets.clear();
     this.stylesheetUrls.clear();
     this.isolatedContextIds.clear();
+    this.trackerIsolation.clear();
   }
 }

@@ -101,16 +101,57 @@ async function runSmokeThemeQaGate() {
         reload: () => true,
         getDom: async () => mockStorefrontHtml,
         captureScreenshot: async () => Buffer.from('mock-png').toString('base64'),
-        evalJs: async () => null,
+        // The canonical capture path the port requires. The pixel payload is not
+        // what this smoke asserts; the settle barrier and isolation bookkeeping
+        // around it are.
+        captureVerificationScreenshot: async () => ({
+          data: Buffer.from('mock-png').toString('base64'),
+          backend: 'cdp',
+          dpr: 1,
+          zoom: 1,
+          cssViewport: { width: 1440, height: 900 },
+          cssCaptureSize: { width: 1440, height: 900 },
+          rasterSize: { width: 1440, height: 900 },
+          captureMode: 'viewport',
+          timestamp: Date.now(),
+        }),
+        // The mock storefront is a static HTML string with no network, fonts or
+        // images, so the composed settle barrier must be able to observe that.
+        // Without this the workflow's settle gate can only ever report a missing
+        // capability, and the isolation window it brackets would go unexercised.
+        evalJs: async (script) => {
+          if (typeof script !== 'string') return null;
+          if (script.includes('brokenImages')) return { settled: true, brokenImages: [] };
+          if (script.includes('document.fonts.ready') || script.includes('MutationObserver')) return true;
+          return null;
+        },
+        getNetworkTracker: () => ({
+          isAttached: () => true,
+          awaitQuiescence: async () => ({ settled: true, durationMs: 0, timedOut: false }),
+        }),
       },
       artifactStore
     );
+
+    // Tracker-isolation window: the driver records every open/release so the
+    // smoke can prove the window brackets the reload, and the workflow can prove
+    // it reports the outcome instead of discarding it.
+    const isolationCalls = [];
+    let releaseReportsStillActive = false;
+    const isolationPort = async (target, active, paneId) => {
+      isolationCalls.push({ tabId: target.tabId, active, paneId });
+      if (active) return { active: true };
+      return releaseReportsStillActive
+        ? { active: true, reason: 'clearing Network.setBlockedURLs failed: CDP session gone' }
+        : { active: false };
+    };
 
     const workflow = new ThemeQaWorkflow({
       browser,
       files: new WorkspaceFilePort(),
       artifacts: artifactStore,
       reload: (value) => browser.reload(value),
+      trackerIsolation: isolationPort,
     });
 
     const target = {
@@ -135,6 +176,50 @@ async function runSmokeThemeQaGate() {
     console.log(`  - Interactions check: ${report.checklist.interactions ? 'PASS' : 'FAIL (Expected)'}`);
     console.log(`  - Artifacts count: ${report.artifacts.length}`);
 
+    console.log('[Theme QA Smoke] Step 5: Verifying tracker-isolation window bookkeeping...');
+    assert.deepStrictEqual(
+      isolationCalls,
+      [
+        { tabId: 'tab-smoke', active: true, paneId: 'desktop' },
+        { tabId: 'tab-smoke', active: false, paneId: 'desktop' },
+      ],
+      'the isolation window must open before the reload and be released after it, on the same pane'
+    );
+    assert.deepStrictEqual(
+      report.trackerIsolation,
+      { opened: true, released: true, reason: undefined },
+      'a completed window must be reported as opened and released'
+    );
+
+    // A release that fails leaves analytics blocked; that outcome must reach the
+    // report (and the app log) instead of vanishing.
+    releaseReportsStillActive = true;
+    isolationCalls.length = 0;
+    let releaseFailureReport = null;
+    const originalWarn = console.warn;
+    const warnings = [];
+    console.warn = (...args) => { warnings.push(args.join(' ')); };
+    try {
+      releaseFailureReport = await workflow.validate({
+        runId: 'run-smoke-1234567890',
+        attemptId: 'attempt-smoke-release-failure',
+        workspaceRoot: root,
+        target,
+      });
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.deepStrictEqual(
+      releaseFailureReport.trackerIsolation,
+      { opened: true, released: false, reason: 'clearing Network.setBlockedURLs failed: CDP session gone' },
+      'an unreleasable window must be reported as not released with its reason'
+    );
+    assert.ok(
+      warnings.some((line) => line.includes('could not be released')),
+      'a failed release must also be visible in the app log, not only in the report'
+    );
+    console.log(`[Theme QA Smoke] Unreleased window surfaced: ${JSON.stringify(releaseFailureReport.trackerIsolation)}`);
+
     assert.strictEqual(report.checklist.diagnostics, false); // Because of Liquid error
     assert.strictEqual(report.checklist.interactions, false); // Because of HS-01 / HS-02 error
     assert.ok(report.artifacts.some((a) => a.kind === 'report'));
@@ -144,6 +229,10 @@ async function runSmokeThemeQaGate() {
     const { data } = artifactStore.readBytesById(reportArtifact.id);
     const reportContent = data.toString('utf8');
     assert.ok(!reportContent.includes('customer@example.com'));
+    assert.ok(
+      reportContent.includes('"trackerIsolation"'),
+      'the persisted report artifact must record the isolation window outcome'
+    );
 
     console.log('\n[Theme QA Smoke] ==========================================');
     console.log('[Theme QA Smoke] ALL THEME QA VERIFICATION CHECKS PASSED!');

@@ -26,7 +26,7 @@ interface AttachedTargetState {
 }
 
 export class FirstPartyNetworkTracker {
-  private inflightByTarget = new Map<string, Map<number | string, { type: string; startedAt: number }>>();
+  private inflightByTarget = new Map<string, Map<number | string, { type: string; url: string; startedAt: number }>>();
   private listenersByTarget = new Map<string, Set<() => void>>();
   private attachedTargets = new Map<string, AttachedTargetState>();
 
@@ -68,7 +68,7 @@ export class FirstPartyNetworkTracker {
       this.inflightByTarget.set(key, targetMap);
     }
     const normalizedType = resourceType ? resourceType.toLowerCase() : '';
-    targetMap.set(requestId, { type: normalizedType, startedAt: Date.now() });
+    targetMap.set(requestId, { type: normalizedType, url, startedAt: Date.now() });
     this.notifyStateChange(key);
     return true;
   }
@@ -122,6 +122,41 @@ export class FirstPartyNetworkTracker {
 
   public isAttached(tabId: string, paneId: string = 'desktop'): boolean {
     return this.attachedTargets.has(this.makeKey(tabId, paneId));
+  }
+
+  /**
+   * Names what the settle gate is actually waiting on.
+   *
+   * Only first-party-critical resources are tracked (same-origin or theme-asset
+   * hosts, and only document/stylesheet/script/font types), so a `network=false`
+   * gate is a first-party asset that has not finished — never a third-party
+   * beacon. Without the URLs there is no way to tell a slow theme script from a
+   * request that will never complete, so this snapshot is attached to every
+   * settle failure.
+   */
+  public getInflightSnapshot(
+    tabId: string,
+    paneId: string = 'desktop'
+  ): Array<{ type: string; url: string; ageMs: number }> {
+    const key = this.makeKey(tabId, paneId);
+    const targetMap = this.inflightByTarget.get(key);
+    if (!targetMap || targetMap.size === 0) return [];
+    const now = Date.now();
+    const snapshot: Array<{ type: string; url: string; ageMs: number }> = [];
+    let expired = false;
+    for (const [reqId, entry] of targetMap.entries()) {
+      const ageMs = now - entry.startedAt;
+      if (ageMs > 4000) {
+        targetMap.delete(reqId);
+        expired = true;
+        continue;
+      }
+      snapshot.push({ type: entry.type, url: entry.url, ageMs });
+    }
+    if (expired) {
+      this.notifyStateChange(key);
+    }
+    return snapshot.sort((a, b) => b.ageMs - a.ageMs);
   }
   public getStats(): NetworkTrackerStats {
     let listenerCount = 0;

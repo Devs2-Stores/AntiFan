@@ -21,10 +21,44 @@ import {
   buildInspectRegionIsolatedScript,
   buildInspectFontIsolatedScript,
 } from './scripts/advanced-inspection-scripts';
-import type { SemanticElementDescriptor } from './semantic-ref-types';
+import type { ElementGlobalRect, SemanticElementDescriptor, RendererActionRequest } from './semantic-ref-types';
 import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-ref-types';
 import type { NativeTabRecord } from './native-tab-host';
 import type { TabDevToolsHost } from './tab-devtools-host';
+
+/**
+ * Isolated-world pre-flight refusals that must NOT be retried through the
+ * synthetic dispatch fallback. The fallback exists so a busy CDP channel or a
+ * missing debugger still gets a best-effort gesture; it must never be used to
+ * punch an event through a covering overlay, because `dispatchEvent` ignores
+ * hit-testing and would report success for a click a real user could not make.
+ *
+ * Scope: this covers the isolated-executor path — `dispatchAgentAction` and its
+ * `agentClick`/`agentType`/`agentHover` wrappers. `agentTrajectory` is a
+ * separate injected engine (`window.__antifanAgentTrajectory`) that does not
+ * consult this gate, so a trajectory step can still be delivered through an
+ * overlay; do not read a fail-closed guarantee into that path.
+ */
+const BLOCKING_PREFLIGHT_CODES: Record<string, true> = { TARGET_OBSCURED: true };
+
+/** Actions the isolated renderer executor implements; everything else is refused. */
+const ISOLATED_ACTION_NAMES: Record<string, true> = {
+  click: true,
+  type: true,
+  move: true,
+  hover: true,
+  scroll: true,
+  highlight: true,
+  focus: true,
+  probe: true,
+};
+
+/** Pacing bounds for a bounded pointer drag: short enough to stay snappy, long enough for slider libraries to see distinct frames. */
+const DRAG_STEP_BOUNDS = { min: 4, max: 20, default: 10, intervalMs: 16 };
+
+function isIsolatedAction(value: string): value is RendererActionRequest['action'] {
+  return ISOLATED_ACTION_NAMES[value] === true;
+}
 
 export interface SequenceActionItem {
   type: 'navigate' | 'click' | 'type' | 'scroll' | 'hover' | 'pressKey' | 'wait' | 'screenshot' | 'snapshot' | 'awaitNetwork' | 'dismissModals';
@@ -371,7 +405,12 @@ export class TabAutomationHost {
     const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
     const res = validateActionResponse(rawRes);
     if (!res.ok) {
-      return { success: false, reason: res.error || 'Failed to focus element for trusted type' };
+      return {
+        success: false,
+        reason: res.error || 'Failed to focus element for trusted type',
+        executionTier: 'isolated_synthetic',
+        data: { ok: false, error: res.error, code: res.code, metadata: res.metadata, executionTier: 'isolated_synthetic' },
+      };
     }
 
     // 2. Attach debugger if needed
@@ -463,6 +502,17 @@ export class TabAutomationHost {
       const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
       const res = validateActionResponse(rawRes);
       if (!res.ok) {
+        if (res.code && BLOCKING_PREFLIGHT_CODES[res.code]) {
+          // No tier is reported: nothing was dispatched. The tier vocabulary
+          // means "how the gesture was delivered", and claiming a tier on a
+          // refusal would read as if a synthetic click had been delivered.
+          return {
+            success: false,
+            fallbackNeeded: false,
+            reason: res.error || 'Action refused by the actionability gate',
+            data: { ok: false, error: res.error, code: res.code, metadata: res.metadata },
+          };
+        }
         return { success: false, reason: res.error || 'Failed to resolve element for trusted click', fallbackNeeded: true };
       }
       rect = res.rect;
@@ -505,7 +555,7 @@ export class TabAutomationHost {
       wc.executeJavaScript(`(() => {
         try {
           if (typeof window.__antifanAgentClick === 'function') {
-            window.__antifanAgentClick('', ${clickX}, ${clickY}, 'Clicking...');
+            window.__antifanAgentClick('', ${clickX}, ${clickY}, 'Clicking...', false);
           } else if (typeof window.__antifanAgentMove === 'function') {
             window.__antifanAgentMove(${clickX}, ${clickY}, 'Clicking...');
           }
@@ -600,6 +650,14 @@ export class TabAutomationHost {
       const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
       const res = validateActionResponse(rawRes);
       if (!res.ok) {
+        if (res.code && BLOCKING_PREFLIGHT_CODES[res.code]) {
+          return {
+            success: false,
+            fallbackNeeded: false,
+            reason: res.error || 'Action refused by the actionability gate',
+            data: { ok: false, error: res.error, code: res.code, metadata: res.metadata },
+          };
+        }
         return { success: false, reason: res.error || 'Failed to resolve element for trusted hover', fallbackNeeded: true };
       }
       rect = res.rect;
@@ -684,6 +742,7 @@ export class TabAutomationHost {
       text?: string;
       clear?: boolean;
       trusted?: boolean;
+      force?: boolean;
       deltaY?: number;
       label?: string;
       tabId?: string;
@@ -744,6 +803,7 @@ export class TabAutomationHost {
                 action: 'focus',
                 ref: refToken,
                 descriptor,
+                force: params.force,
                 documentUrl: curUrl,
                 nonce: descriptor.nonce,
               });
@@ -764,6 +824,7 @@ export class TabAutomationHost {
                 action: 'focus',
                 ref: refToken,
                 descriptor,
+                force: params.force,
                 documentUrl: curUrl,
                 nonce: descriptor.nonce,
               });
@@ -784,6 +845,7 @@ export class TabAutomationHost {
                 ref: refToken,
                 descriptor,
                 clear: params.clear,
+                force: params.force,
                 documentUrl: curUrl,
                 nonce: descriptor.nonce,
               });
@@ -794,13 +856,17 @@ export class TabAutomationHost {
               return trustedRes;
             }
 
+            if (!isIsolatedAction(action)) {
+              return { success: false, reason: `Unsupported action: "${action}"` };
+            }
             const script = buildIsolatedExecutorScript({
-              action: action as any,
+              action,
               ref: refToken,
               descriptor,
               text: params.text,
               clear: params.clear,
               trusted: params.trusted,
+              force: params.force,
               deltaY: params.deltaY,
               documentUrl: curUrl,
               nonce: descriptor.nonce,
@@ -876,6 +942,7 @@ export class TabAutomationHost {
               selector: params.selector,
               x: params.x,
               y: params.y,
+              force: params.force,
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             }) : undefined;
@@ -898,6 +965,7 @@ export class TabAutomationHost {
               selector: params.selector,
               x: params.x,
               y: params.y,
+              force: params.force,
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             }) : undefined;
@@ -920,6 +988,7 @@ export class TabAutomationHost {
               x: params.x,
               y: params.y,
               clear: params.clear,
+              force: params.force,
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             });
@@ -931,13 +1000,17 @@ export class TabAutomationHost {
             return trustedRes;
           }
 
+          if (!isIsolatedAction(action)) {
+            return { success: false, reason: `Unsupported action: "${action}"` };
+          }
           const script = buildIsolatedExecutorScript({
-            action: action as any,
+            action,
             selector: params.selector,
             x: params.x,
             y: params.y,
             text: params.text,
             clear: params.clear,
+            force: params.force,
             deltaY: params.deltaY,
             documentUrl: wc.getURL(),
             nonce: generateCollectionNonce(),
@@ -956,12 +1029,12 @@ export class TabAutomationHost {
     });
   }
 
-  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const res = await this.dispatchAgentAction('click', params);
     return res.success;
   }
 
-  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const res = await this.dispatchAgentAction('type', params);
     return res.success;
   }
@@ -970,12 +1043,12 @@ export class TabAutomationHost {
     return res.success;
   }
 
-  public async agentHover(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentHover(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const res = await this.dispatchAgentAction('hover', params);
     return res.success;
   }
 
-  public async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.agentHover(args);
   }
 
@@ -1760,6 +1833,330 @@ export class TabAutomationHost {
       }
     });
   }
+  /**
+   * Builds a non-mutating probe for one drag endpoint: no scrolling, no
+   * occlusion gate, no dispatch.
+   *
+   * The `focus` pre-flight cannot be reused here. It scrolls the element to the
+   * center of the viewport, so resolving the destination would invalidate the
+   * origin's coordinates between the two resolutions, and reading the control's
+   * value after the gesture through it would re-arm the gate against whatever
+   * the drag itself revealed — a value bubble, a loading scrim — making the
+   * post-drag reading fail for a drag that worked.
+   *
+   * Scrolling is therefore resolved explicitly: the origin gets one `focus`
+   * pre-flight because that is what proves the gesture starts on a reachable,
+   * unobstructed control, and it runs before the reading rather than between
+   * readings.
+   */
+  private buildDragEndpointScript(
+    endpoint: { ref?: string; selector?: string },
+    targetId: string,
+    paneId: SplitPaneId,
+    documentUrl: string,
+    action: 'probe' | 'focus',
+    force?: boolean
+  ): string {
+    const scrolling = action === 'focus' ? {} : { scrollIntoView: false };
+    const rawRef = typeof endpoint.ref === 'string' ? endpoint.ref.trim() : '';
+    if (rawRef) {
+      const registry = this.ctx.semanticRefRegistry;
+      if (!registry) {
+        throw new CapabilityError('REF_NOT_FOUND', 'Semantic ref registry unavailable for drag endpoint');
+      }
+      const normRef = rawRef.startsWith('@') ? rawRef : `@${rawRef}`;
+      const descriptor = registry.resolveRef(
+        {
+          tabId: targetId,
+          paneId,
+          browserEpoch: this.ctx.getBrowserEpoch(),
+          documentGeneration: this.ctx.getSemanticDocumentGeneration(targetId, paneId),
+          documentUrl,
+        },
+        normRef
+      );
+      return buildIsolatedExecutorScript({
+        action,
+        ref: normRef,
+        descriptor,
+        force,
+        ...scrolling,
+        documentUrl,
+        nonce: descriptor.nonce,
+      });
+    }
+
+    const selector = typeof endpoint.selector === 'string' ? endpoint.selector.trim() : '';
+    if (selector) {
+      return buildIsolatedExecutorScript({
+        action,
+        selector,
+        force,
+        ...scrolling,
+        documentUrl,
+        nonce: generateCollectionNonce(),
+      });
+    }
+
+    throw new CapabilityError('INVALID_ARGUMENT', 'Drag endpoint requires a ref or a selector');
+  }
+
+  private async readDragEndpoint(
+    wc: Electron.WebContents,
+    script: string,
+    label: string
+  ): Promise<{ rect: ElementGlobalRect; valueSignature?: Record<string, unknown> }> {
+    const res = validateActionResponse(await this.executeInIsolatedWorld(wc, script));
+    if (!res.ok) {
+      throw new CapabilityError(res.code || 'REF_NOT_FOUND', `${label}: ${res.error}`);
+    }
+    if (!res.rect) {
+      throw new CapabilityError('REF_NOT_FOUND', `${label} could not be resolved to a rect`);
+    }
+    const signature = res.metadata?.valueSignature;
+    return {
+      rect: res.rect,
+      valueSignature: signature && typeof signature === 'object' ? (signature as Record<string, unknown>) : undefined,
+    };
+  }
+
+  /**
+   * Drag a control (price-filter slider, range handle, drag-to-reorder row) with
+   * a real interpolated pointer gesture. A destination-only press/release is
+   * what a naive click-through produces: slider libraries bind to `pointermove`
+   * between press and release, so the handle snaps back to where it started.
+   * The gesture is bounded (4..20 steps at 16ms), so it costs tens of
+   * milliseconds instead of a synthesized human path.
+   *
+   * Slider destinations are expressed as a fraction of the track, not as an
+   * element center: the pressable part of a range control is the thumb, and its
+   * position is the value — aiming at the track's center sets 50% and then
+   * drags from there, which is only correct by accident. For a native range
+   * control the gesture lands at the fraction, so the caller can predict the
+   * value; for a custom or dual-thumb slider the caller names the handle it
+   * wants moved and still aims by fraction.
+   *
+   * The release is guaranteed once a press has been *dispatched*, not once it
+   * has been acknowledged: a press whose acknowledgement times out may well have
+   * reached the renderer, and a tab left holding a left button poisons every
+   * later interaction.
+   */
+  public async agentDrag(params: {
+    fromRef?: string;
+    fromSelector?: string;
+    fromX?: number;
+    fromY?: number;
+    fromFraction?: number;
+    toRef?: string;
+    toSelector?: string;
+    toX?: number;
+    toY?: number;
+    toFraction?: number;
+    steps?: number;
+    force?: boolean;
+    tabId?: string;
+    paneId?: SplitPaneId;
+  }): Promise<{ success: boolean; reason?: string; data?: unknown }> {
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'agentDrag');
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      return { success: false, reason: `Tab '${targetId}' not found` };
+    }
+
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+
+    return this.withTabAgentWorking(targetId, async () => {
+      return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
+        const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+        if (!wc || wc.isDestroyed()) return { success: false, reason: 'WebContents destroyed' };
+
+        try {
+          await this.ensureAgentBrowserInjected(targetId, effectivePane);
+          const documentUrl = wc.getURL();
+          const fromPoint = { x: params.fromX, y: params.fromY };
+          const fromHasScript = Boolean(params.fromRef || params.fromSelector);
+          if (!fromHasScript && !(typeof fromPoint.x === 'number' && typeof fromPoint.y === 'number')) {
+            return { success: false, reason: 'Drag origin requires a ref, a selector, or an x/y coordinate pair' };
+          }
+
+          // The gate runs first and alone: it is the only step that scrolls, and
+          // everything measured after it must stay valid until the release.
+          if (fromHasScript) {
+            const gate = this.buildDragEndpointScript(
+              { ref: params.fromRef, selector: params.fromSelector },
+              targetId,
+              effectivePane,
+              documentUrl,
+              'focus',
+              params.force
+            );
+            const gateRes = validateActionResponse(await this.executeInIsolatedWorld(wc, gate));
+            if (!gateRes.ok) {
+              return { success: false, reason: `Drag origin refused: ${gateRes.error}`, data: gateRes };
+            }
+          }
+
+          let originRect: ElementGlobalRect | undefined;
+          let valueBefore: Record<string, unknown> | undefined;
+          const originProbeScript = fromHasScript
+            ? this.buildDragEndpointScript(
+                { ref: params.fromRef, selector: params.fromSelector },
+                targetId,
+                effectivePane,
+                documentUrl,
+                'probe'
+              )
+            : undefined;
+
+          if (originProbeScript) {
+            const probed = await this.readDragEndpoint(wc, originProbeScript, 'Drag origin');
+            originRect = probed.rect;
+            valueBefore = probed.valueSignature;
+          } else if (typeof fromPoint.x === 'number' && typeof fromPoint.y === 'number') {
+            originRect = { x: fromPoint.x, y: fromPoint.y, width: 0, height: 0, centerX: fromPoint.x, centerY: fromPoint.y };
+          }
+
+          if (!originRect) {
+            return { success: false, reason: 'Drag origin could not be resolved to a rect' };
+          }
+
+          const fromFraction = typeof params.fromFraction === 'number' && Number.isFinite(params.fromFraction)
+            ? Math.min(1, Math.max(0, params.fromFraction))
+            : 0.5;
+          const startPoint = originRect.width > 0 && typeof fromPoint.x !== 'number'
+            ? { x: originRect.x + originRect.width * fromFraction, y: originRect.y + originRect.height / 2 }
+            : { x: originRect.centerX, y: originRect.centerY };
+
+          let endPoint: { x: number; y: number };
+          let destination: string;
+          if (typeof params.toFraction === 'number' && Number.isFinite(params.toFraction)) {
+            const fraction = Math.min(1, Math.max(0, params.toFraction));
+            endPoint = { x: originRect.x + originRect.width * fraction, y: startPoint.y };
+            destination = `fraction:${fraction}`;
+          } else if (typeof params.toX === 'number' && typeof params.toY === 'number') {
+            endPoint = { x: params.toX, y: params.toY };
+            destination = 'point';
+          } else if (params.toRef || params.toSelector) {
+            // Deliberately not scrolled: moving the page now would invalidate the
+            // origin coordinates the press depends on, so a destination must be
+            // reachable in the same viewport region as the origin.
+            const toScript = this.buildDragEndpointScript(
+              { ref: params.toRef, selector: params.toSelector },
+              targetId,
+              effectivePane,
+              documentUrl,
+              'probe'
+            );
+            const probed = await this.readDragEndpoint(wc, toScript, 'Drag destination');
+            endPoint = { x: probed.rect.centerX, y: probed.rect.centerY };
+            destination = 'element';
+          } else {
+            return { success: false, reason: 'Drag destination requires toFraction, toX/toY, toRef, or toSelector' };
+          }
+
+          const requested = typeof params.steps === 'number' && Number.isFinite(params.steps) ? Math.round(params.steps) : DRAG_STEP_BOUNDS.default;
+          const steps = Math.max(DRAG_STEP_BOUNDS.min, Math.min(DRAG_STEP_BOUNDS.max, requested));
+
+          const readValueSignature = async (): Promise<Record<string, unknown> | undefined> => {
+            if (!originProbeScript) return undefined;
+            const probed = await this.readDragEndpoint(wc, originProbeScript, 'Drag origin');
+            return probed.valueSignature;
+          };
+
+          wc.executeJavaScript(`(() => {
+            try {
+              if (typeof window.__antifanAgentMove === 'function') {
+                window.__antifanAgentMove(${startPoint.x}, ${startPoint.y}, 'Dragging...');
+              }
+            } catch {}
+          })()`).catch(() => {});
+
+          let pressDispatched = false;
+          let dispatchedSteps = 0;
+          try {
+            await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: startPoint.x, y: startPoint.y });
+            // Set before the await, never after: a press whose acknowledgement
+            // never arrives has still been handed to Chromium, and that is
+            // exactly the state the release path has to cover.
+            pressDispatched = true;
+            await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
+              type: 'mousePressed',
+              x: startPoint.x,
+              y: startPoint.y,
+              button: 'left',
+              buttons: 1,
+              clickCount: 1,
+            });
+
+            for (let step = 1; step <= steps; step++) {
+              const ratio = step / steps;
+              await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
+                type: 'mouseMoved',
+                x: Math.round(startPoint.x + (endPoint.x - startPoint.x) * ratio),
+                y: Math.round(startPoint.y + (endPoint.y - startPoint.y) * ratio),
+                button: 'left',
+                buttons: 1,
+              });
+              dispatchedSteps = step;
+              if (step < steps) {
+                const stepGate = Promise.withResolvers<void>();
+                setTimeout(() => stepGate.resolve(), DRAG_STEP_BOUNDS.intervalMs);
+                await stepGate.promise;
+              }
+            }
+
+            await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
+              type: 'mouseReleased',
+              x: endPoint.x,
+              y: endPoint.y,
+              button: 'left',
+              buttons: 0,
+              clickCount: 1,
+            });
+            pressDispatched = false;
+          } finally {
+            if (pressDispatched) {
+              try {
+                await this.sendCdpInputCommand(
+                  wc,
+                  'Input.dispatchMouseEvent',
+                  { type: 'mouseReleased', x: endPoint.x, y: endPoint.y, button: 'left', buttons: 0, clickCount: 1 },
+                  1000
+                );
+              } catch {}
+            }
+          }
+
+          const valueAfter = await readValueSignature();
+          const beforeValue = valueBefore?.value ?? valueBefore?.ariaValueNow ?? null;
+          const afterValue = valueAfter?.value ?? valueAfter?.ariaValueNow ?? null;
+
+          return {
+            success: true,
+            data: {
+              ok: true,
+              executed: true,
+              interaction: 'pointer-drag',
+              steps: dispatchedSteps,
+              destination,
+              fromFraction,
+              startPoint,
+              endPoint,
+              originRect,
+              valueBefore,
+              valueAfter,
+              valueChanged: beforeValue !== null || afterValue !== null ? beforeValue !== afterValue : undefined,
+            },
+          };
+        } catch (err: unknown) {
+          const reason = err instanceof Error ? err.message : String(err);
+          return { success: false, reason };
+        }
+      });
+    });
+  }
+
   public async inspectStyles(params: {
     selector?: string;
     ref?: string;

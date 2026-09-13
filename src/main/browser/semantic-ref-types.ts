@@ -4,7 +4,7 @@
  */
 
 import * as crypto from 'node:crypto';
-import { CapabilityError } from '../../shared/control-plane-contracts';
+import { CapabilityError, type CapabilityErrorCode } from '../../shared/control-plane-contracts';
 
 export const ISOLATED_AGENT_WORLD_ID = 1004;
 export const MAX_SNAPSHOT_DESCRIPTORS = 150;
@@ -95,11 +95,11 @@ export type IsolatedCollectionEnvelope =
   | {
       ok: false;
       error: string;
-      code?: string;
+      code?: CapabilityErrorCode;
     };
 
 export interface RendererActionRequest {
-  action: 'click' | 'hover' | 'type' | 'scroll' | 'highlight' | 'move' | 'focus';
+  action: 'click' | 'hover' | 'type' | 'scroll' | 'highlight' | 'move' | 'focus' | 'probe';
   ref?: string;
   selector?: string;
   x?: number;
@@ -107,6 +107,21 @@ export interface RendererActionRequest {
   text?: string;
   clear?: boolean;
   trusted?: boolean;
+  /**
+   * Escape hatch for the actionability gate. `force: true` skips the occlusion
+   * hit-test and the animation-stability wait — the two checks a caller may
+   * knowingly overrule (a hidden file input wrapped by a label, or a control
+   * that never stops animating). It never skips DOM connectedness or the
+   * document-URL mutation guards: dispatching into a detached element or across
+   * a navigation is a defect, not a caller preference.
+   */
+  force?: boolean;
+  /**
+   * `false` suppresses the unconditional `scrollIntoView` that every action
+   * performs. Set by callers that measure an element twice around a gesture
+   * (the drag engine) and cannot have the page move between the two readings.
+   */
+  scrollIntoView?: boolean;
   label?: string;
   deltaY?: number;
   nonce: string;
@@ -125,7 +140,7 @@ export type RendererActionResponse =
   | {
       ok: false;
       error: string;
-      code?: string;
+      code?: CapabilityErrorCode;
       executionTier?: 'cdp_trusted' | 'isolated_synthetic';
       metadata?: Record<string, unknown>;
     };
@@ -364,7 +379,7 @@ export function validateActionRequest(request: unknown): RendererActionRequest {
     throw new CapabilityError('INVALID_ARGUMENT', 'RendererActionRequest must be an object');
   }
   const req = request as Partial<RendererActionRequest>;
-  const validActions = ['click', 'hover', 'type', 'scroll', 'highlight', 'move', 'focus'];
+  const validActions = ['click', 'hover', 'type', 'scroll', 'highlight', 'move', 'focus', 'probe'];
   if (!req.action || !validActions.includes(req.action)) {
     throw new CapabilityError('INVALID_ARGUMENT', `Invalid action: "${req.action}"`);
   }
@@ -424,6 +439,8 @@ export function validateActionRequest(request: unknown): RendererActionRequest {
     text: typeof req.text === 'string' ? req.text : undefined,
     clear: req.clear !== undefined ? Boolean(req.clear) : undefined,
     trusted: req.trusted !== undefined ? Boolean(req.trusted) : undefined,
+    force: req.force !== undefined ? Boolean(req.force) : undefined,
+    scrollIntoView: req.scrollIntoView !== undefined ? Boolean(req.scrollIntoView) : undefined,
     label: typeof req.label === 'string' ? sanitizeLabel(req.label) : undefined,
     deltaY: typeof req.deltaY === 'number' ? req.deltaY : undefined,
     nonce: validNonce,
@@ -489,7 +506,11 @@ export function validateActionResponse(response: unknown): RendererActionRespons
   return {
     ok: false,
     error: res.error.trim(),
-    code: typeof res.code === 'string' && res.code.trim() ? res.code.trim() : undefined,
+    // Boundary assertion, not a check: the isolated script is ours and every code it emits is a member
+    // of the shared vocabulary, so a non-empty string is trusted as one. A foreign code would pass
+    // through unchanged (as it did before this field was typed), which is why the empty case is the only
+    // one treated as "no code".
+    code: typeof res.code === 'string' && res.code.trim() ? (res.code.trim() as CapabilityErrorCode) : undefined,
     executionTier: res.executionTier === 'cdp_trusted' || res.executionTier === 'isolated_synthetic' ? res.executionTier : undefined,
     metadata: res.metadata && typeof res.metadata === 'object' ? (res.metadata as Record<string, unknown>) : undefined,
   };
