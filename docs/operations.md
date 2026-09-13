@@ -193,10 +193,18 @@ exercised for real; only the USB socket itself needs hardware. It also drives th
 Phase 0 hardware gate result.
 
 `npm run probe:device` reports its host layers in order: `usb_presence` (Windows device tree — does the
-OS itself see an Apple USB device, and which serial), `host_service` (usbmuxd reachable), `transport` (a
-WDA base URL answers). A phone that is visible over USB while usbmuxd is missing means the cable, port and
-pairing are fine and only Apple Mobile Device Support is absent — a different fix from an empty USB bus.
-The probe writes the serial into its JSON report, which is what `--udid` style targeting needs later.
+OS itself see an Apple USB device, and which serial), `host_service` (usbmuxd reachable), `device_lockdown`
+(device identity and iOS version read through lockdownd), `usbmux_forward` (in-process usbmux bridge for a
+device-side port, see `--forward`), `transport` (a WDA base URL answers). A phone that is visible over USB
+while usbmuxd is missing means the cable, port and pairing are fine and only Apple Mobile Device Support is
+absent — a different fix from an empty USB bus. The probe writes the serial and the lockdownd facts into
+its JSON report.
+
+`--forward <devicePort>` bridges a port the phone itself listens on to `127.0.0.1` with the in-process
+usbmux forwarder, with no `iproxy` / `go-ios forward` involved. The adapter does the same thing on its own:
+when no configured candidate answers, it bridges the runner's device port (`ANTIFAN_WDA_DEVICE_PORT`,
+default 8100) over usbmux and only accepts it once WebDriverAgent answers there. Bridging is not a
+RemoteXPC tunnel: it reaches a port the device already exposes, which is what a running runner provides.
 
 ### First-run runbook (Windows, real hardware)
 
@@ -209,11 +217,20 @@ The probe writes the serial into its JSON report, which is what `--udid` style t
    installing anything.
 2. **On-device prerequisites** — unlock the phone, tap *Trust This Computer*, enable
    Settings → Privacy & Security → Developer Mode, and Settings → Developer → Enable UI Automation.
-3. **Start WebDriverAgent on the phone** (pre-signed runner). On iOS 17+/18+ over Windows this normally
-   needs a RemoteXPC tunnel first: install go-ios (`npm i -g go-ios`), copy `wintun.dll` into
-   `C:\Windows\system32`, and run `ios tunnel start` from an **Administrator** shell. Runner-launch
-   commands change between iOS releases — follow the current go-ios / `appium-ios-remotexpc`
-   documentation rather than a copied snippet.
+3. **Start WebDriverAgent on the phone** — this is the one step that cannot be done from this host, and
+   on iOS 17+ (measured device: iOS 26.5.2) it is the whole remaining distance. The runner must be
+   launched through a RemoteXPC tunnel because XCTest runners reach `testmanagerd` only that way:
+   - **With a Mac (any, borrowed is fine)**: open the WebDriverAgent project in Xcode, select the device,
+     Run. Once it reports "listening on port 8100" the phone side is done — this host needs nothing
+     installed, because the adapter bridges that port over usbmux itself.
+   - **Windows-only**: sign and install a WDA runner (Sideloadly/AltStore with a free Apple ID), then
+     install go-ios (`npm i -g go-ios`), copy `wintun.dll` into `C:\Windows\system32` as Administrator,
+     `ios tunnel start`, and run the runner. Heavier, needs admin, and tunnel support for the newest iOS
+     releases varies — check the current go-ios / `appium-ios-remotexpc` docs rather than a copied snippet.
+
+   Confirm the port is open before going further: `npm run probe:device -- --forward 8100`. When no runner
+   is listening, usbmuxd answers the connection and then refuses the port, and the probe reports exactly
+   that instead of a generic timeout.
 4. **Run the hardware probe**:
 
    ```bash

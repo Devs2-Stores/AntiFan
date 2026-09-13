@@ -93,37 +93,51 @@ comparable with the Chromium capture that preceded it.
 
 ### Evidence labelling (important)
 
-Everything above is **contract-level verification**. The fixture smoke is not Phase 0 device evidence and
-its `GO` verdict must never be cited as the hardware gate result. The device path itself is
-**hardware-unverified**: no iPhone has answered on this host, and no claim of a working real-device
-session is made.
+The fixture smoke is not Phase 0 device evidence and its `GO` verdict must never be cited as the hardware
+gate result. The distinction is now narrower than "contract vs hardware": the host-side transport layers
+and the adapter's own client are **hardware-verified** (see the section below), while **no real
+WebDriverAgent session has ever been established** — session creation, navigation, screenshots, input and
+waits remain unproven against a physical device until a runner is listening. No claim of a working
+real-device session is made.
 
-## Blocked on hardware (one host prerequisite)
+## Hardware-verified on the attached iPhone (2026-09-13)
 
-Measured with the iPhone attached (`npm run probe:device`, this host):
+Apple Mobile Device Support was installed and the phone unlocked, which moved the device path from
+"no transport" to "every host-side layer proven against real hardware":
 
-| Layer | Result |
+| Layer | Evidence |
 | --- | --- |
-| `usb_presence` | **pass** — Windows sees 2 Apple USB devices, serial `0000811000013942210A401E` (`Apple Mobile Device USB Composite Device`, WPD `Apple iPhone`) |
-| `host_service` | **fail** — `\\.\pipe\usbmuxd` ENOENT, `tcp 127.0.0.1:27015` ECONNREFUSED, no forwarder on PATH |
-| `transport` | **fail** — `http://127.0.0.1:8100` ECONNREFUSED |
-| verdict | **INCONCLUSIVE** (`NO_DEVICE_TRANSPORT_REACHABLE`) |
+| USB enumeration | `usb_presence` pass — `Apple Mobile Device USB Composite Device`, `Apple Mobile Device USB Device`, `Apple Mobile Device Ethernet`, WPD `Apple iPhone`, serial `0000811000013942210A401E` |
+| usbmuxd | `host_service` pass — `tcp 127.0.0.1:27015` accepting; the adapter's own client enumerates `00008110-00013942210A401E` (`connection: usb`) |
+| Port bridging | `connectDevicePort` took the **`same-socket` handover** branch (Apple's Windows usbmuxd does not return a `Port`), and the in-process forwarder carried a real lockdownd exchange: a plain TCP client with no usbmux knowledge read `ProductVersion` through `127.0.0.1:<bridge>` |
+| Device facts | `device_lockdown` pass — `Admin's iPhone`, `iPhone14,5`, iOS `26.5.2` (`23F84`), pairing record present at `C:\ProgramData\Apple\Lockdown\00008110-00013942210A401E.plist` |
+| Pairing | trusted — privileged keys answer `GetProhibited` (needs a paired `StartSession`), not `PairingRequired` |
+| Adapter transport fallback | with no candidate answering, the adapter bridged device port 8100 over usbmux itself — **no `iproxy`/`go-ios` involved** |
+| Runner gate | **device-measured**: usbmuxd answered the Connect to port 8100 and the device refused it, surfaced as typed `DEVICE_WDA_NOT_READY` ("The WebDriverAgent runner is not answering") — i.e. no runner is running, which is now the only remaining gap |
 
-The cable, port and pairing are therefore fine and exactly one prerequisite is missing: Apple Mobile
-Device Support. Confirmed three ways — `sc query AppleMobileDeviceService`/`usbaapl64`/`AppleUSBDevice`
-all FAILED 1060, no Apple entry in the uninstall registry, and no `usbmuxd.exe`/`Common Files/Apple`
-anywhere on disk. Windows' own WPD stack is what makes the phone appear in Explorer without it, which is
-why "the phone shows up" is not evidence that a usbmuxd path exists.
+`npm run smoke:device` reports 31 passed / 0 failed with a device attached (the live-discovery phase takes
+its "device present" branch instead of its absence branch).
 
-Unblock by either:
+## Remaining gap: a running WebDriverAgent runner
 
-- installing the **standalone (non-Microsoft-Store) iTunes for Windows** or the **Apple Devices** app; or
-- reaching the device over the network: launch WebDriverAgent on the phone and set
-  `ANTIFAN_WDA_CANDIDATES=http://<iphone-lan-ip>:8100`.
+Apple Mobile Device Support is installed and working, so the earlier host prerequisite is closed. What is
+left is a runner on the phone, and it is measured rather than assumed: usbmuxd **answers** a Connect to
+device port 8100 and the device then refuses it, which the adapter surfaces as typed
+`DEVICE_WDA_NOT_READY` ("The WebDriverAgent runner is not answering. Launch it on the device and confirm
+its provisioning profile is trusted.").
 
-iOS 17+/18+ runner launch on Windows normally also needs a RemoteXPC tunnel (`go-ios "ios tunnel start"`
-with `wintun.dll` in `C:\Windows\system32`, Administrator) — a runner-launch concern, not an adapter one.
-The step-by-step Windows runbook is in `docs/operations.md` ("First-run runbook").
+On iOS 17+ an XCTest runner reaches `testmanagerd` only through a RemoteXPC tunnel, so launching it is the
+one step that cannot be performed from this host:
+
+- **A Mac (any, borrowed is fine)** — open WebDriverAgent in Xcode, select the device, Run. Nothing needs
+  installing here: the adapter bridges port 8100 over usbmux on its own.
+- **Windows-only** — sign and install a runner (Sideloadly/AltStore with a free Apple ID) and launch it
+  through a tunnel (`npm i -g go-ios`, `wintun.dll` in `C:\Windows\system32` as Administrator,
+  `ios tunnel start`). Heavier, needs admin, and support for the newest iOS releases varies by tool.
+
+Either way the host side needs no further work: `npm run probe:device -- --forward 8100` confirms the port,
+and the adapter's own fallback bridges it without `iproxy` or `go-ios forward`. The step-by-step runbook is
+in `docs/operations.md` ("First-run runbook").
 
 ## Honest scope boundaries
 

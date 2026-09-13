@@ -21,6 +21,8 @@ import type {
   WdaTransport,
 } from './device-control-port';
 import { IosSessionManager } from './ios-session-manager';
+import { listUsbmuxDevices } from './usbmux-client';
+import { createUsbmuxPortForwarder, type UsbmuxPortForwarder } from './usbmux-forwarder';
 import { assertDeviceAutomationReady, evaluateDeviceReadiness } from './device-readiness';
 import { createWdaTransport, describeWdaFailure, probeWdaCandidates, readWdaScreenInfo, readWdaStatus } from './wda-rest-client';
 
@@ -49,6 +51,11 @@ export interface IosDeviceAdapterOptions {
   artifacts?: DeviceArtifactSink;
   /** WDA base URLs to try, in order. Defaults to ANTIFAN_WDA_URL / ANTIFAN_WDA_CANDIDATES, then localhost:8100. */
   candidates?: string[];
+  /**
+   * Port the runner listens on *on the phone*, bridged over usbmux when no candidate answers.
+   * Defaults to ANTIFAN_WDA_DEVICE_PORT, then 8100.
+   */
+  wdaDevicePort?: number;
   defaultTimeoutMs?: number;
 }
 
@@ -86,8 +93,10 @@ export class IosDeviceAdapter implements DeviceControlPort {
   private readonly artifacts?: DeviceArtifactSink;
   private readonly candidates: string[];
   private readonly defaultTimeoutMs: number;
+  private readonly wdaDevicePort: number;
   private readonly sessions = new IosSessionManager();
   private cachedTransport?: { baseUrl: string; transport: WdaTransport; checkedAt: number };
+  private bridgedForwarder?: UsbmuxPortForwarder;
   private lastUrl?: string;
   /** Per-device work chains: a physical panel executes one operation at a time. */
   private readonly deviceLocks = new Map<string, Promise<unknown>>();
@@ -97,6 +106,8 @@ export class IosDeviceAdapter implements DeviceControlPort {
     this.artifacts = options.artifacts;
     this.candidates = options.candidates && options.candidates.length ? options.candidates : readCandidateEnv();
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 15_000;
+    const envPort = Number(process.env.ANTIFAN_WDA_DEVICE_PORT ?? '');
+    this.wdaDevicePort = options.wdaDevicePort ?? (Number.isFinite(envPort) && envPort > 0 ? envPort : 8100);
   }
 
   async list(): Promise<DeviceInfo[]> {
@@ -425,7 +436,17 @@ export class IosDeviceAdapter implements DeviceControlPort {
   }
 
   private noteFailure(message: string): void {
-    if (sessionIsGone(message)) this.sessions.markLost();
+    if (!sessionIsGone(message)) return;
+    this.sessions.markLost();
+    this.releaseBridgedTransport();
+  }
+
+  /** A lost session invalidates the bridge too: the next call re-resolves it against live hardware. */
+  private releaseBridgedTransport(): void {
+    this.cachedTransport = undefined;
+    const forwarder = this.bridgedForwarder;
+    this.bridgedForwarder = undefined;
+    if (forwarder) void forwarder.close();
   }
 
   private async sendToSession(target: DeviceBinding, method: 'GET' | 'POST' | 'DELETE', route: string, body?: unknown): Promise<void> {
@@ -461,15 +482,56 @@ export class IosDeviceAdapter implements DeviceControlPort {
     if (cached && Date.now() - cached.checkedAt < TRANSPORT_CACHE_MS) return cached.transport;
 
     const probed = await probeWdaCandidates(this.candidates);
-    if (!probed) {
-      const attempts = this.candidates.map((candidate) => `${candidate}: no WebDriverAgent /status`).join(' | ');
-      throw new CapabilityError('DEVICE_TRANSPORT_UNREACHABLE', `No transport reached WebDriverAgent (${attempts})`, {
-        remediation: DEVICE_ERROR_REMEDIATION.DEVICE_TRANSPORT_UNREACHABLE,
-      });
+    if (probed) {
+      const transport = createWdaTransport(probed.baseUrl, this.defaultTimeoutMs);
+      this.cachedTransport = { baseUrl: probed.baseUrl, transport, checkedAt: Date.now() };
+      return transport;
     }
-    const transport = createWdaTransport(probed.baseUrl, this.defaultTimeoutMs);
-    this.cachedTransport = { baseUrl: probed.baseUrl, transport, checkedAt: Date.now() };
-    return transport;
+
+    // Nothing answered: bridge the phone's own runner port over usbmux before giving up. This is what
+    // removes the external `iproxy` / `go-ios forward` dependency from the device path.
+    const bridgedBaseUrl = await this.bridgeDeviceWdaPort();
+    if (bridgedBaseUrl) {
+      const transport = createWdaTransport(bridgedBaseUrl, this.defaultTimeoutMs);
+      this.cachedTransport = { baseUrl: bridgedBaseUrl, transport, checkedAt: Date.now() };
+      return transport;
+    }
+
+    const attempts = this.candidates.map((candidate) => `${candidate}: no WebDriverAgent /status`).join(' | ');
+    throw new CapabilityError('DEVICE_TRANSPORT_UNREACHABLE', `No transport reached WebDriverAgent (${attempts})`, {
+      remediation: DEVICE_ERROR_REMEDIATION.DEVICE_TRANSPORT_UNREACHABLE,
+    });
+  }
+
+  /**
+   * Bridges the runner's device-side port to loopback with the in-process usbmux forwarder and only
+   * publishes it once WebDriverAgent answers there. Returns undefined when there is no attached device,
+   * no usbmuxd host service, or no runner listening - all of which are "not reachable yet", never a
+   * transport fault, so the caller keeps its candidate-list error.
+   */
+  private async bridgeDeviceWdaPort(): Promise<string | undefined> {
+    if (this.bridgedForwarder) return `http://${this.bridgedForwarder.localHost}:${this.bridgedForwarder.localPort}`;
+    try {
+      const attached = await listUsbmuxDevices(5_000);
+      if (!attached.length) return undefined;
+      const liveDeviceId = this.devices.getLiveBinding()?.deviceId;
+      const device =
+        (liveDeviceId ? attached.find((entry) => entry.deviceId === liveDeviceId) : undefined) ??
+        (attached.length === 1 ? attached[0] : undefined);
+      if (!device) return undefined;
+
+      const forwarder = await createUsbmuxPortForwarder({ deviceNumber: device.deviceNumber, devicePort: this.wdaDevicePort });
+      const baseUrl = `http://${forwarder.localHost}:${forwarder.localPort}`;
+      if (!(await probeWdaCandidates([baseUrl]))) {
+        await forwarder.close();
+        return undefined;
+      }
+      this.bridgedForwarder = forwarder;
+      console.log(`[antifan:device] bridged device port ${this.wdaDevicePort} over usbmux to ${baseUrl} (no iproxy/go-ios needed)`);
+      return baseUrl;
+    } catch {
+      return undefined;
+    }
   }
 
   private buildTarget(info: DeviceInfo, screen: WdaScreenInfo | undefined, binding: DeviceBinding): DeviceTarget {

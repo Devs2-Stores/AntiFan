@@ -28,7 +28,7 @@
  *   node scripts/probe-iphone-hardware.mjs --help
  *
  * Environment equivalents:
- *   ANTIFAN_WDA_URL, ANTIFAN_WDA_CANDIDATES, ANTIFAN_TEST_URL, ANTIFAN_SPIKE_OUT
+ *   ANTIFAN_WDA_URL, ANTIFAN_WDA_CANDIDATES, ANTIFAN_TEST_URL, ANTIFAN_SPIKE_OUT, ANTIFAN_USB_VENDOR_ID
  */
 
 import fs from 'node:fs';
@@ -36,7 +36,7 @@ import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
 import { execFile } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SAFARI_BUNDLE_ID = 'com.apple.mobilesafari';
@@ -62,6 +62,10 @@ Options
   --timeout <ms>          Per-request timeout. default: 15000
   --probe-timeout <ms>    Per-candidate transport probe timeout. default: 4000
   --touch                 Extra layer: W3C /actions tap + screenshot delta (not part of the MVP gate)
+  --forward <devicePort>  Bridge a port the phone itself listens on (for example 8100 for a running
+                          WebDriverAgent) to 127.0.0.1 with the in-process usbmux forwarder, and use it
+                          as the first candidate. No iproxy / go-ios forward needed. This bridges a port
+                          the device exposes; it is not a RemoteXPC tunnel.
   --skip-cleanup          Keep the WDA session open after the run
   --json                  Emit the machine-readable report on stdout
   --help                  This text
@@ -79,6 +83,10 @@ Host layers, in the order the spike reports them
   transport       a WDA base URL answers
 A phone that is visible over USB while usbmuxd is missing means the cable and pairing are fine and
 only Apple Mobile Device Support is absent - a different fix from "nothing on the USB bus at all".
+A transport that answers (Wi-Fi, or a forwarded port) demotes USB and usbmuxd absence to
+informational, so a Wi-Fi-only run is never reported as a USB failure.
+ANTIFAN_USB_VENDOR_ID overrides the vendor id the presence check looks for (default VID_05AC); it is
+also how the "no Apple device" branch is exercised without physically unplugging hardware.
 
 Exit codes
   0 GO            every required layer passed
@@ -96,6 +104,7 @@ function parseArgs(argv) {
     settleAttempts: 10,
     settleIntervalMs: 1000,
     touch: false,
+    forwardDevicePort: 0,
     skipCleanup: false,
     json: false,
     help: false,
@@ -119,6 +128,7 @@ function parseArgs(argv) {
       case '--timeout': opts.timeoutMs = Number(next()); break;
       case '--probe-timeout': opts.probeTimeoutMs = Number(next()); break;
       case '--touch': opts.touch = true; break;
+      case '--forward': opts.forwardDevicePort = Number(next()); break;
       case '--skip-cleanup': opts.skipCleanup = true; break;
       case '--json': opts.json = true; break;
       case '--help': case '-h': opts.help = true; break;
@@ -261,9 +271,14 @@ function probeAppleUsbPresence(timeoutMs) {
     return Promise.resolve({ state: UNKNOWN, detail: 'Apple USB presence check is Windows-only', devices: [], serial: null });
   }
   const { promise, resolve } = Promise.withResolvers();
+  const vendorId = process.env.ANTIFAN_USB_VENDOR_ID || APPLE_USB_VENDOR;
+  // `count` makes "the query ran and matched nothing" distinguishable from "the query produced no
+  // output at all": empty stdout is never evidence about the cable, only that PowerShell itself
+  // did not run the cmdlet.
   const script = "$ErrorActionPreference='SilentlyContinue'; "
-    + `Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like '*${APPLE_USB_VENDOR}*' } | `
-    + 'Select-Object Status,Class,FriendlyName,InstanceId | ConvertTo-Json -Compress';
+    + `$d = @(Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like '*${vendorId}*' } | `
+    + 'Select-Object Status,Class,FriendlyName,InstanceId); '
+    + '@{ count = $d.Count; devices = $d } | ConvertTo-Json -Compress -Depth 4';
   execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: timeoutMs }, (error, stdout) => {
     if (error) {
       resolve({ state: UNKNOWN, detail: `could not read the Windows device tree (${error.message})`, devices: [], serial: null });
@@ -271,7 +286,7 @@ function probeAppleUsbPresence(timeoutMs) {
     }
     const text = String(stdout || '').trim();
     if (!text) {
-      resolve({ state: FAIL, code: 'USB_DEVICE_ABSENT', detail: `Windows sees no Apple USB device (${APPLE_USB_VENDOR})`, devices: [], serial: null });
+      resolve({ state: UNKNOWN, detail: 'the Windows device query produced no output, so USB presence is unproven', devices: [], serial: null });
       return;
     }
     let parsed;
@@ -281,12 +296,17 @@ function probeAppleUsbPresence(timeoutMs) {
       resolve({ state: UNKNOWN, detail: `unparsable Windows device data (${err.message})`, devices: [], serial: null });
       return;
     }
-    const devices = (Array.isArray(parsed) ? parsed : [parsed]).map((entry) => ({
+    const raw = Array.isArray(parsed?.devices) ? parsed.devices : parsed?.devices ? [parsed.devices] : [];
+    const devices = raw.map((entry) => ({
       status: entry.Status,
       className: entry.Class,
       name: entry.FriendlyName,
       instanceId: entry.InstanceId,
     }));
+    if (!devices.length) {
+      resolve({ state: FAIL, code: 'USB_DEVICE_ABSENT', detail: `Windows sees no Apple USB device (${vendorId})`, devices: [], serial: null });
+      return;
+    }
     const serial = devices.map((device) => /VID_05AC[^\\]*\\([0-9A-Za-z-]{8,})/.exec(device.instanceId || '')).find(Boolean)?.[1] ?? null;
     const names = [...new Set(devices.map((device) => device.name).filter(Boolean))].join(', ');
     resolve({
@@ -299,6 +319,16 @@ function probeAppleUsbPresence(timeoutMs) {
   return promise;
 }
 
+/** A facility that is absent on the host is diagnostic colour once something else answered. */
+function demoteToInformational(entry, note) {
+  if (entry.status !== FAIL) return entry;
+  entry.status = UNKNOWN;
+  entry.code = null;
+  entry.action = null;
+  entry.detail += ` - informational: ${note}`;
+  return entry;
+}
+
 async function layerUsbPresence(opts) {
   const evidence = await probeAppleUsbPresence(Math.max(opts.probeTimeoutMs, 20000));
   if (evidence.state === PASS) return gate('usb_presence', PASS, null, evidence.detail, null, evidence);
@@ -308,6 +338,147 @@ async function layerUsbPresence(opts) {
       evidence);
   }
   return gate('usb_presence', UNKNOWN, null, evidence.detail, null, evidence);
+}
+
+const LOCKDOWN_PORT = 62078;
+let activeForwarder = null;
+
+process.on('exit', () => {
+  if (activeForwarder) activeForwarder.close();
+});
+
+/** The compiled adapter modules are needed only for --forward and the lockdownd facts, not for a plain run. */
+async function loadDeviceModules() {
+  try {
+    const [client, forwarder] = await Promise.all([
+      import(pathToFileURL(path.join(HERE, '..', '.compiled', 'src', 'main', 'device', 'usbmux-client.js')).href),
+      import(pathToFileURL(path.join(HERE, '..', '.compiled', 'src', 'main', 'device', 'usbmux-forwarder.js')).href),
+    ]);
+    return {
+      listUsbmuxDevices: client.listUsbmuxDevices,
+      connectDevicePort: client.connectDevicePort,
+      toPlistXml: client.toPlistXml,
+      parsePlistXml: client.parsePlistXml,
+      createUsbmuxPortForwarder: forwarder.createUsbmuxPortForwarder,
+    };
+  } catch (err) {
+    throw new Error(`the adapter's device modules are not compiled (run npm run compile): ${err.message}`);
+  }
+}
+
+/**
+ * Reads real device facts through lockdownd. Unprivileged keys answer as soon as usbmuxd exists, which
+ * is what turns "transport refused" into "this phone, on this iOS, and whether a runner is plausible".
+ * Privileged keys and StartService need a paired lockdown session, so they report as unavailable here
+ * rather than as a device fault - the WebDriverAgent path does not need them.
+ */
+async function layerDeviceLockdown(opts, presence) {
+  if (!presence || presence.state !== PASS) {
+    return gate('device_lockdown', UNKNOWN, null, 'skipped: Windows enumerates no Apple USB device', null, null);
+  }
+  let modules;
+  try {
+    modules = await loadDeviceModules();
+  } catch (err) {
+    return gate('device_lockdown', UNKNOWN, null, err.message, null, null);
+  }
+
+  const facts = {};
+  try {
+    const devices = await modules.listUsbmuxDevices(Math.max(opts.probeTimeoutMs, 5000));
+    const device = devices[0];
+    if (!device) {
+      return gate('device_lockdown', UNKNOWN, 'DEVICE_NOT_CONNECTED', 'usbmuxd reports no attached device', null, facts);
+    }
+    facts.deviceId = device.deviceId;
+    facts.deviceNumber = device.deviceNumber;
+    facts.connection = device.connection;
+
+    const { socket, via } = await modules.connectDevicePort(device.deviceNumber, LOCKDOWN_PORT, Math.max(opts.probeTimeoutMs, 5000));
+    facts.handover = via;
+    let buffered = Buffer.alloc(0);
+    const exchange = (payload) => {
+      const xml = Buffer.from(modules.toPlistXml({ Label: 'antifan.probe', ...payload }), 'utf8');
+      const header = Buffer.alloc(4);
+      header.writeUInt32BE(xml.length, 0);
+      socket.write(Buffer.concat([header, xml]));
+
+      const pending = Promise.withResolvers();
+      const timer = setTimeout(() => {
+        socket.off('data', onData);
+        pending.reject(new Error(`lockdownd reply timeout (${payload.Key ?? payload.Request})`));
+      }, 8000);
+      function onData(chunk) {
+        buffered = Buffer.concat([buffered, chunk]);
+        if (buffered.length < 4) return;
+        const length = buffered.readUInt32BE(0);
+        if (buffered.length < 4 + length) return;
+        clearTimeout(timer);
+        socket.off('data', onData);
+        const reply = modules.parsePlistXml(buffered.subarray(4, 4 + length).toString('utf8'));
+        buffered = buffered.subarray(4 + length);
+        pending.resolve(reply ?? {});
+      }
+      socket.on('data', onData);
+      return pending.promise;
+    };
+
+    for (const key of ['ProductVersion', 'ProductType', 'DeviceName', 'DeveloperModeStatus']) {
+      const reply = await exchange({ Request: 'GetValue', Key: key });
+      facts[key] = reply?.Value ?? reply?.Error ?? null;
+    }
+    socket.destroy();
+  } catch (err) {
+    return gate('device_lockdown', UNKNOWN, 'DEVICE_LOCKDOWN_UNAVAILABLE', `lockdownd did not answer: ${err.message}`, null, facts);
+  }
+
+  const version = facts.ProductVersion ?? 'unknown';
+  const privileged = facts.DeveloperModeStatus === 'GetProhibited' || facts.DeveloperModeStatus == null;
+  const detail = `lockdownd: ${facts.DeviceName ?? 'device'} ${facts.ProductType ?? ''} on iOS ${version}`
+    + (privileged
+      ? '; privileged queries refused (needs a paired lockdown session - the WebDriverAgent path does not)'
+      : `; developer mode ${facts.DeveloperModeStatus}`);
+  return gate('device_lockdown', PASS, null, detail, null, facts);
+}
+
+/** Bridges a port the phone itself listens on to loopback, so no iproxy/go-ios forward is needed. */
+async function layerUsbmuxForward(opts, presence) {
+  if (!opts.forwardDevicePort) {
+    return gate('usbmux_forward', UNKNOWN, null,
+      'not requested: pass --forward <devicePort> to bridge a device port without iproxy or go-ios',
+      null, null);
+  }
+  if (!presence || presence.state !== PASS) {
+    return gate('usbmux_forward', UNKNOWN, null, 'skipped: Windows enumerates no Apple USB device', null, null);
+  }
+  let modules;
+  try {
+    modules = await loadDeviceModules();
+  } catch (err) {
+    return gate('usbmux_forward', UNKNOWN, null, err.message, null, null);
+  }
+  try {
+    const devices = await modules.listUsbmuxDevices(Math.max(opts.probeTimeoutMs, 5000));
+    const device = devices[0];
+    if (!device) {
+      return gate('usbmux_forward', FAIL, 'DEVICE_NOT_CONNECTED',
+        `cannot forward port ${opts.forwardDevicePort}: usbmuxd reports no attached device`,
+        'Attach the iPhone by USB and accept the trust prompt.',
+        null);
+    }
+    activeForwarder = await modules.createUsbmuxPortForwarder({ deviceNumber: device.deviceNumber, devicePort: opts.forwardDevicePort });
+    const base = `http://${activeForwarder.localHost}:${activeForwarder.localPort}`;
+    opts.candidates = [base, ...opts.candidates];
+    return gate('usbmux_forward', PASS, null,
+      `forwarding ${activeForwarder.localHost}:${activeForwarder.localPort} -> ${device.deviceId} port ${opts.forwardDevicePort} (in-process, no external forwarder)`,
+      null,
+      { localPort: activeForwarder.localPort, devicePort: opts.forwardDevicePort, deviceId: device.deviceId });
+  } catch (err) {
+    return gate('usbmux_forward', FAIL, 'USB_FORWARD_FAILED',
+      `could not forward device port ${opts.forwardDevicePort}: ${err.message}`,
+      'Check the USB attachment and that Apple Mobile Device Support is running.',
+      null);
+  }
 }
 
 async function layerHostService(opts, presence) {
@@ -615,10 +786,12 @@ async function main() {
   console.log('');
 
   const usbPresence = record(await layerUsbPresence(opts));
-  emit(usbPresence);
 
   const host = record(await layerHostService(opts, usbPresence.evidence));
-  emit(host);
+
+  const lockdown = record(await layerDeviceLockdown(opts, usbPresence.evidence));
+
+  const forward = record(await layerUsbmuxForward(opts, usbPresence.evidence));
 
   let transportBase = null;
   let status = null;
@@ -626,19 +799,23 @@ async function main() {
   let screenshotArtifact = null;
 
   const transport = await layerTransport(opts);
-  record(transport.transport);
-  emit(transport.transport);
+  const transportGate = record(transport.transport);
   transportBase = transport.base;
   status = transport.status;
 
-  if (host.status === FAIL && transport.transport.status === PASS) {
-    // A transport answered (for example the phone's own Wi-Fi IP), so host usbmuxd
-    // reachability is diagnostic colour, not a failure.
-    host.status = UNKNOWN;
-    host.code = null;
-    host.action = null;
-    host.detail += ' - informational: a transport answered without host usbmuxd';
+  // A transport that answers (the phone's own Wi-Fi IP, or a forwarded port) makes host-side absence
+  // diagnostic colour: a Wi-Fi-only run is a supported setup, not a USB failure. Applied before
+  // printing so the console and the JSON report cannot disagree about a layer's status.
+  if (transportGate.status === PASS) {
+    demoteToInformational(host, 'a transport answered without host usbmuxd');
+    demoteToInformational(usbPresence, 'a transport answered without a Windows USB path (Wi-Fi or a forwarded port)');
   }
+
+  emit(usbPresence);
+  emit(host);
+  emit(lockdown);
+  emit(forward);
+  emit(transportGate);
 
   if (!transportBase) {
     record(gate('wda_status', UNKNOWN, 'WDA_NOT_REACHED', 'skipped: no WDA transport', null, null));
@@ -691,7 +868,14 @@ async function main() {
   return finish(opts, startedAt, gates, screenshotArtifact, transportBase);
 }
 
-function finish(opts, startedAt, gates, screenshotArtifact, transportBase) {
+async function finish(opts, startedAt, gates, screenshotArtifact, transportBase) {
+  // A live forwarder holds the event loop open, so the process would hang after printing the verdict
+  // unless it is closed here (the exit hook is only a safety net - it never fires while a server listens).
+  if (activeForwarder) {
+    const forwarder = activeForwarder;
+    activeForwarder = null;
+    await forwarder.close();
+  }
   const required = ['transport', 'session', 'navigate', 'screenshot'];
   const failed = gates.filter((g) => required.includes(g.id) && g.status === FAIL);
   const pending = gates.filter((g) => required.includes(g.id) && g.status === UNKNOWN);
@@ -725,6 +909,7 @@ function finish(opts, startedAt, gates, screenshotArtifact, transportBase) {
     transport: transportBase,
     testUrl: opts.testUrl,
     deviceSerial: gates.find((entry) => entry.id === 'usb_presence')?.evidence?.serial ?? null,
+    deviceFacts: gates.find((entry) => entry.id === 'device_lockdown')?.evidence ?? null,
     automationReady: verdict === 'GO',
     inspectionReady: false,
     gates,
