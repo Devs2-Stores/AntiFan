@@ -157,6 +157,7 @@ export interface BrowserHostPort {
   getDevicePresets?(): unknown[];
   setZoom?(tabId: string, zoomFactor: number): boolean;
   toggleInspect?(): boolean;
+  toggleSplitReview?(tabId: string, enabled?: boolean): boolean;
   isCurrentTarget?(target: BrowserTarget): boolean;
   clearAllAgentWorking?(): void;
   getDocumentGeneration?(tabId?: string): number;
@@ -2956,8 +2957,16 @@ export class BrowserControlPort {
   }
 
   toggleInspect(): { inspecting: boolean } {
-    if (!this.host.toggleInspect) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'toggleInspect is not supported by host');
-    return { inspecting: this.host.toggleInspect() };
+    const fn = this.host.toggleInspect;
+    if (!fn) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'toggleInspect is not supported by host');
+    return { inspecting: fn() };
+  }
+  toggleSplitReview(options?: { tabId?: string; enabled?: boolean }, target?: BrowserTarget): { success: boolean; splitMode: boolean } {
+    const fn = this.host.toggleSplitReview;
+    if (!fn) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'toggleSplitReview is not supported by host');
+    const effectiveTabId = this.resolveTargetTab(target, options?.tabId);
+    const splitMode = fn(effectiveTabId, options?.enabled);
+    return { success: true, splitMode };
   }
   clearAllAgentWorking(): { cleared: boolean } {
     if (this.host.clearAllAgentWorking) this.host.clearAllAgentWorking();

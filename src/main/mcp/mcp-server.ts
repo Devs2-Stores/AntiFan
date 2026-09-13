@@ -182,6 +182,17 @@ export class AntiFanMcpServer {
         },
       },
       {
+        name: 'antifan_toggle_split_review',
+        description: 'Toggle or explicitly set Split Review dual-pane mode on the active tab (or specified tabId) for simultaneous desktop and mobile QA',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            enabled: { type: 'boolean', description: 'Explicitly enable (true) or disable (false) split review. Omit to toggle.' },
+            tabId: { type: 'string', description: 'Optional tab ID' },
+          },
+        },
+      },
+      {
         name: 'antifan_agent_snapshot',
         description: 'Agent Browser: Capture interactive ARIA semantic snapshot with compact @e1, @e2 element references',
         inputSchema: {
@@ -577,6 +588,10 @@ export class AntiFanMcpServer {
       'anti.browser.viewport.list_presets': 'antifan_list_device_presets',
       'antifan_set_device_preset': 'antifan_set_device_preset',
       'antifan_list_device_presets': 'antifan_list_device_presets',
+      'anti.browser.split_review': 'antifan_toggle_split_review',
+      'anti.browser.split-review': 'antifan_toggle_split_review',
+      'browser.split_review': 'antifan_toggle_split_review',
+      'browser.split-review': 'antifan_toggle_split_review',
       'anti.devtools.console.list': 'antifan_console_messages',
       'anti.devtools.console.errors': 'antifan_console_messages',
       'anti.devtools.console.warnings': 'antifan_console_messages',
@@ -798,6 +813,7 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_set_viewport') generated.push({ ...item, name: 'anti.browser.viewport.set' }, { ...item, name: 'anti.browser.set_viewport', description: 'Set browser responsive viewport dimensions and prove the tab measured them' });
     if (item.name === 'antifan_set_device_preset') generated.push({ ...item, name: 'anti.browser.set_device' }, { ...item, name: 'anti.browser.viewport.set_preset' }, { ...item, name: 'anti.browser.set_device_preset' });
     if (item.name === 'antifan_list_device_presets') generated.push({ ...item, name: 'anti.browser.viewport.list_presets' });
+    if (item.name === 'antifan_toggle_split_review') generated.push({ ...item, name: 'anti.browser.split_review' }, { ...item, name: 'browser.split_review' });
     if (item.name === 'antifan_theme_qa_validate') generated.push({ ...item, name: 'anti.theme.qa.validate' }, { ...item, name: 'anti.theme.qa_validate' });
     if (item.name === 'antifan_theme_debug_bundle') generated.push({ ...item, name: 'anti.theme.debug.bundle' }, { ...item, name: 'anti.theme.debug_bundle' });
     if (item.name === 'antifan_theme_qa_repair_begin') generated.push({ ...item, name: 'anti.theme.qa_repair.begin' }, { ...item, name: 'theme.qa_repair.begin' });

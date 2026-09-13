@@ -355,6 +355,7 @@ async function createWindow(): Promise<void> {
     getDevicePresets: () => tabHost!.getDevicePresets(),
     setZoom: (tabId, zoomFactor) => tabHost!.setZoom(tabId, zoomFactor),
     toggleInspect: () => tabHost!.toggleInspect(),
+    toggleSplitReview: (tabId, enabled) => tabHost!.toggleSplitReview(tabId, enabled),
     isCurrentTarget: (target) => tabHost!.isCurrentTarget(target),
     clearAllAgentWorking: () => tabHost!.clearAllAgentWorking(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),

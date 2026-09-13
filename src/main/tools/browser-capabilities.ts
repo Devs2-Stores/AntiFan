@@ -933,6 +933,37 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'browser.split-review',
+    description: 'Toggle or explicitly set Split Review dual-pane mode on the active or specified tab (desktop + mobile)',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enabled: { type: 'boolean', description: 'Explicitly enable (true) or disable (false) split review. Omit to toggle.' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+      },
+    },
+    execute: (params: { enabled?: boolean; tabId?: string }, context) =>
+      browser.toggleSplitReview(params, context.browserTarget),
+  });
+  catalogue.register({
+    name: 'antifan_toggle_split_review',
+    description: 'Alias for browser.split-review',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enabled: { type: 'boolean', description: 'Explicitly enable (true) or disable (false) split review. Omit to toggle.' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+      },
+    },
+    execute: (params: { enabled?: boolean; tabId?: string }, context) =>
+      browser.toggleSplitReview(params, context.browserTarget),
+  });
+
+  catalogue.register({
     name: 'browser.set-automation-target',
     description: 'Explicitly set the automation target tab for AI actions',
     risk: 'write',
