@@ -298,7 +298,9 @@ Mode plus the mounted developer image are enough. Verified live against the atta
 | `ios ps` | the device's real process list with system paths and start times |
 | `ios info` | full lockdown identity (build `23F84`, baseband, Bluetooth address, boot session) |
 | `ios rsd ls` | the full RSD service list |
-| `ios webinspector list` | the tunnel reaches the inspector and the device answers for itself: *"web inspector is not enabled on the device; enable Settings > Safari > Advanced > Web Inspector, then reconnect"* |
+| `ios webinspector list` | with Settings > Safari > Advanced > Web Inspector on, it lists the live page: `com.apple.mobilesafari` (pid 784), `automationAvailability: WIRAutomationAvailabilityAvailable`, `ready: true`, plus the real URL and title. Its error text is **not** authoritative: *"web inspector is not enabled on the device"* also appeared when the actual fault was a stale tunnel-info entry whose `rsdPort` no longer answered — re-check `ios rsd ls` (and restart the tunnel) before touching device settings |
+| `ios webinspector js-shell` | **works, one expression per invocation**: `printf '<expr>\n' \| ios webinspector js-shell` evaluates against the live Safari page through the tunnel. Measured on a real page: `innerWidth/innerHeight` 390x699, `devicePixelRatio` 3, `documentElement.scrollHeight` 9144, 5580 elements, and **120 resource entries** from `performance.getEntriesByType('resource')` — real network timing with no signing and no CDP. A second expression in the same invocation answers `context deadline exceeded`, so run one expression per process |
+| `ios webinspector cdp` | bridges CDP and answers real queries (`Runtime.evaluate` returned the same live viewport numbers, so two independent transports agree). Two traps: the `--port` flag is **ignored** in 1.3.2 (both `--port 9444` and `--port=9444` still bind 9222), and if anything else owns 9222 the bridge dies with `bind: Only one usage of each socket address` — this workstation's Chrome was listening there, so check `netstat -ano | findstr :9222` before blaming the device. WebKit's bridge implements no `Input` domain and no `Page.captureScreenshot`: a page-level screenshot is not available through it |
 | `ios ax` | no response within 60 s, consistent with Settings > Developer > Enable UI Automation still being off (unconfirmed until that toggle is flipped) |
 
 What this tier cannot do: **native input**. go-ios exposes no tap/swipe, so driving the UI still requires
@@ -306,7 +308,8 @@ a signed runner (`runwda` / `runtest` / `runxctest` / `ui`). The no-signing tier
 evidence and inspection — screenshots, process lists, logs, packet capture, web content — not device
 control. Do not run bare `ios prepare` to widen it: it is the one command here that reconfigures the
 device (supervision-style prep, certificate creation) on someone's personal phone, and nothing above
-needs it.
+needs it. The harnesses used for these measurements are untracked local scratch tools
+(`scratch/verify-png.cjs`, `scratch/cdp-probe.cjs`, `scratch/cdp-supported.cjs`).
 
 ### Known host traps (measured on this workstation)
 

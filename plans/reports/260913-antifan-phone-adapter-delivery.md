@@ -179,9 +179,16 @@ in `docs/operations.md` ("First-run runbook").
 
 ## Honest scope boundaries
 
-- No DOM/CSS/console/network inspection: that needs Safari's Web Inspector + Remote Automation and stays
-  behind `webInspector` / `remoteAutomation` gates that report `unknown`. No capability is advertised that
-  the transport cannot serve.
+- No DOM/CSS/console/network inspection **inside the adapter**: that stays behind the `webInspector` /
+  `remoteAutomation` gates. No capability is advertised that the transport cannot serve. The capability
+  itself is nonetheless **measured to exist off-adapter and unsigned**: `ios webinspector js-shell`
+  evaluates against the live Safari page over the tunnel and reported `innerWidth/innerHeight` 390x699,
+  `devicePixelRatio` 3, `scrollHeight` 9144, 5580 elements and 120 `performance` resource entries, while
+  `ios webinspector cdp` answered the same viewport numbers through a second transport. So the gates can
+  be satisfied without any signing; what the unsigned path cannot do is *input*.
+- Native input stays behind a signed runner: WebKit's CDP bridge implements no `Input` domain, go-ios
+  exposes no tap/swipe, and synthetic events from the JS shell would not exercise native scrolling or
+  gesture physics. `device.tap` / `device.swipe` / `device.type` therefore still require WebDriverAgent.
 - `navigate` is a deep-link open (no load wait, no URL readback); `wait` returns a labelled rendering
   heuristic. `reload` re-opens the remembered URL and refuses with `DEVICE_OPERATION_UNSUPPORTED` when
   none is known.
