@@ -824,6 +824,8 @@ export class TabDevToolsHost {
     try {
       await this.sendCdpCommand(wc, 'Network.setBlockedURLs', { urls: [...TRACKER_BLOCK_PATTERNS] });
     } catch (err: unknown) {
+      // Nothing was recorded in the map yet, so this rollback is the only undo
+      // that will ever run for the registration installed above.
       await this.rollbackTrackerIsolation(wc, receipt.preDocumentScriptIdentifier);
       receipt.preDocumentScriptIdentifier = null;
       receipt.blockedPatterns = [];
@@ -864,13 +866,19 @@ export class TabDevToolsHost {
       return { released: false, reason: `Tracker isolation was not active for tab '${targetId}'` };
     }
 
-    const reason = await this.rollbackTrackerIsolation(wc, state.stubIdentifier);
-    if (reason) {
+    const outcome = await this.rollbackTrackerIsolation(wc, state.stubIdentifier);
+    if (outcome.stubRemoved) {
+      // The registration is gone; a retry must not try to remove it again, or
+      // Chromium's "Script not found" would make the release permanently
+      // unreleasable over an id that no longer exists.
+      state.stubIdentifier = null;
+    }
+    if (outcome.reason) {
       // The entry is the only record of what still needs undoing. Dropping it on
       // a failed rollback would leave the blocklist applied to the user's tab
       // with no way to retry, detect or even describe the leak, so it survives
       // until the release actually succeeds.
-      return { released: false, reason };
+      return { released: false, reason: outcome.reason };
     }
     this.trackerIsolation.delete(wc.id);
     return { released: true };
@@ -885,11 +893,25 @@ export class TabDevToolsHost {
     return this.trackerIsolation.has(wc.id);
   }
 
-  private async rollbackTrackerIsolation(wc: Electron.WebContents, stubIdentifier: string | null): Promise<string | undefined> {
+  /**
+   * Undo what the window applied, and report which half completed.
+   *
+   * The two halves fail independently, so the caller has to know which one is
+   * already done: re-removing a registration that is already gone fails with
+   * "Script not found" in Chromium, which would leave a retried release stuck
+   * forever on an error that describes no real leak. `stubRemoved` is what lets
+   * the retained entry describe only the work that is still outstanding.
+   */
+  private async rollbackTrackerIsolation(
+    wc: Electron.WebContents,
+    stubIdentifier: string | null
+  ): Promise<{ stubRemoved: boolean; reason?: string }> {
     const failures: string[] = [];
+    let stubRemoved = false;
     if (stubIdentifier) {
       try {
         await this.sendCdpCommand(wc, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: stubIdentifier });
+        stubRemoved = true;
       } catch (err: unknown) {
         failures.push(`removeScriptToEvaluateOnNewDocument failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -899,7 +921,7 @@ export class TabDevToolsHost {
     } catch (err: unknown) {
       failures.push(`clearing Network.setBlockedURLs failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    return failures.length > 0 ? failures.join('; ') : undefined;
+    return failures.length > 0 ? { stubRemoved, reason: failures.join('; ') } : { stubRemoved };
   }
 
   private isWebContentsDraining(wc: Electron.WebContents | null | undefined): boolean {
@@ -2208,24 +2230,19 @@ export class TabDevToolsHost {
       };
 
       // Out-of-Band 2-Tier Watchdog Timers (Node.js level)
-      let softTimer: NodeJS.Timeout | undefined;
-      let hardTimer: NodeJS.Timeout | undefined;
-
-      softTimer = setTimeout(() => {
+      const softTimer = setTimeout(() => {
         console.warn(`[evalJs:SoftWarning] Script evaluation on tab ${targetId} reached soft budget ${softBudgetMs}ms (running on laptop CPU). Awaiting hard ceiling ${hardBudgetMs}ms...`);
       }, softBudgetMs);
 
-      const hardWatchdogPromise = new Promise<never>((_, reject) => {
-        hardTimer = setTimeout(async () => {
-          try {
-            if (wc && !wc.isDestroyed()) {
-              await this.sendCdpCommand(wc, 'Runtime.terminateExecution', {}).catch(() => {});
-            }
-          } catch {}
-          reject(new CapabilityError('EVAL_HARD_TIMEOUT', `Script execution hung and exceeded hard ceiling of ${hardBudgetMs}ms`));
-        }, hardBudgetMs);
-      });
-
+      const { promise: hardWatchdogPromise, reject: hardReject } = Promise.withResolvers<never>();
+      const hardTimer = setTimeout(async () => {
+        try {
+          if (wc && !wc.isDestroyed()) {
+            await this.sendCdpCommand(wc, 'Runtime.terminateExecution', {}).catch(() => {});
+          }
+        } catch {}
+        hardReject(new CapabilityError('EVAL_HARD_TIMEOUT', `Script execution hung and exceeded hard ceiling of ${hardBudgetMs}ms`));
+      }, hardBudgetMs);
       try {
         const runner = async (): Promise<unknown> => {
           const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
@@ -2240,8 +2257,8 @@ export class TabDevToolsHost {
 
         return await Promise.race([runner(), hardWatchdogPromise]);
       } finally {
-        if (softTimer) clearTimeout(softTimer);
-        if (hardTimer) clearTimeout(hardTimer);
+        clearTimeout(softTimer);
+        clearTimeout(hardTimer);
       }
     });
   }

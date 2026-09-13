@@ -40,7 +40,7 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
           const val = attr.value || '';
 
           if (el.tagName === 'IFRAME' && (name === ':data-src' || name === ':src' || name === 'data-src' || name === 'src')) {
-            const ytMatch = val.match(/(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^"'\s)]+)/i);
+            const ytMatch = val.match(/(https?:\\/\\/(?:www\\.)?(?:youtube\\.com|youtu\\.be)\\/[^"'\\s)]+)/i);
             if (ytMatch && (!el.getAttribute('data-src') || el.getAttribute('data-src') === '')) {
               el.setAttribute('data-src', ytMatch[1]);
               el.setAttribute('src', '');
@@ -451,6 +451,7 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
             var rawSrc = iframe.getAttribute('data-src') || iframe.getAttribute('src') || 'https://www.youtube.com/embed/Nt2J6ZXPuw0';
             iframe.src = rawSrc.includes('?') ? rawSrc + '&autoplay=1' : rawSrc + '?autoplay=1';
           }
+        });
       });
       var closeVideo = videoPopup.querySelector('.popup-close');
       if (closeVideo) {

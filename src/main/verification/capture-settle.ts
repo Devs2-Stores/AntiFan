@@ -70,6 +70,10 @@ export interface CaptureSettleOptions {
   imagesTimeoutMs?: number;
   domTimeoutMs?: number;
   totalTimeoutMs?: number;
+  scopeSelector?: string;
+  ignoreSelectors?: string[];
+  enableMediaFreeze?: boolean;
+  enableStructuralRenderProbe?: boolean;
 }
 
 export const DEFAULT_SETTLE_TIMEOUTS = {
@@ -241,9 +245,24 @@ export function buildImageDecodeScript(
  * Builds the in-page DOM quiet script using double-requestAnimationFrame.
  * Includes a fallback timer for background tabs where rAF is throttled.
  */
-export function buildDomQuietScript(timeoutMs: number): string {
+export interface DomQuietOptions {
+  scopeSelector?: string;
+  ignoreSelectors?: string[];
+}
+
+export function buildDomQuietScript(timeoutMs: number, options: DomQuietOptions = {}): string {
   const maxTimeout = Math.max(1, timeoutMs);
   const quietWindowMs = Math.min(50, Math.max(10, Math.floor(maxTimeout / 3)));
+  const defaultIgnore = [
+    '[data-countdown]', '[data-timer]', '.timer', '.countdown',
+    '[data-live-visitor]', '.live-views', '.marquee', '[class*="ticker"]'
+  ];
+  const combinedIgnore = options.ignoreSelectors && options.ignoreSelectors.length > 0
+    ? [...defaultIgnore, ...options.ignoreSelectors]
+    : defaultIgnore;
+  const scopeSelectorJson = JSON.stringify(options.scopeSelector || null);
+  const ignoreListJson = JSON.stringify(combinedIgnore);
+
   return `(() => {
     return new Promise((resolve) => {
       let finished = false;
@@ -279,13 +298,40 @@ export function buildDomQuietScript(timeoutMs: number): string {
           finish(false);
         }
       }, ${maxTimeout});
+
+      const scopeSelector = ${scopeSelectorJson};
+      const targetScope = scopeSelector && typeof document !== 'undefined'
+        ? document.querySelector(scopeSelector) || (document ? document.documentElement : null)
+        : (typeof document !== 'undefined' ? document.documentElement : null);
+
+      const ignoreList = ${ignoreListJson};
+      const shouldIgnoreNode = (node) => {
+        if (!node || node.nodeType !== 1) return false;
+        for (let i = 0; i < ignoreList.length; i++) {
+          try {
+            if (node.matches(ignoreList[i]) || node.closest(ignoreList[i])) return true;
+          } catch {}
+        }
+        return false;
+      };
+
       // Install MutationObserver first so there is zero blind window
-      if (typeof MutationObserver === 'function' && typeof document !== 'undefined' && document.documentElement) {
+      if (typeof MutationObserver === 'function' && targetScope) {
         try {
-          observer = new MutationObserver(() => {
-            lastMutation = Date.now();
+          observer = new MutationObserver((mutations) => {
+            let hasRelevantMutation = false;
+            for (let i = 0; i < mutations.length; i++) {
+              const m = mutations[i];
+              if (!shouldIgnoreNode(m.target)) {
+                hasRelevantMutation = true;
+                break;
+              }
+            }
+            if (hasRelevantMutation) {
+              lastMutation = Date.now();
+            }
           });
-          observer.observe(document.documentElement, {
+          observer.observe(targetScope, {
             childList: true,
             subtree: true,
             attributes: true,
@@ -320,6 +366,96 @@ export function buildDomQuietScript(timeoutMs: number): string {
   })()`;
 }
 
+export function buildMediaFreezeScript(): string {
+  return `(() => {
+    try {
+      const mediaElements = Array.from(document.querySelectorAll('video, audio'));
+      for (let i = 0; i < mediaElements.length; i++) {
+        try { mediaElements[i].pause(); } catch {}
+      }
+      if (!document.getElementById('__antifan_media_freeze_style')) {
+        const style = document.createElement('style');
+        style.id = '__antifan_media_freeze_style';
+        style.textContent = '* { animation-play-state: paused !important; }';
+        (document.head || document.documentElement).appendChild(style);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  })()`;
+}
+
+export function buildMediaUnfreezeScript(): string {
+  return `(() => {
+    try {
+      const style = document.getElementById('__antifan_media_freeze_style');
+      if (style && style.parentNode) {
+        style.parentNode.removeChild(style);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  })()`;
+}
+
+export interface StructuralRenderProbeResult {
+  valid: boolean;
+  reason?: string;
+  metrics?: {
+    visibleElementsCount: number;
+    coverageRatio: number;
+    hasMeaningfulTextOrAsset: boolean;
+  };
+}
+
+export function buildStructuralRenderProbeScript(): string {
+  return `(() => {
+    try {
+      const vw = window.innerWidth || (document.documentElement ? document.documentElement.clientWidth : 0) || 0;
+      const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 0) || 0;
+      const totalViewportArea = vw * vh;
+      if (totalViewportArea <= 0) return { valid: false, reason: 'VIEWPORT_ZERO' };
+
+      const allElements = Array.from(document.body ? document.body.querySelectorAll('*') : []);
+      let coveredArea = 0;
+      let visibleElementsCount = 0;
+      let hasMeaningfulTextOrAsset = false;
+
+      for (let i = 0; i < allElements.length && i < 300; i++) {
+        const el = allElements[i];
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0) continue;
+
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw) {
+          visibleElementsCount++;
+          coveredArea += Math.min(rect.width * rect.height, totalViewportArea);
+          if (
+            el.tagName === 'IMG' ||
+            el.tagName === 'SVG' ||
+            el.tagName === 'CANVAS' ||
+            (el.childNodes.length === 1 && el.childNodes[0].nodeType === 3 && el.textContent && el.textContent.trim().length > 0)
+          ) {
+            hasMeaningfulTextOrAsset = true;
+          }
+        }
+      }
+
+      const coverageRatio = totalViewportArea > 0 ? coveredArea / totalViewportArea : 0;
+      const isValid = visibleElementsCount >= 5 && coverageRatio >= 0.05 && hasMeaningfulTextOrAsset;
+      return {
+        valid: isValid,
+        metrics: { visibleElementsCount, coverageRatio, hasMeaningfulTextOrAsset },
+        reason: isValid ? undefined : 'INSUFFICIENT_STRUCTURAL_CONTENT',
+      };
+    } catch (e) {
+      return { valid: true, error: String(e) };
+    }
+  })()`;
+}
+
 export interface EvalHost {
   evalJs: (script: string, tabId?: string, paneId?: 'desktop' | 'mobile') => Promise<unknown>;
 }
@@ -342,6 +478,9 @@ export interface BrowserSettlePredicatesOptions {
   networkTracker?: NetworkTrackerHost;
   requireNetworkTracker?: boolean;
   signal?: AbortSignal;
+  scopeSelector?: string;
+  ignoreSelectors?: string[];
+  enableMediaFreeze?: boolean;
 }
 
 export function createBrowserSettlePredicates(
@@ -405,7 +544,10 @@ export function createBrowserSettlePredicates(
     },
     domQuiet: async (timeoutMs: number): Promise<boolean> => {
       try {
-        const script = buildDomQuietScript(timeoutMs);
+        const script = buildDomQuietScript(timeoutMs, {
+          scopeSelector: options.scopeSelector,
+          ignoreSelectors: options.ignoreSelectors,
+        });
         const res = await evalHost.evalJs(script, tabId, paneId);
         return res === true;
       } catch {

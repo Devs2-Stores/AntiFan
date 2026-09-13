@@ -199,6 +199,22 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         if (!el || !el.isConnected) return false;
         const style = window.getComputedStyle ? window.getComputedStyle(el) : el.style || {};
         if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0) {
+          // Smart Swatch & Form Delegation: a hidden input[type=radio|checkbox] is actionable
+          // if wrapped by or associated with an active, visible <label>.
+          if (el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox')) {
+            let label = el.closest ? el.closest('label') : null;
+            if (!label && el.id && typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+              try {
+                label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+              } catch {}
+            }
+            if (label && label.isConnected) {
+              const labelStyle = window.getComputedStyle ? window.getComputedStyle(label) : label.style || {};
+              if (labelStyle.display !== 'none' && labelStyle.visibility !== 'hidden' && parseFloat(labelStyle.opacity || '1') > 0) {
+                return true;
+              }
+            }
+          }
           return false;
         }
         if (el.disabled === true || (typeof el.getAttribute === 'function' && el.getAttribute('aria-disabled') === 'true')) {
@@ -296,16 +312,23 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           }
           // First pointer-receiving element owns the point: decide on it.
           if (composedContains(targetElement, node)) return null;
+          // Smart Label & Swatch Delegation:
           // A label wrapping (or bound to) the target forwards its activation to
-          // the control, so it is a legitimate receiver, not an obstruction.
-          if (node.tagName === 'LABEL') {
+          // the control, so it and any of its child decorators (color spans, svgs, text)
+          // are legitimate receivers, not obstructions.
+          const labelNode = node.tagName === 'LABEL' ? node : (node.closest ? node.closest('label') : null);
+          if (labelNode) {
             let bound = null;
             try {
-              bound = node.control || (node.htmlFor ? document.getElementById(node.htmlFor) : null);
+              bound = labelNode.control || (labelNode.htmlFor ? document.getElementById(labelNode.htmlFor) : null);
             } catch {}
             if (bound === targetElement) return null;
             try {
-              if (targetElement.closest && targetElement.closest('label') === node) return null;
+              if (targetElement.closest && targetElement.closest('label') === labelNode) return null;
+            } catch {}
+            try {
+              const swatchContainer = targetElement.closest ? targetElement.closest('[data-variant-swatch], .swatch, .swatches, .variant-picker, [data-swatch]') : null;
+              if (swatchContainer && swatchContainer.contains(node)) return null;
             } catch {}
           }
           // Both remaining cases are refusals, but they are different defects:
@@ -545,7 +568,29 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           };
         }
 
-        const rect = targetElement.getBoundingClientRect();
+        let rect = targetElement.getBoundingClientRect();
+        // Smart Swatch Target Rect Redirection:
+        // If target is an input (radio/checkbox) that has zero dimensions or is visually hidden,
+        // redirect its bounding box to its associated visible <label> so CDP native mouse click
+        // has a physical, interactive surface to hit!
+        if (
+          targetElement.tagName === 'INPUT' &&
+          (targetElement.type === 'radio' || targetElement.type === 'checkbox') &&
+          (rect.width <= 0 || rect.height <= 0)
+        ) {
+          let label = targetElement.closest ? targetElement.closest('label') : null;
+          if (!label && targetElement.id && typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+            try {
+              label = document.querySelector('label[for="' + CSS.escape(targetElement.id) + '"]');
+            } catch {}
+          }
+          if (label) {
+            const labelRect = label.getBoundingClientRect();
+            if (labelRect.width > 0 && labelRect.height > 0) {
+              rect = labelRect;
+            }
+          }
+        }
         computedRect = {
           x: rect.x,
           y: rect.y,
