@@ -13,6 +13,7 @@ import {
   DECISIONS,
   DEFAULT_FORBIDDEN_PATHS,
   DEFAULT_FORBIDDEN_TOOLS,
+  DEFAULT_PERMITTED_TOOLS,
 } from "../../../../../.canary/tools/fix-loop/audits.mjs";
 
 interface ExtensionContext {
@@ -72,20 +73,23 @@ const SESSION_PERMITTED_TOOLS = [
   "read",
   "write",
   "edit",
-  "task",
-  "todo",
+  "ast.edit",
+  "ast_edit",
+  "patch",
+  "append",
   "glob",
   "grep",
+  "file.glob",
+  "file.grep",
   "bash",
+  "shell",
+  "exec",
+  "task",
+  "todo",
   "hub",
   "yield",
-  "anti.*",
-  "browser.*",
-  "theme.*",
-  "mcp__*",
-  "**",
 ];
-const MCP_FORBIDDEN_PATTERNS = Object.freeze([]);
+const MCP_FORBIDDEN_PATTERNS = DEFAULT_FORBIDDEN_TOOLS;
 
 function isFixLoopSession(): boolean {
   return Boolean(

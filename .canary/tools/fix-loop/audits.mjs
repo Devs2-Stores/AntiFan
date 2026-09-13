@@ -32,19 +32,38 @@ export const ROUTE_REFUSAL_CODES = Object.freeze({
   URL_EXPECTATION_MISSING: 'URL_EXPECTATION_MISSING',
 });
 
-export const DEFAULT_FORBIDDEN_PATHS = Object.freeze([]);
+export const DEFAULT_FORBIDDEN_PATHS = Object.freeze([
+  'src/**',
+  'package.json',
+  'package-lock.json',
+  'tsconfig*.json',
+  '.git/**',
+  '.omp/**',
+  'scripts/**',
+  'test/**',
+  'packages/**',
+]);
 
 export const DEFAULT_PERMITTED_TOOLS = Object.freeze([
   'file.read',
   'file.write',
-  'anti.*',
-  'browser.*',
-  'theme.*',
-  'mcp__*',
-  '**',
 ]);
 
-export const DEFAULT_FORBIDDEN_TOOLS = Object.freeze([]);
+export const DEFAULT_FORBIDDEN_TOOLS = Object.freeze([
+  'anti.theme.style_override',
+  'mcp__*style_override*',
+  'theme.style_override',
+  'anti.agent.cursor.*',
+  'mcp__*agent_cursor*',
+  'theme.qa_repair.*',
+  'theme.qa_repair.begin',
+  'theme.qa_repair.verify',
+  'browser.agent-sequence',
+  'mcp__*agent_sequence*',
+  'anti.browser.evaluate',
+  'mcp__*browser_evaluate*',
+  'risk:eval',
+]);
 
 /**
  * Normalizes a file path to POSIX style (forward slashes, stripped leading/trailing slashes).

@@ -325,7 +325,7 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(res.reloaded, true);
   });
 
-  it('NativeTabHost.prototype.setViewportSize returns false when reload fails and propagates when reload throws', async () => {
+  it('rejects failed viewport reloads as stale targets and propagates reload exceptions', async () => {
     const host = createTestHost();
     const tab = createTestTabRecord('tab-1');
     host.tabs.set('tab-1', tab);
@@ -336,8 +336,10 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
       return false;
     };
 
-    const ok = await host.setViewportSize({ width: 390, height: 844, reload: true, tabId: 'tab-1' });
-    assert.strictEqual(ok, false, 'Must return false when reload fails');
+    await assert.rejects(
+      () => host.setViewportSize({ width: 390, height: 844, reload: true, tabId: 'tab-1' }),
+      (error: unknown) => error instanceof Error && 'code' in error && error.code === 'TARGET_STALE'
+    );
     assert.strictEqual(reloadAttempts, 1, 'Must make exactly 1 reload attempt');
 
     // Now test that exceptions from reloadAndWait propagate without being swallowed

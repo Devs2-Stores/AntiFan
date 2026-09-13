@@ -6581,7 +6581,7 @@ export class NativeTabHost extends EventEmitter {
     } catch {}
     if (options.reload) {
       const reloadOk = await this.reloadAndWait(targetId);
-      if (!reloadOk) return false;
+      if (!reloadOk) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available', { tabId: targetId, operation: 'setViewport' });
     }
     return true;
   }
