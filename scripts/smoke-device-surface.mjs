@@ -86,6 +86,9 @@ const PNG = makePng(393, 852, [45, 125, 190]);
 const requests = [];
 
 function startWdaFixture() {
+  // Wire responses a test can steer. The point is to author the device's answer, not to have the
+  // adapter's own interpretation of it assert itself.
+  let activeElementReply = { status: 200, payload: { value: { ELEMENT: 'elem-1' } } };
   const server = createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
@@ -115,7 +118,7 @@ function startWdaFixture() {
         return send(200, { value: null });
       }
       if (req.method === 'GET' && /^\/session\/[^/]+\/element\/active$/.test(req.url)) {
-        return send(200, { value: { ELEMENT: 'elem-1' } });
+        return send(activeElementReply.status, activeElementReply.payload);
       }
       if (req.method === 'POST' && /^\/session\/[^/]+\/element\/[^/]+\/value$/.test(req.url)) {
         return send(200, { value: null });
@@ -126,7 +129,17 @@ function startWdaFixture() {
       return send(404, { value: { error: 'unknown command', message: `no fixture route for ${req.method} ${req.url}` } });
     });
   });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port })));
+  return new Promise((resolve) =>
+    server.listen(0, '127.0.0.1', () =>
+      resolve({
+        server,
+        port: server.address().port,
+        setActiveElementReply: (reply) => {
+          activeElementReply = reply;
+        },
+      })
+    )
+  );
 }
 
 // ---------------------------------------------------------------- harness
@@ -167,7 +180,7 @@ async function main() {
 }
 
 async function run() {
-  const { server, port } = await startWdaFixture();
+  const { server, port, setActiveElementReply } = await startWdaFixture();
   const dataRoot = mkdtempSync(path.join(tmpdir(), 'antifan-device-smoke-'));
   const controlPlane = new ControlPlaneRuntime({ dataRoot, projectId: PROJECT_ID, workspaceId: WORKSPACE_ID });
   const lease = controlPlane.getLease();
@@ -380,7 +393,30 @@ async function run() {
   await expectError('a target minted before a re-plug is refused as a stale attachment', 'DEVICE_TARGET_STALE', () =>
     replugAdapter.tap(preReplugTarget, { x: 3, y: 4 }));
 
-  console.log('\n[11] an aborted client cannot take the host process down');
+  console.log('\n[11] the active-element failure modes stay distinct');
+  // WebDriverAgent answers 404 for both "this session is gone" and "nothing editable is focused". Only
+  // the first is a session failure; reporting the second as one sends the caller off to reopen Safari
+  // for an ordinary focus problem.
+  setActiveElementReply({
+    status: 404,
+    payload: { value: { error: 'invalid session id', message: 'Invalid session id: smoke-session-1' } },
+  });
+  await expectError('an active-element reply naming a dead session is reported as a session failure', 'DEVICE_SESSION_FAILED', () =>
+    call('device.type', { text: 'hello' }));
+
+  await call('device.open_safari', { deviceId: DEVICE.deviceId });
+  setActiveElementReply({
+    status: 404,
+    payload: { value: { error: 'no such element', message: 'An element could not be located on the page using the given search parameters' } },
+  });
+  await expectError('an active-element reply about focus absence is reported as a focus problem, not a dead session', 'DEVICE_OPERATION_UNSUPPORTED', () =>
+    call('device.type', { text: 'hello' }));
+
+  setActiveElementReply({ status: 200, payload: { value: { ELEMENT: 'elem-1' } } });
+  const typedAfterRestore = await call('device.type', { text: 'hello' });
+  check('typing still succeeds once the runner answers normally again', typedAfterRestore.ok === true, typedAfterRestore);
+
+  console.log('\n[12] an aborted client cannot take the host process down');
   // The loopback forwarder must guard both ends before the usbmux handshake starts. A client that errors
   // while the device port is still connecting used to hit a listener-less socket, and an unhandled
   // 'error' on a net.Socket is thrown - in Electron that is the whole main process. Reaching the summary
@@ -395,6 +431,11 @@ async function run() {
   });
   await new Promise((resolve) => setTimeout(resolve, 1_500));
   const forwarderStats = forwarder.stats();
+  check(
+    'the reset reached the forwarder as an accepted connection',
+    forwarderStats.accepted >= 1,
+    forwarderStats
+  );
   check(
     'an aborted client during the usbmux handshake is accounted for rather than crashing the process',
     forwarderStats.failed >= 1 && forwarderStats.active === 0,

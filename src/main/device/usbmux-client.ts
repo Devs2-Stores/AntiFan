@@ -601,6 +601,7 @@ export async function readLockdownFacts(deviceNumber: number, timeoutMs = 3000):
     const buffered = { rest: Buffer.alloc(0) };
     const facts: LockdownFacts = {};
     for (const { key, field } of LOCKDOWN_FACT_KEYS) {
+      if (socket.destroyed) break;
       try {
         const reply = await exchangeLockdown(socket, buffered, { Request: 'GetValue', Key: key }, timeoutMs, broken.promise);
         const value = reply?.Value;

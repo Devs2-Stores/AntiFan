@@ -350,15 +350,25 @@ export class IosDeviceAdapter implements DeviceControlPort {
     const transport = await this.transportFor(target);
     const active = await transport.request('GET', `/session/${sessionId}/element/active`, undefined, this.defaultTimeoutMs);
     if (!active.ok) {
-      // A 404/500 here is the session or the runner being gone, not "Safari has no focused field". Left
-      // unchecked, the focus branch below would report a transport fault as a UI condition and send the
-      // caller off to tap an input on a phone that is not answering at all.
       const message = describeWdaFailure(active);
-      this.noteFailure(message);
-      throw new CapabilityError('DEVICE_SESSION_FAILED', `Cannot read the device's active element: ${message}`, {
-        remediation: DEVICE_ERROR_REMEDIATION.DEVICE_SESSION_FAILED,
-        canRebind: true,
-      });
+      if (sessionIsGone(message)) {
+        // The session or the runner is gone. Left unchecked, the focus branch below would report a
+        // transport fault as a UI condition and send the caller off to tap an input on a phone that is
+        // not answering at all.
+        this.noteFailure(message);
+        throw new CapabilityError('DEVICE_SESSION_FAILED', `Cannot read the device's active element: ${message}`, {
+          remediation: DEVICE_ERROR_REMEDIATION.DEVICE_SESSION_FAILED,
+          canRebind: true,
+        });
+      }
+      // WebDriverAgent answers `no such element` (404) when nothing editable is focused, which is the
+      // ordinary "tap the input first" case, not a dead session. Only a session-gone message is treated
+      // as one; anything else keeps the focus-absence answer and still carries what WDA said.
+      throw new CapabilityError(
+        'DEVICE_OPERATION_UNSUPPORTED',
+        `No active element on the device (WebDriverAgent said: ${message}). WebDriverAgent types into the active element, so tap the input first (device.tap)`,
+        { remediation: DEVICE_ERROR_REMEDIATION.DEVICE_OPERATION_UNSUPPORTED }
+      );
     }
     const focused = elementIdOf((active.json as { value?: unknown } | undefined)?.value);
     if (!focused) {

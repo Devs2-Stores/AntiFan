@@ -29,6 +29,16 @@ function Get-ITunesStartedSince([datetime]$Since) {
         Select-Object -First 1
 }
 
+# The activation handle from a protocol launch is not a reliable identity: for the Store/MSIX package
+# ShellExecuteEx can return the activation broker, an already-exited process, or nothing at all. A PID
+# that did not exist before this script ran is the identity that actually holds up.
+function Get-NewITunesProcess([int[]]$KnownPids, [datetime]$Since) {
+    return Get-Process iTunes -ErrorAction SilentlyContinue |
+        Where-Object { $KnownPids -notcontains $_.Id -and $_.StartTime -ge $Since } |
+        Sort-Object StartTime -Descending |
+        Select-Object -First 1
+}
+
 if (Test-UsbmuxPort) {
     Write-Host "[antifan] usbmuxd is already listening on tcp:$Port - nothing to do."
     exit 0
@@ -38,6 +48,7 @@ if (Test-UsbmuxPort) {
 $startedAt = Get-Date
 $launched = $null
 $existing = Get-Process iTunes -ErrorAction SilentlyContinue
+$existingPids = @($existing | ForEach-Object { $_.Id })
 
 if ($existing) {
     Write-Host "[antifan] iTunes is already running (PID $($existing.Id -join ',')); leaving its windows untouched."
@@ -66,12 +77,17 @@ if (-not (Test-UsbmuxPort)) {
     exit 1
 }
 
-if (-not $launched -and -not $existing) {
-    $launched = Get-ITunesStartedSince $startedAt
+if (-not $existing) {
+    # Resolve the owner by what actually appeared, not by the activation handle: for the Store package
+    # that handle can belong to a broker that is already gone.
+    $launched = Get-NewITunesProcess -KnownPids $existingPids -Since $startedAt
+    if (-not $launched) {
+        $launched = Get-ITunesStartedSince $startedAt
+    }
 }
 
 # --- Hide the window, but only for the process this script started -------------------------------
-if ($launched) {
+if (-not $existing) {
     $definition = @'
 using System;
 using System.Runtime.InteropServices;
@@ -84,12 +100,18 @@ public class Win32Window {
         Add-Type -TypeDefinition $definition
     }
 
-    # The window appears a moment after the process, so poll that one PID and only for a bounded time.
+    # The window appears a moment after the process, so poll it and only for a bounded time. If the
+    # tracked handle turns out to be the wrong process (or a dead one), adopt the newest iTunes that did
+    # not exist before this script ran and hide that; a pre-existing instance is never a candidate.
     $windowDeadline = (Get-Date).AddSeconds($WaitTimeoutSeconds)
     $hidden = $false
     while (-not $hidden -and (Get-Date) -lt $windowDeadline) {
-        $proc = Get-Process -Id $launched.Id -ErrorAction SilentlyContinue
-        if (-not $proc) { break }
+        $proc = if ($launched) { Get-Process -Id $launched.Id -ErrorAction SilentlyContinue } else { $null }
+        if (-not $proc) {
+            $proc = Get-NewITunesProcess -KnownPids $existingPids -Since $startedAt
+            $launched = $proc
+        }
+        if (-not $proc) { Start-Sleep -Milliseconds $PollMilliseconds; continue }
         if ($proc.MainWindowHandle -ne 0) {
             [Win32Window]::ShowWindowAsync($proc.MainWindowHandle, 0) | Out-Null
             $hidden = $true
@@ -100,10 +122,12 @@ public class Win32Window {
     }
 
     if (-not $hidden) {
-        Write-Warning "[antifan] iTunes did not expose a window within ${WaitTimeoutSeconds}s; tcp:$Port is up but a window may appear."
+        if ($launched) {
+            Write-Warning "[antifan] iTunes did not expose a window within ${WaitTimeoutSeconds}s; tcp:$Port is up but a window may appear."
+        } else {
+            Write-Warning '[antifan] usbmuxd is up but no iTunes process could be identified to hide.'
+        }
     }
-} elseif (-not $existing) {
-    Write-Warning '[antifan] usbmuxd is up but no iTunes process could be identified to hide.'
 }
 
 exit 0

@@ -398,18 +398,15 @@ export class CapabilityCatalogue {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
-      const liveDeviceBinding = this.options.getDeviceBinding?.();
-      // A browser capability must never be refused because a phone is absent. When the capability does
-      // not require a device, a caller-supplied deviceTarget is only checked against a device that is
-      // actually present, so an unrelated operation cannot be blocked by the device surface.
-      if (definition.requiresDeviceTarget || liveDeviceBinding) {
-        authorizeAndResolveEffectiveDeviceTarget(
-          context,
-          liveDeviceBinding,
-          definition.allowMissingDeviceSession === true,
-          typeof this.options.getDeviceBinding === 'function'
-        );
-      }
+      // Nothing in this codebase populates `context.deviceTarget` (it is not part of any caller-supplied
+      // request context), so this branch is entered by device capabilities only. The strict form is kept
+      // on purpose: were a foreign target ever supplied, it must fail closed rather than be ignored.
+      authorizeAndResolveEffectiveDeviceTarget(
+        context,
+        this.options.getDeviceBinding?.(),
+        definition.allowMissingDeviceSession === true,
+        typeof this.options.getDeviceBinding === 'function'
+      );
     }
     return definition.execute(params, context);
   }
@@ -454,17 +451,13 @@ export class CapabilityCatalogue {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
-      const liveDeviceBinding = this.options.getDeviceBinding?.();
-      // Same isolation rule as the authenticated path: a non-device capability is never blocked by a
-      // missing phone, and a supplied deviceTarget is validated only against a present device.
-      if (definition.requiresDeviceTarget || liveDeviceBinding) {
-        authorizeAndResolveEffectiveDeviceTarget(
-          context,
-          liveDeviceBinding,
-          definition.allowMissingDeviceSession === true,
-          typeof this.options.getDeviceBinding === 'function'
-        );
-      }
+      // Same strict contract as the authenticated path (see the note there).
+      authorizeAndResolveEffectiveDeviceTarget(
+        context,
+        this.options.getDeviceBinding?.(),
+        definition.allowMissingDeviceSession === true,
+        typeof this.options.getDeviceBinding === 'function'
+      );
     }
     return definition.execute(params, context);
   }

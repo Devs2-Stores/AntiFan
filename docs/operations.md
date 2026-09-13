@@ -179,6 +179,12 @@ store, so a device receipt is directly comparable with the Chromium capture that
 - Three lifetimes stay distinct: `deviceEpoch` (physical attachment), `sessionGeneration` (automation
   session) and the derived rendering surface. A phone still plugged in after WebDriverAgent crashed is
   a session-generation change, not a removed device.
+- `device.type` reads the active element first, and WebDriverAgent answers 404 for two different
+  conditions. Its message decides which: one naming the session (`invalid session`, `no such session`)
+  is a dead session (`DEVICE_SESSION_FAILED`, rebindable with `device.open_safari`), while everything
+  else — `no such element` when nothing editable is focused — stays
+  `DEVICE_OPERATION_UNSUPPORTED` and tells the caller to tap the input first. Both messages carry what
+  WebDriverAgent actually said.
 
 ### Failure codes
 
@@ -213,12 +219,23 @@ window. The script is a launcher, not a service, and it holds to a bounded contr
   "already listening … nothing to do" and touches no process);
 - bounded — at most 20s waiting for the port, then at most 20s for a window to hide;
 - scoped — it hides **only** the window of the iTunes process it started. iTunes is single-instance, so
-  when it is already running the script only waits and never hides the user's window. On a cold start the
-  owner is resolved **after** the port opens (iTunes takes seconds to appear, and the protocol launch does
-  not hand back a process handle), which is what makes the hide step work on the first logon instead of
-  leaving a visible window;
+  when it is already running the script only waits and never hides the user's window. The owner is
+  identified by **PID set difference** (the newest iTunes PID that did not exist before this script ran),
+  not by the handle returned from a protocol launch: for the Store/MSIX package that handle can be the
+  activation broker or an already-exited process. Resolution happens **after** the port opens, and if the
+  tracked PID turns out to be dead the loop adopts the new PID instead of giving up — a cold start takes
+  seconds to show a window, and that is precisely when a visible iTunes window would appear. A
+  pre-existing instance is never a candidate;
 - honest — exit `1` plus a warning when the port never opened. Nothing is reported as successful on a
   timeout, and failures are not swallowed by a global `SilentlyContinue`.
+
+**Verification status (honest):** the idempotent path is verified live (it exits `0`, prints
+"already listening … nothing to do" and touches no process) and the script parses with zero errors under
+the language parser. The **launch-and-hide path cannot be verified from this session** — it needs a boot
+with nothing listening on `tcp:27015`, and the machine already has usbmuxd up from the user's running
+iTunes; stopping that process is the user's call. Treat the cold-start hide as designed-but-unproven
+until a re-logon (or a manual run with iTunes closed) shows it, and read the printed PID line as the
+evidence when it does.
 
 Run it manually with
 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-itunes-background.ps1`.
