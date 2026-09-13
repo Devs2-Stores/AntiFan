@@ -146,6 +146,88 @@ function createTestHost() {
 }
 
 describe('NativeTabHost Split Review Integration', () => {
+  it('never records the isolation window\'s own blocked resources as page defects', () => {
+    // Both channels matter. The failure channel carries the blocked URL; the
+    // console channel reports the *document* as the source of
+    // "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT" at error level, and
+    // the diagnostics classifier turns a first-party error entry into a critical
+    // issue — so an unfiltered console channel lets the blocklist flip a QA run
+    // from PASS to FAIL with nothing wrong on the page.
+    const { host, desktopWc } = createTestHost();
+    const tab = host.tabs.get('tab-split-1');
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.view, tab.state, 'desktop');
+
+    const consoleEntries: Array<{ message: string; source: string }> = [];
+    const failures: Array<{ validatedURL: string }> = [];
+    host.diagnosticsManager = {
+      recordConsole: (_id: string, entry: { message: string; source: string }) => {
+        consoleEntries.push(entry);
+      },
+      recordFailure: (_id: string, entry: { validatedURL: string }) => {
+        failures.push(entry);
+      },
+      clear: () => {},
+      deleteTab: () => {},
+    };
+
+    const blockedUrl = 'https://connect.facebook.net/en_US/fbevents.js';
+    const emitBlockedConsoleEntry = () =>
+      desktopWc.emit('console-message', {
+        level: 3,
+        message: 'Failed to load resource: net::ERR_BLOCKED_BY_CLIENT',
+        sourceId: 'https://example.com/products/ao-thun',
+        lineNumber: 0,
+      });
+    const emitGenuineConsoleError = () =>
+      desktopWc.emit('console-message', {
+        level: 3,
+        message: "TypeError: Cannot read properties of undefined (reading 'total_price')",
+        sourceId: 'https://example.com/app.js',
+        lineNumber: 42,
+      });
+    const emitBlockedFailure = () =>
+      desktopWc.emit('did-fail-load', {}, -20, 'ERR_BLOCKED_BY_CLIENT', blockedUrl, false);
+    const emitGenuineFailure = () =>
+      desktopWc.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://example.com/missing.js', false);
+
+    // No isolation window: every entry is evidence and must be recorded.
+    let isolationActive = false;
+    host.devToolsHost = { isTrackerIsolationActive: () => isolationActive };
+    emitBlockedConsoleEntry();
+    emitGenuineConsoleError();
+    emitBlockedFailure();
+    emitGenuineFailure();
+    assert.deepStrictEqual(
+      consoleEntries.map((entry) => entry.message).sort(),
+      [
+        'Failed to load resource: net::ERR_BLOCKED_BY_CLIENT',
+        "TypeError: Cannot read properties of undefined (reading 'total_price')",
+      ].sort(),
+      'outside the window nothing may be suppressed'
+    );
+    assert.strictEqual(failures.length, 2, 'outside the window both failures are real evidence');
+
+    // Isolation window open: only this tool's own damage disappears.
+    isolationActive = true;
+    consoleEntries.length = 0;
+    failures.length = 0;
+    emitBlockedConsoleEntry();
+    emitGenuineConsoleError();
+    emitBlockedFailure();
+    emitGenuineFailure();
+
+    assert.deepStrictEqual(
+      consoleEntries.map((entry) => entry.message),
+      ["TypeError: Cannot read properties of undefined (reading 'total_price')"],
+      'the blocked-resource console entry is the window\'s own damage; a real page error is not'
+    );
+    assert.deepStrictEqual(
+      failures.map((entry) => entry.validatedURL),
+      ['https://example.com/missing.js'],
+      'only the failure whose URL this module blocks may be dropped'
+    );
+  });
+
   it('resolves WebContents targeting correctly based on focusedPane and explicit paneId', () => {
     const { host, desktopWc, mobileWc, mobileView } = createTestHost();
     const tab = host.tabs.get('tab-split-1');

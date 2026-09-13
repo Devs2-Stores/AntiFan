@@ -5,6 +5,7 @@ import {
   buildTrackerStubProbeScript,
   buildTrackerStubScript,
   buildTrackerStubTeardownScript,
+  isTrackerIsolationConsoleNoise,
   TRACKER_BLOCK_PATTERNS,
   TRACKER_STUB_GLOBALS,
   TRACKER_STUB_MARKER,
@@ -137,6 +138,45 @@ describe('Tracker block patterns', () => {
     ];
     for (const url of mustStayReachable) {
       assert.ok(!blocked(url), `${url} must not be blocked by tracker isolation`);
+    }
+  });
+});
+
+describe('Tracker isolation console noise', () => {
+  const blockedMessage = 'Failed to load resource: net::ERR_BLOCKED_BY_CLIENT';
+  const documentSource = 'https://store.example.com/products/ao-thun';
+
+  it('never hides a console entry while no isolation window is open', () => {
+    // The same message outside the window is a real blocked resource (an
+    // extension, a user blocklist) and must stay visible.
+    assert.equal(isTrackerIsolationConsoleNoise(blockedMessage, documentSource, false), false);
+  });
+
+  it('hides the blocked-resource entry the window itself produces', () => {
+    // Chromium names the document as the source of this entry, so the URL match
+    // cannot identify it; only the window being open can.
+    assert.equal(isTrackerIsolationConsoleNoise(blockedMessage, documentSource, true), true);
+  });
+
+  it('hides an entry whose source is a blocked tracker URL', () => {
+    assert.equal(
+      isTrackerIsolationConsoleNoise('anything', 'https://connect.facebook.net/en_US/fbevents.js', true),
+      true
+    );
+  });
+
+  it('keeps genuine page errors visible during the window', () => {
+    const realErrors = [
+      'TypeError: Cannot read properties of undefined (reading \'total_price\')',
+      'Failed to load resource: the server responded with a status of 500',
+      'Liquid error: Unknown tag legacy_tag',
+    ];
+    for (const message of realErrors) {
+      assert.equal(
+        isTrackerIsolationConsoleNoise(message, documentSource, true),
+        false,
+        `isolation must not swallow: ${message}`
+      );
     }
   });
 });

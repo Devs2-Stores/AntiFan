@@ -23,6 +23,14 @@ export interface ScrollPrewarmOptions {
   stepRatio?: number;
   /** Settle time per step; long enough for an IntersectionObserver fetch to start. */
   settleMs?: number;
+  /**
+   * Bounded confirmation window at the bottom. A lazy loader that appends from a
+   * fetch lands later than one settle, so reaching the bottom with a stable
+   * height is not yet proof the document is finished; this window keeps watching
+   * for an append before the walk may report `COMPLETE`, and exits as soon as
+   * the height moves.
+   */
+  appendGraceMs?: number;
   /** Ceiling on the post-walk image decode wait. */
   imageDecodeBudgetMs?: number;
 }
@@ -46,6 +54,7 @@ export const SCROLL_PREWARM_DEFAULTS = {
   maxDocumentHeight: 10_000,
   stepRatio: 0.85,
   settleMs: 40,
+  appendGraceMs: 500,
   imageDecodeBudgetMs: 2_000,
 } as const;
 
@@ -60,6 +69,11 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
   const maxDocumentHeight = Math.max(1_000, Math.round(options?.maxDocumentHeight ?? SCROLL_PREWARM_DEFAULTS.maxDocumentHeight));
   const stepRatio = Math.min(0.95, Math.max(0.25, options?.stepRatio ?? SCROLL_PREWARM_DEFAULTS.stepRatio));
   const settleMs = Math.max(10, Math.round(options?.settleMs ?? SCROLL_PREWARM_DEFAULTS.settleMs));
+  const appendGraceMs = Math.max(0, Math.round(options?.appendGraceMs ?? SCROLL_PREWARM_DEFAULTS.appendGraceMs));
+  // Counted in settle ticks rather than wall-clock: the walk runs in a background
+  // tab where timers are the only reliable clock, and a tick count keeps the
+  // window deterministic for the virtual-clock tests.
+  const graceTicks = Math.max(1, Math.ceil(appendGraceMs / settleMs));
   const imageDecodeBudgetMs = Math.max(100, Math.round(options?.imageDecodeBudgetMs ?? SCROLL_PREWARM_DEFAULTS.imageDecodeBudgetMs));
   const growthAnomalyRatio = 0.3;
   const strikesToStop = 2;
@@ -70,6 +84,7 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
     const MAX_DOCUMENT_HEIGHT = ${maxDocumentHeight};
     const STEP_RATIO = ${stepRatio};
     const SETTLE_MS = ${settleMs};
+    const GRACE_TICKS = ${appendGraceMs > 0 ? graceTicks : 0};
     const IMAGE_DECODE_BUDGET_MS = ${imageDecodeBudgetMs};
     const GROWTH_ANOMALY_RATIO = ${growthAnomalyRatio};
     const STRIKES_TO_STOP = ${strikesToStop};
@@ -128,10 +143,24 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
       // the next band when the bottom becomes visible grows on that very step,
       // and stopping there would rasterize a fraction of a document that is
       // still materializing — the exact failure this walk exists to prevent.
-      // The extra settle covers an append that had not landed yet.
+      //
+      // A stable height for one settle is still not proof: a fetch-backed
+      // "load more" appends after the response lands, which is routinely longer
+      // than one settle. So the bottom gets a bounded grace that keeps watching
+      // for an append and exits the moment the height moves, and a step that did
+      // grow while reaching the bottom simply falls through to the next scroll —
+      // which is a real movement from the clamped position and re-triggers the
+      // loader.
       if (atBottom() && heightAfter === heightBefore) {
-        await wait(SETTLE_MS);
-        if (atBottom() && readHeight() === heightAfter) {
+        let stableAtBottom = true;
+        for (let tick = 0; tick < GRACE_TICKS; tick++) {
+          await wait(SETTLE_MS);
+          if (readHeight() !== heightAfter || !atBottom()) {
+            stableAtBottom = false;
+            break;
+          }
+        }
+        if (stableAtBottom) {
           stoppedReason = 'COMPLETE';
           break;
         }

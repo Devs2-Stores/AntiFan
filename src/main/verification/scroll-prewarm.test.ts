@@ -9,8 +9,15 @@ import {
 } from './scroll-prewarm.js';
 
 interface FakePage {
-  /** Total document height as a function of how many times the page has scrolled down. */
-  heightAt: (scrolledSteps: number) => number;
+  /**
+   * Total document height, keyed on the walk's own progress: how many scroll
+   * steps have run, and how many settle ticks the walk has consumed in total.
+   * Keying growth on the clock as well as the scroll is what makes a late append
+   * observable at all — a fetch-backed loader appends after the step that
+   * triggered it, not during it. The tick count is cumulative so a fixture
+   * cannot make the document shrink once it has grown.
+   */
+  heightAt: (state: { scrolledSteps: number; ticks: number }) => number;
   viewportHeight?: number;
 }
 
@@ -25,10 +32,11 @@ async function runPrewarm(page: FakePage, options?: { maxSteps?: number }): Prom
   const scrollTops: number[] = [];
   let scrollY = 0;
   let scrolledDown = 0;
+  let ticks = 0;
 
   const documentElement = {
     get scrollHeight() {
-      return page.heightAt(scrolledDown);
+      return page.heightAt({ scrolledSteps: scrolledDown, ticks });
     },
   };
   const document = {
@@ -53,6 +61,7 @@ async function runPrewarm(page: FakePage, options?: { maxSteps?: number }): Prom
     window,
     document,
     setTimeout: (fn: () => void) => {
+      ticks += 1;
       queueMicrotask(fn);
       return 0;
     },
@@ -78,24 +87,32 @@ describe('Full-page scroll pre-warm', () => {
   it('stops an endlessly appending document instead of walking into a GPU crash', async () => {
     // Each scroll appends a full extra viewport: unbounded growth, the shape a
     // collection page takes when nothing caps it.
-    const receipt = await runPrewarm({ heightAt: (steps) => 1000 + steps * 4000 });
+    const receipt = await runPrewarm({ heightAt: ({ scrolledSteps }) => 1000 + scrolledSteps * 4000 });
 
     assert.equal(receipt.stoppedReason, 'GROWTH_ANOMALY');
     assert.equal(receipt.infiniteScrollSuspected, true);
     assert.ok(receipt.steps < SCROLL_PREWARM_DEFAULTS.maxSteps, 'the anomaly must stop the walk early, not at the step cap');
   });
 
-  it('does not declare COMPLETE when the bottom triggers a sub-viewport append', async () => {
-    // The dominant lazy-load shape: reaching the bottom appends a little more,
-    // far below the growth-anomaly ratio, so only a no-growth confirmation can
-    // tell "fully materialized" from "more is coming".
-    const receipt = await runPrewarm({ heightAt: (steps) => (steps <= 1 ? 1600 : 2000) });
+  it('keeps walking when the append lands several settles after the bottom', async () => {
+    // The dominant lazy-load shape: reaching the bottom fetches the next band,
+    // and the response lands later than one settle. A walk that confirms with a
+    // single settle declares the page finished at 1600 and rasterizes it while
+    // 400px of it is still arriving; the bounded grace has to observe the append
+    // and keep walking. The append is keyed on elapsed ticks — tick 5 is inside
+    // the grace window of the step that reached the bottom — so a one-settle
+    // confirmation provably cannot see it.
+    const receipt = await runPrewarm({
+      heightAt: ({ ticks }) => (ticks >= 5 ? 2000 : 1600),
+    });
 
+    // The observable that distinguishes this from a one-settle confirmation is
+    // the extra step: the append is only visible during the grace, so a walk
+    // that gives up after one settle stops at step 2. `endHeight` cannot carry
+    // that claim — it is read after the walk, so it also reflects anything that
+    // appended while the fonts and image gates were running.
+    assert.ok(receipt.steps >= 3, `the late append must force another scroll step (steps=${receipt.steps})`);
     assert.equal(receipt.stoppedReason, 'COMPLETE');
-    assert.ok(
-      receipt.endHeight >= 2000,
-      `the walk must observe the appended content before completing (endHeight=${receipt.endHeight})`
-    );
     assert.equal(receipt.infiniteScrollSuspected, false);
   });
 

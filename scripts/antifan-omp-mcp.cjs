@@ -149,7 +149,6 @@ function hasTerminalInstanceContext() {
 
 function resolveFailoverCandidates() {
   const pinnedCandidates = resolveBridgeCandidates().map((c) => ({ ...c, pinned: true, provenance: 'env' }));
-  if (!hasTerminalInstanceContext()) return pinnedCandidates;
   const seen = new Set(pinnedCandidates.map((c) => `${c.host}:${c.port}`));
   const discovered = discoverLocalCandidates().filter((c) => !seen.has(`${c.host}:${c.port}`));
   return [...pinnedCandidates, ...discovered].sort(compareBridgeCandidates);
@@ -665,9 +664,11 @@ async function autohealSession() {
     try {
       let authSecret = candidate.token || '';
       let pairedExchange = null;
-      if (!authSecret) {
+      try {
         pairedExchange = await performPairingExchange(candidate.host, candidate.port);
         authSecret = pairedExchange.secret;
+      } catch (pairErr) {
+        if (!authSecret) throw pairErr;
       }
 
       const wsUrl = `ws://${candidate.host}:${candidate.port}`;

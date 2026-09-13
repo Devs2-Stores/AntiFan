@@ -350,18 +350,24 @@ app.whenReady().then(async () => {
     );
     console.log('  ✔ reloaded document carried the stub (pre-document registration proven on a real navigation)');
 
+    const end = await devTools.endTrackerIsolation(TAB_ID, 'desktop');
+    assert.equal(end.released, true, end.reason || 'release must succeed');
+
     // Releasing drops the registration and the blocklist but deliberately leaves
     // the stubs in the document that lived through the window: that document
     // loaded while its vendor script was blocked, so those stubs are the only
-    // implementations of fbq/gtag it will ever see.
+    // implementations of fbq/gtag it will ever see. Asserted after the release,
+    // on that same document, which is the claim the design makes.
     const liveProbe = await win.webContents.executeJavaScript(buildTrackerStubProbeScript());
     assert.ok(
       Array.isArray(liveProbe.installed) && liveProbe.installed.includes('fbq'),
-      `the live document must still hold its stubs after release (probe: ${JSON.stringify(liveProbe)})`
+      `the released window's document must keep its stubs (probe: ${JSON.stringify(liveProbe)})`
     );
-
-    const end = await devTools.endTrackerIsolation(TAB_ID, 'desktop');
-    assert.equal(end.released, true, end.reason || 'release must succeed');
+    assert.equal(
+      await win.webContents.executeJavaScript('typeof window.fbq === "function"'),
+      true,
+      "the document that lived through the window must still resolve fbq() after the blocklist is lifted"
+    );
     assert.ok(
       cdpLedger.some((c) => c.method === 'Page.removeScriptToEvaluateOnNewDocument'),
       'release must drop the pre-document registration'

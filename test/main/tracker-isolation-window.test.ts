@@ -130,6 +130,48 @@ describe('Tracker isolation window', () => {
     assert.strictEqual(h.devTools.isTrackerIsolationActive('tab-1'), false);
   });
 
+  it('retries a partial release without re-removing an identifier that is already gone', async () => {
+    // The realistic failure: the registration comes off, clearing the blocklist
+    // fails. Chromium errors "Script not found" if the identifier is removed
+    // twice, so a retry that repeats the removal would fail forever and the tab
+    // would stay blocked with no leak to describe. The partial path is therefore
+    // asserted, not just the all-or-nothing one.
+    const h = createHarness();
+    const removals: unknown[] = [];
+    let blocklistClearFails = true;
+    (h.devTools as unknown as { sendCdpCommand: (w: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand =
+      async (_w, method, params) => {
+        h.commands.push({ method, params });
+        if (method === 'Page.addScriptToEvaluateOnNewDocument') return { identifier: 'stub-1' };
+        if (method === 'Page.removeScriptToEvaluateOnNewDocument') {
+          const identifier = (params as { identifier?: unknown } | undefined)?.identifier;
+          removals.push(identifier);
+          return {};
+        }
+        if (method === 'Network.setBlockedURLs') {
+          const urls = (params as { urls?: unknown[] } | undefined)?.urls;
+          if (Array.isArray(urls) && urls.length === 0 && blocklistClearFails) throw new Error('CDP session gone');
+        }
+        return {};
+      };
+
+    await h.devTools.beginTrackerIsolation('tab-1', 'desktop');
+    const first = await h.devTools.endTrackerIsolation('tab-1', 'desktop');
+    assert.strictEqual(first.released, false);
+    assert.match(String(first.reason), /clearing Network\.setBlockedURLs failed/);
+    assert.deepStrictEqual(removals, ['stub-1'], 'the registration must come off on the first attempt');
+
+    blocklistClearFails = false;
+    const retry = await h.devTools.endTrackerIsolation('tab-1', 'desktop');
+    assert.strictEqual(retry.released, true);
+    assert.deepStrictEqual(
+      removals,
+      ['stub-1'],
+      'the retry must not re-remove an identifier Chromium already forgot'
+    );
+    assert.strictEqual(h.devTools.isTrackerIsolationActive('tab-1'), false);
+  });
+
   it('reports the release failure reason instead of an opaque false', async () => {
     const h = createHarness();
     await h.devTools.beginTrackerIsolation('tab-1', 'desktop');

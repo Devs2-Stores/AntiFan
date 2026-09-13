@@ -1,0 +1,14 @@
+{
+  "reference": {
+    "height": 5422,
+    "images": 105,
+    "pendingImages": 0,
+    "passes": 2
+  },
+  "clone": {
+    "height": 5501,
+    "images": 105,
+    "pendingImages": 0,
+    "passes": 2
+  }
+}

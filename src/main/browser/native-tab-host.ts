@@ -5502,7 +5502,7 @@ export class NativeTabHost extends EventEmitter {
     if (!staleTabId) return undefined;
     // Closing a tab prunes it from its pool, so the anchor recorded at close time is the
     // only surviving link between the stale tab and the session that still owns a tab.
-    const anchor = this.closedTabAnchors.get(staleTabId);
+    const anchor = this.closedTabAnchors?.get(staleTabId);
     if (anchor && this.hasTab(anchor)) return anchor;
     // A session that closed (or lost) the tab it was bound to must not be stranded: when
     // the stale tab belongs to a session pool, the pool's own open tab is a safe rebind —

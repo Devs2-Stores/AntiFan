@@ -50,6 +50,7 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
     host.sessionTabPools = new Map();
     host.targetOperationQueues = new Map();
     host.mutationRevisions = new Map();
+    host.closedTabAnchors = new Map();
     host.broadcastState = () => {};
 
     // Helper to add tabs to mock host
@@ -121,6 +122,13 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
     host.agentClick = async (params: { selector?: string; tabId?: string }) => {
       interactiveActions.push(`click:${params.tabId}:${params.selector}`);
       return true;
+    };
+    host.dispatchAgentAction = async (action: string, params: { selector?: string; tabId?: string }) => {
+      if (action === 'click') {
+        interactiveActions.push(`click:${params.tabId}:${params.selector}`);
+        return { success: true };
+      }
+      return { success: true };
     };
     host.evalJs = async (expr: string, tabId?: string) => ({ eval: expr, tabId });
     const catalogue = new CapabilityCatalogue({
@@ -278,7 +286,7 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
     // -------------------------------------------------------------
     // Close active target Tab C
     const closeCRes = await mcpServer.callTool('antifan_close_tab', { tabId: tabCId });
-    assert.strictEqual(closeCRes.isError, undefined);
+    assert.strictEqual(closeCRes.isError, undefined, `closeCRes failed: ${closeCRes.content[0]?.text}`);
 
     // Session target was Tab C (now dead). Default call must dynamically fail over to Tab A!
     const failoverToARes = await mcpServer.callTool('anti.inspect.dom', {});
