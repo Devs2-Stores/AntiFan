@@ -391,9 +391,9 @@ needs it. The harnesses used for these measurements are untracked local scratch 
    ```
 6. **Probe Hardware:**
    ```bash
-   npm run probe:device -- --forward 8100
+   npm run probe:device -- --forward 8100 --touch
    ```
-   Returns `VERDICT: GO`, establishing WDA session, deep-linking Safari to `https://example.com`, and capturing full-resolution 1170x2532 screenshot.
+   Returns `VERDICT: GO`, establishing WDA session, deep-linking Safari to `https://example.com`, executing W3C `/actions` touch gesture at (195, 295), and capturing full-resolution 1170x2532 screenshot.
 
 ### Path to the deferred inspection milestone
 

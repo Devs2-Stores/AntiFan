@@ -133,11 +133,14 @@ Apple Mobile Device Support was installed and the phone unlocked, which moved th
 | Developer image | `ios image auto` → "requesting new signature from Apple TSS" → "success mounting image"; `ios image list` reports the image signature. Needed installing Apple's root CAs first (see host traps) |
 | Installed apps | `ios apps` lists 81 applications and **no WebDriverAgent**: the runner genuinely has to be signed and installed |
 | No-signing device tier | **device-measured**: `ios screenshot` wrote a valid 1170x2532 PNG of the real phone screen (complete, IEND present), `ios ps` listed the device's processes with real system paths, `ios info` returned the full lockdown identity — all through the RSD tunnel with **no signed app and no Apple ID**. `ios webinspector list` reaches the inspector and waits only on the device's Safari toggle |
-| Native input via signed runner | **verified live**: WebDriverAgentRunner 13.1.3 launched under `testmanagerd` (PID 1068, plan formed via `_XCT_didFormPlanWithData:`), CocoaHTTPServer bound port 8100 on the device |
+| Native runner execution | **verified live**: WebDriverAgentRunner 13.1.3 launched under `testmanagerd` (PID 1068, plan formed via `_XCT_didFormPlanWithData:`), CocoaHTTPServer bound port 8100 on the device |
 | In-process usbmux port bridge | **verified live**: `usbmux-forwarder` forwarded `127.0.0.1:63902 -> 00008110-00013942210A401E:8100` via same-socket stream handover without external forwarders (`iproxy`) |
 | WDA Safari session & navigation | **verified live**: W3C `POST /session` established Safari session, deep-linked `https://example.com` in 735 ms, render settled in 4 samples (0.00% delta) |
+| Native touch gesture (`device.tap`) | **verified live**: `W3C /actions` pointer tap executed at (195, 295) in 540–604 ms |
+| Native swipe gesture (`device.swipe`) | **verified live**: `W3C /actions` swipe executed from (195, 500) to (195, 200) in 1478 ms; native momentum scrolling produced by iOS device hardware |
+| Screen metrics | **verified live**: screen=390x844 pt, scale=3 (pixel 1170x2532), statusBar=390x47 pt |
 | Full-resolution device capture | **verified live**: `GET /screenshot` captured 1170x2532 PNG (290,356 bytes) showing live Mobile Safari with `Example Domain` content |
-| Probe Phase 0 verdict | **`VERDICT: GO`** (Exit code: 0) |
+| Probe Phase 0 verdict | **`VERDICT: GO`** (Exit code: 0, with all layers passing including `--touch`) |
 
 `npm run smoke:device` reports 32 passed / 0 failed with the live device attached (the live-discovery phase takes
 its "device present" branch, and phase 9 exercises the default-candidate bridge against the attached device).

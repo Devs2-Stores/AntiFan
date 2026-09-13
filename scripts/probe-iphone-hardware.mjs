@@ -587,8 +587,10 @@ async function layerScreenInfo(base, opts) {
       null, { httpStatus: result.httpStatus ?? null });
   }
   const value = result.json?.value ?? {};
+  const width = value.screenSize?.width ?? value.width;
+  const height = value.screenSize?.height ?? value.height;
   return gate('screen_info', PASS, null,
-    `screen=${value.width}x${value.height} scale=${value.scale} statusBar=${value.statusBarSize?.width}x${value.statusBarSize?.height}`,
+    `screen=${width}x${height} scale=${value.scale} statusBar=${value.statusBarSize?.width}x${value.statusBarSize?.height}`,
     null, value);
 }
 
@@ -711,8 +713,8 @@ async function layerScreenshot(base, sessionId, opts) {
 
 async function layerTouch(base, sessionId, opts) {
   const screen = await wda(base, 'GET', '/wda/screen', undefined, opts.timeoutMs);
-  const width = Number(screen.json?.value?.width) || 0;
-  const height = Number(screen.json?.value?.height) || 0;
+  const width = Number(screen.json?.value?.screenSize?.width ?? screen.json?.value?.width) || 0;
+  const height = Number(screen.json?.value?.screenSize?.height ?? screen.json?.value?.height) || 0;
   if (!width || !height) {
     return gate('touch', UNKNOWN, 'UNSUPPORTED_ROUTE', 'cannot resolve screen size for a tap target', null, null);
   }
