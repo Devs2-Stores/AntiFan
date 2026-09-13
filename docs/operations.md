@@ -300,7 +300,7 @@ Mode plus the mounted developer image are enough. Verified live against the atta
 | `ios rsd ls` | the full RSD service list |
 | `ios webinspector list` | with Settings > Safari > Advanced > Web Inspector on, it lists the live page: `com.apple.mobilesafari` (pid 784), `automationAvailability: WIRAutomationAvailabilityAvailable`, `ready: true`, plus the real URL and title. Its error text is **not** authoritative: *"web inspector is not enabled on the device"* also appeared when the actual fault was a stale tunnel-info entry whose `rsdPort` no longer answered — re-check `ios rsd ls` (and restart the tunnel) before touching device settings |
 | `ios webinspector js-shell` | **works, one expression per invocation**: `printf '<expr>\n' \| ios webinspector js-shell` evaluates against the live Safari page through the tunnel. Measured on a real page: `innerWidth/innerHeight` 390x699, `devicePixelRatio` 3, `documentElement.scrollHeight` 9144, 5580 elements, and **120 resource entries** from `performance.getEntriesByType('resource')` — real network timing with no signing and no CDP. A second expression in the same invocation answers `context deadline exceeded`, so run one expression per process |
-| `ios webinspector cdp` | bridges CDP and answers real queries (`Runtime.evaluate` returned the same live viewport numbers, so two independent transports agree). Two traps: the `--port` flag is **ignored** in 1.3.2 (both `--port 9444` and `--port=9444` still bind 9222), and if anything else owns 9222 the bridge dies with `bind: Only one usage of each socket address` — this workstation's Chrome was listening there, so check `netstat -ano | findstr :9222` before blaming the device. WebKit's bridge implements no `Input` domain and no `Page.captureScreenshot`: a page-level screenshot is not available through it |
+| `ios webinspector cdp` | bridges CDP and answers real queries (`Runtime.evaluate` returned the same live viewport numbers, so two independent transports agree). The server binds **loopback only** (`addr 127.0.0.1:9222` in its log, confirmed with `netstat`), so it is not LAN-reachable. Two traps: `--port` did **not** move the listener in any measured run — `--port 9444` and `--port=9444` both reported `127.0.0.1:9222` (and die with `bind: Only one usage of each socket address` when the user's Chrome owns 9222), while `--port=9446` printed no address line at all — so do not rely on it, and use `js-shell` when 9222 is taken; and pass `--udid=<udid>` because every invocation logged *"no udid specified using first device in list"*, which matters once a replug leaves several entries. WebKit's bridge implements no `Input` domain and no `Page.captureScreenshot`: page-level screenshots and injection are not available through it |
 | `ios ax` | no response within 60 s, consistent with Settings > Developer > Enable UI Automation still being off (unconfirmed until that toggle is flipped) |
 
 What this tier cannot do: **native input**. go-ios exposes no tap/swipe, so driving the UI still requires
@@ -319,7 +319,14 @@ needs it. The harnesses used for these measurements are untracked local scratch 
   on `tcp 27015`, so `ios list` failed with `actively refused`. Launching the Store iTunes again restored
   everything — AMDS process back on 27015, both Apple nodes bound to `oem44.inf` v538.0.0.0 exactly as
   before. After any 3uTools install or update, relaunch iTunes and re-check `ios list` before believing a
-  device failure is the cable or the phone.
+  device failure is the cable or the phone. Provenance of the tested build, for anyone repeating this:
+  `3uTools_v9.08.006_Setup_x64.exe` from `dl.3u.com` (197845832 bytes, SHA-256
+  `e00d0661920cdeac91901b7b12c03c3411c1ff4faf9f8f167231ec46d642370e`) carries a **valid** Authenticode
+  signature from `CN="Shenzhen Aidapu Network Technology Co., Ltd."` (GlobalSign), installs to
+  `C:\Program Files\3uTools9` and uninstalls through `C:\Program Files\3uTools9\Uninstall.exe`. The
+  installer ignored its `/log` argument when launched through `Start-Process -Verb RunAs`, so no install
+  log exists; do not expect one. Detection in the GUI is **not** evidence that our path works — 3uTools
+  uses its own device stack, so check the 27015 listener plus `ios list`.
 - **A free-Apple-ID signer that does not require iCloud.** 3u's own documentation for the IPA Signature
   feature says it accepts an ordinary Apple ID (7-day certificate) or an imported P12 (1 year), and needs
   only Apple's mobile device drivers — no iCloud login on the PC. That is what makes it worth testing
