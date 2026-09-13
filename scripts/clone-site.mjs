@@ -383,6 +383,7 @@ async function run() {
   const assetProvenance = [];
   const absorbedRequests = [];
   const hashToFirstFilename = new Map();
+  const seenFilenames = new Set();
   const packageFilenames = new Set();
   for (const item of allDownloaded) {
     let sha256 = item.sha256 || null;
