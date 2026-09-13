@@ -27,8 +27,6 @@ plans/**/reports/baseline/*.log
 
 .playwright-mcp/
 clone/*
-!clone/hoplongtech/
-clone/hoplongtech/build/
 **/__pycache__/
 .canary/
 tmp/
