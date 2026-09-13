@@ -1,7 +1,9 @@
+import * as path from 'node:path';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { WorkspaceFilePort } from './workspace-file-port';
 import { CapabilityError, CapabilityRequestContext, AuthenticatedCapabilityContext, canonicalizeWorkspaceRoot } from '../../shared/control-plane-contracts';
 import { ThemeTransactionRegistry } from '../qa/theme-transaction-registry';
+
 
 export function registerFileCapabilities(
   catalogue: CapabilityCatalogue,
@@ -16,18 +18,29 @@ export function registerFileCapabilities(
         'Operation rejected: Request lacks authoritative projectId/workspaceId context tenancy binding.'
       );
     }
+    let ws: { rootPath?: string } | undefined;
     try {
-      const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-      if (ws?.rootPath) return ws.rootPath;
+      ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+      if (ws?.rootPath && typeof ws.rootPath === 'string' && ws.rootPath.trim().length > 0) {
+        return ws.rootPath;
+      }
     } catch (err) {
+      if (err instanceof CapabilityError) {
+        throw err;
+      }
       throw new CapabilityError(
         'WORKSPACE_UNBOUND',
         `Authoritative workspace ${context.workspaceId} could not be resolved: ${err instanceof Error ? err.message : String(err)}`
       );
     }
-    if (getAuthoritativeWorkspaceRoot) {
-      const root = getAuthoritativeWorkspaceRoot();
-      if (root) return root;
+
+    // Fail closed on unresolved tenant when a workspace registry exists.
+    // Never fall back to global host/runtime workspace root for registered multi-tenant catalogues.
+    if (!catalogue.hasWorkspaceRegistry() && getAuthoritativeWorkspaceRoot) {
+      const fallbackRoot = getAuthoritativeWorkspaceRoot();
+      if (fallbackRoot && typeof fallbackRoot === 'string' && fallbackRoot.trim().length > 0) {
+        return fallbackRoot;
+      }
     }
     throw new CapabilityError('WORKSPACE_UNBOUND', `Authoritative workspace ${context.workspaceId} has no resolved root path`);
   };
@@ -152,9 +165,17 @@ export function registerFileCapabilities(
       if (!params.path || typeof params.path !== 'string' || !params.pattern || typeof params.pattern !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'Relative file path and pattern are required');
       }
-      const res = files.read(root, params.path);
+      let res: { content: string };
+      try {
+        res = files.read(root, params.path);
+      } catch (err) {
+        if (err instanceof CapabilityError && err.code === 'FILE_NOT_FOUND') {
+          return { ok: true, missing: true };
+        }
+        throw err;
+      }
       if (res.content.includes(params.pattern)) {
-        throw new Error(`File '${params.path}' contains forbidden pattern: '${params.pattern}'`);
+        throw new CapabilityError('POLICY_DENIED', `File '${params.path}' contains forbidden pattern: '${params.pattern}'`);
       }
       return { ok: true };
     },

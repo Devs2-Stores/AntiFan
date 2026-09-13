@@ -264,7 +264,7 @@ if (campaignMode) {
     const candidateSelection = selectCandidateEntryForViewport({
       bundleIdentity,
       cloneDir: process.env.CANARY_CLONE_DIR,
-      viewport: { label, width, height, isMobile },
+      viewport: { label, width, height, mobile: false },
       candidateEntry: servedEntryPath,
     });
     if (!candidateSelection.ok) {
@@ -537,14 +537,15 @@ const TAB_IDENTITY_EXPR = `(() => {
   };
 })()`;
 
-const isMobile = width < 768;
 const dpr = 1;
-log(`set viewport ${width}x${height} (mobile=${isMobile}, dpr=${dpr}) on both tabs (atomic viewport + reload)`);
-// A tab that has never been foregrounded reports innerHeight=0 and lays out
-// against a zero-height viewport; a reload in the background re-enters that
-// degenerate state. Establish each side's viewport and hydrate it while it is
-// foreground, then move on to the other side (a foregrounded tab keeps its real
-// layout once backgrounded).
+log(`set viewport ${width}x${height} (mobile=false, dpr=${dpr}) on both tabs (atomic viewport + reload)`);
+// Both sides stay in the background: the host applies device emulation directly to a
+// non-active tab (`setViewportSize` -> `applyTabDeviceEmulation` on the target), and
+// captures attach the view in place for the raster, so no step here takes the user's
+// visible tab. The client is a desktop client at every tier, including 390: the source
+// picks its document from the client server-side, so one desktop client keeps both
+// sides on the same responsive document while the tier's CSS width still exercises the
+// narrow layout.
 if (REFERENCE_PREHYDRATED) {
   log('reference tab is prehydrated by the orchestrator: measuring in place');
   const refHref = await evalOn(refTabId, 'location.href', 5000).catch(() => null);
@@ -563,8 +564,7 @@ if (REFERENCE_PREHYDRATED) {
     }
   }
 } else {
-  await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch((e) => log(`reference activate warning: ${e.message}`));
-  await call('browser.set-viewport', { tabId: refTabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true });
+  await call('browser.set-viewport', { tabId: refTabId, width, height, mobile: false, deviceScaleFactor: dpr, reload: true });
   for (let i = 0; i < 40; i++) {
     await new Promise(r => setTimeout(r, 400));
     try {
@@ -695,7 +695,7 @@ async function enforceViewportGeometry(stage, repairRole) {
     if (!sameViewport(measured, requested)) {
       log(`viewport drift at ${stage}: ${repairRole} measures ${describeViewport(measured)} for a requested ${describeViewport(requested)} — re-applying the request`);
       try {
-        await call('browser.set-viewport', { tabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true }, 120_000);
+        await call('browser.set-viewport', { tabId, width, height, mobile: false, deviceScaleFactor: dpr, reload: true }, 120_000);
       } catch (e) {
         log(`  ${repairRole} repair write refused: ${String(e.message || e).slice(0, 200)}`);
       }
@@ -727,8 +727,7 @@ function refuseViewportAsymmetry(stage, record) {
 
 await assertServedEntryMatchesMinted();
 
-await call('browser.switch-tab', { tabId: cloneTabId }, 30_000).catch((e) => log(`clone activate warning: ${e.message}`));
-await call('browser.set-viewport', { tabId: cloneTabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true });
+await call('browser.set-viewport', { tabId: cloneTabId, width, height, mobile: false, deviceScaleFactor: dpr, reload: true });
 for (let i = 0; i < 40; i++) {
   await new Promise(r => setTimeout(r, 400));
   try {
@@ -809,7 +808,7 @@ if (!geometryBeforeCapture.symmetric) refuseViewportAsymmetry('post-hydration', 
       const dumpJson = JSON.parse(fs.readFileSync(REFERENCE_DUMP_PATH, 'utf8'));
       const htmlPath = dumpJson.out
         ? path.resolve(dumpJson.out)
-        : path.join(path.dirname(REFERENCE_DUMP_PATH), '..', 'reference', isMobile ? 'reference-mobile.html' : 'reference.html');
+        : path.join(path.dirname(REFERENCE_DUMP_PATH), '..', 'reference', 'reference.html');
       if (fs.existsSync(htmlPath)) {
         const html = fs.readFileSync(htmlPath, 'utf8');
         const bodyMatch = html.match(/<body\b([^>]*)>/i);
@@ -822,7 +821,7 @@ if (!geometryBeforeCapture.symmetric) refuseViewportAsymmetry('post-hydration', 
     return null;
   }
   const capturedRefDevice = resolveCapturedReferenceDevice();
-  // Use captured reference state, never a presumed width class (e.g. isMobile ? 'mobile' : 'web'),
+  // Use captured reference state, never a presumed width class,
   // so responsive sources with static metadata are never falsely rejected.
   const referenceIdentity = await evalOn(refTabId, TAB_IDENTITY_EXPR, 15000).catch((e) => ({ status: 'UNREADABLE', error: String(e && e.message ? e.message : e).slice(0, 160) }));
   const cloneIdentity = await evalOn(cloneTabId, TAB_IDENTITY_EXPR, 15000).catch((e) => ({ status: 'UNREADABLE', error: String(e && e.message ? e.message : e).slice(0, 160) }));

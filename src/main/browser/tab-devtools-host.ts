@@ -814,9 +814,16 @@ export class TabDevToolsHost {
 
   /**
    * Bounded render-surface probe: one CDP round-trip that reads the tab's live
-   * layout viewport, scroll offset and readiness. Read-only — it never writes
-   * geometry and never clamps a degenerate surface into a usable one, so a
-   * caller can refuse before starting bounded render work.
+   * viewport, scroll offset and readiness. Read-only — it never writes geometry and
+   * never clamps a degenerate surface into a usable one, so a caller can refuse
+   * before starting bounded render work.
+   *
+   * A target that is not the active tab and not an agent-plane tab has no compositor
+   * surface while it sits in the background, and a view with no widget lays its
+   * document out against a zero-width box. Such a tab is measured inside a temporary
+   * in-place attach (below the active tab's view, released as soon as the reading is
+   * taken) so the reading describes the surface the tab really has, instead of
+   * refusing work the tab can do or trusting a widget-sized number.
    */
   public async readRenderSurface(
     tabId?: string,
@@ -833,16 +840,36 @@ export class TabDevToolsHost {
     if (!wc || wc.isDestroyed()) {
       throw new Error(`WebContents not available for tab '${targetId}'`);
     }
-    return this.probeRenderSurface(wc, timeoutMs);
+    const measure = (): Promise<RenderSurfaceSnapshot> => this.probeRenderSurface(wc, timeoutMs);
+    const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
+    const isActiveTarget = targetId === this.ctx.getActiveTabId();
+    const isOffscreenTarget = target.state?.offscreen === true;
+    if (!isActiveTarget && !isOffscreenTarget && paneView && this.ctx.runWithAttachedTabView) {
+      const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
+      return await this.ctx.runWithAttachedTabView(paneView, measure, isMobilePane);
+    }
+    return await measure();
   }
 
-  /** Raw surface metrics from the renderer; no fallback geometry is invented. */
+  /**
+   * Raw surface metrics; no fallback geometry is invented.
+   *
+   * `vw`/`vh` are the CSS viewport a capture rasterizes, read from the tab's own
+   * renderer: `window.innerWidth/innerHeight` include the scrollbar gutter, which the
+   * capture raster covers (measured on one tab: innerWidth 1440 / clientWidth 1425 with
+   * a 1440-wide raster), while the document element's client box is the
+   * scrollbar-excluded content box and stays a diagnostic. The content box is also the
+   * degenerate signal: a view with no compositor surface lays out against a
+   * zero-width box, so a zero content box reports 0 rather than promoting whatever
+   * widget size the tab happens to have.
+   */
   private async probeRenderSurface(wc: Electron.WebContents, timeoutMs: number): Promise<RenderSurfaceSnapshot> {
+    const bound = Math.max(1, Math.round(timeoutMs));
     const res = await this.sendCdpCommand<{ result?: { value?: Partial<RenderSurfaceSnapshot> } }>(
       wc,
       'Runtime.evaluate',
       { expression: RENDER_SURFACE_PROBE_EXPRESSION, returnByValue: true },
-      Math.max(1, Math.round(timeoutMs))
+      bound
     );
     const value = res?.result?.value;
     if (!value || typeof value !== 'object') {
@@ -851,15 +878,19 @@ export class TabDevToolsHost {
         `Render-surface probe returned no geometry (${String(value)}); the tab's layout surface cannot be measured`
       );
     }
+    const renderer = value as Partial<RenderSurfaceSnapshot> & { windowWidth?: number; windowHeight?: number };
+    const finite = (v: unknown): number => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : 0);
     return {
-      vw: Number(value.vw),
-      vh: Number(value.vh),
-      dpr: Number(value.dpr) || 1,
-      scrollX: Number(value.scrollX) || 0,
-      scrollY: Number(value.scrollY) || 0,
-      docH: Number(value.docH) || 0,
-      readyState: typeof value.readyState === 'string' ? value.readyState : 'unknown',
-      hidden: value.hidden === true,
+      vw: Math.max(0, finite(renderer.vw)),
+      vh: Math.max(0, finite(renderer.vh)),
+      ...(renderer.layoutWidth !== undefined ? { layoutWidth: Math.max(0, finite(renderer.layoutWidth)) } : {}),
+      ...(renderer.layoutHeight !== undefined ? { layoutHeight: Math.max(0, finite(renderer.layoutHeight)) } : {}),
+      dpr: Number(renderer.dpr) || 1,
+      scrollX: Number(renderer.scrollX) || 0,
+      scrollY: Number(renderer.scrollY) || 0,
+      docH: Number(renderer.docH) || 0,
+      readyState: typeof renderer.readyState === 'string' ? renderer.readyState : 'unknown',
+      hidden: renderer.hidden === true,
     };
   }
 
@@ -1194,32 +1225,12 @@ export class TabDevToolsHost {
     const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
     const rawQuality = typeof options?.quality === 'number' ? options.quality : 80;
     const quality = Math.max(1, Math.min(100, Math.round(rawQuality <= 1 && rawQuality > 0 ? rawQuality * 100 : rawQuality)));
-    // When the target tab is in the background, attach it in place if supported.
-    // Detached WebContentsViews have no composited offscreen surface on Windows,
-    // so Page.captureScreenshot would otherwise capture the active tab.
-    // When attach-in-place is unavailable, fall back to switch-and-restore.
-    // (Dual-Plane: offscreen agent tabs already have an offscreen compositor surface,
-    // so they are captured directly without a foreground swap — no view hijack.)
+    // A capture never foregrounds the target: the visible tab belongs to the user.
+    // Detached WebContentsViews have no composited offscreen surface on Windows, so a
+    // background target is attached in place for the raster (below) and the user's
+    // active view stays on top; offscreen agent tabs already composite offscreen
+    // (Dual-Plane) and are captured directly. No path here switches the visible tab.
     const isOffscreenTarget = target.state?.offscreen === true;
-    const activeBeforeCapture = this.ctx.getActiveTabId();
-    const switchTabForCapture = this.ctx.switchTab;
-    const canAttachForCapture = Boolean(this.ctx.runWithAttachedTabView && targetPaneView);
-    let didSwitchTabForCapture = false;
-    if (!isOffscreenTarget && targetId !== activeBeforeCapture) {
-      if (!canAttachForCapture && typeof switchTabForCapture === 'function') {
-        didSwitchTabForCapture = true;
-        switchTabForCapture(targetId);
-        if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
-          if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
-            targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
-          }
-        }
-        try {
-          await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
-          await delay(120);
-        } catch {}
-      }
-    }
     const isForeground = targetId === this.ctx.getActiveTabId();
     return this.ctx.withTabAgentWorking(targetId, async () => {
       let maskStyleInjected = false;
@@ -1394,12 +1405,6 @@ export class TabDevToolsHost {
           );
         } catch {}
       }
-      if (didSwitchTabForCapture && typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
-        switchTabForCapture(activeBeforeCapture);
-        try {
-          this.ctx.updateLayout?.();
-        } catch {}
-      }
     }
   });
   }
@@ -1462,31 +1467,12 @@ export class TabDevToolsHost {
       }
     }
 
-    // Activate the target tab when it sits in the background. CDP capture on a
-    // detached WebContentsView cannot composite an offscreen surface on Windows
-    // and would reproduce the active tab; the prior active tab is restored below.
-    // (Dual-Plane: offscreen agent tabs render to an offscreen compositor surface,
-    // so they bypass the foreground swap and capture CDP-directly; full-page on an
-    // offscreen target is rejected above, never degraded to capturePage.)
-    const activeBeforeCapture = this.ctx.getActiveTabId();
-    const switchTabForCapture = this.ctx.switchTab;
-    const canAttachForCapture = Boolean(this.ctx.runWithAttachedTabView && targetPaneView);
-    let didSwitchTabForCapture = false;
-    if (!isOffscreenTarget && targetId !== activeBeforeCapture) {
-      if (!canAttachForCapture && typeof switchTabForCapture === 'function') {
-        didSwitchTabForCapture = true;
-        switchTabForCapture(targetId);
-        if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
-          if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
-            targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
-          }
-        }
-        try {
-          await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
-          await delay(120);
-        } catch {}
-      }
-    }
+    // A verification capture never foregrounds the target: the visible tab belongs to
+    // the user. A background target is attached in place for the raster (below) so the
+    // user's active view stays on top, and offscreen agent tabs render to an offscreen
+    // compositor surface and are captured CDP-directly (full-page on an offscreen target
+    // is rejected above, never degraded to capturePage) — no path switches the visible
+    // tab, so nothing has to be restored afterwards.
     const isForeground = targetId === this.ctx.getActiveTabId();
 
     let captureEnvelope: VerificationCaptureEnvelope | undefined;
@@ -1704,9 +1690,6 @@ export class TabDevToolsHost {
           });
         }
       } catch {}
-      if (didSwitchTabForCapture && typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
-        switchTabForCapture(activeBeforeCapture);
-      }
       // Unconditionally restore real layout for the active tab view
       try {
         this.ctx.updateLayout?.();
@@ -1765,20 +1748,6 @@ export class TabDevToolsHost {
     }
     if (viewportTransaction) captureEnvelope.viewportTransaction = viewportTransaction;
     return captureEnvelope;
-  }
-
-  /**
-   * True when the target tab pane view can be attached in place for capture without
-   * switching active tabs.
-   */
-  public canAttachForCapture(tabId?: string, paneId?: SplitPaneId): boolean {
-    const targetId = tabId || this.ctx.getActiveTabId();
-    const target = this.ctx.getTabRecord(targetId);
-    if (!target) return false;
-    const effectivePane = paneId || target.focusedPane;
-    const isMobile = effectivePane === 'mobile';
-    const targetPaneView = isMobile ? (target.mobileView || target.view) : target.view;
-    return Boolean(this.ctx.runWithAttachedTabView && targetPaneView);
   }
 
   /**
@@ -1928,9 +1897,11 @@ export class TabDevToolsHost {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return undefined;
-    const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
+    const effectivePane = paneId || target.focusedPane;
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) return undefined;
     return this.ctx.withTabAgentWorking(targetId, async () => {
+      const execute = async (): Promise<unknown> => {
       const wrapped = `(async () => {
         function serializeCircularSafe(val, seen = new WeakSet(), depth = 0) {
           if (val === null || typeof val !== 'object') {
@@ -2005,6 +1976,19 @@ export class TabDevToolsHost {
         }
         throw err;
       }
+      };
+      // A background target has no compositor surface, so a script that reads or
+      // writes layout geometry would run against a zero-width document. Run it inside
+      // a temporary in-place attach (below the active tab's view, released when the
+      // script settles) so the evaluation observes the page the caller can capture.
+      const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
+      const isActiveTarget = targetId === this.ctx.getActiveTabId();
+      const isOffscreenTarget = target.state?.offscreen === true;
+      if (!isActiveTarget && !isOffscreenTarget && paneView && this.ctx.runWithAttachedTabView) {
+        const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
+        return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane);
+      }
+      return await execute();
     });
   }
   // ─── Auto JSON Viewer & View Page Source ───

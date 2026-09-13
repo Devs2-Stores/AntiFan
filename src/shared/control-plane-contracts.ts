@@ -667,6 +667,7 @@ export type CapabilityErrorCode =
   | 'LAUNCH_ERROR'
   | 'REF_STALE'
   | 'REF_NOT_FOUND'
+  | 'FILE_NOT_FOUND'
   | 'FINGERPRINT_MISMATCH'
   | 'NODE_DETACHED'
   | 'CAPABILITY_OVERLOADED'

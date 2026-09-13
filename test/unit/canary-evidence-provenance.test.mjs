@@ -195,10 +195,9 @@ describe('published pointer', () => {
     assert.equal(artifacts.pointer, null);
     assert.equal(artifacts.evidenceDir, path.resolve(pageDir, 'evidence'));
     assert.equal(artifacts.cloneDir, path.resolve(pageDir, 'clone'));
-    assert.equal(artifacts.mobileCloneDir, path.resolve(pageDir, 'clone', 'mobile'));
   });
 
-  it('publishes and resolves a unified responsive candidate across all viewports without mobileCloneDir', () => {
+  it('publishes and resolves one responsive candidate for every viewport', () => {
     const pageDir = fixtureDir('unified');
     const cloneDir = path.join(pageDir, 'attempts', 'unified-attempt', 'clone');
     const evidenceDir = path.join(pageDir, 'attempts', 'unified-attempt', 'evidence');
@@ -210,11 +209,11 @@ describe('published pointer', () => {
       sourceUrl: 'https://example.com/storefront',
     });
 
-    // Unified publication: single candidate entry, mobileCloneDir is null
+    // One candidate entry serves every viewport: the pointer names the attempt's bundle
+    // and nothing else.
     writePagePointer(pageDir, {
       identity,
       cloneDir,
-      mobileCloneDir: null,
       viewports: {
         '1440': { verdict: 'PASS', status: 'COMPLETED' },
         '1024': { verdict: 'PASS', status: 'COMPLETED' },
@@ -224,7 +223,6 @@ describe('published pointer', () => {
 
     const published = readPagePointer(pageDir);
     assert.equal(published.attemptId, 'unified-attempt');
-    assert.equal(published.mobileCloneDir, null);
     assert.equal(published.entryPath, entryPath);
     assert.equal(published.entrySha256, identity.entrySha256);
 
@@ -232,7 +230,6 @@ describe('published pointer', () => {
     assert.equal(resolved.legacy, false);
     assert.equal(resolved.attemptId, 'unified-attempt');
     assert.equal(resolved.cloneDir, path.resolve(cloneDir));
-    assert.equal(resolved.mobileCloneDir, null);
 
     // Strict candidate selection & provenance: every viewport selects the exact same candidate
     for (const [vpLabel, width] of [['1440', 1440], ['1024', 1024], ['390', 390]]) {
@@ -249,18 +246,19 @@ describe('published pointer', () => {
       assert.equal(verified.sha256, identity.entrySha256);
     }
 
-    // If a runner or caller attempts to supply or substitute a different entry for mobile, it is refused
-    const foreignMobile = writeEntry(path.join(cloneDir, 'mobile', 'index.html'), '<html>separate mobile</html>');
+    // A caller that substitutes a different entry for one tier is refused: a case may
+    // only be judged against the candidate this run minted.
+    const foreignEntry = writeEntry(path.join(cloneDir, 'tier-390', 'index.html'), '<html>separate document for one tier</html>');
     const foreignSelection = selectCandidateEntryForViewport({
       bundleIdentity: identity,
       cloneDir,
       viewport: { label: '390', width: 390 },
-      candidateEntry: foreignMobile,
+      candidateEntry: foreignEntry,
     });
     assert.equal(foreignSelection.ok, false);
     assert.equal(foreignSelection.code, PROVENANCE_CODES.IDENTITY_MISMATCH);
 
-    const foreignCheck = verifyServedEntry(identity, foreignMobile);
+    const foreignCheck = verifyServedEntry(identity, foreignEntry);
     assert.equal(foreignCheck.ok, false);
     assert.equal(foreignCheck.code, PROVENANCE_CODES.IDENTITY_MISMATCH);
   });

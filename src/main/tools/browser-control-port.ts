@@ -127,9 +127,6 @@ export interface BrowserHostPort {
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
   captureVerificationScreenshot?(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }): Promise<VerificationCaptureEnvelope>;
-  /** True when the host can attach the target tab in place for capture without switching active tabs. */
-  canAttachForCapture?(tabId?: string, paneId?: 'desktop' | 'mobile'): boolean;
-  supportsAttachInPlaceCapture?: boolean;
   /** Session-owned tab records, including agent-plane tabs the strip never shows. */
   getSessionTabList?(boundTabId: string): unknown[];
   /** True while the target holds a timed-out in-flight CDP command. */
@@ -830,7 +827,6 @@ interface CssMetrics {
 }
 
 /** Bounds for every resource-holding await inside the compare transaction. */
-const FOREGROUND_BOUND_MS = 10_000;
 const EVAL_BOUND_MS = 10_000;
 const SETTLE_BOUND_MS = 25_000;
 const MASK_BOUND_MS = 15_000;
@@ -890,7 +886,6 @@ interface CompareTransaction {
   continuationValid: boolean;
   quarantined: boolean;
   acquiredPairLock?: boolean;
-  originalActiveTabId?: string;
   stagedTarget?: ArtifactRef | string;
   stagedBaseline?: string;
 }
@@ -2719,7 +2714,9 @@ export class BrowserControlPort {
             if (surface && Number.isFinite(surface.vw) && Number.isFinite(surface.vh)) return { vw: surface.vw, vh: surface.vh };
           }
           if (typeof this.host.evalJs !== 'function') return null;
-          const metrics = (await this.host.evalJs('({ innerWidth: (document.documentElement && document.documentElement.clientWidth > 0 ? document.documentElement.clientWidth : window.innerWidth), innerHeight: (document.documentElement && document.documentElement.clientHeight > 0 ? document.documentElement.clientHeight : window.innerHeight) })', effectiveTabId)) as { innerWidth?: number; innerHeight?: number } | null;
+          // Layout-anchored only: a device-emulated tab reports a widget size in
+          // window.innerWidth/innerHeight that is not the viewport it laid out.
+          const metrics = (await this.host.evalJs('({ innerWidth: (document.documentElement && document.documentElement.clientWidth) || 0, innerHeight: (document.documentElement && document.documentElement.clientHeight) || 0 })', effectiveTabId)) as { innerWidth?: number; innerHeight?: number } | null;
           if (!metrics || typeof metrics.innerWidth !== 'number' || typeof metrics.innerHeight !== 'number') return null;
           return { vw: metrics.innerWidth, vh: metrics.innerHeight };
         })().catch(() => null),
@@ -4085,34 +4082,27 @@ export class BrowserControlPort {
               ? []
               : [...DEFAULT_STOREFRONT_WIDGETS, ...(hasUserMasks ? [] : ['iframe[id]'])];
             const optionalMasks = Array.from(new Set([...userOptional, ...autoPromotedOptional, ...defaultStorefrontWidgets]));
-            // Record the active tab so a background comparison tab can be
-            // foregrounded for capture and restored afterwards.
-            txn.originalActiveTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : tabId;
-            try {
-              const MAX_CAPTURE_ATTEMPTS = 2;
-              let resampleCount = 0;
-              for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
-                const outcome = await this.executeVisualCompareAttempt({
-                  target,
-                  runId,
-                  attemptId,
-                  params,
-                  txn,
-                  requiredMasks,
-                  optionalMasks,
-                  attempt,
-                  maxAttempts: MAX_CAPTURE_ATTEMPTS,
-                  resampleCount,
-                });
-                if (outcome.settle) return outcome.result;
-                resampleCount = outcome.resampleCount;
-              }
-              // Every terminal branch settles inside executeVisualCompareAttempt;
-              // the resample-exhausted case settles INCONCLUSIVE there. Fail closed.
-              throw new CapabilityError('INTEGRITY_COMPROMISED', 'Visual comparison attempts exhausted without a definitive verdict');
-            } finally {
-              await this.restoreActiveTab(txn);
+            const MAX_CAPTURE_ATTEMPTS = 2;
+            let resampleCount = 0;
+            for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
+              const outcome = await this.executeVisualCompareAttempt({
+                target,
+                runId,
+                attemptId,
+                params,
+                txn,
+                requiredMasks,
+                optionalMasks,
+                attempt,
+                maxAttempts: MAX_CAPTURE_ATTEMPTS,
+                resampleCount,
+              });
+              if (outcome.settle) return outcome.result;
+              resampleCount = outcome.resampleCount;
             }
+            // Every terminal branch settles inside executeVisualCompareAttempt;
+            // the resample-exhausted case settles INCONCLUSIVE there. Fail closed.
+            throw new CapabilityError('INTEGRITY_COMPROMISED', 'Visual comparison attempts exhausted without a definitive verdict');
           } finally {
             // The transaction is torn down exactly once; any later continuation
             // (stale admission or abandoned attempt) must not dispatch work.
@@ -4414,25 +4404,6 @@ export class BrowserControlPort {
     return raceWithTimeout(entry.pending.then(() => entry.recovery), Math.max(0, timeoutMs), () => entry.recovery);
   }
 
-  /**
-   * Restore the tab that was active before this transaction. Idempotent under
-   * forced teardown (the recorded tab is consumed once) and bounded by the
-   * reserved cleanup budget; only the tab this invocation recorded is restored.
-   */
-  private async restoreActiveTab(txn: CompareTransaction): Promise<void> {
-    const original = txn.originalActiveTabId;
-    txn.originalActiveTabId = undefined;
-    if (!original || typeof this.host.switchTab !== 'function') return;
-    await txn.budget.cleanup(
-      'active tab restoration',
-      async () => {
-        const current = this.host.getActiveTabId ? this.host.getActiveTabId() : original;
-        if (current !== original) this.host.switchTab!(original);
-      },
-      VISUAL_COMPARE_CLEANUP_BUDGET_MS
-    );
-  }
-
   /** Attach staged pair artifacts to any settled result that does not carry them yet. */
   private withStagedArtifacts(txn: CompareTransaction, body: Record<string, unknown>): Record<string, unknown> {
     if (txn.stagedTarget !== undefined && body.currentScreenshot === undefined) body.currentScreenshot = txn.stagedTarget;
@@ -4487,25 +4458,15 @@ export class BrowserControlPort {
     return result;
   }
 
-  /** Foreground the side, snapshot scroll, and normalize layout (reversible). */
+  /** Snapshot scroll and normalize layout (reversible) for one side. */
   private async prepareCompareSide(
     txn: CompareTransaction,
     args: { tabId: string; params: VisualCompareParams; normalizeReceipt: NormalizationReceipt }
   ): Promise<{ ok: true; metrics: CssMetrics | null; scroll: { x: number; y: number } | null; settle: VisualSettleReceipt } | { ok: false; reason: string; settle?: VisualSettleReceipt }> {
     const { tabId, params, normalizeReceipt } = args;
     const budget = txn.budget;
-    // Offscreen agent tabs render to an offscreen compositor surface; foregrounding
-    // them would break the dual-plane model and is unnecessary for CDP capture.
-    const isOffscreen = this.host.isTabOffscreen ? this.host.isTabOffscreen(tabId) : false;
-    const canAttachInPlace = typeof this.host.canAttachForCapture === 'function'
-      ? this.host.canAttachForCapture(tabId, txn.paneId)
-      : (this.host.supportsAttachInPlaceCapture ?? (typeof this.host.captureVerificationScreenshot === 'function'));
-    if (!canAttachInPlace && typeof this.host.switchTab === 'function' && !isOffscreen && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
-      await budget.run(`foreground ${tabId}`, async () => {
-        this.host.switchTab!(tabId);
-        await budget.sleep(150, `foreground stabilization (${tabId})`);
-      }, FOREGROUND_BOUND_MS);
-    }
+    // A comparison side is never foregrounded: the host attaches a background
+    // target in place for the raster, so the user's active tab stays where it is.
     let scroll: { x: number; y: number } | null = null;
     if (typeof this.host.evalJs === 'function') {
       const raw = await budget.run(

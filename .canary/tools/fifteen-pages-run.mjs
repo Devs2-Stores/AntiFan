@@ -172,6 +172,9 @@ export const TARGET_PAGES = [
   }
 ];
 
+// `mobile` marks the narrow tier that a run may leave unverified (`mobileUnverified`);
+// it does not select a mobile client: every tier renders the responsive document with
+// a desktop client, so one bundle is compared at all three widths.
 export const VIEWPORTS = [
   { label: '1440', width: 1440, height: 900, mobile: false },
   { label: '1024', width: 1024, height: 900, mobile: false },
@@ -575,7 +578,6 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
     const attemptDir = path.join(pageDir, 'attempts', attemptId);
     const cloneDir = path.join(attemptDir, 'clone');
     const evDir = path.join(attemptDir, 'evidence');
-    const mobileCloneDir = path.join(cloneDir, 'mobile');
     fs.mkdirSync(refDir, { recursive: true });
     fs.mkdirSync(cloneDir, { recursive: true });
     fs.mkdirSync(evDir, { recursive: true });
@@ -609,12 +611,14 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       pageResult.phases.sessionRenewal = renewal;
       console.log(`[P${p.id}] Session: mint tab ${renewal.mintTabId} bound (previous ${renewal.previousMintTabId || 'none'})`);
       console.log(`[P${p.id}] Phase A: Launching reference tab in Chromium...`);
-      const refTabRes = await call('anti.browser.tabs.create', { url: p.url, activate: true }, 60_000);
+      // Created in the background: a campaign tab must never take the visible tab
+      // from the user, so every operation on it runs through background-capable
+      // primitives (captures attach the view in place for the raster).
+      const refTabRes = await call('anti.browser.tabs.create', { url: p.url, activate: false }, 60_000);
       refTabId = refTabRes.tabId || refTabRes.result?.tabId;
       console.log(`[P${p.id}] Reference tab opened: ${refTabId}`);
       // Explicitly set 1440x900 desktop viewport with reload to guarantee clean desktop state
       console.log(`[P${p.id}] Initializing reference tab at desktop viewport (1440x900)...`);
-      await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch(() => null);
       await call('browser.set-viewport', {
         tabId: refTabId,
         width: 1440,
@@ -680,11 +684,6 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
 
       // 1. Dump sanitized reference HTML while tab is settled
       const refHtmlPath = path.join(refDir, 'reference.html');
-      // The mobile bundle cannot be built from the desktop dump: the storefront
-      // serves a different document to a mobile client (measured: 289,938 bytes /
-      // `<body data-device="mobile">` / mobile nav versus 335,778 bytes / `web`), so
-      // the mobile reference is captured at the mobile viewport and built separately.
-      const refMobileHtmlPath = path.join(refDir, 'reference-mobile.html');
       console.log(`[P${p.id}] Dumping sanitized reference DOM...`);
       // Undo the settle pins first: this markup becomes the clone bundle, and a
       // pinned inline !important would override the clone's own CSS for good.
@@ -702,12 +701,11 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       console.log(`[P${p.id}] Probing empirical per-viewport readiness floors...`);
       const readinessFloors = {};
       for (const vp of RUN_VIEWPORTS) {
-        await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch(() => null);
         await call('browser.set-viewport', {
           tabId: refTabId,
           width: vp.width,
           height: vp.height,
-          mobile: vp.width < 768,
+          mobile: false,
           deviceScaleFactor: 1,
           reload: true
         });
@@ -737,19 +735,6 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
         const vpSettled = vpHydration.settled;
         readinessFloors[vp.label] = validateProbedFloor(vpSettled.metrics, vp);
         console.log(`[P${p.id}][${vp.label}] Empirical floor: minSections=${readinessFloors[vp.label].minSections}, minCards=${readinessFloors[vp.label].minCards} (docH=${vpSettled.metrics.docHeight})`);
-        if (vp.width < 768) {
-          // Dumped while this tab is the foreground tab at the mobile viewport, so
-          // the artifact is the document a mobile client is served.
-          console.log(`[P${p.id}][${vp.label}] Dumping mobile reference DOM...`);
-          const mobileRelease = await releaseSettleOverrides(refTabId, `P${p.id}-${vp.label}-release`);
-          pageResult.phases.mobileRelease = mobileRelease;
-          const dumpMobile = await runCommand('node', ['.canary/tools/dump-ref.mjs', refTabId, refMobileHtmlPath, 'sanitize'], { timeoutMs: 120_000 });
-          if (dumpMobile.code !== 0) {
-            throw new Error(`dump-ref (mobile ${vp.label}) failed: ${dumpMobile.stderr.slice(0, 300)}`);
-          }
-          fs.writeFileSync(path.join(evDir, 'reference-dump-mobile.json'), dumpMobile.stdout);
-          pageResult.phases.mobileReference = { viewport: vp.label, path: refMobileHtmlPath, bytes: fs.statSync(refMobileHtmlPath).size };
-        }
       }
       fs.writeFileSync(path.join(evDir, 'readiness-floors.json'), JSON.stringify(readinessFloors, null, 2));
 
@@ -812,8 +797,6 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
             attemptId,
           };
           console.log(`[P${p.id}] Clone bundle generated successfully (attempt ${attemptId}).`);
-          // Candidate verification exercises the same unified bundle across all viewports;
-          // no mandatory mobile candidate build or separate mobile clone directory is required.
         }
       } else {
         cloneBuilt = false;
@@ -846,7 +829,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
 
         const cloneUrl = `http://127.0.0.1:${clonePort}/`;
         console.log(`[P${p.id}] Opening clone tab ${cloneUrl}...`);
-        const ctRes = await call('anti.browser.tabs.create', { url: cloneUrl, activate: true }, 60_000);
+        const ctRes = await call('anti.browser.tabs.create', { url: cloneUrl, activate: false }, 60_000);
         cloneTabId = ctRes.tabId || ctRes.result?.tabId;
 
         // Run per-viewport verification across 1440, 1024, 390
@@ -863,9 +846,15 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
             if (!floor || typeof floor.minSections !== 'number' || floor.minSections < 1 || typeof floor.minCards !== 'number' || floor.minCards < 0) {
               throw new Error(`Invalid or missing readiness floor for viewport ${vp.label}: ${JSON.stringify(floor)}`);
             }
-            const isMobileTier = vp.width < 768;
+            // One responsive candidate for every tier. The bundle is built from the
+            // reference dump taken at the reference's own client (a desktop client at
+            // every tier), and the source selects its document server-side from that
+            // client — not from the viewport width — so the same document is served to
+            // both sides at 1440, 1024 and 390. A page whose build failed has no
+            // candidate for any tier.
+            const caseIdentity = bundleIdentity;
             const candidateSelection = selectCandidateEntryForViewport({
-              bundleIdentity,
+              bundleIdentity: caseIdentity,
               cloneDir,
               viewport: vp,
             });
@@ -883,11 +872,11 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
                   CANARY_ATTEMPT_DIR: attemptDir,
                   CANARY_EVIDENCE_ROOT: evDir,
                   CANARY_SERVED_ENTRY: servedEntry,
-                  CANARY_BUNDLE_IDENTITY: bundleIdentity ? JSON.stringify(bundleIdentity) : '',
+                  CANARY_BUNDLE_IDENTITY: caseIdentity ? JSON.stringify(caseIdentity) : '',
                   CANARY_AUTHORITY_RUN_ID: boot.runId || '',
                   CANARY_EVIDENCE_RUN_ID: runId,
                   CANARY_CLONE_DIR: cloneDir,
-                  CANARY_REFERENCE_DUMP: isMobileTier ? path.join(evDir, 'reference-dump-mobile.json') : path.join(evDir, 'reference-dump.json'),
+                  CANARY_REFERENCE_DUMP: path.join(evDir, 'reference-dump.json'),
                   CANARY_HEIGHT_DRIFT_EXPERIMENT: process.env.CANARY_HEIGHT_DRIFT_EXPERIMENT === '1' ? '1' : '',
                   CANARY_REQUESTED_URL: p.url,
                   CANARY_PAGE_NAME: p.name,
@@ -974,8 +963,8 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
             const refusalCode = vpProc.code === 4 || terminalStatus === PROVENANCE_CODES.IDENTITY_MISMATCH
               ? (vpData.refusal?.code || vpData.visual?.refusal?.code || PROVENANCE_CODES.IDENTITY_MISMATCH)
               : null;
-            vpResult.bundle = bundleIdentity
-              ? { ...bundleIdentity, servedEntryPath: servedEntry, drift: vpData.bundle?.drift ?? null }
+            vpResult.bundle = caseIdentity
+              ? { ...caseIdentity, servedEntryPath: servedEntry, drift: vpData.bundle?.drift ?? null }
               : null;
             vpResult.instance = instance;
             vpResult.childExitCode = vpProc.code;
@@ -1181,7 +1170,6 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
         writePagePointer(pageDir, {
           identity: pageResult.bundle,
           cloneDir,
-          mobileCloneDir: null,
           referencePath: path.join(refDir, 'reference.html'),
           viewports: Object.fromEntries(Object.entries(pageResult.viewports).map(([label, v]) => [label, { verdict: v.overall, causeCode: v.causeCode ?? null, status: v.status }])),
         });

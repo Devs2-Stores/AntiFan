@@ -25,6 +25,7 @@ import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } fr
 import { ThemeQaWorkflow, ThemeQaReport } from '../qa/theme-qa-workflow';
 import { ThemeTransactionRegistry } from '../qa/theme-transaction-registry';
 import { registerThemeTransactionCapabilities } from '../tools/theme-transaction-capabilities';
+
 export interface ControlPlaneRuntimeOptions {
   projectId: string;
   workspaceId: string;
@@ -39,6 +40,7 @@ export interface ControlPlaneRuntimeOptions {
   getAutomationTabId?: () => string | null;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
+  resolveFailoverTabId?: (staleTabId: string) => string | undefined;
   browserControlPort?: BrowserControlPort;
   /**
    * Canonical single TerminalManager owned by the composition root (src/main/index.ts).
@@ -102,21 +104,46 @@ export class ControlPlaneRuntime {
   private leaseState: RuntimeLease;
   private switchState: RuntimeFeatureSwitch = { mode: 'standalone', lifecycle: 'active' };
   private workspaceRoot: string;
+  private readonly dataRoot: string;
+  private readonly isDefaultWorkspaceSynthesized: boolean;
   private themeQaWorkflow: ThemeQaWorkflow | null = null;
   // Memoized workspace-root resolution: wether resolving from a workspace record
   // or the fallback chain, the sync fs.existsSync checks only need to run once
   // per (workspaceId, explicitRoot) pair. Invalidation is explicit below.
   private cachedWorkspaceRoot: string | null = null;
   private cachedWorkspaceKey: string = '';
-
   constructor(options: ControlPlaneRuntimeOptions) {
     this.projects = options.projects || new ProjectRegistry();
     this.workspaces = options.workspaces || new WorkspaceRegistry(this.projects);
+    this.dataRoot = path.resolve(options.dataRoot);
+    const dataRootResolved = this.dataRoot;
+    const dataParentResolved = path.resolve(dataRootResolved, '..');
+    this.isDefaultWorkspaceSynthesized = !(options.workspaceRoot && typeof options.workspaceRoot === 'string' && options.workspaceRoot.trim().length > 0);
+
+    const resolveInitialWorkspaceRoot = (): string => {
+      if (options.workspaceRoot && typeof options.workspaceRoot === 'string' && options.workspaceRoot.trim().length > 0) {
+        const candidate = path.resolve(options.workspaceRoot.trim());
+        if (candidate !== dataRootResolved && candidate !== dataParentResolved) {
+          return candidate;
+        }
+      }
+      const envRoot = process.env.THEME_WORKSPACE_ROOT || process.env.ANTIFAN_WORKSPACE_ROOT || process.env.WORKSPACE_ROOT;
+      if (envRoot && typeof envRoot === 'string' && envRoot.trim().length > 0 && fs.existsSync(envRoot)) {
+        const candidate = path.resolve(envRoot.trim());
+        if (candidate !== dataRootResolved && candidate !== dataParentResolved) {
+          return candidate;
+        }
+      }
+      // Underlying default fix: no dataRoot parent as workspace; unbound root remains empty.
+      return '';
+    };
+
+    const initialWorkspaceRoot = resolveInitialWorkspaceRoot();
     if (options.projectId && options.workspaceId) {
       this.workspaces.ensureInitialWorkspace(
         options.projectId,
         options.workspaceId,
-        options.workspaceRoot || path.resolve(options.dataRoot, '..'),
+        initialWorkspaceRoot,
         options.dataRoot
       );
     }
@@ -124,7 +151,7 @@ export class ControlPlaneRuntime {
     this.receipts = new ReceiptStore({ filePath: path.join(options.dataRoot, 'receipts.jsonl') });
     this.ledger = new InvocationLedger({ dataRoot: options.dataRoot });
     this.artifacts = new ArtifactStore({ root: path.join(options.dataRoot, 'artifacts'), ...options.artifactStoreOptions });
-    this.workspaceRoot = options.workspaceRoot || path.resolve(options.dataRoot, '..');
+    this.workspaceRoot = initialWorkspaceRoot;
     this.leaseState = issueRuntimeLease(options.projectId, options.workspaceId, 30_000, options.hostEpoch ?? 1);
     this.runs = new RunService(
       this.chats,
@@ -157,6 +184,7 @@ export class ControlPlaneRuntime {
       workspaceRegistry: this.workspaces,
       isTabAllowed: options.isTabAllowed,
       resolveTabId: options.resolveTabId,
+      resolveFailoverTabId: options.resolveFailoverTabId,
       getDocumentGeneration: options.getDocumentGeneration,
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
@@ -207,22 +235,30 @@ export class ControlPlaneRuntime {
       return this.cachedWorkspaceRoot;
     }
 
+    const dataRootResolved = this.dataRoot;
+    const dataParentResolved = path.resolve(dataRootResolved, '..');
+
     let resolved = this.workspaceRoot;
     if (workspaceId) {
       try {
         const ws = this.workspaces.get(workspaceId, this.leaseState.projectId);
-        if (ws?.rootPath && !ws.rootPath.includes('.antifan-data') && fs.existsSync(ws.rootPath)) resolved = ws.rootPath;
+        // Authoritative registry tenant root is accepted by evidence, not rejected by name.
+        if (ws?.rootPath && typeof ws.rootPath === 'string' && ws.rootPath.trim().length > 0 && ws.rootPath !== dataRootResolved && ws.rootPath !== dataParentResolved && fs.existsSync(ws.rootPath)) {
+          resolved = ws.rootPath;
+        }
       } catch {}
     }
-    if (resolved === this.workspaceRoot || !resolved || resolved.includes('.antifan-data')) {
+    if (resolved === this.workspaceRoot || !resolved || resolved === dataRootResolved || resolved === dataParentResolved) {
       const envRoot = process.env.THEME_WORKSPACE_ROOT || process.env.ANTIFAN_WORKSPACE_ROOT || process.env.WORKSPACE_ROOT;
-      if (envRoot && fs.existsSync(envRoot)) {
-        resolved = envRoot;
-      } else {
-        const cwd = process.cwd();
-        if (fs.existsSync(path.join(cwd, 'layout', 'theme.liquid')) || fs.existsSync(path.join(cwd, 'templates')) || fs.existsSync(path.join(cwd, 'sections'))) {
-          resolved = cwd;
+      if (envRoot && typeof envRoot === 'string' && envRoot.trim().length > 0 && fs.existsSync(envRoot)) {
+        const candidate = path.resolve(envRoot.trim());
+        if (candidate !== dataRootResolved && candidate !== dataParentResolved) {
+          resolved = candidate;
+        } else {
+          resolved = '';
         }
+      } else {
+        resolved = '';
       }
     }
     this.cachedWorkspaceRoot = resolved;
@@ -272,9 +308,40 @@ export class ControlPlaneRuntime {
   }
 
   public resolveWorkspaceForSession(options?: { projectId?: string; workspaceId?: string; cwd?: string }): WorkspaceRecord {
-    if (options?.workspaceId && options?.projectId) {
-      return this.workspaces.get(options.workspaceId, options.projectId);
+    const dataRootResolved = this.dataRoot;
+    const dataParentResolved = path.resolve(dataRootResolved, '..');
+
+    // Evidence-aware migration: limited strictly to default workspace known synthesized
+    // (options.workspaceRoot was absent at initialization + root matches old fallback).
+    // Never clears or mutates explicitly registered tenant roots or intentional workspaceRoots.
+    if (this.isDefaultWorkspaceSynthesized) {
+      try {
+        const defaultWs = this.workspaces.get(this.leaseState.workspaceId || '', this.leaseState.projectId);
+        if (defaultWs && (defaultWs.rootPath === dataRootResolved || defaultWs.rootPath === dataParentResolved)) {
+          this.workspaces.register({ ...defaultWs, rootPath: '' });
+          if (this.workspaceRoot === dataRootResolved || this.workspaceRoot === dataParentResolved) {
+            this.setWorkspaceRoot('');
+          }
+        }
+      } catch {}
     }
+
+    if (options?.workspaceId && options?.projectId) {
+      const explicitWs = this.workspaces.get(options.workspaceId, options.projectId);
+      const isDefault = explicitWs.projectId === this.leaseState.projectId && explicitWs.id === this.leaseState.workspaceId;
+      if (isDefault && !explicitWs.rootPath && options.cwd) {
+        const candidateCwd = path.resolve(options.cwd);
+        if (candidateCwd !== dataRootResolved && candidateCwd !== dataParentResolved && fs.existsSync(candidateCwd)) {
+          if (this.isExplicitTerminalCwd(candidateCwd)) {
+            const updated = this.workspaces.register({ ...explicitWs, rootPath: candidateCwd, updatedAt: Date.now() });
+            this.setWorkspaceRoot(candidateCwd);
+            return updated;
+          }
+        }
+      }
+      return explicitWs;
+    }
+
     if (options?.cwd) {
       const normalizedCwd = path.resolve(options.cwd);
       const all = this.projects.listProjects();
@@ -298,7 +365,46 @@ export class ControlPlaneRuntime {
         if (best) return best;
       }
     }
-    return this.workspaces.get(this.leaseState.workspaceId || '', this.leaseState.projectId);
+
+    const defaultWs = this.workspaces.get(this.leaseState.workspaceId || '', this.leaseState.projectId);
+    if (!defaultWs.rootPath && options?.cwd) {
+      const candidateCwd = path.resolve(options.cwd);
+      if (candidateCwd !== dataRootResolved && candidateCwd !== dataParentResolved && fs.existsSync(candidateCwd)) {
+        if (this.isExplicitTerminalCwd(candidateCwd)) {
+          const updated = this.workspaces.register({ ...defaultWs, rootPath: candidateCwd, updatedAt: Date.now() });
+          this.setWorkspaceRoot(candidateCwd);
+          return updated;
+        }
+      }
+    }
+    return defaultWs;
+  }
+
+  private isExplicitTerminalCwd(candidateCwd: string): boolean {
+    if (!this.terminal) return false;
+    try {
+      const target = path.resolve(candidateCwd);
+      const current = this.terminal.getCurrentCwd();
+      if (current && path.resolve(current) === target) {
+        return true;
+      }
+      const activeId = this.terminal.getActiveSessionId();
+      if (activeId) {
+        const active = this.terminal.getSession(activeId);
+        if (active?.cwd && path.resolve(active.cwd) === target) {
+          return true;
+        }
+      }
+      const sessions = this.terminal.listSessions();
+      if (Array.isArray(sessions)) {
+        for (const s of sessions) {
+          if (s.cwd && path.resolve(s.cwd) === target) {
+            return true;
+          }
+        }
+      }
+    } catch {}
+    return false;
   }
 
   async issueAttemptAttachment(

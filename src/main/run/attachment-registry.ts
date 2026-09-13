@@ -419,6 +419,8 @@ export class AttachmentRegistry {
       leaseToken?: string;
       tabId?: string;
       documentGeneration?: number;
+      expectedRevision?: string;
+      expectedTabId?: string;
     }
   ): Promise<AuthorityRevisionHandle> {
     return await this.runWithMutationLock(async () => {
@@ -431,6 +433,12 @@ export class AttachmentRegistry {
       }
       const activeRev = this.activeRevisionByAttachment.get(attachmentId);
       const prevSnapshot = activeRev ? this.revisions.get(activeRev) : undefined;
+      if (overrides?.expectedRevision !== undefined && activeRev !== overrides.expectedRevision) {
+        throw new CapabilityError('TRANSACTION_CONFLICT', `CAS conflict: expected authority revision ${overrides.expectedRevision}, but active revision is ${activeRev ?? 'none'}`);
+      }
+      if (overrides?.expectedTabId !== undefined && record.tabId !== overrides.expectedTabId) {
+        throw new CapabilityError('TRANSACTION_CONFLICT', `CAS conflict: expected tabId ${overrides.expectedTabId}, but current tabId is ${record.tabId ?? 'none'}`);
+      }
       const nextRevNumber = (prevSnapshot?.revisionNumber ?? record.revisionNumber ?? 1) + 1;
       const nextRev: AuthorityRevisionHandle = `rev_${crypto.randomBytes(16).toString('hex')}`;
 
@@ -810,11 +818,29 @@ export class AttachmentRegistry {
       grant: record.grant || claims.grant,
     };
   }
-  async updateAttachmentTab(attachmentId: string, tabId: string, documentGeneration?: number): Promise<AuthorityRevisionHandle | null> {
+  async updateAttachmentTab(
+    attachmentId: string,
+    tabId: string,
+    documentGeneration?: number,
+    casOptions?: { expectedRevision?: string; expectedTabId?: string }
+  ): Promise<AuthorityRevisionHandle | null> {
     const record = this.records.get(attachmentId);
     if (!record) return null;
+    if (casOptions?.expectedRevision !== undefined) {
+      const activeRev = this.activeRevisionByAttachment.get(attachmentId);
+      if (activeRev !== casOptions.expectedRevision) {
+        return null;
+      }
+    }
+    if (casOptions?.expectedTabId !== undefined && record.tabId !== casOptions.expectedTabId) {
+      return null;
+    }
     let docGen = documentGeneration;
-    if (typeof docGen !== 'number' && this.delegate?.getDocumentGeneration) {
+    if (casOptions) {
+      if (typeof docGen !== 'number' || !Number.isFinite(docGen) || docGen < 1) {
+        return null;
+      }
+    } else if (typeof docGen !== 'number' && this.delegate?.getDocumentGeneration) {
       try {
         const liveGen = this.delegate.getDocumentGeneration(tabId);
         if (typeof liveGen === 'number' && liveGen > 0) {
@@ -822,7 +848,9 @@ export class AttachmentRegistry {
         }
       } catch {}
     }
-    const resolvedDocGen = docGen ?? record.documentGeneration ?? 1;
+    const resolvedDocGen = typeof docGen === 'number' && Number.isFinite(docGen) && docGen > 0
+      ? Math.floor(docGen)
+      : record.documentGeneration || record.browserTarget?.documentGeneration || 1;
     const currentTarget: BrowserTarget = record.browserTarget ? {
       ...record.browserTarget,
       tabId,
@@ -835,11 +863,31 @@ export class AttachmentRegistry {
       browserEpoch: record.browserEpoch || record.hostEpoch || 1,
       documentGeneration: resolvedDocGen,
     };
-    return await this.rotateAuthorityRevision(attachmentId, {
-      browserTarget: currentTarget,
-      tabId,
-      documentGeneration: resolvedDocGen,
-    });
+    try {
+      return await this.rotateAuthorityRevision(attachmentId, {
+        browserTarget: currentTarget,
+        tabId,
+        documentGeneration: resolvedDocGen,
+        expectedRevision: casOptions?.expectedRevision,
+        expectedTabId: casOptions?.expectedTabId,
+      });
+    } catch (err: unknown) {
+      if (err instanceof CapabilityError && err.code === 'TRANSACTION_CONFLICT') {
+        return null;
+      }
+      throw err;
+    }
+  }
+  getDocumentGeneration(tabId?: string): number | undefined {
+    if (this.delegate?.getDocumentGeneration) {
+      try {
+        const liveGen = this.delegate.getDocumentGeneration(tabId);
+        if (typeof liveGen === 'number' && Number.isFinite(liveGen) && liveGen > 0) {
+          return Math.floor(liveGen);
+        }
+      } catch {}
+    }
+    return undefined;
   }
   getAttachment(attachmentId: string): ExecutionAttachmentRecord | undefined {
     return this.records.get(attachmentId);

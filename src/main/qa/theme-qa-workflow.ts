@@ -143,6 +143,46 @@ function rethrowTargetLifecycleError(error: unknown): void {
     throw error;
   }
 }
+function isValidViewportOverflowResult(res: unknown): res is ViewportOverflowResult {
+  if (!res || typeof res !== 'object' || Array.isArray(res)) {
+    return false;
+  }
+  const obj = res as Record<string, unknown>;
+  if (typeof obj.hasOverflow !== 'boolean') {
+    return false;
+  }
+  if (typeof obj.deltaX !== 'number' || !Number.isFinite(obj.deltaX) || obj.deltaX < 0) {
+    return false;
+  }
+  if (typeof obj.scrollWidth !== 'number' || !Number.isFinite(obj.scrollWidth) || obj.scrollWidth < 0) {
+    return false;
+  }
+  if (typeof obj.clientWidth !== 'number' || !Number.isFinite(obj.clientWidth) || obj.clientWidth < 0) {
+    return false;
+  }
+  if (!obj.viewport || typeof obj.viewport !== 'object' || Array.isArray(obj.viewport)) {
+    return false;
+  }
+  const vp = obj.viewport as Record<string, unknown>;
+  if (typeof vp.name !== 'string' || vp.name.trim().length === 0) {
+    return false;
+  }
+  if (typeof vp.width !== 'number' || !Number.isFinite(vp.width) || vp.width <= 0) {
+    return false;
+  }
+  if (typeof vp.height !== 'number' || !Number.isFinite(vp.height) || vp.height <= 0) {
+    return false;
+  }
+  if (!Array.isArray(obj.culprits)) {
+    return false;
+  }
+  for (const c of obj.culprits) {
+    if (!c || typeof c !== 'object' || Array.isArray(c)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * Visual mismatch ceiling for a viewport to count as passing. The comparison
@@ -460,8 +500,13 @@ export class ThemeQaWorkflow {
       checkAborted();
       const evalRes = await this.ports.browser.eval(activeTarget, LayoutOverflowEngine.getBrowserScanScript('active'));
       checkAborted();
-      if (evalRes && typeof evalRes === 'object' && typeof (evalRes as Record<string, unknown>).hasOverflow === 'boolean') {
-        overflowResult = evalRes as ViewportOverflowResult;
+      if (isValidViewportOverflowResult(evalRes)) {
+        overflowResult = evalRes;
+      } else {
+        // Unlike the other scanners there is no in-process HTML fallback for layout geometry:
+        // a malformed response leaves no measurement evidence, so FAIL closed instead of
+        // certifying PASS from the placeholder default.
+        evidenceGaps.push('Layout overflow scanner did not return valid measurement object');
       }
     } catch (error) {
       rethrowTargetLifecycleError(error);

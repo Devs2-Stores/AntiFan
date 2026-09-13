@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { spawn } from 'node:child_process';
+import { WebSocketServer } from 'ws';
 
 /**
  * Bound the stdio handshakes below. The proxy writes newline-delimited JSON-RPC, so a child
@@ -474,6 +476,74 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       assert.strictEqual(dispatchReceived.name, 'anti.browser.tabs.list');
     } finally {
       child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
+
+  it('preserves move-only and canonical viewport semantics over MCP', async () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', resolve));
+    const address = wss.address();
+    assert.ok(address && typeof address === 'object');
+    const dispatched: string[] = [];
+    wss.on('connection', (ws) => ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.method !== 'antifan.capability.dispatch') return;
+      dispatched.push(msg.params.name);
+      ws.send(JSON.stringify({ id: msg.id, success: true, data: { ok: true } }));
+    }));
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
+        port: address.port,
+        secret: 'test-semantic-contract', attachmentId: 'att-semantic-contract', authorityRevision: 'rev-1',
+      }) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let buffer = '';
+    const pending = new Map<number, (value: any) => void>();
+    child.stdout.on('data', (chunk) => {
+      buffer += chunk.toString();
+      let newline: number;
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (!line.trim()) continue;
+        const response = JSON.parse(line);
+        pending.get(response.id)?.(response);
+        pending.delete(response.id);
+      }
+    });
+    const request = (id: number, method: string, params: any) => {
+      const response = new Promise<any>((resolve) => pending.set(id, resolve));
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+      return withDeadline(response, `semantic response ${id}`);
+    };
+    try {
+      await request(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
+      const moved = await request(2, 'tools/call', { name: 'anti.agent.cursor.move', arguments: { x: 10, y: 20 } });
+      assert.notEqual(moved.result.isError, true, 'move must reach a capability the backend registered');
+      // Routing identity is the contract under test: the proxy must dispatch the
+      // capability registered under the advertised name. Screenshot content needs
+      // the live bridge artifact endpoint, so the canned response only proves
+      // which capability ran — the old alias ran the hover/plain-screenshot paths.
+      await request(3, 'tools/call', { name: 'anti.screenshot.viewport', arguments: {} });
+      assert.deepEqual(dispatched, ['browser.agent-move', 'anti.screenshot.viewport']);
+      const listed = await request(4, 'tools/list', {});
+      const schema = (name: string) => listed.result.tools.find((tool: any) => tool.name === name).inputSchema;
+      assert.deepEqual(schema('anti.screenshot.full_page').properties.format.enum, ['png']);
+      assert.ok(schema('anti.screenshot.full_page').properties.leaseToken);
+      assert.ok(schema('anti.screenshot.full_page').properties.expectedUrl);
+      assert.ok(schema('anti.verification.record_claim').properties.category.enum.includes('VISUAL'));
+      assert.equal(schema('anti.verification.list').properties.category, undefined);
+      assert.ok(schema('anti.verification.list').properties.tabId);
+      assert.ok(schema('anti.verification.list').properties.limit);
+      assert.ok(!schema('anti.browser.tabs.create').required?.includes('url'));
+    } finally {
+      child.kill();
+      for (const ws of wss.clients) ws.terminate();
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
   });

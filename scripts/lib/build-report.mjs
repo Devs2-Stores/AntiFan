@@ -552,7 +552,7 @@ function docViewportKey(json) {
  * The bundle directory a document's own reference belongs to.
  *
  * A page that publishes an attempt may only be judged against a bundle inside that
- * attempt (desktop or mobile). A document that still names the page's pre-pointer
+ * attempt. A document that still names the page's pre-pointer
  * `evidence/` or `clone/` subtree is evidence from before the pointer: it is refused
  * rather than quietly re-pointed at the published attempt, because re-pointing would
  * attribute a verdict to a bundle that document never measured. Directories outside
@@ -562,7 +562,7 @@ function docViewportKey(json) {
 function assertPublishedBundle(declaredDir, page, label) {
   if (!isStr(declaredDir) || page.legacy) return declaredDir;
   const resolved = path.resolve(declaredDir);
-  const published = [page.cloneDir, page.mobileCloneDir].filter(isStr);
+  const published = [page.cloneDir].filter(isStr);
   if (published.some((dir) => isWithinPath(dir, resolved))) return resolved;
   const prePointer = [path.resolve(page.pageDir, 'evidence'), path.resolve(page.pageDir, 'clone')];
   if (prePointer.some((dir) => isWithinPath(dir, resolved))) {
@@ -644,8 +644,8 @@ function loadEvidence(runDir, opts) {
   const telemetryCandidates = docs.filter(
     (d) => d.kind === 'telemetry' && (isStr(d.json.bundle?.entryHtmlPath) || isStr(d.json.generation?.result?.entryHtmlPath)),
   );
-  // A run can carry more than one bundle (desktop and mobile). The report describes
-  // the bundle the viewport evidence was measured against, so rank candidates by how
+  // A run can carry more than one bundle (a retained earlier attempt). The report
+  // describes the bundle the viewport evidence was measured against, so rank candidates by how
   // many viewports were served from their bundle directory, then break ties on the
   // canonical "build-telemetry.json" name and finally alphabetically. Membership in
   // the viewport bundle set is not enough: both bundles appear there, so the choice
@@ -717,7 +717,6 @@ function resolvePageProvenance(pageDir) {
     attemptId: artifacts.attemptId,
     evidenceDir,
     cloneDir: path.resolve(artifacts.cloneDir),
-    mobileCloneDir: isStr(artifacts.mobileCloneDir) ? path.resolve(artifacts.mobileCloneDir) : null,
     // Relative references inside a document resolve against the artifact root of the
     // page's published attempt, never against the page directory: once a pointer exists
     // the page's fixed evidence/ and clone/ subtrees are history.
@@ -2328,7 +2327,6 @@ function renderEnvironment(ctx) {
       `Evidence dir:   ${relToRepo(ctx.evidenceDir)} (${ctx.files.length} JSON documents)`,
       `Attempt:        ${page.attemptId || 'none (no attempt pointer)'}`,
       `Provenance:     ${page.provenance}${page.provenanceReason ? ` (${page.provenanceReason})` : ''}`,
-      `Mobile bundle:  ${isStr(page.mobileCloneDir) ? relToRepo(page.mobileCloneDir) : 'not published'}`,
       `Published run:  ${publishedRun.runId} (${publishedRun.source})`,
       `Campaign report:${publishedRun.reportPath ? ` ${relToRepo(publishedRun.reportPath)}` : ' not published'}`,
       `Generator:      ${GENERATOR}`,
@@ -3162,9 +3160,9 @@ function main() {
       artifactIndex.ctx.label = doc.kind === 'viewport' ? (isStr(doc.json.label) ? doc.json.label : null) : null;
       // Asset references resolve against the bundle the document itself belongs to:
       // a viewport names the bundle it was served from, a telemetry document names the
-      // bundle it generated. Resolving everything against one run-level bundle made a
-      // desktop telemetry document fail against the mobile bundle and vice versa. On a
-      // page that publishes an attempt, the declared bundle must be part of that attempt.
+      // bundle it generated. Resolving everything against one run-level bundle made the
+      // document of one attempt fail against another attempt's bundle. On a page that
+      // publishes an attempt, the declared bundle must be part of that attempt.
       const docCloneDir = assertPublishedBundle(docBundleDir(doc.json), page, doc.docId);
       artifactIndex.ctx.cloneDir = docCloneDir || derived.cloneDir;
       artifactIndex.ctx.assetsDir = artifactIndex.ctx.cloneDir ? path.join(artifactIndex.ctx.cloneDir, 'assets') : derived.assetsDir;

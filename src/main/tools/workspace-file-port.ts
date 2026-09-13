@@ -11,11 +11,11 @@ export class WorkspaceFilePort {
   read(root: string, relativePath: string, maxBytes = this.maxBytes): { path: string; content: string; truncated: boolean } {
     const target = this.resolve(root, relativePath);
     if (!fs.existsSync(target)) {
-      return { path: target, content: '', truncated: false };
+      throw new CapabilityError('FILE_NOT_FOUND', `File not found: "${relativePath}"`, { path: relativePath, resolvedTarget: target });
     }
     const stat = fs.lstatSync(target);
     if (!stat.isFile()) {
-      return { path: target, content: '', truncated: false };
+      throw new CapabilityError('INVALID_ARGUMENT', `Target path is not a regular file: "${target}"`, { path: relativePath, resolvedTarget: target });
     }
     const data = fs.readFileSync(target);
     const truncated = data.byteLength > maxBytes;

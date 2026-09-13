@@ -275,7 +275,7 @@ test('a page with no refusal keeps its fidelity outcome', () => {
   assert.equal(renderPageStatus({ overall: 'PASS' }), 'PASS');
   assert.equal(renderPageStatus(undefined), 'NOT_TESTED');
   // A non-route refusal (a bundle that was never built) is not a route refusal.
-  assert.equal(pageRouteRefusal({ status: 'REFUSED', refusal: { code: 'MOBILE_BUNDLE_ABSENT' } }), null);
+  assert.equal(pageRouteRefusal({ status: 'REFUSED', refusal: { code: 'CLONE_NOT_READY' } }), null);
 });
 
 test('the hub names a page-level refusal that minted no case', () => {

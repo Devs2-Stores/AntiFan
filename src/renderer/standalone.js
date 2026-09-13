@@ -932,6 +932,17 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
       }
     } catch {}
 
+    // Ensure terminal is sized to its container before resetting and writing snapshot
+    try {
+      const propose = item.fit?.proposeDimensions?.();
+      if (propose && propose.cols >= MIN_TERMINAL_COLS && propose.rows >= MIN_TERMINAL_ROWS && item.paneEl && item.paneEl.clientWidth > 100) {
+        if (item.term.cols !== propose.cols || item.term.rows !== propose.rows) {
+          item.term.resize(propose.cols, propose.rows);
+          api?.resizeTerminalTo(sessionId, propose.cols, propose.rows);
+        }
+      }
+    } catch {}
+
     item.term.reset();
     if (snapshot && snapshot.length > 0) {
       await writeTermAsync(item.term, snapshot);
@@ -976,6 +987,18 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
     try {
       if (splitWriteTarget && window.globalTerminalWriteDispatcher) {
         window.globalTerminalWriteDispatcher.cancel(splitWriteTarget);
+      }
+    } catch {}
+
+    // Ensure split terminal is sized to its container before resetting and writing snapshot
+    try {
+      const propose = splitFitAddon?.proposeDimensions?.();
+      const splitHost = document.getElementById('terminal-split-host');
+      if (propose && propose.cols >= MIN_TERMINAL_COLS && propose.rows >= MIN_TERMINAL_ROWS && splitHost && splitHost.clientWidth > 100) {
+        if (splitTerm.cols !== propose.cols || splitTerm.rows !== propose.rows) {
+          splitTerm.resize(propose.cols, propose.rows);
+          api?.resizeTerminalTo(splitSessionId, propose.cols, propose.rows);
+        }
       }
     } catch {}
 
@@ -1142,7 +1165,12 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
     paneEl.classList.add('active');
   }
 
+  const initialCols = (s && typeof s.cols === 'number' && s.cols >= MIN_TERMINAL_COLS) ? s.cols : 120;
+  const initialRows = (s && typeof s.rows === 'number' && s.rows >= MIN_TERMINAL_ROWS) ? s.rows : 30;
+
   const sTerm = new Terminal({
+    cols: initialCols,
+    rows: initialRows,
     cursorBlink: true,
     convertEol: false,
     fontFamily: 'Cascadia Mono, Consolas, monospace',
@@ -1159,14 +1187,6 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
   const webLinksAddon = attachWebLinksAddon(sTerm);
   setupTerminalClipboard(sTerm, () => sessionId);
 
-  // Pre-hydrate bounded tail before attaching pane to DOM to ensure zero-flash/no-blank on switch
-  const boundedTail = sliceHydrationTail(snapshot);
-  if (boundedTail && boundedTail.length > 0) {
-    try {
-      sTerm.write(boundedTail);
-    } catch {}
-  }
-
   mainPane.appendChild(paneEl);
   if (globalResizeObserver) {
     try { globalResizeObserver.observe(paneEl); } catch {}
@@ -1179,6 +1199,14 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
       api?.resizeTerminalTo(sessionId, propose.cols, propose.rows);
     }
   } catch {}
+
+  // Pre-hydrate bounded tail ONLY after pane is in DOM and sized properly
+  const boundedTail = sliceHydrationTail(snapshot);
+  if (boundedTail && boundedTail.length > 0) {
+    try {
+      sTerm.write(boundedTail);
+    } catch {}
+  }
 
   sTerm.onData((data) => {
     api?.sendTerminalInputTo(sessionId, data);
@@ -1591,7 +1619,13 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
   divider.id = 'terminal-divider';
   container.append(mainPane, divider, lower);
 
+  const mainItem = terminalPool.get(activeId);
+  const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
+  const targetRows = getInitialSplitRows(mainItem?.term);
+
   splitTerm = new Terminal({
+    cols: targetCols,
+    rows: targetRows,
     cursorBlink: true,
     convertEol: false,
     fontFamily: 'Cascadia Mono, Consolas, monospace',

@@ -120,6 +120,19 @@ class StatefulBrowserHost implements BrowserHostPort {
       if (expression.includes('document.fonts') || expression.includes('requestAnimationFrame')) {
         return true;
       }
+      // The layout-overflow scan has no in-process HTML fallback, so a host that cannot
+      // answer it leaves the workflow without measurement evidence (and therefore without
+      // a PASS). This host models a host that can measure its surface.
+      if (expression.includes('rawDeltaX')) {
+        return {
+          viewport: { name: 'desktop', width: 1440, height: 900 },
+          hasOverflow: false,
+          deltaX: 0,
+          scrollWidth: 1440,
+          clientWidth: 1440,
+          culprits: [],
+        };
+      }
     }
     return null;
   }

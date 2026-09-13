@@ -274,13 +274,6 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
 }
 
 /**
- * A code here means a *requested* case was not produced, and the absence is
- * declared rather than failed: the case carries a cause code instead of a verdict,
- * and the process must not report the batch as complete.
- */
-const DECLARED_CASE_ABSENCES = new Set(['MOBILE_BUNDLE_ABSENT']);
-
-/**
  * Classify each requested page x viewport. The boundary is "did the case produce
  * evidence of an adjudication at all": a case that never ran is incomplete, a case
  * that ran and yielded a cause-coded verdict is output (a fidelity FAIL, and an
@@ -308,9 +301,9 @@ function scanRequestedCases(runSummary, requestedPages, viewportLabels) {
       const code = vp.causeCode ?? null;
       if (vp.status === 'ERROR') runnerErrors.push({ pageId: p.id, viewport: label, code: code || 'VIEWPORT_RUN_ERROR' });
       else if (vp.status === 'BLOCKED_BY_BUILD') incomplete.push({ pageId: p.id, viewport: label, code: code || 'CLONE_BUILD_FAILED' });
-      // A refused case produced no adjudication, whether the absence was declared
-      // (no mobile bundle) or the run stopped before the compare (readiness,
-      // rasterization): either way the requested case did not happen.
+      // A refused case produced no adjudication, whether the run stopped before the
+      // compare (readiness, rasterization) or the case was refused outright: either
+      // way the requested case did not happen.
       else if (vp.status === 'REFUSED') incomplete.push({ pageId: p.id, viewport: label, code: code || 'CASE_REFUSED' });
       else if (vp.overall !== 'PASS' && vp.overall !== 'FAIL' && vp.overall !== 'INCONCLUSIVE') {
         incomplete.push({ pageId: p.id, viewport: label, code: code || 'NO_VERDICT' });
@@ -401,20 +394,21 @@ export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportL
       detail: runnerErrors.map((r) => `${r.code}@page-${r.pageId}${r.viewport ? `:${r.viewport}` : ''}`),
     };
   }
-  // A declared absence is also recorded at run level, so it is counted even when the
-  // case's own viewport entry is missing from the page result. A viewport outside the
-  // run's declared scope is not a requested case, so a record naming one cannot make
-  // the requested set incomplete; the runner does not execute excluded viewports, so
-  // such a record means the scope was declared after that case was attempted.
+  // A refusal is also recorded at run level, so the case it removed is counted even
+  // when the page result carries no viewport entry for it, and the specific cause
+  // survives instead of degrading to CASE_NOT_RUN. A viewport outside the run's
+  // declared scope is not a requested case, so a record naming one cannot make the
+  // requested set incomplete; the runner does not execute excluded viewports, so such
+  // a record means the scope was declared after that case was attempted.
   const format = (r) => `${r.code}@page-${r.pageId}${r.viewport ? `:${r.viewport}` : ''}`;
   const outOfScope = new Set(excludedViewports);
   const absenceDetails = new Set(incomplete.map(format));
-  for (const r of (runSummary.refusals || []).filter((r) => DECLARED_CASE_ABSENCES.has(r.code) && !outOfScope.has(r.viewport))) {
+  for (const r of (runSummary.refusals || []).filter((r) => r.code && !outOfScope.has(r.viewport))) {
     absenceDetails.add(format(r));
   }
   if (absenceDetails.size > 0) {
     // Requested cases that produced no adjudication at all: a page that never ran, a
-    // case with no viewport entry, a bundle that was never built, a declared absence.
+    // case with no viewport entry, a bundle that was never built, a refused case.
     return { code: 1, reason: 'INCOMPLETE_CASES', detail: [...absenceDetails] };
   }
   // The tally counts the cases this run was asked to measure: an excluded viewport is

@@ -137,7 +137,7 @@ test('an unexecuted requested page fails the run, a filtered-out page does not',
   assert.ok(filtered.detail.every((d) => !d.includes('page-2') && !d.includes('page-3')));
 });
 
-test('provenance refusals and declared case absences fail the run', () => {
+test('provenance refusals and a run-level refusal of a requested case fail the run', () => {
   const identity = summary(
     { 1: page(1, 'HOME', 'page-01-home', { 1440: 'PASS' }) },
     { refusals: [{ pageId: 1, viewport: '1440', code: 'BUNDLE_IDENTITY_MISMATCH' }] }
@@ -147,16 +147,18 @@ test('provenance refusals and declared case absences fail the run', () => {
   assert.equal(mismatch.reason, 'PROVENANCE_REFUSAL');
   assert.deepEqual(mismatch.detail, ['BUNDLE_IDENTITY_MISMATCH@page-1:1440']);
 
-  // A 390 case that is declared impossible still did not run, so the requested
-  // case set is incomplete and the exit status must not report success.
-  const mobileRefusal = summary(
+  // A requested case the runner refused still did not run, so the requested case set
+  // is incomplete and the exit status must not report success. The run-level record
+  // names the case even when the page result carries no entry for it, so the specific
+  // cause survives instead of degrading to CASE_NOT_RUN.
+  const refusedCase = summary(
     { 1: page(1, 'HOME', 'page-01-home', { 1440: 'PASS' }) },
-    { refusals: [{ pageId: 1, viewport: '390', code: 'MOBILE_BUNDLE_ABSENT' }] }
+    { refusals: [{ pageId: 1, viewport: '390', code: 'CLONE_NOT_READY' }] }
   );
-  const absence = computeRunExit(mobileRefusal, [1], { targetPages: TARGET_PAGES });
+  const absence = computeRunExit(refusedCase, [1], { targetPages: TARGET_PAGES });
   assert.equal(absence.code, 1);
   assert.equal(absence.reason, 'INCOMPLETE_CASES');
-  assert.deepEqual(absence.detail, ['MOBILE_BUNDLE_ABSENT@page-1:390']);
+  assert.deepEqual(absence.detail, ['CLONE_NOT_READY@page-1:390']);
 });
 
 test('a completed case that names no bundle or instance is not publishable', () => {
@@ -277,12 +279,12 @@ test('a viewport scope is selected and declared, never silently shrunk', () => {
 
 test('an excluded viewport is unverified, not a failing case and not a green one', () => {
   // The reduced run measured 1440 and 1024 only; page 1 has no 390 case at all, and
-  // a stale mobile refusal from an earlier scope is still recorded on the summary.
+  // a stale refusal from an earlier scope is still recorded on the summary.
   const s = summary(
     { 1: page(1, 'HOME', 'page-01-home', { 1440: 'PASS', 1024: 'PASS' }) },
     {
       scope: { viewports: ['1440', '1024'], excluded: [{ label: '390', mobile: true, reason: 'not selected' }], mobileUnverified: true },
-      refusals: [{ pageId: 1, viewport: '390', code: 'MOBILE_BUNDLE_ABSENT' }],
+      refusals: [{ pageId: 1, viewport: '390', code: 'CLONE_NOT_READY' }],
     }
   );
   const reduced = computeRunExit(s, [1], { targetPages: TARGET_PAGES, viewportLabels: ['1440', '1024'], excludedViewports: ['390'] });
@@ -292,12 +294,12 @@ test('an excluded viewport is unverified, not a failing case and not a green one
   assert.equal(reduced.adjudicableCases, 2);
 
   // Nothing was waived: had 390 been requested, the same summary is incomplete, and
-  // the declared mobile absence is named rather than dropped.
+  // the refusal is named rather than dropped.
   const full = computeRunExit(s, [1], { targetPages: TARGET_PAGES, viewportLabels: VIEWPORT_LABELS });
   assert.equal(full.code, 1);
   assert.equal(full.reason, 'INCOMPLETE_CASES');
   assert.ok(full.detail.includes('CASE_NOT_RUN@page-1:390'));
-  assert.ok(full.detail.includes('MOBILE_BUNDLE_ABSENT@page-1:390'));
+  assert.ok(full.detail.includes('CLONE_NOT_READY@page-1:390'));
 
   const index = buildVerdictIndex(s);
   assert.deepEqual(index.scope.excluded.map((e) => e.label), ['390']);
@@ -320,7 +322,7 @@ test('a reduced scope that adjudicated nothing is not a success', () => {
   // The page still carries the excluded viewport's refusal (recorded before the scope was
   // declared, or replayed from an earlier run): it must not count as a measured case nor
   // be offered as the reason the run failed.
-  s.pageResults[1].viewports[390] = { status: 'REFUSED', overall: 'INCONCLUSIVE', causeCode: 'MOBILE_BUNDLE_ABSENT' };
+  s.pageResults[1].viewports[390] = { status: 'REFUSED', overall: 'INCONCLUSIVE', causeCode: 'CLONE_NOT_READY' };
   s.scope = { viewports: ['1440', '1024'], excluded: [{ label: '390', mobile: true, reason: 'not selected' }], mobileUnverified: true };
   const exit = computeRunExit(s, [1], { targetPages: TARGET_PAGES, viewportLabels: ['1440', '1024'], excludedViewports: ['390'] });
   assert.equal(exit.code, 1);

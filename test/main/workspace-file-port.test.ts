@@ -17,10 +17,18 @@ describe('Workspace file port', () => {
       assert.throws(() => port.read(root, '/etc/passwd'), (error: unknown) => error instanceof CapabilityError);
       assert.throws(() => port.read(root, 'C:\\Windows\\System32\\cmd.exe'), (error: unknown) => error instanceof CapabilityError);
       
-      // Non-existent path returns empty string and truncated: false
-      const nonExistent = port.read(root, 'snippets/missing.liquid');
-      assert.strictEqual(nonExistent.content, '');
-      assert.strictEqual(nonExistent.truncated, false);
+      // Non-existent path throws FILE_NOT_FOUND (fail closed, no empty-success)
+      assert.throws(
+        () => port.read(root, 'snippets/missing.liquid'),
+        (error: unknown) => error instanceof CapabilityError && (error as CapabilityError).code === 'FILE_NOT_FOUND'
+      );
+
+      // Directory path throws INVALID_ARGUMENT (not a regular file)
+      fs.mkdirSync(path.join(root, 'snippets'), { recursive: true });
+      assert.throws(
+        () => port.read(root, 'snippets'),
+        (error: unknown) => error instanceof CapabilityError && (error as CapabilityError).code === 'INVALID_ARGUMENT'
+      );
 
       // Read truncation boundaries (exact 20 bytes vs 19 bytes)
       const exactRead = port.read(root, 'theme.css', 20);

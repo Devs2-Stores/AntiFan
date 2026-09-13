@@ -81,6 +81,7 @@ export interface CapabilityCatalogueOptions {
   allowEval?: boolean;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
+  resolveFailoverTabId?: (staleTabId: string) => string | undefined;
   getDocumentGeneration?: (tabId?: string) => number;
 }
 
@@ -92,6 +93,45 @@ export class CapabilityCatalogue {
 
   constructor(private readonly options: CapabilityCatalogueOptions) {
     this.runtime = { ...options.runtime };
+  }
+
+  getDocumentGeneration(tabId?: string): number | undefined {
+    if (this.options.getDocumentGeneration) {
+      try {
+        const liveGen = this.options.getDocumentGeneration(tabId);
+        if (typeof liveGen === 'number' && Number.isFinite(liveGen) && liveGen > 0) {
+          return Math.floor(liveGen);
+        }
+      } catch {}
+    }
+    return undefined;
+  }
+
+  resolveTabId(tabIdOrIdentifier: string): string | undefined {
+    if (this.options.resolveTabId) {
+      try {
+        return this.options.resolveTabId(tabIdOrIdentifier);
+      } catch {}
+    }
+    return undefined;
+  }
+
+  /**
+   * Names a live replacement tab for a bound tab that no longer exists, so a session
+   * whose tab was closed keeps working instead of failing every later call as stale.
+   * Only the host may answer this: it owns tab liveness and session ownership.
+   */
+  resolveFailoverTabId(staleTabId: string): string | undefined {
+    if (this.options.resolveFailoverTabId) {
+      try {
+        const replacement = this.options.resolveFailoverTabId(staleTabId);
+        if (typeof replacement === 'string' && replacement.trim().length > 0) return replacement.trim();
+      } catch {}
+    }
+    return undefined;
+  }
+  hasWorkspaceRegistry(): boolean {
+    return Boolean(this.options.workspaceRegistry);
   }
 
   private validateAndFreezePolicy<TParams, TResult>(definition: CapabilityDefinition<TParams, TResult>): CapabilityEffectPolicy {

@@ -194,7 +194,7 @@ type Session = {
   pendingParentId?: string;
   pendingParentGeneration?: number;
 };
-type SavedSession = { id: string; name: string; cwd: string; buffer?: string; splitOf?: string; capsuleId?: string };
+type SavedSession = { id: string; name: string; cwd: string; buffer?: string; splitOf?: string; capsuleId?: string; cols?: number; rows?: number };
 // Interactive TUIs (agent spinners, status bars) redraw continuously and consume
 // a transcript tail fast: a 512KB ceiling evicted output within a couple of
 // minutes even at ~3KB/s of redraw chatter, which surfaced to users as output
@@ -242,6 +242,8 @@ export interface SessionSummary {
   exitCode?: number;
   exitedAt?: number;
   closedAt?: number;
+  cols?: number;
+  rows?: number;
 }
 export interface TerminalManagerStats {
   sessionCount: number;
@@ -437,12 +439,25 @@ export class TerminalManager extends EventEmitter {
     } catch {}
   }
 
-  private readSavedSessions(): { activeSessionId?: string; sessions: SavedSession[] } {
+  private readSavedSessions(): { activeSessionId?: string; lastCols?: number; lastRows?: number; sessions: SavedSession[] } {
     this.cleanOrphanedTempFiles();
     try {
       const value = JSON.parse(fs.readFileSync(this.statePath(), 'utf8'));
       if (Array.isArray(value)) return { sessions: value };
-      if (value && Array.isArray(value.sessions)) return { activeSessionId: value.activeSessionId, sessions: value.sessions };
+      if (value && Array.isArray(value.sessions)) {
+        if (typeof value.lastCols === 'number' && value.lastCols >= 40) {
+          this.lastCols = value.lastCols;
+        }
+        if (typeof value.lastRows === 'number' && value.lastRows >= MIN_TERMINAL_ROWS) {
+          this.lastRows = value.lastRows;
+        }
+        return {
+          activeSessionId: value.activeSessionId,
+          lastCols: value.lastCols,
+          lastRows: value.lastRows,
+          sessions: value.sessions,
+        };
+      }
       return { sessions: [] };
     } catch {
       return { sessions: [] };
@@ -467,6 +482,8 @@ export class TerminalManager extends EventEmitter {
         await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
         const payload = {
           activeSessionId: this.activeSessionId,
+          lastCols: this.lastCols || 120,
+          lastRows: this.lastRows || 30,
           sessions: [...this.sessions.values()].map(s => ({
             id: s.id,
             name: s.name,
@@ -474,6 +491,8 @@ export class TerminalManager extends EventEmitter {
             buffer: safeSliceTail(s.buffer, MAX_PERSISTED_BYTES),
             splitOf: s.splitOf,
             capsuleId: s.capsuleId,
+            cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
+            rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,
           })),
         };
         // Compact JSON: the state file is machine-read on restore, and pretty
@@ -528,6 +547,8 @@ export class TerminalManager extends EventEmitter {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       const payload = {
         activeSessionId: this.activeSessionId,
+        lastCols: this.lastCols || 120,
+        lastRows: this.lastRows || 30,
         sessions: [...this.sessions.values()].map(s => ({
           id: s.id,
           name: s.name,
@@ -535,6 +556,8 @@ export class TerminalManager extends EventEmitter {
           buffer: safeSliceTail(s.buffer, MAX_PERSISTED_BYTES),
           splitOf: s.splitOf,
           capsuleId: s.capsuleId,
+          cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
+          rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,
         })),
       };
       const serialized = JSON.stringify(payload);
@@ -639,11 +662,11 @@ export class TerminalManager extends EventEmitter {
           const deferredIds: string[] = [];
           for (const item of baseSessions) {
             if (item.id === activeBaseId) {
-              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
+              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, item.rows);
               s.name = item.name || s.name;
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
             } else {
-              const s = this.reserveRestoredSession(item, undefined, undefined, MIN_TERMINAL_ROWS);
+              const s = this.reserveRestoredSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
               deferredIds.push(item.id);
             }
@@ -651,15 +674,15 @@ export class TerminalManager extends EventEmitter {
           const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
           for (const item of splitSessions) {
             const parent = item.splitOf ? this.sessions.get(item.splitOf) : undefined;
-            const parentRows = parent?.pty?.rows;
-            const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
+            const parentRows = parent?.pty?.rows || parent?.pendingRows;
+            const initialRows = item.rows || this.getInitialSplitRows(parentRows || this.lastRows);
             if (item.splitOf === activeBaseId) {
-              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
               s.name = item.name || s.name;
               s.splitOf = item.splitOf;
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
             } else {
-              const s = this.reserveRestoredSession(item, undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+              const s = this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
               deferredIds.push(item.id);
             }
@@ -716,8 +739,8 @@ export class TerminalManager extends EventEmitter {
       sessionGeneration: generation,
       state: 'running',
       deliveryJournal: new SessionDeliveryJournal(),
-      pendingCols: initialCols,
-      pendingRows: initialRows,
+      pendingCols: initialCols || this.lastCols || 120,
+      pendingRows: initialRows || this.lastRows || 30,
       pendingMinimumRows: minimumRows,
       pendingParentId: parentSessionId,
       pendingParentGeneration: parentGeneration,
@@ -736,12 +759,14 @@ export class TerminalManager extends EventEmitter {
   ): Session {
     const generation = (this.sessionGenerations.get(item.id) || 0) + 1;
     this.sessionGenerations.set(item.id, generation);
+    const effectiveCols = initialCols || item.cols;
+    const effectiveRows = initialRows || item.rows;
     const s = this.createSessionRecord(
       item.id,
       item.cwd || this.currentCwd,
       item.buffer || '',
-      initialCols,
-      initialRows,
+      effectiveCols,
+      effectiveRows,
       minimumRows,
       parentSessionId,
       generation,
@@ -956,26 +981,26 @@ export class TerminalManager extends EventEmitter {
         const deferredIds: string[] = [];
         for (const item of baseSessions) {
           if (item.id === activeBaseId) {
-            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, item.rows);
             s.name = item.name || s.name;
             s.capsuleId = item.capsuleId || this.currentCapsuleId;
           } else {
-            this.reserveRestoredSession(item, undefined, undefined, MIN_TERMINAL_ROWS);
+            this.reserveRestoredSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
             deferredIds.push(item.id);
           }
         }
         const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
         for (const item of splitSessions) {
           const parent = item.splitOf ? this.sessions.get(item.splitOf) : undefined;
-          const parentRows = parent?.pty?.rows;
-          const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
+          const parentRows = parent?.pty?.rows || parent?.pendingRows;
+          const initialRows = item.rows || this.getInitialSplitRows(parentRows || this.lastRows);
           if (item.splitOf === activeBaseId) {
-            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
             s.name = item.name || s.name;
             s.splitOf = item.splitOf;
             s.capsuleId = item.capsuleId || this.currentCapsuleId;
           } else {
-            this.reserveRestoredSession(item, undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+            this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
             deferredIds.push(item.id);
           }
         }
@@ -1024,12 +1049,9 @@ export class TerminalManager extends EventEmitter {
     }
     for (const s of this.sessions.values()) {
       if (s.disposed) continue;
-      if (!s.pty) {
-        // Remember the geometry so a shell that starts later comes up at this size.
-        s.pendingCols = validCols;
-        s.pendingRows = validRows;
-        continue;
-      }
+      s.pendingCols = validCols;
+      s.pendingRows = validRows;
+      if (!s.pty) continue;
       try {
         s.pty.resize(validCols, validRows);
       } catch {}
@@ -1046,11 +1068,10 @@ export class TerminalManager extends EventEmitter {
       this.lastRows = validRows;
     }
     if (target && !target.disposed) {
+      target.pendingCols = validCols;
+      target.pendingRows = validRows;
       if (target.pty) {
         try { target.pty.resize(validCols, validRows); } catch {}
-      } else {
-        target.pendingCols = validCols;
-        target.pendingRows = validRows;
       }
     }
   }
@@ -1246,6 +1267,8 @@ export class TerminalManager extends EventEmitter {
           exitCode: s.exitCode,
           exitedAt: s.exitedAt,
           closedAt: s.closedAt,
+          cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
+          rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,
         };
       });
     }
@@ -1285,6 +1308,8 @@ export class TerminalManager extends EventEmitter {
         exitCode: s.exitCode,
         exitedAt: s.exitedAt,
         closedAt: s.closedAt,
+        cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
+        rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,
       };
     });
   }

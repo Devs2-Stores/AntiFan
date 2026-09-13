@@ -400,6 +400,12 @@ export class NativeTabHost extends EventEmitter {
     closedAt?: number;
   }>();
   private readonly sessionTabPools = new Map<string, Set<string>>();
+  /**
+   * Pool anchor of each recently closed tab (bounded). Closing a tab removes it from
+   * every pool, which would otherwise erase the only trace of which session it belonged
+   * to and leave that session unable to name a replacement target.
+   */
+  private readonly closedTabAnchors = new Map<string, string>();
   private tabThemeQaStates = new Map<string, { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number }>();
   private asyncQaQueue = new AsyncThemeQaQueue();
   public readonly semanticRefRegistry = new SemanticRefRegistry();
@@ -3942,6 +3948,15 @@ export class NativeTabHost extends EventEmitter {
     this.tombstoneTerminalAgentAffinity(tabId, target.state.url);
     if (this.sessionTabPools) {
       for (const [sId, pool] of Array.from(this.sessionTabPools.entries())) {
+        if (sId !== tabId && pool.has(tabId)) {
+          this.closedTabAnchors.delete(tabId);
+          this.closedTabAnchors.set(tabId, sId);
+          while (this.closedTabAnchors.size > 64) {
+            const oldest = this.closedTabAnchors.keys().next().value as string | undefined;
+            if (oldest === undefined) break;
+            this.closedTabAnchors.delete(oldest);
+          }
+        }
         pool.delete(tabId);
         if (pool.size === 0) {
           this.sessionTabPools.delete(sId);
@@ -4647,10 +4662,17 @@ export class NativeTabHost extends EventEmitter {
         const maxH = Math.max(100, availableHeight);
 
         const fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
-        // An agent-plane tab renders offscreen at its own size: fitting it into
-        // the window would shrink the layout viewport the caller asked for.
+        // Fitting a preset into the window is a preview affordance for the tab the user
+        // is looking at. Two kinds of target must render at exactly the viewport they
+        // were asked for instead: an agent-plane tab, which renders offscreen at its own
+        // size, and any tab that is not the active one, which is measured and captured
+        // by a caller that requested an exact CSS viewport. Measured before this rule:
+        // a 1440x900 request on a background tab laid the document out at 1186 CSS px
+        // (window 1186 wide) and a 390x844 request at 342, while the capture rasterized
+        // the requested size — the tab reported a viewport it never had.
         const isAgentPlane = tab.state.ephemeral === true || tab.state.offscreen === true;
-        const renderScale = Math.max(0.1, Math.min(5.0, isAgentPlane ? userZoom : fitScale * userZoom));
+        const rendersExactly = isAgentPlane || tab.state.id !== this.activeTabId;
+        const renderScale = Math.max(0.1, Math.min(5.0, rendersExactly ? userZoom : fitScale * userZoom));
         const renderedW = Math.round(preset.width * renderScale);
         const renderedH = Math.round(preset.height * renderScale);
         const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
@@ -5451,7 +5473,23 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public getFailoverTargetTab(staleTabId: string): string | undefined {
-    if (!this.terminalAgentAffinity || !staleTabId) return undefined;
+    if (!staleTabId) return undefined;
+    // Closing a tab prunes it from its pool, so the anchor recorded at close time is the
+    // only surviving link between the stale tab and the session that still owns a tab.
+    const anchor = this.closedTabAnchors.get(staleTabId);
+    if (anchor && this.hasTab(anchor)) return anchor;
+    // A session that closed (or lost) the tab it was bound to must not be stranded: when
+    // the stale tab belongs to a session pool, the pool's own open tab is a safe rebind —
+    // same session, same workspace, same authority. Without this, a session that opens a
+    // scratch tab, works in it and closes it answers every later call with TARGET_STALE,
+    // and the close itself cannot hand the caller a replacement target.
+    for (const [poolKey, pool] of this.sessionTabPools.entries()) {
+      if (poolKey !== staleTabId && !pool.has(staleTabId)) continue;
+      if (poolKey !== staleTabId && this.hasTab(poolKey)) return poolKey;
+      const sibling = Array.from(pool).find((id) => id !== staleTabId && this.hasTab(id));
+      if (sibling) return sibling;
+    }
+    if (!this.terminalAgentAffinity) return undefined;
     for (const entry of this.terminalAgentAffinity.values()) {
       if (entry.primaryTabId && entry.primaryTabId !== staleTabId && this.hasTab(entry.primaryTabId)) {
         if (entry.managedTabIds?.has(staleTabId) || entry.lineage?.has(staleTabId) || entry.lastUrls?.has(staleTabId)) {
@@ -6555,6 +6593,20 @@ export class NativeTabHost extends EventEmitter {
       deviceScaleFactor: options.deviceScaleFactor ?? (w < 768 ? 2 : 1),
     };
     tab.state.devicePresetId = `custom-${w}x${h}`;
+    const applyForTarget = async (): Promise<boolean> => {
+      await this.applyCdpTouchEmulation(tab.view.webContents, mobile);
+      try {
+        await tab.view.webContents.executeJavaScript(`
+          window.dispatchEvent(new Event('resize'));
+          window.dispatchEvent(new Event('orientationchange'));
+        `);
+      } catch {}
+      if (options.reload) {
+        const reloadOk = await this.reloadAndWait(targetId);
+        if (!reloadOk) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available', { tabId: targetId, operation: 'setViewport' });
+      }
+      return true;
+    };
     if (targetId === this.activeTabId) {
       this.updateLayout();
     } else {
@@ -6564,26 +6616,30 @@ export class NativeTabHost extends EventEmitter {
       const toolbarHeight = typeof this.getToolbarHeight === 'function' ? this.getToolbarHeight() : 40;
       const availableWidth = this.isSidebarOpen ? Math.max(400, bounds.width - this.sidebarWidth) : bounds.width;
       const availableHeight = Math.max(0, bounds.height - toolbarHeight);
-      this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
+      // A view that was never attached has no compositor surface, so an emulation
+      // applied to it has no widget to be measured against: the document lays out
+      // against a zero-width box and every later probe, evaluation and capture on the
+      // tab reads a viewport it does not have. Apply the emulation, the resize dispatch
+      // and any reload the caller asked for inside a temporary in-place attach — below
+      // the active tab's view, released when the call returns — so the requested
+      // viewport is real without the tab ever becoming the visible one.
+      await this.runWithAttachedTabView(
+        tab.view,
+        async () => {
+          this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
+          return await applyForTarget();
+        },
+        false
+      );
+      this.broadcastState();
+      return true;
     }
     // The toolbar Device Viewport Breakpoint cluster re-renders ONLY from the
     // STATE_UPDATED broadcast; without it an MCP resize is invisible in the UI
     // (stale select + zoom label). Mirrors the updateLayout+broadcastState
     // pairing used by setZoom/toggleSplit/setSplitPreset.
     this.broadcastState();
-
-    await this.applyCdpTouchEmulation(tab.view.webContents, mobile);
-    try {
-      await tab.view.webContents.executeJavaScript(`
-        window.dispatchEvent(new Event('resize'));
-        window.dispatchEvent(new Event('orientationchange'));
-      `);
-    } catch {}
-    if (options.reload) {
-      const reloadOk = await this.reloadAndWait(targetId);
-      if (!reloadOk) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available', { tabId: targetId, operation: 'setViewport' });
-    }
-    return true;
+    return await applyForTarget();
   }
 
   public getDevicePresets(): DevicePreset[] {

@@ -524,7 +524,7 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       assert.ok(screenshotBase64.startsWith('iVBOR'), 'Screenshot payload should be valid base64 PNG data');
     });
 
-    it('TabDevToolsHost.captureScreenshot for regular background tab does invoke switchTab', async () => {
+    it('TabDevToolsHost.captureScreenshot for a background user tab never foregrounds it', async () => {
       const tabs = new Map<string, MockTabRecord>();
       let switchTabCount = 0;
       let activeTabId = 'tab-user-active';
@@ -556,22 +556,22 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
         createTab: () => 'tab-created',
         withTabAgentWorking: async (_tabId, action) => action(),
         switchTab: (id) => {
-          if (id === 'tab-user-bg') {
-            switchTabCount++;
-            activeTabId = id;
-          }
+          switchTabCount++;
+          activeTabId = id;
           return true;
         },
       };
 
       const devTools = new TabDevToolsHost(ctx);
 
-      // Capture screenshot of regular background tab
-      await devTools.captureScreenshot(undefined, 'tab-user-bg');
+      // Capture screenshot of a background user tab. The visible tab belongs to the
+      // user, so no capture path may foreground it — not even when the host cannot
+      // attach the target view in place (this ctx offers no runWithAttachedTabView).
+      const payload = await devTools.captureScreenshot(undefined, 'tab-user-bg');
 
-      // For normal non-offscreen tabs, switchTab IS called to bring the surface forward on Windows
-      assert.strictEqual(switchTabCount, 1, 'Regular background tab must invoke switchTab for Windows surface capture');
-      assert.strictEqual(activeTabId, 'tab-user-bg');
+      assert.strictEqual(switchTabCount, 0, 'a capture must never switch the visible tab');
+      assert.strictEqual(activeTabId, 'tab-user-active', 'the user tab must stay active');
+      assert.ok(payload.length > 0, 'the capture must still produce a raster');
     });
 
     it('skips live Electron window HW composited validation (covered by Phase 6 Windows runtime certification)', (t) => {

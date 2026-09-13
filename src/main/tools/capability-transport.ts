@@ -525,12 +525,55 @@ export class CapabilityTransportAdapter {
         (err as unknown as { code: string; name: string }).name = 'AbortError';
         throw err;
       }
+      // Local solo-dev self-heal: the attachment's bound tab can disappear — the user
+      // closes it, or the session closes the tab it was working in. Rebind to a tab the
+      // same session still owns so one closed tab does not strand every later call as
+      // stale. Only a live replacement named by the host for this exact tab is accepted,
+      // and the attachment is rotated below so the rebind is durable, not per-call.
+      let healedBoundTabId: string | undefined;
+      const staleBoundTabId = authContext.browserTarget?.tabId;
+      if (staleBoundTabId && !this.catalogue.resolveTabId(staleBoundTabId)) {
+        const replacement = this.catalogue.resolveFailoverTabId(staleBoundTabId);
+        const liveDocGen = replacement ? this.catalogue.getDocumentGeneration(replacement) : undefined;
+        if (
+          replacement &&
+          replacement !== staleBoundTabId &&
+          this.catalogue.resolveTabId(replacement) &&
+          typeof liveDocGen === 'number' &&
+          liveDocGen > 0 &&
+          authContext.browserTarget
+        ) {
+          authContext.browserTarget = {
+            projectId: authContext.browserTarget.projectId,
+            workspaceId: authContext.browserTarget.workspaceId,
+            runtimeId: authContext.browserTarget.runtimeId,
+            tabId: replacement,
+            browserEpoch: authContext.browserTarget.browserEpoch,
+            documentGeneration: liveDocGen,
+          };
+          healedBoundTabId = replacement;
+        }
+      }
+      const attachedTabIdForInspection = authContext.browserTarget?.tabId || record.tabId;
+      const isInspection = this.isFreshInspection(intent.name, policy);
+      const preInspectionDocGen = isInspection && attachedTabIdForInspection
+        ? (this.attachmentRegistry.getDocumentGeneration?.(attachedTabIdForInspection) ??
+           this.catalogue.getDocumentGeneration?.(attachedTabIdForInspection))
+        : undefined;
       const data = await this.catalogue.dispatchAuthenticated(
         intent.name,
         (intent.params as Record<string, unknown>) || {},
         authContext
       );
+      const postInspectionDocGen = isInspection && attachedTabIdForInspection
+        ? (this.attachmentRegistry.getDocumentGeneration?.(attachedTabIdForInspection) ??
+           this.catalogue.getDocumentGeneration?.(attachedTabIdForInspection))
+        : undefined;
       let replacementAuthorityRevision: string | undefined;
+      if (healedBoundTabId) {
+        const healedRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, healedBoundTabId);
+        if (healedRev) replacementAuthorityRevision = healedRev;
+      }
       const p = intent.params as Record<string, unknown> | undefined;
       const isSetTarget = intent.name === 'browser.set-automation-target' || intent.name === 'antifan_set_automation_target';
       const isOpenTab = intent.name === 'browser.open-tab' || intent.name === 'antifan_open_tab' || intent.name === 'anti.browser.tabs.create';
@@ -606,6 +649,46 @@ export class CapabilityTransportAdapter {
           ) {
             const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, failoverCandidate);
             if (newRev) replacementAuthorityRevision = newRev;
+          }
+        }
+      } else if (isInspection) {
+        const attachedTabId = attachedTabIdForInspection;
+        if (attachedTabId) {
+          const requestedTabId = typeof p?.tabId === 'string' && p.tabId.trim().length > 0 ? p.tabId.trim() : undefined;
+          const canonicalReqId = requestedTabId
+            ? (this.catalogue.resolveTabId ? this.catalogue.resolveTabId(requestedTabId) : requestedTabId) ?? requestedTabId
+            : undefined;
+
+          // Only a same-target read whose generation is identical before and after
+          // may acknowledge drift: a navigation during the read (pre !== post) or a
+          // caller-supplied generation is never authority.
+          const isSameAttachedTarget = !canonicalReqId || canonicalReqId === attachedTabId;
+          if (isSameAttachedTarget) {
+            if (
+              typeof preInspectionDocGen === 'number' &&
+              typeof postInspectionDocGen === 'number' &&
+              Number.isFinite(preInspectionDocGen) &&
+              preInspectionDocGen > 0 &&
+              preInspectionDocGen === postInspectionDocGen
+            ) {
+              const observedDocGen = Math.floor(preInspectionDocGen);
+              const currentAttachedDocGen = authority.browserTarget?.documentGeneration ?? record.documentGeneration ?? 1;
+
+              // Advance only on strictly newer generation so stale or backward reads
+              // cannot erase an effectful fence; CAS preserves a concurrent rebind.
+              if (observedDocGen > currentAttachedDocGen) {
+                const newRev = await this.attachmentRegistry.updateAttachmentTab(
+                  authority.attachmentId,
+                  attachedTabId,
+                  observedDocGen,
+                  {
+                    expectedRevision: liveAuthority.authorityRevision,
+                    expectedTabId: attachedTabId,
+                  }
+                );
+                if (newRev) replacementAuthorityRevision = newRev;
+              }
+            }
           }
         }
       }
@@ -817,5 +900,11 @@ export class CapabilityTransportAdapter {
       requiredPermission as CapabilityRisk | undefined,
       recordedVisibility
     );
+  }
+  private isFreshInspection(name: string, policy?: CapabilityEffectPolicy): boolean {
+    if (policy?.effect !== 'read' || policy.risk === 'eval') return false;
+    return name === 'browser.dom' || name === 'anti.inspect.dom' ||
+      name === 'antifan_get_dom' || name === 'anti.inspect.snapshot' ||
+      name === 'browser.snapshot' || name === 'browser.find' || name === 'browser_find';
   }
 }

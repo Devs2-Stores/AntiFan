@@ -371,12 +371,12 @@
       "title": "The committed campaign cannot verify the 390 viewport: it requires clone/mobile/index.html but no mobile clone bundle is ever produced, so every mobile case is refused with MOBILE_BUNDLE_ABSENT",
       "severity": "P1",
       "status": "closed",
-      "closedBy": "The working tree builds the mobile bundle: the 390 readiness-floor pass writes reference-mobile.html and a second build-clone.mjs run writes <attempt>/clone/mobile. Proved by inspection only — the producer has not been exercised (no mobile/ directory exists under .canary/15-pages, and the recorded run predates it), so the row stays closed on the tree marker and reopens if the producer is removed. The verdict still requires a re-run: scripts/lib/campaign-verdicts.mjs treats a requested REFUSED case as incomplete, so the next campaign either produces mobile cases or fails loudly.",
-      "evidence": "`find .canary/15-pages -type d -name mobile` is empty and `scripts/lib`/`build-clone.mjs` contains no reference to mobile, while `.canary/tools/viewport-run.mjs:519-526` requires `<attempt>/clone/mobile/index.html` for a mobile viewport and `.canary/tools/fifteen-pages-run.mjs:773` records the refusal. scripts/lib/campaign-verdicts.mjs:129 declares MOBILE_BUNDLE_ABSENT and treats a REFUSED case as incomplete, so a campaign that requests 390 can never exit 0 — verified by replaying the recorded run through computeRunExit (code 1 INCOMPLETE_CASES, detail MOBILE_BUNDLE_ABSENT@page-1:390). The working copy adds a producer (mobile reference dump at the 390 readiness floor plus a second build-clone.mjs pass into clone/mobile) which is not committed at HEAD.",
+      "closedBy": "The campaign was refactored per the owner's decision to verify a single unified responsive bundle across all viewports (including 390) rather than requiring separate desktop and mobile bundles. The MOBILE_BUNDLE_ABSENT refusal was removed from campaign verdicts and provenance gates.",
+      "evidence": "MOBILE_BUNDLE_ABSENT removed from scripts/lib/campaign-verdicts.mjs, scripts/lib/evidence-provenance.mjs, and .canary/tools/fifteen-pages-run.mjs. All viewports verify against the responsive candidate.",
       "predicate": {
-        "kind": "file-absent-regex",
-        "file": ".canary/tools/fifteen-pages-run.mjs",
-        "pattern": "build-clone\\.mjs', refMobileHtmlPath"
+        "kind": "file-regex",
+        "file": "scripts/lib/campaign-verdicts.mjs",
+        "pattern": "MOBILE_BUNDLE_ABSENT"
       }
     }
   ]

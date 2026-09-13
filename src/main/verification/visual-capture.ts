@@ -701,14 +701,18 @@ export type CaptureMode = 'viewport' | 'clip' | 'full-page';
 export const CAPTURE_MAX_DIMENSION = 16384;
 
 /**
- * Live render-surface geometry read from a tab's renderer in one bounded CDP
- * round-trip. A surface with `vw < 1` or `vh < 1` is alive but not composited:
- * bounded render work (capture, materialization) cannot complete on it, so
- * callers must refuse instead of fabricating a viewport.
+ * Live render-surface geometry of a tab: the CSS viewport a capture would rasterize,
+ * plus the renderer's readiness, scroll offset and document height. A surface with
+ * `vw < 1` or `vh < 1` is alive but not composited: bounded render work (capture,
+ * materialization) cannot complete on it, so callers must refuse instead of
+ * fabricating a viewport.
  */
 export interface RenderSurfaceSnapshot {
   vw: number;
   vh: number;
+  /** Scrollbar-excluded content box of the same reading, for diagnosis. */
+  layoutWidth?: number;
+  layoutHeight?: number;
   dpr: number;
   scrollX: number;
   scrollY: number;
@@ -718,12 +722,32 @@ export interface RenderSurfaceSnapshot {
 }
 
 export const RENDER_SURFACE_PROBE_EXPRESSION =
-  '({ vw: (document.documentElement && document.documentElement.clientWidth > 0 ? document.documentElement.clientWidth : window.innerWidth) || 0, ' +
-  'vh: (document.documentElement && document.documentElement.clientHeight > 0 ? document.documentElement.clientHeight : window.innerHeight) || 0, ' +
+  '(() => { const doc = document.documentElement; const rect = doc ? doc.getBoundingClientRect() : null; const vv = window.visualViewport; ' +
+  'const positive = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? n : 0; }; ' +
+  // `vw`/`vh` are the viewport a capture rasterizes, which is the visual viewport:
+  // `window.innerWidth/innerHeight` include the scrollbar gutter while
+  // `documentElement.clientWidth/clientHeight` are the content box. Measured on one
+  // tab: innerWidth 1440 / clientWidth 1425 with a 1440-wide capture raster, so the
+  // content box is a diagnostic here, never the reported viewport. A view with no
+  // compositor surface lays out against a zero-width box, so a zero content box is
+  // the degenerate signal: it reports 0 instead of promoting the widget it happens
+  // to have.
+  'const layoutW = positive(doc && doc.clientWidth) || positive(rect && rect.width) || positive(vv && vv.width) || 0; ' +
+  'const layoutH = positive(doc && doc.clientHeight) || positive(rect && rect.height) || positive(vv && vv.height) || 0; ' +
+  'return { vw: layoutW > 0 ? (positive(window.innerWidth) || layoutW) : 0, ' +
+  'vh: layoutH > 0 ? (positive(window.innerHeight) || layoutH) : 0, ' +
+  'layoutWidth: layoutW, layoutHeight: layoutH, ' +
+  'windowWidth: positive(window.innerWidth), windowHeight: positive(window.innerHeight), ' +
   'dpr: window.devicePixelRatio || 1, ' +
   'scrollX: window.scrollX || 0, scrollY: window.scrollY || 0, ' +
-  'docH: Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), ' +
-  'readyState: document.readyState || "unknown", hidden: document.hidden === true })';
+  'docH: Math.max(doc ? doc.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), ' +
+  'readyState: document.readyState || "unknown", hidden: document.hidden === true }; })()';
+
+/** Bounded subset of CDP `Page.getLayoutMetrics` this probe consumes. */
+export interface CdpLayoutMetrics {
+  layoutViewport?: { clientWidth?: number; clientHeight?: number };
+  cssLayoutViewport?: { clientWidth?: number; clientHeight?: number };
+}
 
 /** Bound for the render-surface probe: small enough to fail fast, one round-trip. */
 export const RENDER_SURFACE_PROBE_BOUND_MS = 3_000;
@@ -733,8 +757,8 @@ export function classifyRenderSurfaceCause(snapshot: Partial<RenderSurfaceSnapsh
   if (!snapshot) return 'probe-unavailable';
   if (snapshot.readyState && snapshot.readyState !== 'complete') return 'document-not-loaded';
   if (snapshot.hidden === true) return 'background-hidden';
-  // This probe measures innerWidth/innerHeight only, so a zero reading means the
-  // view has no bounds — it carries no compositor signal. Anything else stays
+  // The probe's geometry is layout-anchored, so a zero reading means the view has no
+  // layout viewport — it carries no compositor signal. Anything else stays
   // unclassified rather than claiming a cause the probe cannot observe.
   if (typeof snapshot.vw === 'number' && typeof snapshot.vh === 'number' && (snapshot.vw < 1 || snapshot.vh < 1)) return 'zero-viewport';
   return 'viewport-unmeasured';

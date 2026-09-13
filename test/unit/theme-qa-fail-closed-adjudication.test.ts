@@ -761,5 +761,48 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.ok(
       reportNonObject.findings?.evidenceGaps?.some((g) => g.includes('did not return valid measurement object'))
     );
+
+    // Subcase C: eval returns structurally invalid objects (missing or non-finite numeric fields, missing viewport/culprits)
+    const malformedPayloads: unknown[] = [
+      undefined,
+      'malformed string response',
+      42,
+      {},
+      { hasOverflow: false },
+      { hasOverflow: false, culprits: [] },
+      { hasOverflow: false, deltaX: NaN, scrollWidth: 1440, clientWidth: 1440, culprits: [], viewport: { name: 'desktop', width: 1440, height: 900 } },
+      { hasOverflow: false, deltaX: 0, scrollWidth: '1440', clientWidth: 1440, culprits: [], viewport: { name: 'desktop', width: 1440, height: 900 } },
+      { hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: -10, culprits: [], viewport: { name: 'desktop', width: 1440, height: 900 } },
+      { hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [], viewport: { name: 'desktop', width: NaN, height: 900 } },
+      { hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: 'not-an-array', viewport: { name: 'desktop', width: 1440, height: 900 } },
+    ];
+
+    for (let i = 0; i < malformedPayloads.length; i++) {
+      const payload = malformedPayloads[i];
+      const portsMalformed = createMockPorts({
+        eval: async (_target: BrowserTarget, script: string) => {
+          if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX') || script.includes('LayoutOverflowEngine')) {
+            return payload;
+          }
+          if (script === liquidScript || script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+            return { hasErrors: false, errors: [], scannedElementsCount: 10 };
+          }
+          return {};
+        },
+      });
+      const workflowMalformed = new ThemeQaWorkflow(portsMalformed);
+      const reportMalformed = await workflowMalformed.validate({
+        runId: `run-layout-eval-malformed-${i}`,
+        attemptId: `att-layout-eval-malformed-${i}`,
+        workspaceRoot: 'E:/Work/test-theme',
+        target: makeTarget(1),
+      });
+      assert.strictEqual(reportMalformed.summary.passed, false, `Payload #${i} must not pass`);
+      assert.strictEqual(reportMalformed.summary.verdict, 'INCONCLUSIVE', `Payload #${i} must be INCONCLUSIVE`);
+      assert.ok(
+        reportMalformed.findings?.evidenceGaps?.some((g) => g.includes('did not return valid measurement object')),
+        `Payload #${i} must record evidence gap`
+      );
+    }
   });
 });

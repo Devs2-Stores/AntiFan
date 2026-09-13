@@ -1,14 +1,14 @@
 /**
- * Regression: a run directory that carries both a desktop bundle and a mobile
- * bundle must produce the same report regardless of evidence file ordering.
+ * Regression: a run directory that carries more than one bundle must produce the
+ * same report regardless of evidence file ordering.
  *
  * The defect this guards: every document's asset references were verified against
  * one run-level bundle directory, so the desktop telemetry document was checked
- * against `clone/mobile/assets` and generation aborted fail-closed on
- * `bien-ap-giga.png`, which the mobile bundle legitimately never references.
- * A second defect picked the primary telemetry by directory order, so the report
- * described the mobile bundle while the 1440 and 1024 viewports were served from
- * the desktop bundle.
+ * against a second bundle's `assets/` and generation aborted fail-closed on
+ * `bien-ap-giga.png`, which that bundle legitimately never references. A second
+ * defect picked the primary telemetry by directory order, so the report described
+ * the other bundle while the 1440 and 1024 viewports were served from the desktop
+ * bundle.
  *
  * The fixture reuses the real persisted run3 evidence (JSON copies with names that
  * force each ordering); the documents reference their bundles by absolute path, so
@@ -69,7 +69,7 @@ function assertCoherent(result) {
   assert.equal(
     path.resolve(REPO_ROOT, bundle || ''),
     DESKTOP_BUNDLE,
-    'the report must describe the bundle its majority viewports were served from, not the mobile bundle',
+    'the report must describe the bundle its majority viewports were served from, not the other bundle',
   );
   const assets = result.report.match(/^assets\s+(\d+) files/m)?.[1];
   assert.equal(Number(assets), DESKTOP_ASSET_COUNT, 'asset totals must come from the desktop telemetry document');
@@ -77,9 +77,9 @@ function assertCoherent(result) {
   assert.match(result.report, /FINAL VERDICT: (PASS|FAIL|INCONCLUSIVE)/);
 }
 
-test('desktop telemetry verifies against the desktop bundle when the mobile bundle sorts first', (t) => {
+test('desktop telemetry verifies against the desktop bundle when the other bundle sorts first', (t) => {
   if (!canReplay(t)) return;
-  // Mobile documents sort before every desktop document.
+  // The other bundle's documents sort before every desktop document.
   const dir = buildRunDir('report-ordering-mobile-first', (file) => {
     if (file === 'build-telemetry-mobile.json') return 'a-build-telemetry-mobile.json';
     if (file === 'run3-390.json') return 'b-run3-390.json';

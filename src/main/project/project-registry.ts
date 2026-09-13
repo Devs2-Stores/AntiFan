@@ -39,11 +39,14 @@ export class ProjectRegistry {
   registerWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
     const id = validateControlPlaneId(workspace.id, 'workspace');
     const projectId = validateControlPlaneId(workspace.projectId, 'project');
+    const resolvedRoot = workspace.rootPath && typeof workspace.rootPath === 'string' && workspace.rootPath.trim().length > 0
+      ? path.resolve(workspace.rootPath)
+      : '';
     const record: WorkspaceRecord = {
       ...workspace,
       id,
       projectId,
-      rootPath: path.resolve(workspace.rootPath),
+      rootPath: resolvedRoot,
     };
     this.workspaces.set(id, record);
     return { ...record };
@@ -160,10 +163,14 @@ export class ProjectRegistry {
       return { ...existingWs };
     }
 
+    const resolvedRoot = rootPath && typeof rootPath === 'string' && rootPath.trim().length > 0
+      ? path.resolve(rootPath)
+      : '';
+
     return this.registerWorkspace({
       id: validWorkspaceId,
       projectId: validProjectId,
-      rootPath: path.resolve(rootPath),
+      rootPath: resolvedRoot,
       state: 'attached',
       createdAt: Date.now(),
       updatedAt: Date.now(),

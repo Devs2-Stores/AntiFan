@@ -91,9 +91,9 @@ export function verifyServedEntry(identity, served) {
 /**
  * Select the candidate entry for a target viewport.
  *
- * Responsive verification requires the same candidate entry across all viewports.
- * Rejects an attempt to provide or substitute a different entry for mobile, while
- * accepting the unified candidate entry.
+ * Responsive verification requires the same candidate entry across all viewports:
+ * a caller that names a different entry for a tier (a device-specific bundle, say)
+ * is refused instead of being compared as if it were this run's candidate.
  */
 export function selectCandidateEntryForViewport({ bundleIdentity, cloneDir, viewport, candidateEntry = null }) {
   const defaultEntry = bundleIdentity?.entryPath
@@ -147,7 +147,7 @@ export function detectBundleDrift(identity) {
 }
 
 /** Publish a page's immutable attempt as the page's current view. */
-export function writePagePointer(pageDir, { identity, cloneDir, mobileCloneDir, referencePath, viewports }) {
+export function writePagePointer(pageDir, { identity, cloneDir, referencePath, viewports }) {
   return writeRecordAtomic(path.resolve(pageDir, PAGE_POINTER_FILE), {
     attemptId: identity.attemptId,
     entryPath: identity.entryPath,
@@ -157,7 +157,6 @@ export function writePagePointer(pageDir, { identity, cloneDir, mobileCloneDir, 
     sourceUrl: identity.sourceUrl,
     evidenceRoot: identity.evidenceRoot,
     cloneDir: path.resolve(cloneDir),
-    mobileCloneDir: mobileCloneDir ? path.resolve(mobileCloneDir) : null,
     referencePath: referencePath ? path.resolve(referencePath) : null,
     viewports: viewports ?? null,
     publishedAt: new Date().toISOString(),
@@ -196,7 +195,6 @@ export function resolvePageArtifacts(pageDir) {
       attemptId: pointer.attemptId,
       evidenceDir: pointer.evidenceRoot,
       cloneDir: pointer.cloneDir,
-      mobileCloneDir: pointer.mobileCloneDir ?? null,
       legacy: false,
       pointer,
     };
@@ -205,7 +203,6 @@ export function resolvePageArtifacts(pageDir) {
     attemptId: null,
     evidenceDir: path.resolve(pageDir, 'evidence'),
     cloneDir: path.resolve(pageDir, 'clone'),
-    mobileCloneDir: path.resolve(pageDir, 'clone', 'mobile'),
     legacy: true,
     pointer: null,
   };

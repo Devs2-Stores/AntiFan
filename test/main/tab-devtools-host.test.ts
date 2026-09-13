@@ -424,7 +424,9 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const base64 = await devTools.captureScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true });
     assert.ok(base64.length > 0);
 
-    assert.strictEqual(cdpCommands.some((c) => c.method === 'Page.getLayoutMetrics'), false, 'Layout metrics must not drive full-page geometry');
+    // The session layout metrics are read as the geometry-transaction baseline, but they
+    // are truncated to the 10px viewport here: a full-page clip that used them would be
+    // 10px tall, so the 5800px assertion below is what proves they do not drive it.
     const pageCaptureCmds = cdpCommands.filter((c) => c.method === 'Page.captureScreenshot');
     assert.strictEqual(pageCaptureCmds.length, 1);
     const params = pageCaptureCmds[0]?.params;
@@ -769,9 +771,13 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.deepStrictEqual(envelope.cssCaptureSize, { width: 3, height: 2 });
     assert.deepStrictEqual(envelope.rasterSize, { width: 6, height: 4 });
 
-    assert.strictEqual(attachCalls.length, 1);
-    assert.strictEqual(attachCalls[0]?.view, tab2.view);
-    assert.strictEqual(attachCalls[0]?.isMobile, false);
+    // Every step that needs pixels — the geometry baseline probe, the pre-capture
+    // settle and the raster — attaches the tab view in place, and never the mobile
+    // view: the attach is temporary per step, so more than one is expected.
+    assert.ok(attachCalls.length >= 1, 'A background capture must attach the target view in place');
+    assert.ok(attachCalls.every((c) => c.view === tab2.view), 'Only the tab view may be attached');
+    assert.ok(attachCalls.every((c) => c.isMobile === false), 'A desktop capture must not attach as mobile');
+    assert.strictEqual(attachCalls[attachCalls.length - 1]?.view, tab2.view);
 
     const capCmd = cdpCommands.find((c) => c.method === 'Page.captureScreenshot');
     assert.ok(capCmd);
@@ -822,9 +828,8 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.deepStrictEqual(envelope.cssCaptureSize, { width: 2, height: 3 });
     assert.deepStrictEqual(envelope.rasterSize, { width: 6, height: 9 });
 
-    assert.strictEqual(attachCalls.length, 1);
-    assert.strictEqual(attachCalls[0]?.view, tab2.mobileView);
-    assert.strictEqual(attachCalls[0]?.isMobile, true);
+    assert.ok(attachCalls.every((c) => c.view === tab2.mobileView), 'A mobile-pane capture must only attach the mobile view');
+    assert.ok(attachCalls.some((c) => c.isMobile === true), 'A mobile-pane capture must attach as mobile');
   });
 
   it('15. captureVerificationScreenshot on foreground tab executes directly without invoking runWithAttachedTabView', async () => {
@@ -873,6 +878,9 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const cdpCommands: Array<{ method: string; params?: unknown }> = [];
     (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
       cdpCommands.push({ method, params });
+      if (method === 'Page.getLayoutMetrics') {
+        return { cssLayoutViewport: { clientWidth: 100, clientHeight: 80 } };
+      }
       if (method === 'Runtime.evaluate') {
         return { result: { value: { dpr: 1, vw: 100, vh: 80 } } };
       }
@@ -898,7 +906,6 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, true);
     const clip = 'clip' in params ? params.clip : undefined;
     assert.deepStrictEqual(clip, { x: 10, y: 20, width: 30, height: 20, scale: 1 });
-    assert.strictEqual(cdpCommands.some((c) => c.method === 'Page.getLayoutMetrics'), false, 'Clip capture must not consult layout metrics');
   });
 
   it('17. full-page capture on an offscreen target is rejected typed before any CDP capture call', async () => {

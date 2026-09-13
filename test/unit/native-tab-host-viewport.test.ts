@@ -528,3 +528,108 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.ok(typeof evalCall?.params.expression === 'string' && evalCall.params.expression.includes('resolveTraversalPath(desc.path)'));
   });
 });
+
+describe('Render-surface probe geometry', () => {
+  // One tab, one reading: window 1440x900 with a 15px classic scrollbar, so the layout
+  // content box is 1425 while the capture raster covers the full 1440 CSS viewport.
+  const rasterAlignedRendererReading = {
+    vw: 1440,
+    vh: 900,
+    layoutWidth: 1425,
+    layoutHeight: 900,
+    windowWidth: 1440,
+    windowHeight: 900,
+    dpr: 1,
+    scrollX: 0,
+    scrollY: 0,
+    docH: 5422,
+    readyState: 'complete',
+    hidden: false,
+  };
+
+  const makeProbeHost = (
+    rendererValue: Record<string, unknown>,
+    options: { activeTabId?: string; view?: unknown; mobileView?: unknown; runWithAttachedTabView?: unknown; offscreen?: boolean } = {}
+  ): { host: any; methods: string[]; attachCalls: Array<{ view: unknown; isMobile?: boolean }> } => {
+    const methods: string[] = [];
+    const attachCalls: Array<{ view: unknown; isMobile?: boolean }> = [];
+    const host = Object.create(TabDevToolsHost.prototype) as any;
+    host.ctx = {
+      getActiveTabId: () => options.activeTabId ?? 'tab-emulated',
+      getTabRecord: (id: string) =>
+        id === 'tab-emulated'
+          ? {
+              id,
+              focusedPane: 'desktop',
+              view: options.view ?? { id: 'view-emulated' },
+              mobileView: options.mobileView,
+              state: { id, offscreen: options.offscreen === true },
+            }
+          : undefined,
+      getTabWebContents: () => ({ isDestroyed: () => false }),
+      ...(options.runWithAttachedTabView !== undefined ? { runWithAttachedTabView: options.runWithAttachedTabView } : {}),
+    };
+    host.sendCdpCommand = async (_wc: unknown, method: string) => {
+      methods.push(method);
+      return { result: { value: rendererValue } };
+    };
+    host.ctx.runWithAttachedTabView =
+      options.runWithAttachedTabView ??
+      (async (view: unknown, action: () => Promise<unknown>, isMobile?: boolean) => {
+        attachCalls.push({ view, isMobile });
+        return await action();
+      });
+    return { host, methods, attachCalls };
+  };
+
+  it('reports the viewport a capture rasterizes, with the scrollbar-excluded box as a diagnostic', async () => {
+    const { host, methods } = makeProbeHost(rasterAlignedRendererReading);
+
+    const surface = await host.readRenderSurface('tab-emulated');
+
+    assert.strictEqual(surface.vw, 1440, 'The full CSS viewport is what the raster covers');
+    assert.strictEqual(surface.vh, 900);
+    assert.strictEqual(surface.layoutWidth, 1425, 'The content box stays available as a diagnostic');
+    assert.strictEqual(surface.layoutHeight, 900);
+    assert.strictEqual(surface.docH, 5422, 'Document height still comes from the renderer');
+    assert.strictEqual(surface.readyState, 'complete');
+    assert.deepStrictEqual(methods, ['Runtime.evaluate'], 'The probe reads the tab it is measuring, nothing else');
+  });
+
+  it('reports no viewport for a document that is not laid out instead of promoting its widget box', async () => {
+    const { host, attachCalls } = makeProbeHost({ ...rasterAlignedRendererReading, vw: 0, vh: 0, layoutWidth: 0, layoutHeight: 0 });
+
+    const surface = await host.readRenderSurface('tab-emulated');
+
+    assert.strictEqual(surface.vw, 0, 'A view with no compositor surface must not report a viewport');
+    assert.strictEqual(surface.vh, 0);
+    assert.strictEqual(attachCalls.length, 0, 'The active target is read where it is, without an extra attach');
+  });
+
+  it('measures a background target inside a temporary in-place attach of its own view', async () => {
+    const backgroundView = { id: 'view-background' };
+    const { host, attachCalls } = makeProbeHost(rasterAlignedRendererReading, {
+      activeTabId: 'tab-active',
+      view: backgroundView,
+    });
+
+    const surface = await host.readRenderSurface('tab-emulated');
+
+    assert.strictEqual(surface.vw, 1440);
+    assert.strictEqual(attachCalls.length, 1);
+    assert.strictEqual(attachCalls[0]?.view, backgroundView);
+    assert.strictEqual(attachCalls[0]?.isMobile, false);
+  });
+
+  it('measures an offscreen target where it renders, without attaching it', async () => {
+    const { host, attachCalls } = makeProbeHost(rasterAlignedRendererReading, {
+      activeTabId: 'tab-active',
+      offscreen: true,
+    });
+
+    const surface = await host.readRenderSurface('tab-emulated');
+
+    assert.strictEqual(surface.vw, 1440);
+    assert.strictEqual(attachCalls.length, 0, 'An offscreen tab renders offscreen and must not enter the view tree');
+  });
+});
