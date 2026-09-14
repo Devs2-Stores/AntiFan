@@ -790,6 +790,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'anti.browser.evaluate_frame',
+    description: 'Execute JavaScript inside a child frame (cross-origin iframe) selected by frameUrl substring',
+    risk: 'eval',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, frameUrl: { type: 'string', description: 'Substring of the child frame URL to target (e.g. "web.haravan.app")' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['expression', 'frameUrl'] },
+    execute: (params: { expression: string; frameUrl: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.evalInFrame(context.browserTarget as BrowserTarget, params.expression, params.frameUrl, params.tabId, params.paneId),
+  });
+
+  catalogue.register({
     name: 'anti.inspect.eval',
     description: 'Alias for anti.browser.evaluate',
     risk: 'eval',

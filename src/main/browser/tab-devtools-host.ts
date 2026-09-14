@@ -2297,6 +2297,94 @@ export class TabDevToolsHost {
       }
     });
   }
+
+  /**
+   * Evaluate an expression inside a child frame (cross-origin iframe) selected by
+   * URL substring. Uses Page.getFrameTree to enumerate frames, then
+   * Page.createIsolatedWorld on the matched frameId to obtain an executionContextId,
+   * then Runtime.evaluate with that contextId. Returns undefined when no frame matches.
+   */
+  public async evalJsInFrame(
+    expression: string,
+    frameUrl: string,
+    tabId?: string,
+    paneId?: SplitPaneId,
+    userGesture = false,
+    timeoutMs = EVAL_JS_DEFAULT_TIMEOUT_MS
+  ): Promise<unknown> {
+    const targetId = tabId || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) return undefined;
+    const effectivePane = paneId || target.focusedPane;
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) return undefined;
+
+    await this.sendCdpCommand(wc, 'Page.enable', {});
+    const tree = await this.sendCdpCommand<{ frameTree?: { frame?: { id?: string; url?: string }; childFrames?: unknown[] } }>(wc, 'Page.getFrameTree', {});
+    const needle = String(frameUrl || '').toLowerCase();
+    let frameId: string | undefined;
+    const walk = (node: { frame?: { id?: string; url?: string }; childFrames?: unknown[] } | undefined): void => {
+      if (!node || frameId) return;
+      const f = node.frame;
+      if (f && f.id && f.url && f.url.toLowerCase().includes(needle)) {
+        frameId = f.id;
+        return;
+      }
+      const kids = (node.childFrames || []) as Array<{ frame?: { id?: string; url?: string }; childFrames?: unknown[] }>;
+      for (const k of kids) walk(k);
+    };
+    walk(tree?.frameTree as { frame?: { id?: string; url?: string }; childFrames?: unknown[] } | undefined);
+    if (!frameId) return undefined;
+
+    const world = await this.sendCdpCommand<{ executionContextId?: number }>(wc, 'Page.createIsolatedWorld', {
+      frameId,
+      worldName: 'AntifanFrameWorld',
+      grantUniveralAccess: true,
+    });
+    const contextId = world?.executionContextId;
+    if (!contextId) return undefined;
+
+    const wrapped = `(async () => {
+      function serializeCircularSafe(val, seen = new WeakSet(), depth = 0) {
+        if (val === null || typeof val !== 'object') {
+          if (typeof val === 'bigint') return val.toString() + 'n';
+          if (typeof val === 'function') return '[Function: ' + (val.name || 'anonymous') + ']';
+          if (typeof val === 'symbol') return val.toString();
+          return val;
+        }
+        if (depth > 10) return '[MaxDepth]';
+        if (seen.has(val)) return '[Circular]';
+        seen.add(val);
+        if (Array.isArray(val)) return val.map(item => serializeCircularSafe(item, seen, depth + 1));
+        if (typeof Element !== 'undefined' && val instanceof Element) {
+          return { tagName: val.tagName, id: val.id || undefined, className: val.className || undefined, outerHTML: val.outerHTML ? val.outerHTML.slice(0, 1000) : undefined };
+        }
+        const out = {};
+        for (const key of Object.keys(val)) {
+          try { out[key] = serializeCircularSafe(val[key], seen, depth + 1); } catch { out[key] = '[Unserializable]'; }
+        }
+        return out;
+      }
+      const result = await (async () => (0, eval)(${JSON.stringify(expression)}))();
+      return serializeCircularSafe(result);
+    })()`;
+
+    const res = await this.sendCdpCommand<{
+      result?: { value?: unknown };
+      exceptionDetails?: { text?: string; exception?: { description?: string } };
+    }>(wc, 'Runtime.evaluate', {
+      expression: wrapped,
+      contextId,
+      returnByValue: true,
+      awaitPromise: true,
+      userGesture,
+    }, timeoutMs);
+    if (res?.exceptionDetails) {
+      const detail = res.exceptionDetails.exception?.description || res.exceptionDetails.text || 'CDP frame evaluation exception';
+      throw new Error(detail);
+    }
+    return res?.result?.value;
+  }
   // ─── Auto JSON Viewer & View Page Source ───
   public injectAutoJsonViewer(wc: Electron.WebContents): void {
     if (!wc || wc.isDestroyed()) return;

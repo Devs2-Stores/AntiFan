@@ -325,6 +325,7 @@ async function createWindow(): Promise<void> {
     readRenderSurface: (tabId, paneId, timeoutMs) => tabHost!.readRenderSurface(tabId, paneId, timeoutMs),
     reapplyTabGeometry: (tabId, paneId, before) => tabHost!.reapplyTabGeometry(tabId, paneId, before),
     evalJs: (expression, tabId, paneId, userGesture, timeoutMs) => tabHost!.evalJs(expression, tabId, paneId, userGesture, timeoutMs),
+    evalJsInFrame: (expression, frameUrl, tabId, paneId, userGesture, timeoutMs) => tabHost!.evalJsInFrame(expression, frameUrl, tabId, paneId, userGesture, timeoutMs),
     getNetworkTracker: () => tabHost!.getNetworkTracker(),
     getDiagnostics: (tabId, level) => tabHost!.getDiagnostics(tabId, level),
     runResponsiveCheck: (params) => tabHost!.runResponsiveCheck(params),

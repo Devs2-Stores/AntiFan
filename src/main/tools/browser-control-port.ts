@@ -138,6 +138,8 @@ export interface BrowserHostPort {
   /** Post-drain geometry restore for a tab a capture moved (CDP is admissible again). */
   reapplyTabGeometry?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, before: { width: number; height: number; scrollX: number; scrollY: number }): Promise<CaptureViewportTransaction>;
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile', userGesture?: boolean, timeoutMs?: number): Promise<unknown>;
+  /** Evaluate inside a child frame (cross-origin iframe) selected by URL substring. */
+  evalJsInFrame?(expression: string, frameUrl: string, tabId?: string, paneId?: 'desktop' | 'mobile', userGesture?: boolean, timeoutMs?: number): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string): Promise<Record<string, unknown>>;
   agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
@@ -2092,6 +2094,16 @@ export class BrowserControlPort {
       }
       return this.host.evalJs(expression, tabId, paneId);
     });
+  }
+
+  async evalInFrame(target: BrowserTarget, expression: string, frameUrl: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
+    const tabId = this.resolveTargetTab(target, explicitTabId);
+    if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
+    if (!frameUrl || !frameUrl.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'frameUrl substring is required');
+    if (typeof this.host.evalJsInFrame !== 'function') {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Frame-targeted evaluation is not supported by this host');
+    }
+    return this.passivePool.execute(tabId, async () => this.host.evalJsInFrame!(expression, frameUrl, tabId, paneId));
   }
 
   async observe(

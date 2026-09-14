@@ -6086,6 +6086,10 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().evalJs(expression, tabId, paneId, userGesture, timeoutMs);
   }
 
+  public async evalJsInFrame(expression: string, frameUrl: string, tabId?: string, paneId?: SplitPaneId, userGesture = false, timeoutMs?: number): Promise<unknown> {
+    return this.getDevToolsHost().evalJsInFrame(expression, frameUrl, tabId, paneId, userGesture, timeoutMs);
+  }
+
   public async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
     return this.getAutomationHost().uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
   }
