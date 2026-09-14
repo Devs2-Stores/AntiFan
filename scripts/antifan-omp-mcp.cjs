@@ -986,7 +986,15 @@ async function invoke(method, params = {}, callerRequestId) {
   delete effectiveParams.requestId;
   delete effectiveParams.callerRequestId;
   const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
-  if (!effectiveParams.tabId && boundTabId) {
+  // Default the target ONLY where the advertised contract makes tabId optional. Three
+  // operations declare tabId required (tabs.activate, set_automation_target and
+  // rebind_target). Filling it in here defeated the application's required-argument gate
+  // and silently acted on a tab the caller never named: measured before this guard, all
+  // nine spellings of those three operations were accepted with no arguments at all and
+  // returned the bound tab. Tools whose schema keeps tabId optional (navigate, reload,
+  // inspect.dom, screenshot.*) still get the convenience default.
+  const declaredRequired = (definitions.find(([defName]) => defName === method) || [])[3] || [];
+  if (!effectiveParams.tabId && boundTabId && !declaredRequired.includes('tabId')) {
     effectiveParams.tabId = boundTabId;
   }
   if (mapped === 'artifact.read') {

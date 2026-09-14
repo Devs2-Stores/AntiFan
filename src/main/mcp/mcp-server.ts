@@ -16,6 +16,7 @@ import { CapabilityError, AuthenticatedCapabilityContext, ClientInvocationIntent
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { envelope } from './result-envelope';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
+import { findMissingRequiredArgs } from '../tools/required-args';
 export interface BoundAttachmentSession {
   attachmentId: string;
   attachmentSecret: string;
@@ -535,6 +536,28 @@ export class AntiFanMcpServer {
     return tools;
   }
 
+  private advertisedSchemaCache?: Map<string, Record<string, unknown>>;
+
+  /**
+   * The input schema this session advertises for a tool, resolved once. The advertised
+   * surface is fixed for the session's lifetime (static tools, the paired catalogue's
+   * tools and the high-risk switch are all decided at construction), so a per-session
+   * cache cannot go stale, and the lookup costs no bridge round-trip per call.
+   */
+  private async advertisedInputSchema(toolName: string): Promise<Record<string, unknown> | undefined> {
+    if (!this.advertisedSchemaCache) {
+      const { tools } = await this.listTools();
+      const cache = new Map<string, Record<string, unknown>>();
+      for (const tool of tools) {
+        if (tool.inputSchema && typeof tool.inputSchema === 'object') {
+          cache.set(tool.name, tool.inputSchema as Record<string, unknown>);
+        }
+      }
+      this.advertisedSchemaCache = cache;
+    }
+    return this.advertisedSchemaCache.get(toolName);
+  }
+
   public async listTools(): Promise<{ tools: Tool[] }> {
     return { tools: buildMcpToolList(this.getStaticTools(), this.transport, this.isHighRiskAllowed) };
   }
@@ -682,6 +705,32 @@ export class AntiFanMcpServer {
       return {
         isError: true,
         content: [{ type: 'text', text: JSON.stringify({ code: 'ATTACHMENT_REQUIRED', message: 'No authoritative attachment bound to MCP session' }) }],
+      };
+    }
+
+    // The advertised schema is enforced here, at the single entry every tools/call passes
+    // through, because this surface dispatches along two paths: a name that has a legacy
+    // equivalent never reaches CapabilityCatalogue.dispatchAuthenticated. Measured with
+    // the gate placed only there: the catalogue-only anti.telemetry.record_fallback was
+    // correctly refused, while anti.browser.tabs.activate, anti.browser.rebind_target and
+    // anti.browser.set_automation_target still ACCEPTED an omitted required `tabId` and
+    // acted on a tab the caller never named. Authority and credential checks stay ahead of
+    // this on purpose, so they keep reporting their own codes.
+    const advertisedSchema = await this.advertisedInputSchema(toolName);
+    const missingRequired = findMissingRequiredArgs(advertisedSchema, a);
+    if (missingRequired.length > 0) {
+      return {
+        isError: true,
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            code: 'INVALID_ARGUMENT',
+            message: `Capability '${toolName}' requires ${missingRequired.join(', ')}, and this call supplied no usable value for ${missingRequired.length === 1 ? 'it' : 'them'}. ` +
+              'The argument is refused rather than defaulted from session state, because a default would act on a target the caller never named. ' +
+              `Supply ${missingRequired.length === 1 ? 'the field' : 'the fields'} explicitly and retry.`,
+            details: { capability: toolName, missing: missingRequired },
+          }),
+        }],
       };
     }
 

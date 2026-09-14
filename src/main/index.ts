@@ -4,7 +4,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
-import { app, BrowserWindow, Menu, protocol, session, nativeTheme, webContents } from 'electron';
+import { app, BrowserWindow, Menu, protocol, session, nativeTheme, webContents, crashReporter } from 'electron';
 
 // Register custom privileged scheme for local workspace preview before app.whenReady()
 protocol.registerSchemesAsPrivileged([
@@ -83,6 +83,30 @@ app.on('child-process-gone', (_event, details) => {
 // exited here". Installed before any later code can exit.
 installExitInterceptor(app, process);
 installExitRecorder(process);
+
+// Electron's own crash reporter is enabled so that a fatal native crash leaves a dump with
+// metadata inside the app's data directory, instead of only in the machine-wide WER store
+// that has to be found by hand. Measured 2026-09-14: pid 20812 died with exception code
+// 0xC000041D (STATUS_FATAL_USER_CALLBACK_EXCEPTION) and wrote NO journal line at all,
+// because the exception left through a native callback before any handler above could run.
+// For that class of death the dump is the only surviving artifact, and this is what makes
+// it findable on the next launch. The dump path must be set before the reporter starts.
+try {
+  const crashDumpsDir = path.join(StorageLocations.getRuntimeDir(), 'crashDumps');
+  fs.mkdirSync(crashDumpsDir, { recursive: true });
+  app.setPath('crashDumps', crashDumpsDir);
+  crashReporter.start({
+    productName: 'AntiFan Desktop',
+    companyName: 'AntiFan',
+    submitURL: '',
+    uploadToServer: false,
+    compress: false,
+  });
+  recordLifecycleEvent('crashReporter.enabled', { crashDumps: crashDumpsDir });
+} catch (err) {
+  // Never fatal: failing to arm the crash reporter must not stop the app from starting.
+  recordLifecycleEvent('crashReporter.failed', { detail: redactCredentials(String(err)) });
+}
 
 const IS_PROD = process.argv.includes('--production') || process.env.NODE_ENV === 'production';
 const IS_DEV = !IS_PROD;

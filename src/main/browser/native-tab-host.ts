@@ -59,6 +59,7 @@ import { ViewportGate } from '../tools/browser-control-port';
 import { HistoryManager } from './history-manager';
 import { OAuthPopupManager } from './oauth-popup-manager';
 import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
+import { settleWithinBound } from './target-operation-chain';
 import { TabAutomationHost } from './tab-automation-host';
 import { TabDevToolsHost, type TabDevToolsStats } from './tab-devtools-host';
 import { isTrackerBlockedUrl, isTrackerIsolationConsoleNoise } from './tracker-isolation';
@@ -416,6 +417,21 @@ export class NativeTabHost extends EventEmitter {
   public readonly semanticRefRegistry = new SemanticRefRegistry();
   private semanticDocumentGenerations = new Map<string, number>();
   private targetOperationQueues = new Map<string, Promise<void>>();
+
+  /**
+   * How long an operation may wait for the tab's previous operation to settle
+   * before it is refused. Generous by design: the slowest self-bounded operation in
+   * this host is reloadAndWait (8-10s) plus a 2s quiescence ceiling, so a
+   * predecessor still running past this bound is stuck rather than merely slow.
+   */
+  private static readonly TARGET_OPERATION_ACQUIRE_BOUND_MS = 15_000;
+
+  /**
+   * What currently holds each tab's operation chain. Observability only: it lets a
+   * refused waiter name the holder and how long it has held, which is the difference
+   * between a diagnosable refusal and an anonymous one.
+   */
+  private targetOperationOwners = new Map<string, { label: string; startedAt: number }>();
   private lastNavigationFailures = new Map<string, { cause: string; message: string; timedOut: boolean }>();
   private ownedReloadTokens = new Map<string, { token: string; expiresAt: number }>();
 
@@ -664,13 +680,44 @@ export class NativeTabHost extends EventEmitter {
 
     this.targetOperationQueues.set(key, currentTail);
 
+    const label = operation.name || 'anonymous-operation';
+    const ownerRecord = { label, startedAt: Date.now() };
     try {
-      await previousTail;
+      // Waiting on this tail without a bound is what turns one stuck operation into a
+      // permanently dead tab: every later capability queues behind the same tail and
+      // never answers, so callers observe silence instead of an error. Refusing is the
+      // only fail-closed option available, and a refusal still resolves this
+      // operation's own tail, so a refused waiter can never become the next wedge.
+      const predecessorSettled = await settleWithinBound(previousTail, NativeTabHost.TARGET_OPERATION_ACQUIRE_BOUND_MS);
+      if (!predecessorSettled) {
+        const holder = this.targetOperationOwners.get(key);
+        const heldForMs = holder ? Date.now() - holder.startedAt : undefined;
+        throw new CapabilityError(
+          'WAIT_TIMEOUT',
+          `Operation '${label}' cannot start on tab '${tabId}' pane '${paneId ?? 'desktop'}': the previous operation on this tab has not settled within ${NativeTabHost.TARGET_OPERATION_ACQUIRE_BOUND_MS}ms` +
+            (holder ? ` (holder '${holder.label}', holding for ${heldForMs}ms)` : ' (holder unknown: it began before this host observed the chain)') +
+            '. This tab refuses further serialized work until that operation settles or the runtime restarts; retry, or operate on a different tab.',
+          {
+            tabId,
+            paneId,
+            operation: label,
+            acquireBoundMs: NativeTabHost.TARGET_OPERATION_ACQUIRE_BOUND_MS,
+            ...(holder ? { holder: holder.label, heldForMs } : {}),
+          }
+        );
+      }
       if (this.isDisposed) {
         throw new CapabilityError('RUNTIME_DRAINING', 'NativeTabHost disposed before operation began');
       }
+      // The bound is measured from the moment work actually starts, not from queue
+      // entry, so a holder that waited a long time is not reported as stuck for it.
+      ownerRecord.startedAt = Date.now();
+      this.targetOperationOwners.set(key, ownerRecord);
       return await operation();
     } finally {
+      if (this.targetOperationOwners.get(key) === ownerRecord) {
+        this.targetOperationOwners.delete(key);
+      }
       resolveTail();
       if (this.targetOperationQueues.get(key) === currentTail) {
         this.targetOperationQueues.delete(key);
@@ -4037,6 +4084,9 @@ export class NativeTabHost extends EventEmitter {
       const prefix = `${String(tabId).trim()}:`;
       for (const key of Array.from(this.targetOperationQueues.keys())) {
         if (key.startsWith(prefix)) this.targetOperationQueues.delete(key);
+      }
+      for (const key of Array.from(this.targetOperationOwners.keys())) {
+        if (key.startsWith(prefix)) this.targetOperationOwners.delete(key);
       }
     }
     this.clearTabAgentWorking(tabId);
@@ -7423,6 +7473,7 @@ export class NativeTabHost extends EventEmitter {
     this.asyncQaQueue?.abortAll();
     this.semanticRefRegistry?.destroy();
     this.targetOperationQueues?.clear();
+    this.targetOperationOwners.clear();
     this.semanticDocumentGenerations?.clear();
     this.sessionTabPools?.clear();
     try {

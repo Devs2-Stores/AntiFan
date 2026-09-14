@@ -17,6 +17,7 @@ import {
 } from '../../shared/control-plane-contracts';
 import { WorkspaceRegistry } from '../project/workspace-registry';
 import { DEVICE_ERROR_REMEDIATION } from '../../shared/device-control-contracts';
+import { assertRequiredArgs } from './required-args';
 
 export interface SessionCapabilityFilter {
   allowedCapabilityNames?: string[];
@@ -393,6 +394,12 @@ export class CapabilityCatalogue {
       }
       throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
     }
+
+    // The advertised schema is a promise on this surface: a field it marks required is
+    // never silently defaulted from ambient session state. Measured before this gate
+    // existed, tabs.activate / rebind_target / set_automation_target all accepted an
+    // omitted required `tabId` and acted on the session's bound tab.
+    assertRequiredArgs(definition.name, definition.inputSchema, params);
 
     if (definition.requiresBrowserTarget) {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
