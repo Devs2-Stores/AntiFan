@@ -986,15 +986,33 @@ async function invoke(method, params = {}, callerRequestId) {
   delete effectiveParams.requestId;
   delete effectiveParams.callerRequestId;
   const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
-  // Default the target ONLY where the advertised contract makes tabId optional. Three
-  // operations declare tabId required (tabs.activate, set_automation_target and
-  // rebind_target). Filling it in here defeated the application's required-argument gate
-  // and silently acted on a tab the caller never named: measured before this guard, all
-  // nine spellings of those three operations were accepted with no arguments at all and
-  // returned the bound tab. Tools whose schema keeps tabId optional (navigate, reload,
-  // inspect.dom, screenshot.*) still get the convenience default.
+  // The advertised schema is a promise published by THIS surface, so it is enforced here,
+  // where it is published, against the caller's literal arguments. One rule replaces the
+  // per-name special case that used to live on this line: no layer may fabricate a value
+  // the caller did not supply for a field its own schema marks required. Measured before
+  // this rule: every spelling of tabs.activate, rebind_target and set_automation_target was
+  // accepted with no arguments at all and acted on the session's bound tab, and the
+  // application-side gate never saw the omission because the injection below had already
+  // satisfied the contract on the caller's behalf. `0`, `false` and non-empty strings are
+  // real values; only absent, null and blank count as omitted.
   const declaredRequired = (definitions.find(([defName]) => defName === method) || [])[3] || [];
-  if (!effectiveParams.tabId && boundTabId && !declaredRequired.includes('tabId')) {
+  const missingRequired = declaredRequired.filter((field) => {
+    const value = params[field];
+    if (value === undefined || value === null) return true;
+    return typeof value === 'string' && value.trim() === '';
+  });
+  if (missingRequired.length > 0) {
+    throw new Error(JSON.stringify({
+      code: 'INVALID_ARGUMENT',
+      message: `Capability '${method}' requires ${missingRequired.join(', ')}, and this call supplied no usable value for ${missingRequired.length === 1 ? 'it' : 'them'}. ` +
+        'The field is refused rather than defaulted, because a default would act on a target the caller never named. ' +
+        `Supply ${missingRequired.length === 1 ? 'the field' : 'the fields'} explicitly and retry.`,
+      details: { capability: method, missing: missingRequired },
+    }));
+  }
+  // Reaching here means every required field is genuinely present, so the convenience
+  // default below can only ever apply to a tool whose schema keeps tabId optional.
+  if (!effectiveParams.tabId && boundTabId) {
     effectiveParams.tabId = boundTabId;
   }
   if (mapped === 'artifact.read') {

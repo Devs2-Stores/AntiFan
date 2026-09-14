@@ -690,7 +690,7 @@ export class NativeTabHost extends EventEmitter {
       // operation's own tail, so a refused waiter can never become the next wedge.
       const predecessorSettled = await settleWithinBound(previousTail, NativeTabHost.TARGET_OPERATION_ACQUIRE_BOUND_MS);
       if (!predecessorSettled) {
-        const holder = this.targetOperationOwners.get(key);
+        const holder = this.targetOperationOwners?.get(key);
         const heldForMs = holder ? Date.now() - holder.startedAt : undefined;
         throw new CapabilityError(
           'WAIT_TIMEOUT',
@@ -711,11 +711,22 @@ export class NativeTabHost extends EventEmitter {
       }
       // The bound is measured from the moment work actually starts, not from queue
       // entry, so a holder that waited a long time is not reported as stuck for it.
+      // Guarded like every other map in this class: the owner map exists for
+      // observability, and several tests drive this method on a host built by hand
+      // without field initializers, so an observability aid must never be the reason
+      // the operation it observes fails.
       ownerRecord.startedAt = Date.now();
-      this.targetOperationOwners.set(key, ownerRecord);
+      if (this.targetOperationOwners) {
+        this.targetOperationOwners.set(key, ownerRecord);
+      }
       return await operation();
     } finally {
-      if (this.targetOperationOwners.get(key) === ownerRecord) {
+      // Optional-chained on purpose: this block runs while an exception from the try body
+      // (a designed failure path, e.g. preflight rejection) is already in flight. Reading
+      // .get off undefined here threw a TypeError that REPLACED the real error, so the
+      // caller saw "cannot read properties of undefined" instead of why its operation
+      // failed. A finally block must never mask the exception it is unwinding.
+      if (this.targetOperationOwners?.get(key) === ownerRecord) {
         this.targetOperationOwners.delete(key);
       }
       resolveTail();
@@ -4085,6 +4096,13 @@ export class NativeTabHost extends EventEmitter {
       for (const key of Array.from(this.targetOperationQueues.keys())) {
         if (key.startsWith(prefix)) this.targetOperationQueues.delete(key);
       }
+    }
+    // Guarded by its OWN field, like the queue map above. A partially constructed host
+    // (several tests build one without running field initializers) defines
+    // targetOperationQueues but not this map, and reading .keys() off undefined turned
+    // tab cleanup into a TypeError instead of a cleanup.
+    if (this.targetOperationOwners) {
+      const prefix = `${String(tabId).trim()}:`;
       for (const key of Array.from(this.targetOperationOwners.keys())) {
         if (key.startsWith(prefix)) this.targetOperationOwners.delete(key);
       }
@@ -7473,7 +7491,9 @@ export class NativeTabHost extends EventEmitter {
     this.asyncQaQueue?.abortAll();
     this.semanticRefRegistry?.destroy();
     this.targetOperationQueues?.clear();
-    this.targetOperationOwners.clear();
+    // Optional like every other map cleared in dispose: this line runs on hosts that were
+    // never fully constructed, and dispose must not be the thing that throws there.
+    this.targetOperationOwners?.clear();
     this.semanticDocumentGenerations?.clear();
     this.sessionTabPools?.clear();
     try {
