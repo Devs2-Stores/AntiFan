@@ -442,6 +442,8 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public consumeOwnedReload(tabId: string, token?: string): boolean {
+    // Guarded like the other maps: partial hosts may lack ownedReloadTokens.
+    if (!this.ownedReloadTokens) return false;
     const entry = this.ownedReloadTokens.get(tabId);
     if (!entry) return false;
     if (Date.now() > entry.expiresAt) {
@@ -671,6 +673,11 @@ export class NativeTabHost extends EventEmitter {
       throw new CapabilityError('RUNTIME_DRAINING', 'NativeTabHost is disposed');
     }
     const key = makeTargetKey(tabId, paneId);
+    // Partial hosts (Object.create without field initializers) lack the queue
+    // map; run the operation directly rather than crashing on .get of undefined.
+    if (!this.targetOperationQueues) {
+      return operation();
+    }
     const previousTail = this.targetOperationQueues.get(key) || Promise.resolve();
 
     let resolveTail!: () => void;
@@ -946,6 +953,12 @@ export class NativeTabHost extends EventEmitter {
           try { this.attachTabView(tab.mobileView, true); } catch {}
         }
         this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
+        if (tab.view.webContents && !tab.view.webContents.isDestroyed() && typeof tab.view.webContents.invalidate === 'function') {
+          try { tab.view.webContents.invalidate(); } catch {}
+        }
+        if (tab.mobileView?.webContents && !tab.mobileView.webContents.isDestroyed() && typeof tab.mobileView.webContents.invalidate === 'function') {
+          try { tab.mobileView.webContents.invalidate(); } catch {}
+        }
       }
     }
 
@@ -2668,6 +2681,9 @@ export class NativeTabHost extends EventEmitter {
                 this.window.contentView.removeChildView(view);
               }
             } catch {}
+            if (activeTab?.view?.webContents && !activeTab.view.webContents.isDestroyed() && typeof activeTab.view.webContents.invalidate === 'function') {
+              try { activeTab.view.webContents.invalidate(); } catch {}
+            }
           }
         }
       }
@@ -2759,6 +2775,9 @@ export class NativeTabHost extends EventEmitter {
         }
         if (typeof contentView.addChildView === 'function') {
           contentView.addChildView(v);
+        }
+        if (v.webContents && !v.webContents.isDestroyed() && typeof v.webContents.invalidate === 'function') {
+          try { v.webContents.invalidate(); } catch {}
         }
       } catch (err) {
         console.warn('[native-tab-host] enforceZOrder error:', err);
@@ -3985,6 +4004,13 @@ export class NativeTabHost extends EventEmitter {
         }
       }
       this.applyTabThrottling();
+      if (target.view?.webContents && !target.view.webContents.isDestroyed()) {
+        try { target.view.webContents.invalidate(); } catch {}
+        try { target.view.webContents.focus(); } catch {}
+      }
+      if (target.mobileView?.webContents && !target.mobileView.webContents.isDestroyed()) {
+        try { target.mobileView.webContents.invalidate(); } catch {}
+      }
       if (isBenchmarkEnabled()) {
         recordBenchmark({ surface: 'tabs', name: 'switched', value: performance.now() - switchStartMs, extra: { attachedViews: this.countAttachedViews() } });
       }
@@ -4108,7 +4134,9 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     this.clearTabAgentWorking(tabId);
-    this.ownedReloadTokens.delete(tabId);
+    // Guarded like targetOperationOwners above: partially constructed hosts
+    // (Object.create without field initializers) may lack this map.
+    this.ownedReloadTokens?.delete(tabId);
     const isAgent = target.state.ephemeral === true || target.state.offscreen === true;
     if (!isAgent && target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
@@ -4131,12 +4159,15 @@ export class NativeTabHost extends EventEmitter {
     if (this.sessionTabPools) {
       for (const [sId, pool] of Array.from(this.sessionTabPools.entries())) {
         if (sId !== tabId && pool.has(tabId)) {
-          this.closedTabAnchors.delete(tabId);
-          this.closedTabAnchors.set(tabId, sId);
-          while (this.closedTabAnchors.size > 64) {
-            const oldest = this.closedTabAnchors.keys().next().value as string | undefined;
-            if (oldest === undefined) break;
-            this.closedTabAnchors.delete(oldest);
+          // Guarded like the maps above: partial hosts may lack closedTabAnchors.
+          if (this.closedTabAnchors) {
+            this.closedTabAnchors.delete(tabId);
+            this.closedTabAnchors.set(tabId, sId);
+            while (this.closedTabAnchors.size > 64) {
+              const oldest = this.closedTabAnchors.keys().next().value as string | undefined;
+              if (oldest === undefined) break;
+              this.closedTabAnchors.delete(oldest);
+            }
           }
         }
         pool.delete(tabId);
@@ -6719,10 +6750,8 @@ export class NativeTabHost extends EventEmitter {
 
   public broadcastPhoneStatus(status?: ToolbarPhoneStatus): void {
     const payload = status || this.cachedPhoneStatus;
-    if (!payload || !this.toolbarView || this.toolbarView.webContents.isDestroyed()) return;
-    try {
-      this.toolbarView.webContents.send(TOOLBAR_CHANNELS.PHONE_STATUS, payload);
-    } catch {}
+    if (!payload) return;
+    safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.PHONE_STATUS, payload);
   }
 
   public setControlPlane(cp: ControlPlaneRuntime): void {

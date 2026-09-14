@@ -825,14 +825,19 @@ export class AttachmentRegistry {
     casOptions?: { expectedRevision?: string; expectedTabId?: string }
   ): Promise<AuthorityRevisionHandle | null> {
     const record = this.records.get(attachmentId);
-    if (!record) return null;
+    if (!record) {
+      console.warn(`[AttachmentRegistry] updateAttachmentTab: no record for attachment ${attachmentId}`);
+      return null;
+    }
     if (casOptions?.expectedRevision !== undefined) {
       const activeRev = this.activeRevisionByAttachment.get(attachmentId);
       if (activeRev !== casOptions.expectedRevision) {
+        console.warn(`[AttachmentRegistry] updateAttachmentTab: CAS revision mismatch for ${attachmentId} (expected ${casOptions.expectedRevision}, active ${activeRev})`);
         return null;
       }
     }
     if (casOptions?.expectedTabId !== undefined && record.tabId !== casOptions.expectedTabId) {
+      console.warn(`[AttachmentRegistry] updateAttachmentTab: CAS tabId mismatch for ${attachmentId} (expected ${casOptions.expectedTabId}, bound ${record.tabId})`);
       return null;
     }
     let docGen = documentGeneration;
@@ -873,6 +878,7 @@ export class AttachmentRegistry {
       });
     } catch (err: unknown) {
       if (err instanceof CapabilityError && err.code === 'TRANSACTION_CONFLICT') {
+        console.warn(`[AttachmentRegistry] updateAttachmentTab: TRANSACTION_CONFLICT rotating ${attachmentId} to tab ${tabId}`);
         return null;
       }
       throw err;

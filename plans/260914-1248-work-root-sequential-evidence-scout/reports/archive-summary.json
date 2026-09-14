@@ -1,0 +1,25 @@
+{
+  "runId": "wrses-20260914T135118Z",
+  "generatedAt": "2026-09-14T14:52:54.940Z",
+  "containers": 93,
+  "containersByExtension": {
+    ".gz": 6,
+    ".nupkg": 2,
+    ".vsix": 5,
+    ".zip": 80
+  },
+  "members": 34988,
+  "blockers": [
+    {
+      "container": "E:\\Work\\customizes\\Mnbakery\\backups\\backup-mobile-homepage-before-figma-20260811-130701.zip",
+      "code": "BLOCKED_RESOURCE_LIMIT",
+      "detail": "container 275134025 bytes exceeds limit 268435456"
+    },
+    {
+      "container": "E:\\Work\\customizes\\Iamhome\\backups\\20260824-phase-01-pre-change.zip",
+      "code": "BLOCKED_RESOURCE_LIMIT",
+      "detail": "container 269201939 bytes exceeds limit 268435456"
+    }
+  ],
+  "note": "members are enumerated read-only; no extraction, execution, decryption or network hydration was performed"
+}

@@ -297,7 +297,7 @@ async function runMcpLiveE2ETest() {
 
     // Milestone 1: Live Chromium Viewport Screenshot Capture & HTTP Stream Resolution
     console.log('[Milestone 1] Capturing live Chromium screenshot over MCP...');
-    const screenshotResp = await callMcp(1, 'anti.screenshot.viewport', {});
+    const screenshotResp = await callMcp(1, 'anti.screenshot.viewport', { format: 'png' });
     if (screenshotResp.result?.isError) {
       console.error('[Screenshot ERROR content]', JSON.stringify(screenshotResp.result.content));
     }

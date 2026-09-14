@@ -18,6 +18,7 @@ import { WorkspaceFilePort } from '../tools/workspace-file-port';
 import { registerFileCapabilities } from '../tools/file-capabilities';
 import { registerArtifactCapabilities } from '../tools/artifact-capabilities';
 import { registerTerminalCapabilities } from '../tools/terminal-capabilities';
+import { registerCoreCapabilities, createLazyCorePort } from '../tools/core-capabilities';
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
 import { TerminalManager, type TerminalManagerStats } from '../browser/terminal-manager';
@@ -210,6 +211,7 @@ export class ControlPlaneRuntime {
     registerThemeTransactionCapabilities(this.capabilities, this.themeTransactions, () => this.getWorkspaceRoot());
     registerArtifactCapabilities(this.capabilities, this.artifacts);
     registerTerminalCapabilities(this.capabilities, this.terminal);
+    registerCoreCapabilities(this.capabilities, createLazyCorePort());
     this.workflowRegistry = new WorkflowRegistry(path.join(options.dataRoot, 'workflows'));
     this.workflowEngine = new WorkflowEngine({
       transport: this.transport,
@@ -250,16 +252,21 @@ export class ControlPlaneRuntime {
     const dataParentResolved = path.resolve(dataRootResolved, '..');
 
     let resolved = this.workspaceRoot;
+    let registryProvidedRoot = false;
     if (workspaceId) {
       try {
         const ws = this.workspaces.get(workspaceId, this.leaseState.projectId);
         // Authoritative registry tenant root is accepted by evidence, not rejected by name.
         if (ws?.rootPath && typeof ws.rootPath === 'string' && ws.rootPath.trim().length > 0 && ws.rootPath !== dataRootResolved && ws.rootPath !== dataParentResolved && fs.existsSync(ws.rootPath)) {
           resolved = ws.rootPath;
+          registryProvidedRoot = true;
         }
       } catch {}
     }
-    if (resolved === this.workspaceRoot || !resolved || resolved === dataRootResolved || resolved === dataParentResolved) {
+    // Only fall through to env when the registry did not supply a root AND the
+    // configured root is unusable (empty or pointing at the data root). A
+    // registry hit equal to the configured root is a confirmation, not a miss.
+    if (!registryProvidedRoot && (!resolved || resolved === dataRootResolved || resolved === dataParentResolved)) {
       const envRoot = process.env.THEME_WORKSPACE_ROOT || process.env.ANTIFAN_WORKSPACE_ROOT || process.env.WORKSPACE_ROOT;
       if (envRoot && typeof envRoot === 'string' && envRoot.trim().length > 0 && fs.existsSync(envRoot)) {
         const candidate = path.resolve(envRoot.trim());

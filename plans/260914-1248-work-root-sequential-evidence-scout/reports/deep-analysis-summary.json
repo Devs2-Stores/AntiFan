@@ -1,0 +1,4930 @@
+{
+  "ranAt": "2026-09-14T19:00:19.137Z",
+  "units": 246,
+  "claims": 1947,
+  "decisions": 310,
+  "dependencies": 432,
+  "errors": 0,
+  "results": [
+    {
+      "unitId": "u-70612d4eeac3",
+      "relPath": ".agents",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-38c9a351e24b",
+      "relPath": ".antifan-acl-fixed-smoke",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f28b82c772d5",
+      "relPath": ".antifan-canary",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e4684ad66981",
+      "relPath": ".antifan-conpty-ui-check",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-43d543df65b0",
+      "relPath": ".antifan-data",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7d678b4f5cc2",
+      "relPath": ".antifan-data-soak",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b43044c3e371",
+      "relPath": ".antifan-probe",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-76b4add8e925",
+      "relPath": ".antifan-profile-migration-10652-1788150147062",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b11e674a2616",
+      "relPath": ".antifan-profile-migration-19648-1788151162284",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b7017704fc32",
+      "relPath": ".antifan-profile-migration-21944-1788178665937",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-9665d9705f01",
+      "relPath": ".antifan-profile-migration-9628-1788151573802",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-54ccafed1a80",
+      "relPath": ".antifan-soak-8h",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-eb4ec26cb0c3",
+      "relPath": ".antigravity",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e39b7de4b2dc",
+      "relPath": ".claude",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3c30ce4d2674",
+      "relPath": ".github",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2f7813fcf900",
+      "relPath": ".playwright-mcp",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b8f5ff013eec",
+      "relPath": ".tmp-ultra-verify",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2c548209ae54",
+      "relPath": ".venv",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ee4226c4da93",
+      "relPath": ".vscode",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-5b3d958f62bc",
+      "relPath": "antifan-canary",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-44860e0d6b1d",
+      "relPath": "apps",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 26,
+        "decisions": 2,
+        "risks": 5,
+        "outcomes": 2
+      },
+      "claims": 11,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-923c941b5de6",
+      "relPath": "customizes",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a7ff91d2c9b9",
+      "relPath": "docs",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 16,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 1
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-537bddb0848f",
+      "relPath": "master",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 22,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-d2985e6336f5",
+      "relPath": "microsoft",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 60,
+        "decisions": 15,
+        "risks": 39,
+        "outcomes": 53
+      },
+      "claims": 110,
+      "decisions": 15,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a8eebde52272",
+      "relPath": "output",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-312cb04aec42",
+      "relPath": "plans",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 60,
+        "decisions": 27,
+        "risks": 16,
+        "outcomes": 13
+      },
+      "claims": 58,
+      "decisions": 27,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4130d76df548",
+      "relPath": "scratch",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d9ca3f7f1b9a",
+      "relPath": "shopify",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 27,
+        "decisions": 3,
+        "risks": 22,
+        "outcomes": 8
+      },
+      "claims": 34,
+      "decisions": 3,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c890de6b4205",
+      "relPath": "test-theme",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-86a6c1a0c3a1",
+      "relPath": "themes",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 13,
+        "decisions": 4,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 4,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d3c67a497fe0",
+      "relPath": "tmp",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-83e3104ce3f2",
+      "relPath": "tools",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-365c9ea222d9",
+      "relPath": "microsoft\\apps\\imageforge\\studio\\src-tauri",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d62afcbabe91",
+      "relPath": "apps\\F1GENZ_Review_Sapo\\client",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e444666a226d",
+      "relPath": "apps\\F1GENZ_Review_Sapo\\worker",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 1
+    },
+    {
+      "unitId": "u-620cc90efaba",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\.agents\\skills\\learning-loop",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-98e71e6e3664",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\apps\\haravan-app-base",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 12,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-48cd65d4f6c5",
+      "relPath": "customizes\\Kome88\\ref",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ba179ff19216",
+      "relPath": "apps\\F1GENZ_Review\\output\\reference-repos\\Haravan-Client--Multilanguage\\public\\tinymce",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-39685bb3ae2f",
+      "relPath": "themes\\devs2\\NauAtelier\\workflow",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 2
+    },
+    {
+      "unitId": "u-eb7191521698",
+      "relPath": "microsoft\\shared\\licensing-ed25519",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-072f8539697d",
+      "relPath": "microsoft\\shared\\platform-windows",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cfc2cfa964d3",
+      "relPath": "microsoft\\shared\\tsconfig",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-53295f215981",
+      "relPath": ".agents\\skills\\customer-theme-guide",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0b7af371581e",
+      "relPath": ".agents\\skills\\learning-loop",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-286abfaf2a70",
+      "relPath": ".agents\\skills\\sapo-customer-theme-guide",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-68d86add1dd0",
+      "relPath": "apps\\Haravan CLI\\mcp-vision-server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b3800c3120e7",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\Convert Sapo - Haravan\\data-xplat",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 2,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d7af2bd4d0a8",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\Convert Sapo - Haravan\\Haravan F1GENZ Genz",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-da11d491855f",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\Convert Sapo - Haravan\\theme-xplat",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 1,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2a08f8250d7f",
+      "relPath": "apps\\Lucky Code\\Haravan-Client--LuckyCode",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-8bc20f16c97a",
+      "relPath": "apps\\Lucky Code\\Haravan-Server--LuckyCode",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 28
+    },
+    {
+      "unitId": "u-50bb3e122094",
+      "relPath": "apps\\Lucky Code\\Storefront",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-50c364fd4ac4",
+      "relPath": "apps\\Lucky Code\\worker",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 1
+    },
+    {
+      "unitId": "u-4325a73cc67a",
+      "relPath": "apps\\F1GENZ Feedback\\server",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 12
+    },
+    {
+      "unitId": "u-7240708a2c12",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\_archive\\desktop-extract-2026-07-18\\f1genz-themes\\F1 Hera Jewelry",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1b51a284cad7",
+      "relPath": "apps\\_archive\\antigravity-browser-desktop",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 35,
+        "decisions": 2,
+        "risks": 23,
+        "outcomes": 8
+      },
+      "claims": 35,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-fba8dc760a29",
+      "relPath": "apps\\_archive\\antigravity-browser-desktop-backup-20260818",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 35,
+        "decisions": 2,
+        "risks": 23,
+        "outcomes": 8
+      },
+      "claims": 35,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f6b6feeeee64",
+      "relPath": "apps\\AntiFan\\themes\\roahtrip-haravan",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4fd6bab360ff",
+      "relPath": "apps\\AntiFan\\themes\\universal-haravan-base",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-857d3bfc4551",
+      "relPath": "shopify\\.research-repos-260809\\awesome-shopify",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 1,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c669d36541f9",
+      "relPath": "shopify\\.research-repos-260809\\shopify-ai-toolkit",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 1,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2a6c6d06fa2f",
+      "relPath": "customizes\\Vyantechnology\\temp_live_1001486599",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-868c5d2cc3be",
+      "relPath": "themes\\devs2\\Healing Touch",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 18,
+        "decisions": 9,
+        "risks": 7,
+        "outcomes": 2
+      },
+      "claims": 19,
+      "decisions": 9,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b65263a58e4f",
+      "relPath": "themes\\devs2\\Ivory Gem",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 10,
+        "decisions": 0,
+        "risks": 5,
+        "outcomes": 9
+      },
+      "claims": 15,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-da125933e826",
+      "relPath": "themes\\devs2\\Lumiere Beauty",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 7,
+        "decisions": 0,
+        "risks": 2,
+        "outcomes": 1
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f938755b61b8",
+      "relPath": "themes\\devs2\\NauAtelier",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 16,
+        "decisions": 3,
+        "risks": 10,
+        "outcomes": 6
+      },
+      "claims": 20,
+      "decisions": 3,
+      "dependencies": 2
+    },
+    {
+      "unitId": "u-e98a099501c3",
+      "relPath": "themes\\devs2\\S2 Spa",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-9eb0ffa07fbf",
+      "relPath": "themes\\devs2\\S2 Spa_backup",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-314d3bfdb5e4",
+      "relPath": "themes\\devs2\\S2Bed",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 6,
+        "decisions": 3,
+        "risks": 5,
+        "outcomes": 3
+      },
+      "claims": 12,
+      "decisions": 3,
+      "dependencies": 2
+    },
+    {
+      "unitId": "u-b6e54c3a8e0e",
+      "relPath": "apps\\AntiFan\\test\\fixtures\\theme-checks\\theme-broken",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ae4412ee0d79",
+      "relPath": "apps\\AntiFan\\test\\fixtures\\theme-checks\\theme-clean",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1bbe800fc0e0",
+      "relPath": "apps\\AntiFan\\test\\fixtures\\theme-checks\\theme-haravan-declares-nothing",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a01d329efcb5",
+      "relPath": "apps\\AntiFan\\test\\fixtures\\theme-checks\\theme-haravan-f1genz",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f84605ba1f2d",
+      "relPath": "apps\\AntiFan\\test\\fixtures\\theme-checks\\theme-haravan-inert",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-22b731353ea1",
+      "relPath": "apps\\AntiFan\\test\\fixtures\\theme-checks\\theme-haravan-legacy",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-88b2d437a0f5",
+      "relPath": "apps\\AntiFan\\test\\fixtures\\theme-checks\\theme-haravan-trim-marker",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-68f9dac7a57c",
+      "relPath": "apps\\AntiFan\\test\\fixtures\\theme-checks\\theme-haravan-upload",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4b6085610d90",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify\\scripts",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3733a71f7aed",
+      "relPath": "apps\\F1GENZ MultiLanguage\\Haravan-Client--Multilanguage\\public\\tinymce",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8ccad0318aac",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\Convert Sapo - Haravan\\data-xplat",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 2,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1b15cd66eee2",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\Convert Sapo - Haravan\\Haravan F1GENZ Genz",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d8f9f48b52b9",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\Convert Sapo - Haravan\\theme-xplat",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 1,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e477540086cd",
+      "relPath": "apps\\AntiFan\\.omp\\extensions\\antifan-fix-guard",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0aa36de8849c",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify\\scripts",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6dbc3992059a",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\Generate",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7655c9d3d6cf",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\haravan-upload-toolkit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 3,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 1
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c766b6e9bf64",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\HaravanDemoKit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c09a259d1719",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\RESTYLE_MASTER_KIT",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 2
+    },
+    {
+      "unitId": "u-e5376c2d309a",
+      "relPath": "apps\\AntiFan\\.omp\\extensions\\antifan-fix-guard\\skills\\antifan-dogfood-clone",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c319190af2ca",
+      "relPath": "apps\\AntiFan\\.omp\\extensions\\antifan-fix-guard\\skills\\antifan-theme",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-33d0e4d865fd",
+      "relPath": "customizes\\Apshop",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 2,
+        "decisions": 0,
+        "risks": 1,
+        "outcomes": 3
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-341605565659",
+      "relPath": "customizes\\Bagamuioto",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3bc412913740",
+      "relPath": "customizes\\CuddlePet",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d2ef00bac0c0",
+      "relPath": "customizes\\Dangvietmart",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-23e6b39758e0",
+      "relPath": "customizes\\Eiddo",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-01191d923e36",
+      "relPath": "customizes\\FarmerMarket",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 6,
+        "decisions": 0,
+        "risks": 5,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-705c70f5925f",
+      "relPath": "customizes\\GixJewel",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 2,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-600467742be6",
+      "relPath": "customizes\\GomDatViet",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-29eddd49c0fa",
+      "relPath": "customizes\\Hapas",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 25,
+        "decisions": 1,
+        "risks": 8,
+        "outcomes": 3
+      },
+      "claims": 14,
+      "decisions": 1,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0121eb52a900",
+      "relPath": "customizes\\Iamhome",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 60,
+        "decisions": 0,
+        "risks": 37,
+        "outcomes": 11
+      },
+      "claims": 50,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-56bcee56aa1d",
+      "relPath": "customizes\\Kome88",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 60,
+        "decisions": 10,
+        "risks": 37,
+        "outcomes": 12
+      },
+      "claims": 62,
+      "decisions": 10,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c6da76fc2476",
+      "relPath": "customizes\\Luxvie",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1f2a809c3c80",
+      "relPath": "customizes\\Mnbakery",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 33,
+        "decisions": 2,
+        "risks": 9,
+        "outcomes": 10
+      },
+      "claims": 23,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-258336b893c9",
+      "relPath": "customizes\\Mulgati",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0c122ffc15e0",
+      "relPath": "customizes\\OwlBrand",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 2,
+        "decisions": 1,
+        "risks": 1,
+        "outcomes": 1
+      },
+      "claims": 5,
+      "decisions": 1,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b4fd9a5a9642",
+      "relPath": "customizes\\Phukienmaymoc",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 6,
+        "decisions": 0,
+        "risks": 4,
+        "outcomes": 4
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e0c0ca9a2345",
+      "relPath": "customizes\\Reebaby",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a986eca9eb3b",
+      "relPath": "customizes\\Remolacha",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-716be66af7f4",
+      "relPath": "customizes\\Rosemine",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 7,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 1
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a48357e6b2cb",
+      "relPath": "customizes\\Seahorse2",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 46,
+        "decisions": 2,
+        "risks": 13,
+        "outcomes": 38
+      },
+      "claims": 55,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-790a5f754b70",
+      "relPath": "customizes\\SittoVietnam",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-86c759ac62e5",
+      "relPath": "customizes\\Starsolution",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 27,
+        "decisions": 6,
+        "risks": 13,
+        "outcomes": 8
+      },
+      "claims": 29,
+      "decisions": 6,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d26f9bdd72eb",
+      "relPath": "customizes\\StylekoreanVietNam",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a6ca40c7865b",
+      "relPath": "customizes\\Sunriseplus",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3172bfed5029",
+      "relPath": "customizes\\TestVyan",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1289bd61a20a",
+      "relPath": "customizes\\Thietbihoaphat",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-45cc2a47e78a",
+      "relPath": "customizes\\Toda",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 1,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2e4305779487",
+      "relPath": "customizes\\Tototuantu",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f4bdd27ee6a6",
+      "relPath": "customizes\\Vyantechnology",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-da986f6cd5ea",
+      "relPath": "customizes\\Zesta",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-aef7ec36be7f",
+      "relPath": "apps\\F1GENZ Guarantee\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 5
+    },
+    {
+      "unitId": "u-7a3cd575966d",
+      "relPath": "apps\\F1GENZ Guarantee\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-25e0bb2ab52d",
+      "relPath": "tools\\Generate",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0ab04f7702fc",
+      "relPath": "tools\\haravan-upload-toolkit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 4,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 1
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c7066c4b102f",
+      "relPath": "tools\\HaravanDemoKit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3efe671f6949",
+      "relPath": "tools\\RESTYLE_MASTER_KIT",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 2
+    },
+    {
+      "unitId": "u-faef9d3e3b42",
+      "relPath": "apps\\AntiFan",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 500,
+        "fixes": 207,
+        "features": 107,
+        "decisions": 99
+      },
+      "planStats": {
+        "files": 60,
+        "decisions": 20,
+        "risks": 26,
+        "outcomes": 22
+      },
+      "claims": 388,
+      "decisions": 119,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-56e6af2b0e4d",
+      "relPath": "apps\\antigravity-browser",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 19,
+        "decisions": 2,
+        "risks": 10,
+        "outcomes": 11
+      },
+      "claims": 23,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6cfcb3d80875",
+      "relPath": "apps\\F1GENZ Guarantee",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 34,
+        "fixes": 15,
+        "features": 14,
+        "decisions": 2
+      },
+      "planStats": {
+        "files": 25,
+        "decisions": 2,
+        "risks": 14,
+        "outcomes": 11
+      },
+      "claims": 59,
+      "decisions": 4,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-17d38f413f96",
+      "relPath": "apps\\F1GENZ Multiform",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 49,
+        "fixes": 14,
+        "features": 13,
+        "decisions": 1
+      },
+      "planStats": {
+        "files": 60,
+        "decisions": 12,
+        "risks": 30,
+        "outcomes": 18
+      },
+      "claims": 95,
+      "decisions": 13,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-84715732b65d",
+      "relPath": "apps\\F1GENZ Tools",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cf9159d7598f",
+      "relPath": "apps\\F1GENZ Wheel",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 5,
+        "fixes": 1,
+        "features": 2,
+        "decisions": 1
+      },
+      "planStats": {
+        "files": 12,
+        "decisions": 2,
+        "risks": 3,
+        "outcomes": 4
+      },
+      "claims": 15,
+      "decisions": 3,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f456ccd6b639",
+      "relPath": "apps\\F1GENZ_Chatbox",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 24,
+        "decisions": 1,
+        "risks": 10,
+        "outcomes": 0
+      },
+      "claims": 13,
+      "decisions": 1,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-82e24b345927",
+      "relPath": "apps\\F1GENZ_Review",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 60,
+        "decisions": 13,
+        "risks": 36,
+        "outcomes": 32
+      },
+      "claims": 83,
+      "decisions": 13,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c7c21f7c89a2",
+      "relPath": "apps\\F1GENZ_Review_Sapo",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 44,
+        "decisions": 2,
+        "risks": 25,
+        "outcomes": 24
+      },
+      "claims": 53,
+      "decisions": 2,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-37e5f6524c9c",
+      "relPath": "apps\\Haravan CLI",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 47,
+        "decisions": 11,
+        "risks": 22,
+        "outcomes": 15
+      },
+      "claims": 57,
+      "decisions": 11,
+      "dependencies": 36
+    },
+    {
+      "unitId": "u-2b006b753ebb",
+      "relPath": "apps\\haravan-app-base",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 12,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d75ac4a1719a",
+      "relPath": "apps\\Sapo CLI",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 1,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 1
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 36
+    },
+    {
+      "unitId": "u-1d1761937947",
+      "relPath": "apps\\WebhookGateway",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 13,
+        "fixes": 2,
+        "features": 6,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 5,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-a78523974b4f",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\.claude\\skills\\learning-loop",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3db299ea7396",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\.claude\\skills\\learning-loop",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0c124bcbda63",
+      "relPath": "apps\\F1GENZ Wheel\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 4,
+        "fixes": 2,
+        "features": 2,
+        "decisions": 1
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 1,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-08cf80a4ed6a",
+      "relPath": "apps\\F1GENZ Wheel\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 9,
+        "fixes": 5,
+        "features": 4,
+        "decisions": 2
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 2,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-c767934c4e97",
+      "relPath": "apps\\AntiFan\\clone\\.superseded\\haravan-theme-1789325742360",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ccb56269f7d3",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\RESTYLE_MASTER_KIT\\test\\mock-theme",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e9e9d204ed1d",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\RESTYLE_MASTER_KIT\\test\\mock-theme-bad",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d01ce3bb607b",
+      "relPath": "tools\\Convert Sapo - Haravan\\data-xplat",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 2,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-956527bb68cd",
+      "relPath": "tools\\Convert Sapo - Haravan\\Haravan",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1d452c12a156",
+      "relPath": "tools\\Convert Sapo - Haravan\\Haravan F1GENZ Genz",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a7d885861fe1",
+      "relPath": "tools\\Convert Sapo - Haravan\\theme-xplat",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 1,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-55a6c89ef9e8",
+      "relPath": "apps\\haravan-app-base\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ccc4bb22e9d7",
+      "relPath": "apps\\haravan-app-base\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-00e21d258df3",
+      "relPath": "customizes\\Starsolution\\live",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8862b8b21a5f",
+      "relPath": "customizes\\Mnbakery\\scratch\\backup-audit-20260813-v2\\aug09",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 31,
+        "decisions": 2,
+        "risks": 7,
+        "outcomes": 7
+      },
+      "claims": 18,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-83dd01b8c404",
+      "relPath": "customizes\\Mnbakery\\scratch\\backup-audit-20260813-v2\\aug11",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 31,
+        "decisions": 2,
+        "risks": 7,
+        "outcomes": 7
+      },
+      "claims": 18,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0de66f76ff59",
+      "relPath": "customizes\\Mnbakery\\scratch\\backup-audit-20260813-v2\\jul26",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c01099004726",
+      "relPath": ".claude\\worktrees\\aqua-404-image",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 58,
+        "decisions": 18,
+        "risks": 14,
+        "outcomes": 7
+      },
+      "claims": 45,
+      "decisions": 18,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c14d677f2d56",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 58,
+        "decisions": 18,
+        "risks": 14,
+        "outcomes": 7
+      },
+      "claims": 45,
+      "decisions": 18,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-dd723b63a09d",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\haravan-upload-toolkit\\skill\\haravan-upload-file",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-9d8fa30ba18c",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\haravan-upload-toolkit\\packages\\chrome-extension",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-3b0134c1d783",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\haravan-upload-toolkit\\packages\\gateway",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-ae4d9ac70189",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\haravan-upload-toolkit\\packages\\shared",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4adc60ee26da",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\haravan-upload-toolkit\\packages\\vscode-extension",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-7a16af5dc826",
+      "relPath": "apps\\F1GENZ Multiform\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 5
+    },
+    {
+      "unitId": "u-21da1e4ba2e7",
+      "relPath": "apps\\F1GENZ Multiform\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-a62270929bcc",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\Generate",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8f8282875124",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\haravan-upload-toolkit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 3,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 1
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4a56dc415788",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\HaravanDemoKit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2bbf20e84654",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\RESTYLE_MASTER_KIT",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 2
+    },
+    {
+      "unitId": "u-3cf6d8c0f3d2",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\RESTYLE_MASTER_KIT\\test\\mock-theme",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-fdad61e23e4e",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\RESTYLE_MASTER_KIT\\test\\mock-theme-bad",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7cbc1bd1ee8a",
+      "relPath": "themes\\f1genz\\Haravan\\Aqua",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 3,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8143d208ddc1",
+      "relPath": "themes\\f1genz\\Haravan\\Figure",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0a3cd69c68e5",
+      "relPath": "themes\\f1genz\\Haravan\\Fresh",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-380fa0512761",
+      "relPath": "themes\\f1genz\\Haravan\\GenZ",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-845bbb565099",
+      "relPath": "themes\\f1genz\\Haravan\\Hera Jewelry",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-bc368be89d01",
+      "relPath": "themes\\f1genz\\Haravan\\PC",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-43b704f5c4c4",
+      "relPath": "themes\\f1genz\\Haravan\\Ăn Vặt",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 2,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 1
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-60232720e795",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\apps\\haravan-app-base",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 12,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-61080ca6d109",
+      "relPath": "microsoft\\apps\\imageforge\\core",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e486e86f9b50",
+      "relPath": "microsoft\\apps\\imageforge\\studio",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-05c264458632",
+      "relPath": "apps\\Notify Everything\\client",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-face5578ba46",
+      "relPath": "apps\\Notify Everything\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-c874ff7f17fa",
+      "relPath": "apps\\AntiFan\\packages\\site-clone",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-25b0db19c61f",
+      "relPath": "apps\\F1GENZ_Review\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 132,
+        "fixes": 28,
+        "features": 17,
+        "decisions": 2
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 47,
+      "decisions": 2,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-76819236f010",
+      "relPath": "apps\\F1GENZ_Review\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 130,
+        "fixes": 43,
+        "features": 19,
+        "decisions": 2
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 65,
+      "decisions": 2,
+      "dependencies": 4
+    },
+    {
+      "unitId": "u-569099249b57",
+      "relPath": "apps\\F1GENZ_Review\\worker",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 1
+    },
+    {
+      "unitId": "u-0686ffe8e184",
+      "relPath": "apps\\F1GENZ_Review\\output\\reference-repos\\Haravan-Client--Multilanguage",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 6
+    },
+    {
+      "unitId": "u-33e60ec9a242",
+      "relPath": "apps\\F1GENZ_Review\\output\\reference-repos\\Haravan-Server--Multilanguage",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 16
+    },
+    {
+      "unitId": "u-a1c35c33ab09",
+      "relPath": "apps\\F1GENZ Orders\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d95b7a07161e",
+      "relPath": "apps\\F1GENZ Orders\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 16
+    },
+    {
+      "unitId": "u-3a349ff3ec57",
+      "relPath": "apps\\F1GENZ Orders\\storefront",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-70c05be11525",
+      "relPath": "themes\\.claude\\skills\\shopify\\scripts",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c9f756cee270",
+      "relPath": ".claude\\skills\\learning-loop",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d01979c5a5b5",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\haravan-upload-toolkit\\skill\\haravan-upload-file",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a1cae4271867",
+      "relPath": "microsoft\\tools\\perf-harness",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-39e1df28a910",
+      "relPath": "microsoft\\tools\\xtask",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-83b6a6fa0e95",
+      "relPath": "microsoft\\apps\\filesense\\studio\\src-tauri",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-56a08b09dac8",
+      "relPath": "tools\\haravan-upload-toolkit\\skill\\haravan-upload-file",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-87283658ed66",
+      "relPath": "tools\\haravan-upload-toolkit\\packages\\chrome-extension",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 1,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-6c3e00d98122",
+      "relPath": "tools\\haravan-upload-toolkit\\packages\\figma-plugin",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-90422b173802",
+      "relPath": "tools\\haravan-upload-toolkit\\packages\\gateway",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-b86abb96d996",
+      "relPath": "tools\\haravan-upload-toolkit\\packages\\shared",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-775381d00540",
+      "relPath": "tools\\haravan-upload-toolkit\\packages\\vscode-extension",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-967f10085fdb",
+      "relPath": "themes\\_archive\\desktop-extract-2026-07-18\\f1genz-themes\\F1 Hera Jewelry",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cbd70c1313fa",
+      "relPath": "apps\\F1GENZ Wheel\\server\\worker",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 12
+    },
+    {
+      "unitId": "u-63129eeb881f",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\.agents\\skills\\learning-loop",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e283bb086ffb",
+      "relPath": "apps\\F1GENZ_Chatbox\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b4e7886a5850",
+      "relPath": "apps\\F1GENZ_Chatbox\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-f9848fc87567",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\haravan-upload-toolkit\\packages\\chrome-extension",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-0190cf49d98f",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\haravan-upload-toolkit\\packages\\gateway",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-19b52b4411a2",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\haravan-upload-toolkit\\packages\\shared",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0e33f0d9c9a3",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\haravan-upload-toolkit\\packages\\vscode-extension",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-a66eb870980e",
+      "relPath": "apps\\AntiFan\\15092026",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-50eb8a88bfd7",
+      "relPath": "themes\\devs2\\NauAtelier\\workflow\\test\\mock-theme",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cfba5f2de6f0",
+      "relPath": "themes\\devs2\\NauAtelier\\workflow\\test\\mock-theme-bad",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0120fdc8a39a",
+      "relPath": "scratch\\seahorse-sharp",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f1ad1ee04d43",
+      "relPath": "apps\\F1GENZ Multipage\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 1,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 1
+    },
+    {
+      "unitId": "u-7f4160b15f1c",
+      "relPath": "apps\\F1GENZ Multipage\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 1,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 4
+    },
+    {
+      "unitId": "u-d0ba1deb46e4",
+      "relPath": "shopify\\_reference\\dawn",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a415f0c4326e",
+      "relPath": "shopify\\_reference\\horizon",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-612911d32e62",
+      "relPath": "apps\\F1GENZ MultiLanguage\\Haravan-Client--Multilanguage",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 500,
+        "fixes": 1,
+        "features": 7,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 6
+    },
+    {
+      "unitId": "u-ee53c1fcbe28",
+      "relPath": "apps\\F1GENZ MultiLanguage\\Haravan-Server--Multilanguage",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 151,
+        "fixes": 30,
+        "features": 13,
+        "decisions": 2
+      },
+      "planStats": {
+        "files": 2,
+        "decisions": 1,
+        "risks": 0,
+        "outcomes": 1
+      },
+      "claims": 47,
+      "decisions": 3,
+      "dependencies": 16
+    },
+    {
+      "unitId": "u-22d83358f8f0",
+      "relPath": "apps\\F1GENZ MultiLanguage\\storefront",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0e83e131878f",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\apps\\haravan-app-base\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8518d1bdc048",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\apps\\haravan-app-base\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-13ec639b9be2",
+      "relPath": "customizes\\Kome88\\.github\\copilot\\haravan-preview-screenshot",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-deb3532ca0ef",
+      "relPath": "apps\\F1GENZ Collection Tab\\Client-Collection-Tabs\\public\\tinymce",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-033ec8233c14",
+      "relPath": "apps\\F1GENZ Collection Tab\\Client-Collection-Tabs",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 9
+    },
+    {
+      "unitId": "u-4a1ac0324d6a",
+      "relPath": "apps\\F1GENZ Collection Tab\\Server--Collection-Tabs",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 16
+    },
+    {
+      "unitId": "u-5ad5b3444c56",
+      "relPath": "tools\\RESTYLE_MASTER_KIT\\test\\mock-theme",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-dc51345a4ff5",
+      "relPath": "tools\\RESTYLE_MASTER_KIT\\test\\mock-theme-bad",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-52ce5e107e8a",
+      "relPath": "microsoft\\apps\\filesense\\core",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4c8d3cde8258",
+      "relPath": "microsoft\\apps\\filesense\\studio",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 3
+    },
+    {
+      "unitId": "u-28fb41595d15",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\_archive\\desktop-extract-2026-07-18\\f1genz-themes\\F1 Hera Jewelry",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-eb9809bfa3ac",
+      "relPath": "themes\\ref\\Dressly_final_new",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ce52660fb6b6",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\apps\\haravan-app-base\\client",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c703b60ca149",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\apps\\haravan-app-base\\server",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 15
+    },
+    {
+      "unitId": "u-4da71a068845",
+      "relPath": "customizes\\Mnbakery\\runs\\feedback-row82-baseline-20260811-130701",
+      "platform": "generic-liquid",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-81a8bffcaca6",
+      "relPath": "<root-loose>",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f9d9ced21e7e",
+      "relPath": "scratch\\lh\\node_modules\\lighthouse\\.agents\\skills\\lighthouse-verification",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-fd670cbd2e6c",
+      "relPath": "antifan-dogfood-clone",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2f4e431ef0b7",
+      "relPath": "haravan-product-recommend",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 2,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7697783e5086",
+      "relPath": "<root-loose>",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 1,
+      "decisions": 0,
+      "dependencies": 0
+    }
+  ]
+}

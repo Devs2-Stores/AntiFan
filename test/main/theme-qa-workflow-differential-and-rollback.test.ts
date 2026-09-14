@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { ThemeQaWorkflow } from '../../src/main/qa/theme-qa-workflow';
+import type { ThemeRepairBeginResult, ThemeRepairVerificationResult } from '../../src/main/qa/theme-qa-repair-coordinator';
 import {
   BrowserTarget,
   CapabilityError,
@@ -19,6 +20,7 @@ import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabi
 import { ProjectRegistry } from '../../src/main/project/project-registry';
 import { WorkspaceRegistry } from '../../src/main/project/workspace-registry';
 import { TINY_PNG_BASE64, verificationCaptureEnvelope } from './verification-capture-fixture';
+import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow-engine';
 
 class MockBrowserHost implements BrowserHostPort {
   public currentHtml = '';
@@ -71,7 +73,7 @@ class MockBrowserHost implements BrowserHostPort {
       return true;
     }
     if (expression.includes('LayoutOverflowEngine') || expression.includes('window.innerWidth')) {
-      return { hasOverflow: false, deltaX: 0, culprits: [] };
+      return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
     }
     if (expression.includes('HsGateRules') || expression.includes('violations')) {
       return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
@@ -332,8 +334,64 @@ describe('Theme QA Repair Capability Lifecycle & Differential Rollback via Dispa
       { ...mockContext, attemptId: 'att-clean-2' }
     )) as any;
 
-    assert.strictEqual(verifyRes.success, true, 'Clean fix must pass verification');
+    assert.strictEqual(verifyRes.success, true, JSON.stringify({ gaps: verifyRes.report?.findings?.evidenceGaps, checklist: verifyRes.report?.checklist, settle: verifyRes.report?.settleReceipt }));
     assert.strictEqual(verifyRes.rolledBack, false, 'Clean fix must not trigger rollback');
+  });
+
+  it('blocks exhausted repair sessions instead of reporting completion', async () => {
+    mockHost.currentHtml = '<html><body><!-- liquid error: Unknown tag legacy_tag --></body></html>';
+    const begin = await catalogue.dispatch('theme.qa_repair.begin', {}, mockContext) as ThemeRepairBeginResult;
+    let result: ThemeRepairVerificationResult;
+    let attempt = 0;
+    do {
+      fs.writeFileSync(path.join(workspaceRoot, 'attempt.liquid'), String(++attempt));
+      result = await catalogue.dispatch('theme.qa_repair.verify', { sessionId: begin.sessionId }, mockContext) as ThemeRepairVerificationResult;
+      assert.equal(result.success, false);
+      assert.ok(attempt <= 20, 'Repair budget must be finite');
+    } while (result.status === 'awaiting_fix');
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.remainingRepairs, 0);
+  });
+
+  it('keeps failed verification open and rejects reuse until workspace changes', async () => {
+    mockHost.currentHtml = '<html><body><!-- liquid error: Unknown tag legacy_tag --></body></html>';
+    const begin = await catalogue.dispatch('theme.qa_repair.begin', {}, mockContext) as ThemeRepairBeginResult;
+    const failed = await catalogue.dispatch('theme.qa_repair.verify', { sessionId: begin.sessionId }, mockContext) as ThemeRepairVerificationResult;
+    assert.equal(failed.success, false);
+    assert.equal(failed.status, 'awaiting_fix');
+    await assert.rejects(catalogue.dispatch('theme.qa_repair.verify', { sessionId: begin.sessionId }, mockContext), (error: unknown) => error instanceof CapabilityError && error.code === 'REPLAY_DENIED');
+    fs.writeFileSync(path.join(workspaceRoot, 'repair.liquid'), '<main>Fixed</main>');
+    mockHost.currentHtml = '<html><body><script src="https://theme.hstatic.net/assets/app.js"></script><main>Fixed</main></body></html>';
+    const repaired = await catalogue.dispatch('theme.qa_repair.verify', { sessionId: begin.sessionId }, mockContext) as ThemeRepairVerificationResult;
+    assert.equal(repaired.success, true);
+    assert.equal(repaired.status, 'verified');
+    assert.notEqual(repaired.revision, failed.revision);
+    assert.notEqual(repaired.report.attemptId, failed.report.attemptId);
+  });
+
+  it('treats an inconclusive verification as a consumed revision', async () => {
+    mockHost.currentHtml = '<html><body><main>Clean</main></body></html>';
+    const begin = await catalogue.dispatch('theme.qa_repair.begin', {}, mockContext) as ThemeRepairBeginResult;
+    // Reachable gap source: the layout overflow scanner returns a measurement the
+    // workflow rejects, so the report cannot certify PASS and records an evidence gap.
+    // The scan script is identified by exact equality, so no other eval is affected.
+    const overflowScan = LayoutOverflowEngine.getBrowserScanScript('active');
+    const mutableHost = mockHost as unknown as { evalJs: (expression: string, tabId?: string) => Promise<unknown> };
+    const originalEvalJs = mutableHost.evalJs.bind(mockHost);
+    mutableHost.evalJs = async (expression: string, tabId?: string) =>
+      expression === overflowScan ? {} : originalEvalJs(expression, tabId);
+    try {
+      await assert.rejects(
+        catalogue.dispatch('theme.qa_repair.verify', { sessionId: begin.sessionId }, mockContext),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'SETTLE_INCOMPLETE'
+      );
+      await assert.rejects(
+        catalogue.dispatch('theme.qa_repair.verify', { sessionId: begin.sessionId }, mockContext),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'REPLAY_DENIED'
+      );
+    } finally {
+      mutableHost.evalJs = originalEvalJs;
+    }
   });
 
   it('executes explicit theme.qa_rollback capability dispatch', async () => {

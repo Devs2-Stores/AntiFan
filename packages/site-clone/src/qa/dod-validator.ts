@@ -50,6 +50,20 @@ function urlsMatch(urlA: string, urlB: string): boolean {
 }
 
 /**
+ * Binding identity for final visual certification: same host and path, query included.
+ * Case and a trailing slash are tolerated; the query is not, because preview/theme tokens
+ * live there and a receipt from one preview theme must never certify another.
+ */
+function bindingUrlKey(value: string): string {
+  try {
+    const parsed = new URL(value, 'https://anti-fan.local');
+    return `${parsed.hostname.toLowerCase()}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}`;
+  } catch {
+    return value.trim().toLowerCase();
+  }
+}
+
+/**
  * The 19 canonical criteria keys mandated by Audit §63.
  */
 export const DOD_CRITERIA_KEYS = [
@@ -372,11 +386,15 @@ export class DoDValidator {
         } else if (obj.verdict && ['INCONCLUSIVE', 'UNVERIFIED', 'BLOCKED', 'HARD_FAILED', 'FAIL'].includes(String(obj.verdict).toUpperCase())) {
           result = { passed: false, reason: `Criterion '${key}' failed: receipt verdict is ${obj.verdict}` };
         } else {
+          if ((key === 'strictVerification' || key === 'realBrowserRender') && explicitOverride.passed) {
+            result = this.auditCriterion(key, ctx);
+          } else {
           result = {
             passed: Boolean(explicitOverride.passed),
             evidence: explicitOverride.evidence,
             reason: explicitOverride.reason || (!explicitOverride.passed ? `Criterion '${key}' failed validation` : undefined),
           };
+          }
         }
       } else {
         // Run dedicated audit method
@@ -1138,6 +1156,9 @@ export class DoDValidator {
         };
       }
       const maxTolerance = 5.0;
+      if (!Number.isFinite(candidate) || candidate < 0) {
+        return { passed: false, reason: 'Visual comparison metric must be finite and non-negative' };
+      }
       const normalizedDiff = candidate <= 1.0 && maxTolerance > 1.0 ? candidate * 100 : candidate;
       if (normalizedDiff > maxTolerance) {
         return {
@@ -1207,7 +1228,7 @@ export class DoDValidator {
         return { passed: false, reason: `Wrong surface target: comparison surface '${obj.surface}' does not match expected surface '${expectedSurface}'` };
       }
 
-      const expectedUrl = ctx.referenceUrl || ctx.previewUrl || ctx.targetUrl;
+      const expectedUrl = ctx.targetUrl || ctx.previewUrl || ctx.referenceUrl;
       if (expectedUrl && obj.targetUrl && typeof obj.targetUrl === 'string') {
         if (!urlsMatch(obj.targetUrl, expectedUrl)) {
           return { passed: false, reason: `Wrong surface target URL: comparison URL '${obj.targetUrl}' does not match expected target '${expectedUrl}'` };
@@ -1215,8 +1236,7 @@ export class DoDValidator {
       }
 
       // Artifact revision change check
-      const expectedRevision = ctx.revision || ctx.artifactRevision || (ctx.provenanceLedger as Record<string, unknown> | undefined)?.environment;
-      const expRevStr = typeof expectedRevision === 'string' ? expectedRevision : (typeof (expectedRevision as Record<string, unknown> | undefined)?.instrumentRevision === 'string' ? (expectedRevision as Record<string, unknown>).instrumentRevision as string : undefined);
+      const expRevStr = ctx.revision || ctx.artifactRevision;
       if (expRevStr && (obj.revision || obj.artifactRevision)) {
         const candRev = (obj.revision || obj.artifactRevision) as string;
         if (candRev !== expRevStr) {
@@ -1231,12 +1251,14 @@ export class DoDValidator {
           return { passed: false, reason: 'Missing visual verification receipts: receipts array is empty' };
         }
         for (const rec of receiptsList) {
-          if (!rec || typeof rec !== 'object') continue;
+          if (!rec || typeof rec !== 'object' || Array.isArray(rec)) {
+            return { passed: false, reason: 'Malformed visual verification receipt' };
+          }
           const r = rec as Record<string, unknown>;
           if (r.verdict && r.verdict !== 'PASS') {
             return { passed: false, reason: `Visual verification receipt '${r.id || 'unknown'}' has non-passing verdict '${r.verdict}'` };
           }
-          if (r.isStale) {
+          if (r.isStale || r.stale || r.invalidated) {
             return { passed: false, reason: `Visual verification receipt '${r.id || 'unknown'}' is stale` };
           }
           if (r.isLint) {
@@ -1324,6 +1346,24 @@ export class DoDValidator {
           };
         }
 
+      if (ctx.mode !== 'diagnostic' && ctx.diagnosticOnly !== true) {
+        const observedSurface = obj.surface ?? receiptObj.surface;
+        const observedUrl = obj.targetUrl ?? receiptObj.targetUrl;
+        const observedRevision = obj.revision ?? obj.artifactRevision ?? receiptObj.revision ?? receiptObj.artifactRevision;
+        // Mandatory binding must agree with the tolerant identity checks above
+        // (case-insensitive surface, query-tolerant URL) or evidence those checks
+        // accepted would be rejected here on formatting alone.
+        const surfaceBound = typeof observedSurface === 'string'
+          && typeof expectedSurface === 'string'
+          && observedSurface.toLowerCase() === expectedSurface.toLowerCase();
+        const urlBound = typeof observedUrl === 'string'
+          && typeof expectedUrl === 'string'
+          && bindingUrlKey(observedUrl) === bindingUrlKey(expectedUrl);
+        const revisionBound = typeof observedRevision === 'string' && observedRevision === expRevStr;
+        if (!surfaceBound || !urlBound || !revisionBound) {
+          return { passed: false, reason: 'Final visual certification requires matching target URL, surface, and artifact revision on fresh evidence' };
+        }
+      }
         const pixelInfo = typeof diffPixels === 'number' && typeof totalPixels === 'number'
           ? ` (diffPixels: ${diffPixels}/${totalPixels})`
           : '';
@@ -1351,6 +1391,24 @@ export class DoDValidator {
           }
           return { passed: false, reason: 'Strict visual verification requires canonical comparator match/status metric contract (match, status, diffPixels, mismatchPercentage); loose presence claims rejected' };
         }
+      if (ctx.mode !== 'diagnostic' && ctx.diagnosticOnly !== true) {
+        const observedSurface = obj.surface ?? receiptObj.surface;
+        const observedUrl = obj.targetUrl ?? receiptObj.targetUrl;
+        const observedRevision = obj.revision ?? obj.artifactRevision ?? receiptObj.revision ?? receiptObj.artifactRevision;
+        // Mandatory binding must agree with the tolerant identity checks above
+        // (case-insensitive surface, query-tolerant URL) or evidence those checks
+        // accepted would be rejected here on formatting alone.
+        const surfaceBound = typeof observedSurface === 'string'
+          && typeof expectedSurface === 'string'
+          && observedSurface.toLowerCase() === expectedSurface.toLowerCase();
+        const urlBound = typeof observedUrl === 'string'
+          && typeof expectedUrl === 'string'
+          && bindingUrlKey(observedUrl) === bindingUrlKey(expectedUrl);
+        const revisionBound = typeof observedRevision === 'string' && observedRevision === expRevStr;
+        if (!surfaceBound || !urlBound || !revisionBound) {
+          return { passed: false, reason: 'Final visual certification requires matching target URL, surface, and artifact revision on fresh evidence' };
+        }
+      }
         return { passed: true, evidence: (obj.evidence as string) || 'Strict visual verification confirmed within tolerance' };
       }
     }

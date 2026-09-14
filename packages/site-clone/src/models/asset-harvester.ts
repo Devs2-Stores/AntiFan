@@ -24,6 +24,26 @@ function parseTagAttributes(tagHtml: string): Map<string, string> {
 function hashUrl(str: string): string {
   return createHash('sha256').update(str).digest('hex').slice(0, 8);
 }
+
+/**
+ * A stem that carries no semantic content: generic download names, pure digits, or a
+ * hash/timestamp fragment. Such names leak reference/CDN provenance into the theme, so
+ * they are replaced by `asset-<hash of source url>` wherever a filename is derived from
+ * a URL (harvested assets and CSS-discovered dependencies alike). Deriving the id from
+ * provenance is deterministic; inventing a role name such as "hero-banner" would not be.
+ */
+export function isOpaqueAssetStem(stem: string): boolean {
+  return (
+    /^(?:images?|img|photos?|pics?|pictures?|downloads?|files?|assets?|untitled|unnamed|default|blob|tmp|temp|render|screenshot)$/i.test(stem) ||
+    /^(?:[0-9]+|[0-9a-f]{8,})$/i.test(stem) ||
+    /^[0-9a-f]{8,}[-_]/i.test(stem)
+  );
+}
+
+/** Stable, provenance-derived filename stem for an asset whose own stem carries no meaning. */
+export function stableAssetStem(sourceUrl: string): string {
+  return `asset-${hashUrl(sourceUrl)}`;
+}
 const ALLOWED_HEADER_REGEX = /^(?:user-agent|accept|accept-language|sec-ch-ua(?:-(?:mobile|platform|platform-version|model|arch|bitness|full-version-list))?)$/i;
 
 export function sanitizeRequestHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
@@ -518,6 +538,7 @@ export class AssetHarvester {
       }
 
       const cleanBase = sanitizeStem(base, defaultPrefix);
+      const stableBase = isOpaqueAssetStem(cleanBase) ? stableAssetStem(entry.sourceUrl) : cleanBase;
 
       let hasMobile = false;
       let hasDesktop = false;
@@ -544,7 +565,7 @@ export class AssetHarvester {
       const referencedBasename = path.basename(pathname);
       return {
         entry,
-        cleanBase,
+        cleanBase: stableBase,
         ext,
         surface,
         density,

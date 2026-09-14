@@ -63,6 +63,28 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
   });
 
 
+  it('1a-1. Opaque reference stems become stable provenance-derived names while semantic stems are preserved', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-opaque-test-'));
+
+    const html = `
+      <img src="https://cdn.example.com/img/1739329183_a8f71c2.webp" alt="Banner">
+      <img src="https://cdn.example.com/img/download.png" alt="Download">
+      <img src="https://example.com/images/hero-banner.webp" alt="Hero">
+    `;
+
+    try {
+      const manifest = harvester.harvestFromHtml(html, tempDir);
+      const names = manifest.images.map(item => item.filename);
+      assert.match(names[0], /^asset-[0-9a-f]{8}\.webp$/, 'Timestamp/hash CDN stem must not leak into the theme');
+      assert.match(names[1], /^asset-[0-9a-f]{8}\.png$/, 'Generic download stem must not leak into the theme');
+      assert.strictEqual(names[2], 'hero-banner.webp', 'A stem that carries meaning must be preserved');
+      assert.strictEqual(manifest.images[0].sourceUrl, 'https://cdn.example.com/img/1739329183_a8f71c2.webp', 'Provenance must survive renaming');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('1a-2. AssetHarvester repairs a same-origin typo whose first segment cannot be a hostname', () => {
     const harvester = new AssetHarvester();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-typo-test-'));

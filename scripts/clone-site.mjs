@@ -10,9 +10,11 @@
  * 4. Core Sanitization & Parity Injection (IndependentHtmlCloneGenerator).
  * 5. Localizes same-origin references to root-relative paths.
  * 6. Generates machine-readable clone-manifest.json.
+ * 7. Optional: --theme compiles a Haravan theme skeleton via ThemeCompiler.
+ * 8. Optional: Super Core advisory (context pack before, outcome after).
  *
  * Usage:
- *   node scripts/clone-site.mjs <targetUrl> [--out <dir>] [--refresh] [--concurrency <n>] [--serve]
+ *   node scripts/clone-site.mjs <targetUrl> [--out <dir>] [--refresh] [--concurrency <n>] [--serve] [--theme] [--code-approvals <file>]
  */
 'use strict';
 
@@ -20,7 +22,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
 import {
   AssetHarvester,
@@ -28,9 +31,59 @@ import {
   IndependentHtmlCloneGenerator
 } from '../packages/site-clone/dist/index.js';
 
+const require2 = createRequire(import.meta.url);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
+
+// ---------- Super Core advisory (optional, fail-open) ----------
+function openCoreIfAvailable() {
+  try {
+    const dbPath = process.env.SUPER_CORE_DB || path.join(rootDir, '.super-core', 'core.db');
+    if (!fs.existsSync(dbPath)) return null;
+    const mod = require2('../packages/super-core/dist/index.js');
+    return mod.openCore(dbPath);
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Source platform detection (content-based, not workspace) ----------
+function detectSourcePlatform(html) {
+  if (!html) return { platform: 'unknown', indicators: [] };
+  const indicators = [];
+  // Strong markers are platform-owned asset hosts; weak markers are strings that
+  // can appear in page text (a blog post about a platform is not that platform).
+  // A platform needs a strong marker or >=2 distinct weak markers; a tie is
+  // 'generic', not a guess.
+  const strong = {
+    haravan: /hstatic\.net/i,
+    sapo: /bizweb\.dktcdn\.net/i,
+    shopify: /cdn\.shopify\.com|myshopify\.com/i,
+  };
+  const weak = {
+    haravan: [/haravan\.com/i, /themeid=/i, /Haravan\./i],
+    sapo: [/sapo\.vn/i, /\.bwt\b/i, /sapo\.apps/i],
+    shopify: [/Shopify\.theme/i, /shopify-section/i, /Shopify\.routes/i],
+  };
+  const scores = {};
+  for (const platform of Object.keys(strong)) {
+    scores[platform] = 0;
+    if (strong[platform].test(html)) { scores[platform] += 3; indicators.push(`${platform} strong marker`); }
+    const weakHits = weak[platform].filter((w) => w.test(html)).length;
+    if (weakHits >= 2) { scores[platform] += weakHits; indicators.push(`${platform} weak markers x${weakHits}`); }
+  }
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const [top, second] = ranked;
+  const platform = top && top[1] > 0 && top[1] > (second?.[1] ?? 0) ? top[0] : 'generic';
+  return { platform, indicators, scores };
+}
+
+// Module-scoped so the run() failure path can still record an outcome.
+let core = null;
+let detected = { platform: 'unknown', indicators: [] };
+
 
 // CLI Argument Parsing
 const args = process.argv.slice(2);
@@ -188,6 +241,27 @@ async function run() {
   console.log(`[AntiFan Universal Clone] Output: ${outDir}`);
   console.log('===========================================================');
 
+  // Super Core advisory: query prior evidence for this task before cloning.
+  // core/detected are module-scoped so the failure path can still record an outcome.
+  core = openCoreIfAvailable();
+  let advisory = null;
+  if (core) {
+    try {
+      advisory = core.contextPack({ task: `clone ${parsedUrl.hostname}`, limit: 15 });
+      if (advisory.claims.length) {
+        console.log(`[Core] ${advisory.claims.length} prior claim(s) for this target:`);
+        for (const c of advisory.claims.slice(0, 8)) {
+          console.log(`  - [${c.kind}] ${String(c.statement).slice(0, 110)}`);
+        }
+      }
+      if (advisory.conflicts.length) {
+        console.log(`[Core] ${advisory.conflicts.length} unresolved conflict(s) in scope.`);
+      }
+    } catch (e) {
+      console.warn(`[Core] advisory unavailable: ${String(e.message ?? e).slice(0, 120)}`);
+    }
+  }
+
   // 1. Materialize Desktop Surface
   console.log('\n[Phase 1/4] Loading & Materializing Desktop Surface...');
   const rawDesktopPath = path.join(outDir, 'raw-desktop.html');
@@ -200,6 +274,10 @@ async function run() {
     forceRefresh: isRefresh
   });
   let desktopHtml = desktopCapture.content;
+
+  // Source platform detection (content-based; informs theme compile + advisory)
+  detected = detectSourcePlatform(desktopHtml);
+  console.log(`[Clone] Source platform: ${detected.platform}${detected.indicators.length ? ` (${detected.indicators.join('; ')})` : ''}`);
 
   // A desktop capture cannot prove the absence of a server-selected mobile DOM.
   // Auto captures both; capture count is not an architecture classification.
@@ -515,6 +593,68 @@ async function run() {
     );
   }
 
+  // Optional: compile a Haravan theme skeleton from the cloned desktop surface.
+  // Requires --code-approvals <file> (fail-closed ownership gate); without it the
+  // compiler refuses source CSS/JS. Output is a skeleton — per-project URL/section
+  // mapping remains a separate step.
+  const wantTheme = args.includes('--theme');
+  let themeResult = null;
+  if (wantTheme) {
+    if (detected.platform !== 'haravan' && detected.platform !== 'generic') {
+      console.warn(`  ! --theme requested but source platform is '${detected.platform}'; Haravan compiler may not fit.`);
+    }
+    const themeOut = path.join(outDir, 'theme');
+    console.log(`\n[Phase 5/5] Compiling Haravan theme skeleton → ${themeOut}`);
+    try {
+      // Approvals load inside the try so a missing/malformed file is reported as a
+      // theme-compile failure (and the outcome is still recorded), not a raw crash.
+      const approvalsPath = getArgValue('--code-approvals', null);
+      let codeApprovals;
+      if (approvalsPath) {
+        codeApprovals = JSON.parse(fs.readFileSync(path.resolve(approvalsPath), 'utf8'));
+        if (!Array.isArray(codeApprovals)) throw new Error('--code-approvals must contain an array');
+      }
+      const { ThemeCompiler } = await import('../packages/site-clone/dist/index.js');
+      const compiler = new ThemeCompiler();
+      themeResult = await compiler.compileThemeWithLocalizationAsync(themeOut, desktopHtml, {
+        sourceUrl: targetUrl,
+        assetsDir,
+        codeApprovals,
+        skipDownload: true,
+      });
+      console.log(`  ✓ Theme skeleton: ${themeResult.filesWritten.length} files, ${themeResult.sectionCount} section(s)`);
+    } catch (e) {
+      console.error(`  ✗ Theme compile failed (fail-closed): ${String(e.message ?? e).slice(0, 300)}`);
+      themeResult = { success: false, error: String(e.message ?? e) };
+      // A requested deliverable failed — automation must not see exit 0.
+      process.exitCode = 1;
+    }
+  }
+
+  // Record outcome into Super Core (fail-open; never blocks the clone)
+  if (core) {
+    try {
+      const outcome = [
+        `clone ${parsedUrl.hostname}`,
+        `platform=${detected.platform}`,
+        `assets=${allDownloaded.filter(i => i.status !== 'failed').length}/${allDownloaded.length}`,
+        `audit=${audit.passed ? 'pass' : 'fail'}`,
+        `blocking=${blockingFindings.length}`,
+        themeResult ? `theme=${themeResult.success ? `${themeResult.filesWritten.length} files` : 'failed'}` : null,
+      ].filter(Boolean).join('; ');
+      const ing = core.ingestOutcome({
+        task: `clone ${parsedUrl.hostname}`,
+        context: `platform=${detected.platform}; outDir=${outDir}`,
+        outcome,
+        verificationRef: manifestPath,
+      });
+      console.log(`[Core] outcome recorded: case=${ing.caseId} candidate=${ing.candidateId} (PENDING)`);
+    } catch (e) {
+      console.warn(`[Core] outcome record failed: ${String(e.message ?? e).slice(0, 120)}`);
+    }
+    try { core.close(); } catch {}
+  }
+
   console.log('\n===========================================================');
   console.log('[AntiFan Universal Clone] Generated. Offline and visual parity verification still required.');
   console.log(`Preview command: node scripts/serve-clone.mjs "${outDir}"`);
@@ -532,5 +672,16 @@ async function run() {
 
 run().catch(err => {
   console.error('[AntiFan Universal Clone] Failed:', err);
+  // Failed clones are the highest-value records — record before exit (fail-open).
+  if (core) {
+    try {
+      core.ingestOutcome({
+        task: `clone ${parsedUrl.hostname}`,
+        context: `platform=${detected.platform}; outDir=${outDir}`,
+        outcome: `failed: ${String(err?.message ?? err).slice(0, 300)}`,
+      });
+    } catch {}
+    try { core.close(); } catch {}
+  }
   process.exit(1);
 });

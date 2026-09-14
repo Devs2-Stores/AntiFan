@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { CapabilityError, BrowserTarget } from '../../shared/control-plane-contracts';
 import { ThemeQaWorkflow, ThemeQaReport, ThemeQaSummary, ThemeQaDetailedFindings } from './theme-qa-workflow';
+import { VerificationCircuitBreaker } from '../verification/circuit-breaker';
+import type { VerificationBatchLifecycle } from '../verification/verification-contract';
 import {
   createWorkspaceSnapshotManifest,
+  readWorkspaceRevision,
   rollbackWorkspaceToManifest,
   type WorkspaceSnapshotManifest,
   type WorkspaceRollbackResult,
@@ -20,11 +23,31 @@ interface RepairSessionState {
   };
   manifest: WorkspaceSnapshotManifest;
   r1Findings?: ThemeQaDetailedFindings;
-  status: 'awaiting_fix' | 'verifying' | 'verified' | 'rolled_back';
+  status: 'awaiting_fix' | 'verifying' | 'verified' | 'rolled_back' | 'blocked';
+  lifecycle: VerificationBatchLifecycle;
+  verificationAttempts: number;
+  lastVerifiedRevision?: string;
   createdAt: number;
 }
 
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+export interface ThemeRepairBeginResult {
+  sessionId: string;
+  report: ThemeQaReport;
+  summary: ThemeQaSummary;
+}
+
+export interface ThemeRepairVerificationResult {
+  success: boolean;
+  report: ThemeQaReport;
+  summary: ThemeQaSummary;
+  rolledBack: boolean;
+  status: 'awaiting_fix' | 'verified' | 'blocked' | 'rolled_back';
+  revision: string;
+  remainingRepairs: number;
+  rollbackResult?: WorkspaceRollbackResult;
+}
 
 export class ThemeQaRepairCoordinator {
   private sessions = new Map<string, RepairSessionState>();
@@ -36,14 +59,14 @@ export class ThemeQaRepairCoordinator {
    * 1. Creates an immutable R0 snapshot manifest of workspaceRoot before mutations.
    * 2. Executes Round 1 validation to establish baseline findings.
    * 3. Stores private session state bound strictly to the project/workspace/runtime/tab target.
-   * 4. Returns an opaque single-use sessionId along with the Round 1 QA report.
+   * 4. Returns an opaque sessionId retained across failed verification until success, rollback, expiry, or budget exhaustion.
    */
   async begin(input: {
     workspaceRoot: string;
     target: BrowserTarget;
     runId: string;
     attemptId?: string;
-  }): Promise<{ sessionId: string; report: ThemeQaReport; summary: ThemeQaSummary }> {
+  }): Promise<ThemeRepairBeginResult> {
     if (!input.workspaceRoot) {
       throw new CapabilityError('INVALID_ARGUMENT', 'workspaceRoot is required for theme repair session');
     }
@@ -54,6 +77,7 @@ export class ThemeQaRepairCoordinator {
     const safeRunId = (input.runId || 'run-repair').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
     const attemptId = input.attemptId || 'attempt-r1';
 
+    const baselineRevision = readWorkspaceRevision(input.workspaceRoot);
     // 1. Snapshot R0 baseline before any mutations occur
     const snapshotManifest = await createWorkspaceSnapshotManifest(input.workspaceRoot, safeRunId);
 
@@ -64,6 +88,9 @@ export class ThemeQaRepairCoordinator {
       workspaceRoot: input.workspaceRoot,
       target: input.target,
     });
+    if (readWorkspaceRevision(input.workspaceRoot) !== baselineRevision) {
+      throw new CapabilityError('TARGET_STALE', 'Workspace changed while capturing repair baseline');
+    }
 
     const sessionId = randomUUID();
     const session: RepairSessionState = {
@@ -79,6 +106,8 @@ export class ThemeQaRepairCoordinator {
       manifest: snapshotManifest,
       r1Findings: report.findings,
       status: 'awaiting_fix',
+      lifecycle: VerificationCircuitBreaker.getInstance().createLifecycle({ runId: safeRunId, attemptId: sessionId, claimId: sessionId }),
+      verificationAttempts: 0,
       createdAt: Date.now(),
     };
 
@@ -94,20 +123,13 @@ export class ThemeQaRepairCoordinator {
   /**
    * Verifies an active repair session after external authorized file edits:
    * 1. Validates session state, TTL, and target binding (prevents replay / parallel race).
-   * 2. Executes Round 2 validation with baselineFindings from Round 1.
-   * 3. If Round 2 introduced regressions, automatically rolls back workspace to R0 and cleans orphan files.
+   * 2. Requires a changed workspace revision, then runs fresh validation against baseline findings.
+   * 3. Regressions roll back; failed checks retain a bounded retry session.
    */
   async verify(input: {
     sessionId: string;
     target: BrowserTarget;
-    attemptId?: string;
-  }): Promise<{
-    success: boolean;
-    report: ThemeQaReport;
-    summary: ThemeQaSummary;
-    rolledBack: boolean;
-    rollbackResult?: WorkspaceRollbackResult;
-  }> {
+  }): Promise<ThemeRepairVerificationResult> {
     const session = this.sessions.get(input.sessionId);
     if (!session) {
       throw new CapabilityError('REPLAY_DENIED', 'Invalid, consumed, or expired repair session');
@@ -135,17 +157,41 @@ export class ThemeQaRepairCoordinator {
       throw new CapabilityError('TARGET_MISMATCH', 'Target binding does not match repair session origin target');
     }
 
+    const revision = readWorkspaceRevision(session.workspaceRoot);
     session.status = 'verifying';
+    if (revision === session.lastVerifiedRevision) {
+      session.status = 'awaiting_fix';
+      throw new CapabilityError('REPLAY_DENIED', 'Workspace has not changed since the previous failed verification');
+    }
+    const attemptId = `verify-${++session.verificationAttempts}-${randomUUID()}`;
 
     try {
       // Execute Round 2 Validation with baseline findings from Round 1
       const report = await this.workflow.validate({
         runId: session.runId,
-        attemptId: input.attemptId || 'attempt-r2',
+        attemptId,
         workspaceRoot: session.workspaceRoot,
         target: input.target,
         baselineFindings: session.r1Findings,
       });
+      if (readWorkspaceRevision(session.workspaceRoot) !== revision) {
+        session.status = 'awaiting_fix';
+        throw new CapabilityError('TARGET_STALE', 'Workspace changed during verification; fresh evidence is required');
+      }
+      if (!report.findings?.differential || report.findings.evidenceGaps?.length) {
+        // An inconclusive verification still consumed this revision: a retry without
+        // further edits is a replay, not new evidence.
+        session.lastVerifiedRevision = revision;
+        session.status = 'awaiting_fix';
+        throw new CapabilityError('SETTLE_INCOMPLETE', 'Repair verification lacks complete regression evidence');
+      }
+      session.lastVerifiedRevision = revision;
+      const transition = VerificationCircuitBreaker.getInstance().recordAttempt(
+        { runId: session.runId, attemptId: session.sessionId, claimId: session.sessionId },
+        report.summary.passed ? 'VERIFIED' : 'REJECTED',
+        undefined, session.lifecycle, attemptId,
+      );
+      session.lifecycle = transition.lifecycle;
 
       const differential = report.findings?.differential;
       const hasRegressions = differential?.hasRegressions ?? false;
@@ -163,6 +209,9 @@ export class ThemeQaRepairCoordinator {
             report,
             summary: report.summary,
             rolledBack: true,
+            status: 'rolled_back',
+            revision,
+            remainingRepairs: transition.remainingRepairs,
             rollbackResult,
           };
         } catch (err) {
@@ -173,17 +222,20 @@ export class ThemeQaRepairCoordinator {
         }
       }
 
-      session.status = 'verified';
-      this.sessions.delete(input.sessionId);
+      session.status = report.summary.passed ? 'verified' : transition.tripped ? 'blocked' : 'awaiting_fix';
+      if (session.status === 'verified') this.sessions.delete(input.sessionId);
 
       return {
         success: report.summary.passed,
         report,
         summary: report.summary,
         rolledBack: false,
+        status: session.status,
+        revision,
+        remainingRepairs: transition.remainingRepairs,
       };
     } catch (err) {
-      this.sessions.delete(input.sessionId);
+      if (session.status === 'verifying') session.status = 'awaiting_fix';
       throw err;
     }
   }

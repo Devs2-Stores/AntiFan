@@ -6,6 +6,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as os from 'node:os';
+import { createHash } from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +38,12 @@ function parseArgs(args) {
       parsed.mobile = path.resolve(rootDir, args[++i]);
     } else if (arg.startsWith('--mobile=')) {
       parsed.mobile = path.resolve(rootDir, arg.slice('--mobile='.length));
+    } else if (arg === '--code-approvals') {
+      parsed.codeApprovals = JSON.parse(fs.readFileSync(path.resolve(rootDir, args[++i]), 'utf8'));
+      if (!Array.isArray(parsed.codeApprovals)) throw new Error('--code-approvals must contain an array');
+    } else if (arg.startsWith('--code-approvals=')) {
+      parsed.codeApprovals = JSON.parse(fs.readFileSync(path.resolve(rootDir, arg.slice('--code-approvals='.length)), 'utf8'));
+      if (!Array.isArray(parsed.codeApprovals)) throw new Error('--code-approvals must contain an array');
     } else if (arg === '--clean' || arg === '--force' || arg === '-f') {
       parsed.force = true;
     }
@@ -68,8 +76,8 @@ function cleanReferenceDomains(html) {
   res = res.replace(/https?:\/\/hoplongtech\.com\/tin-tuc\/[^\s'"&)]*/gi, '{{ canonical_url }}');
   res = res.replace(/https?:\/\/img\.hoplongtech\.com\/hoplong\/news\/[^\s'"&)]*/gi, "{{ article.image | img_url: 'master' }}");
   res = res.replace(/https?:\/\/img\.hoplongtech\.com\/hoplong\/danh-muc\/anh-danh-muc\/([^"'\s)]+)/gi, "{{ '$1' | asset_url }}");
-  res = res.replace(/href=["']https?:\/\/img\.hoplongtech\.com\/[^"']*\.pdf["']/gi, 'href="#" onclick="alert(\'Tài liệu đang được đồng bộ lên hệ thống.\'); return false;"');
-  res = res.replace(/https?:\/\/img\.hoplongtech\.com\/[^"'\s)]*\.pdf/gi, '#');
+  res = res.replace(/href=["']https?:\/\/(?:img\.hoplongtech\.com|sudospaces\.com|hoplongtech\.com|hoplong\.com)\/[^"']*\.pdf["']/gi, 'href="#" onclick="alert(\'Tài liệu đang được đồng bộ lên hệ thống.\'); return false;"');
+  res = res.replace(/https?:\/\/(?:img\.hoplongtech\.com|sudospaces\.com|hoplongtech\.com|hoplong\.com)\/[^"'\s)]*\.pdf/gi, '#');
 
   // Replace internal navigation links
   res = res.replace(/https?:\/\/hoplong\.com\/gioi-thieu-hop-long\/?/gi, '/pages/about');
@@ -83,6 +91,18 @@ function cleanReferenceDomains(html) {
   res = res.replace(/https?:\/\/hoplongtech\.com\/tai-lieu-ky-thuat\/?/gi, '/pages/documents');
   res = res.replace(/https?:\/\/hoplongtech\.com\/brands\/?/gi, '/pages/brands');
   res = res.replace(/https?:\/\/hoplongtech\.com\/?(?=["'\s>])/gi, '/');
+
+  // Relative legacy routes (no domain) — nav links, breadcrumbs, view-all
+  res = res.replace(/href=["']\/tin-tuc\/([a-z0-9-]+)\.html["']/gi, 'href="/blogs/news/$1"');
+  res = res.replace(/href=["']\/tin-tuc\/([a-z0-9-]+)\/?["']/gi, 'href="/blogs/news/tagged/$1"');
+  res = res.replace(/href=["']\/tin-tuc\/?["']/gi, 'href="/blogs/news"');
+  res = res.replace(/href=["']\/gioi-thieu(?:-ve-hop-long|-hop-long)?\/?["']/gi, 'href="/pages/about"');
+  res = res.replace(/href=["']\/lich-su-phat-trien\/?["']/gi, 'href="/pages/timeline"');
+  res = res.replace(/href=["']\/tuyen-dung\/?["']/gi, 'href="/pages/careers"');
+  res = res.replace(/href=["']\/lien-he\/?["']/gi, 'href="/pages/contact"');
+  res = res.replace(/href=["']\/bao-gia\/?["']/gi, 'href="/pages/quote"');
+  res = res.replace(/href=["']\/tai-lieu-ky-thuat\/?["']/gi, 'href="/pages/documents"');
+  res = res.replace(/href=["']\/brands\/?["']/gi, 'href="/pages/brands"');
 
   // Subdomains
   res = res.replace(/https?:\/\/(?:gigapack|conveyor|palletizing)\.hoplong\.com\/[^\s"']*/gi, '#');
@@ -100,7 +120,7 @@ function cleanReferenceDomains(html) {
 
 function rewriteLiquidAssets(html) {
   if (!html) return '';
-  return html.replace(/(?:src|data-src|data-image|href)=["']([^"']+)["']/gi, (match, url) => {
+  let res = html.replace(/(?:src|data-src|data-image|href)=["']([^"']+)["']/gi, (match, url) => {
     if (url.startsWith('{{') || url.startsWith('{%') || url.startsWith('data:') || url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('javascript:')) {
       return match;
     }
@@ -112,6 +132,15 @@ function rewriteLiquidAssets(html) {
     }
     return match;
   });
+  res = res.replace(/this\.src\s*=\s*(?:&quot;|["'])([^"']+?)(?:&quot;|["'])/gi, (match, url) => {
+    const cleanUrl = url.split('?')[0].split('#')[0];
+    const filename = cleanUrl.split('/').pop();
+    if (filename && /\.(png|jpe?g|webp|gif|svg|ico)$/i.test(filename)) {
+      return `this.src=&quot;{{ '${filename}' | asset_url }}&quot;`;
+    }
+    return match;
+  });
+  return res;
 }
 function extractMainContent(html) {
   if (!html) return '';
@@ -131,6 +160,42 @@ function extractMainContent(html) {
   content = content.replace(/<div\b[^>]*\bclass="[^"]*bottom-navigation[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
   content = content.replace(/<\/?(?:html|head|body)\b[^>]*>/gi, '');
   return content.trim();
+}
+
+function replaceTagBalanced(html, startPattern, replacement) {
+  const match = html.match(startPattern);
+  if (!match) return html;
+  const tagMatch = match[0].match(/^<([a-zA-Z][a-zA-Z0-9]*)/);
+  if (!tagMatch) return html;
+  const tag = tagMatch[1].toLowerCase();
+  const openNeedle = `<${tag}`;
+  const closeNeedle = `</${tag}`;
+  const startIdx = match.index;
+  let depth = 0;
+  let idx = startIdx;
+  const len = html.length;
+  let endIdx = -1;
+  while (idx < len) {
+    const nextOpen = html.indexOf(openNeedle, idx);
+    const nextClose = html.indexOf(closeNeedle, idx);
+    if (nextOpen !== -1 && (nextClose === -1 || nextOpen < nextClose)) {
+      depth++;
+      idx = nextOpen + openNeedle.length;
+    } else if (nextClose !== -1) {
+      depth--;
+      idx = nextClose + closeNeedle.length;
+      if (depth === 0) {
+        endIdx = html.indexOf('>', idx);
+        if (endIdx === -1) return html;
+        endIdx += 1;
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+  if (endIdx === -1) return html;
+  return html.slice(0, startIdx) + replacement + html.slice(endIdx);
 }
 
 function applyPageSpecificTransforms(templateName, html, fullDocHtml) {
@@ -343,8 +408,8 @@ function applyPageSpecificTransforms(templateName, html, fullDocHtml) {
     transformed = transformed.replace(/Chat với Hoplong/gi, "Chat với hỗ trợ");
   } else if (templateName === 'article.liquid') {
     // 3. TUYET DOI LOAI BO ICON VA BO DEM MAT XEM (BO MAT XEM)
-    transformed = transformed.replace(/<span\b[^>]*\bclass="[^"]*(?:view-count|views|mat-xem|luot-xem)[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '');
-    transformed = transformed.replace(/<div\b[^>]*\bclass="[^"]*(?:view-count|views|mat-xem|luot-xem)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+    transformed = transformed.replace(/<span\b[^>]*\bclass="[^"]*(?:view-count|views|mat-xem|luot-xem|meta-view)[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '');
+    transformed = transformed.replace(/<div\b[^>]*\bclass="[^"]*(?:view-count|views|mat-xem|luot-xem|meta-view)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
     transformed = transformed.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>\s*[\d,.]+\s*(?:lượt xem|mắt xem|views)?/gi, '');
     transformed = transformed.replace(/[\d,.]+\s*(?:lượt xem|mắt xem)/gi, '');
 
@@ -355,24 +420,92 @@ function applyPageSpecificTransforms(templateName, html, fullDocHtml) {
     transformed = transformed.replace(/https:\/\/pinterest\.com\/pin\/create\/button\/\?[^'"]*/gi, "https://pinterest.com/pin/create/button/?url={{ canonical_url | url_encode }}&amp;media={{ article.image | img_url: 'master' | url_encode }}&amp;description={{ article.title | url_encode }}");
     transformed = transformed.replace(/https:\/\/wa\.me\/\?text=[^'"]*/gi, "https://wa.me/?text={{ canonical_url | url_encode }}");
     transformed = transformed.replace(/mailto:\?subject=[^'"]*/gi, "mailto:?subject={{ article.title | url_encode }}&amp;body={{ canonical_url | url_encode }}");
-    transformed = transformed.replace(/https?:\/\/hoplongtech\.com\/tin-tuc\/[^\s'"]*/gi, "{{ canonical_url }}");
-
     // Bind Article Title
     transformed = transformed.replace(
-      /(<h1\b[^>]*class=["'][^"']*(?:title|article-title|blog-title|post-title)[^"']*["'][^>]*>)([\s\S]*?)(<\/h1>)/gi,
+      /(<h1\b[^>]*class=["'][^"']*(?:title|article-title|blog-title|post-title|single-name)[^"']*["'][^>]*>)([\s\S]*?)(<\/h1>)/gi,
       '$1{{ article.title }}$3'
     );
-    // Bind Article Content
-    transformed = transformed.replace(
-      /(<div\b[^>]*class=["'][^"']*(?:article-content|blog-content|content-detail|post-content)[^"']*["'][^>]*>)([\s\S]*?)(<\/div>)/i,
-      '$1{{ article.content }}$3'
+    transformed = replaceTagBalanced(
+      transformed,
+      /<div\b[^>]*class=["'][^"']*(?:single-content|article-content|content-detail|post-content)[^"']*["'][^>]*>/i,
+      '<div class="single-content ck-content">\n  {{ article.content }}\n</div>'
     );
-  } else if (templateName === 'page.documents.liquid') {
-    // Clean external PDF hotlinks
-    transformed = transformed.replace(/href=["']https?:\/\/img\.hoplongtech\.com\/[^"']*\.pdf["']/gi, 'href="#" onclick="alert(\'Tài liệu đang được đồng bộ lên hệ thống.\'); return false;"');
   } else if (templateName === 'blog.liquid') {
-    // Replace static articles in #blog-list with dynamic loop
-    const blogListRegex = /<div\b[^>]*id=["']blog-list["'][^>]*>[\s\S]*?<\/div>\s*<\/div>/i;
+    // Detect legacy blog base path from source DOM before any block replacement (generic, no hardcoded path)
+    const legacyArticleLinks = transformed.match(/href=["']\/([a-z0-9-]+)\/([a-z0-9-]+)\.html["']/gi) || [];
+    const baseCounts = {};
+    for (const link of legacyArticleLinks) {
+      const base = link.match(/href=["']\/([a-z0-9-]+)\//i)[1];
+      baseCounts[base] = (baseCounts[base] || 0) + 1;
+    }
+    const legacyBlogBase = Object.keys(baseCounts).sort((a, b) => baseCounts[b] - baseCounts[a])[0];
+
+    // Dynamic featured hero article
+    const dynamicHero = `<article class="top-item w-100">
+  {% assign featured_article = blog.articles.first %}
+  {% if featured_article %}
+    <div class="top-item__thumbnail">
+      <a href="{{ featured_article.url }}" aria-label="{{ featured_article.title | escape }}">
+        <div class="">
+          <img loading="eager" src="{{ featured_article.image | img_url: 'grande' }}" alt="{{ featured_article.title | escape }}" width="320" height="784">
+        </div>
+      </a>
+      {% if featured_article.tags.size > 0 %}
+        <p class="category"><a href="{% if blog.url == blank %}/blogs/news{% else %}{{ blog.url }}{% endif %}/tagged/{{ featured_article.tags.first | handleize }}" aria-label="{{ featured_article.tags.first | escape }}">{{ featured_article.tags.first }}</a></p>
+      {% endif %}
+    </div>
+    <div class="top-item__content">
+      <h3 class="name"><a href="{{ featured_article.url }}" aria-label="{{ featured_article.title | escape }}">{{ featured_article.title }}</a></h3>
+      <p class="meta flex-inline-center-left">
+        <span class="meta-date">{{ featured_article.published_at | date: '%d/%m/%Y' }}</span>
+        {% if featured_article.author != blank %}
+          <span class="meta-auth"><span class="meta-auth__name" aria-label="{{ featured_article.author | escape }}">{{ featured_article.author }}</span></span>
+        {% endif %}
+      </p>
+      <p class="description">{{ featured_article.excerpt | default: featured_article.content | strip_html | truncatewords: 40 }}</p>
+    </div>
+  {% endif %}
+</article>`;
+    transformed = replaceTagBalanced(transformed, /<article\b[^>]*class=["'][^"']*top-item[^"']*["'][^>]*>/i, dynamicHero);
+
+    // Dynamic blog category/tag list
+    const dynamicCategories = `<ul class="category-lists">
+  {% for tag in blog.all_tags %}
+    <li class="category-lists__item">
+      <p class="w-100 flex-center-between">
+        <span class="name"><a href="{% if blog.url == blank %}/blogs/news{% else %}{{ blog.url }}{% endif %}/tagged/{{ tag | handleize }}" aria-label="{{ tag | escape }}">{{ tag }}</a></span>
+      </p>
+    </li>
+  {% endfor %}
+</ul>`;
+    transformed = replaceTagBalanced(transformed, /<ul\b[^>]*class=["'][^"']*category-lists[^"']*["'][^>]*>/i, dynamicCategories);
+
+    // Dynamic featured sidebar articles
+    const dynamicTopLists = `<div class="top-lists">
+  {% for article in blog.articles limit: 3 %}
+    <div class="top-lists__item flex-left">
+      <div class="thumbnail">
+        <a href="{{ article.url }}" aria-label="{{ article.title | escape }}">
+          <div class="">
+            <img loading="lazy" src="{{ article.image | img_url: 'compact' }}" alt="{{ article.title | escape }}" width="98" height="98">
+          </div>
+        </a>
+      </div>
+      <div class="content">
+        <h3 class="content-name"><a href="{{ article.url }}" aria-label="{{ article.title | escape }}">{{ article.title }}</a></h3>
+        <p class="meta flex-inline-center-left">
+          <span class="meta-date">{{ article.published_at | date: '%d/%m/%Y' }}</span>
+          {% if article.author != blank %}
+            <span class="meta-auth"><span class="meta-auth__name" aria-label="{{ article.author | escape }}">{{ article.author }}</span></span>
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  {% endfor %}
+</div>`;
+    transformed = replaceTagBalanced(transformed, /<div\b[^>]*class=["'][^"']*top-lists[^"']*["'][^>]*>/i, dynamicTopLists);
+
+    // Replace static articles in #blog-list with dynamic loop using replaceTagBalanced
     const dynamicBlogList = `<div class="list flex-left" id="blog-list">
   {% for article in blog.articles %}
     <article class="article-item">
@@ -402,12 +535,22 @@ function applyPageSpecificTransforms(templateName, html, fullDocHtml) {
     </div>
   {% endfor %}
 </div>`;
-    transformed = transformed.replace(blogListRegex, dynamicBlogList);
+    transformed = replaceTagBalanced(transformed, /<div\b[^>]*id=["']blog-list["'][^>]*>/i, dynamicBlogList);
+
+    // Rewrite legacy blog routes detected earlier from the source DOM (generic, no hardcoded path)
+    if (legacyBlogBase) {
+      const baseEsc = legacyBlogBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      transformed = transformed.replace(new RegExp(`href=["']/${baseEsc}/([a-z0-9-]+)\\.html["']`, 'gi'), 'href="{{ article.url | default: \'/blogs/news\' }}"');
+      transformed = transformed.replace(new RegExp(`href=["']/${baseEsc}/([a-z0-9-]+)["']`, 'gi'), 'href="{{ blog.url | default: \'/blogs/news\' }}/tagged/$1"');
+      transformed = transformed.replace(new RegExp(`href=["']/${baseEsc}["']`, 'gi'), 'href="{{ blog.url | default: \'/blogs/news\' }}"');
+    }
 
     // Wrap with paginate blog.articles by 12
-    const pagRegex = /<div\b[^>]*class=["'][^"']*pagination-wrap[^"']*["'][^>]*>[\s\S]*?<\/div>\s*<\/div>/i;
-    transformed = transformed.replace(pagRegex, `{% if paginate.pages > 1 %}<div class="w-100 pagination-wrap text-center py-4">{{ paginate | default_pagination }}</div>{% endif %}`);
-    transformed = `{% paginate blog.articles by 12 %}\n${transformed}\n{% endpaginate %}`;
+    // Replace pagination with dynamic paginate block (Single Paginate Invariant)
+    const dynamicBlogPagination = `{% if paginate.pages > 1 %}<div class="w-100 pagination-wrap text-center py-4">{{ paginate | default_pagination }}</div>{% endif %}`;
+    if (/<div\b[^>]*class=["'][^"']*pagination-wrap[^"']*["'][^>]*>/i.test(transformed)) {
+      transformed = replaceTagBalanced(transformed, /<div\b[^>]*class=["'][^"']*pagination-wrap[^"']*["'][^>]*>/i, dynamicBlogPagination);
+    }
   } else if (templateName === 'page.quote.liquid') {
     // 4. Bang ke dong cho phep them/xoa toi da 10 dong gui ve webhook Google Sheet
     transformed = transformed.replace(/(<form\b[^>]*\baction=)["'][^"']*["']/gi, '$1"{{ settings.google_sheet_quote_url | default: \'#\' }}"');
@@ -476,8 +619,7 @@ function applyPageSpecificTransforms(templateName, html, fullDocHtml) {
       `<h1 class="title">{{ collection.title | default: 'Danh mục sản phẩm' }}</h1>\n{% if collection.description != blank %}<div class="collection-description mb-3">{{ collection.description }}</div>{% endif %}`
     );
 
-    // Replace repeated static product cards inside #product-list with dynamic for-loop
-    const gridRegex = /<div\b[^>]*id=["']product-list["'][^>]*>[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/i;
+    // Replace static product grid and pagination cleanly using tag-balanced replacement
     const dynamicGrid = `<div class="grid-list flex w-100" id="product-list">
   {% for product in collection.products %}
     <div class="product-list__item">
@@ -507,10 +649,7 @@ function applyPageSpecificTransforms(templateName, html, fullDocHtml) {
     </div>
   {% endfor %}
 </div>`;
-    transformed = transformed.replace(gridRegex, dynamicGrid);
 
-    // Replace static pagination with Haravan default_pagination
-    const pagRegex = /<div\b[^>]*class=["'][^"']*pagination-wrap[^"']*["'][^>]*>[\s\S]*?<\/div>\s*<\/div>/i;
     const dynamicPagination = `<div class="w-100 pagination-wrap text-center py-4">
   {% if paginate.pages > 1 %}
     <div class="pagination-numbers flex-center-between w-100">
@@ -518,10 +657,16 @@ function applyPageSpecificTransforms(templateName, html, fullDocHtml) {
     </div>
   {% endif %}
 </div>`;
-    transformed = transformed.replace(pagRegex, dynamicPagination);
 
-    // Wrap whole template in {% paginate collection.products by 24 %} ... {% endpaginate %}
-    transformed = `{% paginate collection.products by 24 %}\n${transformed}\n{% endpaginate %}`;
+    if (/<div\b[^>]*\bclass=["'][^"']*grid-list[^"']*["'][^>]*>/i.test(transformed)) {
+      transformed = replaceTagBalanced(transformed, /<div\b[^>]*\bclass=["'][^"']*grid-list[^"']*["'][^>]*>/i, dynamicGrid);
+    }
+    if (/<div\b[^>]*\bclass=["'][^"']*pagination-wrap[^"']*["'][^>]*>/i.test(transformed)) {
+      transformed = replaceTagBalanced(transformed, /<div\b[^>]*\bclass=["'][^"']*pagination-wrap[^"']*["'][^>]*>/i, dynamicPagination);
+    } else if (transformed.includes('id="product-list"')) {
+      // For templates without static pagination, append dynamic pagination cleanly
+      transformed = transformed.replace(dynamicGrid, dynamicGrid + '\n' + dynamicPagination);
+    }
   }
   return transformed;
 }
@@ -591,14 +736,27 @@ async function main() {
     console.log(`  - Mobile Input:     ${mobilePath}`);
   }
 
+  const outputDir = args.output;
+  // Drop the alias once captured: everything below writes into the temp stage, so any
+  // surviving `args.output` reference would silently mutate the live destination before
+  // promotion. Removing it makes such a reference throw instead of passing unnoticed.
+  delete args.output;
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-runner-stage-'));
+  const existingSettings = path.join(outputDir, 'config', 'settings_data.json');
+  if (fs.existsSync(existingSettings)) {
+    fs.mkdirSync(path.join(stage, 'config'));
+    fs.copyFileSync(existingSettings, path.join(stage, 'config', 'settings_data.json'));
+  }
+  try {
   const compiler = new ThemeCompiler();
   const assetsDir = path.join(cloneDir, 'assets');
-  const result = compiler.compileTheme(args.output, rawHtml, {
+  const result = compiler.compileTheme(stage, rawHtml, {
     settingsMode: args.settingsMode,
     assetsDir: fs.existsSync(assetsDir) ? assetsDir : undefined,
     inputPath: indexHtmlPath,
     mobileHtml,
     force: args.force,
+    codeApprovals: args.codeApprovals,
   });
 
   const emittedTemplates = ['templates/index.liquid'];
@@ -606,7 +764,7 @@ async function main() {
   // If multi-page directory provided, compile remaining 14 templates
   if (isDirectory) {
     console.log('\n[Haravan Compiler] Compiling multi-page routes from matrix:');
-    const templatesDir = path.join(args.output, 'templates');
+    const templatesDir = path.join(stage, 'templates');
     fs.mkdirSync(templatesDir, { recursive: true });
 
     for (const route of ROUTE_DEFINITIONS) {
@@ -617,35 +775,55 @@ async function main() {
       }
 
       const dHtml = fs.readFileSync(routeHtmlPath, 'utf-8');
+      const mRouteHtmlPath = path.join(cloneDir, route.mobileRel);
+      let mHtml = '';
+      if (fs.existsSync(mRouteHtmlPath)) {
+        mHtml = fs.readFileSync(mRouteHtmlPath, 'utf-8');
+      }
+
+      // Dynamically extract page-specific head assets (stylesheets & inline styles) via Core ThemeCompiler
+      const headAssets = compiler.extractRouteHeadAssets(dHtml, mHtml);
+
       let dMain = extractMainContent(dHtml);
       dMain = applyPageSpecificTransforms(route.template, dMain, dHtml);
       dMain = rewriteLiquidAssets(dMain);
 
-      const mRouteHtmlPath = path.join(cloneDir, route.mobileRel);
       let mMain = '';
-      if (fs.existsSync(mRouteHtmlPath)) {
-        const mHtml = fs.readFileSync(mRouteHtmlPath, 'utf-8');
+      if (mHtml) {
         mMain = extractMainContent(mHtml);
         mMain = applyPageSpecificTransforms(route.template, mMain, mHtml);
         mMain = rewriteLiquidAssets(mMain);
       }
 
-      const liquidParts = [];
-      liquidParts.push(`<div class="desktop-only">\n${dMain}\n</div>`);
+      let bodyContent = `<div class="desktop-only">\n${dMain}\n</div>`;
       if (mMain) {
-        liquidParts.push(`<div class="mobile-only">\n${mMain}\n</div>`);
+        bodyContent += `\n\n<div class="mobile-only">\n${mMain}\n</div>`;
       }
+
+      // Single Paginate Invariant (DotLiquid): Wrap combined dual-surface body once per template
+      if (route.template === 'collection.liquid' || route.template === 'collection.no-filter.liquid' || route.template === 'collection.brand.liquid') {
+        bodyContent = `{% paginate collection.products by 24 %}\n${bodyContent}\n{% endpaginate %}`;
+      } else if (route.template === 'blog.liquid') {
+        bodyContent = `{% paginate blog.articles by 12 %}\n${bodyContent}\n{% endpaginate %}`;
+      }
+
+      const liquidParts = [];
+      if (headAssets && headAssets.liquidAssetTags) {
+        liquidParts.push(headAssets.liquidAssetTags);
+      }
+      liquidParts.push(bodyContent);
 
       const targetFile = path.join(templatesDir, route.template);
       fs.writeFileSync(targetFile, liquidParts.join('\n\n') + '\n', 'utf-8');
       result.filesWritten.push(targetFile);
       emittedTemplates.push(`templates/${route.template}`);
-      console.log(`  ✓ Emitted template: templates/${route.template} (${route.name})`);
+      const assetCount = headAssets ? headAssets.sharedStylesheets.length + headAssets.desktopStylesheets.length + headAssets.mobileStylesheets.length : 0;
+      console.log(`  ✓ Emitted template: templates/${route.template} (${route.name}) [${assetCount} dynamic stylesheets]`);
     }
 
     // Harvest and consolidate all assets across all sub-routes into theme assets/
     console.log('\n[Haravan Compiler] Consolidating all multi-route assets:');
-    const targetAssetsDir = path.join(args.output, 'assets');
+    const targetAssetsDir = path.join(stage, 'assets');
     fs.mkdirSync(targetAssetsDir, { recursive: true });
 
     function copyAssetsFromDir(dir) {
@@ -657,6 +835,11 @@ async function main() {
             for (const f of fs.readdirSync(subAssets)) {
               const src = path.join(subAssets, f);
               const dst = path.join(targetAssetsDir, f);
+              if (/\.(?:css|m?js)$/i.test(f)) compiler.assertCodeOwnership(fs.readFileSync(src, 'utf8'), src, { codeApprovals: args.codeApprovals });
+              if (fs.existsSync(dst)) {
+                const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+                if (hash(src) !== hash(dst)) throw new Error(`Conflicting asset basename: ${f}`);
+              }
               if (!fs.existsSync(dst)) {
                 fs.copyFileSync(src, dst);
                 if (!result.filesWritten.includes(dst)) {
@@ -689,12 +872,12 @@ async function main() {
       }
     }
   }
-  cleanReferenceDomainsInDir(path.join(args.output, 'layout'));
-  cleanReferenceDomainsInDir(path.join(args.output, 'snippets'));
-  cleanReferenceDomainsInDir(path.join(args.output, 'templates'));
+  cleanReferenceDomainsInDir(path.join(stage, 'layout'));
+  cleanReferenceDomainsInDir(path.join(stage, 'snippets'));
+  cleanReferenceDomainsInDir(path.join(stage, 'templates'));
 
   // Register Google Sheet & Drive Settings in settings_schema.json & settings_data.json
-  const schemaPath = path.join(args.output, 'config', 'settings_schema.json');
+  const schemaPath = path.join(stage, 'config', 'settings_schema.json');
   if (fs.existsSync(schemaPath)) {
     try {
       const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
@@ -764,8 +947,8 @@ async function main() {
     }
   }
 
-  const dataPath = path.join(args.output, 'config', 'settings_data.json');
-  const isCustomerCustomizeDir = args.output.replace(/\\/g, '/').toLowerCase().includes('customizes/');
+  const dataPath = path.join(stage, 'config', 'settings_data.json');
+  const isCustomerCustomizeDir = outputDir.replace(/\\/g, '/').toLowerCase().includes('customizes/');
   if (fs.existsSync(dataPath) && !isCustomerCustomizeDir) {
     try {
       const data = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
@@ -806,7 +989,7 @@ async function main() {
   ];
 
   for (const { file, check, msg } of assertions) {
-    const fullPath = path.join(args.output, file);
+    const fullPath = path.join(stage, file);
     if (fs.existsSync(fullPath)) {
       const content = fs.readFileSync(fullPath, 'utf-8');
       if (!check(content)) {
@@ -816,14 +999,14 @@ async function main() {
   }
 
   // Update compiler ownership manifest while preserving generatedFiles
-  const manifestPath = path.join(args.output, 'config', '.antifan-theme-manifest.json');
+  const manifestPath = path.join(stage, 'config', '.antifan-theme-manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
       let existingManifest = {};
       try {
         existingManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       } catch {}
-      const relFiles = result.filesWritten.map(f => path.relative(args.output, f).replace(/\\/g, '/'));
+      const relFiles = result.filesWritten.map(f => path.relative(stage, f).replace(/\\/g, '/'));
       const allGenerated = Array.from(new Set([
         ...(existingManifest.generatedFiles || []),
         ...(existingManifest.files || []),
@@ -844,6 +1027,7 @@ async function main() {
     } catch {}
   }
 
+  compiler.promoteStagedTheme(stage, outputDir, { settingsMode: args.settingsMode, force: args.force });
   console.log('\n[Haravan Compiler] Theme compilation completed successfully!');
   console.log(`  - Target Platform:  haravan`);
   console.log(`  - Settings Mode:    ${args.settingsMode}`);
@@ -852,6 +1036,9 @@ async function main() {
   console.log('\n[Emitted Templates List]:');
   for (const t of emittedTemplates) {
     console.log(`  + ${t}`);
+  }
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
   }
 }
 main().catch(err => {

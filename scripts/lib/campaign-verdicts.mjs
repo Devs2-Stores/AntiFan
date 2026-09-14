@@ -423,21 +423,22 @@ export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportL
     adjudicableCases: cases.filter((c) => c.overall === 'PASS' || c.overall === 'FAIL').length,
     inconclusiveCases: cases.filter((c) => c.overall === 'INCONCLUSIVE').length,
   };
+  // A batch that adjudicated nothing has verified nothing, whether or not it declared a
+  // narrower scope. This refusal therefore sits ABOVE the scope branch: a run that
+  // measured viewports and validated none of them must never exit 0, because a green
+  // exit is what the bottleneck ledger cites as closure proof. The declared exclusion,
+  // when there is one, still travels with the status.
+  if (tally.adjudicableCases === 0) {
+    const causes = [...new Set(cases.map((c) => c.causeCode).filter(Boolean))];
+    return {
+      code: 1,
+      reason: 'NO_ADJUDICATED_CASE',
+      detail: causes.length > 0 ? causes : ['NO_CASES'],
+      ...(excludedViewports.length > 0 ? { unverifiedViewports: [...excludedViewports] } : {}),
+      ...tally,
+    };
+  }
   if (excludedViewports.length > 0) {
-    // Reducing scope is only worth anything if what remains gets adjudicated: a batch
-    // that measured two viewports and validated none of them has verified nothing, and
-    // reporting success would be the green-without-evidence failure this exit status
-    // exists to prevent. The declared exclusion travels with the status either way.
-    if (tally.adjudicableCases === 0) {
-      const causes = [...new Set(cases.map((c) => c.causeCode).filter(Boolean))];
-      return {
-        code: 1,
-        reason: 'NO_ADJUDICATED_CASE',
-        detail: causes.length > 0 ? causes : ['NO_CASES'],
-        unverifiedViewports: [...excludedViewports],
-        ...tally,
-      };
-    }
     // The batch is complete for the scope it declared, and the declaration travels
     // with the status: an excluded viewport is unverified, so nothing about this
     // result claims it renders faithfully.

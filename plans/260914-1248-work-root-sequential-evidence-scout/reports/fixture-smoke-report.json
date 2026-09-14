@@ -1,0 +1,101 @@
+{
+  "runId": "fixture-smoke",
+  "generatedAt": "2026-09-14T14:40:11.278Z",
+  "fixtureRoot": "E:\\Work\\apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\fixtures\\tree",
+  "junctionSetup": {
+    "cycle": "created",
+    "external": "created",
+    "dangling": "created"
+  },
+  "checks": [
+    {
+      "name": "interrupt: maxDirsReached flag",
+      "pass": true,
+      "detail": "attempted dirs bounded; frontier state=NON_EMPTY"
+    },
+    {
+      "name": "interrupt: residual frontier non-empty",
+      "pass": true,
+      "detail": "pending=5"
+    },
+    {
+      "name": "resume: completes with empty frontier",
+      "pass": true,
+      "detail": "pending=0"
+    },
+    {
+      "name": "resume: skipped already-completed dirs",
+      "pass": true,
+      "detail": "resumedSkippedDirs=1"
+    },
+    {
+      "name": "idempotency: no duplicate entryId after resume",
+      "pass": true,
+      "detail": "30 entries, 30 unique"
+    },
+    {
+      "name": "reparse: cycle junction recorded not traversed",
+      "pass": true,
+      "detail": "linkCanonicalRel=. boundary=null"
+    },
+    {
+      "name": "reparse: external junction boundary",
+      "pass": true,
+      "detail": "boundary=TARGET_OUTSIDE_ROOT"
+    },
+    {
+      "name": "reparse: dangling junction boundary",
+      "pass": true,
+      "detail": "boundary=TARGET_OUTSIDE_ROOT"
+    },
+    {
+      "name": "error: missing root produces error event",
+      "pass": true,
+      "detail": "2 error events"
+    },
+    {
+      "name": "longpath: >240-char path inventoried",
+      "pass": true,
+      "detail": "max path len=319"
+    },
+    {
+      "name": "unicode: unicode filename inventoried",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "hidden: hidden dir/file inventoried",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "policy: .env restricted metadata only",
+      "pass": true,
+      "detail": "RESTRICTED_METADATA_ONLY"
+    },
+    {
+      "name": "policy: node_modules content excluded but inventoried",
+      "pass": true,
+      "detail": "EXCLUDED_CONTENT_DEPENDENCY"
+    },
+    {
+      "name": "policy: generated dir recorded but not traversed",
+      "pass": true,
+      "detail": "1 entries under gen-output"
+    },
+    {
+      "name": "archive: zip members enumerated separately",
+      "pass": true,
+      "detail": "members=3 containers=1"
+    },
+    {
+      "name": "receipts: every scanned dir has a receipt",
+      "pass": true,
+      "detail": "receipts=19 incomplete=1 (missing-root ERROR expected)"
+    }
+  ],
+  "result": "PASS",
+  "passed": 17,
+  "total": 17,
+  "note": "fixture-only evidence; proves scanner mechanics, not corpus coverage"
+}

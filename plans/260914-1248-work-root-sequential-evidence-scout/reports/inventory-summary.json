@@ -1,0 +1,61 @@
+{
+  "runId": "wrses-20260914T135118Z",
+  "policyVersion": "1.0.0",
+  "generatedAt": "2026-09-14T14:47:26.104Z",
+  "aggregateFrom": {
+    "batchFiles": 90339,
+    "directoryReceipts": 90339
+  },
+  "physical": {
+    "entries": 1063814,
+    "files": 972818,
+    "directories": 90341,
+    "reparsePoints": 655,
+    "other": 0,
+    "logicalBytes": 81130606798,
+    "rootDirectoryEntriesIncluded": 0,
+    "denominatorDefinition": "every entry observed in a scanned directory, including dependency trees, derived build output and generated-by-this-run paths",
+    "sizeSemantics": "logical bytes from lstat; disk allocation not claimed"
+  },
+  "virtual": {
+    "archiveMembers": 0,
+    "denominatorDefinition": "members enumerated inside archive containers; counted separately from physical paths"
+  },
+  "byRoot": {
+    "skills-agents": 2879,
+    "skills-claude": 2870,
+    "work-root": 1058065
+  },
+  "byContentPolicy": {
+    "ALLOWED": 200041,
+    "DERIVED_BUILD_OUTPUT": 14822,
+    "EXCLUDED_AK_SKILL": 1948,
+    "EXCLUDED_AK_SKILL_CANDIDATE": 1936,
+    "EXCLUDED_CONTENT_DEPENDENCY": 746522,
+    "GENERATED_BY_THIS_RUN": 8,
+    "RESTRICTED_METADATA_ONLY": 98537
+  },
+  "byDisposition": {
+    "INVENTORIED": 1063814
+  },
+  "directoryReceipts": {
+    "COMPLETE": 90339
+  },
+  "directoriesWithoutCompleteReceipt": 0,
+  "unknownRegionsDefinition": "directories whose receipt state is not COMPLETE (ERROR or BLOCKED_RESOURCE_LIMIT); descendant count is not estimated",
+  "errors": {
+    "total": 0,
+    "byCode": {}
+  },
+  "missingRoots": [],
+  "frontier": {
+    "state": "EMPTY",
+    "discoveredDirs": 90336,
+    "completedDirs": 90339,
+    "pendingCount": 0
+  },
+  "coverageClaim": "SCOPE_SCANNED_WITHOUT_RESIDUAL_FRONTIER",
+  "artifactBytes": {
+    "inventory": 870714685
+  }
+}

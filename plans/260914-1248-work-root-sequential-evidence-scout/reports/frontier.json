@@ -1,0 +1,14 @@
+{
+  "runId": "wrses-20260914T135118Z",
+  "generatedAt": "2026-09-14T14:47:26.103Z",
+  "final": false,
+  "roots": [],
+  "discoveredDirs": 90336,
+  "completedDirs": 90339,
+  "pendingCount": 0,
+  "pendingSampleLimit": 1000,
+  "pending": [],
+  "pendingTruncated": false,
+  "state": "EMPTY",
+  "note": "frontier reconciled empty for the roots that were actually scanned"
+}

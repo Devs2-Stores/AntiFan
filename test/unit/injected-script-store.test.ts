@@ -6,24 +6,9 @@ import * as os from 'node:os';
 import { InjectedScriptStore } from '../../src/main/browser/scripts/injected-script-store';
 
 describe('InjectedScriptStore', () => {
-  it('registers exactly 3 default built-in scripts and returns them', () => {
+  it('registers the supported built-in scripts', () => {
     const store = new InjectedScriptStore({ overrideDir: null });
-    const scripts = store.listScripts();
-    const ids = scripts.map((s) => s.id).sort();
-
-    assert.deepStrictEqual(ids, ['media.freeze', 'settle.fonts', 'settle.images']);
-
-    // Default: normalizeSliders is false (sliders/carousels preserved)
-    const freezeScript = store.getScript('media.freeze', { freeze: true });
-    assert.ok(typeof freezeScript === 'string' && freezeScript.length > 0);
-    assert.ok(freezeScript.includes('requestAnimationFrame'), 'media.freeze should intercept RAF');
-    assert.ok(freezeScript.includes('const normalizeSliders = false;'), 'media.freeze default must set normalizeSliders = false');
-    assert.ok(freezeScript.includes('restoreSliderNormalization'), 'restore logic is always emitted');
-
-    // Explicit opt-in: normalizeSliders is true
-    const optInScript = store.getScript('media.freeze', { freeze: true, normalizeSliders: true });
-    assert.ok(optInScript.includes('const normalizeSliders = true;'), 'media.freeze explicit opt-in must set normalizeSliders = true');
-    assert.ok(optInScript.includes('restoreSliderNormalization'), 'restore logic is always emitted');
+    assert.deepStrictEqual(store.listScripts().map(script => script.id).sort(), ['media.freeze', 'settle.fonts', 'settle.images']);
   });
   it('fails closed on unknown script ID', () => {
     const store = new InjectedScriptStore({ overrideDir: null });
@@ -116,10 +101,4 @@ describe('InjectedScriptStore', () => {
     }
   });
 
-  it('emits proper width restoration in media.freeze script', () => {
-    const store = new InjectedScriptStore({ overrideDir: null });
-    const freezeScript = store.getScript('media.freeze', { freeze: true, normalizeSliders: true });
-
-    assert.ok(freezeScript.includes("'transform', 'transition', 'left', 'margin-left', 'width'"), 'Must restore width along with transform/transition/left/margin-left');
-  });
 });

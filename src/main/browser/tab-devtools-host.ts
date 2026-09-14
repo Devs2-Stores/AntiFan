@@ -95,6 +95,7 @@ export interface TabDevToolsStats {
  * reference materialization walk) pass their own through `timeoutMs`.
  */
 const EVAL_JS_DEFAULT_TIMEOUT_MS = 15_000;
+
 /**
  * Source of the circular-safe value serializer injected into every evaluated
  * expression. One definition, so the page-context and frame-context paths cannot
@@ -138,7 +139,7 @@ const SERIALIZE_CIRCULAR_SAFE_SOURCE = `function serializeCircularSafe(val, seen
  * Identity comes from `WebFrameMain.framesInSubtree`, deliberately not from
  * `Page.getFrameTree`: the CDP frame tree reports a cross-origin child without its
  * committed URL, so URL matching there can never resolve an embedded app frame.
- * The tab's own top frame is never a candidate â€” running a caller's script in the
+ * The tab's own top frame is never a candidate — running a caller's script in the
  * top frame when it asked for a child frame would execute it in the wrong context.
  */
 function findChildFrameByUrl(wc: Electron.WebContents, frameUrl: string, tabId: string): Electron.WebFrameMain {
@@ -157,7 +158,6 @@ function findChildFrameByUrl(wc: Electron.WebContents, frameUrl: string, tabId: 
     .join(' | ');
   throw new CapabilityError('SELECTOR_NOT_FOUND', `No child frame in tab ${tabId} matches "${frameUrl}". Frames: ${census || '(none)'}`);
 }
-
 
 export class TabDevToolsHost {
   private readonly ctx: TabDevToolsContext;
@@ -1697,7 +1697,7 @@ export class TabDevToolsHost {
               }
             }
             try {
-              await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
+              await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); if (typeof requestAnimationFrame === "function") { requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
               await delay(120);
             } catch {}
             return await captureAction();
@@ -2001,7 +2001,7 @@ export class TabDevToolsHost {
                 }
               }
               try {
-                await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
+                await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); if (typeof requestAnimationFrame === "function") { requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
                 await delay(120);
               } catch {}
               return await captureAction();
@@ -2350,9 +2350,9 @@ export class TabDevToolsHost {
     paneId?: SplitPaneId,
     userGesture = false,
     timeoutMs = EVAL_JS_DEFAULT_TIMEOUT_MS
+  ): Promise<unknown> {
     const softBudgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.round(timeoutMs) : EVAL_JS_DEFAULT_TIMEOUT_MS;
     const hardBudgetMs = Math.max(softBudgetMs + 3000, Math.round(softBudgetMs * 2.5));
-  ): Promise<unknown> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`);

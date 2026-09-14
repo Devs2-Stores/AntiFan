@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { ComponentContractIR } from '../models/clone-ir.js';
 import { CloneIRBuilder } from '../models/clone-ir-builder.js';
 import { HaravanLayoutGenerator } from './haravan-layout-generator.js';
@@ -38,19 +39,42 @@ import {
   BlueprintExtractor,
   ExtractedSectionBlueprint,
 } from '../models/blueprint-extractor.js';
+import type { HarvestedAssetManifest, HarvestedAssetItem } from '../models/asset-harvester.js';
+export interface ThemeCodeApproval {
+  sha256: string;
+  classification: 'THEME_REQUIRED' | 'EXTRACTED';
+  usage: string;
+  evidence: string;
+}
+
 
 export interface ThemeCompilerOptions {
+  codeApprovals?: ThemeCodeApproval[];
   targetContract?: HaravanTargetContract;
   settingsMode?: HaravanSettingsMode | string;
   emitLocales?: boolean;
   localizedLocales?: string[];
   mobileHtml?: string;
   inputPath?: string;
+  /**
+   * The localization pipeline writes asset bytes into the stage *after* the
+   * inner compile returns, so the inner reference gate would inspect a stage
+   * whose assets are not yet localized. The outer boundary validates instead.
+   */
+  deferFinalAssetValidation?: boolean;
   [key: string]: unknown;
 }
 export interface ResolvedAsset {
   sourcePath: string;
   resolvedFilename: string;
+}
+export interface RouteHeadAssetsResult {
+  desktopStylesheets: string[];
+  mobileStylesheets: string[];
+  sharedStylesheets: string[];
+  desktopInlineStyles: string[];
+  mobileInlineStyles: string[];
+  liquidAssetTags: string;
 }
 
 export function computeFileSha256(filePath: string): string {
@@ -84,6 +108,18 @@ export function isBundlerHash(suffix: string): boolean {
   const isHex = /^[0-9a-fA-F]+$/.test(suffix);
   const isMixedCase = /[a-z]/.test(suffix) && /[A-Z]/.test(suffix);
   return hasDigit || isHex || isMixedCase;
+}
+
+export function resolveCanonicalAssetFilename(filename: string): string {
+  if (!filename) return filename;
+  const clean = path.basename(filename.split(/[?#]/)[0]);
+  const ext = path.extname(clean);
+  const base = clean.slice(0, clean.length - ext.length);
+  if (base.length > 64) {
+    const truncatedBase = base.slice(0, 64).replace(/-+$/, '');
+    return `${truncatedBase}${ext}`;
+  }
+  return clean;
 }
 
 export function isAlreadyMediaWrapped(css: string): boolean {
@@ -123,13 +159,20 @@ export function resolveRealAsset(
 ): ResolvedAsset | null {
   const cleanRef = path.basename(refName.split(/[?#]/)[0]);
   if (!cleanRef || isJunkOrThirdPartyAsset(cleanRef)) return null;
+  const canonicalRef = resolveCanonicalAssetFilename(cleanRef);
 
   // 1. Direct exact match in searchDirs
   for (const dir of searchDirs) {
     if (!fs.existsSync(dir)) continue;
     const directPath = path.join(dir, cleanRef);
     if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
-      return { sourcePath: directPath, resolvedFilename: cleanRef };
+      return { sourcePath: directPath, resolvedFilename: canonicalRef };
+    }
+    if (canonicalRef !== cleanRef) {
+      const canonPath = path.join(dir, canonicalRef);
+      if (fs.existsSync(canonPath) && fs.statSync(canonPath).isFile()) {
+        return { sourcePath: canonPath, resolvedFilename: canonicalRef };
+      }
     }
   }
 
@@ -317,6 +360,7 @@ export class ThemeCompiler {
       const compileRes = this.compileThemeFromIR(tempStageDir, ir, {
         ...options,
         targetContract,
+        deferFinalAssetValidation: true,
       });
 
       // 2. If assets exist, run AssetLocalizer.localizePipeline inside the temporary staging directory
@@ -392,6 +436,7 @@ export class ThemeCompiler {
       if (targetContract.emitLocales) {
         dirs.push('locales');
       }
+      this.validateFinalAssetReferences(tempStageDir);
       this.atomicSwap(tempStageDir, outputDir, dirs, options);
       return {
         success: true,
@@ -408,6 +453,16 @@ export class ThemeCompiler {
       } catch {}
     }
   }
+  public assertCodeOwnership(content: string, source: string, options?: ThemeCompilerOptions): void {
+    if (!content.trim()) return;
+    const sha256 = crypto.createHash('sha256').update(content).digest('hex');
+    const approval = options?.codeApprovals?.find(item => item.sha256 === sha256);
+    if (!approval || !['THEME_REQUIRED', 'EXTRACTED'].includes(approval.classification) ||
+        !approval.usage?.trim() || !approval.evidence?.trim()) {
+      throw new Error(`ThemeCompiler: UNRESOLVED_CODE_OWNERSHIP ${source} sha256=${sha256}; explicit usage and evidence approval required`);
+    }
+  }
+
 
   public compileTheme(
     outputDir: string,
@@ -443,8 +498,16 @@ export class ThemeCompiler {
     ir: ComponentContractIR,
     options?: ThemeCompilerOptions
   ): ThemeCompileResult {
+    for (const item of [...(ir.assets?.stylesheets || []), ...(ir.assets?.javascripts || [])]) {
+      if (!item.localPath || !fs.existsSync(item.localPath)) continue;
+      this.assertCodeOwnership(fs.readFileSync(item.localPath, 'utf8'), item.sourceUrl, options);
+    }
+    for (const style of ir.headStyles || []) this.assertCodeOwnership(style, 'inline head stylesheet', options);
     const targetContract =
       options?.targetContract || createHaravanTargetContract(options);
+    // Asset-context-scoped tolerance: without a caller-supplied asset source the compiler
+    // never owns the referenced bytes, so the staged reference audit stays advisory there.
+    let hasAssetContext = false;
 
     // 1. Create temporary staging directory for atomic generation
     const stagingDir = fs.mkdtempSync(
@@ -504,10 +567,10 @@ export class ThemeCompiler {
         if (!rawName || !targetFilename) return;
         if (rawName.includes('{{') || rawName.includes('{%') || rawName.includes('}}') || rawName.includes('%}')) return;
         if (isJunkOrThirdPartyAsset(rawName) || isJunkOrThirdPartyAsset(targetFilename)) return;
-        const clean = path.basename(targetFilename.split(/[?#]/)[0]);
+        const clean = resolveCanonicalAssetFilename(targetFilename);
         const ext = path.extname(clean).toLowerCase();
         if (!THEME_STATIC_ASSET_EXTENSIONS.has(ext)) return;
-        const rawClean = path.basename(rawName.split(/[?#]/)[0]);
+        const rawClean = resolveCanonicalAssetFilename(rawName);
         const rawExt = path.extname(rawClean).toLowerCase();
         if (rawExt && !THEME_STATIC_ASSET_EXTENSIONS.has(rawExt)) return;
         const rep = `{{ '${clean}' | asset_url }}`;
@@ -517,9 +580,26 @@ export class ThemeCompiler {
         liquidUrlMap.set(`../assets/${rawName}`, rep);
         liquidUrlMap.set(`../../assets/${rawName}`, rep);
         liquidUrlMap.set(`./assets/${rawName}`, rep);
+        if (clean !== targetFilename) {
+          liquidUrlMap.set(clean, rep);
+          liquidUrlMap.set(`assets/${clean}`, rep);
+          liquidUrlMap.set(`/assets/${clean}`, rep);
+          liquidUrlMap.set(`../assets/${clean}`, rep);
+          liquidUrlMap.set(`../../assets/${clean}`, rep);
+          liquidUrlMap.set(`./assets/${clean}`, rep);
+        }
       };
 
       // 1. Register disk files from searchDirs
+      for (const dir of searchDirs) {
+        if (!fs.existsSync(dir)) continue;
+        for (const name of fs.readdirSync(dir)) {
+          const source = path.join(dir, name);
+          if (/\.(?:css|m?js)$/i.test(name) && fs.statSync(source).isFile()) {
+            this.assertCodeOwnership(fs.readFileSync(source, 'utf8'), source, options);
+          }
+        }
+      }
       for (const sDir of searchDirs) {
         if (!fs.existsSync(sDir)) continue;
         try {
@@ -586,6 +666,20 @@ export class ThemeCompiler {
           ? fs.readFileSync(mobileIndexPath, 'utf-8')
           : '';
       const hasMobileSurface = Boolean(mobileHtmlContent && mobileHtmlContent.trim().length > 0);
+      if (mobileIndexPath) {
+        const mobileAssets = path.join(path.dirname(mobileIndexPath), 'assets');
+        if (fs.existsSync(mobileAssets)) {
+          for (const name of fs.readdirSync(mobileAssets)) {
+            const source = path.join(mobileAssets, name);
+            if (/\.(?:css|m?js)$/i.test(name) && fs.statSync(source).isFile()) this.assertCodeOwnership(fs.readFileSync(source, 'utf8'), source, options);
+          }
+        }
+      }
+      for (const html of [desktopHtmlContent, mobileHtmlContent]) {
+        for (const style of DomTreeParser.findByTag(DomTreeParser.parse(html), 'style')) {
+          this.assertCodeOwnership(style.innerHtml, 'surface inline stylesheet', options);
+        }
+      }
 
       let mobileHeaderContent = '';
       let mobileFooterContent = '';
@@ -752,7 +846,7 @@ export class ThemeCompiler {
             ) {
               return match;
             }
-            const cleanFilename = path.basename(rawVal.split(/[?#]/)[0]);
+            const cleanFilename = resolveCanonicalAssetFilename(rawVal);
             if (!cleanFilename || isJunkOrThirdPartyAsset(cleanFilename)) return match;
             // `href` also carries page links (…/bai-viet-2026.html): only a real asset extension
             // may become an asset_url reference.
@@ -770,7 +864,7 @@ export class ThemeCompiler {
             const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
             const fallbackMatch = val.match(/((?:this\.)?src\s*=\s*)(?:&quot;|['"])(?:\.{1,3}\/|\/)*(?:assets\/)?([^"'?#\s]+\.[a-zA-Z0-9_-]+)(?:\?[^"']*)?(?:&quot;|['"]);?/i);
             if (fallbackMatch) {
-              const cleanFilename = path.basename(fallbackMatch[2].split(/[?#]/)[0]);
+              const cleanFilename = resolveCanonicalAssetFilename(fallbackMatch[2]);
               const safeJs = `${fallbackMatch[1]}&quot;{{ '${cleanFilename}' | asset_url }}&quot;;`;
               const replaced = val.replace(fallbackMatch[0], safeJs);
               return `${prefix}onerror="${replaced}"`;
@@ -789,7 +883,7 @@ export class ThemeCompiler {
             const replaced = val.replace(
               /(?:\.{1,3}\/|\/)*(?:assets\/)?([^,\s?#]+\.[a-zA-Z0-9_-]+)(?:\?[^,\s]*)?/gi,
               (_m: string, f: string) => {
-                const clean = path.basename(f.split(/[?#]/)[0]);
+                const clean = resolveCanonicalAssetFilename(f);
                 if (!/\.(?:css|js|mjs|json|png|jpe?g|webp|avif|gif|svg|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|mp3|pdf)$/i.test(clean)) {
                   return _m;
                 }
@@ -807,7 +901,7 @@ export class ThemeCompiler {
             if (filename.includes('asset_url') || filename.startsWith('data:') || filename.startsWith('http')) {
               return match;
             }
-            const clean = path.basename(filename.split(/[?#]/)[0]);
+            const clean = resolveCanonicalAssetFilename(filename);
             return `url({{ '${clean}' | asset_url }})`;
           }
         );
@@ -816,7 +910,7 @@ export class ThemeCompiler {
         res = res.replace(
           /(?:\.{1,3}\/|\/)+assets\/([^"'?#\s<>\)]+\.[a-zA-Z0-9_-]+)/gi,
           (_match: string, filename: string) => {
-            const clean = path.basename(filename.split(/[?#]/)[0]);
+            const clean = resolveCanonicalAssetFilename(filename);
             return `{{ '${clean}' | asset_url }}`;
           }
         );
@@ -1315,7 +1409,101 @@ export class ThemeCompiler {
       const interactivityMatch =
         (desktopHtmlContent && desktopHtmlContent.match(/<script\s+id=["']antifan-clone-interactivity["']>([\s\S]*?)<\/script>/i)) ||
         (hasMobileSurface && mobileHtmlContent.match(/<script\s+id=["']antifan-clone-interactivity["']>([\s\S]*?)<\/script>/i));
-      const cloneEngineJs = interactivityMatch ? interactivityMatch[1].trim() : '';
+      let cloneEngineJs = interactivityMatch ? interactivityMatch[1].trim() : '';
+      if (cloneEngineJs) this.assertCodeOwnership(cloneEngineJs, 'inline clone interactivity runtime', options);
+      if (cloneEngineJs.includes('function updateSlideMetrics')) {
+        cloneEngineJs = cloneEngineJs.replace(
+          /function\s+updateSlideMetrics\s*\(\)\s*\{[\s\S]*?updateSlideMetrics\(\);/i,
+          `function updateSlideMetrics() {
+        // Multi-item carousels (partner logos, news articles, accessories, product grids)
+        // must retain their native responsive widths and never be forced to 100% full width.
+        var isMultiItem = slider.closest('.partner, .partner-list, .news, .news-content, .accessory, [class*="product"]') ||
+                          slider.querySelector('.article-item, .accessory-content__item, [class*="product-"]') ||
+                          (slides[0] && (slides[0].classList.contains('article-item') || slides[0].getAttribute('data-href') !== null)) ||
+                          (slider.id && (slider.id.includes('partner') || slider.id.includes('news')));
+        if (isMultiItem) return;
+
+        var sliderWidth = slider.clientWidth || list.clientWidth || window.innerWidth;
+        if (sliderWidth > 0 && (track.classList.contains('s-content') || slider.classList.contains('s-wrap'))) {
+          if (slides[0]) {
+            var firstItemStyle = window.getComputedStyle(slides[0]);
+            var firstItemW = parseFloat(firstItemStyle.width);
+            if (firstItemW > 0 && firstItemW < sliderWidth * 0.75) {
+              return;
+            }
+          }
+          slides.forEach(function(s) {
+            s.style.width = sliderWidth + 'px';
+            s.style.flex = '0 0 ' + sliderWidth + 'px';
+            s.style.maxWidth = sliderWidth + 'px';
+            s.style.minWidth = sliderWidth + 'px';
+          });
+        }
+      }
+      updateSlideMetrics();`
+        );
+      }
+      if (cloneEngineJs.includes("document.body.style.overflow = 'hidden';")) {
+        cloneEngineJs = cloneEngineJs.replace(
+          /var\s+openDrawer\s*=\s*function\(drawer\)\s*\{[\s\S]*?document\.body\.style\.overflow\s*=\s*['"]hidden['"];\s*\};/i,
+          `var openDrawer = function(drawer) {
+      if (!drawer) return;
+      var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
+      drawer.classList.add(targetClass, 'show', 'active');
+      drawer.setAttribute('data-antifan-opened', 'true');
+      if (drawer.hasAttribute('data-antifan-target')) {
+        drawer.style.removeProperty('display');
+        drawer.style.display = 'block';
+      }
+      var isFullscreenDrawerOrModal = drawer.classList.contains('category-navigation__block') ||
+                                      drawer.hasAttribute('data-antifan-drawer') ||
+                                      drawer.classList.contains('mobile-drawer') ||
+                                      drawer.classList.contains('drawer') ||
+                                      drawer.classList.contains('offcanvas');
+      if (isFullscreenDrawerOrModal) {
+        document.body.style.overflow = 'hidden';
+      }
+    };`
+        );
+      }
+      if (cloneEngineJs.includes('toggleTriggers.forEach')) {
+        cloneEngineJs = cloneEngineJs.replace(
+          /var\s+toggleTriggers\s*=\s*document\.querySelectorAll\(['"]\[data-antifan-toggle\]['"]\);[\s\S]*?toggleTriggers\.forEach\(function\(btn\)\s*\{[\s\S]*?\}\);\s*\}\);/i,
+          `var toggleTriggers = document.querySelectorAll('[data-antifan-toggle]');
+    toggleTriggers.forEach(function(btn) {
+      if (btn.classList.contains('info-more__button')) return;
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var prop = btn.getAttribute('data-antifan-toggle');
+        var target = btn.closest('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]') ||
+                     btn.querySelector('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]') ||
+                     (btn.parentElement && btn.parentElement.querySelector('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]')) ||
+                     document.querySelector('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]');
+        if (target) {
+          var isOverlay = target.classList.contains('category-navigation__block') || target.hasAttribute('data-antifan-drawer') || target.classList.contains('drawer') || target.classList.contains('mobile-drawer') || target.classList.contains('offcanvas');
+          if (isOverlay) {
+            var targetClass = target.getAttribute('data-antifan-class') || 'show';
+            if (target.classList.contains(targetClass) || target.classList.contains('show') || target.classList.contains('active')) {
+              closeDrawer(target);
+            } else {
+              openDrawer(target);
+            }
+          } else {
+            var targetClass = target.getAttribute('data-antifan-class') || 'active';
+            if (target.classList.contains(targetClass) || target.classList.contains('show') || target.classList.contains('active')) {
+              target.classList.remove(targetClass, 'show', 'active');
+              target.style.display = 'none';
+            } else {
+              target.classList.add(targetClass, 'show', 'active');
+              target.style.removeProperty('display');
+              target.style.display = 'block';
+            }
+          }
+        }
+      });
+    });`
+        );
+      }
       const runtimeJs = cloneEngineJs
         ? `/* Antifan Clone Interactive Engine */\n${cloneEngineJs}\n`
         : this.stateSynth.generateDeclarativeRuntime();
@@ -1538,15 +1726,121 @@ body[data-device="mobile"] .site-footer__mobile {
 .s-wrap .s-content::-webkit-scrollbar, .s-slide .s-content::-webkit-scrollbar {
   display: none;
 }
-.s-wrap .s-content > .item, .s-slide .s-content > .item {
-  flex: 0 0 100%;
-  max-width: 100%;
-  scroll-snap-align: start;
+/* Swiper Container & Wrapper Unified Architecture */
+.s-wrap.swiper {
+  overflow: hidden !important;
+  position: relative;
 }
-.s-wrap .s-content > .item img, .s-slide .s-content > .item img {
+.s-wrap.swiper .s-content.swiper-wrapper {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow: visible !important;
+  scroll-snap-type: none !important;
+  box-sizing: content-box;
+}
+.swiper .swiper-wrapper > .swiper-slide,
+.s-wrap.swiper .s-content.swiper-wrapper > .swiper-slide,
+.s-wrap.swiper .s-content.swiper-wrapper > .item {
+  flex: 0 0 auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  flex-shrink: 0 !important;
+  scroll-snap-align: none !important;
+  box-sizing: border-box;
+}
+
+/* News Slider Cards Height & Aspect Ratio */
+.news-content #slide-1.swiper {
   width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+.news-content #slide-1 .article-item {
   height: auto;
-  display: block;
+  display: flex;
+  flex-direction: column;
+}
+.news-content #slide-1 .thumbnail-item {
+  width: 100%;
+  height: 190px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #f0f2f5;
+}
+.news-content #slide-1 .thumbnail-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .3s;
+}
+.news-content #slide-1 .article-item:hover .thumbnail-item img {
+  transform: scale(1.05);
+}
+
+/* Navigation buttons for News and sliders */
+.news-content__block {
+  position: relative;
+}
+.news-content__block .nav-prev,
+.news-content__block .nav-next,
+#slide-1 .nav-prev,
+#slide-1 .nav-next {
+  position: absolute;
+  top: 40%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: all .25s;
+  color: #134374;
+}
+.news-content__block .nav-prev:hover,
+.news-content__block .nav-next:hover,
+#slide-1 .nav-prev:hover,
+#slide-1 .nav-next:hover {
+  background: #134374;
+  color: #fff;
+}
+.news-content__block .nav-prev,
+#slide-1 .nav-prev {
+  left: -20px;
+}
+.news-content__block .nav-next,
+#slide-1 .nav-next {
+  right: -20px;
+}
+.news-content__block .swiper-button-disabled,
+#slide-1 .swiper-button-disabled {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  cursor: default;
+}
+
+/* Form file upload tooltip popup (.info-more__button -> .detail) */
+.form-block__content .form-row.row-file {
+  position: relative;
+}
+.form-block__content .form-row.row-file .info-more__button {
+  cursor: pointer;
+}
+.form-block__content .form-row.row-file .detail {
+  z-index: 1002 !important;
+  max-height: 85vh !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+.form-block__content .form-row.row-file .detail.active {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
 }
 
 ${responsiveUtilitiesCss}
@@ -1582,7 +1876,7 @@ ${responsiveUtilitiesCss}
       fs.writeFileSync(customCssPath, customCssDefault, 'utf-8');
       if (!filesWritten.includes(customCssPath)) filesWritten.push(customCssPath);
       // 9b. Copy, resolve, and fail-closed audit of all referenced theme assets
-      const hasAssetContext = Boolean(
+      hasAssetContext = Boolean(
         (options?.assetsDir && fs.existsSync(options.assetsDir as string)) ||
         (typeof options?.inputPath === 'string' && options.inputPath) ||
         Boolean(options?.failClosedAssets)
@@ -1624,6 +1918,14 @@ ${responsiveUtilitiesCss}
           const cleanCss = rawCss.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
           return `@charset "UTF-8";\n${mobileMediaQuery} {\n${cleanCss}\n}`;
         };
+        const wrapMobileJsIfNeeded = (rawJs: string, filename: string): string => {
+          const lower = filename.toLowerCase();
+          if (lower === 'home.js' || (lower.endsWith('.js') && rawJs.includes('.slick(') && rawJs.includes('breakpoint:768'))) {
+            if (rawJs.includes('window.innerWidth <= 768') || rawJs.includes('window.innerWidth < 768')) return rawJs;
+            return `/* AntiFan Mobile-Gated Carousel Runtime */\nif (typeof window !== 'undefined' && window.innerWidth <= 768) {\n${rawJs}\n}`;
+          }
+          return rawJs;
+        };
 
         // 1. Copy all real files from searchDirs into stagingDir/assets
         for (const sDir of searchDirs) {
@@ -1654,17 +1956,36 @@ ${responsiveUtilitiesCss}
                   if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
                 }
               } else {
-                if (fs.existsSync(destPath)) {
-                  const srcHash = computeFileSha256(srcPath);
-                  const destHash = computeFileSha256(destPath);
-                  if (srcHash !== destHash) {
-                    throw new Error(
-                      `ThemeCompiler: asset collision for "${diskFile}": source file ${srcPath} (${srcHash}) collides with existing staged file ${destPath} (${destHash})`
-                    );
+                const isJs = diskFile.toLowerCase().endsWith('.js');
+                if (isJs) {
+                  const rawJs = fs.readFileSync(srcPath, 'utf-8');
+                  const wrappedJs = wrapMobileJsIfNeeded(rawJs, diskFile);
+                  if (fs.existsSync(destPath) && fs.readFileSync(destPath, 'utf8') !== wrappedJs) {
+                    throw new Error(`ThemeCompiler: asset collision for "${diskFile}"`);
                   }
-                } else {
-                  fs.copyFileSync(srcPath, destPath);
+                  fs.writeFileSync(destPath, wrappedJs, 'utf-8');
                   if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+                } else {
+                  if (fs.existsSync(destPath)) {
+                    const srcHash = computeFileSha256(srcPath);
+                    const destHash = computeFileSha256(destPath);
+                    if (srcHash !== destHash) {
+                      throw new Error(
+                        `ThemeCompiler: asset collision for "${diskFile}": source file ${srcPath} (${srcHash}) collides with existing staged file ${destPath} (${destHash})`
+                      );
+                    }
+                  } else {
+                    fs.copyFileSync(srcPath, destPath);
+                    if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+                  }
+                }
+              }
+              const canonicalDiskFile = resolveCanonicalAssetFilename(diskFile);
+              if (canonicalDiskFile !== diskFile) {
+                const canonDestPath = path.join(stagingDir, 'assets', canonicalDiskFile);
+                if (!fs.existsSync(canonDestPath)) {
+                  fs.copyFileSync(srcPath, canonDestPath);
+                  if (!filesWritten.includes(canonDestPath)) filesWritten.push(canonDestPath);
                 }
               }
             }
@@ -1700,17 +2021,36 @@ ${responsiveUtilitiesCss}
                 if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
               }
             } else {
-              if (fs.existsSync(destPath)) {
-                const srcHash = computeFileSha256(item.localPath);
-                const destHash = computeFileSha256(destPath);
-                if (srcHash !== destHash) {
-                  throw new Error(
-                    `ThemeCompiler: asset collision for "${item.filename}": IR asset ${item.localPath} (${srcHash}) collides with existing staged file ${destPath} (${destHash})`
-                  );
+              const isJs = item.filename.toLowerCase().endsWith('.js');
+              if (isJs) {
+                const rawJs = fs.readFileSync(item.localPath, 'utf-8');
+                const wrappedJs = wrapMobileJsIfNeeded(rawJs, item.filename);
+                if (fs.existsSync(destPath) && fs.readFileSync(destPath, 'utf8') !== wrappedJs) {
+                  throw new Error(`ThemeCompiler: asset collision for "${item.filename}"`);
                 }
-              } else {
-                fs.copyFileSync(item.localPath, destPath);
+                fs.writeFileSync(destPath, wrappedJs, 'utf-8');
                 if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+              } else {
+                if (fs.existsSync(destPath)) {
+                  const srcHash = computeFileSha256(item.localPath);
+                  const destHash = computeFileSha256(destPath);
+                  if (srcHash !== destHash) {
+                    throw new Error(
+                      `ThemeCompiler: asset collision for "${item.filename}": IR asset ${item.localPath} (${srcHash}) collides with existing staged file ${destPath} (${destHash})`
+                    );
+                  }
+                } else {
+                  fs.copyFileSync(item.localPath, destPath);
+                  if (!filesWritten.includes(destPath)) filesWritten.push(destPath);
+                }
+              }
+            }
+            const canonicalItemFile = resolveCanonicalAssetFilename(item.filename);
+            if (canonicalItemFile !== item.filename) {
+              const canonDestPath = path.join(stagingDir, 'assets', canonicalItemFile);
+              if (!fs.existsSync(canonDestPath)) {
+                fs.copyFileSync(item.localPath, canonDestPath);
+                if (!filesWritten.includes(canonDestPath)) filesWritten.push(canonDestPath);
               }
             }
           }
@@ -1733,7 +2073,7 @@ ${responsiveUtilitiesCss}
                   const liquidAssetMatches = text.matchAll(/\{\{\s*['"]([^'"]+)['"]\s*\|\s*asset_url\b[^}]*\}\}/g);
                   for (const m of liquidAssetMatches) {
                     const ref = m[1].trim();
-                    const cleanRef = path.basename(ref.split(/[?#]/)[0]);
+                    const cleanRef = resolveCanonicalAssetFilename(path.basename(ref.split(/[?#]/)[0]));
                     const refExt = path.extname(cleanRef).toLowerCase();
                     if (
                       ref &&
@@ -1776,6 +2116,7 @@ ${responsiveUtilitiesCss}
 
           const resolved = resolveRealAsset(ref, searchDirs, cloneAssetMap, allIrAssets);
           if (resolved) {
+            if (/\.(?:css|m?js)$/i.test(ref)) this.assertCodeOwnership(fs.readFileSync(resolved.sourcePath, 'utf8'), resolved.sourcePath, options);
             if (fs.existsSync(stagedAssetPath)) {
               const srcHash = computeFileSha256(resolved.sourcePath);
               const destHash = computeFileSha256(stagedAssetPath);
@@ -1860,8 +2201,10 @@ ${responsiveUtilitiesCss}
         filesWritten.push(themeManifestStagingPath);
       }
 
-      // 10. Validate staging integrity before swap
+      // 10. Validate staging integrity before swap. The localization pipeline defers the
+      // asset-reference gate to its own promotion boundary, after localized bytes land.
       this.validateStagingTheme(stagingDir, targetContract);
+      if (!options?.deferFinalAssetValidation && hasAssetContext) this.validateFinalAssetReferences(stagingDir);
       this.atomicSwap(stagingDir, outputDir, dirs, options);
       return {
         success: true,
@@ -1988,6 +2331,8 @@ ${responsiveUtilitiesCss}
               fs.rmSync(destSub, { recursive: true, force: true });
             }
             fs.cpSync(backupSub, destSub, { recursive: true });
+          } else if (fs.existsSync(destSub)) {
+            fs.rmSync(destSub, { recursive: true, force: true });
           }
         }
       } catch {}
@@ -1996,6 +2341,59 @@ ${responsiveUtilitiesCss}
       try {
         fs.rmSync(backupDir, { recursive: true, force: true });
       } catch {}
+    }
+  }
+
+  public promoteStagedTheme(stagingDir: string, outputDir: string, options: ThemeCompilerOptions = {}): void {
+    const contract = createHaravanTargetContract({ settingsMode: options.settingsMode as HaravanSettingsMode });
+    this.validateStagingTheme(stagingDir, contract);
+    const manifest: HarvestedAssetManifest = { stylesheets: [], javascripts: [], images: [], fonts: [], totalBytes: 0 };
+    const assetsDir = path.join(stagingDir, 'assets');
+    if (!fs.existsSync(assetsDir) || !fs.statSync(assetsDir).isDirectory()) {
+      throw new Error('ThemeCompiler: staged theme has no assets/ directory to promote');
+    }
+    for (const filename of fs.readdirSync(assetsDir)) {
+      const localPath = path.join(assetsDir, filename);
+      if (!fs.statSync(localPath).isFile()) throw new Error(`ThemeCompiler: non-flat asset ${filename}`);
+      const ext = path.extname(filename).toLowerCase();
+      const type: HarvestedAssetItem['type'] = ext === '.css' ? 'css' : ['.js', '.mjs'].includes(ext) ? 'js' : ['.woff', '.woff2', '.ttf', '.otf', '.eot'].includes(ext) ? 'font' : 'image';
+      const item: HarvestedAssetItem = { filename, localPath, type, sourceUrl: pathToFileURL(localPath).href };
+      const bucket = type === 'css' ? manifest.stylesheets : type === 'js' ? manifest.javascripts : type === 'font' ? manifest.fonts : manifest.images;
+      bucket.push(item);
+    }
+    const rewrittenFiles = ['layout', 'templates', 'snippets'].flatMap(dir => {
+      const fullDir = path.join(stagingDir, dir);
+      return fs.existsSync(fullDir) ? fs.readdirSync(fullDir).filter(file => file.endsWith('.liquid')).map(file => {
+        const filePath = path.join(fullDir, file);
+        const content = fs.readFileSync(filePath, 'utf8');
+        return { path: filePath, originalContent: content, rewrittenContent: content, replacementCount: 0 };
+      }) : [];
+    });
+    const audit = new AssetLocalizer().verifyAndAudit(manifest, { assetsDir, rewrittenFiles });
+    if (!audit.passed) throw new Error(`ThemeCompiler: final asset audit failed: ${audit.findings.map(f => f.message).join('; ')}`);
+    this.validateFinalAssetReferences(stagingDir);
+    this.atomicSwap(stagingDir, outputDir, ['layout', 'templates', 'snippets', 'assets', 'config'], options);
+  }
+
+  private validateFinalAssetReferences(stagingDir: string): void {
+    const assetsDir = path.join(stagingDir, 'assets');
+    for (const d of ['layout', 'templates', 'snippets']) {
+      const fullDirPath = path.join(stagingDir, d);
+      if (!fs.existsSync(fullDirPath)) continue;
+      for (const file of fs.readdirSync(fullDirPath)) {
+        if (!file.endsWith('.liquid')) continue;
+        const content = fs.readFileSync(path.join(fullDirPath, file), 'utf-8');
+        for (const match of content.matchAll(/\{\{\s*['"]([^'"]+)['"]\s*\|\s*asset_url\b/g)) {
+          const asset = match[1];
+          if (path.basename(asset) !== asset || asset.includes('\\') || asset === '..') {
+            throw new Error(`ThemeCompiler: invalid final asset reference ${asset} in ${d}/${file}`);
+          }
+          const assetPath = path.join(assetsDir, asset);
+          if (!fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile() || fs.statSync(assetPath).size === 0) {
+            throw new Error(`ThemeCompiler: unresolved final asset reference ${asset} in ${d}/${file}`);
+          }
+        }
+      }
     }
   }
 
@@ -2106,6 +2504,7 @@ ${responsiveUtilitiesCss}
             const filePath = path.join(fullDirPath, file);
             const content = fs.readFileSync(filePath, 'utf-8');
 
+
             // Check forbidden {% schema %}
             if (/\{%\s*schema\s*%\}/i.test(content)) {
               throw new Error(
@@ -2133,5 +2532,124 @@ ${responsiveUtilitiesCss}
         }
       }
     }
+  }
+
+  /**
+   * Dynamically extracts page-specific head assets (stylesheets, media queries, inline styles)
+   * from any route's Desktop and Mobile HTML documents, filtering out global stylesheets
+   * already bundled into theme.css.
+   */
+  public extractRouteHeadAssets(
+    desktopHtml?: string,
+    mobileHtml?: string,
+    globalBundledSheets?: Set<string>
+  ): RouteHeadAssetsResult {
+    const defaultGlobals = new Set([
+      'theme.css',
+      'custom.css',
+      'app.css',
+      'app-dcc2d3nb.css',
+      'app-mobile-5wa_jy_a.css',
+      'home.css',
+      'home-desktop-cw7dk4ja.css',
+      'home-mobile-1bp5y6oy.css',
+    ]);
+    const globals = globalBundledSheets
+      ? new Set([...globalBundledSheets, ...defaultGlobals])
+      : defaultGlobals;
+
+    const parseSheets = (html?: string): string[] => {
+      if (!html) return [];
+      const headMatch = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i);
+      const scope = headMatch ? headMatch[1] : html;
+      const links = scope.match(/<link[^>]*rel=["']stylesheet["'][^>]*>/gi) || [];
+      const sheets: string[] = [];
+      for (const link of links) {
+        const m = link.match(/href=["']([^"']+)["']/i);
+        if (m) {
+          const clean = m[1].split('?')[0].split('#')[0];
+          const filename = path.basename(clean);
+          if (
+            filename &&
+            filename.toLowerCase().endsWith('.css') &&
+            !isJunkOrThirdPartyAsset(filename) &&
+            !globals.has(filename) &&
+            !sheets.includes(filename)
+          ) {
+            sheets.push(filename);
+          }
+        }
+      }
+      return sheets;
+    };
+
+    const parseStyles = (html?: string): string[] => {
+      if (!html) return [];
+      const headMatch = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i);
+      const scope = headMatch ? headMatch[1] : html;
+      const styles = scope.match(/<style\b[^>]*>([\s\S]*?)<\/style>/gi) || [];
+      const res: string[] = [];
+      for (const s of styles) {
+        const cleaned = s
+          .replace(/^<style\b[^>]*>/i, '')
+          .replace(/<\/style>$/i, '')
+          .trim();
+        if (
+          cleaned.length > 0 &&
+          !cleaned.includes('wire:loading') &&
+          !cleaned.includes('--livewire-progress') &&
+          !cleaned.includes('antifan-clone-parity') &&
+          !cleaned.includes('recaptcha') &&
+          !cleaned.includes('wpcf7')
+        ) {
+          res.push(cleaned);
+        }
+      }
+      return res;
+    };
+
+    const dSheets = parseSheets(desktopHtml);
+    const mSheets = parseSheets(mobileHtml);
+
+    const sharedStylesheets = dSheets.filter((s) => mSheets.includes(s));
+    const desktopStylesheets = dSheets.filter((s) => !mSheets.includes(s));
+    const mobileStylesheets = mSheets.filter((s) => !dSheets.includes(s));
+
+    const desktopInlineStyles = parseStyles(desktopHtml);
+    const mobileInlineStyles = parseStyles(mobileHtml);
+
+    const tags: string[] = [];
+    for (const s of sharedStylesheets) {
+      tags.push(`{{ '${s}' | asset_url | stylesheet_tag }}`);
+    }
+    for (const s of desktopStylesheets) {
+      tags.push(
+        `<link rel="stylesheet" href="{{ '${s}' | asset_url }}" media="screen and (min-width: 992px)">`
+      );
+    }
+    for (const s of mobileStylesheets) {
+      tags.push(
+        `<link rel="stylesheet" href="{{ '${s}' | asset_url }}" media="screen and (max-width: 991px)">`
+      );
+    }
+    for (const inline of desktopInlineStyles) {
+      tags.push(
+        `<style media="screen and (min-width: 992px)">\n${inline}\n</style>`
+      );
+    }
+    for (const inline of mobileInlineStyles) {
+      tags.push(
+        `<style media="screen and (max-width: 991px)">\n${inline}\n</style>`
+      );
+    }
+
+    return {
+      desktopStylesheets,
+      mobileStylesheets,
+      sharedStylesheets,
+      desktopInlineStyles,
+      mobileInlineStyles,
+      liquidAssetTags: tags.join('\n'),
+    };
   }
 }

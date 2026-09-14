@@ -1,6 +1,6 @@
-# AntiFan Browser Desktop (Lite Extension Bridge)
+# AntiFan Browser Desktop
 
-Trình duyệt Chromium Desktop siêu nhẹ, đóng vai trò là **Companion Engine & Extension Bridge** phục vụ Antigravity / VS Code Extension và AI Agent.
+Local Control Plane for OMP / agent CLI workflows: MCP exposes browser, device, terminal, artifact, clone, and theme QA capabilities. External agents own reasoning and authorized repairs; AntiFan owns execution and verification evidence. Existing extension integrations remain available but do not define the core architecture.
 
 > 🔒 **LƯU Ý PHẠM VI DỰ ÁN (PERSONAL USE ONLY):**
 > - **Dùng cá nhân & Nội bộ 100%:** Ứng dụng này được phát triển phục vụ mục đích cá nhân trong quy trình kỹ thuật Theme E-commerce & AI Automation.

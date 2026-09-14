@@ -425,11 +425,21 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
 
     // 14. strictVerification
     describe('14) strictVerification', () => {
+      it('rejects a passing comparator bound to missing or stale artifact context', () => {
+        const targetUrl = 'https://store.haravan.com/?themeid=123';
+        const visualDiff = { match: true, status: 'PASS', mismatchPercentage: 0, surface: 'desktop', targetUrl, revision: 'v1' };
+        assert.equal(validator.auditStrictVerification({ targetUrl, surface: 'desktop', revision: 'v1', visualDiff }).passed, true);
+        assert.equal(validator.auditStrictVerification({ targetUrl, surface: 'desktop', revision: 'v2', visualDiff }).passed, false);
+        assert.equal(validator.auditStrictVerification({ targetUrl, surface: 'desktop', visualDiff }).passed, false);
+        assert.equal(validator.auditStrictVerification({ targetUrl: targetUrl + '4', surface: 'desktop', revision: 'v1', visualDiff }).passed, false);
+      });
       it('passes when visual diff conforms to canonical comparator match/status metric contract', () => {
         const res = validator.auditStrictVerification({
           surface: 'desktop',
+          revision: 'artifact-v1',
           targetUrl: 'https://demo.haravan.com/products/polo',
           visualDiff: {
+            revision: 'artifact-v1',
             match: true,
             status: 'PASS',
             mismatchPercentage: 1.2,
@@ -449,8 +459,12 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
       it('passes when visual comparison provides canonical VisualEvidenceReceipt and MATCH status with mismatchedPixels fallback', () => {
         const res = validator.auditStrictVerification({
           surface: 'desktop',
+          revision: 'artifact-v1',
           targetUrl: 'https://demo.haravan.com/products/polo',
           visualDiff: {
+            revision: 'artifact-v1',
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/products/polo',
             status: 'MATCH',
             mismatchedPixels: 15,
             totalPixels: 3000,
@@ -469,6 +483,57 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         assert.ok(res.evidence?.includes('diff 0.50%'));
         assert.ok(res.evidence?.includes('diffPixels: 15/3000'));
       });
+      it('binds evidence across surface casing and a trailing slash while holding URL query identity', () => {
+        const res = validator.auditStrictVerification({
+          surface: 'Desktop',
+          revision: 'artifact-v1',
+          targetUrl: 'https://demo.haravan.com/products/polo/',
+          visualDiff: {
+            revision: 'artifact-v1',
+            match: true,
+            status: 'PASS',
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/products/polo',
+            mismatchPercentage: 0.4,
+            tolerance: 5.0,
+          },
+        });
+        assert.strictEqual(res.passed, true, res.reason);
+
+        const wrongPath = validator.auditStrictVerification({
+          surface: 'desktop',
+          revision: 'artifact-v1',
+          targetUrl: 'https://demo.haravan.com/products/hat',
+          visualDiff: {
+            revision: 'artifact-v1',
+            match: true,
+            status: 'PASS',
+            surface: 'desktop',
+            targetUrl: 'https://demo.haravan.com/products/polo',
+            mismatchPercentage: 0.4,
+            tolerance: 5.0,
+          },
+        });
+        assert.strictEqual(wrongPath.passed, false, 'a different route must never satisfy the binding gate');
+        assert.ok(wrongPath.reason?.includes('Wrong surface target URL'), wrongPath.reason);
+
+        const wrongPreviewTheme = validator.auditStrictVerification({
+          surface: 'desktop',
+          revision: 'artifact-v1',
+          targetUrl: 'https://store.haravan.com/?themeid=123',
+          visualDiff: {
+            revision: 'artifact-v1',
+            match: true,
+            status: 'PASS',
+            surface: 'desktop',
+            targetUrl: 'https://store.haravan.com/?themeid=1234',
+            mismatchPercentage: 0.4,
+            tolerance: 5.0,
+          },
+        });
+        assert.strictEqual(wrongPreviewTheme.passed, false, 'a receipt from another preview theme must not certify');
+      });
+
       it('supports explicit diagnostic mode for preflight diff check without full visual artifacts', () => {
         const res = validator.auditStrictVerification({
           mode: 'diagnostic',
@@ -744,6 +809,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
       registry.registerFixture({ id: 'fixture-test', type: 'product' });
 
       const fullPassingContext: DoDContext = {
+        revision: 'artifact-v1',
         // 1. textReference
         referenceUrl: 'https://demo.haravan.com/products/polo',
         // 2. visualBaseline
@@ -775,6 +841,7 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         browserRender: { status: 200, domLoaded: true, rendered: true, surface: 'desktop', url: 'https://demo.haravan.com/?themeid=987654321', screenshot: 'render.png' },
         // 14. strictVerification
         visualDiff: {
+          revision: 'artifact-v1',
           match: true,
           status: 'PASS',
           diffPercentage: 1.5,
@@ -953,6 +1020,9 @@ describe('DoDValidator - Automated Definition of Done Validator (Audit §63, §6
         referenceUrl: 'https://store.haravan.com/',
         revision: 'rev-2026',
         strictVerification: {
+          revision: 'rev-2026',
+          surface: 'desktop',
+          targetUrl: 'https://store.haravan.com/',
           receiptId: receipt.id,
           diffPercentage: 0.8,
           tolerance: 5.0,

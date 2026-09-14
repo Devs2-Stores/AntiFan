@@ -368,3 +368,38 @@ test('a refusal carried only by the refused case still exits as a refusal, not a
   assert.equal(res.reason, 'ROUTE_REFUSAL');
   assert.deepEqual(res.detail, ['URL_PATH_MISMATCH@page-1:1440']);
 });
+
+test('a full-scope run that adjudicates nothing exits non-zero, exactly like a reduced one', () => {
+  // The zero-adjudication refusal must not be reachable only through a declared
+  // exclusion. A full-scope run whose every case came back INCONCLUSIVE verified
+  // nothing, and a 0 there is the green-without-evidence state that the bottleneck
+  // ledger (B30) cites as closure proof. Reduced scope keeps its own declared
+  // exclusion in the status; a run that did adjudicate still exits 0.
+  const allInconclusive = summary({
+    1: page(1, 'HOME', 'page-01-home', { 1440: 'INCONCLUSIVE', 1024: 'INCONCLUSIVE', 390: 'INCONCLUSIVE' }),
+  });
+
+  const full = computeRunExit(allInconclusive, [1], { targetPages: TARGET_PAGES, viewportLabels: VIEWPORT_LABELS });
+  assert.equal(full.adjudicableCases, 0);
+  assert.equal(full.inconclusiveCases, 3);
+  assert.equal(full.code, 1, 'a full-scope run with no adjudication must not exit 0');
+  assert.equal(full.reason, 'NO_ADJUDICATED_CASE');
+  assert.equal(full.unverifiedViewports, undefined, 'no exclusion was declared, so none is reported');
+
+  const reduced = computeRunExit(allInconclusive, [1], {
+    targetPages: TARGET_PAGES,
+    viewportLabels: VIEWPORT_LABELS,
+    excludedViewports: ['390'],
+  });
+  assert.equal(reduced.code, 1);
+  assert.equal(reduced.reason, 'NO_ADJUDICATED_CASE');
+  assert.deepEqual(reduced.unverifiedViewports, ['390'], 'the declared exclusion still travels with the status');
+
+  // One adjudicated case is output again: the guard must not make every run red.
+  allInconclusive.pageResults[1].viewports[1024].overall = 'PASS';
+  allInconclusive.pageResults[1].viewports[1024].causeCode = 'MATCH';
+  const withVerdict = computeRunExit(allInconclusive, [1], { targetPages: TARGET_PAGES, viewportLabels: VIEWPORT_LABELS });
+  assert.equal(withVerdict.adjudicableCases, 1);
+  assert.equal(withVerdict.code, 0);
+  assert.equal(withVerdict.reason, 'OK');
+});

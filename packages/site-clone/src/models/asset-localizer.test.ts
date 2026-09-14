@@ -1225,6 +1225,79 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
 
   // --- 6. Deterministic Naming, Surface Qualifiers & Behavioral Invariants ---
   describe('6. Deterministic Naming, Surface Qualifiers & Behavioral Invariants', () => {
+    it('6.0. verifyAndAudit ignores remote-looking literals inside a Liquid template inline runtime while still flagging real sub-resources', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-liquid-inline-runtime-'));
+      try {
+        const manifest: HarvestedAssetManifest = { stylesheets: [], javascripts: [], images: [], fonts: [], totalBytes: 0 };
+        // A shipped theme template carries the cloned page's inline runtime verbatim; JS
+        // string literals are not network sub-resources and must not fail the final audit.
+        const runtimeContent = `<main data-antifan-clone="1">
+  <img src="{{ 'hero-banner.webp' | asset_url }}" alt="hero">
+  <script>
+    var CDN = 'https://theme.hstatic.net/1000000000/1000000000/14/app.js';
+    var FALLBACK = "https://cdn.example.com/assets/logo.png";
+    if (window.location.hash) { document.write('<img src="https://tracker.example.com/pixel.png">'); }
+  </script>
+</main>`;
+        const auditPass = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{ path: 'snippets/hero_section.liquid', replacementCount: 0, originalContent: runtimeContent, rewrittenContent: runtimeContent }]
+        });
+        assert.strictEqual(auditPass.passed, true, 'inline runtime literals in a .liquid template must not be treated as sub-resources');
+        assert.strictEqual(auditPass.findings.length, 0, 'no findings expected for Liquid inline runtime literals');
+
+        // A real remote sub-resource in the same template still fails closed.
+        const withRemoteScript = runtimeContent.replace('</main>', '<script src="https://cdn.example.com/real.js"></script>\n</main>');
+        const auditFail = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{ path: 'snippets/hero_section.liquid', replacementCount: 0, originalContent: withRemoteScript, rewrittenContent: withRemoteScript }]
+        });
+        assert.strictEqual(auditFail.passed, false, 'a remote script src in a .liquid template must still fail the audit');
+        const flagged = auditFail.findings.filter(f => f.code === 'LINGERING_REMOTE_NETWORK_URL');
+        assert.strictEqual(flagged.length, 1, 'exactly the real remote sub-resource is flagged');
+        assert.strictEqual(flagged[0].details?.url, 'https://cdn.example.com/real.js');
+      } finally {
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      }
+    });
+
+    it('6.0.1. CSS-discovered dependencies inherit the same opaque-stem rule as harvested assets', async () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-css-opaque-dep-'));
+      try {
+        const mainCss = `
+          @font-face { font-family: 'X'; src: url('https://cdn.example.com/img/1739329183_a8f71c2.woff2') format('woff2'); }
+          .hero { background: url('https://cdn.example.com/images/hero-banner.webp'); }
+        `;
+        fs.writeFileSync(path.join(tempDir, 'main.css'), mainCss, 'utf8');
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [{
+            type: 'css',
+            sourceUrl: 'https://cdn.example.com/css/main.css',
+            filename: 'main.css',
+            localPath: path.join(tempDir, 'main.css')
+          }],
+          javascripts: [],
+          images: [],
+          fonts: [],
+          totalBytes: 0
+        };
+
+        await localizer.localizeDownloadedStylesheets(manifest, { assetsDir: tempDir, skipDownload: true });
+
+        const fontItem = manifest.fonts.find(f => f.sourceUrl.includes('1739329183_a8f71c2'));
+        assert.ok(fontItem, 'Opaque-stem font dependency must still be discovered and localized');
+        assert.match(fontItem.filename, /^asset-[0-9a-f]{8}\.woff2$/, 'Opaque CDN stem must not leak into the theme');
+
+        const imageItem = manifest.images.find(i => i.sourceUrl.includes('hero-banner'));
+        assert.ok(imageItem, 'Semantic image dependency must still be discovered');
+        assert.strictEqual(imageItem.filename, 'hero-banner.webp', 'A meaningful stem must be preserved');
+      } finally {
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      }
+    });
+
     it('6.1. Reversed input order invariance: harvesting [desktop, mobile] vs [mobile, desktop] produces identical manifest filenames', () => {
       const harvester = new AssetHarvester();
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-order-invariance-'));

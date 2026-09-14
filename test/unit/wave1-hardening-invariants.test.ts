@@ -341,7 +341,11 @@ describe('Wave 1 Hardening Invariants Suite', () => {
     assert.strictEqual(failedDispatch.replacementAuthorityRevision, undefined, 'Must not advance revision on failed switch');
     assert.strictEqual(attachmentRegistry.getAttachment(launch.attachmentId)?.tabId, TAB_SECONDARY, 'Must not rebind tab on failed switch');
 
-    // 6. Negative transport test: malformed non-UUID data.tabId under exact switch-tab name must NOT rebind attachment
+    // 6. Negative transport test: malformed non-UUID data.tabId under exact switch-tab name must NOT rebind attachment.
+    // The hardened contract is fail-loud: the host switched but the response carried no
+    // canonical tabId, so the dispatch reports ATTACHMENT_REBIND_FAILED (ok===false) and
+    // the binding stays on the old tab — never a silent non-rebind that leaves the session
+    // bound to a tab the client believes it left.
     const { catalogue: catMalformed } = createTestCatalogue();
     catMalformed.register({
       name: 'browser.switch-tab',
@@ -361,7 +365,8 @@ describe('Wave 1 Hardening Invariants Suite', () => {
       name: 'browser.switch-tab',
       params: {},
     });
-    assert.strictEqual(malformedDispatch.ok, true);
+    assert.strictEqual(malformedDispatch.ok, false, 'Malformed tabId must fail loud, not silently succeed');
+    assert.strictEqual(malformedDispatch.error?.code, 'ATTACHMENT_REBIND_FAILED', 'Error must name the rebind failure');
     assert.strictEqual(malformedDispatch.replacementAuthorityRevision, undefined, 'Must not advance revision on malformed tabId');
     assert.strictEqual(attachmentRegistry.getAttachment(launch.attachmentId)?.tabId, TAB_SECONDARY, 'Must not rebind tab on malformed tabId');
   });

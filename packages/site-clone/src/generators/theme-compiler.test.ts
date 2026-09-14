@@ -12,6 +12,30 @@ import {
 
 describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit Phase 05)', () => {
   const compiler = new ThemeCompiler();
+  it('blocks unclassified code and invalidates approvals when bytes change', () => {
+    const content = '.header { color: red; }';
+    assert.throws(() => compiler.assertCodeOwnership(content, 'reference.css'), /UNRESOLVED_CODE_OWNERSHIP/);
+    const options = { codeApprovals: [{ sha256: crypto.createHash('sha256').update(content).digest('hex'), classification: 'THEME_REQUIRED' as const, usage: 'Header text color', evidence: 'Single declaration inspected in fixture' }] };
+    compiler.assertCodeOwnership(content, 'reference.css', options);
+    assert.throws(() => compiler.assertCodeOwnership(content + 'body { display:none }', 'reference.css', options), /UNRESOLVED_CODE_OWNERSHIP/);
+  });
+
+  it('refuses post-processing references to missing assets without changing the destination', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-final-gate-'));
+    const stage = path.join(root, 'stage');
+    const output = path.join(root, 'output');
+    try {
+      compiler.compileTheme(stage, '<main><section id="content">Store</section></main>');
+      compiler.compileTheme(output, '<main><section id="content">Original</section></main>');
+      const before = fs.readFileSync(path.join(output, 'templates/index.liquid'));
+      fs.appendFileSync(path.join(stage, 'templates/index.liquid'), '{{ "missing.png" | asset_url }}');
+      assert.throws(() => compiler.promoteStagedTheme(stage, output), /unresolved final asset reference/);
+      assert.deepStrictEqual(fs.readFileSync(path.join(output, 'templates/index.liquid')), before);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
 
   it('1. Compiles Haravan flat directory structure in default legacy-html mode', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-test-legacy-'));
@@ -41,7 +65,10 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
     `;
 
     try {
-      const result = compiler.compileTheme(tempDir, sampleHtml, { settingsMode: 'legacy-html' });
+      const assetsDir = path.join(tempDir, 'source-assets');
+      fs.mkdirSync(assetsDir);
+      for (const name of ['logo.png', 'slide1.jpg', 'slide2.jpg']) fs.copyFileSync(path.resolve('assets/icon.png'), path.join(assetsDir, name));
+      const result = compiler.compileTheme(tempDir, sampleHtml, { settingsMode: 'legacy-html', assetsDir });
       assert.strictEqual(result.success, true);
       assert.strictEqual(result.targetContract.settingsMode, 'legacy-html');
 
@@ -402,7 +429,10 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
     const html = '<section id="srcset_sec"><img src="{{ \'logo.png\' | asset_url }}" srcset="{{ \'hero.png\' | asset_url }} 1x, {{ \'hero@2x.png\' | asset_url }} 2x"></section>';
 
     try {
-      compiler.compileTheme(tempDir, html);
+      const assetsDir = path.join(tempDir, 'source-assets');
+      fs.mkdirSync(assetsDir);
+      for (const name of ['logo.png', 'hero.png', 'hero@2x.png']) fs.copyFileSync(path.resolve('assets/icon.png'), path.join(assetsDir, name));
+      compiler.compileTheme(tempDir, html, { assetsDir });
       const snippetPath = path.join(tempDir, 'snippets', 'srcset_sec.liquid');
       assert.ok(fs.existsSync(snippetPath));
       const content = fs.readFileSync(snippetPath, 'utf-8');
@@ -924,6 +954,7 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
       const result = compiler.compileTheme(outDir, desktopHtml, {
         settingsMode: 'legacy-html',
         assetsDir,
+        codeApprovals: [{ sha256: crypto.createHash('sha256').update('.mobile-brand { color: red; }').digest('hex'), classification: 'THEME_REQUIRED', usage: 'Mobile brand text color', evidence: 'Single color declaration fixture' }],
         inputPath: path.join(cloneDir, 'index.html'),
       });
 
@@ -1025,6 +1056,7 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
       // Case A: With assetsDir holding app-desktop-dcc2d3nb.css -> compiles successfully with exact sha256 bytes
       const result = compiler.compileTheme(outDirSuccess, sampleHtml, {
         assetsDir,
+        codeApprovals: [{ sha256: expectedSha256, classification: 'THEME_REQUIRED', usage: 'Header layout CSS fixture', evidence: 'Fixture contains only .header-box display and color declarations' }],
         inputPath: path.join(cloneDir, 'index.html'),
       });
       assert.strictEqual(result.success, true);
@@ -1338,7 +1370,7 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
     fs.writeFileSync(fallbackInputPath, htmlWithoutEngine, 'utf-8');
 
     try {
-      compiler.compileTheme(tempDirCloneEngine, htmlWithEngine, { inputPath: engineInputPath });
+      compiler.compileTheme(tempDirCloneEngine, htmlWithEngine, { inputPath: engineInputPath, codeApprovals: [{ sha256: crypto.createHash('sha256').update(engineMarker).digest('hex'), classification: 'THEME_REQUIRED', usage: 'Single runtime selection fixture', evidence: 'Test-supplied named runtime body' }] });
       const engineThemeJs = fs.readFileSync(path.join(tempDirCloneEngine, 'assets', 'theme.js'), 'utf-8');
       assert.ok(
         engineThemeJs.includes(engineMarker),
@@ -1363,5 +1395,46 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
       fs.rmSync(tempDirCloneEngine, { recursive: true, force: true });
       fs.rmSync(tempDirFallback, { recursive: true, force: true });
     }
+  });
+
+  it('25. Dynamically extracts page-specific head assets (stylesheets, media queries, inline styles) across desktop and mobile documents', () => {
+    const desktopHtml = `<!doctype html><html><head>
+      <link rel="stylesheet" href="assets/app-dcc2d3nb.css">
+      <link rel="stylesheet" href="assets/product-desktop-berhnqqg.css">
+      <link rel="stylesheet" href="assets/page-quote.css">
+      <style>.custom-brand-hero { color: red; }</style>
+    </head><body><main>Content</main></body></html>`;
+
+    const mobileHtml = `<!doctype html><html><head>
+      <link rel="stylesheet" href="../assets/app-mobile-5wa_jy_a.css">
+      <link rel="stylesheet" href="../assets/product-mobile-dvrg0zpe.css">
+      <link rel="stylesheet" href="../assets/page-quote.css">
+      <style>.mobile-brand-hero { color: blue; }</style>
+    </head><body><main>Mobile Content</main></body></html>`;
+
+    const res = compiler.extractRouteHeadAssets(desktopHtml, mobileHtml);
+
+    assert.ok(!res.desktopStylesheets.includes('app-dcc2d3nb.css'));
+    assert.ok(!res.mobileStylesheets.includes('app-mobile-5wa_jy_a.css'));
+    assert.deepStrictEqual(res.sharedStylesheets, ['page-quote.css']);
+    assert.deepStrictEqual(res.desktopStylesheets, ['product-desktop-berhnqqg.css']);
+    assert.ok(
+      res.liquidAssetTags.includes(
+        `<link rel="stylesheet" href="{{ 'product-desktop-berhnqqg.css' | asset_url }}" media="screen and (min-width: 992px)">`
+      )
+    );
+    assert.deepStrictEqual(res.mobileStylesheets, ['product-mobile-dvrg0zpe.css']);
+    assert.ok(
+      res.liquidAssetTags.includes(
+        `<link rel="stylesheet" href="{{ 'product-mobile-dvrg0zpe.css' | asset_url }}" media="screen and (max-width: 991px)">`
+      )
+    );
+    assert.ok(
+      res.liquidAssetTags.includes(`{{ 'page-quote.css' | asset_url | stylesheet_tag }}`)
+    );
+    assert.ok(res.liquidAssetTags.includes('media="screen and (min-width: 992px)"'));
+    assert.ok(res.liquidAssetTags.includes('.custom-brand-hero'));
+    assert.ok(res.liquidAssetTags.includes('media="screen and (max-width: 991px)"'));
+    assert.ok(res.liquidAssetTags.includes('.mobile-brand-hero'));
   });
 });

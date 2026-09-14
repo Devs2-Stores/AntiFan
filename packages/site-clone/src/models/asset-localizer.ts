@@ -38,7 +38,9 @@ import {
   type HarvestedAssetManifest,
   type HarvestedAssetItem,
   sanitizeRequestHeaders,
-  computeHeaderFingerprint
+  computeHeaderFingerprint,
+  isOpaqueAssetStem,
+  stableAssetStem
 } from './asset-harvester.js';
 
 export { sanitizeRequestHeaders, computeHeaderFingerprint };
@@ -1486,6 +1488,9 @@ export class AssetLocalizer {
       const ext = rawExt && rawExt.length <= 6 && /^\.[a-zA-Z0-9]+$/.test(rawExt) ? rawExt.toLowerCase() : fallbackExt;
       let base = path.basename(cleanUrl, rawExt) || defaultPrefix;
       let cleanBase = base.replace(/[^a-zA-Z0-9_@.-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || defaultPrefix;
+      if (isOpaqueAssetStem(cleanBase)) {
+        cleanBase = stableAssetStem(sourceUrl || cleanUrl);
+      }
       if (WINDOWS_RESERVED_NAMES.has(cleanBase.toUpperCase())) {
         cleanBase = `asset-${cleanBase}`;
       }
@@ -2001,9 +2006,10 @@ export class AssetLocalizer {
 
     for (const file of options.rewrittenFiles) {
       let contentToScan = file.rewrittenContent;
-      if (file.path.endsWith('.html')) {
+      if (/\.(?:html|liquid)$/i.test(file.path)) {
         // Strip inline <script>...</script> bodies to eliminate JS literal/base64 false positives
         // while still inspecting all HTML tags, link[rel="stylesheet"], script[src], iframe[src], img[src], video[poster], etc.
+        // Theme templates are .liquid and carry the same inline runtime, so they need the same guard.
         contentToScan = contentToScan.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (match, body) => {
           const tagMatch = match.match(/^<script\b[^>]*>/i);
           return tagMatch ? `${tagMatch[0]}</script>` : '';
@@ -2090,8 +2096,20 @@ export class AssetLocalizer {
           const token = rawToken.replace(/^['"]|['"]$/g, '').trim();
           const isLiquidToken = token.startsWith('{{') && token.endsWith('}}');
           const isKnownFilename = knownFilenames.has(token);
+          // A token is resolved when the file it names exists on disk under the
+          // assets dir. Secondary assets discovered inside CSS (fonts, @imports)
+          // may not appear in the manifest yet still be present, so manifest
+          // membership alone is not the test. Both resolutions are containment-
+          // checked: a ../ or absolute token must not escape the package, and a
+          // pathed token (fonts/x.woff) must resolve at that path — a same-named
+          // flat file does not satisfy a pathed reference.
+          const underAssets = path.resolve(resolvedAssetsDir, token);
+          const besideSheet = path.resolve(path.dirname(localPath), token);
+          const onDisk =
+            (isPathContained(underAssets, resolvedAssetsDir) && fs.existsSync(underAssets)) ||
+            (isPathContained(besideSheet, resolvedAssetsDir) && fs.existsSync(besideSheet));
 
-          if (!isLiquidToken && !isKnownFilename) {
+          if (!isLiquidToken && !isKnownFilename && !onDisk) {
             const failedUrls = (options.downloadResults ?? [])
               .filter(dl => dl.status === 'failed')
               .map(dl => ({ url: dl.sourceUrl, file: dl.filename, clean: dl.sourceUrl.split('?')[0].split('#')[0] }));
@@ -2127,8 +2145,13 @@ export class AssetLocalizer {
           const token = rawToken.replace(/^['"]|['"]$/g, '').trim();
           const isLiquidToken = token.startsWith('{{') && token.endsWith('}}');
           const isKnownFilename = knownFilenames.has(token);
+          const underAssets = path.resolve(resolvedAssetsDir, token);
+          const besideSheet = path.resolve(path.dirname(localPath), token);
+          const onDisk =
+            (isPathContained(underAssets, resolvedAssetsDir) && fs.existsSync(underAssets)) ||
+            (isPathContained(besideSheet, resolvedAssetsDir) && fs.existsSync(besideSheet));
 
-          if (!isLiquidToken && !isKnownFilename) {
+          if (!isLiquidToken && !isKnownFilename && !onDisk) {
             const failedUrls = (options.downloadResults ?? [])
               .filter(dl => dl.status === 'failed')
               .map(dl => ({ url: dl.sourceUrl, file: dl.filename, clean: dl.sourceUrl.split('?')[0].split('#')[0] }));

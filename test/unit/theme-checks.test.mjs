@@ -360,6 +360,24 @@ test('checkHaravanLiquidContracts refuses duplicate chrome (HARAVAN_SINGLE_CHROM
   }
 });
 
+test('checkHaravanLiquidContracts refuses duplicate paginate blocks (HARAVAN_DUPLICATE_PAGINATE)', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-duplicate-paginate-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, 'templates'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, 'templates', 'collection.liquid'),
+      '{% paginate collection.products by 12 %}\n{% endpaginate %}\n{% paginate collection.products by 24 %}\n{% endpaginate %}',
+      'utf8'
+    );
+    const result = checkHaravanLiquidContracts(tempDir);
+    const paginateFailures = result.failures.filter((f) => f.rule === 'HARAVAN_DUPLICATE_PAGINATE');
+    assert.equal(paginateFailures.length, 1);
+    assert.equal(paginateFailures[0].file, 'templates/collection.liquid');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('checkSettingsBinding tolerates a theme directory that does not exist', () => {
   assert.deepEqual(checkSettingsBinding(fixtureTheme('theme-absent')), {
     ok: true,

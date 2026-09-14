@@ -623,6 +623,18 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
         }
       }
 
+      // Single Paginate Invariant (DotLiquid .NET Crash Guard)
+      const paginateCount = (source.match(/\{%-?\s*paginate\b/g) || []).length;
+      if (paginateCount > 1) {
+        failures.push({
+          rule: 'HARAVAN_DUPLICATE_PAGINATE',
+          file: relativePath,
+          line: 1,
+          message: `Multiple {% paginate %} tags detected (${paginateCount}). Haravan DotLiquid permits at most one paginate block per template.`,
+          detail: `Having more than one paginate tag causes DotLiquid fatal HTTP 500 error on Haravan (${relativePath})`,
+        });
+      }
+
       // Product media access: `media_tag` is an unverified filter, and a
       // `product.media` gallery is only acceptable when the same file also
       // reaches the proven image fields, so a theme without the media extension

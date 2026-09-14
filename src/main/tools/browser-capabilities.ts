@@ -1474,13 +1474,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'theme.qa_repair.verify',
-    description: 'Verify a theme repair session: validates Round 2 and auto-rolls back workspace to R0 if regressions are detected',
+    description: 'Verify a repair against fresh workspace revision and baseline findings; failed checks retain a bounded retry session, regressions roll back to R0, exhausted repairs return blocked',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] },
     execute: async (params: { sessionId: string }, context) => {
       const target = context.browserTarget as BrowserTarget;
+      // Write-class capability: require an authenticated attempt context. The coordinator mints
+      // its own per-verification attempt id, so the caller's id is deliberately not forwarded.
       if (!context.attemptId) {
         throw new CapabilityError('UNAUTHENTICATED', 'attemptId context is required for verify session');
       }
@@ -1488,7 +1490,6 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       return coordinator.verify({
         sessionId: params.sessionId,
         target,
-        attemptId: context.attemptId,
       });
     },
   });
@@ -2655,7 +2656,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // ─── Semantic Sensory & Parity Capabilities ───
   catalogue.register({
     name: 'anti.media.freeze',
-    description: 'Freeze or unfreeze dynamic media (videos, audios, CSS animations, requestAnimationFrame) in tab to enable deterministic visual comparisons',
+    description: 'Pause visual media and CSS animations without suspending application requestAnimationFrame scheduling; optional slider normalization is restored on unfreeze',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),

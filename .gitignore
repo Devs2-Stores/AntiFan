@@ -30,6 +30,7 @@ plans/**/reports/baseline/*.log
 clone/*
 **/__pycache__/
 .canary/
+.super-core/
 tmp/
 exports/
 .haravan-cli_local.json

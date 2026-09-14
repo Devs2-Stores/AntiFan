@@ -1,8 +1,9 @@
-# Antigravity Browser Desktop — Operations
+# AntiFan Browser Desktop — Operations
 
-Install, update, logs, rollback, and process ownership for the opt-in desktop
-companion. The current Extension browser remains the independent fallback at
-every step.
+Local Control Plane operations for OMP / agent CLI clients through MCP. Browser,
+device, terminal, artifact, and theme QA services execute explicit capabilities;
+external agents retain planning and repair responsibility. Legacy extension
+integration notes below describe those integrations, not a required core dependency.
 
 > **Scope Invariant (Personal / Non-Public Tooling):**
 > AntiFan Browser Desktop is strictly an internal, personal developer companion.
@@ -10,6 +11,28 @@ every step.
 > Signing certificates, and public auto-update servers) are intentionally
 > out-of-scope. Installation and upgrades use local packaging (`npm run package`)
 > and local script runners.
+
+## Repair and final artifact verification
+
+- `theme.qa_repair.verify` runs fresh QA with a unique verification attempt. A failed or inconclusive check retains the session as `awaiting_fix`; the workspace must change before retry. Existing circuit-breaker repair limits yield `blocked`, never success. Session expiry and target binding remain enforced.
+- The returned `revision` hashes the scanned workspace files before and after QA. Concurrent edits reject certification. This does not by itself prove deployment of local bytes to a remote storefront.
+- Regression still uses the existing baseline differential and authorized R0 rollback. A QA pass certifies that QA scope, not universal visual fidelity or real-device parity.
+- Final visual certification requires matching target URL (including preview query), surface, and artifact revision. Surface comparison is case-insensitive and a trailing slash on the target URL is tolerated; the query is compared, so a receipt captured against a different preview theme never certifies. Diagnostic metrics cannot certify final parity.
+- Source CSS/JS now requires `codeApprovals`, supplied to the CLI as a path to a JSON file (`--code-approvals <path>` or `--code-approvals=<path>`), an array of `{ sha256, classification, usage, evidence }`. Classification must be `THEME_REQUIRED` or `EXTRACTED`; the hash binds exact UTF-8 source content. Unclassified or changed code fails with `UNRESOLVED_CODE_OWNERSHIP`. Approval is an explicit maintainer decision, not automatic semantic classification or visual certification. Do not generate approvals for all files merely to bypass the gate. A harvested stylesheet or script whose bytes never reached disk is reported by the existing asset audit as a missing/unavailable asset, not as an ownership violation.
+- The CLI compiler stages route transforms and asset consolidation before final validation/promotion. Conflicting basename contents and missing final Liquid asset references fail before promotion. This integrity gate does not classify reference CSS/JS ownership. Compiles without an asset source (`assetsDir`/`inputPath`/`failClosedAssets`) keep the platform's existing tolerance for third-party or externally supplied references; the reference audit is mandatory whenever the compiler owns the referenced bytes.
+- Asset filenames come from the source reference only when that stem carries meaning. Generic download names (`image`, `download`, `untitled`, `default`, `screenshot`, …), pure digits, and hash-only stems are replaced with a stable `asset-<source-url-hash>` id. The rule applies to harvested assets and to dependencies discovered inside CSS (`@import`, `url(...)`) alike. Role-shaped names such as `hero-banner.webp` are never invented from a guess; provenance (`sourceUrl`, occurrences, request identity) is retained on every item.
+- `anti.media.freeze` leaves native RAF/cancellation untouched. It pauses media/CSS animation and optionally normalizes slider tracks; unfreeze restores recorded styles/scroll state without synthetic hover events. RAF-driven visual motion requires separate capture-settle evidence.
+
+Executable checks (build emitted TypeScript first):
+
+```sh
+npm run typecheck
+npm run build:site-clone
+npx tsc -p .
+node --test --test-force-exit .compiled/test/main/theme-qa-workflow-differential-and-rollback.test.js .compiled/test/unit/sensory-and-spec-gate.test.js .compiled/test/unit/injected-script-store.test.js
+node --test packages/site-clone/dist/generators/theme-compiler.test.js packages/site-clone/dist/qa/dod-validator.test.js
+node scripts/run-electron.cjs scripts/smoke-media-freeze.cjs
+```
 
 ## Install / upgrade
 
@@ -33,6 +56,26 @@ every step.
   disconnect the bridge; existing commands, iframe browser, captures, MCP
   resources, Queue, and the currently supported Chat behavior continue on the
   current Extension path.
+
+## Super Core (local evidence/provenance store)
+
+- `packages/super-core` is a local-first SQLite store (`node:sqlite`, WAL) over the
+  Work Root corpus: artifacts, claims, evidence anchors, decisions, dependencies,
+  conflicts, skills, cases/candidates, releases, receipts.
+- DB defaults to `<repo>/.super-core/core.db`; `SUPER_CORE_DB` overrides.
+- MCP tools `core.query`, `core.context_pack`, `core.recommend`, `core.receipt`,
+  `core.ingest_outcome`, `core.adjudicate`, `core.stats`, `core.domain`,
+  `core.invalidate`, `core.revoke`, `core.snapshot`, `core.rollback` are served
+  in-process by `scripts/antifan-omp-mcp.cjs` (no bridge dependency). A running
+  MCP server must be restarted to pick up a rebuilt `packages/super-core/dist`.
+- CLI: `antifan-core <cmd>` via `scripts/antifan-core.cjs`.
+- Adjudication has a `scope` (`production` | `acceptance-test`); test-scope
+  promotions are auditable and never masquerade as user approvals.
+- `scripts/clone-site.mjs` queries `core.contextPack` before cloning (fail-open),
+  detects the source platform from captured HTML, supports `--theme` to compile a
+  Haravan theme skeleton (requires `--code-approvals <file>`), and records the
+  outcome via `core.ingestOutcome` after the manifest is written.
+
 ## Exact Conversation Routing (Sidecar Router)
 
 - **Managed Sidecar ID**: `antifan-chat-router`

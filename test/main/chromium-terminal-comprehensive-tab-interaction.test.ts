@@ -182,6 +182,11 @@ function createComprehensiveHost(initialTabIds: string[] = ['tab-1']): Comprehen
   host.executedTypes = executedTypes;
   hostSeam.executedClicks = executedClicks;
   hostSeam.executedTypes = executedTypes;
+  // The port prefers host.dispatchAgentAction when present; on this partial host
+  // it exists on the prototype but routes into a real TabAutomationHost whose
+  // CDP calls the mock WebContents cannot serve. Force the seam fallback so the
+  // tests exercise port-level authorization, not click mechanics.
+  hostSeam.dispatchAgentAction = undefined;
   hostSeam.agentClick = async (params: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }) => {
     executedClicks.push(params);
     return true;

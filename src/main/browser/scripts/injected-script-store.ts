@@ -74,8 +74,8 @@ export class InjectedScriptStore {
    * Register default built-in script generators
    */
   private registerDefaults(): void {
-    // 1. Freeze Media Script Generator (Fixed to prevent slider breaking)
-    this.register('media.freeze', 'Freeze or unfreeze videos, audios, SVG animations, CSS animations, and RAF loops safely', (params: FreezeMediaOptions = {}) => {
+    // 1. Freeze Media Script Generator (visual-only; leaves RAF scheduling to the page)
+    this.register('media.freeze', 'Freeze visual media without suspending application animation-frame scheduling', (params: FreezeMediaOptions = {}) => {
       const freeze = params.freeze !== false;
       const normalizeSliders = Boolean(params.normalizeSliders);
       return `(() => {
@@ -139,10 +139,6 @@ export class InjectedScriptStore {
                   });
                   if (typeof item.scrollLeft === 'number') item.el.scrollLeft = item.scrollLeft;
                   if (typeof item.scrollTop === 'number') item.el.scrollTop = item.scrollTop;
-                  const parentSlider = item.el.closest('[id], .slideshow, .carousel, [class*="slider"], [class*="slide"]');
-                  if (parentSlider) {
-                    parentSlider.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-                  }
                 }
               } catch {}
             });
@@ -176,14 +172,6 @@ export class InjectedScriptStore {
           const s = document.getElementById(freezeStyleId);
           if (s) s.remove();
 
-          if (window.__antifanOriginalRAF) {
-            window.requestAnimationFrame = window.__antifanOriginalRAF;
-            delete window.__antifanOriginalRAF;
-            const q = window.__antifanRAFQueue || [];
-            delete window.__antifanRAFQueue;
-            q.forEach(cb => { try { cb(performance.now()); } catch {} });
-          }
-
           if (clearScheduledTimer && window.__antifanFreezeTimer) {
             clearTimeout(window.__antifanFreezeTimer);
           }
@@ -203,15 +191,6 @@ export class InjectedScriptStore {
             styleEl.id = freezeStyleId;
             styleEl.textContent = '*:not([class*="menu"], [class*="menu"] *, [class*="nav"], [class*="nav"] *, [class*="dropdown"], [class*="dropdown"] *, [role="menu"], [role="menu"] *, [role="dialog"], [role="dialog"] *) { animation-play-state: paused !important; transition: none !important; }';
             document.head.appendChild(styleEl);
-          }
-          if (!window.__antifanOriginalRAF) {
-            window.__antifanOriginalRAF = window.requestAnimationFrame;
-            window.__antifanRAFQueue = [];
-            window.requestAnimationFrame = (cb) => {
-              const id = window.__antifanRAFQueue.length + 1;
-              window.__antifanRAFQueue.push(cb);
-              return id;
-            };
           }
           if (window.__antifanFreezeTimer) clearTimeout(window.__antifanFreezeTimer);
           window.__antifanFreezeTimer = setTimeout(() => performUnfreeze(false), 60000);
@@ -254,10 +233,6 @@ export class InjectedScriptStore {
               el.style.setProperty('transition', 'none', 'important');
               el.style.setProperty('left', '0px', 'important');
               el.style.setProperty('margin-left', '0px', 'important');
-              const parentSlider = el.closest('[id], .slideshow, .carousel, [class*="slider"], [class*="slide"]');
-              if (parentSlider) {
-                parentSlider.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-              }
             } catch {}
           });
         }

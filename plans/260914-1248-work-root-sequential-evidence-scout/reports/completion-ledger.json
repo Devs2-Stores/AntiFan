@@ -1,0 +1,62 @@
+{
+  "runId": "wrses-20260914T135118Z",
+  "generatedAt": "2026-09-14T15:46:19.574Z",
+  "physical": {
+    "denominator": 1063814,
+    "eligible": 200041,
+    "excluded": 765228,
+    "restricted": 98537,
+    "generatedByRun": 8,
+    "check": "D=E+X+R+G OK"
+  },
+  "eligibleContent": {
+    "eligibleFiles": 177009,
+    "analyzed": 177009,
+    "pending": 0,
+    "blocked": 0,
+    "coverage": "100.00%",
+    "note": "eligible FILES only; directories are structural receipts, not content"
+  },
+  "virtual": {
+    "archiveContainers": 93,
+    "archiveMembers": 34988,
+    "archiveBlockers": 2
+  },
+  "units": {
+    "DONE": 246,
+    "PENDING": 0,
+    "BLOCKED": 0,
+    "EXCLUDED": 528
+  },
+  "skills": {
+    "total": 547,
+    "excluded": 528,
+    "eligible": 19,
+    "unresolved": 0
+  },
+  "delta": {
+    "added": 589,
+    "changed": 132,
+    "deleted": 435,
+    "applied": {
+      "generatedAt": "2026-09-14T15:45:29.189Z",
+      "deltaTruncated": false,
+      "affectedUnits": 3,
+      "addedRegistered": 589,
+      "staleClaims": 0,
+      "reanalyzed": 3,
+      "note": "full delta applied"
+    }
+  },
+  "claims": {
+    "total": 1884
+  },
+  "frontier": {
+    "state": "EMPTY",
+    "discoveredDirs": 90336,
+    "completedDirs": 90339,
+    "pendingCount": 0
+  },
+  "coverageClaim": "SCOPE_SCANNED_WITHOUT_RESIDUAL_FRONTIER",
+  "unknownRegions": 0
+}

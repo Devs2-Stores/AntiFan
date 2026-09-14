@@ -748,7 +748,8 @@ export type CapabilityErrorCode =
   | 'DEVICE_WDA_NOT_READY'
   | 'DEVICE_SESSION_FAILED'
   | 'DEVICE_OPERATION_UNSUPPORTED'
-  | 'DEVICE_TARGET_STALE';
+  | 'DEVICE_TARGET_STALE'
+  | 'ATTACHMENT_REBIND_FAILED';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;

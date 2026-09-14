@@ -79,6 +79,7 @@ const registrationTargets = [
   ['main/tools/theme-transaction-capabilities.js', 'registerThemeTransactionCapabilities'],
   ['main/tools/device-capabilities.js', 'registerDeviceCapabilities'],
   ['main/workflow/workflow-capabilities.js', 'registerWorkflowCapabilities'],
+  ['main/tools/core-capabilities.js', 'registerCoreCapabilities'],
 ];
 
 let maxPolicy = 0;
@@ -112,6 +113,8 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
     // The device port is only dereferenced when a device capability executes, never while registering.
     registerDeviceCapabilities: [{}],
     registerWorkflowCapabilities: [{}],
+    // Core port is lazy: registration never touches packages/super-core.
+    registerCoreCapabilities: [{}],
   };
   for (const [rel, fnName] of registrationTargets) {
     const mod = required(rel);

@@ -11,6 +11,12 @@
  * && renderStateStable`. `domQuiet` is deliberately not a component: raw
  * childList churn cannot distinguish a cosmetic re-parenting document from a
  * swapped one, so it is recorded evidence and the content fingerprint decides.
+ *
+ * `freezeOk` must be derived from the freeze report's media/CSS scope only
+ * (videos, audio, CSS animations, optional slider normalization). Native
+ * requestAnimationFrame scheduling is intentionally left running, so a page
+ * whose motion is RAF-driven still needs `visualStable` (capture/fingerprint
+ * settle) to prove quiescence; `mediaFrozen === true` alone never implies it.
  */
 import crypto from 'node:crypto';
 

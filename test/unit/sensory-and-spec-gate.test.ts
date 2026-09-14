@@ -253,9 +253,17 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
         head: { appendChild: () => {} },
       };
 
+      const frameCallbacks = new Map<number, () => void>();
+      let nextFrameId = 0;
+      const nativeRequestFrame = (callback: () => void) => {
+        frameCallbacks.set(++nextFrameId, callback);
+        return nextFrameId;
+      };
+      const nativeCancelFrame = (id: number) => frameCallbacks.delete(id);
       const mockWindow: Record<string, unknown> = {
         __antifanSliderSnapshots: undefined,
-        requestAnimationFrame: () => 1,
+        requestAnimationFrame: nativeRequestFrame,
+        cancelAnimationFrame: nativeCancelFrame,
       };
       let capturedTimeoutCb: (() => void) | undefined;
       const ctx = vm.createContext({
@@ -272,6 +280,17 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
         },
       });
       vm.runInContext(freezeScript, ctx);
+      let frameUpdates = 0;
+      const schedule = mockWindow.requestAnimationFrame as typeof nativeRequestFrame;
+      const cancel = mockWindow.cancelAnimationFrame as typeof nativeCancelFrame;
+      schedule(() => frameUpdates++);
+      const cancelledFrame = schedule(() => { throw new Error('Cancelled application frame executed'); });
+      cancel(cancelledFrame);
+      for (const [id, callback] of frameCallbacks) {
+        frameCallbacks.delete(id);
+        callback();
+      }
+      assert.strictEqual(frameUpdates, 1, 'Application frames must execute while media is frozen');
 
       assert.strictEqual(multiMatchElement.style.getPropertyValue('transform'), 'matrix(1, 0, 0, 1, 0, 0)');
       assert.strictEqual(multiMatchElement.style.getPropertyPriority('transform'), 'important');

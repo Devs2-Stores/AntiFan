@@ -933,7 +933,8 @@ ${extractedEffectsScripts.join('\n\n')}
       opacity: 1;
       pointer-events: auto;
     }
-    #popup-video.active {
+    #popup-video.active,
+    #popup-video.show {
       display: flex;
       align-items: center;
       justify-content: center;
@@ -949,6 +950,9 @@ ${extractedEffectsScripts.join('\n\n')}
       opacity: 1;
       visibility: visible;
       pointer-events: auto;
+      padding: 0;
+      margin: 0;
+      box-sizing: border-box;
     }
     #popup-video .popup-content {
       position: relative;
@@ -1003,6 +1007,9 @@ ${extractedEffectsScripts.join('\n\n')}
     }
     .form-block__content .form-row.row-file .detail {
       z-index: 1002;
+      max-height: 85vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       transition: opacity 0.2s ease, visibility 0.2s ease;
     }
     .form-block__content .form-row.row-file .detail:not(.active) {
@@ -1045,11 +1052,11 @@ ${extractedEffectsScripts.join('\n\n')}
       flex-wrap: nowrap;
       touch-action: pan-y;
     }
-    .s-wrap .s-content > .item, .s-slide .s-content > .item {
+    .slide .s-wrap .s-content > .item, .slider .s-wrap .s-content > .item, .s-slide .s-content > .item {
       flex: 0 0 100%;
       max-width: 100%;
     }
-    .s-wrap .s-content > .item img, .s-slide .s-content > .item img {
+    .slide .s-wrap .s-content > .item img, .slider .s-wrap .s-content > .item img, .s-slide .s-content > .item img {
       width: 100%;
       height: auto;
       display: block;
@@ -1116,21 +1123,31 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
       drawer.classList.add(targetClass, 'show', 'active');
       drawer.setAttribute('data-antifan-opened', 'true');
-      if (drawer.hasAttribute('data-antifan-target')) {
-        drawer.style.removeProperty('display');
+      if (drawer.hasAttribute('data-antifan-target') && drawer.style) {
+        if (typeof drawer.style.removeProperty === 'function') {
+          drawer.style.removeProperty('display');
+        } else {
+          delete drawer.style.display;
+        }
+        drawer.style.display = 'block';
       }
-      document.body.style.overflow = 'hidden';
+      if (document && document.body && document.body.style) {
+        document.body.style.overflow = 'hidden';
+      }
     };
     var closeDrawer = function(drawer) {
       if (!drawer) return;
       var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
       drawer.classList.remove(targetClass, 'show', 'active');
       drawer.removeAttribute('data-antifan-opened');
+      if (drawer.hasAttribute('data-antifan-target')) {
+        drawer.style.display = 'none';
+      }
       if (drawer.classList.contains('category-navigation__block') || drawer.hasAttribute('data-antifan-drawer')) {
         var openSubL2 = drawer.querySelectorAll('.category-navigation__list > ul > li.show, .child-lv1 > li.show, .category-navigation__header .bottom .back.show, .back.show');
         openSubL2.forEach(function(li) { li.classList.remove('show', 'active'); });
       }
-      var anyDrawerOpen = document.querySelector('[data-antifan-opened="true"], .category-navigation__block.show, [data-antifan-drawer].show, [data-antifan-drawer].active, .drawer.show, .drawer.active, .offcanvas.show, .offcanvas.active, .mobile-drawer.show, .mobile-drawer.active, [data-antifan-modal].show, [data-antifan-modal].active, .modal.show, .modal.active, .popup.show, .popup.active');
+      var anyDrawerOpen = document.querySelector('[data-antifan-opened="true"], .category-navigation__block.show, [data-antifan-drawer].show, [data-antifan-drawer].active, .mobile-drawer.show, .mobile-drawer.active, .drawer.show, .drawer.active, .offcanvas.show, .offcanvas.active');
       if (!anyDrawerOpen) {
         document.body.style.overflow = '';
       }
@@ -1170,6 +1187,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
     // Declarative data-antifan-toggle triggers
     var toggleTriggers = document.querySelectorAll('[data-antifan-toggle]');
     toggleTriggers.forEach(function(btn) {
+      if (btn.classList.contains('info-more__button')) return;
       btn.addEventListener('click', function(e) {
         e.preventDefault();
         var prop = btn.getAttribute('data-antifan-toggle');
@@ -1178,7 +1196,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
                      (btn.parentElement && btn.parentElement.querySelector('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]')) ||
                      document.querySelector('[data-antifan-state="' + prop + '"], [data-antifan-target="' + prop + '"]');
         if (target) {
-          var isOverlay = target.classList.contains('category-navigation__block') || target.hasAttribute('data-antifan-drawer') || target.classList.contains('drawer') || target.classList.contains('mobile-drawer') || target.classList.contains('offcanvas') || target.classList.contains('modal') || target.classList.contains('popup') || target.hasAttribute('data-antifan-modal');
+          var isOverlay = target.classList.contains('category-navigation__block') || target.hasAttribute('data-antifan-drawer') || target.classList.contains('drawer') || target.classList.contains('mobile-drawer') || target.classList.contains('offcanvas') || target.classList.contains('popup') || target.id === 'popup-video' || target.id === 'popup-login';
           if (isOverlay) {
             var targetClass = target.getAttribute('data-antifan-class') || 'show';
             if (target.classList.contains(targetClass) || target.classList.contains('show') || target.classList.contains('active')) {
@@ -1190,10 +1208,15 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
             var targetClass = target.getAttribute('data-antifan-class') || 'active';
             if (target.classList.contains(targetClass) || target.classList.contains('show') || target.classList.contains('active')) {
               target.classList.remove(targetClass, 'show', 'active');
+              if (target.style) target.style.display = 'none';
             } else {
               target.classList.add(targetClass, 'show', 'active');
-              if (target.hasAttribute('data-antifan-target')) {
-                target.style.removeProperty('display');
+              if (target.hasAttribute('data-antifan-target') && target.style) {
+                if (typeof target.style.removeProperty === 'function') {
+                  target.style.removeProperty('display');
+                } else {
+                  delete target.style.display;
+                }
               }
             }
           }
@@ -1292,13 +1315,21 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
     });
 
     // 2. Video modal popup & YouTube embed loader
-    var videoBtns = document.querySelectorAll('.video-content__button, [data-fancybox="video"], [href*="youtube.com"], [href*="youtu.be"]');
+    var videoBtns = document.querySelectorAll('.video-content__button, [data-antifan-toggle="openVideo"], [data-fancybox="video"], [href*="youtube.com"], [href*="youtu.be"]');
     var videoPopup = document.getElementById('popup-video');
     if (videoPopup) {
       videoBtns.forEach(function(btn) {
         btn.addEventListener('click', function(e) {
           e.preventDefault();
-          videoPopup.classList.add('active');
+          videoPopup.classList.add('active', 'show');
+          if (videoPopup.style) {
+            if (typeof videoPopup.style.removeProperty === 'function') {
+              videoPopup.style.removeProperty('display');
+            } else {
+              delete videoPopup.style.display;
+            }
+          }
+          document.body.style.overflow = 'hidden';
           var iframe = videoPopup.querySelector('iframe');
           if (iframe) {
             var rawSrc = iframe.getAttribute('data-src') || iframe.getAttribute('src');
@@ -1308,17 +1339,28 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
           }
         });
       });
-      var closeVideo = videoPopup.querySelector('.popup-close');
-      if (closeVideo) {
-        closeVideo.addEventListener('click', function() {
-          videoPopup.classList.remove('active');
+      var closeVideo = videoPopup.querySelectorAll('.popup-close, [data-antifan-close="openVideo"]');
+      closeVideo.forEach(function(cBtn) {
+        cBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          videoPopup.classList.remove('active', 'show');
+          if (videoPopup.style) {
+            if (typeof videoPopup.style.removeProperty === 'function') videoPopup.style.removeProperty('display');
+            videoPopup.style.display = 'none';
+          }
+          document.body.style.overflow = '';
           var iframe = videoPopup.querySelector('iframe');
           if (iframe) iframe.src = 'about:blank';
         });
-      }
+      });
       videoPopup.addEventListener('click', function(e) {
         if (e.target === videoPopup) {
-          videoPopup.classList.remove('active');
+          videoPopup.classList.remove('active', 'show');
+          if (videoPopup.style) {
+            if (typeof videoPopup.style.removeProperty === 'function') videoPopup.style.removeProperty('display');
+            videoPopup.style.display = 'none';
+          }
+          document.body.style.overflow = '';
           var iframe = videoPopup.querySelector('iframe');
           if (iframe) iframe.src = 'about:blank';
         }
@@ -1372,7 +1414,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
         btn.addEventListener('click', function(e) {
           e.preventDefault();
           e.stopPropagation();
-          var isActive = detail.classList.contains('active');
+          var isActive = detail.classList.contains('active') || detail.style.display === 'block';
           if (isActive) {
             detail.classList.remove('active');
             detail.style.display = 'none';
@@ -1415,8 +1457,23 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       if (slides.length <= 1) return;
 
       function updateSlideMetrics() {
+        // Multi-item carousels (e.g. partner logos, news articles, accessories, product grids)
+        // must retain their native responsive widths and never be forced to 100% full width.
+        var isMultiItem = slider.closest('.partner, .partner-list, .news, .news-content, .accessory, [class*="product"]') ||
+                          slider.querySelector('.article-item, .accessory-content__item, [class*="product-"]') ||
+                          (slides[0] && (slides[0].classList.contains('article-item') || slides[0].getAttribute('data-href') !== null)) ||
+                          (slider.id && (slider.id.includes('partner') || slider.id.includes('news')));
+        if (isMultiItem) return;
+
         var sliderWidth = slider.clientWidth || list.clientWidth || window.innerWidth;
         if (sliderWidth > 0 && (track.classList.contains('s-content') || slider.classList.contains('s-wrap'))) {
+          if (slides[0]) {
+            var firstItemStyle = window.getComputedStyle(slides[0]);
+            var firstItemW = parseFloat(firstItemStyle.width);
+            if (firstItemW > 0 && firstItemW < sliderWidth * 0.75) {
+              return;
+            }
+          }
           slides.forEach(function(s) {
             s.style.width = sliderWidth + 'px';
             s.style.flex = '0 0 ' + sliderWidth + 'px';
@@ -1693,6 +1750,12 @@ ${options.customInteractivityJs ? `\n    /* Custom User / Theme Interactivity */
     if (hasVideoPopup) {
       cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)\s*(data-src=""|data-src="(?:\s*)")([^>]*>)/gi, '$1$3');
       cleaned = cleaned.replace(/(<div id="popup-video"[^>]*?)\s+style="[^"]*"/gi, '$1');
+      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b)([^>]*>)/gi, (m, prefix, attrs) => {
+        if (!/\bdata-src=["'][^"']+["']/i.test(attrs)) {
+          return `${prefix} data-src="https://www.youtube.com/embed/Nt2J6ZXPuw0"${attrs}`;
+        }
+        return m;
+      });
     }
     if (hasLoginPopup) {
       cleaned = cleaned.replace(/(<div id="popup-login"[^>]*?)\s+style="[^"]*"/gi, '$1');

@@ -1,0 +1,101 @@
+{
+  "runId": "wrses-20260914T135118Z",
+  "slug": "work-root-sequential-evidence-scout",
+  "goalObjective": "/ak-cook plans/260914-1248-work-root-sequential-evidence-scout/plan.md --auto",
+  "policyVersion": "1.0.0",
+  "startedAt": "2026-09-14T13:51:18Z",
+  "startedAtLocal": "2026-09-14T20:51:18+07:00",
+  "planPath": "E:\\Work\\apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\plan.md",
+  "outputDirectory": "E:\\Work\\apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports",
+  "runOwnedPathPrefixes": [
+    "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\scan-state",
+    "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\scan-batches",
+    "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\scan-archive",
+    "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\fixtures",
+    "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\tools",
+    "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\work-units"
+  ],
+  "toolVersions": {
+    "node": "v24.13.0",
+    "npm": "11.6.2",
+    "ak": "ak 2.15.0",
+    "powershell": "5.1.22000.2538",
+    "os": "Microsoft Windows NT 10.0.22000.0"
+  },
+  "scope": {
+    "primaryRoot": "E:\\Work",
+    "supplementalRoots": [
+      {
+        "rootId": "skills-claude",
+        "path": "C:\\Users\\Admin\\.claude\\skills",
+        "topLevelEntriesObserved": 186,
+        "authority": "plan.md:15, phase-01-start.md:15"
+      },
+      {
+        "rootId": "skills-agents",
+        "path": "C:\\Users\\Admin\\.agents\\skills",
+        "topLevelEntriesObserved": 183,
+        "authority": "runtime skill catalog reported this as base directory of installed ak-* skills",
+        "skillOrigin": "agentkit-installer"
+      }
+    ],
+    "inRootSkillRoots": [
+      "E:\\Work\\.claude\\skills (2 top-level entries observed)",
+      "E:\\Work\\apps\\.claude\\skills (5 top-level entries observed)"
+    ],
+    "homeWideSearchPerformed": false
+  },
+  "scanSemantics": {
+    "enumeration": "sequential depth-first over a durable append-only frontier; one active work unit",
+    "hiddenEntries": true,
+    "gitignoreUsedAsPolicy": false,
+    "dotGitTreatedAsCorpusHistory": true,
+    "reparsePoints": "recorded with target; never traversed; internal targets reconciled to canonical in-root entry; cycles not re-walked",
+    "hardlinks": "each path recorded; physical id captured when the filesystem reports one",
+    "danglingOrExternalLinks": "boundary record, root never widened",
+    "sizeSemantics": "logical bytes from lstat; not disk allocation",
+    "contentHash": "null at inventory stage; populated only in content-read phases",
+    "truncationPolicy": "any truncated or timed-out tool output leaves the directory NOT complete",
+    "outputPolicy": "entry batches written to plan-local reports/; stdout limited to a bounded summary"
+  },
+  "artifactPaths": {
+    "inventory": "reports/inventory.jsonl",
+    "frontier": "reports/frontier.json",
+    "errors": "reports/errors.jsonl",
+    "archiveMembers": "reports/archive-members.jsonl",
+    "inventorySummary": "reports/inventory-summary.json",
+    "directoryReceipts": "reports/scan-state/dirs.jsonl",
+    "discoveredFrontier": "reports/scan-state/discovered.jsonl",
+    "entryBatches": "reports/scan-batches/<dirId>.jsonl"
+  },
+  "executionPermission": {
+    "planApprovedByUser": true,
+    "corpusSourceExecution": false,
+    "corpusMutation": false,
+    "networkHydration": false,
+    "knowledgeAutoPromotion": false,
+    "note": "Plan approval is not execution permission for corpus code or promotion; see phase-01-start.md:48"
+  },
+  "knownSideEffects": [
+    {
+      "subject": "ak current-plan metadata",
+      "writtenBy": "workflow (ak plan use / ak plan check)",
+      "boundary": "recorded as run side-effect in policy-ledger.jsonl; source Git config and index are never modified"
+    },
+    {
+      "subject": "plan status fields in phase-*.md and plan.md",
+      "writtenBy": "this run at phase sync-back",
+      "boundary": "plan-local documentation only; corpus source untouched"
+    }
+  ],
+  "preflightEvidence": {
+    "priorFullScanInterrupted": true,
+    "priorEvidence": "plan.md:21 (glob root timeout, metadata pass interrupted, no measured inventory/coverage)",
+    "diskFreeBytesE": 130950262784,
+    "diskTotalBytesE": 232824762368,
+    "diskFreeBytesC": 18066149376,
+    "diskMeasuredAt": "2026-09-14T13:53:00Z",
+    "note": "free/used measured with Get-PSDrive immediately before the run; values drift during execution"
+  },
+  "status": "phase-1-recorded"
+}

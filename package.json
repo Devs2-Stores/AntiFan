@@ -9,7 +9,8 @@
   "bin": {
     "antifan": "./scripts/antifan-agent.cjs",
     "antifan-agent": "./scripts/antifan-agent.cjs",
-    "antifan-mcp": "./scripts/antifan-omp-mcp.cjs"
+    "antifan-mcp": "./scripts/antifan-omp-mcp.cjs",
+    "antifan-core": "./scripts/antifan-core.cjs"
   },
   "type": "commonjs",
   "scripts": {

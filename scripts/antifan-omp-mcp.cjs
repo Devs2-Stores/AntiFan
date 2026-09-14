@@ -12,6 +12,8 @@ const definitions = [
   ['anti.browser.tabs.create', 'Open a new tab in live AntiFan Desktop Browser GUI without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' } }],
   ['anti.browser.tabs.activate', 'Switch the active tab visible to the user in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.tabs.close', 'Close a tab in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
+  ['anti.browser.rebind_target', 'Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.', { tabId: { type: 'string' } }, ['tabId']],
+  ['anti.browser.set_automation_target', 'Set the primary automation target tab for this session (authority rotation via CAS).', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' } }, ['url']],
   ['anti.browser.reload', 'Reload active or background tab in live AntiFan Desktop Browser GUI.', { tabId: { type: 'string' } }],
   ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
@@ -59,7 +61,7 @@ const definitions = [
   ['anti.inspect.region', 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.', { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.trace.interaction', 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.', { action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] }, selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, deltaY: { type: 'number' }, settleMs: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['action']],
   ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, baselineRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, selector: { type: 'string' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, maskSelectors: { type: 'array', items: { type: 'string' } }, maskOptionalSelectors: { type: 'array', items: { type: 'string' } }, normalizeScroll: { type: 'boolean' }, fullPage: { type: 'boolean', description: 'Capture and compare entire document scroll height' }, useDefaultWidgetMasks: { type: 'boolean' }, leaseToken: { type: 'string' }, trackedSelectors: { type: 'array', items: { type: 'string' } }, heightTolerance: { type: 'number' }, allowHeightDrift: { type: 'boolean' }, maxGeometryDeltaPx: { type: 'number' }, expectedUrl: { type: 'string' }, expectedTargetUrl: { type: 'string' }, expectedBaselineUrl: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations, requestAnimationFrame) in tab to enable deterministic visual comparisons.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }],
+  ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }],
   ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector']],
   ['anti.spec.validate_gate', 'Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation.', { specTabId: { type: 'string' }, targetTabId: { type: 'string' }, tolerance: { type: 'number' } }],
@@ -78,6 +80,18 @@ const definitions = [
   ['anti.theme.export_clean', 'Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath']],
   ['anti.browser.dump_dom', 'Stream clean or raw page DOM directly to a workspace file with zero MCP transport truncation and Windows-safe atomic writes.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath']],
   ['anti.verification.list', 'List recorded verification claims and their current verdicts.', { verdict: { type: 'string', enum: ['VERIFIED', 'PARTIAL', 'REJECTED', 'INCONCLUSIVE', 'UNVERIFIED'] }, actor: { type: 'string', enum: ['agent', 'user'] }, tabId: { type: 'string' }, stalemateState: { type: 'string', enum: ['ACTIVE', 'STALEMATE', 'EXEMPTION_WAIVED'] }, limit: { type: 'number' } }],
+  ['core.query', 'Query the local Super Core evidence store: anchored claims filtered by text/platform/unit/kind.', { text: { type: 'string' }, platform: { type: 'string' }, unitId: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number' } }],
+  ['core.context_pack', 'Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' } }, ['task']],
+  ['core.recommend', 'Recommend from evidence: Context Pack + recommendation or explicit abstention.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } } }, ['task']],
+  ['core.receipt', 'Issue a Decision Receipt binding task context and evidence revisions. Refused when Core unavailable.', { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' } }, ['task', 'recommendation']],
+  ['core.ingest_outcome', 'Ingest a verified outcome as a case + pending candidate (never auto-promoted).', { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' } }, ['task', 'outcome']],
+  ['core.adjudicate', 'Adjudicate a candidate (PROMOTE/REJECT/SUPERSEDE) with explicit authority. Refused when Core unavailable.', { candidateId: { type: 'string' }, decision: { type: 'string', enum: ['PROMOTE', 'REJECT', 'SUPERSEDE'] }, authority: { type: 'string' }, rationale: { type: 'string' }, scope: { type: 'string', enum: ['production', 'acceptance-test'] } }, ['candidateId', 'decision', 'authority']],
+  ['core.stats', 'Return Super Core store counts for verification.', {}],
+  ['core.domain', 'Return a domain view (units, claims, eligible skills, gaps) or insufficient-evidence.', { name: { type: 'string' } }, ['name']],
+  ['core.invalidate', 'Mark claims stale when their source changed or was deleted.', { entryId: { type: 'string' }, path: { type: 'string' } }],
+  ['core.revoke', 'Revoke claims derived from a restricted source (permission propagation).', { entryId: { type: 'string' }, path: { type: 'string' } }],
+  ['core.snapshot', 'Create a release snapshot for regression/rollback.', { note: { type: 'string' } }],
+  ['core.rollback', 'Restore claims/candidates to a release snapshot.', { releaseId: { type: 'string' } }, ['releaseId']],
 ];
 
 let currentAuthorityRevision = null;
@@ -149,12 +163,21 @@ function hasTerminalInstanceContext() {
 }
 
 function resolveFailoverCandidates() {
-  if (!hasTerminalInstanceContext()) {
-    return [];
-  }
   const pinnedCandidates = resolveBridgeCandidates().map((c) => ({ ...c, pinned: true, provenance: 'env' }));
   const seen = new Set(pinnedCandidates.map((c) => `${c.host}:${c.port}`));
-  const discovered = discoverLocalCandidates().filter((c) => !seen.has(`${c.host}:${c.port}`));
+  const discovered = hasTerminalInstanceContext()
+    ? discoverLocalCandidates().filter((c) => !seen.has(`${c.host}:${c.port}`))
+    : [];
+  // Single-instance invariant: the app exits on a second process, so the bridge
+  // this session already bootstrapped against is always a legitimate failover
+  // candidate — reconnecting to it reuses the existing secret, no disk discovery.
+  const boot = getBootstrap();
+  if (boot && boot.port && (boot.secret || boot.token)) {
+    const key = `127.0.0.1:${boot.port}`;
+    if (!seen.has(key)) {
+      pinnedCandidates.push({ host: '127.0.0.1', port: boot.port, token: boot.token || boot.secret, pinned: true, provenance: 'bootstrap' });
+    }
+  }
   return [...pinnedCandidates, ...discovered].sort(compareBridgeCandidates);
 }
 
@@ -173,7 +196,7 @@ function getBootstrap() {
       }
       return {
         ...b,
-        tabId: b.tabId || process.env.ANTIFAN_BOUND_TAB_ID || undefined,
+        tabId: process.env.ANTIFAN_BOUND_TAB_ID || b.tabId || undefined,
         authorityRevision: currentAuthorityRevision || b.authorityRevision,
         ownerPid: b.ownerPid || (process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined),
       };
@@ -291,6 +314,8 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.browser.tabs.create': 'browser.open-tab',
   'anti.browser.tabs.activate': 'browser.switch-tab',
   'anti.browser.tabs.close': 'browser.close-tab',
+  'anti.browser.rebind_target': 'browser.rebind-target',
+  'anti.browser.set_automation_target': 'browser.set-automation-target',
   'anti.browser.navigate': 'browser.navigate',
   'anti.browser.reload': 'browser.reload',
   'anti.inspect.dom': 'browser.dom',
@@ -318,6 +343,50 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.theme.export_clean': 'browser.dump_dom',
   'anti.browser.dump_dom': 'browser.dump_dom',
 });
+
+// ---------------------------------------------------------------------------
+// Super Core: local evidence/provenance store (packages/super-core). These
+// capabilities are handled in-process by invokeCore — they never reach the
+// bridge dispatch socket. Unavailable Core returns {available:false} for
+// advisory calls and refuses receipt-required actions.
+let coreInstance = null;
+function getCore() {
+  if (coreInstance) return coreInstance;
+  const dbPath = process.env.SUPER_CORE_DB
+    || require('node:path').join(__dirname, '..', '.super-core', 'core.db');
+  try {
+    const { openCore } = require('../packages/super-core/dist/index.js');
+    coreInstance = openCore(dbPath);
+    return coreInstance;
+  } catch (e) {
+    return null;
+  }
+}
+async function invokeCore(method, params) {
+  const core = getCore();
+  const mutating = new Set(['core.receipt','core.adjudicate','core.ingest_outcome','core.invalidate','core.revoke','core.snapshot','core.rollback']);
+  if (!core) {
+    if (mutating.has(method)) {
+      throw new Error(JSON.stringify({ code: 'CORE_UNAVAILABLE', message: `Super Core store unavailable; mutating action ${method} refused` }));
+    }
+    return { available: false, reason: 'super-core package not built or db unreachable', method };
+  }
+  switch (method) {
+    case 'core.query': return core.query(params);
+    case 'core.context_pack': return core.contextPack(params);
+    case 'core.recommend': return core.recommend(params);
+    case 'core.receipt': return core.receipt(params);
+    case 'core.ingest_outcome': return core.ingestOutcome(params);
+    case 'core.adjudicate': return core.adjudicate(params);
+    case 'core.stats': return core.stats();
+    case 'core.domain': return core.domain(params.name);
+    case 'core.invalidate': return core.invalidate(params);
+    case 'core.revoke': return core.revoke(params);
+    case 'core.snapshot': return core.snapshot(params.note);
+    case 'core.rollback': return core.rollback(params.releaseId);
+    default: throw new Error(`unknown core capability: ${method}`);
+  }
+}
 
 const isFixerSession = process.env.ANTIFAN_FIXER_SESSION === 'true' ||
   process.env.ANTIFAN_FIXER_SESSION === '1' ||
@@ -591,12 +660,14 @@ function wireDispatchSocket(ws) {
     pendingDispatchCalls.clear();
   });
 
-  ws.once('close', () => {
+  ws.once('close', (code, reason) => {
     dispatchConnecting = null;
     if (dispatchWs === ws) dispatchWs = null;
+    const reasonText = reason && reason.length ? reason.toString() : '';
+    const detail = `Dispatch WebSocket closed while request in flight (code=${code}${reasonText ? `, reason=${reasonText}` : ''})`;
     for (const [, entry] of pendingDispatchCalls.entries()) {
       clearTimeout(entry.timer);
-      entry.reject(transportError('CONNECTION_CLOSED', JSON.stringify({ code: 'CONNECTION_CLOSED', message: 'Dispatch WebSocket closed while request in flight' })));
+      entry.reject(transportError('CONNECTION_CLOSED', JSON.stringify({ code: 'CONNECTION_CLOSED', message: detail, closeCode: code, closeReason: reasonText || undefined })));
     }
     pendingDispatchCalls.clear();
   });
@@ -955,6 +1026,30 @@ async function invoke(method, params = {}, callerRequestId) {
     err.code = 'REFUSED_TOOL_SURFACE';
     throw err;
   }
+  // Required-field contract is enforced before any dispatch (bridge or local):
+  // the advertised schema is a promise published by this surface.
+  const declaredRequired = (definitions.find(([defName]) => defName === method) || [])[3] || [];
+  const missingRequiredEarly = declaredRequired.filter((field) => {
+    const value = params[field];
+    if (value === undefined || value === null) return true;
+    return typeof value === 'string' && value.trim() === '';
+  });
+  if (missingRequiredEarly.length > 0) {
+    throw new Error(JSON.stringify({
+      code: 'INVALID_ARGUMENT',
+      message: `Capability '${method}' requires ${missingRequiredEarly.join(', ')}, and this call supplied no usable value for ${missingRequiredEarly.length === 1 ? 'it' : 'them'}. ` +
+        'The field is refused rather than defaulted, because a default would act on a target the caller never named. ' +
+        `Supply ${missingRequiredEarly.length === 1 ? 'the field' : 'the fields'} explicitly and retry.`,
+      details: { capability: method, missing: missingRequiredEarly },
+    }));
+  }
+  // Local core.* capabilities: the Super Core evidence store is a local SQLite
+  // database, not a bridge capability. Handle in-process BEFORE the bootstrap
+  // gate — a local store must not depend on the desktop bridge being live.
+  const mappedEarly = CAPABILITY_MAP[method] || method;
+  if (mappedEarly.startsWith('core.')) {
+    return invokeCore(mappedEarly, params);
+  }
   let bootstrap = getBootstrap();
   if (!bootstrap || !bootstrap.secret) {
     try {
@@ -986,32 +1081,12 @@ async function invoke(method, params = {}, callerRequestId) {
   delete effectiveParams.requestId;
   delete effectiveParams.callerRequestId;
   const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
-  // The advertised schema is a promise published by THIS surface, so it is enforced here,
-  // where it is published, against the caller's literal arguments. One rule replaces the
-  // per-name special case that used to live on this line: no layer may fabricate a value
-  // the caller did not supply for a field its own schema marks required. Measured before
-  // this rule: every spelling of tabs.activate, rebind_target and set_automation_target was
-  // accepted with no arguments at all and acted on the session's bound tab, and the
-  // application-side gate never saw the omission because the injection below had already
-  // satisfied the contract on the caller's behalf. `0`, `false` and non-empty strings are
-  // real values; only absent, null and blank count as omitted.
-  const declaredRequired = (definitions.find(([defName]) => defName === method) || [])[3] || [];
-  const missingRequired = declaredRequired.filter((field) => {
-    const value = params[field];
-    if (value === undefined || value === null) return true;
-    return typeof value === 'string' && value.trim() === '';
-  });
-  if (missingRequired.length > 0) {
-    throw new Error(JSON.stringify({
-      code: 'INVALID_ARGUMENT',
-      message: `Capability '${method}' requires ${missingRequired.join(', ')}, and this call supplied no usable value for ${missingRequired.length === 1 ? 'it' : 'them'}. ` +
-        'The field is refused rather than defaulted, because a default would act on a target the caller never named. ' +
-        `Supply ${missingRequired.length === 1 ? 'the field' : 'the fields'} explicitly and retry.`,
-      details: { capability: method, missing: missingRequired },
-    }));
-  }
-  // Reaching here means every required field is genuinely present, so the convenience
-  // default below can only ever apply to a tool whose schema keeps tabId optional.
+  // The advertised schema is a promise published by THIS surface, enforced at
+  // invoke head (before bridge or local dispatch). `0`, `false` and non-empty
+  // strings are real values; only absent, null and blank count as omitted.
+  // Reaching here means every required field is genuinely present, so the
+  // convenience default below can only ever apply to a tool whose schema keeps
+  // tabId optional.
   if (!effectiveParams.tabId && boundTabId) {
     effectiveParams.tabId = boundTabId;
   }
@@ -1019,7 +1094,6 @@ async function invoke(method, params = {}, callerRequestId) {
     const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
     effectiveParams.limit = Math.min(rawLimit, 32768); // Bounded chunk size: <= 32 KiB per frame
   }
-
   const sendDispatch = async (currentBoot) => {
     const ws = await ensureDispatchSocket(currentBoot);
     const id = crypto.randomUUID();
@@ -1037,9 +1111,16 @@ async function invoke(method, params = {}, callerRequestId) {
         requestId: identity.requestId,
         idempotencyKey: identity.idempotencyKey,
         resolve: (data) => {
-          if (mapped === 'browser.switch-tab' && effectiveParams.tabId) {
-            currentBoot.tabId = effectiveParams.tabId;
-            process.env.ANTIFAN_BOUND_TAB_ID = effectiveParams.tabId;
+          const targetTabId =
+            (data && typeof data === 'object' && typeof data.tabId === 'string' && data.tabId) ||
+            (data && typeof data === 'object' && data.target && typeof data.target.tabId === 'string' && data.target.tabId) ||
+            effectiveParams.tabId;
+          if (
+            (mapped === 'browser.switch-tab' || mapped === 'browser.rebind-target' || mapped === 'browser.set-automation-target') &&
+            typeof targetTabId === 'string' && targetTabId.length > 0
+          ) {
+            currentBoot.tabId = targetTabId;
+            process.env.ANTIFAN_BOUND_TAB_ID = targetTabId;
           } else if (mapped === 'browser.open-tab' && data && typeof data === 'object' && typeof data.tabId === 'string') {
             currentBoot.tabId = data.tabId;
             process.env.ANTIFAN_BOUND_TAB_ID = data.tabId;
@@ -1097,7 +1178,14 @@ async function invoke(method, params = {}, callerRequestId) {
     if (healed && healed.secret) {
       return await sendDispatch(healed);
     }
-    throw err;
+    // No failover candidate answered, but the original bridge may still be
+    // alive (single-instance app): one same-endpoint reconnect with the
+    // existing secret before giving up.
+    try {
+      return await sendDispatch(bootstrap);
+    } catch {
+      throw err;
+    }
   }
 }
 

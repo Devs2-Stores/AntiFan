@@ -70,6 +70,17 @@ function scanWorkspaceFiles(dir: string, root: string): string[] {
   return results;
 }
 
+export function readWorkspaceRevision(workspaceRoot: string): string {
+  const root = path.resolve(workspaceRoot);
+  assertNoReparseTraversal(root, root);
+  const hash = crypto.createHash('sha256');
+  for (const relativePath of scanWorkspaceFiles(root, root).sort()) {
+    const contentHash = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, relativePath))).digest('hex');
+    hash.update(JSON.stringify([relativePath, contentHash]));
+  }
+  return hash.digest('hex');
+}
+
 async function writeAtomicWithRetry(target: string, data: Buffer, maxRetries = 5): Promise<void> {
   const delays = [10, 25, 50, 100, 200];
   const temp = `${target}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
