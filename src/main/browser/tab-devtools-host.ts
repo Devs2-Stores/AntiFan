@@ -95,6 +95,69 @@ export interface TabDevToolsStats {
  * reference materialization walk) pass their own through `timeoutMs`.
  */
 const EVAL_JS_DEFAULT_TIMEOUT_MS = 15_000;
+/**
+ * Source of the circular-safe value serializer injected into every evaluated
+ * expression. One definition, so the page-context and frame-context paths cannot
+ * drift in how they marshal a result back across the Electron boundary.
+ */
+const SERIALIZE_CIRCULAR_SAFE_SOURCE = `function serializeCircularSafe(val, seen = new WeakSet(), depth = 0) {
+  if (val === null || typeof val !== 'object') {
+    if (typeof val === 'bigint') return val.toString() + 'n';
+    if (typeof val === 'function') return '[Function: ' + (val.name || 'anonymous') + ']';
+    if (typeof val === 'symbol') return val.toString();
+    return val;
+  }
+  if (depth > 10) return '[MaxDepth]';
+  if (seen.has(val)) return '[Circular]';
+  seen.add(val);
+  if (Array.isArray(val)) {
+    return val.map((item) => serializeCircularSafe(item, seen, depth + 1));
+  }
+  if (typeof Element !== 'undefined' && val instanceof Element) {
+    return {
+      tagName: val.tagName,
+      id: val.id || undefined,
+      className: val.className || undefined,
+      outerHTML: val.outerHTML ? val.outerHTML.slice(0, 1000) : undefined,
+    };
+  }
+  const out = {};
+  for (const key of Object.keys(val)) {
+    try {
+      out[key] = serializeCircularSafe(val[key], seen, depth + 1);
+    } catch {
+      out[key] = '[Unserializable]';
+    }
+  }
+  return out;
+}`;
+
+/**
+ * Resolve the child frame of `wc` whose URL contains `frameUrl`.
+ *
+ * Identity comes from `WebFrameMain.framesInSubtree`, deliberately not from
+ * `Page.getFrameTree`: the CDP frame tree reports a cross-origin child without its
+ * committed URL, so URL matching there can never resolve an embedded app frame.
+ * The tab's own top frame is never a candidate â€” running a caller's script in the
+ * top frame when it asked for a child frame would execute it in the wrong context.
+ */
+function findChildFrameByUrl(wc: Electron.WebContents, frameUrl: string, tabId: string): Electron.WebFrameMain {
+  const needle = String(frameUrl || '').toLowerCase();
+  const root = wc.mainFrame;
+  let frames: Electron.WebFrameMain[] = [];
+  try {
+    frames = root ? root.framesInSubtree : [];
+  } catch {
+    frames = [];
+  }
+  const match = frames.find((frame) => frame !== root && String(frame.url || '').toLowerCase().includes(needle));
+  if (match) return match;
+  const census = frames
+    .map((frame) => `${frame === root ? 'top' : 'child'}@${frame.frameTreeNodeId}=${String(frame.url || '').slice(0, 160) || '(no url)'}`)
+    .join(' | ');
+  throw new CapabilityError('SELECTOR_NOT_FOUND', `No child frame in tab ${tabId} matches "${frameUrl}". Frames: ${census || '(none)'}`);
+}
+
 
 export class TabDevToolsHost {
   private readonly ctx: TabDevToolsContext;
@@ -2190,37 +2253,7 @@ export class TabDevToolsHost {
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const execute = async (): Promise<unknown> => {
         const wrapped = `(async () => {
-        function serializeCircularSafe(val, seen = new WeakSet(), depth = 0) {
-          if (val === null || typeof val !== 'object') {
-            if (typeof val === 'bigint') return val.toString() + 'n';
-            if (typeof val === 'function') return '[Function: ' + (val.name || 'anonymous') + ']';
-            if (typeof val === 'symbol') return val.toString();
-            return val;
-          }
-          if (depth > 10) return '[MaxDepth]';
-          if (seen.has(val)) return '[Circular]';
-          seen.add(val);
-          if (Array.isArray(val)) {
-            return val.map(item => serializeCircularSafe(item, seen, depth + 1));
-          }
-          if (typeof Element !== 'undefined' && val instanceof Element) {
-            return {
-              tagName: val.tagName,
-              id: val.id || undefined,
-              className: val.className || undefined,
-              outerHTML: val.outerHTML ? val.outerHTML.slice(0, 1000) : undefined,
-            };
-          }
-          const out = {};
-          for (const key of Object.keys(val)) {
-            try {
-              out[key] = serializeCircularSafe(val[key], seen, depth + 1);
-            } catch {
-              out[key] = '[Unserializable]';
-            }
-          }
-          return out;
-        }
+        ${SERIALIZE_CIRCULAR_SAFE_SOURCE}
         try {
           // In-page execution budget guard
           const execBudgetMs = ${JSON.stringify(softBudgetMs)};
@@ -2300,9 +2333,15 @@ export class TabDevToolsHost {
 
   /**
    * Evaluate an expression inside a child frame (cross-origin iframe) selected by
-   * URL substring. Uses Page.getFrameTree to enumerate frames, then
-   * Page.createIsolatedWorld on the matched frameId to obtain an executionContextId,
-   * then Runtime.evaluate with that contextId. Returns undefined when no frame matches.
+   * URL substring.
+   *
+   * Frame identity comes from `WebFrameMain.framesInSubtree`, deliberately not from
+   * `Page.getFrameTree`: the CDP frame tree reports a cross-origin child without its
+   * committed URL, so URL matching there can never resolve an embedded app frame.
+   * The expression is embedded in the wrapper rather than passed through `eval`, so a
+   * page CSP that forbids `unsafe-eval` cannot reject the injected frame's own script.
+   * A miss is a typed `SELECTOR_NOT_FOUND` carrying the real frame census, never a
+   * silent `undefined`.
    */
   public async evalJsInFrame(
     expression: string,
@@ -2311,79 +2350,52 @@ export class TabDevToolsHost {
     paneId?: SplitPaneId,
     userGesture = false,
     timeoutMs = EVAL_JS_DEFAULT_TIMEOUT_MS
+    const softBudgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.round(timeoutMs) : EVAL_JS_DEFAULT_TIMEOUT_MS;
+    const hardBudgetMs = Math.max(softBudgetMs + 3000, Math.round(softBudgetMs * 2.5));
   ): Promise<unknown> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
-    if (!target) return undefined;
+    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`);
     const effectivePane = paneId || target.focusedPane;
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
-    if (!wc || wc.isDestroyed()) return undefined;
-
-    await this.sendCdpCommand(wc, 'Page.enable', {});
-    const tree = await this.sendCdpCommand<{ frameTree?: { frame?: { id?: string; url?: string }; childFrames?: unknown[] } }>(wc, 'Page.getFrameTree', {});
-    const needle = String(frameUrl || '').toLowerCase();
-    let frameId: string | undefined;
-    const walk = (node: { frame?: { id?: string; url?: string }; childFrames?: unknown[] } | undefined): void => {
-      if (!node || frameId) return;
-      const f = node.frame;
-      if (f && f.id && f.url && f.url.toLowerCase().includes(needle)) {
-        frameId = f.id;
-        return;
-      }
-      const kids = (node.childFrames || []) as Array<{ frame?: { id?: string; url?: string }; childFrames?: unknown[] }>;
-      for (const k of kids) walk(k);
-    };
-    walk(tree?.frameTree as { frame?: { id?: string; url?: string }; childFrames?: unknown[] } | undefined);
-    if (!frameId) return undefined;
-
-    const world = await this.sendCdpCommand<{ executionContextId?: number }>(wc, 'Page.createIsolatedWorld', {
-      frameId,
-      worldName: 'AntifanFrameWorld',
-      grantUniveralAccess: true,
-    });
-    const contextId = world?.executionContextId;
-    if (!contextId) return undefined;
-
-    const wrapped = `(async () => {
-      function serializeCircularSafe(val, seen = new WeakSet(), depth = 0) {
-        if (val === null || typeof val !== 'object') {
-          if (typeof val === 'bigint') return val.toString() + 'n';
-          if (typeof val === 'function') return '[Function: ' + (val.name || 'anonymous') + ']';
-          if (typeof val === 'symbol') return val.toString();
-          return val;
-        }
-        if (depth > 10) return '[MaxDepth]';
-        if (seen.has(val)) return '[Circular]';
-        seen.add(val);
-        if (Array.isArray(val)) return val.map(item => serializeCircularSafe(item, seen, depth + 1));
-        if (typeof Element !== 'undefined' && val instanceof Element) {
-          return { tagName: val.tagName, id: val.id || undefined, className: val.className || undefined, outerHTML: val.outerHTML ? val.outerHTML.slice(0, 1000) : undefined };
-        }
-        const out = {};
-        for (const key of Object.keys(val)) {
-          try { out[key] = serializeCircularSafe(val[key], seen, depth + 1); } catch { out[key] = '[Unserializable]'; }
-        }
-        return out;
-      }
-      const result = await (async () => (0, eval)(${JSON.stringify(expression)}))();
-      return serializeCircularSafe(result);
-    })()`;
-
-    const res = await this.sendCdpCommand<{
-      result?: { value?: unknown };
-      exceptionDetails?: { text?: string; exception?: { description?: string } };
-    }>(wc, 'Runtime.evaluate', {
-      expression: wrapped,
-      contextId,
-      returnByValue: true,
-      awaitPromise: true,
-      userGesture,
-    }, timeoutMs);
-    if (res?.exceptionDetails) {
-      const detail = res.exceptionDetails.exception?.description || res.exceptionDetails.text || 'CDP frame evaluation exception';
-      throw new Error(detail);
+    if (!wc || wc.isDestroyed()) {
+      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`);
     }
-    return res?.result?.value;
+    const frame = findChildFrameByUrl(wc, frameUrl, targetId);
+
+    return this.ctx.withTabAgentWorking(targetId, async () => {
+      const execute = async (): Promise<unknown> => {
+        const wrapped = `(async () => {
+  ${SERIALIZE_CIRCULAR_SAFE_SOURCE}
+  const execBudgetMs = ${JSON.stringify(softBudgetMs)};
+  const execPromise = (async () => (
+${expression}
+))();
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (note: requestAnimationFrame pauses in background tabs)')), execBudgetMs);
+  });
+  const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
+  return serializeCircularSafe(result);
+})()`;
+        try {
+          return await frame.executeJavaScript(wrapped, userGesture);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new CapabilityError('EXECUTION_ERROR', `Frame ${frame.frameTreeNodeId} (${frame.url || 'no url'}) evaluation failed: ${msg}`);
+        }
+      };
+
+      const { promise: hardWatchdogPromise, reject: hardReject } = Promise.withResolvers<never>();
+      const hardTimer = setTimeout(() => {
+        hardReject(new CapabilityError('EVAL_HARD_TIMEOUT', `Frame evaluation on tab ${targetId} exceeded hard ceiling of ${hardBudgetMs}ms`));
+      }, hardBudgetMs);
+      try {
+        return await Promise.race([execute(), hardWatchdogPromise]);
+      } finally {
+        clearTimeout(hardTimer);
+      }
+    });
   }
   // ─── Auto JSON Viewer & View Page Source ───
   public injectAutoJsonViewer(wc: Electron.WebContents): void {
