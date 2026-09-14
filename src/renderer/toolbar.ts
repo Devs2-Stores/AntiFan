@@ -211,6 +211,20 @@ const btnPopoutTerminal = document.getElementById('btnPopoutTerminal') as HTMLBu
 
 // DOM Elements
 const tabList = document.getElementById('tabList')!;
+// The strip scrolls but hides its scrollbar, and nothing mapped wheel input onto it, so
+// a tab past the right edge was present in the DOM and impossible for the user to see or
+// click — it read as "lost". Map vertical wheel to horizontal scroll so every tab stays
+// reachable. (Tabs the agent plane creates are a separate case: getTabList excludes them
+// by design, native-tab-host.ts:2791-2806.)
+const tabStrip = document.getElementById('tabStrip') as HTMLElement | null;
+if (tabStrip) {
+  tabStrip.addEventListener('wheel', (event: WheelEvent) => {
+    if (event.deltaY === 0) return;
+    const before = tabStrip.scrollLeft;
+    tabStrip.scrollLeft = before + event.deltaY;
+    if (tabStrip.scrollLeft !== before) event.preventDefault();
+  }, { passive: false });
+}
 const btnNewTab = document.getElementById('btnNewTab')!;
 const btnBack = document.getElementById('btnBack') as HTMLButtonElement;
 const btnForward = document.getElementById('btnForward') as HTMLButtonElement;
@@ -845,6 +859,13 @@ function renderTabs() {
 
     tabEl.className = `tab ${isActive ? 'active' : ''} ${isAgentControlled ? 'agent-controlled' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
     tabEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    if (isActive) {
+      // Keep the active tab on screen: with a hidden scrollbar an off-screen active tab
+      // is invisible, which makes switching to a later tab look like it did nothing.
+      requestAnimationFrame(() => {
+        try { tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch {}
+      });
+    }
     tabEl.setAttribute('tabindex', isActive ? '0' : '-1');
     // Update Spinner & Icon
     const indexBadge = tabEl.querySelector('.tab-index-badge') as HTMLElement;

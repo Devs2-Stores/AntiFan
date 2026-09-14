@@ -77,7 +77,9 @@ body, html {
   height: 38px;
   flex-shrink: 0;
   overflow-x: auto;
-  scrollbar-width: none;
+  /* Visible affordance, not a hidden one: with the scrollbar suppressed and no overflow
+     menu, tabs past the right edge were unreachable while still occupying the DOM. */
+  scrollbar-width: thin;
   user-select: none;
   pointer-events: auto;
 }
@@ -127,7 +129,21 @@ body, html {
 .chat-mode-btn.active { background:#0e639c; border-color:#38bdf8; color:#fff; }
 
 .tab-strip::-webkit-scrollbar {
-  display: none;
+  display: block;
+  height: 6px;
+}
+
+.tab-strip::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 3px;
+}
+
+.tab-strip::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7);
+}
+
+.tab-strip::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .tab-list {
