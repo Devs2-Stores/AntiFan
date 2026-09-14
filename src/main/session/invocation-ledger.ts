@@ -75,6 +75,18 @@ interface InFlightClaim {
   promise: Promise<InvocationRecord>;
 }
 
+/** Outcome of terminalizing this run's in-flight invocations at shutdown. */
+export interface InvocationLedgerShutdownSettlement {
+  /** In-flight invocations found when shutdown began. */
+  pending: number;
+  /** Frames this process durably terminalized as `interrupted`. */
+  settled: number;
+  /** Frames already terminal, or no longer present. */
+  skipped: number;
+  /** Frames whose partition refused the write (poisoned or quarantined). */
+  failed: number;
+}
+
 function computeFrameChecksum(frame: Omit<InvocationRecord, 'checksum'>): string {
   const serialized = canonicalJsonStringify(frame);
   return crypto.createHash('sha256').update(serialized, 'utf8').digest('hex');
@@ -189,21 +201,41 @@ export class InvocationLedger {
           return;
         }
 
-        // Check if startup recovery needed for claiming or in_progress
+        // Recovery for a frame the previous run left in flight. The verdict is
+        // deliberately NON-CAUSAL: this routine cannot observe how the previous process
+        // ended, so it must not assert one. It records only what is knowable — that no
+        // terminal frame was recorded for the dispatch — plus the owning pid and lease,
+        // so a reader can correlate against the lifecycle journal
+        // (diagnostics/main-lifecycle-log.ts) instead of trusting this message.
+        // Replay runs from initialize() only, where this process has no in-flight frames
+        // of its own, so every frame seen here belongs to a previous run.
         if (frame.state === 'claiming' || frame.state === 'in_progress') {
+          const reconciledAt = Date.now();
+          const owningAuthority = frame.authoritySnapshot as
+            | { runtimePid?: number; leaseExpiresAt?: number }
+            | undefined;
+          const provenance = {
+            reconciledAt,
+            reconciledByPid: process.pid,
+            owningPid: typeof owningAuthority?.runtimePid === 'number' ? owningAuthority.runtimePid : null,
+            owningLeaseExpiresAt: typeof owningAuthority?.leaseExpiresAt === 'number' ? owningAuthority.leaseExpiresAt : null,
+            dispatchAgeMs: typeof frame.createdAt === 'number' ? reconciledAt - frame.createdAt : null,
+          };
           if (frame.dispatchStage === 'dispatch_started') {
             frame.state = 'unknown';
-            frame.settledAt = Date.now();
+            frame.settledAt = reconciledAt;
             frame.error = {
               code: 'EXECUTION_UNKNOWN',
-              message: 'Execution state unknown due to process termination after dispatch started',
+              message: 'No terminal frame was recorded for this dispatch; the owning process never wrote an outcome',
+              details: provenance,
             };
           } else {
             frame.state = 'interrupted';
-            frame.settledAt = Date.now();
+            frame.settledAt = reconciledAt;
             frame.error = {
               code: 'PROCESS_INTERRUPTED',
-              message: 'Execution was interrupted by process crash or restart',
+              message: 'No terminal frame was recorded before this run started; the owning process never wrote an outcome',
+              details: provenance,
             };
           }
           needsCompaction = true;
@@ -621,6 +653,70 @@ export class InvocationLedger {
     }
 
     return settled;
+  }
+
+  /**
+   * Write down this run's own in-flight invocations before the process exits.
+   *
+   * Without this, a deliberate quit and an abrupt loss leave byte-identical evidence:
+   * the frame stays `claiming|in_progress`, and the NEXT boot's `replayPartition()` is
+   * the only thing that ever assigns it an outcome — while `EXECUTION_UNKNOWN` claims
+   * "the owning process never wrote an outcome". That message was therefore true by
+   * construction and useless as a signal. Reserving `unknown` for genuine abrupt loss
+   * requires the dying process to record what it knew while it still could.
+   *
+   * `inFlight` — not a partition scan — is the correct source: it holds exactly the
+   * invocations this process claimed and has not settled. `settle()` performs its own
+   * bookkeeping (durable append, partition update, in-flight removal, claim resolution),
+   * so this method never touches those structures directly.
+   */
+  public async settleInFlightForShutdown(reason: string): Promise<InvocationLedgerShutdownSettlement> {
+    const pending = Array.from(this.inFlight.keys());
+    const settlement: InvocationLedgerShutdownSettlement = {
+      pending: pending.length,
+      settled: 0,
+      skipped: 0,
+      failed: 0,
+    };
+    for (const invocationId of pending) {
+      // Re-read per iteration: a frame may already be settled by the time we reach it.
+      const inFlightEntry = this.inFlight.get(invocationId);
+      if (!inFlightEntry) {
+        settlement.skipped += 1;
+        continue;
+      }
+      const record = inFlightEntry.record;
+      if (
+        record.state === 'completed' ||
+        record.state === 'failed' ||
+        record.state === 'interrupted' ||
+        record.state === 'unknown'
+      ) {
+        // Already terminal: settle() would return it unchanged, so do not count it as
+        // something this shutdown decided.
+        settlement.skipped += 1;
+        continue;
+      }
+      try {
+        await this.settle(invocationId, 'interrupted', undefined, {
+          code: 'PROCESS_INTERRUPTED',
+          message: `Invocation was still in flight when the owning process shut down deliberately (${reason})`,
+          details: {
+            settledAtShutdown: true,
+            shutdownReason: reason,
+            settledByPid: process.pid,
+            dispatchStage: record.dispatchStage ?? null,
+            inFlightMs: typeof record.createdAt === 'number' ? Date.now() - record.createdAt : null,
+          },
+        });
+        settlement.settled += 1;
+      } catch {
+        // A poisoned or quarantined partition refuses writes by design. Durability wins
+        // over a tidy record: that frame stays for the next boot's replay to reconcile.
+        settlement.failed += 1;
+      }
+    }
+    return settlement;
   }
 
   public getRecord(invocationId: string): InvocationRecord | undefined {

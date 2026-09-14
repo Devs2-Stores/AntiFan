@@ -591,4 +591,54 @@ describe('InvocationLedger - Main Serialization & Deduplication', () => {
     assert.strictEqual(observed?.kind, 'replay');
     assert.strictEqual(observed?.record?.state, 'interrupted');
   });
+
+  it('14. Graceful shutdown terminalizes in-flight frames so the next boot cannot manufacture a cause', async () => {
+    const attachmentId = makeControlPlaneId('attachment');
+    const authority = createMockAuthority(attachmentId, 'run-1', 'att-1');
+    const intent: ClientInvocationIntent = {
+      requestId: 'req-shutdown-1',
+      idempotencyKey: 'idem-shutdown-1',
+      attachmentId,
+      attachmentSecret: 'sec-1',
+      authorityRevision: 'rev-test-1',
+      name: 'test.action',
+      params: { stage: 'shutdown' },
+    };
+    const claim = await ledger.claimOwner(intent, authority, 'digest', 1, 'public');
+    await ledger.advanceStage(claim.invocationId, 'dispatch_started');
+
+    const settlement = await ledger.settleInFlightForShutdown('app quit');
+    assert.strictEqual(settlement.pending, 1);
+    assert.strictEqual(settlement.settled, 1);
+    assert.strictEqual(settlement.skipped, 0);
+    assert.strictEqual(settlement.failed, 0);
+
+    const settledRecord = ledger.getRecord(claim.invocationId);
+    assert.strictEqual(settledRecord?.state, 'interrupted');
+    assert.strictEqual(settledRecord?.error?.code, 'PROCESS_INTERRUPTED');
+    const settledDetails = settledRecord?.error?.details as Record<string, unknown> | undefined;
+    // Written by THIS process with its own reason, not by the next boot's replay —
+    // whose provenance carries reconciledByPid instead.
+    assert.strictEqual(settledDetails?.settledAtShutdown, true);
+    assert.strictEqual(settledDetails?.shutdownReason, 'app quit');
+    assert.strictEqual(settledDetails?.reconciledByPid, undefined);
+
+    // The property this protects: a frame still in flight with dispatch already started
+    // is NOT reported as EXECUTION_UNKNOWN, because the process explained it itself.
+    const nextRun = new InvocationLedger({ dataRoot: tmpDir });
+    await nextRun.initialize();
+    const replay = await nextRun.observe(intent, authority);
+    assert.strictEqual(replay?.kind, 'replay');
+    assert.strictEqual(replay?.record?.state, 'interrupted');
+    assert.strictEqual(replay?.record?.error?.code, 'PROCESS_INTERRUPTED');
+    assert.strictEqual(
+      (replay?.record?.error?.details as Record<string, unknown> | undefined)?.settledAtShutdown,
+      true
+    );
+  });
+
+  it('15. Shutdown settlement is a no-op when nothing is in flight', async () => {
+    const settlement = await ledger.settleInFlightForShutdown('app quit with no in-flight work');
+    assert.deepStrictEqual(settlement, { pending: 0, settled: 0, skipped: 0, failed: 0 });
+  });
 });
