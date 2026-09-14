@@ -5632,11 +5632,28 @@ export class BrowserControlPort {
       const hasMissingExpectation = missingTargetExpectation || missingCompExpectation;
 
       if (hasMissingExpectation) {
+        // Fail-closed refusal. The route gate is a guard, so refusing here is correct — but the
+        // refusal must be self-describing, because a caller that omits the expectation receives a
+        // byte-identical INCONCLUSIVE on every retry and has no way to learn what is missing. The
+        // gate therefore names the unasserted side(s) and the exact parameters that release it.
+        const missingSides = [
+          missingTargetExpectation ? 'target' : null,
+          missingCompExpectation ? 'baseline' : null,
+        ].filter((side): side is string => side !== null);
+        const missingSideList = missingSides.join(' and ');
+        const missingParams = [
+          missingTargetExpectation ? 'expectedTargetUrl (or expectedUrl) for the target side' : null,
+          missingCompExpectation ? 'expectedBaselineUrl for the baseline side' : null,
+        ].filter((entry): entry is string => entry !== null);
+        const expectationRemedy =
+          `Missing expectation for the ${missingSideList} side(s); declare ${missingParams.join(' and ')}. ` +
+          'Declaring the expected route is the only remedy: this refusal is fail-closed by design and ' +
+          'repeats unchanged on retry, so no amount of re-running the compare can publish a verdict.';
         return settled({
           ok: false,
           status: 'INCONCLUSIVE',
           code: 'URL_EXPECTATION_MISSING',
-          reason: 'Cannot publish verdict: capture identity was not asserted against an expected route (URL_EXPECTATION_MISSING)',
+          reason: `Cannot publish verdict: capture identity was not asserted against an expected route (URL_EXPECTATION_MISSING). ${expectationRemedy}`,
           match: false,
           mismatchPercentage: 100,
           totalPixels: diffResult.totalPixels,
@@ -5655,7 +5672,7 @@ export class BrowserControlPort {
             baseline: compCapture?.routeAssertion,
           },
           settle: targetSettle ? { target: targetSettle, comparison: compSettle } : undefined,
-          notes: 'URL_EXPECTATION_MISSING: capture identity was not asserted against an expected route',
+          notes: `URL_EXPECTATION_MISSING: expected route not declared for the ${missingSideList} side(s); verdict withheld by design — declare ${missingParams.join(' and ')}`,
           receipt: createVisualEvidenceReceipt({
             match: false,
             mismatchPercentage: 100,
@@ -5667,7 +5684,7 @@ export class BrowserControlPort {
             metricSamples,
             expectationMarker: 'URL_EXPECTATION_MISSING',
             missingExpectation: true,
-            notes: 'URL_EXPECTATION_MISSING: capture identity was not asserted against an expected route',
+            notes: `URL_EXPECTATION_MISSING: expected route not declared for the ${missingSideList} side(s); verdict withheld by design — declare ${missingParams.join(' and ')}`,
           }),
           metricSamples,
         });

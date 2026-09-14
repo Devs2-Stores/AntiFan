@@ -282,6 +282,50 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
       assert.equal(res.receipt.match, true);
     });
 
+    it('withholds the verdict and names the remedy when no expected route is declared', async () => {
+      const { catalogue } = buildMockHarness();
+      const ctxAttemptA = createTestContext({
+        runId: 'run-route-gate-a',
+        attemptId: 'att-1',
+      });
+      const baseRef = (await catalogue.dispatch('browser.promote-baseline', {
+        tabId: 'tab-a',
+      }, ctxAttemptA)) as VisualBaselineRef;
+      const ctxAttemptB = createTestContext({
+        runId: 'run-route-gate-b',
+        attemptId: 'att-2',
+      });
+
+      const res = (await catalogue.dispatch('browser.visual_compare', {
+        baselineRef: baseRef.id,
+      }, ctxAttemptB)) as any;
+
+      // The guard is not weakened: with no asserted route there is no verdict to publish, and the
+      // compare must not fall through to a diff that could be mistaken for one.
+      assert.equal(res.ok, false);
+      assert.equal(res.status, 'INCONCLUSIVE');
+      assert.equal(res.code, 'URL_EXPECTATION_MISSING');
+      assert.equal(res.match, false);
+      assert.equal(res.receipt.match, false);
+      assert.equal(res.receipt.mismatchPercentage, 100);
+      assert.equal(res.routeAssertions?.target?.status, 'URL_EXPECTATION_MISSING');
+
+      // Additive: the receipt must keep the legacy marker sentence that downstream detectors match
+      // on, with the actionable remedy carried in front of it.
+      assert.match(res.receipt.notes, /verdict withheld by design/);
+      assert.match(res.receipt.notes, /URL_EXPECTATION_MISSING: capture identity was not asserted against an expected route$/);
+
+      // ...and the refusal is actionable. A caller that omits the expectation receives the same
+      // refusal on every retry, so the gate must name the unasserted side and the parameter that
+      // releases it, or the gate can never be closed by anyone reading the result.
+      assert.match(res.reason, /^Cannot publish verdict: capture identity was not asserted against an expected route \(URL_EXPECTATION_MISSING\)\./);
+      assert.match(res.reason, /Missing expectation for the .*target.* side/);
+      assert.match(res.reason, /declare .*expectedTargetUrl/);
+      assert.match(res.reason, /repeats unchanged on retry/);
+      assert.match(res.notes, /verdict withheld by design/);
+      assert.match(res.notes, /expectedTargetUrl/);
+    });
+
     it('supports alias anti.visual.promote_baseline', async () => {
       const { catalogue } = buildMockHarness();
       const ctx = createTestContext({
