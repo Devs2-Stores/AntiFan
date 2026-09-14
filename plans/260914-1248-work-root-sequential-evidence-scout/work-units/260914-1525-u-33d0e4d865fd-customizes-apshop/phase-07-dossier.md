@@ -1,0 +1,15 @@
+---
+phase: 7
+title: "Dossier and unit gate"
+status: pending
+priority: P1
+effort: ""
+dependencies: [6]
+---
+
+# Phase 7: Dossier and unit gate
+
+Write dossier.md: purpose, architecture, platform contract, requirements, decisions (explicit/inferred), implementation, verification evidence, quality, unknowns. Every claim anchored to entryId+revision+line/region. Gate: all eligible files have disposition ANALYZED_WITH_CLAIMS | ANALYZED_NO_CLAIM | PENDING | BLOCKED with reason.
+
+## Success Criteria
+- [ ] Phase output recorded under reports/units/u-33d0e4d865fd/ with evidence anchors.

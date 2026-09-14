@@ -1,0 +1,10 @@
+# Run-owned scanner scratch: junction cycles and machine-local reparse points
+# under fixtures/ break `git add` traversal; batches/state/archive are
+# regenerable run state, not durable evidence.
+reports/fixtures/
+# Full-corpus inventory stream is regenerable scan output (830MB) — over
+# GitHub's 100MB blob limit. Summaries and per-unit ledgers stay committed.
+reports/inventory.jsonl
+reports/scan-batches/
+reports/scan-state/
+reports/scan-archive/

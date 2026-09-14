@@ -1,0 +1,209 @@
+{
+  "policyVersion": "1.0.0",
+  "runId": "wrses-20260914T135118Z",
+  "outputDir": "reports",
+  "scanSemantics": {
+    "enumeration": "sequential depth-first, single active work unit, durable frontier",
+    "hidden": true,
+    "gitignoreRespected": false,
+    "followLinks": false,
+    "maxDepth": 128,
+    "maxArchiveMembers": 50000,
+    "maxArchiveBytes": 268435456,
+    "identity": "exact observed path; no case-fold, no NFKD, no trimming",
+    "sizeSemantics": "logical bytes from lstat; never disk allocation",
+    "contentHash": null
+  },
+  "roots": [
+    {
+      "rootId": "work-root",
+      "path": "E:\\Work",
+      "kind": "corpus",
+      "readOnly": true,
+      "supplemental": false,
+      "provenance": "user-approved Phase 1 target"
+    },
+    {
+      "rootId": "skills-claude",
+      "path": "C:\\Users\\Admin\\.claude\\skills",
+      "kind": "skill-root",
+      "readOnly": true,
+      "supplemental": true,
+      "provenance": "named in plan.md:15 and phase-01-start.md:15",
+      "skillOrigin": "mixed"
+    },
+    {
+      "rootId": "skills-agents",
+      "path": "C:\\Users\\Admin\\.agents\\skills",
+      "kind": "skill-root",
+      "readOnly": true,
+      "supplemental": true,
+      "provenance": "runtime skill catalog reported this path as the base directory for installed ak-* skills",
+      "skillOrigin": "agentkit-installer"
+    }
+  ],
+  "policies": [
+    {
+      "id": "GENERATED_BY_THIS_RUN",
+      "precedence": 100,
+      "note": "outputs of this run; never re-ingested as corpus",
+      "basenamePatterns": [],
+      "segmentPatterns": [],
+      "pathPrefixes": [
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\scan-state",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\scan-batches",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\scan-archive",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\fixtures",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\tools",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\work-units"
+      ],
+      "exactPaths": [
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\run-manifest.json",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\policy-ledger.jsonl",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\inventory.jsonl",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\frontier.json",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\errors.jsonl",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\archive-members.jsonl",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\inventory-summary.json",
+        "apps\\AntiFan\\plans\\260914-1248-work-root-sequential-evidence-scout\\reports\\fixture-smoke-report.json"
+      ]
+    },
+    {
+      "id": "EXCLUDED_AK_SKILL",
+      "precedence": 90,
+      "note": "AK namespace confirmed by installer provenance on the root; metadata only, body never read for knowledge",
+      "roots": ["skills-agents"],
+      "basenamePatterns": [],
+      "segmentPatterns": [],
+      "skillNamePatterns": ["ak-*", "ak:*"]
+    },
+    {
+      "id": "EXCLUDED_AK_SKILL_CANDIDATE",
+      "precedence": 89,
+      "note": "ak-* name on a mixed-origin root; provenance not yet confirmed, resolved in Phase 3",
+      "roots": ["skills-claude"],
+      "basenamePatterns": [],
+      "segmentPatterns": [],
+      "skillNamePatterns": ["ak-*", "ak:*"]
+    },
+    {
+      "id": "RESTRICTED_METADATA_ONLY",
+      "precedence": 80,
+      "note": "metadata only; values must never enter model context without separate approval",
+      "basenamePatterns": [
+        ".env",
+        ".env.*",
+        "*.har",
+        ".haravan-cli_local.json",
+        ".haravan-cli_remote.json",
+        ".npmrc",
+        ".netrc",
+        ".git-credentials",
+        "*.pem",
+        "*.key",
+        "*.pfx",
+        "*.p12",
+        "*.keystore",
+        "id_rsa*",
+        "id_ed25519*",
+        "id_ecdsa*",
+        "credentials",
+        "credentials.json",
+        "*.credentials.json",
+        "*service-account*.json",
+        "*serviceaccount*.json",
+        "Cookies",
+        "Cookies-journal",
+        "Login Data",
+        "Login Data-journal",
+        "Web Data",
+        "Web Data-journal",
+        "Local State",
+        "LocalPrefs.json",
+        "Secure Preferences",
+        "key4.db",
+        "logins.json",
+        "cert9.db"
+      ],
+      "segmentPatterns": [
+        ".ssh",
+        ".aws",
+        ".azure",
+        ".kube",
+        "gcloud",
+        ".gnupg",
+        ".docker",
+        ".antifan-data",
+        ".antifan-data-soak",
+        ".antifan-profile-migration-*",
+        ".antifan-canary",
+        ".antifan-probe",
+        ".antifan-soak-8h",
+        ".antifan-acl-fixed-smoke",
+        ".antifan-conpty-ui-check",
+        ".playwright-mcp",
+        "Default",
+        "Profile *",
+        "Local Storage",
+        "Session Storage",
+        "IndexedDB",
+        "Network"
+      ]
+    },
+    {
+      "id": "EXCLUDED_CONTENT_DEPENDENCY",
+      "precedence": 60,
+      "note": "third-party dependency tree; metadata fully inventoried, content not ingested, patch/manifest/lockfile declarations still located",
+      "basenamePatterns": [],
+      "segmentPatterns": [
+        "node_modules",
+        ".venv",
+        "venv",
+        "site-packages",
+        "bower_components",
+        ".pnpm-store",
+        ".yarn",
+        ".pnp",
+        "vendor",
+        "packages.lock.json.tmp"
+      ]
+    },
+    {
+      "id": "DERIVED_BUILD_OUTPUT",
+      "precedence": 50,
+      "note": "reproducible build/coverage artifacts; metadata inventoried, content is derived from source already in scope",
+      "basenamePatterns": [],
+      "segmentPatterns": [
+        "dist",
+        "build",
+        "out",
+        "coverage",
+        ".next",
+        ".nuxt",
+        ".turbo",
+        ".parcel-cache",
+        ".vite",
+        "obj",
+        "bin"
+      ]
+    }
+  ],
+  "archiveExtensions": [
+    ".zip",
+    ".jar",
+    ".vsix",
+    ".nupkg",
+    ".whl",
+    ".epub",
+    ".tar",
+    ".tgz",
+    ".gz",
+    ".tar.gz"
+  ],
+  "boundaryRoots": [
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+    "C:\\ProgramData"
+  ]
+}

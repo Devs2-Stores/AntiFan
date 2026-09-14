@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-10",
+  "updatedAt": "2026-09-14",
   "note": "Machine-checkable closure ledger. Every row carries a predicate that returns true when the defect is PRESENT at HEAD. `node scripts/check-bottlenecks.mjs` fails when a row marked `closed` still fires (REOPENED), when a row marked `open` no longer fires (FIXED_UNRECORDED), or when a row marked `refuted` fires (REFUTED_BUT_PRESENT). Rows here replace the prose findings list: a claim that cannot be machine-checked is a row with `kind: \"manual\"`, which is re-verified rather than trusted. Never delete a `refuted` row — it is what stops a dead finding from being re-derived.",
   "rows": [
     {
@@ -362,7 +362,7 @@
         "kind": "manual",
         "lastVerifiedAt": "2026-09-10T16:52:04.000Z",
         "lastVerifiedBy": "artifact replay of .canary/15-pages/_verdicts.json and the attempt summary (2026-09-11)",
-        "reVerifyWith": "re-run the campaign and require _verdicts.json to contain at least one case whose verdict is PASS or FAIL; a run that measures viewports but adjudicates none now exits non-zero (NO_ADJUDICATED_CASE), so an exit 0 is the evidence that this row is done"
+        "reVerifyWith": "re-run the campaign and require a revision-bound verdict ledger: a `_verdicts.json` whose `exit` and `finishedAt` are non-null and whose every adjudicated case carries a non-null `routeIdentity`, containing at least one case whose verdict is PASS or FAIL and zero cases with causeCode CAPTURE_INVALID. NOTE (2026-09-14): an exit code alone is NOT closure proof for this row — `.canary/tools/fifteen-pages-run.mjs:1850-1851` states that a fidelity FAIL is campaign output and exits 0, so the exit status speaks only to provenance completeness. The exit code was nevertheless made case-derived in the same pass: `scripts/lib/campaign-verdicts.mjs` now refuses (code 1, NO_ADJUDICATED_CASE) on every branch when `adjudicableCases === 0`, where full scope previously returned `{code:0,reason:'OK'}` (proved before/after against HEAD). This row therefore stays open until a revision-bound run adjudicates at least one case with no CAPTURE_INVALID."
       }
     },
     {
@@ -377,6 +377,20 @@
         "kind": "file-regex",
         "file": "scripts/lib/campaign-verdicts.mjs",
         "pattern": "MOBILE_BUNDLE_ABSENT"
+      }
+    },
+    {
+      "id": "B32",
+      "group": "gate",
+      "title": "The published campaign verdict artifact is not revision-bound: it records `exit`, `finishedAt` and `instance` as null, so its tally cannot be attributed to the code at HEAD and no number from it may be quoted as evidence about current behaviour",
+      "severity": "P1",
+      "status": "open",
+      "evidence": "`.canary/15-pages/_verdicts.json` (runId aggregate-1cce3d25c1614b30, generatedAt 2026-09-12T06:55:20Z) measured at HEAD cc6e077 on 2026-09-14: `exit` null, `finishedAt` null, `scope.excluded` [], `routeRefusals` [], tally PASS 10 / FAIL 17 / INCONCLUSIVE 18, and 24 of 45 cases carry `routeIdentity` null while still being adjudicated PASS or FAIL. `scripts/lib/campaign-verdicts.mjs:272` writes `exit: runSummary.exit ?? null` and `:241` copies `routeIdentity` through, but the artifact shows neither was produced by the run that generated it. The runner DOES produce both (`/E:/Work/apps/AntiFan/.canary/tools/fifteen-pages-run.mjs:650` assigns `routeIdentity` unconditionally and `:658` throws on a mismatch), so a null there means the aggregation did not come from the current runner. Consequence: the cart@1440 PASS (mismatch 1.81%) whose reference geometry is identical to homepage@1440 (docHeight 5422, sections 15, cards 83) cannot be shown to be a mis-bound reference rather than a correct comparison, and the row B30 closure argument rested on this artifact. One fail-open is confirmed independently of the artifact: `.canary/tools/fifteen-pages-run.mjs:653` sets `valid: !routeMismatch`, so when the final URL is unreadable `checkObservedUrl` returns null (`/E:/Work/apps/AntiFan/.canary/tools/theme-fidelity.mjs:1427`) and the route is recorded as valid with a null observation. NOTE: `test/unit/route-identity-gate.test.mjs:42-43` currently encodes that fail-open as the expected contract, so closing it is a deliberate contract change plus test update, not a silent patch.",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-14T00:00:00.000Z",
+        "lastVerifiedBy": "direct read of .canary/15-pages/_verdicts.json plus the writer sites scripts/lib/campaign-verdicts.mjs:241,272 and .canary/tools/fifteen-pages-run.mjs:650,658 (2026-09-14)",
+        "reVerifyWith": "require the campaign to emit a revision-bound artifact: `_verdicts.json` asserting non-null `exit`, non-null `finishedAt`, and a non-null `routeIdentity` for every adjudicated case; until then quote no tally from any artifact lacking them. Closing this row also requires deciding the `valid: !routeMismatch` contract at .canary/tools/fifteen-pages-run.mjs:653 together with test/unit/route-identity-gate.test.mjs:42-43."
       }
     }
   ]

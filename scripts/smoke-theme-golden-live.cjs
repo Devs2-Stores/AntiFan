@@ -397,6 +397,7 @@ async function run() {
     const source = parseTextResult(await tool('anti.theme.resolve_element', {
       selector: '.product-card',
       tabId,
+      workspaceRoot,
     }), 'anti.theme.resolve_element');
     assert.equal(source.data.ambiguous, false);
     assert.equal(source.data.primaryCandidate.file, 'snippets/card-product.liquid');
@@ -465,6 +466,9 @@ async function run() {
     const verification = parseTextResult(await tool('anti.verification.verify_claim', {
       claimId: claim.id,
     }, 60_000), 'anti.verification.verify_claim');
+    if (verification.verdict !== 'VERIFIED') {
+      console.error('[verify_claim detail]', JSON.stringify({ verdict: verification.verdict, violations: verification.proofProfile?.violations, samples: verification.samples ?? verification.evidence ?? null }, null, 1).slice(0, 4000));
+    }
     assert.equal(verification.verdict, 'VERIFIED');
     assert.equal(verification.proofProfile.completeness, 'FULL');
     assert.equal(verification.proofProfile.violations.length, 0);
@@ -719,6 +723,21 @@ async function run() {
     assert.equal(drawerResponsive.signals.hasTargetOverflow, false);
     assert.equal(drawerResponsive.signals.hasDocOverflow, false);
 
+    // The drawer is still open from the DRAWER_EXPANDED proof above; its scrim
+    // and panel cover #noop-action and #menu-toggle, so the occlusion gate
+    // would (correctly) refuse a trusted click through either. Closing the
+    // drawer is test setup, not the action under test, so it uses a direct DOM
+    // dispatch; the no-op click below still exercises the trusted CDP path.
+    const drawerClosedState = await tabHost.getTabWebContents(tabId).executeJavaScript(`(() => {
+      const toggle = document.querySelector('#menu-toggle');
+      if (toggle) toggle.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      const drawer = document.querySelector('#site-drawer');
+      const scrim = document.querySelector('#drawer-scrim');
+      return { drawerOpen: drawer?.classList.contains('open'), scrimOpen: scrim?.classList.contains('open') };
+    })()`);
+    assert.equal(drawerClosedState.drawerOpen, false, 'Drawer must be closed before the no-op control click');
+    assert.equal(drawerClosedState.scrimOpen, false, 'Drawer scrim must be closed before the no-op control click');
+
     const noOpClaim = parseTextResult(await tool('anti.verification.record_claim', {
       claim: 'No-op control produces a completed interaction transition',
       category: 'INTERACTION',
@@ -732,6 +751,9 @@ async function run() {
       settleMs: 120,
       tabId,
     }, 40_000), 'anti.trace.interaction no-op');
+    if (noOpTrace.actionSuccess !== true) {
+      console.error('[noOpTrace detail]', JSON.stringify({ mode: noOpTrace.interactionMode, verdict: noOpTrace.verdict, error: noOpTrace.evidence?.error, integrity: noOpTrace.evidence?.observationIntegrity }, null, 1).slice(0, 2000));
+    }
     assert.equal(noOpTrace.actionSuccess, true);
     assert.equal(noOpTrace.interactionMode, 'trusted_cdp');
     assert.equal(noOpTrace.verified, false);
