@@ -259,18 +259,20 @@ async function createWindow(): Promise<void> {
   });
 
   windowStateManager.manage(mainWindow);
+  recordBenchmark({ surface: 'startup', name: 'windowCtor' });
 
   // Canonical single TerminalManager: this is the one instance shared by UI IPC,
   // Bridge, NativeTabHost, control-plane capabilities, and theme transactions.
   // TerminalManager.getInstance() returns this instance (private constructor, no
   // second owner can be spawned); the control plane receives it explicitly below.
   const terminalManager = TerminalManager.getInstance();
-
   tabHost = new NativeTabHost(mainWindow, capsuleManager || undefined);
+  recordBenchmark({ surface: 'startup', name: 'tabHostCtor' });
 
   // Restore tabs immediately so web pages start loading and window layout is established
   const initialUrl = process.argv.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
   tabHost.restoreTabs(initialUrl);
+  recordBenchmark({ surface: 'startup', name: 'tabsRestored' });
 
   // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
   Menu.setApplicationMenu(buildApplicationMenu(mainWindow, tabHost));
@@ -323,8 +325,24 @@ async function createWindow(): Promise<void> {
   });
 
   // Finish control-plane init (async relative to the window show above; the
-  // renderer already painted and is interactive).
-  await controlPlane.initialize();
+  // renderer already painted and is interactive). The ledger/attachment replay
+  // is CPU-bound JSON.parse+sha256 per frame — on populated profiles it
+  // saturates the main thread for seconds. Start it only after the window is
+  // visible (or a bounded fallback) so first paint is never queued behind it.
+  const initDone = Promise.withResolvers<void>();
+  let initStarted = false;
+  const startControlPlaneInit = () => {
+    if (initStarted) return;
+    initStarted = true;
+    controlPlane!.initialize().then(initDone.resolve, initDone.reject);
+  };
+  if (mainWindow.isVisible()) {
+    setTimeout(startControlPlaneInit, 0);
+  } else {
+    mainWindow.once('ready-to-show', () => setTimeout(startControlPlaneInit, 0));
+    setTimeout(startControlPlaneInit, 1500);
+  }
+  await initDone.promise;
   startLifecycleHeartbeat();
   tabHost.setControlPlane(controlPlane);
 
@@ -421,8 +439,8 @@ async function createWindow(): Promise<void> {
     inspectFont: (params) => tabHost!.inspectFont(params),
     getMatchedStylesForNode: (params) => tabHost!.getMatchedStylesForNode(params),
   }, controlPlane.artifacts);
+  recordBenchmark({ surface: 'startup', name: 'browserPortReady' });
   tabHost.setViewportGate(browserPort.viewportGate);
-  controlPlane.registerBrowser(browserPort);
 
   // Tier-2 reality gate: the physical phone is registered as a peer adapter beside the browser port,
   // never inside it. Its lifecycle (attachment epoch + automation session generation) is independent
@@ -434,6 +452,7 @@ async function createWindow(): Promise<void> {
   });
   const deviceAdapter = new IosDeviceAdapter({ devices: deviceManager, artifacts: controlPlane.artifacts });
   controlPlane.registerDevice(deviceAdapter, deviceManager);
+  recordBenchmark({ surface: 'startup', name: 'deviceRegistered' });
   // `setControlPlane` above ran before the device surface existed, so its status query correctly saw an
   // unregistered adapter. Now that the port is live, re-read and push the real state instead of letting
   // the toolbar wait for its next poll tick to stop showing "not registered yet".
@@ -452,82 +471,99 @@ async function createWindow(): Promise<void> {
       }
     })
     .catch((err) => console.warn('[antifan] Capsule->profile migration failed:', err));
-  // Start Bridge Server
-  bridgeServer = new BridgeServer(
-    tabHost,
-    Number(process.env.ANTIFAN_BRIDGE_PORT) || (IS_PROD ? 20129 : 20130),
-    IS_DEV,
-    capabilityTransport,
-    () => {
-      const lease = controlPlane!.getLease();
-      // Dual-Plane Runtime Isolation: bind the agent's authority to a dedicated
-      // automation tab, never the user's active foreground tab. This prevents any
-      // MCP/CLI session bootstrapping without an explicit target from latching onto
-      // and hijacking the user's working tab.
-      const automationTarget = tabHost!.getAutomationTarget() as
-        | { tabId: string; url?: string; documentGeneration?: number }
-        | undefined;
-      const targetTabId = automationTarget?.tabId;
-      if (!targetTabId) {
-        // Unbound authority: no ambient fallback. Agent sessions must explicitly
-        // provision a target via antifan.cli.startSession, which creates a dedicated
-        // background agent tab. Return undefined so unbound tools fail-closed instead
-        // of capturing the user's active tab.
-        return { lease, projectId, workspaceId, browserTarget: undefined };
-      }
-      return {
-        lease,
-        projectId,
-        workspaceId,
-        browserTarget: {
+  // Start Bridge Server + Native Messaging IPC past first paint. The
+  // BridgeServer constructor pays synchronous icacls/powershell DACL spawns
+  // (~4s on Windows) for the pairing queue, and start() pays more for
+  // bridge-info persistence — all main-thread work that stalled window
+  // creation. Neither the bridge socket nor the IPC pipe is needed before the
+  // user interacts; both come up ~1.5s after first paint.
+  const startBridgeAndIpc = async () => {
+    // Fail-closed against a quit racing the 1.5s deferral: never construct or
+    // keep a listener alive after shutdown began.
+    if (isShuttingDown) return;
+    const host = tabHost!;
+    const plane = controlPlane!;
+    bridgeServer = new BridgeServer(
+      host,
+      Number(process.env.ANTIFAN_BRIDGE_PORT) || (IS_PROD ? 20129 : 20130),
+      IS_DEV,
+      capabilityTransport,
+      () => {
+        const lease = plane.getLease();
+        // Dual-Plane Runtime Isolation: bind the agent's authority to a dedicated
+        // automation tab, never the user's active foreground tab. This prevents any
+        // MCP/CLI session bootstrapping without an explicit target from latching onto
+        // and hijacking the user's working tab.
+        const automationTarget = host.getAutomationTarget() as
+          | { tabId: string; url?: string; documentGeneration?: number }
+          | undefined;
+        const targetTabId = automationTarget?.tabId;
+        if (!targetTabId) {
+          // Unbound authority: no ambient fallback. Agent sessions must explicitly
+          // provision a target via antifan.cli.startSession, which creates a dedicated
+          // background agent tab. Return undefined so unbound tools fail-closed instead
+          // of capturing the user's active tab.
+          return { lease, projectId, workspaceId, browserTarget: undefined };
+        }
+        return {
+          lease,
           projectId,
           workspaceId,
-          runtimeId: lease.runtimeId,
-          tabId: targetTabId,
-          browserEpoch: 1,
-          documentGeneration:
-            typeof tabHost!.getDocumentGeneration === 'function'
-              ? tabHost!.getDocumentGeneration(targetTabId)
-              : 1,
-          url: automationTarget?.url,
-        },
-      };
-    },
-    controlPlane.runs.attachments,
-    '127.0.0.1',
-    controlPlane
-  );
-  bridgeServer.setControlPlane(controlPlane);
-  const bridgePort = await bridgeServer.start();
-  console.log(`[antifan] Bridge Server running on 127.0.0.1:${bridgePort} (${IS_DEV ? 'DEV' : 'PROD'})`);
-  // Terminals spawned by this instance carry this instance's own endpoint identity.
-  TerminalManager.getInstance().setBridgeEndpoint({ port: bridgePort, host: '127.0.0.1', pid: process.pid });
-
-  // Start Windows Native Messaging Local IPC Server
-  if (process.platform === 'win32') {
-    try {
-      localIpcServer = new LocalIpcServer();
-      await localIpcServer.start(bridgePort, () => {
-        const activeCapsule = capsuleManager?.getActive();
-        const activePartition = tabHost!.getSharedProfilePartition('clean');
-        const grant = bridgeServer!.issueExtensionGrant(activePartition, DEFAULT_EXTENSION_ALLOWED_DOMAINS);
-        return {
-          token: grant.grantToken,
-          port: bridgePort,
-          activeCapsuleId: activeCapsule?.id,
-          activePartition,
+          browserTarget: {
+            projectId,
+            workspaceId,
+            runtimeId: lease.runtimeId,
+            tabId: targetTabId,
+            browserEpoch: 1,
+            documentGeneration:
+              typeof host.getDocumentGeneration === 'function'
+                ? host.getDocumentGeneration(targetTabId)
+                : 1,
+            url: automationTarget?.url,
+          },
         };
-      }, StorageLocations.getRuntimeDir());
-      console.log(`[antifan] Native Messaging Local IPC Server listening at ${localIpcServer.getSocketPath()}`);
+      },
+      plane.runs.attachments,
+      '127.0.0.1',
+      plane
+    );
+    bridgeServer.setControlPlane(plane);
+    recordBenchmark({ surface: 'startup', name: 'bridgeCtor' });
+    const bridgePort = await bridgeServer.start();
+    recordBenchmark({ surface: 'startup', name: 'bridgeStarted' });
+    // Terminals spawned by this instance carry this instance's own endpoint identity.
+    TerminalManager.getInstance().setBridgeEndpoint({ port: bridgePort, host: '127.0.0.1', pid: process.pid });
 
-      // Auto-register Chrome/Edge/Brave native messaging manifest on Windows
-      installNativeHost(COMPANION_EXTENSION_ID).catch((err) => {
-        console.warn('[antifan] Native messaging manifest registration notice:', err?.message || err);
-      });
-    } catch (err) {
-      console.warn('[antifan] Failed to start Native Messaging Local IPC Server:', err);
+    // Windows Native Messaging Local IPC Server — re-check shutdown: the
+    // bridge start above awaited, and a quit may have landed meanwhile.
+    if (process.platform === 'win32' && !isShuttingDown) {
+      try {
+        localIpcServer = new LocalIpcServer();
+        await localIpcServer.start(bridgePort, () => {
+          const activeCapsule = capsuleManager?.getActive();
+          const activePartition = tabHost!.getSharedProfilePartition('clean');
+          const grant = bridgeServer!.issueExtensionGrant(activePartition, DEFAULT_EXTENSION_ALLOWED_DOMAINS);
+          return {
+            token: grant.grantToken,
+            port: bridgePort,
+            activeCapsuleId: activeCapsule?.id,
+            activePartition,
+          };
+        }, StorageLocations.getRuntimeDir());
+        console.log(`[antifan] Native Messaging Local IPC Server listening at ${localIpcServer.getSocketPath()}`);
+
+        // Auto-register Chrome/Edge/Brave native messaging manifest on Windows
+        installNativeHost(COMPANION_EXTENSION_ID).catch((err) => {
+          console.warn('[antifan] Native messaging manifest registration notice:', err?.message || err);
+        });
+      } catch (err) {
+        console.warn('[antifan] Failed to start Native Messaging Local IPC Server:', err);
+      }
     }
-  }
+  };
+  setTimeout(() => {
+    startBridgeAndIpc().catch((err) => console.warn('[antifan] Deferred bridge/IPC startup failed:', err));
+  }, 1500);
 }
 
 app.whenReady().then(async () => {

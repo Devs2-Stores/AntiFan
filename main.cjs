@@ -4,6 +4,10 @@
  * development, triggers auto-compilation to prevent launch failures and silently running old code.
  */
 const path = require('node:path');
+// V8 compile cache: persists compiled bytecode for the .compiled bundle across
+// launches, cutting main-process module load roughly in half on cold start.
+// No-ops on runtimes without support.
+try { require('node:module').enableCompileCache?.(); } catch {}
 const { app, dialog } = require('electron');
 const { inspectCompiledBundle } = require('./scripts/launch-guard.cjs');
 

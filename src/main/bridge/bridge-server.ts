@@ -1474,7 +1474,9 @@ export class BridgeServer {
             if (addr && typeof addr === 'object') {
               this.port = addr.port;
             }
-            this.persistBridgeInfo();
+            setTimeout(() => {
+              try { this.persistBridgeInfo(); } catch {}
+            }, 1500);
             resolve(this.port);
           });
         } else {
@@ -1487,7 +1489,12 @@ export class BridgeServer {
         if (address && typeof address === 'object') {
           this.port = address.port;
         }
-        this.persistBridgeInfo();
+        // persistBridgeInfo pays synchronous DACL spawns per file; delay it past
+        // first paint so the listening socket resolves and the window shows
+        // before the main thread stalls. Discovery consumers poll the file.
+        setTimeout(() => {
+          try { this.persistBridgeInfo(); } catch {}
+        }, 1500);
         resolve(this.port);
       });
     });

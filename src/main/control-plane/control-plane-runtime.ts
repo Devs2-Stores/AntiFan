@@ -1,5 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { performance } from 'node:perf_hooks';
+import { recordBenchmark } from '../benchmark/telemetry';
 import { ChatStore } from '../chat/chat-store';
 import { ProjectRegistry } from '../project/project-registry';
 import { WorkspaceRegistry } from '../project/workspace-registry';
@@ -222,12 +224,17 @@ export class ControlPlaneRuntime {
   }
 
   public async initialize(): Promise<void> {
+    const t0 = performance.now();
     await this.runs.attachments.initialize();
+    const t1 = performance.now();
     await this.ledger.initialize();
+    const t2 = performance.now();
     try {
       const activeIds = this.runs.attachments.getActiveRecordIds();
       await this.ledger.pruneDeadPartitions(activeIds);
     } catch {}
+    const t3 = performance.now();
+    recordBenchmark({ surface: 'startup', name: 'cpInitBreakdown', extra: { attachmentsMs: Math.round(t1 - t0), ledgerMs: Math.round(t2 - t1), pruneMs: Math.round(t3 - t2) } });
   }
   public getResourceStats(): ControlPlaneResourceStats {
     return {

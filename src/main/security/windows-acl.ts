@@ -68,6 +68,41 @@ function readPathSddl(targetPath: string): string {
   }
 }
 
+/**
+ * Batched SDDL read: one `icacls /save` invocation covers every path, versus
+ * one process spawn per path with readPathSddl. The save file stores entries
+ * as name-line / SDDL-line pairs (UTF-16); a path whose SDDL cannot be parsed
+ * is simply absent from the result, and callers treat that as "needs repair"
+ * — the safe direction.
+ */
+function readPathsSddl(targetPaths: string[]): Map<string, string> {
+  const result = new Map<string, string>();
+  if (targetPaths.length === 0) return result;
+  const savePath = path.win32.normalize(
+    path.join(os.tmpdir(), `antifan-acl-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`)
+  );
+  try {
+    const normalized = targetPaths.map((p) => path.win32.normalize(p));
+    execFileSync('icacls.exe', [...normalized, '/save', savePath], { stdio: 'pipe' });
+    const lines = fs.readFileSync(savePath, 'utf16le').split(/\r?\n/).filter((l) => l.trim().length > 0);
+    // Entries pair a bare path line with its SDDL line (contains 'D:').
+    for (let i = 0; i + 1 < lines.length; i += 2) {
+      const name = (lines[i] ?? '').trim();
+      const sddl = (lines[i + 1] ?? '').trim();
+      if (!sddl.includes('D:')) continue;
+      // Full-path equality only: a basename fallback could attribute one path's
+      // valid SDDL to a different, unprotected path — the unsafe direction.
+      const match = targetPaths.find((p) => path.win32.normalize(p).toLowerCase() === name.toLowerCase());
+      if (match) result.set(match, sddl);
+    }
+  } catch {
+    // Fall through: callers fall back to per-path reads for missing entries.
+  } finally {
+    try { fs.unlinkSync(savePath); } catch {}
+  }
+  return result;
+}
+
 export function verifyProtectedSddl(
   sddl: string,
   userSid: string,
@@ -245,14 +280,17 @@ export function enforceProtectedPathsDacl(
   }
 
   const needingRepair: string[] = [];
+  // One icacls spawn verifies every path; per-path reads only for entries the
+  // batched save could not resolve (parse gaps are treated as unprotected).
+  const batched = readPathsSddl(paths);
   for (const p of paths) {
     const isDir = fs.statSync(p).isDirectory();
-    const isProtected = isDir ? hasProtectedDirectoryDacl(p, effectiveSid) : hasProtectedFileDacl(p, effectiveSid);
+    const sddl = batched.get(p) ?? (() => { try { return readPathSddl(p); } catch { return null; } })();
+    const isProtected = sddl !== null && verifyProtectedSddl(sddl, effectiveSid, isDir ? 'directory' : 'file');
     if (!isProtected) {
       needingRepair.push(p);
     }
   }
-
   if (needingRepair.length === 0) {
     return {
       enforced: true,
