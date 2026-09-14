@@ -139,6 +139,10 @@ export class InjectedScriptStore {
                   });
                   if (typeof item.scrollLeft === 'number') item.el.scrollLeft = item.scrollLeft;
                   if (typeof item.scrollTop === 'number') item.el.scrollTop = item.scrollTop;
+                  const parentSlider = item.el.closest('[id], .slideshow, .carousel, [class*="slider"], [class*="slide"]');
+                  if (parentSlider) {
+                    parentSlider.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+                  }
                 }
               } catch {}
             });
@@ -206,13 +210,6 @@ export class InjectedScriptStore {
             window.requestAnimationFrame = (cb) => {
               const id = window.__antifanRAFQueue.length + 1;
               window.__antifanRAFQueue.push(cb);
-              setTimeout(() => {
-                const idx = window.__antifanRAFQueue.indexOf(cb);
-                if (idx !== -1) {
-                  window.__antifanRAFQueue.splice(idx, 1);
-                  try { cb(performance.now()); } catch {}
-                }
-              }, 16);
               return id;
             };
           }
@@ -257,7 +254,10 @@ export class InjectedScriptStore {
               el.style.setProperty('transition', 'none', 'important');
               el.style.setProperty('left', '0px', 'important');
               el.style.setProperty('margin-left', '0px', 'important');
-              // Do not force width: track width is managed by slider libraries and parent container
+              const parentSlider = el.closest('[id], .slideshow, .carousel, [class*="slider"], [class*="slide"]');
+              if (parentSlider) {
+                parentSlider.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+              }
             } catch {}
           });
         }
