@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as cp from 'node:child_process';
 import { StorageLocations } from '../config/storage-locations';
+import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 export interface ProfileRecoveryState {
   cleanShutdown: boolean;
   startedAt?: number;
@@ -302,6 +303,21 @@ export class ProfileOwnership {
       startedAt: info.startedAt,
       safeStartRecommended: !recovery.cleanShutdown,
     };
+    // The recovery file is one-shot: `cleanShutdown: false` below is THIS run's state,
+    // not a verdict about how the previous run ended. Preserve the superseded object in
+    // the lifecycle journal before overwriting it, so the predecessor's last known
+    // clean-shutdown instant survives the boot that destroys the marker.
+    recordLifecycleEvent('profile.acquireOverwrite', {
+      recoveryPath,
+      superseded: {
+        cleanShutdown: recovery.cleanShutdown,
+        startedAt: recovery.startedAt,
+        lastCleanShutdownAt: recovery.lastCleanShutdownAt,
+        safeStartRecommended: recovery.safeStartRecommended,
+      },
+      newLeasePid: info.pid,
+      newLeaseStartedAt: info.startedAt,
+    });
     this.writeRecovery(recoveryPath, startedRecovery);
     let released = false;
     return {

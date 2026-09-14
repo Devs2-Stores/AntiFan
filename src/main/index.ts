@@ -4,7 +4,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
-import { app, BrowserWindow, Menu, protocol, session, nativeTheme } from 'electron';
+import { app, BrowserWindow, Menu, protocol, session, nativeTheme, webContents } from 'electron';
 
 // Register custom privileged scheme for local workspace preview before app.whenReady()
 protocol.registerSchemesAsPrivileged([
@@ -42,22 +42,47 @@ import { validateControlPlaneId } from '../shared/control-plane-contracts';
 import { preparePersistentProfile, ProfileMigrationError, ProfileOwnership, ProfileOwnershipError, type PersistentProfileResult, type ProfileLease } from './browser/profile-ownership';
 import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled } from './benchmark/telemetry';
 import type { ActionSequenceParams } from './browser/tab-automation-host';
+import {
+  recordLifecycleEvent,
+  installExitInterceptor,
+  installExitRecorder,
+  getLifecycleLogPath,
+} from './diagnostics/main-lifecycle-log';
 
+// Every fatal path below also writes a durable journal line. A launch from Explorer
+// or a shortcut has no attached console, so the console.* lines alone are discarded:
+// the app used to die without leaving any record of how. See
+// diagnostics/main-lifecycle-log.ts for why the appends are synchronous.
 process.on('uncaughtException', (err) => {
   console.error('[antifan uncaughtException]', redactCredentials(err?.stack || String(err)));
+  recordLifecycleEvent('uncaughtException', { detail: redactCredentials(err?.stack || String(err)) });
 });
 
 process.on('unhandledRejection', (reason) => {
   console.error('[antifan unhandledRejection]', redactCredentials(String(reason)));
+  recordLifecycleEvent('unhandledRejection', { detail: redactCredentials(String(reason)) });
 });
 
 app.on('render-process-gone', (_event, webContents, details) => {
   console.warn('[antifan render-process-gone]', details.reason, 'exitCode:', details.exitCode, 'url:', webContents?.getURL?.() || 'unknown');
+  recordLifecycleEvent('render-process-gone', {
+    reason: details.reason,
+    exitCode: details.exitCode,
+    url: webContents?.getURL?.() || 'unknown',
+  });
 });
 
 app.on('child-process-gone', (_event, details) => {
   console.warn('[antifan child-process-gone]', details.type, details.reason, 'exitCode:', details.exitCode);
+  recordLifecycleEvent('child-process-gone', { type: details.type, reason: details.reason, exitCode: details.exitCode });
 });
+
+// One interceptor covers every explicit exit — including `app.exit`, which fires no
+// before-quit/will-quit event and is therefore invisible to all lifecycle listeners
+// below. Recording the call site is what turns "the app vanished" into "the app
+// exited here". Installed before any later code can exit.
+installExitInterceptor(app, process);
+installExitRecorder(process);
 
 const IS_PROD = process.argv.includes('--production') || process.env.NODE_ENV === 'production';
 const IS_DEV = !IS_PROD;
@@ -276,6 +301,7 @@ async function createWindow(): Promise<void> {
   // Finish control-plane init (async relative to the window show above; the
   // renderer already painted and is interactive).
   await controlPlane.initialize();
+  startLifecycleHeartbeat();
   tabHost.setControlPlane(controlPlane);
 
   // Phase 2 (step 10): deterministic attachment disposal. When an attachment is
@@ -485,6 +511,17 @@ app.whenReady().then(async () => {
   recordBenchmark({ surface: 'startup', name: 'ready' });
   try {
     profileLease = new ProfileOwnership().acquire(persistentUserData);
+    // Journal the predecessor's verdict BEFORE it can be overwritten: acquire()
+    // writes cleanShutdown:false unconditionally (profile-ownership.ts:299-305), so
+    // the on-disk marker is this boot's state, never a verdict about the last one.
+    recordLifecycleEvent('boot.profile', {
+      leasePid: profileLease.info.pid,
+      leaseStartedAt: profileLease.info.startedAt,
+      prevCleanShutdown: profileLease.recovery.cleanShutdown,
+      prevLastCleanShutdownAt: profileLease.recovery.lastCleanShutdownAt,
+      prevSafeStartRecommended: profileLease.recovery.safeStartRecommended,
+      lifecycleLog: getLifecycleLogPath(),
+    });
     if (profileLease.recovery.safeStartRecommended) {
       console.warn('[antifan] Previous shutdown was unclean; restoring the active tab only (safe start).');
     }
@@ -519,46 +556,81 @@ app.whenReady().then(async () => {
   app.exit(1);
 });
 
+let lifecycleHeartbeat: NodeJS.Timeout | null = null;
+/**
+ * Absolute-epoch heartbeat. The next boot bounds the death window from the last beat
+ * instead of inferring one: a journal that stops mid-run with no shutdown.step line
+ * means the process was ended from outside, while a stop immediately after a step
+ * names the step it was inside. Every line carries `ts` in epoch milliseconds so the
+ * gap is computable without guessing a timezone.
+ */
+function startLifecycleHeartbeat(): void {
+  if (lifecycleHeartbeat) return;
+  const beat = (): void => {
+    let tabCount: number | null = null;
+    let webContentsCount: number | null = null;
+    try { tabCount = tabHost ? tabHost.getTabList().length : null; } catch {}
+    try { webContentsCount = webContents.getAllWebContents().length; } catch {}
+    const memory = process.memoryUsage();
+    recordLifecycleEvent('heartbeat', {
+      rss: memory.rss,
+      heapUsed: memory.heapUsed,
+      tabCount,
+      webContentsCount,
+    });
+  };
+  beat();
+  lifecycleHeartbeat = setInterval(beat, 5000);
+  lifecycleHeartbeat.unref?.();
+}
+
 let shutdownPromise: Promise<void> | null = null;
 function shutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
+  // `before-quit` caches this promise and calls preventDefault(), so a hang anywhere
+  // inside it means the app never quits at all. Journaling every step is what makes
+  // "a graceful quit that hung" distinguishable from "a process killed from outside".
+  recordLifecycleEvent('shutdown.begin', { lifecycleLog: getLifecycleLogPath() });
   shutdownPromise = (async () => {
-    try {
-      TerminalManager.getInstance().persistSync();
-    } catch {}
-    try {
-      HistoryManager.getInstance().persistSync();
-    } catch {}
-    try {
-      if (tabHost) {
-        await tabHost.flushAllSessions();
+    const step = async (name: string, run: () => unknown): Promise<void> => {
+      recordLifecycleEvent('shutdown.step.begin', { step: name });
+      try {
+        await run();
+        recordLifecycleEvent('shutdown.step.done', { step: name });
+      } catch (err) {
+        recordLifecycleEvent('shutdown.step.failed', { step: name, detail: String(err) });
       }
-    } catch {}
-    try {
-      await session.defaultSession.cookies.flushStore();
-    } catch {}
-    try {
-      tabHost?.dispose();
-    } catch {}
-    try {
-      bridgeServer?.dispose();
-    } catch {}
-    try {
-      localIpcServer?.close();
-    } catch {}
-    try {
-      await TerminalManager.getInstance().dispose();
-    } catch {}
+    };
+    // First step, deliberately: if any later step hangs, these frames are already
+    // terminal, so the next boot's replay cannot claim their outcome was never written.
+    await step('ledger.settleInFlight', async () => {
+      const settlement = await controlPlane?.ledger.settleInFlightForShutdown('graceful shutdown');
+      if (settlement && settlement.pending > 0) {
+        recordLifecycleEvent('ledger.settleInFlight', { ...settlement });
+      }
+    });
+    await step('terminal.persistSync', () => TerminalManager.getInstance().persistSync());
+    await step('history.persistSync', () => HistoryManager.getInstance().persistSync());
+    await step('tabHost.flushAllSessions', () => (tabHost ? tabHost.flushAllSessions() : undefined));
+    await step('cookies.flushStore', () => session.defaultSession.cookies.flushStore());
+    await step('tabHost.dispose', () => tabHost?.dispose());
+    await step('bridgeServer.dispose', () => bridgeServer?.dispose());
+    await step('localIpcServer.close', () => localIpcServer?.close());
+    await step('terminal.dispose', () => TerminalManager.getInstance().dispose());
     try {
       profileLease?.markCleanShutdown();
       profileLease?.release();
       profileLease = null;
-    } catch {}
+      recordLifecycleEvent('shutdown.clean', {});
+    } catch (err) {
+      recordLifecycleEvent('shutdown.markCleanShutdown.failed', { detail: String(err) });
+    }
   })();
   return shutdownPromise;
 }
 
 app.on('window-all-closed', async () => {
+  recordLifecycleEvent('window-all-closed', {});
   await shutdown();
   if (process.platform !== 'darwin') {
     app.quit();
@@ -567,6 +639,7 @@ app.on('window-all-closed', async () => {
 
 let isShuttingDown = false;
 app.on('before-quit', (event) => {
+  recordLifecycleEvent('before-quit', { alreadyShuttingDown: isShuttingDown });
   if (isShuttingDown) return;
   isShuttingDown = true;
   event.preventDefault();
@@ -575,6 +648,7 @@ app.on('before-quit', (event) => {
   });
 });
 app.on('will-quit', () => {
+  recordLifecycleEvent('will-quit', {});
   bridgeServer?.dispose();
   tabHost?.dispose();
   profileLease?.release();
@@ -585,16 +659,20 @@ app.on('will-quit', () => {
 });
 
 let isSignalExiting = false;
-function handleSignal(): void {
+function handleSignal(signal: NodeJS.Signals): void {
+  recordLifecycleEvent('signal', { signal, alreadyExiting: isSignalExiting });
   if (isSignalExiting) return;
   isSignalExiting = true;
   isShuttingDown = true;
   const forceTimer = setTimeout(() => {
+    // A silent exit: no clean marker is written, because shutdown() never reached it.
+    recordLifecycleEvent('shutdown.forceExit', { code: 1, reason: 'shutdown did not finish within 2000ms' });
     process.exit(1);
   }, 2000);
   forceTimer.unref?.();
   shutdown().finally(() => {
     clearTimeout(forceTimer);
+    recordLifecycleEvent('shutdown.complete', { code: 0 });
     process.exit(0);
   });
 }
