@@ -237,6 +237,24 @@ export class Core {
         .run(adjId, opts.candidateId, opts.decision, opts.authority, opts.rationale ?? null, now(), scope);
       const status = opts.decision === 'PROMOTE' ? 'PROMOTED' : opts.decision === 'REJECT' ? 'REJECTED' : 'SUPERSEDED';
       this.db.prepare('UPDATE candidates SET status = ? WHERE candidateId = ?').run(status, opts.candidateId);
+      if (opts.decision === 'PROMOTE') {
+        // Materialize the promoted outcome as a claim so query/contextPack/
+        // recommend can see it; candidates alone are invisible to retrieval.
+        const full = this.db.prepare('SELECT c.*, s.unitId AS caseUnitId FROM candidates c LEFT JOIN cases s ON s.caseId = c.caseId WHERE c.candidateId = ?')
+          .get(opts.candidateId) as { statement: string; kind: string; evidenceJson: string | null; caseUnitId: string | null } | undefined;
+        if (full) {
+          const claimId = `claim-${opts.candidateId}`;
+          this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,createdAt,confidence,sourceKind,subject)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(claimId) DO UPDATE SET statement=excluded.statement, status='PROMOTED'`)
+            .run(claimId, full.caseUnitId ?? 'learning-loop', full.statement, full.kind, 'PROMOTED', 'adjudication', now(), 'HIGH', 'adjudication', opts.candidateId);
+          this.db.prepare('DELETE FROM claims_fts WHERE claimId = ?').run(claimId);
+          this.db.prepare('INSERT INTO claims_fts(rowid,statement,kind,unitId,claimId) VALUES ((SELECT rowid FROM claims WHERE claimId=?),?,?,?,?)')
+            .run(claimId, full.statement, full.kind, full.caseUnitId ?? 'learning-loop', claimId);
+          this.db.prepare('INSERT OR REPLACE INTO evidence(id,claimId,entryId,revision,path,anchor) VALUES (?,?,?,?,?,?)')
+            .run(id(`${claimId}${adjId}`), claimId, null, null, null, `adjudication:${adjId}`);
+        }
+      }
       this.db.exec('COMMIT');
     } catch (e) { this.db.exec('ROLLBACK'); throw e; }
     return { adjudicationId: adjId, candidateId: opts.candidateId, decision: opts.decision, authority: opts.authority, scope };
