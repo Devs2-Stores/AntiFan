@@ -63,7 +63,7 @@ instead of written.
 ## What the test suite caught in this change
 
 Running `npm run test:main` after the first commit surfaced 38 failures. Analysis by stack
-frame and message attributed 8 of them to this work, at three sites in
+frame and message attributed 21 of them to this work, at four sites in
 `src/main/browser/native-tab-host.ts` — all of them the same mistake in different clothes:
 the new `targetOperationOwners` map was read without the field guard that every other map in
 that class has, on hosts that tests build by hand without field initializers.
@@ -76,17 +76,44 @@ that class has, on hosts that tests build by hand without field initializers.
 | `runTargetOperation` acquire | `reading 'set'` | guarded: an observability aid must not be why the operation it observes fails |
 
 The finally case is the one worth remembering: the reported error was about the owner map,
-while the real failure was a designed preflight rejection underneath it. Two affected test
-files went from 31/39 to 37/39; the two that remain are the pre-existing gap described
-below.
+while the real failure was a designed preflight rejection underneath it. Guarding that read
+moved the reported frame to the next site down and turned the symptom into `reading 'set'`,
+which is how the fourth site was found. It also shows why the first count was too low: the
+two files inspected first showed 8 failures and went from 31/39 to 37/39, but the same
+unguarded reads were failing tests across the suite that had not been inspected yet.
+
+Measured end state on the same tree, before and after the four guards:
+
+| Run | tests | pass | fail |
+|---|---|---|---|
+| after the first commit | 1132 | 1093 | 38 |
+| after the guards | 1132 | 1114 | 17 |
+
+The string `targetOperationOwners` no longer appears in any failure stack; the 17 that
+remain point at `native-tab-host.js` lines 370, 590, 3943, 4071, 4083 and 5095, none of
+which this work wrote.
+
+## Repository state: HEAD does not compile
+
+The isolated check that produced these numbers is also what exposed this: `origin/main`
+carries a syntax error from `e2d6e89` in `src/main/browser/tab-devtools-host.ts`, where the
+`softBudgetMs` and `hardBudgetMs` declarations sit inside the parameter list and
+`): Promise<unknown> {` closes the signature two lines later (`TS1359: Identifier expected`).
+It is invisible in a working tree that happens to hold the uncommitted repair, which is
+exactly how a `tsc` run there reported success. At HEAD, `tsc -p ./` reports 6 errors, all
+in that file and none in the files this work touched. The repair is two lines: the two
+`const` declarations belong after `): Promise<unknown> {`.
 
 ## Pre-existing gaps this work did not touch
 
 - `src/main/browser/native-tab-host.ts` reads `this.ownedReloadTokens` unguarded in
   `consumeReloadToken` (source line 445) and `closeTab` (line 4130). Hosts built without
   field initializers throw `reading 'get'` / `reading 'delete'` there. Every other map in the
-  class is guarded; these two are not, and the remaining failures in
-  `native-tab-host-agent-lifecycle.test.ts` and `split-review-tabhost.test.ts` are this.
+  class is guarded; these two are not, and 8 of the 17 remaining failures are the `closeTab`
+  read at line 3943 alone. The change is two characters (`?.`) and it is deliberately not in
+  this commit: the file's owner is mid-edit there, and treating "no token map" as "no token"
+  is a fail-closed decision about a security-relevant path that its owner should make
+  knowingly rather than inherit from a drive-by cleanup.
 - Several failures are source-characterisation tests that match a regex against
   `native-tab-host.ts` text (`ipc-audit.test.ts`), so they fail on any edit in those regions
   regardless of behaviour.
