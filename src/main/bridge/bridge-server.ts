@@ -2527,6 +2527,13 @@ export class BridgeServer {
 
         case 'quit':
         case 'antifan.quit': {
+          // Mirror the reloadUi refusal (:2506-2513). Without this guard any
+          // attachment-bound connection — including an agent working in a tab — could
+          // end the whole desktop the user is working in.
+          if (boundAttachmentId) {
+            respond(false, undefined, 'FORBIDDEN: Attachment-bound connections cannot quit the desktop');
+            break;
+          }
           respond(true, { quitting: true });
           setTimeout(() => {
             try { app.quit(); } catch {}
