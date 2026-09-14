@@ -5,6 +5,19 @@
  */
 
 import { DomTreeParser, ParsedElementNode } from './dom-tree-parser.js';
+import { sanitizeSettingId } from '../generators/haravan-schema-generator.js';
+
+export interface SectionSchemaSettingDefinition {
+  type: string;
+  id: string;
+  label: string;
+  default?: unknown;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  options?: Array<{ value: string; label: string }>;
+}
 
 export interface BlockSchemaSettingDefinition {
   type: string;
@@ -34,12 +47,7 @@ export interface ExtractedSectionBlueprint {
   heading?: string;
   rawHtml: string;
   liquidTemplate: string;
-  schemaSettings: Array<{
-    type: string;
-    id: string;
-    label: string;
-    default?: unknown;
-  }>;
+  schemaSettings: SectionSchemaSettingDefinition[];
   blockDefinitions: BlockDefinition[];
   blockInstances: BlockInstance[];
 }
@@ -145,7 +153,7 @@ export class BlueprintExtractor {
           className: cleanClass,
           rawHtml: node.outerHtml,
           liquidTemplate: rawContent
-            ? this.generateSectionLiquid('header', cleanClass, 'Site Header', rawContent)
+            ? this.generateSectionLiquid('header', cleanClass, 'Site Header', cleanId, rawContent)
             : this.generateHeaderLiquid(cleanClass),
           schemaSettings: [
             { type: 'image_picker', id: 'logo', label: 'Logo Image' },
@@ -170,7 +178,7 @@ export class BlueprintExtractor {
           className: cleanClass,
           rawHtml: node.outerHtml,
           liquidTemplate: rawContent
-            ? this.generateSectionLiquid('footer', cleanClass, 'Site Footer', rawContent)
+            ? this.generateSectionLiquid('footer', cleanClass, 'Site Footer', cleanId, rawContent)
             : this.generateFooterLiquid(cleanClass),
           schemaSettings: [
             { type: 'text', id: 'company_name', label: 'Company Name', default: '' },
@@ -244,7 +252,7 @@ export class BlueprintExtractor {
         className: cleanClass,
         heading: headingText,
         rawHtml: node.outerHtml,
-        liquidTemplate: this.generateSectionLiquid(sectionType, cleanClass, headingText, node.outerHtml),
+        liquidTemplate: this.generateSectionLiquid(sectionType, cleanClass, headingText, cleanId, node.outerHtml, blockInstances),
         schemaSettings: this.deriveSchemaSettings(sectionType, headingText),
         blockDefinitions,
         blockInstances
@@ -475,7 +483,7 @@ export class BlueprintExtractor {
       <div class="header-logo">
         <a href="/">
           {% if settings.logo != blank %}
-            <img src="{{ settings.logo | img_url: 'master' }}" alt="{{ shop.name }}">
+            <img src="{{ settings.logo | img_url: 'grande' }}" alt="{{ shop.name }}">
           {% else %}
             <span class="shop-name">{{ shop.name }}</span>
           {% endif %}
@@ -490,7 +498,14 @@ export class BlueprintExtractor {
     `.trim();
   }
 
-  private generateSectionLiquid(type: string, className: string, heading: string, rawHtml?: string): string {
+  private generateSectionLiquid(
+    type: string,
+    className: string,
+    heading: string,
+    sectionId: string,
+    rawHtml?: string,
+    blockInstances: BlockInstance[] = []
+  ): string {
     if (rawHtml && rawHtml.trim().length > 0) {
       let cleaned = rawHtml.trim();
       // Preserve source container and sibling classes (e.g. .container-fuild { max-width: 1470px })
@@ -511,23 +526,40 @@ export class BlueprintExtractor {
       return cleaned;
     }
 
+    // Synthetic fallbacks must be valid Haravan Liquid on their own: the
+    // section object (section.blocks / section.settings / section.id) does not
+    // exist on the platform, so settings resolve through the flat settings.*
+    // namespace using the same `${secPrefix}_${key}` mapping the compiler
+    // applies, and block content is rendered inline as static markup.
+    const secPrefix = sanitizeSettingId(sectionId, 'sec');
+    const headingLiteral = heading.replace(/['\\]/g, '');
+
     if (type === 'hero-slider') {
+      const slideMarkup = blockInstances
+        .map((block, idx) => {
+          const s = block.settings || {};
+          const src = typeof s.image_url === 'string' ? s.image_url.trim() : '';
+          const link = typeof s.link === 'string' && s.link.trim() ? s.link.trim() : '#';
+          const title = typeof s.title === 'string' ? s.title : '';
+          const imgAttr = idx === 0 ? 'fetchpriority="high"' : 'loading="lazy"';
+          const img = src
+            ? `\n              <img src="${this.escapeHtmlAttribute(src)}" alt="${this.escapeHtmlAttribute(title)}" ${imgAttr}>`
+            : '';
+          return [
+            '          <div class="s-content__item">',
+            `            <a href="${this.escapeHtmlAttribute(link)}">${img}`,
+            '            </a>',
+            '          </div>',
+          ].join('\n');
+        })
+        .join('\n');
       return `
 <section class="${className}">
   <div class="container">
     <div class="slide-content flex flex-left-between">
       <div class="slide-content__detail w-100">
         <div class="s-content flex">
-          {% for block in section.blocks %}
-            {% assign slide_src = block.settings.image_url | default: (block.settings.image | img_url: 'master') %}
-            <div class="s-content__item" {{ block.haravan_attributes }}>
-              <a href="{{ block.settings.link }}">
-                {% if slide_src != blank %}
-                  <img src="{{ slide_src }}" alt="{{ block.settings.title | escape }}" fetchpriority="high">
-                {% endif %}
-              </a>
-            </div>
-          {% endfor %}
+${slideMarkup}
         </div>
       </div>
     </div>
@@ -541,11 +573,11 @@ export class BlueprintExtractor {
 <section class="${className}">
   <div class="container">
     <div class="block-category__header flex flex-left-between">
-      <h2 class="title">{{ section.settings.heading | default: '${heading || "Sản Phẩm Nổi Bật"}' }}</h2>
-      <a href="{{ section.settings.view_all_link }}" class="view-more">Xem thêm</a>
+      <h2 class="title">{{ settings.${secPrefix}_heading | default: '${headingLiteral || "Sản Phẩm Nổi Bật"}' }}</h2>
+      <a href="{{ settings.${secPrefix}_view_all_link }}" class="view-more">Xem thêm</a>
     </div>
     <div class="product-grid flex">
-      {% for product in collections[section.settings.collection].products limit: section.settings.limit %}
+      {% for product in collections[settings.${secPrefix}_collection].products limit: settings.${secPrefix}_limit %}
         {% include 'product-card', product: product %}
       {% endfor %}
     </div>
@@ -559,7 +591,7 @@ export class BlueprintExtractor {
 <section class="${className}">
   <div class="container">
     <div class="home-form__wrapper">
-      <h2 class="form-title">{{ section.settings.heading | default: '${heading || "Nhận Báo Giá Nhanh"}' }}</h2>
+      <h2 class="form-title">{{ settings.${secPrefix}_heading | default: '${headingLiteral || "Nhận Báo Giá Nhanh"}' }}</h2>
       <form action="/contact" method="post" id="quote-form">
         <input type="text" name="contact[name]" placeholder="Họ và tên *" required>
         <input type="tel" name="contact[phone]" placeholder="Số điện thoại *" required>
@@ -581,16 +613,25 @@ export class BlueprintExtractor {
     }
 
     return `
-<section class="${className}" id="{{ section.id }}">
+<section class="${className}" id="${sectionId}">
   <div class="container">
-    {% if section.settings.heading != blank %}
-      <h2 class="section-title">{{ section.settings.heading }}</h2>
+    {% if settings.${secPrefix}_heading != blank %}
+      <h2 class="section-title">{{ settings.${secPrefix}_heading }}</h2>
     {% endif %}
     <div class="section-content">
     </div>
   </div>
 </section>
     `.trim();
+  }
+
+  private escapeHtmlAttribute(val: unknown): string {
+    if (val === null || val === undefined) return '';
+    return String(val)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   private generateFooterLiquid(className: string = 'site-footer'): string {
@@ -605,17 +646,34 @@ export class BlueprintExtractor {
     `.trim();
   }
 
-  private deriveSchemaSettings(type: string, heading: string): Array<{ type: string; id: string; label: string; default?: unknown }> {
-    const settings: Array<{ type: string; id: string; label: string; default?: unknown }> = [
+  private deriveSchemaSettings(type: string, heading: string): SectionSchemaSettingDefinition[] {
+    const settings: SectionSchemaSettingDefinition[] = [
       { type: 'text', id: 'heading', label: 'Section Heading', default: heading || 'Tiêu Đề Section' }
     ];
 
     if (type === 'hero-slider') {
       settings.push({ type: 'checkbox', id: 'autoplay', label: 'Autoplay Slider', default: true });
-      settings.push({ type: 'range', id: 'interval', label: 'Interval (seconds)', default: 5 });
+      settings.push({
+        type: 'range',
+        id: 'interval',
+        label: 'Interval (seconds)',
+        default: 5,
+        min: 1,
+        max: 15,
+        step: 1,
+        unit: 's'
+      });
     } else if (type === 'featured-products') {
       settings.push({ type: 'collection', id: 'collection', label: 'Featured Collection' });
-      settings.push({ type: 'range', id: 'limit', label: 'Number of Products', default: 8 });
+      settings.push({
+        type: 'range',
+        id: 'limit',
+        label: 'Number of Products',
+        default: 8,
+        min: 1,
+        max: 48,
+        step: 1
+      });
       settings.push({ type: 'url', id: 'view_all_link', label: 'View All URL' });
     }
 

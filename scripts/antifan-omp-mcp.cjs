@@ -92,6 +92,58 @@ const definitions = [
   ['core.revoke', 'Revoke claims derived from a restricted source (permission propagation).', { entryId: { type: 'string' }, path: { type: 'string' } }],
   ['core.snapshot', 'Create a release snapshot for regression/rollback.', { note: { type: 'string' } }],
   ['core.rollback', 'Restore claims/candidates to a release snapshot.', { releaseId: { type: 'string' } }, ['releaseId']],
+  // v4: Experience Graph
+  ['core.record_experience_node', 'Record an experience graph node (CLIENT_REQUEST, PROJECT, TASK, CONTEXT, DECISION, IMPLEMENTATION, ARTIFACT, VERIFICATION, PRODUCTION, FEEDBACK, LESSON).', { kind: { type: 'string' }, refId: { type: 'string' }, label: { type: 'string' }, context: { type: 'string' } }, ['kind']],
+  ['core.record_experience_edge', 'Record an experience graph edge between two nodes.', { fromNodeId: { type: 'string' }, toNodeId: { type: 'string' }, kind: { type: 'string' }, evidence: { type: 'string' } }, ['fromNodeId', 'toNodeId', 'kind']],
+  ['core.experience_chain', 'Traverse the experience graph from a node (BFS, depth-bounded).', { fromNodeId: { type: 'string' }, depth: { type: 'number' } }, ['fromNodeId']],
+  // v4: Anti-Pattern Library
+  ['core.record_anti_pattern', 'Record an anti-pattern: what not to do, symptoms, evidence, affected platform, replacement.', { name: { type: 'string' }, whatNotToDo: { type: 'string' }, symptoms: { type: 'string' }, evidence: { type: 'string' }, affectedPlatform: { type: 'string' }, replacement: { type: 'string' } }, ['name']],
+  ['core.anti_patterns', 'List anti-patterns, optionally filtered by platform/status.', { platform: { type: 'string' }, status: { type: 'string' } }],
+  // v4: Workaround Library
+  ['core.record_workaround', 'Record a workaround: problem, condition, solution, reason, platform, version, evidence.', { problem: { type: 'string' }, condition: { type: 'string' }, solution: { type: 'string' }, reason: { type: 'string' }, platform: { type: 'string' }, version: { type: 'string' }, evidence: { type: 'string' } }, ['problem']],
+  ['core.workarounds', 'List workarounds, optionally filtered by platform/stillValid.', { platform: { type: 'string' }, stillValid: { type: 'boolean' } }],
+  // v4: Fix Patterns
+  ['core.record_fix_pattern', 'Record a fix pattern: before, after, why, evidence, lesson.', { before: { type: 'string' }, after: { type: 'string' }, why: { type: 'string' }, evidence: { type: 'string' }, lesson: { type: 'string' } }],
+  ['core.fix_patterns', 'List fix patterns.', { limit: { type: 'number' } }],
+  // v4: Case-Based Reasoning
+  ['core.find_similar', 'Find similar claims, cases, decisions, anti-patterns, workarounds, fix patterns for a task.', { task: { type: 'string' }, platform: { type: 'string' }, limit: { type: 'number' } }, ['task']],
+  // v4: Uncertainty Engine
+  ['core.classify_uncertainty', 'Classify uncertainty level for a claim or task.', { claimId: { type: 'string' }, task: { type: 'string' } }],
+  // v4: Knowledge Decay
+  ['core.decay_check', 'Check for stale/aging claims beyond a threshold.', { staleDays: { type: 'number' } }],
+  // v4: Corpus Audit
+  ['core.corpus_audit', 'Run a corpus completion audit and record the result.', {}],
+  // v4: Phase Gates
+  ['core.check_phase_gate', 'Check a phase gate (coverage, evidence, conflict, temporal, promotion, regression).', { phase: { type: 'string' }, gate: { type: 'string' } }, ['phase', 'gate']],
+  // v4: Core Regression
+  ['core.record_regression', 'Record a core regression run result.', { newKnowledge: { type: 'string' }, affectedRules: { type: 'array', items: { type: 'string' } }, affectedCases: { type: 'array', items: { type: 'string' } }, affectedRecommendations: { type: 'array', items: { type: 'string' } }, replayResult: { type: 'string', enum: ['PASS', 'FAIL'] } }, ['replayResult']],
+  // v4: Principles
+  ['core.record_principle', 'Record a personal engineering principle.', { statement: { type: 'string' }, source: { type: 'string' }, derivedFrom: { type: 'string' } }, ['statement']],
+  ['core.principles', 'List principles.', { status: { type: 'string' } }],
+  // v4: Hidden Requirements
+  ['core.record_hidden_requirement', 'Record a hidden requirement inferred from a task.', { task: { type: 'string' }, explicitReq: { type: 'string' }, inferredReq: { type: 'string' }, likelihood: { type: 'string' }, evidence: { type: 'string' } }, ['task']],
+  ['core.hidden_requirements', 'List hidden requirements.', { task: { type: 'string' } }],
+  // v4: Commercial Intelligence
+  ['core.record_commercial', 'Record commercial intelligence for a task type.', { taskType: { type: 'string' }, quote: { type: 'number' }, scope: { type: 'string' }, estimate: { type: 'number' }, actual: { type: 'number' }, risk: { type: 'string' }, revisionCount: { type: 'number' } }, ['taskType']],
+  ['core.commercial_intel', 'List commercial intelligence records.', { taskType: { type: 'string' } }],
+  // v4: Tool Intelligence
+  ['core.record_tool', 'Record tool intelligence.', { name: { type: 'string' }, problemSolved: { type: 'string' }, workflowStage: { type: 'string' }, inputs: { type: 'string' }, outputs: { type: 'string' }, failureModes: { type: 'string' }, timeSaved: { type: 'number' }, maintenanceCost: { type: 'number' }, roi: { type: 'number' }, usageFrequency: { type: 'string' } }, ['name']],
+  ['core.tool_intel', 'List tool intelligence records.', { status: { type: 'string' } }],
+  // v4: Archetypes
+  ['core.record_archetype', 'Record a project archetype.', { name: { type: 'string' }, platform: { type: 'string' }, maturityLevel: { type: 'number' }, evidence: { type: 'array', items: { type: 'string' } } }, ['name']],
+  ['core.archetypes', 'List archetypes.', { platform: { type: 'string' } }],
+  // v4: Platform Semantics
+  ['core.record_platform_semantic', 'Record a platform semantic fact.', { platform: { type: 'string' }, semanticRole: { type: 'string' }, propertyName: { type: 'string' }, cssFact: { type: 'string' }, semanticTruth: { type: 'string' }, evidence: { type: 'string' } }, ['platform', 'semanticRole']],
+  ['core.platform_semantics', 'List platform semantics.', { platform: { type: 'string' }, semanticRole: { type: 'string' } }],
+  // v4: Practice Parity
+  ['core.record_practice_parity', 'Record declared vs observed practice parity.', { practice: { type: 'string' }, declared: { type: 'string' }, observed: { type: 'string' }, gap: { type: 'string' }, evidence: { type: 'string' } }, ['practice']],
+  ['core.practice_parity', 'List practice parity records.', { practice: { type: 'string' } }],
+  // v4: Skill Genealogy
+  ['core.record_skill_version', 'Record a skill version/failure/fix/production event.', { skillId: { type: 'string' }, version: { type: 'string' }, failure: { type: 'string' }, fix: { type: 'string' }, production: { type: 'string' } }, ['skillId']],
+  ['core.skill_genealogy', 'List skill version history.', { skillId: { type: 'string' } }, ['skillId']],
+  // v4: Enriched Context Pack & Receipt
+  ['core.context_pack_v2', 'Build an enriched Context Pack: claims + rules + historical cases + pitfalls + workarounds + recommended pattern + uncertainty + confidence.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' } }, ['task']],
+  ['core.receipt_v2', 'Issue an enriched Decision Receipt: evidence revisions + why + historical cases + risks + alternatives + uncertainty + confidence.', { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' } }, ['task', 'recommendation']],
 ];
 
 let currentAuthorityRevision = null;
@@ -331,8 +383,6 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.inspect.styles': 'browser.inspect_styles',
   'anti.inspect.region': 'browser.inspect_region',
   'anti.trace.interaction': 'browser.trace_interaction',
-  'anti.visual.compare': 'browser.visual_compare',
-  'anti.media.freeze': 'browser.media-freeze',
   'anti.inspect.page_inventory': 'browser.page-inventory',
   'anti.agent.sequence': 'browser.agent-sequence',
   'browser_find': 'browser.find',
@@ -384,6 +434,40 @@ async function invokeCore(method, params) {
     case 'core.revoke': return core.revoke(params);
     case 'core.snapshot': return core.snapshot(params.note);
     case 'core.rollback': return core.rollback(params.releaseId);
+    // v4
+    case 'core.record_experience_node': return core.recordExperienceNode(params);
+    case 'core.record_experience_edge': return core.recordExperienceEdge(params);
+    case 'core.experience_chain': return core.experienceChain(params.fromNodeId, params.depth);
+    case 'core.record_anti_pattern': return core.recordAntiPattern(params);
+    case 'core.anti_patterns': return core.antiPatterns(params);
+    case 'core.record_workaround': return core.recordWorkaround(params);
+    case 'core.workarounds': return core.workarounds(params);
+    case 'core.record_fix_pattern': return core.recordFixPattern(params);
+    case 'core.fix_patterns': return core.fixPatterns(params);
+    case 'core.find_similar': return core.findSimilar(params);
+    case 'core.classify_uncertainty': return core.classifyUncertainty(params);
+    case 'core.decay_check': return core.decayCheck(params);
+    case 'core.corpus_audit': return core.corpusAudit();
+    case 'core.check_phase_gate': return core.checkPhaseGate(params.phase, params.gate);
+    case 'core.record_regression': return core.recordRegression(params);
+    case 'core.record_principle': return core.recordPrinciple(params);
+    case 'core.principles': return core.principles(params);
+    case 'core.record_hidden_requirement': return core.recordHiddenRequirement(params);
+    case 'core.hidden_requirements': return core.hiddenRequirements(params);
+    case 'core.record_commercial': return core.recordCommercial(params);
+    case 'core.commercial_intel': return core.commercialIntel(params);
+    case 'core.record_tool': return core.recordTool(params);
+    case 'core.tool_intel': return core.toolIntel(params);
+    case 'core.record_archetype': return core.recordArchetype(params);
+    case 'core.archetypes': return core.archetypes(params);
+    case 'core.record_platform_semantic': return core.recordPlatformSemantic(params);
+    case 'core.platform_semantics': return core.platformSemantics(params);
+    case 'core.record_practice_parity': return core.recordPracticeParity(params);
+    case 'core.practice_parity': return core.practiceParity(params);
+    case 'core.record_skill_version': return core.recordSkillVersion(params);
+    case 'core.skill_genealogy': return core.skillGenealogy(params);
+    case 'core.context_pack_v2': return core.contextPackV2(params);
+    case 'core.receipt_v2': return core.receiptV2(params);
     default: throw new Error(`unknown core capability: ${method}`);
   }
 }

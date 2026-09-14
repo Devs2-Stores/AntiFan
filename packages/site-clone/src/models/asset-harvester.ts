@@ -320,28 +320,24 @@ export class AssetHarvester {
       const { path: filePath, content, context: fileContext } = file;
       activeFileContext = fileContext;
 
-      // 1. Extract CSS stylesheets (<link rel="stylesheet">)
+      // 1. Extract CSS stylesheets and icon links in a single <link> pass.
+      //     rel="stylesheet" is a stylesheet; icon rels are document subresources like
+      //     any stylesheet, and a bundle that leaves them pointing at the source host
+      //     is not offline.
       const linkTagRegex = /<link\b([^>]*)>/gi;
       let match: RegExpExecArray | null;
       while ((match = linkTagRegex.exec(content)) !== null) {
         const attrs = parseTagAttributes(match[0]);
-        if (attrs.get('rel')?.toLowerCase() !== 'stylesheet') continue;
-        const href = attrs.get('href');
-        if (href) addStylesheet(href, { filePath, tag: 'link', attribute: 'href' });
-      }
-
-      // 1b. Extract icon links (<link rel="icon|shortcut icon|apple-touch-icon">).
-      //     These are document subresources like any stylesheet, and a bundle that
-      //     leaves them pointing at the source host is not offline.
-      const iconLinkRegex = /<link\b([^>]*)>/gi;
-      let iconMatch: RegExpExecArray | null;
-      while ((iconMatch = iconLinkRegex.exec(content)) !== null) {
-        const attrs = parseTagAttributes(iconMatch[0]);
         const rel = (attrs.get('rel') || '').toLowerCase();
-        const isIcon = /(?:^|\s)(?:shortcut\s+icon|apple-touch-icon(?:-precomposed)?|mask-icon|icon)(?:\s|$)/.test(rel);
-        if (!isIcon) continue;
         const href = attrs.get('href');
-        if (href) addImage(href, { filePath, tag: 'link', attribute: 'href' });
+        if (!href) continue;
+        if (rel === 'stylesheet') {
+          addStylesheet(href, { filePath, tag: 'link', attribute: 'href' });
+        }
+        const isIcon = /(?:^|\s)(?:shortcut\s+icon|apple-touch-icon(?:-precomposed)?|mask-icon|icon)(?:\s|$)/.test(rel);
+        if (isIcon) {
+          addImage(href, { filePath, tag: 'link', attribute: 'href' });
+        }
       }
 
       // 2. Extract Javascript assets (<script src="...">)
@@ -406,10 +402,22 @@ export class AssetHarvester {
           addImage(attrs.get('poster')!, { filePath, tag: 'video', attribute: 'poster' });
         }
       }
+
+      // Collect inline <script>...</script> body spans once: JS string literals are not
+      // markup, so @import / url() tokens inside them must not produce assets (same
+      // span-skip guard the localizer audit applies before scanning rewritten HTML).
+      const scriptBodySpans: Array<{ start: number; end: number }> = [];
+      const scriptBodyRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+      while ((match = scriptBodyRegex.exec(content)) !== null) {
+        const bodyStart = match.index + match[0].indexOf('>') + 1;
+        scriptBodySpans.push({ start: bodyStart, end: bodyStart + match[1].length });
+      }
       // 5. CSS @import declarations (gather exact ranges to prevent double-counting in url() matching)
       const importSpans: Array<{ start: number; end: number }> = [];
       const importRegex = /@import\s+(?:url\(['"]?|['"])([^'")]+)['"]?\)?(?:[^;]*;)?/gi;
       while ((match = importRegex.exec(content)) !== null) {
+        const importIdx = match.index;
+        if (scriptBodySpans.some(span => importIdx >= span.start && importIdx < span.end)) continue;
         importSpans.push({ start: match.index, end: match.index + match[0].length });
         const importUrl = match[1].trim();
         if (!importUrl) continue;
@@ -428,7 +436,8 @@ export class AssetHarvester {
       while ((match = bgUrlRegex.exec(content)) !== null) {
         const matchIdx = match.index;
         const isInsideImport = importSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
-        if (isInsideImport) continue;
+        const isInsideScriptBody = scriptBodySpans.some(span => matchIdx >= span.start && matchIdx < span.end);
+        if (isInsideImport || isInsideScriptBody) continue;
 
         const urlCandidate = (match[2] || match[3] || '').trim();
         if (!urlCandidate || urlCandidate.startsWith('data:') || isInternalFragmentRef(urlCandidate)) continue;

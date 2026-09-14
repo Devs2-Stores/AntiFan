@@ -674,8 +674,29 @@ export function rewriteHtmlContent(
   let totalReplacements = 0;
 
   // 1. Rewrite tag attributes: src, href, data-src, data-srcset, poster, onerror
+  // <script>/<style> bodies are raw text: a `<div src="...">` inside an inline
+  // script string literal is JS text, not markup, and must never be rewritten.
+  // Precompute their body spans first so the tag scan can skip matches inside.
+  const rawTextSpans: Array<{ start: number; end: number }> = [];
+  const commentSpans: Array<{ start: number; end: number }> = [];
+  const commentScanRegex = /<!--[\s\S]*?-->/g;
+  let spanMatch: RegExpExecArray | null;
+  while ((spanMatch = commentScanRegex.exec(content)) !== null) {
+    commentSpans.push({ start: spanMatch.index, end: spanMatch.index + spanMatch[0].length });
+  }
+  const isInsideSpan = (spans: Array<{ start: number; end: number }>, idx: number): boolean =>
+    spans.some(s => idx >= s.start && idx < s.end);
+  const rawTextScanRegex = /<(script|style)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi;
+  while ((spanMatch = rawTextScanRegex.exec(content)) !== null) {
+    // A <script>/<style> tag inside an HTML comment is not a raw-text element.
+    if (isInsideSpan(commentSpans, spanMatch.index)) continue;
+    const bodyStart = spanMatch.index + spanMatch[0].indexOf('>') + 1;
+    rawTextSpans.push({ start: bodyStart, end: spanMatch.index + spanMatch[0].length });
+  }
+
   const tagRegex = /<([a-zA-Z0-9_-]+)\b([^>]*)>/gi;
-  content = content.replace(tagRegex, (fullTag, tagName, rawAttrs) => {
+  content = content.replace(tagRegex, (fullTag, tagName, rawAttrs, tagOffset: number) => {
+    if (isInsideSpan(rawTextSpans, tagOffset)) return fullTag;
     let tagModified = false;
     let newAttrs = rawAttrs;
 
@@ -788,8 +809,95 @@ export function rewriteHtmlContent(
   return { content, replacementCount: totalReplacements };
 }
 
+/**
+ * String-literal-only rewriter for JavaScript sources (.js/.mjs/.js.liquid).
+ * JS files are not markup: running the HTML tag scanner over them rewrites
+ * `src=`/`href=` inside string literals and produces broken syntax. Only a
+ * string literal whose whole value is a known asset URL is replaced; the
+ * literal's quote style is preserved (flipped to `"` when the replacement
+ * itself contains a `'`, e.g. Liquid `{{ 'x' | asset_url }}` output).
+ */
+export function rewriteJsStringLiterals(
+  jsContent: string,
+  urlMap: Map<string, string>,
+  options: { mode: 'liquid' | 'relative' }
+): { content: string; replacementCount: number } {
+  let replacementCount = 0;
+  const stringLiteralRegex = /(?<!\\)("([^"\n]*)"|'([^'\n]*)')/g;
+  const content = jsContent.replace(
+    stringLiteralRegex,
+    (full: string, _lit: string, doubleBody: string | undefined, singleBody: string | undefined) => {
+      const body = (doubleBody !== undefined ? doubleBody : singleBody) ?? '';
+      const trimmed = body.trim();
+      if (!trimmed || trimmed.startsWith('data:') || isInternalFragmentRef(trimmed)) return full;
+      const replacement = lookupUrlInMap(urlMap, trimmed, 'js')
+        || lookupUrlInMap(urlMap, trimmed, 'image')
+        || lookupUrlInMap(urlMap, trimmed, 'font')
+        || lookupUrlInMap(urlMap, trimmed, 'css')
+        || lookupUrlInMap(urlMap, trimmed);
+      if (!replacement) return full;
+      replacementCount++;
+      // Keep the literal's quote style; flip only when the replacement itself
+      // contains that quote char (e.g. Liquid {{ 'x' | asset_url }} in a
+      // single-quoted literal).
+      const useDouble = doubleBody !== undefined ? !replacement.includes('"') : replacement.includes("'");
+      return useDouble ? `"${replacement}"` : `'${replacement}'`;
+    }
+  );
+  return { content, replacementCount };
+}
+
+
 export class AssetLocalizer {
   public transport?: DownloadTransport;
+  /**
+   * Per-pipeline-run cache of stylesheet contents (resolved absolute path -> utf8 text).
+   * Engaged only for the duration of localizePipeline: scan, in-place rewrite, and the
+   * A3 token audit then share one disk read per stylesheet instead of three. Standalone
+   * calls to localizeDownloadedStylesheets/verifyAndAudit read from disk directly.
+   */
+  private cssContentCache?: Map<string, string>;
+
+  private readCssContent(resolvedPath: string, cache?: Map<string, string>): string {
+    const active = cache ?? this.cssContentCache;
+    if (active) {
+      const cached = active.get(resolvedPath);
+      if (cached !== undefined) return cached;
+    }
+    const content = fs.readFileSync(resolvedPath, 'utf8');
+    active?.set(resolvedPath, content);
+    return content;
+  }
+
+  /**
+   * sha256 results keyed by resolved path, validated by (size, mtimeMs) on every
+   * read. A file hashed once in this process is never re-read+re-hashed unless
+   * its metadata changed — carries the A1 hash through consolidation and audit.
+   */
+  private fileHashCache = new Map<string, { sha256: string; size: number; mtimeMs: number }>();
+
+  private recordFileHash(resolvedPath: string, sha256: string): void {
+    try {
+      const st = fs.statSync(resolvedPath);
+      this.fileHashCache.set(resolvedPath, { sha256, size: st.size, mtimeMs: st.mtimeMs });
+    } catch {}
+  }
+
+  private hashFileOnDisk(resolvedPath: string): string | undefined {
+    try {
+      const st = fs.statSync(resolvedPath);
+      const cached = this.fileHashCache.get(resolvedPath);
+      if (cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs) {
+        return cached.sha256;
+      }
+      const buf = fs.readFileSync(resolvedPath);
+      const sha256 = createHash('sha256').update(buf).digest('hex');
+      this.fileHashCache.set(resolvedPath, { sha256, size: st.size, mtimeMs: st.mtimeMs });
+      return sha256;
+    } catch {
+      return undefined;
+    }
+  }
 
   constructor(transport?: DownloadTransport) {
     this.transport = transport;
@@ -814,9 +922,10 @@ export class AssetLocalizer {
     let failedCount = 0;
 
     const queue = [...items];
+    let queueHead = 0; // index-based dequeue: shift() is O(n) per pop
     const workers = Array.from({ length: concurrency }, async () => {
-      while (queue.length > 0) {
-        const item = queue.shift();
+      while (queueHead < queue.length) {
+        const item = queue[queueHead++];
         if (!item) break;
 
         const targetLocalPath = path.resolve(assetsDir, item.filename);
@@ -844,9 +953,19 @@ export class AssetLocalizer {
         if (fs.existsSync(targetLocalPath)) {
           const stat = fs.statSync(targetLocalPath);
           if (stat.size > 0) {
-            const buf = fs.readFileSync(targetLocalPath);
-            const sha = createHash('sha256').update(buf).digest('hex');
+            // Reuse a hash already computed for this file earlier in the pipeline
+            // (download or a prior cache pass) when the on-disk size still matches;
+            // only hash from disk when nothing trustworthy was carried through.
+            let sha = item.sha256;
+            if (!sha || item.byteCount !== stat.size) {
+              const hashed = this.hashFileOnDisk(targetLocalPath);
+              if (hashed === undefined) throw new Error(`ASSET_READ_FAILED: ${targetLocalPath}`);
+              sha = hashed;
+            } else {
+              this.recordFileHash(targetLocalPath, sha);
+            }
             item.sha256 = sha;
+            item.byteCount = stat.size;
             totalBytes += stat.size;
             results.push({
               sourceUrl: item.sourceUrl,
@@ -889,6 +1008,8 @@ export class AssetLocalizer {
           }, this.transport);
 
           item.sha256 = dlRes.sha256;
+          item.byteCount = dlRes.byteCount;
+          this.recordFileHash(targetLocalPath, dlRes.sha256);
           totalBytes += dlRes.byteCount;
           results.push({
             sourceUrl: item.sourceUrl,
@@ -998,14 +1119,14 @@ export class AssetLocalizer {
       let sha: string | undefined;
       let bytes: number | undefined;
 
-      // Hash candidate file directly from disk first
+      // Hash candidate file directly from disk first (mtime-validated cache hit
+      // when the same file was already hashed during download/rewrite)
       if (fs.existsSync(filePath)) {
         try {
           const stat = fs.statSync(filePath);
           if (stat.isFile() && stat.size > 0) {
             bytes = stat.size;
-            const content = fs.readFileSync(filePath);
-            sha = createHash('sha256').update(content).digest('hex');
+            sha = this.hashFileOnDisk(filePath);
           }
         } catch {}
       }
@@ -1082,12 +1203,8 @@ export class AssetLocalizer {
       if (neutralTarget !== chosenCanonical) {
         const neutralPath = path.resolve(assetsDir, neutralTarget);
         if (fs.existsSync(neutralPath)) {
-          // Check if neutral path has identical sha256
-          let neutralSha: string | undefined;
-          try {
-            const neutralContent = fs.readFileSync(neutralPath);
-            neutralSha = createHash('sha256').update(neutralContent).digest('hex');
-          } catch {}
+          // Check if neutral path has identical sha256 (cache-aware)
+          const neutralSha = this.hashFileOnDisk(neutralPath);
 
           if (neutralSha === sha) {
             // Already present with same sha256: use neutralTarget
@@ -1109,6 +1226,12 @@ export class AssetLocalizer {
           // Rename canonical to neutral
           try {
             fs.renameSync(canonicalPath, neutralPath);
+            // Re-key the hash cache: the bytes moved with the rename
+            const cachedHash = this.fileHashCache.get(canonicalPath);
+            if (cachedHash) {
+              this.fileHashCache.delete(canonicalPath);
+              this.fileHashCache.set(neutralPath, cachedHash);
+            }
             effectiveCanonical = neutralTarget;
             renamedFrom = chosenCanonical;
           } catch {
@@ -1134,7 +1257,11 @@ export class AssetLocalizer {
       totalConsolidated += physicallyDeleted.length;
       totalFreedBytes += groupFreedBytes;
 
-      // Read canonical's real on-disk hash and size
+      // The canonical file's content hash is already known: it is this group's key
+      // (chosenCanonical was hashed from disk during grouping, and a pre-existing
+      // neutral target was verified byte-identical above). hashFileOnDisk serves
+      // the cached value when metadata is unchanged and re-hashes if the file
+      // drifted since grouping.
       const finalCanonicalPath = path.resolve(assetsDir, effectiveCanonical);
       let finalCanonicalSha = sha;
       let finalCanonicalBytes = group.byteCount;
@@ -1142,8 +1269,8 @@ export class AssetLocalizer {
         try {
           const stat = fs.statSync(finalCanonicalPath);
           finalCanonicalBytes = stat.size;
-          const buf = fs.readFileSync(finalCanonicalPath);
-          finalCanonicalSha = createHash('sha256').update(buf).digest('hex');
+          const hashed = this.hashFileOnDisk(finalCanonicalPath);
+          if (hashed !== undefined) finalCanonicalSha = hashed;
         } catch {}
       }
 
@@ -1236,6 +1363,23 @@ export class AssetLocalizer {
 
     const targetAssetsDir = options.assetsDir ? path.resolve(String(options.assetsDir)) : undefined;
 
+    // Group items by type AND sourceUrl to prevent cross-type collapse (e.g. stylesheet and script sharing URL).
+    // Built once per call: the grouping depends only on the manifest, not on the file being rewritten.
+    const itemsByTypeAndUrl = new Map<string, HarvestedAssetItem[]>();
+    for (const item of allItems) {
+      const key = `${item.type}::${item.sourceUrl}`;
+      const list = itemsByTypeAndUrl.get(key) || [];
+      list.push(item);
+      itemsByTypeAndUrl.set(key, list);
+
+      if (item.rawSourceUrl && item.rawSourceUrl !== item.sourceUrl) {
+        const rawKey = `${item.type}::${item.rawSourceUrl}`;
+        const rawList = itemsByTypeAndUrl.get(rawKey) || [];
+        rawList.push(item);
+        itemsByTypeAndUrl.set(rawKey, rawList);
+      }
+    }
+
     for (const file of files) {
       const normalizedPath = file.path.replace(/\\/g, '/');
       let relAssetsDir = 'assets';
@@ -1270,22 +1414,6 @@ export class AssetLocalizer {
       const fileReqIdentity = fileContext?.requestIdentity;
       const fileHeaders = fileContext?.requestHeaders as Record<string, string> | undefined;
       const fileHeaderFp = fileHeaders ? computeHeaderFingerprint(fileHeaders) : undefined;
-
-      // Group items by type AND sourceUrl to prevent cross-type collapse (e.g. stylesheet and script sharing URL)
-      const itemsByTypeAndUrl = new Map<string, HarvestedAssetItem[]>();
-      for (const item of allItems) {
-        const key = `${item.type}::${item.sourceUrl}`;
-        const list = itemsByTypeAndUrl.get(key) || [];
-        list.push(item);
-        itemsByTypeAndUrl.set(key, list);
-
-        if (item.rawSourceUrl && item.rawSourceUrl !== item.sourceUrl) {
-          const rawKey = `${item.type}::${item.rawSourceUrl}`;
-          const rawList = itemsByTypeAndUrl.get(rawKey) || [];
-          rawList.push(item);
-          itemsByTypeAndUrl.set(rawKey, rawList);
-        }
-      }
 
       const selectedItems: HarvestedAssetItem[] = [];
       for (const [groupKey, list] of itemsByTypeAndUrl) {
@@ -1421,10 +1549,16 @@ export class AssetLocalizer {
         }
       }
       const isCss = file.path.endsWith('.css') || file.path.endsWith('.css.liquid');
+      // JS sources are not markup: the HTML tag scanner would rewrite
+      // src=/href= inside string literals and corrupt the file. Only whole-value
+      // string literals that name a known asset are rewritten.
+      const isJs = /\.m?js(?:\.liquid)?$/i.test(file.path);
       let res: { content: string; replacementCount: number };
 
       if (isCss) {
         res = rewriteCssUrls(file.content, fileUrlMap, { mode });
+      } else if (isJs) {
+        res = rewriteJsStringLiterals(file.content, fileUrlMap, { mode });
       } else {
         res = rewriteHtmlContent(file.content, fileUrlMap, { mode });
       }
@@ -1473,6 +1607,16 @@ export class AssetLocalizer {
     ];
     for (const item of allManifestItems) {
       allocatedFilenames.set(item.filename.toLowerCase(), getEntityKey(item.type, item.sourceUrl, item.requestIdentity));
+    }
+
+    // sourceUrl -> first-seen manifest item. Replaces the per-token 4-array spread
+    // scans: manifest arrays are appended to during discovery, so this map is
+    // updated alongside every push. First-seen wins, matching Array.find order.
+    const knownBySourceUrl = new Map<string, HarvestedAssetItem>();
+    for (const item of allManifestItems) {
+      if (!knownBySourceUrl.has(item.sourceUrl)) {
+        knownBySourceUrl.set(item.sourceUrl, item);
+      }
     }
 
     const allocateFilename = (
@@ -1563,230 +1707,228 @@ export class AssetLocalizer {
     const perSheetUrlMaps = new Map<string, Map<string, string>>();
     const depthExceededUrls: string[] = [];
 
+    // Stylesheet content cache: each CSS file is read once here (scan) and once
+    // more below (in-place rewrite) — the cache makes the second read free. When
+    // the pipeline-level cache is engaged it is shared with the A3 audit as well.
+    const localCssCache = this.cssContentCache ? undefined : new Map<string, string>();
+    const readSheet = (p: string): string => this.readCssContent(path.resolve(p), localCssCache);
+
     while (queue.length > 0) {
-      const current = queue.shift()!;
-      if (current.depth >= maxDepth) {
-        depthExceededUrls.push(current.sourceUrl);
-        continue;
-      }
-      const normCssPath = path.resolve(current.localCssPath).toLowerCase();
-      if (processedStylesheets.has(normCssPath)) {
-        continue;
-      }
-      processedStylesheets.add(normCssPath);
+      // Process one depth level per iteration: every sheet at this level is
+      // scanned first, then all discovered assets are downloaded in a single
+      // bounded batch (downloadAssets enforces options.concurrency) instead of
+      // one awaited download call per stylesheet.
+      const levelItems = queue.splice(0, queue.length);
+      const levelDiscovered: HarvestedAssetItem[] = [];
+      const levelCssChildren: Array<{ item: HarvestedAssetItem; depth: number; requestIdentity?: string; requestHeaders?: Record<string, string> }> = [];
 
-      if (!fs.existsSync(current.localCssPath)) {
-        continue;
-      }
-      const cssContent = fs.readFileSync(current.localCssPath, 'utf8');
-      const discoveredItems: HarvestedAssetItem[] = [];
-
-      const normPathKey = path.resolve(current.localCssPath).toLowerCase();
-      let sheetMap = perSheetUrlMaps.get(normPathKey);
-      if (!sheetMap) {
-        sheetMap = new Map<string, string>();
-        perSheetUrlMaps.set(normPathKey, sheetMap);
-      }
-      // 1. Scan for @import declarations (CSS stylesheets or fonts)
-      const importSpans: Array<{ start: number; end: number }> = [];
-      const importRegex = /@import\s+(?:url\(['"]?|['"])([^'")]+)['"]?\)?(?:[^;]*;)?/gi;
-      let match: RegExpExecArray | null;
-
-      while ((match = importRegex.exec(cssContent)) !== null) {
-        importSpans.push({ start: match.index, end: match.index + match[0].length });
-        const importRef = match[1].trim();
-        if (!importRef || importRef.startsWith('data:') || isInternalFragmentRef(importRef)) continue;
-
-        let resolvedUrl: string;
-        try {
-          const base = current.sourceUrl.startsWith('//') ? 'https:' + current.sourceUrl : current.sourceUrl;
-          resolvedUrl = new URL(importRef, base).toString();
-        } catch {
+      for (const current of levelItems) {
+        if (current.depth >= maxDepth) {
+          depthExceededUrls.push(current.sourceUrl);
           continue;
         }
-
-        const isKnown = [
-          ...manifest.stylesheets,
-          ...manifest.javascripts,
-          ...manifest.images,
-          ...manifest.fonts,
-          ...discoveredItems
-        ].some(item => item.sourceUrl === resolvedUrl);
-
-        let targetFilename = '';
-        if (!isKnown) {
-          const isFont = /\.(?:woff2?|ttf|eot|otf)(?:[?#]|$)/i.test(resolvedUrl);
-          const cleanUrl = resolvedUrl.split('?')[0].split('#')[0];
-          targetFilename = allocateFilename(
-            cleanUrl,
-            resolvedUrl,
-            isFont ? 'font_dep' : 'style_dep',
-            isFont ? '.woff2' : '.css',
-            isFont ? 'font' : 'css',
-            current.requestIdentity
-          );
-
-          const newItem: HarvestedAssetItem = {
-            type: isFont ? 'font' : 'css',
-            sourceUrl: resolvedUrl,
-            filename: targetFilename,
-            localPath: path.join(assetsDir, targetFilename),
-            occurrences: [{ filePath: current.localCssPath, tag: 'css', attribute: '@import' }],
-            requestIdentity: current.requestIdentity,
-            requestHeaders: current.requestHeaders
-          };
-
-          discoveredItems.push(newItem);
-          if (isFont) manifest.fonts.push(newItem);
-          else manifest.stylesheets.push(newItem);
-        } else {
-          const existing = [
-            ...manifest.stylesheets,
-            ...manifest.javascripts,
-            ...manifest.images,
-            ...manifest.fonts,
-            ...discoveredItems
-          ].find(item => item.sourceUrl === resolvedUrl);
-          if (existing) targetFilename = existing.filename;
-        }
-
-        if (targetFilename) {
-          const replacement = mode === 'liquid'
-            ? `{{ '${targetFilename}' | asset_url }}`
-            : targetFilename;
-          sheetMap.set(importRef, replacement);
-          sheetMap.set(resolvedUrl, replacement);
-        }
-      }
-
-      // 2. Scan for url(...) declarations (images or fonts, excluding import spans).
-      // The quoted alternative uses a lazy any-character body so an embedded SVG
-      // data URI (which itself contains `url(...)` and `"`) is captured whole and
-      // skipped as `data:`, instead of exposing its inner paint-server token.
-      const urlRegex = /url\(\s*(?:(['"])([\s\S]*?)\1|([^)'"]*?))\s*\)/gi;
-      while ((match = urlRegex.exec(cssContent)) !== null) {
-        const matchIdx = match.index;
-        const isInsideImport = importSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
-        if (isInsideImport) continue;
-        const urlRef = (match[2] || match[3] || '').trim();
-        if (!urlRef || urlRef.startsWith('data:') || isInternalFragmentRef(urlRef)) continue;
-
-        let resolvedUrl: string;
-        try {
-          const base = current.sourceUrl.startsWith('//') ? 'https:' + current.sourceUrl : current.sourceUrl;
-          resolvedUrl = new URL(urlRef, base).toString();
-        } catch {
+        const normCssPath = path.resolve(current.localCssPath).toLowerCase();
+        if (processedStylesheets.has(normCssPath)) {
           continue;
         }
-        const isKnown = [
-          ...manifest.stylesheets,
-          ...manifest.javascripts,
-          ...manifest.images,
-          ...manifest.fonts,
-          ...discoveredItems
-        ].some(item => item.sourceUrl === resolvedUrl);
+        processedStylesheets.add(normCssPath);
 
-        let targetFilename = '';
-        if (!isKnown) {
-          const isFont = /\.(?:woff2?|ttf|eot|otf)(?:[?#]|$)/i.test(resolvedUrl);
-          const cleanUrl = resolvedUrl.split('?')[0].split('#')[0];
-          targetFilename = allocateFilename(
-            cleanUrl,
-            resolvedUrl,
-            isFont ? 'font_dep' : 'image_dep',
-            isFont ? '.woff2' : '.png',
-            isFont ? 'font' : 'image',
-            current.requestIdentity
-          );
+        if (!fs.existsSync(current.localCssPath)) {
+          continue;
+        }
+        const cssContent = readSheet(current.localCssPath);
+        const discoveredItems: HarvestedAssetItem[] = [];
 
-          const newItem: HarvestedAssetItem = {
-            type: isFont ? 'font' : 'image',
-            sourceUrl: resolvedUrl,
-            filename: targetFilename,
-            localPath: path.join(assetsDir, targetFilename),
-            occurrences: [{ filePath: current.localCssPath, tag: 'css', attribute: 'url()' }],
-            requestIdentity: current.requestIdentity,
-            requestHeaders: current.requestHeaders
-          };
+        let sheetMap = perSheetUrlMaps.get(normCssPath);
+        if (!sheetMap) {
+          sheetMap = new Map<string, string>();
+          perSheetUrlMaps.set(normCssPath, sheetMap);
+        }
+        // 1. Scan for @import declarations (CSS stylesheets or fonts)
+        const importSpans: Array<{ start: number; end: number }> = [];
+        const importRegex = /@import\s+(?:url\(['"]?|['"])([^'")]+)['"]?\)?(?:[^;]*;)?/gi;
+        let match: RegExpExecArray | null;
 
-          discoveredItems.push(newItem);
-          if (isFont) manifest.fonts.push(newItem);
-          else manifest.images.push(newItem);
-        } else {
-          const existing = [
-            ...manifest.stylesheets,
-            ...manifest.javascripts,
-            ...manifest.images,
-            ...manifest.fonts,
-            ...discoveredItems
-          ].find(item => item.sourceUrl === resolvedUrl);
-          if (existing) targetFilename = existing.filename;
+        while ((match = importRegex.exec(cssContent)) !== null) {
+          importSpans.push({ start: match.index, end: match.index + match[0].length });
+          const importRef = match[1].trim();
+          if (!importRef || importRef.startsWith('data:') || isInternalFragmentRef(importRef)) continue;
+
+          let resolvedUrl: string;
+          try {
+            const base = current.sourceUrl.startsWith('//') ? 'https:' + current.sourceUrl : current.sourceUrl;
+            resolvedUrl = new URL(importRef, base).toString();
+          } catch {
+            continue;
+          }
+
+          const existing = knownBySourceUrl.get(resolvedUrl);
+          let targetFilename = '';
+          if (!existing) {
+            const isFont = /\.(?:woff2?|ttf|eot|otf)(?:[?#]|$)/i.test(resolvedUrl);
+            const cleanUrl = resolvedUrl.split('?')[0].split('#')[0];
+            targetFilename = allocateFilename(
+              cleanUrl,
+              resolvedUrl,
+              isFont ? 'font_dep' : 'style_dep',
+              isFont ? '.woff2' : '.css',
+              isFont ? 'font' : 'css',
+              current.requestIdentity
+            );
+
+            const newItem: HarvestedAssetItem = {
+              type: isFont ? 'font' : 'css',
+              sourceUrl: resolvedUrl,
+              filename: targetFilename,
+              localPath: path.join(assetsDir, targetFilename),
+              occurrences: [{ filePath: current.localCssPath, tag: 'css', attribute: '@import' }],
+              requestIdentity: current.requestIdentity,
+              requestHeaders: current.requestHeaders
+            };
+
+            discoveredItems.push(newItem);
+            levelDiscovered.push(newItem);
+            if (isFont) manifest.fonts.push(newItem);
+            else manifest.stylesheets.push(newItem);
+            knownBySourceUrl.set(resolvedUrl, newItem);
+          } else {
+            targetFilename = existing.filename;
+          }
+
+          if (targetFilename) {
+            const replacement = mode === 'liquid'
+              ? `{{ '${targetFilename}' | asset_url }}`
+              : targetFilename;
+            sheetMap.set(importRef, replacement);
+            sheetMap.set(resolvedUrl, replacement);
+          }
         }
 
-        if (targetFilename) {
-          const replacement = mode === 'liquid'
-            ? `{{ '${targetFilename}' | asset_url }}`
-            : targetFilename;
-          sheetMap.set(urlRef, replacement);
-          sheetMap.set(resolvedUrl, replacement);
-          if (resolvedUrl.startsWith('https://')) {
-            sheetMap.set(resolvedUrl.slice(6), replacement);
-          } else if (resolvedUrl.startsWith('http://')) {
-            sheetMap.set(resolvedUrl.slice(5), replacement);
+        // 2. Scan for url(...) declarations (images or fonts, excluding import spans).
+        // The quoted alternative uses a lazy any-character body so an embedded SVG
+        // data URI (which itself contains `url(...)` and `"`) is captured whole and
+        // skipped as `data:`, instead of exposing its inner paint-server token.
+        const urlRegex = /url\(\s*(?:(['"])([\s\S]*?)\1|([^)'"]*?))\s*\)/gi;
+        while ((match = urlRegex.exec(cssContent)) !== null) {
+          const matchIdx = match.index;
+          const isInsideImport = importSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
+          if (isInsideImport) continue;
+          const urlRef = (match[2] || match[3] || '').trim();
+          if (!urlRef || urlRef.startsWith('data:') || isInternalFragmentRef(urlRef)) continue;
+
+          let resolvedUrl: string;
+          try {
+            const base = current.sourceUrl.startsWith('//') ? 'https:' + current.sourceUrl : current.sourceUrl;
+            resolvedUrl = new URL(urlRef, base).toString();
+          } catch {
+            continue;
           }
-          if (urlRef.startsWith('//')) {
-            sheetMap.set('https:' + urlRef, replacement);
-            sheetMap.set('http:' + urlRef, replacement);
+          const existing = knownBySourceUrl.get(resolvedUrl);
+
+          let targetFilename = '';
+          if (!existing) {
+            const isFont = /\.(?:woff2?|ttf|eot|otf)(?:[?#]|$)/i.test(resolvedUrl);
+            const cleanUrl = resolvedUrl.split('?')[0].split('#')[0];
+            targetFilename = allocateFilename(
+              cleanUrl,
+              resolvedUrl,
+              isFont ? 'font_dep' : 'image_dep',
+              isFont ? '.woff2' : '.png',
+              isFont ? 'font' : 'image',
+              current.requestIdentity
+            );
+
+            const newItem: HarvestedAssetItem = {
+              type: isFont ? 'font' : 'image',
+              sourceUrl: resolvedUrl,
+              filename: targetFilename,
+              localPath: path.join(assetsDir, targetFilename),
+              occurrences: [{ filePath: current.localCssPath, tag: 'css', attribute: 'url()' }],
+              requestIdentity: current.requestIdentity,
+              requestHeaders: current.requestHeaders
+            };
+
+            discoveredItems.push(newItem);
+            levelDiscovered.push(newItem);
+            if (isFont) manifest.fonts.push(newItem);
+            else manifest.images.push(newItem);
+            knownBySourceUrl.set(resolvedUrl, newItem);
+          } else {
+            targetFilename = existing.filename;
           }
-          const cleanUrlRef = urlRef.split('?')[0].split('#')[0];
-          if (cleanUrlRef && !sheetMap.has(cleanUrlRef)) {
-            sheetMap.set(cleanUrlRef, replacement);
+
+          if (targetFilename) {
+            const replacement = mode === 'liquid'
+              ? `{{ '${targetFilename}' | asset_url }}`
+              : targetFilename;
+            sheetMap.set(urlRef, replacement);
+            sheetMap.set(resolvedUrl, replacement);
+            if (resolvedUrl.startsWith('https://')) {
+              sheetMap.set(resolvedUrl.slice(6), replacement);
+            } else if (resolvedUrl.startsWith('http://')) {
+              sheetMap.set(resolvedUrl.slice(5), replacement);
+            }
+            if (urlRef.startsWith('//')) {
+              sheetMap.set('https:' + urlRef, replacement);
+              sheetMap.set('http:' + urlRef, replacement);
+            }
+            const cleanUrlRef = urlRef.split('?')[0].split('#')[0];
+            if (cleanUrlRef && !sheetMap.has(cleanUrlRef)) {
+              sheetMap.set(cleanUrlRef, replacement);
+            }
+            const baseCleanRef = path.basename(cleanUrlRef);
+            if (baseCleanRef && !sheetMap.has(baseCleanRef)) {
+              sheetMap.set(baseCleanRef, replacement);
+            }
           }
-          const baseCleanRef = path.basename(cleanUrlRef);
-          if (baseCleanRef && !sheetMap.has(baseCleanRef)) {
-            sheetMap.set(baseCleanRef, replacement);
+        }
+
+        // If any newly discovered item was a CSS stylesheet, enqueue it for transitive recursion!
+        for (const item of discoveredItems) {
+          if (item.type === 'css') {
+            allDownloadedCssPaths.add(item.localPath);
+            levelCssChildren.push({
+              item,
+              depth: current.depth + 1,
+              requestIdentity: current.requestIdentity,
+              requestHeaders: current.requestHeaders
+            });
           }
         }
       }
 
-      // Download newly discovered secondary assets
-      if (discoveredItems.length > 0 && !options.skipDownload) {
-        const dlRes = await this.downloadAssets(discoveredItems, options);
+      // Download newly discovered secondary assets for this level in one bounded batch
+      if (levelDiscovered.length > 0 && !options.skipDownload) {
+        const dlRes = await this.downloadAssets(levelDiscovered, options);
         allSecondaryDownloaded.push(...dlRes.downloaded);
         secondaryTotalBytes += dlRes.totalBytes;
         secondaryFailedCount += dlRes.failedCount;
+        const dlBySourceUrl = new Map<string, DownloadedAssetResult>();
+        for (const d of dlRes.downloaded) {
+          if (!dlBySourceUrl.has(d.sourceUrl)) dlBySourceUrl.set(d.sourceUrl, d);
+        }
         // Register successfully downloaded secondary assets in the manifest so audit sees them!
-        for (const item of discoveredItems) {
-          const dlRecord = dlRes.downloaded.find(d => d.sourceUrl === item.sourceUrl);
-          if (dlRecord && dlRecord.status !== 'failed') {
-            if (item.type === 'font') {
-              if (!manifest.fonts.some(f => f.sourceUrl === item.sourceUrl)) manifest.fonts.push(item);
-            } else if (item.type === 'image') {
-              if (!manifest.images.some(i => i.sourceUrl === item.sourceUrl)) manifest.images.push(item);
-            } else if (item.type === 'css') {
-              if (!manifest.stylesheets.some(s => s.sourceUrl === item.sourceUrl)) manifest.stylesheets.push(item);
-            }
-            if (manifest.assetMap) {
-              manifest.assetMap[item.sourceUrl] = item.filename;
-            }
+        // (Items were already appended to the manifest arrays at discovery time;
+        //  only the assetMap alias still needs the download outcome.)
+        for (const item of levelDiscovered) {
+          const dlRecord = dlBySourceUrl.get(item.sourceUrl);
+          if (dlRecord && dlRecord.status !== 'failed' && manifest.assetMap) {
+            manifest.assetMap[item.sourceUrl] = item.filename;
           }
         }
       }
 
-      // If any newly discovered item was a CSS stylesheet, enqueue it for transitive recursion!
-      for (const item of discoveredItems) {
-        if (item.type === 'css') {
-          allDownloadedCssPaths.add(item.localPath);
-          queue.push({
-            localCssPath: item.localPath,
-            sourceUrl: item.sourceUrl,
-            depth: current.depth + 1,
-            requestIdentity: current.requestIdentity,
-            requestHeaders: current.requestHeaders
-          });
-        }
+      for (const child of levelCssChildren) {
+        queue.push({
+          localCssPath: child.item.localPath,
+          sourceUrl: child.item.sourceUrl,
+          depth: child.depth,
+          requestIdentity: child.requestIdentity,
+          requestHeaders: child.requestHeaders
+        });
       }
     }
+
     // Now rewrite all downloaded CSS files in-place using per-sheet maps + global manifest fallback
     if (allDownloadedCssPaths.size > 0) {
       const globalMap = new Map<string, string>();
@@ -1819,14 +1961,19 @@ export class AssetLocalizer {
 
       for (const cssPath of allDownloadedCssPaths) {
         if (fs.existsSync(cssPath)) {
-          const content = fs.readFileSync(cssPath, 'utf8');
-          const normPathKey = path.resolve(cssPath).toLowerCase();
+          const resolvedCssPath = path.resolve(cssPath);
+          const content = readSheet(resolvedCssPath);
+          const normPathKey = resolvedCssPath.toLowerCase();
           const sheetSpecificMap = perSheetUrlMaps.get(normPathKey) || new Map<string, string>();
           const mergedMap = new Map<string, string>([...globalMap, ...sheetSpecificMap]);
 
           const res = rewriteCssUrls(content, mergedMap, { mode });
           if (res.replacementCount > 0) {
             fs.writeFileSync(cssPath, res.content, 'utf8');
+            // Keep the caches coherent so the A3 audit reads/hashes the rewritten
+            // bytes without a second disk read.
+            (localCssCache ?? this.cssContentCache)?.set(resolvedCssPath, res.content);
+            this.recordFileHash(resolvedCssPath, createHash('sha256').update(res.content, 'utf8').digest('hex'));
             rewrittenCssCount += res.replacementCount;
           }
         }
@@ -1891,6 +2038,16 @@ export class AssetLocalizer {
         .filter(dl => dl.status === 'failed')
         .map(dl => dl.sourceUrl)
     );
+    // sha256 carried through the pipeline (A1 download/cache pass, consolidation)
+    // keyed by filename. The audit's sha256 field is informational — no consumer
+    // compares it against disk — so a stored hash is reused instead of re-reading
+    // and re-hashing every asset a second time.
+    const shaByFilename = new Map<string, string>();
+    for (const dl of options.downloadResults ?? []) {
+      if (dl.filename && dl.sha256 && !shaByFilename.has(dl.filename)) {
+        shaByFilename.set(dl.filename, dl.sha256);
+      }
+    }
 
     // 1. Audit local disk assets
     for (const item of allItems) {
@@ -1957,8 +2114,12 @@ export class AssetLocalizer {
         continue;
       }
 
-      const buf = fs.readFileSync(localPath);
-      const sha = createHash('sha256').update(buf).digest('hex');
+      // Reuse the sha256 carried through the pipeline (item/download record);
+      // the audit's sha256 field is informational and never consumed. Only when
+      // nothing was recorded do we touch disk — via the mtime-validated cache,
+      // with a raw read as the fail-closed last resort (unreadable file throws).
+      const sha = item.sha256 || shaByFilename.get(item.filename) || this.hashFileOnDisk(localPath)
+        || createHash('sha256').update(fs.readFileSync(localPath)).digest('hex');
       verifiedAssets.push({
         filename: item.filename,
         localPath,
@@ -2015,6 +2176,21 @@ export class AssetLocalizer {
           return tagMatch ? `${tagMatch[0]}</script>` : '';
         });
       }
+      // Precompute '<' positions once per file: the href branch below needs the
+      // enclosing tag start, and lastIndexOf('<') per match is O(file) each time.
+      const ltPositions: number[] = [];
+      for (let i = contentToScan.indexOf('<'); i !== -1; i = contentToScan.indexOf('<', i + 1)) {
+        ltPositions.push(i);
+      }
+      const lastLtBefore = (idx: number): number => {
+        let lo = 0, hi = ltPositions.length - 1, ans = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (ltPositions[mid] <= idx) { ans = ltPositions[mid]; lo = mid + 1; }
+          else hi = mid - 1;
+        }
+        return ans;
+      };
 
       // Check all explicit HTML sub-resource attributes (src, href for stylesheets/favicons, poster, data-src)
       let match: RegExpExecArray | null;
@@ -2033,7 +2209,7 @@ export class AssetLocalizer {
         const matchedUrl = urlMatch[0].trim();
         // Plain navigating hyperlinks (<a href="https://...">) and metadata links (<link rel="profile|dns-prefetch|preconnect|canonical|alternate">) are not loaded as page sub-resources
         if (attrName === 'href') {
-          const lastOpen = contentToScan.lastIndexOf('<', match.index);
+          const lastOpen = lastLtBefore(match.index);
           if (lastOpen === -1) continue;
           const tagEnd = contentToScan.indexOf('>', match.index);
           const fullTag = contentToScan.slice(lastOpen, tagEnd !== -1 ? tagEnd + 1 : match.index + 200);
@@ -2080,10 +2256,15 @@ export class AssetLocalizer {
     const cssImportRegex = /@import\s+(?:url\(\s*(?:(['"])([\s\S]*?)\1|([^)]*?))\s*\)|(['"])([\s\S]*?)\4)\s*(?:[^;]*;)?/gi;
     const cssUrlRegex = /url\(\s*(?:(['"])([\s\S]*?)\1|([^)]*?))\s*\)/gi;
 
+    // Failed-download lookup used to downgrade unresolved tokens to warnings.
+    // Built once per audit — it was previously rebuilt inside the token loop.
+    const failedUrls = (options.downloadResults ?? [])
+      .filter(dl => dl.status === 'failed')
+      .map(dl => ({ url: dl.sourceUrl, file: dl.filename, clean: dl.sourceUrl.split('?')[0].split('#')[0] }));
     for (const sheet of manifest.stylesheets) {
       const localPath = path.resolve(resolvedAssetsDir, sheet.filename);
       if (fs.existsSync(localPath)) {
-        const content = fs.readFileSync(localPath, 'utf8');
+        const content = this.readCssContent(localPath);
 
         // 1. Check @import tokens (Liquid-aware) and record spans to prevent double-counting url(...) inside @import
         const importSpans: Array<{ start: number; end: number }> = [];
@@ -2110,9 +2291,6 @@ export class AssetLocalizer {
             (isPathContained(besideSheet, resolvedAssetsDir) && fs.existsSync(besideSheet));
 
           if (!isLiquidToken && !isKnownFilename && !onDisk) {
-            const failedUrls = (options.downloadResults ?? [])
-              .filter(dl => dl.status === 'failed')
-              .map(dl => ({ url: dl.sourceUrl, file: dl.filename, clean: dl.sourceUrl.split('?')[0].split('#')[0] }));
             const isFailedUpstream = failedUrls.some(f => f.file === token || path.basename(f.clean) === token || f.url.endsWith('/' + token));
             if (isFailedUpstream) {
               findings.push({
@@ -2152,9 +2330,6 @@ export class AssetLocalizer {
             (isPathContained(besideSheet, resolvedAssetsDir) && fs.existsSync(besideSheet));
 
           if (!isLiquidToken && !isKnownFilename && !onDisk) {
-            const failedUrls = (options.downloadResults ?? [])
-              .filter(dl => dl.status === 'failed')
-              .map(dl => ({ url: dl.sourceUrl, file: dl.filename, clean: dl.sourceUrl.split('?')[0].split('#')[0] }));
             const isFailedUpstream = failedUrls.some(f => f.file === token || path.basename(f.clean) === token || f.url.endsWith('/' + token));
             if (isFailedUpstream) {
               findings.push({
@@ -2205,29 +2380,36 @@ export class AssetLocalizer {
     // Phase A1: Download primary assets
     const a1Result = await this.downloadAssets(allItems, options);
 
-    // Phase A2: Bounded recursive secondary asset discovery, download, and in-place rewriting of CSS stylesheets
-    const secondaryResult = await this.localizeDownloadedStylesheets(manifest, options);
+    // Engage the per-run stylesheet cache so each CSS file is read from disk once
+    // across the scan, in-place rewrite, and A3 audit passes.
+    this.cssContentCache = new Map<string, string>();
+    try {
+      // Phase A2: Bounded recursive secondary asset discovery, download, and in-place rewriting of CSS stylesheets
+      const secondaryResult = await this.localizeDownloadedStylesheets(manifest, options);
 
-    // Merge secondary downloads into A1 result
-    a1Result.downloaded.push(...secondaryResult.secondaryDownloaded);
-    a1Result.totalBytes += secondaryResult.totalBytes;
-    a1Result.failedCount += secondaryResult.failedCount;
+      // Merge secondary downloads into A1 result
+      a1Result.downloaded.push(...secondaryResult.secondaryDownloaded);
+      a1Result.totalBytes += secondaryResult.totalBytes;
+      a1Result.failedCount += secondaryResult.failedCount;
 
-    // Phase A2: Syntax-aware rewriting of HTML/Liquid source files
-    const a2Result = this.rewriteFiles(files, manifest, { mode: options.mode });
+      // Phase A2: Syntax-aware rewriting of HTML/Liquid source files
+      const a2Result = this.rewriteFiles(files, manifest, { mode: options.mode });
 
-    // Phase A3: Direct token-level verification and audit ledger (covers HTML files, on-disk CSS, and depth limits)
-    const a3Result = this.verifyAndAudit(manifest, {
-      assetsDir: options.assetsDir,
-      rewrittenFiles: a2Result.files,
-      downloadResults: a1Result.downloaded,
-      depthExceededUrls: secondaryResult.depthExceededUrls
-    });
+      // Phase A3: Direct token-level verification and audit ledger (covers HTML files, on-disk CSS, and depth limits)
+      const a3Result = this.verifyAndAudit(manifest, {
+        assetsDir: options.assetsDir,
+        rewrittenFiles: a2Result.files,
+        downloadResults: a1Result.downloaded,
+        depthExceededUrls: secondaryResult.depthExceededUrls
+      });
 
-    return {
-      a1_download: a1Result,
-      a2_rewrite: a2Result,
-      a3_audit: a3Result
-    };
+      return {
+        a1_download: a1Result,
+        a2_rewrite: a2Result,
+        a3_audit: a3Result
+      };
+    } finally {
+      this.cssContentCache = undefined;
+    }
   }
 }

@@ -388,7 +388,7 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
       const collSnippet = path.join(tempDir, 'snippets', 'coll_sec.liquid');
       assert.ok(fs.existsSync(collSnippet));
       const collContent = fs.readFileSync(collSnippet, 'utf-8');
-      assert.ok(collContent.includes('{% for product in collection.products %}'), 'Must bind collection loop');
+      assert.ok(collContent.includes('{% for product in collections[settings.coll_sec_collection].products %}'), 'Must bind collection loop via settings');
       assert.ok(collContent.includes('{{ product.title }}'), 'Must bind product title');
 
       // Verify article binding in snippet
@@ -396,7 +396,7 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
       assert.ok(fs.existsSync(articleSnippet));
       const articleContent = fs.readFileSync(articleSnippet, 'utf-8');
       assert.ok(articleContent.includes('{{ article.title }}'), 'Must bind article title');
-      assert.ok(articleContent.includes('{{ article.content }}'), 'Must bind article content');
+      assert.ok(articleContent.includes('{{ article.excerpt }}'), 'Must bind article excerpt (index-safe)');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1399,14 +1399,14 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
 
   it('25. Dynamically extracts page-specific head assets (stylesheets, media queries, inline styles) across desktop and mobile documents', () => {
     const desktopHtml = `<!doctype html><html><head>
-      <link rel="stylesheet" href="assets/app-dcc2d3nb.css">
+      <link rel="stylesheet" href="assets/app.css">
       <link rel="stylesheet" href="assets/product-desktop-berhnqqg.css">
       <link rel="stylesheet" href="assets/page-quote.css">
       <style>.custom-brand-hero { color: red; }</style>
     </head><body><main>Content</main></body></html>`;
 
     const mobileHtml = `<!doctype html><html><head>
-      <link rel="stylesheet" href="../assets/app-mobile-5wa_jy_a.css">
+      <link rel="stylesheet" href="../assets/home.css">
       <link rel="stylesheet" href="../assets/product-mobile-dvrg0zpe.css">
       <link rel="stylesheet" href="../assets/page-quote.css">
       <style>.mobile-brand-hero { color: blue; }</style>
@@ -1414,8 +1414,8 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
 
     const res = compiler.extractRouteHeadAssets(desktopHtml, mobileHtml);
 
-    assert.ok(!res.desktopStylesheets.includes('app-dcc2d3nb.css'));
-    assert.ok(!res.mobileStylesheets.includes('app-mobile-5wa_jy_a.css'));
+    assert.ok(!res.desktopStylesheets.includes('app.css'));
+    assert.ok(!res.mobileStylesheets.includes('home.css'));
     assert.deepStrictEqual(res.sharedStylesheets, ['page-quote.css']);
     assert.deepStrictEqual(res.desktopStylesheets, ['product-desktop-berhnqqg.css']);
     assert.ok(

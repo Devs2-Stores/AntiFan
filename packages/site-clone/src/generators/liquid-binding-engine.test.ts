@@ -46,7 +46,7 @@ describe('LiquidBindingEngine', () => {
       assert.ok(bound.includes('{{ product.compare_at_price | money }}'), 'Must bind compare at price');
 
       // Image
-      assert.ok(bound.includes("{{ product.featured_image | img_url: 'master' }}"), 'Must bind featured image');
+      assert.ok(bound.includes("{{ product.featured_image | img_url: 'grande' }}"), 'Must bind featured image');
       assert.ok(bound.includes('alt="{{ product.title | escape }}"'), 'Must bind image alt');
 
       // Metadata
@@ -55,7 +55,7 @@ describe('LiquidBindingEngine', () => {
       assert.ok(bound.includes('{{ product.content }}'), 'Must bind product description content');
 
       // Form & Variants
-      assert.ok(bound.includes("{% form 'product', product %}"), 'Must inject form opening tag');
+      assert.ok(bound.includes("{% form 'product', product"), 'Must inject form opening tag');
       assert.ok(bound.includes('{% endform %}'), 'Must inject form closing tag');
       assert.ok(bound.includes('{% for variant in product.variants %}'), 'Must inject variant loop');
       assert.ok(bound.includes('{{ variant.id }}'), 'Must bind variant id');
@@ -72,7 +72,7 @@ describe('LiquidBindingEngine', () => {
 
       const bound = engine.bindProductSection(inputHtml);
 
-      assert.ok(bound.includes("{% form 'product', product %}"), 'Must inject form tag');
+      assert.ok(bound.includes("{% form 'product', product"), 'Must inject form tag');
       assert.ok(bound.includes('{% endform %}'), 'Must inject endform tag');
       assert.ok(bound.includes('name="id"'), 'Must inject variant selector with name="id"');
       assert.ok(bound.includes('{% for variant in product.variants %}'), 'Must inject variant loop');
@@ -107,7 +107,7 @@ describe('LiquidBindingEngine', () => {
       assert.ok(!bound.includes('Áo khoác dù chống nước'), 'Must replace static card title');
 
       // Image
-      assert.ok(bound.includes("src=\"{{ product.featured_image | img_url: 'master' }}\""), 'Must bind image src');
+      assert.ok(bound.includes("src=\"{{ product.featured_image | img_url: 'grande' }}\""), 'Must bind image src');
       assert.ok(bound.includes('alt="{{ product.title | escape }}"'), 'Must bind image alt');
 
       // Prices
@@ -115,7 +115,7 @@ describe('LiquidBindingEngine', () => {
       assert.ok(bound.includes('{{ product.compare_at_price | money }}'), 'Must bind card compare price');
 
       // Quick add form on card
-      assert.ok(bound.includes("{% form 'product', product %}"), 'Must wrap quick add button in form');
+      assert.ok(bound.includes("{% form 'product', product"), 'Must wrap quick add button in form');
       assert.ok(bound.includes('{{ product.selected_or_first_available_variant.id }}'), 'Must inject hidden variant id for card');
     });
     it('scopes form replacement strictly to forms with purchase indicators and leaves search/newsletter forms uncorrupted', () => {
@@ -149,7 +149,7 @@ describe('LiquidBindingEngine', () => {
       assert.ok(bound.includes('<form action="/contact#newsletter" method="post" class="newsletter-form">'), 'Newsletter form opening tag must remain untouched');
 
       // Only the product form with purchase indicators must be converted
-      assert.ok(bound.includes("{% form 'product', product %}"), 'Product form must be converted to Liquid form');
+      assert.ok(bound.includes("{% form 'product', product"), 'Product form must be converted to Liquid form');
       assert.ok(bound.includes('{% endform %}'), 'Product form must have endform');
     });
   });
@@ -257,7 +257,7 @@ describe('LiquidBindingEngine', () => {
       assert.ok(bound.includes("datetime=\"{{ article.published_at | date: '%Y-%m-%d' }}\""), 'Must bind datetime attribute on time tag');
 
       // Image & Excerpt
-      assert.ok(bound.includes("{{ article.image | img_url: 'master' }}"), 'Must bind article image');
+      assert.ok(bound.includes("{{ article.image | img_url: 'grande' }}"), 'Must bind article image');
       assert.ok(bound.includes('{{ article.excerpt }}'), 'Must bind article excerpt');
     });
     it('preserves HTML tags and capture groups in title and content replacers without literal $1 or $3 leakage', () => {
@@ -349,7 +349,7 @@ describe('LiquidBindingEngine', () => {
       const sanitized = engine.sanitizeDotLiquid(raw);
       assert.ok(!sanitized.includes('[:title]'), 'Must replace [:title]');
       assert.ok(sanitized.includes("['title']"), 'Must convert to string bracket lookup');
-      assert.ok(sanitized.includes("img_url: 'master'"), 'Must quote master filter argument');
+      assert.ok(sanitized.includes("img_url: 'grande'"), 'Must quote master filter argument');
       assert.ok(sanitized.includes("date: '%d/%m/%Y'"), 'Must quote date filter format');
     });
 
@@ -357,7 +357,7 @@ describe('LiquidBindingEngine', () => {
       const raw = '<img src="{{ article.image.src | img_url: master }}">';
       const sanitized = engine.sanitizeDotLiquid(raw);
       assert.ok(!sanitized.includes('article.image.src'), 'Must replace raw article.image.src pipe');
-      assert.ok(sanitized.includes("article.image | img_url: 'master'"), 'Must convert to safe article.image filter');
+      assert.ok(sanitized.includes("article.image | img_url: 'grande'"), 'Must convert to safe article.image filter');
     });
     it('constrains Ruby type casting within single tag boundaries without crossing HTML or multiple tags', () => {
       const raw = '{{ settings.max_items.to_i }} <p>Check file.to_i and script.to_s here</p> {% if item.count.to_s != blank %}<span>{{ items.length }}</span>{% endif %}';

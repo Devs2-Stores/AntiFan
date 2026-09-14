@@ -463,7 +463,14 @@ export class HaravanSchemaGenerator {
     ];
 
     if (options?.customGroups && options.customGroups.length > 0) {
-      schema.push(...options.customGroups);
+      for (const group of options.customGroups) {
+        schema.push({
+          ...group,
+          settings: Array.isArray(group.settings)
+            ? group.settings.map((s) => this.normalizeEmittedSetting(s))
+            : group.settings,
+        });
+      }
     }
 
     return JSON.stringify(schema, null, 2);
@@ -581,16 +588,19 @@ export class HaravanSchemaGenerator {
         const cleanId = sanitizeSettingId(ts.id, 'setting');
         if (usedIds.has(cleanId) || usedIds.has(ts.id)) continue;
         const sanitized = sanitizeSettingType(ts.type);
-        declaredSettings.push({
-          ...sanitized.transformedProps,
-          type: sanitized.type,
-          id: cleanId,
-          label: ts.label || this.formatSettingLabel(cleanId),
-          default:
-            ts.default !== undefined
-              ? (ts.default as HaravanSchemaSetting['default'])
-              : (sanitized.transformedProps?.default as HaravanSchemaSetting['default']) ?? '',
-        });
+        declaredSettings.push(
+          this.normalizeEmittedSetting({
+            ...sanitized.transformedProps,
+            ...this.pickAuthoredConstraints(ts),
+            type: sanitized.type,
+            id: cleanId,
+            label: ts.label || this.formatSettingLabel(cleanId),
+            default:
+              ts.default !== undefined
+                ? (ts.default as HaravanSchemaSetting['default'])
+                : (sanitized.transformedProps?.default as HaravanSchemaSetting['default']) ?? '',
+          })
+        );
         usedIds.add(cleanId);
         usedIds.add(ts.id);
       }
@@ -687,15 +697,20 @@ export class HaravanSchemaGenerator {
             const cleanId = sanitizeSettingId(mappedId, 'setting');
             if (!usedIds.has(cleanId)) {
               const sanitized = sanitizeSettingType(s.type);
-              sectionSettings.push({
-                type: sanitized.type,
-                id: cleanId,
-                label: s.label || this.formatSettingLabel(cleanId),
-                default:
-                  s.default !== undefined
-                    ? (s.default as HaravanSchemaSetting['default'])
-                    : sanitized.transformedProps?.default || '',
-              });
+              sectionSettings.push(
+                this.normalizeEmittedSetting({
+                  ...sanitized.transformedProps,
+                  ...this.pickAuthoredConstraints(s),
+                  type: sanitized.type,
+                  id: cleanId,
+                  label: s.label || this.formatSettingLabel(cleanId),
+                  default:
+                    s.default !== undefined
+                      ? (s.default as HaravanSchemaSetting['default'])
+                      : (sanitized.transformedProps?.default as HaravanSchemaSetting['default']) ??
+                        '',
+                })
+              );
               usedIds.add(cleanId);
             }
           }
@@ -709,12 +724,14 @@ export class HaravanSchemaGenerator {
             if (!usedIds.has(cleanId)) {
               const inferredType: HaravanSchemaInputType =
                 typeof v === 'boolean' ? 'checkbox' : typeof v === 'number' ? 'number' : 'text';
-              sectionSettings.push({
-                type: inferredType,
-                id: cleanId,
-                label: this.formatSettingLabel(cleanId),
-                default: v as HaravanSchemaSetting['default'],
-              });
+              sectionSettings.push(
+                this.normalizeEmittedSetting({
+                  type: inferredType,
+                  id: cleanId,
+                  label: this.formatSettingLabel(cleanId),
+                  default: v as HaravanSchemaSetting['default'],
+                })
+              );
               usedIds.add(cleanId);
             }
           }
@@ -737,7 +754,16 @@ export class HaravanSchemaGenerator {
         let type: HaravanSchemaInputType = 'text';
         let def: string | boolean = '';
 
-        if (cleanId.includes('enable') || cleanId.includes('show') || cleanId.includes('active')) {
+        // Picker suffixes take precedence over substring heuristics: an id like
+        // `show_collection` is a collection picker, not a visibility checkbox.
+        // `product` has no Haravan schema type, so *_product stays a text handle.
+        if (cleanId.endsWith('_collection')) {
+          type = 'collection';
+        } else if (cleanId.endsWith('_blog')) {
+          type = 'blog';
+        } else if (cleanId.endsWith('_page')) {
+          type = 'page';
+        } else if (cleanId.includes('enable') || cleanId.includes('show') || cleanId.includes('active')) {
           type = 'checkbox';
           def = true;
         } else if (cleanId.includes('color')) {
@@ -752,12 +778,14 @@ export class HaravanSchemaGenerator {
           def = '';
         }
 
-        remainingSettings.push({
-          type,
-          id: cleanId,
-          label: this.formatSettingLabel(cleanId),
-          default: def,
-        });
+        remainingSettings.push(
+          this.normalizeEmittedSetting({
+            type,
+            id: cleanId,
+            label: this.formatSettingLabel(cleanId),
+            default: def,
+          })
+        );
         usedIds.add(cleanId);
         usedIds.add(rawId);
       }
@@ -771,10 +799,107 @@ export class HaravanSchemaGenerator {
     }
 
     if (options?.customGroups && options.customGroups.length > 0) {
-      groups.push(...options.customGroups);
+      for (const group of options.customGroups) {
+        groups.push({
+          ...group,
+          settings: Array.isArray(group.settings)
+            ? group.settings.map((s) => this.normalizeEmittedSetting(s))
+            : group.settings,
+        });
+      }
     }
 
     return groups;
+  }
+
+  /**
+   * Carries authored control constraints (min/max/step/unit/options) from a raw
+   * schema setting entry into the emitted setting. Raw entries arrive as loosely
+   * typed `{ type, id, label, default }` records, so each field is type-checked
+   * before it is trusted.
+   */
+  private pickAuthoredConstraints(raw: unknown): Partial<HaravanSchemaSetting> {
+    if (!raw || typeof raw !== 'object') return {};
+    const src = raw as Record<string, unknown>;
+    const picked: Partial<HaravanSchemaSetting> = {};
+    if (typeof src.min === 'number' && Number.isFinite(src.min)) picked.min = src.min;
+    if (typeof src.max === 'number' && Number.isFinite(src.max)) picked.max = src.max;
+    if (typeof src.step === 'number' && Number.isFinite(src.step)) picked.step = src.step;
+    if (typeof src.unit === 'string' && src.unit.trim()) picked.unit = src.unit;
+    if (Array.isArray(src.options)) {
+      picked.options = src.options
+        .filter(
+          (o): o is { value: unknown; label: unknown } =>
+            !!o && typeof o === 'object' && 'value' in o
+        )
+        .map((o) => ({
+          value: String(o.value),
+          label: typeof o.label === 'string' && o.label ? o.label : String(o.value),
+        }));
+    }
+    return picked;
+  }
+
+  /**
+   * Ensures an emitted setting satisfies the rules validateSettingsSchema
+   * enforces: range/number carry numeric min/max (and range a step), and
+   * select/radio carry a non-empty options array — otherwise they downgrade to
+   * text rather than emit a control the platform validator rejects.
+   */
+  private normalizeEmittedSetting(setting: HaravanSchemaSetting): HaravanSchemaSetting {
+    const normalized: HaravanSchemaSetting = { ...setting };
+
+    if (normalized.type === 'range' || normalized.type === 'number') {
+      const min =
+        typeof normalized.min === 'number' && Number.isFinite(normalized.min)
+          ? normalized.min
+          : 0;
+      let max =
+        typeof normalized.max === 'number' && Number.isFinite(normalized.max)
+          ? normalized.max
+          : 100;
+      if (!(min < max)) {
+        max = min + 100;
+      }
+      normalized.min = min;
+      normalized.max = max;
+      if (normalized.type === 'range') {
+        normalized.step =
+          typeof normalized.step === 'number' &&
+          Number.isFinite(normalized.step) &&
+          normalized.step > 0
+            ? normalized.step
+            : 1;
+      }
+      if (typeof normalized.default !== 'number') {
+        const parsed =
+          typeof normalized.default === 'string' ? parseFloat(normalized.default) : NaN;
+        normalized.default = Number.isFinite(parsed) ? parsed : min;
+      }
+    } else {
+      delete normalized.min;
+      delete normalized.max;
+      delete normalized.step;
+      delete normalized.unit;
+    }
+
+    if (normalized.type === 'select' || normalized.type === 'radio') {
+      if (!Array.isArray(normalized.options) || normalized.options.length === 0) {
+        normalized.type = 'text';
+        delete normalized.options;
+      }
+    } else {
+      delete normalized.options;
+    }
+
+    if (
+      (normalized.type === 'header' || normalized.type === 'paragraph') &&
+      (typeof normalized.content !== 'string' || !normalized.content.trim())
+    ) {
+      normalized.content = normalized.label || normalized.id || 'Information';
+    }
+
+    return normalized;
   }
 
   private formatSettingLabel(id: string): string {

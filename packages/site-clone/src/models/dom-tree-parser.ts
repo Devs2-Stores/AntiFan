@@ -36,6 +36,8 @@ export class DomTreeParser {
 
     let cursor = 0;
     const len = html.length;
+    // Lowercased lazily on the first raw-text tag, then reused for every raw-text close scan.
+    let lowerHtml: string | undefined;
 
     while (cursor < len) {
       const nextOpen = html.indexOf('<', cursor);
@@ -119,7 +121,7 @@ export class DomTreeParser {
         // Special case: Raw text elements (script, style, textarea, title)
         if (this.isRawTextTag(tagName)) {
           const closingTag = `</${tagName}>`;
-          const rawEnd = html.toLowerCase().indexOf(closingTag, tagClose + 1);
+          const rawEnd = (lowerHtml ??= html.toLowerCase()).indexOf(closingTag, tagClose + 1);
           if (rawEnd !== -1) {
             const rawText = html.slice(tagClose + 1, rawEnd);
             node.children.push(rawText);

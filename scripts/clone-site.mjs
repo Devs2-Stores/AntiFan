@@ -203,36 +203,35 @@ function loadOrMaterializeSurface({ targetUrl, rawPath, device, expectedWidth, e
     const materializeScript = path.join(rootDir, 'scripts', 'materialize-surface.cjs');
     const runnerScript = path.join(rootDir, 'scripts', 'run-electron.cjs');
 
-    const result = spawnSync(process.execPath, [runnerScript, materializeScript], {
-      cwd: rootDir,
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        MATERIALIZE_TARGET_URL: targetUrl,
-        MATERIALIZE_OUTPUT_PATH: rawPath,
-        MATERIALIZE_DEVICE: device
-      }
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [runnerScript, materializeScript], {
+        cwd: rootDir,
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          MATERIALIZE_TARGET_URL: targetUrl,
+          MATERIALIZE_OUTPUT_PATH: rawPath,
+          MATERIALIZE_DEVICE: device
+        }
+      });
+      child.on('error', (err) => reject(new Error(`[AntiFan Clone] Materialization worker failed to launch: ${err.message}`)));
+      child.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`[AntiFan Clone] Materialization worker exited with status ${code}`));
+          return;
+        }
+        const v = verifyCaptureReceipt(rawPath, expected);
+        if (!v.valid) {
+          reject(new Error(`[AntiFan Clone] Capture completed but receipt verification failed: ${v.reason}`));
+          return;
+        }
+        resolve({ content: v.content, receipt: v.receipt });
+      });
     });
-
-    if (result.error) {
-      throw new Error(`[AntiFan Clone] Materialization worker failed to launch: ${result.error.message}`);
-    }
-    if (result.status !== 0) {
-      throw new Error(`[AntiFan Clone] Materialization worker exited with status ${result.status}`);
-    }
-
-    verification = verifyCaptureReceipt(rawPath, expected);
-    if (!verification.valid) {
-      throw new Error(`[AntiFan Clone] Capture completed but receipt verification failed: ${verification.reason}`);
-    }
-  } else {
-    console.log(`  ✓ Valid capture receipt verified for ${device} (sha256: ${verification.receipt.sha256.slice(0, 8)}...)`);
   }
 
-  return {
-    content: verification.content,
-    receipt: verification.receipt
-  };
+  console.log(`  ✓ Valid capture receipt verified for ${device} (sha256: ${verification.receipt.sha256.slice(0, 8)}...)`);
+  return Promise.resolve({ content: verification.content, receipt: verification.receipt });
 }
 
 async function run() {
@@ -263,9 +262,14 @@ async function run() {
   }
 
   // 1. Materialize Desktop Surface
-  console.log('\n[Phase 1/4] Loading & Materializing Desktop Surface...');
+  // 1. Materialize Desktop + Mobile surfaces in parallel (independent Electron
+  // captures; the platform detection below only needs desktopHtml).
+  console.log('\n[Phase 1/4] Loading & Materializing Surfaces (desktop + mobile in parallel)...');
   const rawDesktopPath = path.join(outDir, 'raw-desktop.html');
-  const desktopCapture = loadOrMaterializeSurface({
+  const rawMobilePath = path.join(outDir, 'raw-mobile.html');
+  const isAdaptive = deviceMode !== 'desktop';
+
+  const desktopPromise = loadOrMaterializeSurface({
     targetUrl,
     rawPath: rawDesktopPath,
     device: 'desktop',
@@ -273,7 +277,20 @@ async function run() {
     expectedHeight: 900,
     forceRefresh: isRefresh
   });
+  const mobilePromise = isAdaptive
+    ? loadOrMaterializeSurface({
+        targetUrl,
+        rawPath: rawMobilePath,
+        device: 'mobile',
+        expectedWidth: 390,
+        expectedHeight: 844,
+        forceRefresh: isRefresh
+      })
+    : Promise.resolve(null);
+
+  const [desktopCapture, mobileCapture] = await Promise.all([desktopPromise, mobilePromise]);
   let desktopHtml = desktopCapture.content;
+  let mobileHtml = mobileCapture ? mobileCapture.content : null;
 
   // Source platform detection (content-based; informs theme compile + advisory)
   detected = detectSourcePlatform(desktopHtml);
@@ -281,26 +298,7 @@ async function run() {
 
   // A desktop capture cannot prove the absence of a server-selected mobile DOM.
   // Auto captures both; capture count is not an architecture classification.
-  const isAdaptive = deviceMode !== 'desktop';
-
   console.log(`\n[Phase 2/4] Capture mode: ${isAdaptive ? 'Desktop and mobile' : 'Desktop only'}`);
-
-  let mobileHtml = null;
-  let mobileCapture = null;
-  if (isAdaptive) {
-    console.log('\n[Phase 2b/4] Loading & Materializing Mobile Surface...');
-    const rawMobilePath = path.join(outDir, 'raw-mobile.html');
-    mobileCapture = loadOrMaterializeSurface({
-      targetUrl,
-      rawPath: rawMobilePath,
-      device: 'mobile',
-      expectedWidth: 390,
-      expectedHeight: 844,
-      forceRefresh: isRefresh
-    });
-    mobileHtml = mobileCapture.content;
-  }
-
   // 3. Generic Asset Core Harvesting & Localization
   console.log('\n[Phase 3/4] Harvesting and Localizing Remote Subresources (Stylesheets, Fonts, Images)...');
   const harvester = new AssetHarvester();

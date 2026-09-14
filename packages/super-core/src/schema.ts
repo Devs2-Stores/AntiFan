@@ -2,7 +2,7 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const DDL = `
 PRAGMA journal_mode = WAL;
@@ -208,6 +208,194 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE VIRTUAL TABLE IF NOT EXISTS claims_fts USING fts5(
   statement, kind, unitId, claimId UNINDEXED
 );
+
+-- v4: Experience Graph (§14), Anti-Pattern Library (§28), Workaround Library (§29),
+-- Fix Patterns (§31), Corpus Audit (§50), Phase Gates (§51), Core Regression (§46),
+-- Principles (§23), Hidden Requirements (§25), Commercial Intelligence (§26),
+-- Tool Intelligence (§27), Archetypes (§33), Platform Semantics (§12),
+-- Practice Parity (§21), Skill Genealogy (§22).
+
+CREATE TABLE IF NOT EXISTS experience_nodes (
+  nodeId TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  refId TEXT,
+  label TEXT,
+  context TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_experience_nodes_kind ON experience_nodes(kind);
+CREATE INDEX IF NOT EXISTS idx_experience_nodes_ref ON experience_nodes(refId);
+
+CREATE TABLE IF NOT EXISTS experience_edges (
+  edgeId TEXT PRIMARY KEY,
+  fromNodeId TEXT NOT NULL,
+  toNodeId TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  evidence TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_experience_edges_from ON experience_edges(fromNodeId);
+CREATE INDEX IF NOT EXISTS idx_experience_edges_to ON experience_edges(toNodeId);
+
+CREATE TABLE IF NOT EXISTS anti_patterns (
+  patternId TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  whatNotToDo TEXT,
+  symptoms TEXT,
+  evidence TEXT,
+  affectedPlatform TEXT,
+  replacement TEXT,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workarounds (
+  workaroundId TEXT PRIMARY KEY,
+  problem TEXT NOT NULL,
+  condition TEXT,
+  solution TEXT,
+  reason TEXT,
+  platform TEXT,
+  version TEXT,
+  evidence TEXT,
+  stillValid INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS fix_patterns (
+  fixId TEXT PRIMARY KEY,
+  before TEXT,
+  after TEXT,
+  why TEXT,
+  evidence TEXT,
+  lesson TEXT,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS corpus_audit (
+  auditId TEXT PRIMARY KEY,
+  artifactsDiscovered INTEGER,
+  artifactsRead INTEGER,
+  artifactsAnalyzed INTEGER,
+  artifactsClassified INTEGER,
+  artifactsConnected INTEGER,
+  artifactsExtracted INTEGER,
+  blocked INTEGER,
+  reasonsJson TEXT,
+  unresolved INTEGER,
+  coveragePct REAL,
+  rulesGenerated INTEGER,
+  candidatesPending INTEGER,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS phase_gates (
+  gateId TEXT PRIMARY KEY,
+  phase TEXT NOT NULL,
+  gate TEXT NOT NULL,
+  passed INTEGER NOT NULL,
+  detail TEXT,
+  checkedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS regressions (
+  regressionId TEXT PRIMARY KEY,
+  newKnowledge TEXT,
+  affectedRulesJson TEXT,
+  affectedCasesJson TEXT,
+  affectedRecommendationsJson TEXT,
+  replayResult TEXT,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS principles (
+  principleId TEXT PRIMARY KEY,
+  statement TEXT NOT NULL,
+  source TEXT,
+  derivedFrom TEXT,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hidden_requirements (
+  reqId TEXT PRIMARY KEY,
+  task TEXT NOT NULL,
+  explicitReq TEXT,
+  inferredReq TEXT,
+  likelihood TEXT,
+  evidence TEXT,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS commercial_intel (
+  intelId TEXT PRIMARY KEY,
+  taskType TEXT NOT NULL,
+  quote REAL,
+  scope TEXT,
+  estimate REAL,
+  actual REAL,
+  risk TEXT,
+  revisionCount INTEGER,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tool_intel (
+  toolId TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  problemSolved TEXT,
+  workflowStage TEXT,
+  inputs TEXT,
+  outputs TEXT,
+  failureModes TEXT,
+  timeSaved REAL,
+  maintenanceCost REAL,
+  roi REAL,
+  usageFrequency TEXT,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS archetypes (
+  archetypeId TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  platform TEXT,
+  maturityLevel INTEGER,
+  evidenceJson TEXT,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS platform_semantics (
+  semanticId TEXT PRIMARY KEY,
+  platform TEXT NOT NULL,
+  semanticRole TEXT NOT NULL,
+  propertyName TEXT,
+  cssFact TEXT,
+  semanticTruth TEXT,
+  evidence TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_platform_semantics ON platform_semantics(platform, semanticRole);
+
+CREATE TABLE IF NOT EXISTS practice_parity (
+  parityId TEXT PRIMARY KEY,
+  practice TEXT NOT NULL,
+  declared TEXT,
+  observed TEXT,
+  gap TEXT,
+  evidence TEXT,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS skill_versions (
+  versionId TEXT PRIMARY KEY,
+  skillId TEXT NOT NULL,
+  version TEXT,
+  failure TEXT,
+  fix TEXT,
+  production TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_versions ON skill_versions(skillId);
 `;
 
 export const MIGRATIONS: Array<{ from: number; to: number; sql: string }> = [
@@ -251,5 +439,69 @@ CREATE TABLE IF NOT EXISTS dependencies (
 );
 CREATE INDEX IF NOT EXISTS idx_dependencies_from ON dependencies(fromUnitId);
 CREATE INDEX IF NOT EXISTS idx_dependencies_to ON dependencies(toUnitId);`,
+  },
+  {
+    from: 3, to: 4,
+    sql: `ALTER TABLE decisions ADD COLUMN problem TEXT;
+ALTER TABLE decisions ADD COLUMN tradeoffs TEXT;
+ALTER TABLE decisions ADD COLUMN outcome TEXT;
+ALTER TABLE decisions ADD COLUMN confidence TEXT;
+ALTER TABLE claims ADD COLUMN lastSeen TEXT;
+ALTER TABLE claims ADD COLUMN agingSince TEXT;
+ALTER TABLE conflicts ADD COLUMN classification TEXT;
+CREATE TABLE IF NOT EXISTS experience_nodes (
+  nodeId TEXT PRIMARY KEY, kind TEXT NOT NULL, refId TEXT, label TEXT, context TEXT, createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_experience_nodes_kind ON experience_nodes(kind);
+CREATE INDEX IF NOT EXISTS idx_experience_nodes_ref ON experience_nodes(refId);
+CREATE TABLE IF NOT EXISTS experience_edges (
+  edgeId TEXT PRIMARY KEY, fromNodeId TEXT NOT NULL, toNodeId TEXT NOT NULL, kind TEXT NOT NULL, evidence TEXT, createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_experience_edges_from ON experience_edges(fromNodeId);
+CREATE INDEX IF NOT EXISTS idx_experience_edges_to ON experience_edges(toNodeId);
+CREATE TABLE IF NOT EXISTS anti_patterns (
+  patternId TEXT PRIMARY KEY, name TEXT NOT NULL, whatNotToDo TEXT, symptoms TEXT, evidence TEXT, affectedPlatform TEXT, replacement TEXT, status TEXT NOT NULL DEFAULT 'ACTIVE', createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workarounds (
+  workaroundId TEXT PRIMARY KEY, problem TEXT NOT NULL, condition TEXT, solution TEXT, reason TEXT, platform TEXT, version TEXT, evidence TEXT, stillValid INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fix_patterns (
+  fixId TEXT PRIMARY KEY, before TEXT, after TEXT, why TEXT, evidence TEXT, lesson TEXT, createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS corpus_audit (
+  auditId TEXT PRIMARY KEY, artifactsDiscovered INTEGER, artifactsRead INTEGER, artifactsAnalyzed INTEGER, artifactsClassified INTEGER, artifactsConnected INTEGER, artifactsExtracted INTEGER, blocked INTEGER, reasonsJson TEXT, unresolved INTEGER, coveragePct REAL, rulesGenerated INTEGER, candidatesPending INTEGER, createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS phase_gates (
+  gateId TEXT PRIMARY KEY, phase TEXT NOT NULL, gate TEXT NOT NULL, passed INTEGER NOT NULL, detail TEXT, checkedAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS regressions (
+  regressionId TEXT PRIMARY KEY, newKnowledge TEXT, affectedRulesJson TEXT, affectedCasesJson TEXT, affectedRecommendationsJson TEXT, replayResult TEXT, createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS principles (
+  principleId TEXT PRIMARY KEY, statement TEXT NOT NULL, source TEXT, derivedFrom TEXT, status TEXT NOT NULL DEFAULT 'ACTIVE', createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS hidden_requirements (
+  reqId TEXT PRIMARY KEY, task TEXT NOT NULL, explicitReq TEXT, inferredReq TEXT, likelihood TEXT, evidence TEXT, createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS commercial_intel (
+  intelId TEXT PRIMARY KEY, taskType TEXT NOT NULL, quote REAL, scope TEXT, estimate REAL, actual REAL, risk TEXT, revisionCount INTEGER, createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tool_intel (
+  toolId TEXT PRIMARY KEY, name TEXT NOT NULL, problemSolved TEXT, workflowStage TEXT, inputs TEXT, outputs TEXT, failureModes TEXT, timeSaved REAL, maintenanceCost REAL, roi REAL, usageFrequency TEXT, status TEXT NOT NULL DEFAULT 'ACTIVE', createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS archetypes (
+  archetypeId TEXT PRIMARY KEY, name TEXT NOT NULL, platform TEXT, maturityLevel INTEGER, evidenceJson TEXT, createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS platform_semantics (
+  semanticId TEXT PRIMARY KEY, platform TEXT NOT NULL, semanticRole TEXT NOT NULL, propertyName TEXT, cssFact TEXT, semanticTruth TEXT, evidence TEXT, createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_platform_semantics ON platform_semantics(platform, semanticRole);
+CREATE TABLE IF NOT EXISTS practice_parity (
+  parityId TEXT PRIMARY KEY, practice TEXT NOT NULL, declared TEXT, observed TEXT, gap TEXT, evidence TEXT, createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS skill_versions (
+  versionId TEXT PRIMARY KEY, skillId TEXT NOT NULL, version TEXT, failure TEXT, fix TEXT, production TEXT, createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_versions ON skill_versions(skillId);`,
   },
 ];

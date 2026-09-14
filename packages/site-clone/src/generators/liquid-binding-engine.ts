@@ -6,24 +6,53 @@
  */
 
 import { DomTreeParser, ParsedElementNode } from '../models/dom-tree-parser.js';
+import { sanitizeSettingId } from './haravan-schema-generator.js';
 
 export interface ProductBindingOptions {
   isCard?: boolean;
+  /** True when the section renders on templates/index.liquid where product/collection/article globals are nil. */
+  isIndex?: boolean;
+  /** Section id used to derive settings.<id>_* source setting names on index. */
+  sectionId?: string;
 }
+
+export interface SectionBindingOptions {
+  /** True when the section renders on templates/index.liquid where product/collection/article globals are nil. */
+  isIndex?: boolean;
+  /** Section id used to derive settings.<id>_* source setting names on index. */
+  sectionId?: string;
+}
+
+const PRODUCT_CARD_CLASS_REGEX = /(?:product-card|product-item|col-product|product-col|grid__item|card-product|pro-item|item-product)\b/i;
+const ARTICLE_CARD_CLASS_REGEX = /(?:article-card|article-item|post-card|post-item|blog-card|blog-item|news-item|article__card|grid__item)\b/i;
+
+/** Matches a single Liquid output or tag region so rewrites never touch raw text or <script>/<style> bodies. */
+const LIQUID_TAG_REGION_REGEX = /\{\{(?:(?!}})[\s\S])*?\}\}|\{%(?:(?!%})[\s\S])*?%\}/g;
 
 export class LiquidBindingEngine {
   /**
    * Binds product card or product detail HTML to Liquid objects:
    * - Replaces product titles with {{ product.title }}
    * - Replaces price displays with {{ product.price | money }} and compare-at-price with {{ product.compare_at_price | money }}
-   * - Replaces product images with {{ product.featured_image | img_url: 'master' }}
+   * - Replaces product images with {{ product.featured_image | img_url: 'grande' }}
    * - Replaces product links with {{ product.url }}
    * - Injects variant selectors and add-to-cart form tags ({% form 'product', product %})
+   * - On index (options.isIndex), sources product from collections[settings.<sectionId>_collection].products.first
+   *   and suppresses detail-only bindings ({% form %}, variant SKU, product.content) since index has no product context.
    */
   public bindProductSection(html: string, options?: ProductBindingOptions): string {
     if (!html || typeof html !== 'string') return '';
     const isCard = options?.isCard === true;
+    const isIndex = options?.isIndex === true;
     let bound = html;
+
+    // 0. On index there is no product global; source a featured product from the
+    // section's collection setting (all_products is not a confirmed Haravan global).
+    // Cards are loop-bound (product comes from {% for %}), so they never need this.
+    if (isIndex && !isCard) {
+      const secPrefix = sanitizeSettingId(options?.sectionId || 'featured', 'sec');
+      bound = `{% assign product = collections[settings.${secPrefix}_collection].products.first %}\n${bound}`;
+    }
 
     // 1. Bind Product Images
     bound = this.bindProductImages(bound);
@@ -38,26 +67,34 @@ export class LiquidBindingEngine {
     bound = this.bindProductPrices(bound);
 
     // 5. Product Detail Specific Bindings (Description, Vendor, SKU)
-    if (!isCard) {
+    // Detail-only: never on cards, and never on index where the section is a featured/listing context.
+    if (!isCard && !isIndex) {
       bound = this.bindProductDetailMetadata(bound);
     }
 
-    // 6. Form and Variant Selector Injection
-    bound = this.bindProductForm(bound, isCard);
+    // 6. Form and Variant Selector Injection (suppressed on index: no genuine product detail context)
+    bound = this.bindProductForm(bound, isCard, isIndex);
 
     return bound;
   }
 
   /**
    * Binds product grids to collection loops ({% for product in collection.products %} ... {% endfor %})
+   * On index (options.isIndex) the loop sources collections[settings.<sectionId>_collection].products
+   * since the `collection` global is nil outside collection templates.
    */
-  public bindCollectionSection(html: string, collectionHandle?: string): string {
+  public bindCollectionSection(html: string, collectionHandle?: string, options?: SectionBindingOptions): string {
     if (!html || typeof html !== 'string') return '';
     let bound = html;
 
+    // On index the `collection` global is nil; source the collection from a
+    // collection-type theme setting (settings.<sectionId>_collection) instead.
+    const secPrefix = sanitizeSettingId(options?.sectionId || 'featured', 'sec');
     const source = collectionHandle
       ? `collections['${collectionHandle}']`
-      : 'collection';
+      : options?.isIndex === true
+        ? `collections[settings.${secPrefix}_collection]`
+        : 'collection';
     const productsLoopVar = `${source}.products`;
     const titleBinding = `{{ ${source}.title }}`;
     const descBinding = `{{ ${source}.description }}`;
@@ -137,37 +174,137 @@ export class LiquidBindingEngine {
   }
 
   /**
-   * Binds blog article titles, content ({{ article.content }}), author ({{ article.author }}), and published_at
+   * Binds blog article titles, content ({{ article.content }}), author ({{ article.author }}), and published_at.
+   * On index (options.isIndex) the `article` global is nil: repeated article cards are wrapped in
+   * {% for article in blogs[settings.<sectionId>_blog].articles %}, and a lone article section is sourced
+   * from blogs[settings.<sectionId>_blog].articles.first. Detail-only bindings (article.content, article.author)
+   * are suppressed on index.
    */
-  public bindArticleSection(html: string): string {
+  public bindArticleSection(html: string, options?: SectionBindingOptions): string {
     if (!html || typeof html !== 'string') return '';
+    const isIndex = options?.isIndex === true;
+
+    if (!isIndex) {
+      return this.bindArticleFields(html, { isCard: false, isIndex: false });
+    }
+
+    const secPrefix = sanitizeSettingId(options?.sectionId || 'featured', 'sec');
+    const articlesSource = `blogs[settings.${secPrefix}_blog].articles`;
     let bound = html;
 
-    // 1. Bind Article Title
+    // Detect repeated article cards and wrap them in a blog articles loop.
+    const root = DomTreeParser.parse(bound);
+    const gridCandidates = [
+      ...DomTreeParser.findByClass(root, 'article-grid'),
+      ...DomTreeParser.findByClass(root, 'articles-grid'),
+      ...DomTreeParser.findByClass(root, 'blog-grid'),
+      ...DomTreeParser.findByClass(root, 'blog-posts'),
+      ...DomTreeParser.findByClass(root, 'post-list'),
+      ...DomTreeParser.findByClass(root, 'article-list'),
+      ...DomTreeParser.findByClass(root, 'news-list')
+    ];
+
+    let gridNode: ParsedElementNode | undefined;
+    let cardNodes: ParsedElementNode[] = [];
+
+    if (gridCandidates.length > 0) {
+      gridNode = gridCandidates[0];
+      cardNodes = this.extractCardNodesFromContainer(gridNode, ARTICLE_CARD_CLASS_REGEX);
+    }
+
+    // Fallback: scan root for repeated card items
+    if (cardNodes.length === 0) {
+      cardNodes = this.extractCardNodesFromContainer(root, ARTICLE_CARD_CLASS_REGEX);
+    }
+
+    if (cardNodes.length > 0) {
+      const firstCardOuterHtml = cardNodes[0].outerHtml;
+      const boundFirstCard = this.bindArticleFields(firstCardOuterHtml, { isCard: true, isIndex: true });
+
+      const loopTemplate = `\n{% for article in ${articlesSource} %}\n  ${boundFirstCard.trim()}\n{% else %}\n  <p class="empty-blog">Chưa có bài viết nào.</p>\n{% endfor %}\n`;
+
+      if (gridNode) {
+        // Replace inner content of grid container with the for-loop
+        const gridOuter = gridNode.outerHtml;
+        const gridOpenTagMatch = gridOuter.match(/^<[a-zA-Z0-9_-]+[^>]*>/);
+        const gridCloseTagMatch = gridOuter.match(/<\/[a-zA-Z0-9_-]+>$/);
+
+        if (gridOpenTagMatch && gridCloseTagMatch) {
+          const newGrid = `${gridOpenTagMatch[0]}${loopTemplate}${gridCloseTagMatch[0]}`;
+          bound = bound.replace(gridOuter, newGrid);
+        } else {
+          bound = bound.replace(gridOuter, loopTemplate);
+        }
+      } else {
+        // Replace the card sequence with the for-loop
+        const firstCardPos = bound.indexOf(cardNodes[0].outerHtml);
+        const lastCard = cardNodes[cardNodes.length - 1];
+        const lastCardPos = bound.indexOf(lastCard.outerHtml);
+
+        if (firstCardPos !== -1 && lastCardPos !== -1) {
+          const replaceStart = firstCardPos;
+          const replaceEnd = lastCardPos + lastCard.outerHtml.length;
+          bound = bound.slice(0, replaceStart) + loopTemplate + bound.slice(replaceEnd);
+        } else {
+          bound = bound.replace(firstCardOuterHtml, loopTemplate);
+        }
+      }
+
+      return bound;
+    }
+
+    // No repeated cards: treat the whole section as a single featured article
+    // sourced from the section's blog setting.
+    bound = `{% assign article = ${articlesSource}.first %}\n${bound}`;
+    return this.bindArticleFields(bound, { isCard: false, isIndex: true });
+  }
+
+  /**
+   * Shared article field binding. isCard suppresses the h1 title fallback (cards must not
+   * hijack a section heading); isIndex suppresses detail-only bindings (article.content
+   * becomes article.excerpt, article.author is left untouched).
+   */
+  private bindArticleFields(html: string, opts: { isCard: boolean; isIndex: boolean }): string {
+    let bound = html;
+
+    // 1. Bind Article Title (wider tag set on index/cards where titles are h4-h6/div/span/a)
     let titleBound = false;
+    const titleTags = opts.isIndex || opts.isCard ? 'h1|h2|h3|h4|h5|h6|div|span|p|a' : 'h1|h2|h3';
     bound = bound.replace(
-      /(<(?:h1|h2|h3)\b[^>]*class=["'][^"']*(?:article-title|post-title|entry-title|blog-title|article__title)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:h1|h2|h3)>)/gi,
-      (_match, open, _inner, close) => {
+      new RegExp(
+        `(<(?:${titleTags})\\b[^>]*class=["'][^"']*(?:article-title|post-title|entry-title|blog-title|article__title)[^"']*["'][^>]*>)([\\s\\S]*?)(<\\/(?:${titleTags})>)`,
+        'gi'
+      ),
+      (_match, open, inner, close) => {
         titleBound = true;
+        // On index/cards, preserve an inner anchor so step 7 can bind its href to article.url
+        if ((opts.isIndex || opts.isCard) && /<a\b[^>]*>/i.test(inner)) {
+          const updatedInner = inner.replace(
+            /(<a\b[^>]*>)([\s\S]*?)(<\/a>)/i,
+            `$1{{ article.title }}$3`
+          );
+          return `${open}${updatedInner}${close}`;
+        }
         return `${open}{{ article.title }}${close}`;
       }
     );
 
-    if (!titleBound) {
-      // Fallback to first h1
+    if (!titleBound && !opts.isCard) {
+      // Fallback to first h1 (detail and single featured article only, never inside cards)
       bound = bound.replace(
         /(<h1\b[^>]*>)([\s\S]*?)(<\/h1>)/i,
         (_match, open, _inner, close) => `${open}{{ article.title }}${close}`
       );
     }
 
-    // 2. Bind Article Content
+    // 2. Bind Article Content (detail only; on index/cards the excerpt is the listing-safe field)
+    const contentBinding = opts.isIndex || opts.isCard ? '{{ article.excerpt }}' : '{{ article.content }}';
     let contentBound = false;
     bound = bound.replace(
       /(<(?:div|section|article)\b[^>]*class=["'][^"']*(?:article-content|post-content|entry-content|article-body|post-body|article__content|blog-content)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:div|section|article)>)/gi,
       (_match, open, _inner, close) => {
         contentBound = true;
-        return `${open}{{ article.content }}${close}`;
+        return `${open}${contentBinding}${close}`;
       }
     );
 
@@ -175,26 +312,28 @@ export class LiquidBindingEngine {
       // Look for id="article-content"
       bound = bound.replace(
         /(<(?:div|section|article)\b[^>]*id=["'][^"']*(?:article-content|article-body)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:div|section|article)>)/gi,
-        (_match, open, _inner, close) => `${open}{{ article.content }}${close}`
+        (_match, open, _inner, close) => `${open}${contentBinding}${close}`
       );
     }
 
-    // 3. Bind Article Author
-    bound = bound.replace(
-      /(<(?:span|div|a|p)\b[^>]*class=["'][^"']*(?:author|article-author|post-author|article__author|by-author)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:span|div|a|p)>)/gi,
-      (match, open, inner, close) => {
-        if (/tác giả|by|author/i.test(inner)) {
-          return `${open}${inner.replace(/(?:tác giả|by|author)\s*:\s*[^<]+/i, 'Tác giả: {{ article.author }}')}${close}`;
+    // 3. Bind Article Author (detail pages only; suppressed on index/cards)
+    if (!opts.isIndex && !opts.isCard) {
+      bound = bound.replace(
+        /(<(?:span|div|a|p)\b[^>]*class=["'][^"']*(?:author|article-author|post-author|article__author|by-author)[^"']*["'][^>]*>)([\s\S]*?)(<\/(?:span|div|a|p)>)/gi,
+        (match, open, inner, close) => {
+          if (/tác giả|by|author/i.test(inner)) {
+            return `${open}${inner.replace(/(?:tác giả|by|author)\s*:\s*[^<]+/i, 'Tác giả: {{ article.author }}')}${close}`;
+          }
+          return `${open}{{ article.author }}${close}`;
         }
-        return `${open}{{ article.author }}${close}`;
-      }
-    );
+      );
 
-    // Also match rel="author"
-    bound = bound.replace(
-      /(<[a-zA-Z0-9_-]+\b[^>]*\brel=["']author["'][^>]*>)([\s\S]*?)(<\/[a-zA-Z0-9_-]+>)/gi,
-      (_match, open, _inner, close) => `${open}{{ article.author }}${close}`
-    );
+      // Also match rel="author"
+      bound = bound.replace(
+        /(<[a-zA-Z0-9_-]+\b[^>]*\brel=["']author["'][^>]*>)([\s\S]*?)(<\/[a-zA-Z0-9_-]+>)/gi,
+        (_match, open, _inner, close) => `${open}{{ article.author }}${close}`
+      );
+    }
 
     // 4. Bind Published Date
     // First check for <time> element
@@ -220,7 +359,7 @@ export class LiquidBindingEngine {
       /<img\b([^>]*class=["'][^"']*(?:article-image|featured-image|article-featured-image|post-image|article__image)[^"']*["'][^>]*)>/gi,
       (match) => {
         let tag = match;
-        tag = tag.replace(/\s(src|data-src)=["'][^"']*["']/gi, ` $1="{{ article.image | img_url: 'master' }}"`);
+        tag = tag.replace(/\s(src|data-src)=["'][^"']*["']/gi, ` $1="{{ article.image | img_url: 'grande' }}"`);
         tag = tag.replace(/\salt=["'][^"']*["']/gi, ` alt="{{ article.title | escape }}"`);
         return tag;
       }
@@ -232,6 +371,36 @@ export class LiquidBindingEngine {
       (_match, open, _inner, close) => `${open}{{ article.excerpt }}${close}`
     );
 
+    // 7. Bind Article Links (index/cards only: detail pages must not self-link)
+    if (opts.isIndex || opts.isCard) {
+      bound = bound.replace(
+        /<a\b([^>]*)>([\s\S]*?)<\/a>/gi,
+        (match, attrs, inner) => {
+          const isArticleLink =
+            /href=["'][^"']*\/(?:blogs?|news|article|tin-tuc|bai-viet)\//i.test(attrs) ||
+            /class=["'][^"']*(?:article-link|post-link|read-more|btn-readmore|article__link|blog-link)[^"']*["']/i.test(attrs) ||
+            (opts.isCard &&
+              !/(?:social|share|author|comment|tag)/i.test(attrs) &&
+              (/<img\b/i.test(inner) ||
+                /class=["'][^"']*(?:article-title|post-title|entry-title|blog-title|article__title)[^"']*["']/i.test(inner)));
+
+          if (!isArticleLink) return match;
+
+          let newAttrs = attrs;
+          if (/\shref=["'][^"']*["']/i.test(newAttrs)) {
+            newAttrs = newAttrs.replace(
+              /(\shref=)["'][^"']*["']/i,
+              `$1"{{ article.url }}"`
+            );
+          } else {
+            newAttrs = ` href="{{ article.url }}"${newAttrs}`;
+          }
+
+          return `<a${newAttrs}>${inner}</a>`;
+        }
+      );
+    }
+
     return bound;
   }
 
@@ -242,37 +411,35 @@ export class LiquidBindingEngine {
     if (!liquidText || typeof liquidText !== 'string') return '';
     let sanitized = liquidText;
 
+    // All rewrites below are scoped to Liquid tag regions ({{...}} / {%...%}) so inline
+    // <script>/<style> bodies and raw text are never corrupted (e.g. JS `x.size > 0`
+    // must not become `x != blank`).
+    const rewriteTags = (fn: (tag: string) => string) => {
+      sanitized = sanitized.replace(LIQUID_TAG_REGION_REGEX, (tag) => fn(tag));
+    };
+
     // 1. DotLiquid Quirk: String Slicing (HS20)
     // | slice: 0, N or | slice: 0 on string dumps LINQ enumerators in .NET DotLiquid
-    sanitized = sanitized.replace(
-      /\|\s*slice:\s*0\s*,\s*(\d+)/gi,
-      `| truncate: $1, ''`
-    );
-    sanitized = sanitized.replace(
-      /\|\s*slice:\s*0\b/gi,
-      `| truncate: 1, ''`
+    rewriteTags((tag) =>
+      tag
+        .replace(/\|\s*slice:\s*0\s*,\s*(\d+)/gi, `| truncate: $1, ''`)
+        .replace(/\|\s*slice:\s*0\b/gi, `| truncate: 1, ''`)
     );
 
     // 2. DotLiquid Quirk: Type Mismatch with 'empty' Keyword
     // DotLiquid .NET throws type mismatch when comparing Drops or IDs with empty
-    sanitized = sanitized.replace(
-      /(!=\s*empty\b)/g,
-      '!= blank'
-    );
-    sanitized = sanitized.replace(
-      /(==\s*empty\b)/g,
-      '== blank'
+    rewriteTags((tag) =>
+      tag
+        .replace(/(!=\s*empty\b)/g, '!= blank')
+        .replace(/(==\s*empty\b)/g, '== blank')
     );
 
     // 3. DotLiquid Quirk: Metafield and Drop .size Checks
     // Drops often do not expose .size > 0 in DotLiquid; replace with != blank
-    sanitized = sanitized.replace(
-      /\b([a-zA-Z0-9_.]+)\.size\s*>\s*0\b/g,
-      '$1 != blank'
-    );
-    sanitized = sanitized.replace(
-      /\b([a-zA-Z0-9_.]+)\.size\s*==\s*0\b/g,
-      '$1 == blank'
+    rewriteTags((tag) =>
+      tag
+        .replace(/\b([a-zA-Z0-9_.]+)\.size\s*>\s*0\b/g, '$1 != blank')
+        .replace(/\b([a-zA-Z0-9_.]+)\.size\s*==\s*0\b/g, '$1 == blank')
     );
 
     // 4. DotLiquid Quirk: Unsupported Ruby Method Invocations
@@ -290,7 +457,7 @@ export class LiquidBindingEngine {
 
     // Ruby type casting methods inside single tag boundaries ({{...}} or {%...%})
     sanitized = sanitized.replace(
-      /(\{\{(?:(?!}}).)*?\}\}|\{%(?:(?!%}).)*?%\})/gs,
+      LIQUID_TAG_REGION_REGEX,
       (tag) => {
         let cleaned = tag;
         if (/^\{%\s*(?:if|unless|elsif)\b/i.test(tag)) {
@@ -324,28 +491,33 @@ export class LiquidBindingEngine {
 
     // 6. DotLiquid Quirk: Ruby Symbols and Unquoted Arguments
     // Convert [:key] -> ['key']
-    sanitized = sanitized.replace(
-      /\[:([a-zA-Z0-9_]+)\]/g,
-      "['$1']"
+    rewriteTags((tag) => tag.replace(/\[:([a-zA-Z0-9_]+)\]/g, "['$1']"));
+
+    // 'master' is an unbounded image size on Haravan; normalize to the bounded 'grande' preset
+    rewriteTags((tag) =>
+      tag.replace(/\|\s*img_url:\s*['"]?master['"]?/gi, "| img_url: 'grande'")
     );
 
     // Ensure standard image size filters are quoted strings (DotLiquid treats unquoted as nil variable lookup)
-    sanitized = sanitized.replace(
-      /\|\s*img_url:\s*(master|pico|icon|thumb|small|compact|medium|large|grande|original|1024x1024|2048x2048)(?!\w|['"])/gi,
-      "| img_url: '$1'"
+    rewriteTags((tag) =>
+      tag.replace(
+        /\|\s*img_url:\s*(pico|icon|thumb|small|compact|medium|large|grande|original|1024x1024|2048x2048)(?!\w|['"])/gi,
+        "| img_url: '$1'"
+      )
     );
 
     // Ensure date filter formats starting with % are quoted
-    sanitized = sanitized.replace(
-      /\|\s*date:\s*(%[a-zA-Z0-9_\/%-]+)(?!\w|['"])/gi,
-      "| date: '$1'"
+    rewriteTags((tag) =>
+      tag.replace(/\|\s*date:\s*(%[a-zA-Z0-9_\/%-]+)(?!\w|['"])/gi, "| date: '$1'")
     );
 
     // 7. DotLiquid Quirk: Article image absolute URL filter protection (HS21)
-    // Replace raw article.image.src | img_url with safe article.image | img_url: 'master'
-    sanitized = sanitized.replace(
-      /article\.image\.src\s*\|\s*img_url(?::\s*['"]?([^'"}]+)['"]?)?/gi,
-      (_match, size) => `article.image | img_url: '${size || 'master'}'`
+    // Replace raw article.image.src | img_url with safe article.image | img_url: 'grande'
+    rewriteTags((tag) =>
+      tag.replace(
+        /article\.image\.src\s*\|\s*img_url(?::\s*['"]?([^'"}]+)['"]?)?/gi,
+        (_match, size) => `article.image | img_url: '${!size || size === 'master' ? 'grande' : size}'`
+      )
     );
 
     return sanitized;
@@ -363,24 +535,23 @@ export class LiquidBindingEngine {
         !/(?:logo|banner|icon|payment|avatar|flag)/i.test(attrs);
 
       if (!isProductImg) return match;
-
       let newAttrs = attrs;
 
-      // Replace or add src
+      // Replace or add src (bounded 'grande' preset; 'master' is unbounded on Haravan)
       if (/\ssrc=["'][^"']*["']/i.test(newAttrs)) {
         newAttrs = newAttrs.replace(
           /(\ssrc=)["'][^"']*["']/i,
-          `$1"{{ product.featured_image | img_url: 'master' }}"`
+          `$1"{{ product.featured_image | img_url: 'grande' }}"`
         );
       } else {
-        newAttrs = ` src="{{ product.featured_image | img_url: 'master' }}"${newAttrs}`;
+        newAttrs = ` src="{{ product.featured_image | img_url: 'grande' }}"${newAttrs}`;
       }
 
       // Replace data-src if present
       if (/\sdata-src=["'][^"']*["']/i.test(newAttrs)) {
         newAttrs = newAttrs.replace(
           /(\sdata-src=)["'][^"']*["']/i,
-          `$1"{{ product.featured_image | img_url: 'master' }}"`
+          `$1"{{ product.featured_image | img_url: 'grande' }}"`
         );
       }
 
@@ -394,11 +565,11 @@ export class LiquidBindingEngine {
         newAttrs += ` alt="{{ product.title | escape }}"`;
       }
 
-      // Clean or harmonize srcset
+      // Keep srcset responsive: emit a 1x/2x pair instead of collapsing to a single URL
       if (/\ssrcset=["'][^"']*["']/i.test(newAttrs)) {
         newAttrs = newAttrs.replace(
           /(\ssrcset=)["'][^"']*["']/i,
-          `$1"{{ product.featured_image | img_url: 'master' }}"`
+          `$1"{{ product.featured_image | img_url: 'grande' }} 1x, {{ product.featured_image | img_url: '1024x1024' }} 2x"`
         );
       }
 
@@ -407,11 +578,18 @@ export class LiquidBindingEngine {
   }
 
   private bindProductLinks(html: string, isCard: boolean): string {
-    return html.replace(/<a\b([^>]*)>/gi, (match, attrs) => {
+    return html.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (match, attrs, inner) => {
+      // Utility/action links are never product links, even inside cards
+      if (/(?:cart|wishlist|quickview|compare|social)/i.test(attrs)) return match;
+
+      // Positive product-link signals only: a product href, a product-link class,
+      // or (inside a card) an anchor wrapping the product image or title.
       const isProductLink =
-        /(?:products?|san-pham|item|prod|p)\//i.test(attrs) ||
+        /href=["'][^"']*\/(?:products?|san-pham)\//i.test(attrs) ||
         /(?:product-link|item-link|pro-link|title-link|thumb-link)/i.test(attrs) ||
-        (isCard && !/(?:cart|wishlist|quickview|compare|social)/i.test(attrs));
+        (isCard &&
+          (/<img\b/i.test(inner) ||
+            /class=["'][^"']*(?:product-title|product-name|product__title|pro-title|pro-name|item-title|card-title)[^"']*["']/i.test(inner)));
 
       if (!isProductLink) return match;
 
@@ -425,7 +603,7 @@ export class LiquidBindingEngine {
         newAttrs = ` href="{{ product.url }}"${newAttrs}`;
       }
 
-      return `<a${newAttrs}>`;
+      return `<a${newAttrs}>${inner}</a>`;
     });
   }
 
@@ -531,7 +709,7 @@ export class LiquidBindingEngine {
     return bound;
   }
 
-  private bindProductForm(html: string, isCard: boolean): string {
+  private bindProductForm(html: string, isCard: boolean, isIndex: boolean = false): string {
     let bound = html;
 
     const variantSelectorMarkup = `
@@ -575,6 +753,13 @@ export class LiquidBindingEngine {
       }
 
       purchaseFormFound = true;
+
+      // On index there is no product detail context: keep the static form markup
+      // untouched rather than emitting a {% form %} bound to a nil product.
+      if (isIndex) {
+        return match;
+      }
+
       let transformedInner = inner;
 
       if (!isCard) {
@@ -601,7 +786,9 @@ export class LiquidBindingEngine {
         }
       }
 
-      return `{% form 'product', product %}\n${transformedInner}\n{% endform %}`;
+      // Forward the original <form> attributes (class, id, and other safe attrs) into
+      // the form tag so styling/JS hooks survive the Liquid conversion.
+      return `{% form 'product', product${this.buildFormTagParams(attrs)} %}\n${transformedInner}\n{% endform %}`;
     });
 
     if (purchaseFormFound) {
@@ -612,7 +799,7 @@ export class LiquidBindingEngine {
     // For product detail, find purchase action or add-to-cart button and wrap in {% form 'product', product %}
     const btnRegex = /(<button\b[^>]*class=["'][^"']*(?:btn-add-to-cart|add-to-cart|buy-now|btn-buy|btn-cart)[^"']*["'][^>]*>[\s\S]*?<\/button>)/i;
 
-    if (btnRegex.test(bound)) {
+    if (!isIndex && btnRegex.test(bound)) {
       if (!isCard) {
         bound = bound.replace(btnRegex, (buttonMarkup) => {
           return `{% form 'product', product %}\n  ${variantSelectorMarkup}\n  ${buttonMarkup}\n{% endform %}`;
@@ -627,13 +814,51 @@ export class LiquidBindingEngine {
     return bound;
   }
 
-  private extractCardNodesFromContainer(container: ParsedElementNode): ParsedElementNode[] {
+  /**
+   * Builds `, key: 'value'` form-tag params from the original <form> attributes.
+   * Only attributes that are valid Liquid named arguments are forwarded: identifier
+   * names (drops data-* and on* handlers), non-form-behavior keys, and quote-safe values.
+   */
+  private buildFormTagParams(attrs: string): string {
+    const FORM_CONTROL_ATTRS: Record<string, true> = {
+      action: true,
+      method: true,
+      enctype: true,
+      target: true,
+      novalidate: true,
+      autocomplete: true,
+      rel: true
+    };
+    let params = '';
+    const attrRegex = /([a-zA-Z_][a-zA-Z0-9_-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+    let m: RegExpExecArray | null;
+
+    while ((m = attrRegex.exec(attrs)) !== null) {
+      const name = m[1].toLowerCase();
+      const value = m[2] ?? m[3] ?? '';
+
+      // Liquid named args must be plain identifiers; this also drops data-*/aria-* and on* handlers
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(m[1])) continue;
+      if (name.startsWith('on')) continue;
+      if (FORM_CONTROL_ATTRS[name]) continue;
+      // Skip values that would break the tag or inject Liquid
+      if (/'|\{\{|\{%|\n|\r/.test(value)) continue;
+
+      params += `, ${name}: '${value}'`;
+    }
+
+    return params;
+  }
+
+  private extractCardNodesFromContainer(
+    container: ParsedElementNode,
+    cardClassRegex: RegExp = PRODUCT_CARD_CLASS_REGEX
+  ): ParsedElementNode[] {
     const cardNodes: ParsedElementNode[] = [];
-    const CARD_CLASS_REGEX = /(?:product-card|product-item|col-product|product-col|grid__item|card-product|pro-item|item-product)\b/i;
 
     const walk = (node: ParsedElementNode) => {
       const cls = node.attributes['class'] || '';
-      if (CARD_CLASS_REGEX.test(cls)) {
+      if (cardClassRegex.test(cls)) {
         cardNodes.push(node);
         return; // do not recurse into nested cards
       }

@@ -151,18 +151,54 @@ export function isAlreadyMediaWrapped(css: string): boolean {
   return depth === 0 && firstBraceFound;
 }
 
+/**
+ * A pre-built index of one search directory: basename -> absolute file path.
+ * Built once per compile so resolveRealAsset does not re-stat/re-read the
+ * directory for every referenced asset (was O(refs × dirs × entries) sync I/O).
+ */
+export interface AssetDirIndex {
+  /** basename (lowercased) -> absolute path */
+  byName: Map<string, string>;
+  /** all file entries in the dir, for stem matching */
+  entries: string[];
+}
+
+export function buildAssetDirIndex(dir: string): AssetDirIndex {
+  const byName = new Map<string, string>();
+  const entries: string[] = [];
+  try {
+    for (const entry of fs.readdirSync(dir)) {
+      const full = path.join(dir, entry);
+      try {
+        if (fs.statSync(full).isFile()) {
+          entries.push(entry);
+          byName.set(entry.toLowerCase(), full);
+        }
+      } catch {}
+    }
+  } catch {}
+  return { byName, entries };
+}
+
 export function resolveRealAsset(
   refName: string,
   searchDirs: string[],
   cloneAssetMap: Record<string, string>,
-  irAssets: Array<{ filename?: string; originalFilename?: string; sourceUrl?: string; localPath?: string }>
+  irAssets: Array<{ filename?: string; originalFilename?: string; sourceUrl?: string; localPath?: string }>,
+  dirIndexes?: Map<string, AssetDirIndex>
 ): ResolvedAsset | null {
   const cleanRef = path.basename(refName.split(/[?#]/)[0]);
   if (!cleanRef || isJunkOrThirdPartyAsset(cleanRef)) return null;
   const canonicalRef = resolveCanonicalAssetFilename(cleanRef);
 
-  // 1. Direct exact match in searchDirs
+  // 1. Direct exact match in searchDirs (indexed when dirIndexes provided)
   for (const dir of searchDirs) {
+    const idx = dirIndexes?.get(dir);
+    if (idx) {
+      const hit = idx.byName.get(cleanRef.toLowerCase()) ?? (canonicalRef !== cleanRef ? idx.byName.get(canonicalRef.toLowerCase()) : undefined);
+      if (hit) return { sourcePath: hit, resolvedFilename: canonicalRef };
+      continue;
+    }
     if (!fs.existsSync(dir)) continue;
     const directPath = path.join(dir, cleanRef);
     if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
@@ -204,6 +240,12 @@ export function resolveRealAsset(
   for (const cand of manifestCandidates) {
     const candClean = path.basename(cand.split(/[?#]/)[0]);
     for (const dir of searchDirs) {
+      const idx = dirIndexes?.get(dir);
+      if (idx) {
+        const hit = idx.byName.get(candClean.toLowerCase());
+        if (hit) return { sourcePath: hit, resolvedFilename: candClean };
+        continue;
+      }
       if (!fs.existsSync(dir)) continue;
       const p = path.join(dir, candClean);
       if (fs.existsSync(p) && fs.statSync(p).isFile()) {
@@ -220,9 +262,9 @@ export function resolveRealAsset(
 
   const foundCandidates: string[] = [];
   for (const dir of searchDirs) {
-    if (!fs.existsSync(dir)) continue;
+    const idx = dirIndexes?.get(dir);
+    const entries = idx ? idx.entries : (fs.existsSync(dir) ? fs.readdirSync(dir).sort() : []);
     try {
-      const entries = fs.readdirSync(dir).sort();
       for (const entry of entries) {
         if (isJunkOrThirdPartyAsset(entry)) continue;
         const entryExt = path.extname(entry).toLowerCase();
@@ -260,7 +302,7 @@ export function resolveRealAsset(
 
         if (matchesStem) {
           const fullPath = path.join(dir, entry);
-          if (fs.statSync(fullPath).isFile() && !foundCandidates.includes(fullPath)) {
+          if ((idx ? true : fs.statSync(fullPath).isFile()) && !foundCandidates.includes(fullPath)) {
             foundCandidates.push(fullPath);
           }
         }
@@ -546,6 +588,11 @@ export class ThemeCompiler {
         const p2 = path.resolve(path.dirname(path.dirname(options.inputPath)), 'assets');
         if (fs.existsSync(p2) && !searchDirs.includes(p2)) searchDirs.push(p2);
       }
+
+      // Pre-index each search dir once: resolveRealAsset is called per referenced
+      // asset and would otherwise re-stat/re-read every directory per ref.
+      const assetDirIndexes = new Map<string, AssetDirIndex>();
+      for (const sDir of searchDirs) assetDirIndexes.set(sDir, buildAssetDirIndex(sDir));
 
       let cloneAssetMap: Record<string, string> = {};
       for (const sDir of searchDirs) {
@@ -1078,14 +1125,14 @@ export class ThemeCompiler {
             sectionLiquid
           )
         ) {
-          sectionLiquid = this.liquidBindingEngine.bindArticleSection(sectionLiquid);
+          sectionLiquid = this.liquidBindingEngine.bindArticleSection(sectionLiquid, { isIndex: true, sectionId: sec.id });
         } else if (
           sec.archetype === 'product_grid' ||
           sec.archetype === 'collection_list' ||
           /(?:product-grid|product-list|collection|featured-products)/i.test(sectionContext) ||
           /(?:product-grid|product-list|collection-products)/i.test(sectionLiquid)
         ) {
-          sectionLiquid = this.liquidBindingEngine.bindCollectionSection(sectionLiquid);
+          sectionLiquid = this.liquidBindingEngine.bindCollectionSection(sectionLiquid, undefined, { isIndex: true, sectionId: sec.id });
         } else if (
           /(?:product-detail|product-single|product-info|product-form|single-product)/i.test(
             sectionContext
@@ -1094,7 +1141,7 @@ export class ThemeCompiler {
             sectionLiquid
           )
         ) {
-          sectionLiquid = this.liquidBindingEngine.bindProductSection(sectionLiquid);
+          sectionLiquid = this.liquidBindingEngine.bindProductSection(sectionLiquid, { isIndex: true, sectionId: sec.id });
         }
 
         // Apply DotLiquid sanitization against .NET quirks
@@ -1213,6 +1260,136 @@ export class ThemeCompiler {
       const indexLiquidPath = path.join(stagingDir, 'templates', 'index.liquid');
       fs.writeFileSync(indexLiquidPath, indexLiquidContent, 'utf-8');
       filesWritten.push(indexLiquidPath);
+
+      // 6b. Emit the remaining required Haravan templates. Only index.liquid was
+      // emitted before, so every non-homepage route 404'd. These are functional
+      // templates bound to the real Haravan objects — not stubs.
+      const extraTemplates: Record<string, string> = {
+        'product.liquid': `{% comment %} Product detail {% endcomment %}
+<div class="product-page" data-product-id="{{ product.id }}">
+  <h1 class="product-page__title">{{ product.title }}</h1>
+  <div class="product-page__price">
+    <span class="price">{{ product.price | money }}</span>
+    {% if product.compare_at_price > product.price %}
+      <s class="compare-price">{{ product.compare_at_price | money }}</s>
+    {% endif %}
+  </div>
+  {% if product.featured_image %}
+    <img class="product-page__image" src="{{ product.featured_image | img_url: 'grande' }}" alt="{{ product.title | escape }}">
+  {% endif %}
+  <div class="product-page__description">{{ product.description }}</div>
+  {% form 'product', product %}
+    {% if product.variants.size > 1 %}
+      <select name="variantId">
+        {% for variant in product.variants %}
+          <option value="{{ variant.id }}" {% unless variant.available %}disabled{% endunless %}>{{ variant.title }} - {{ variant.price | money }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <input type="hidden" name="variantId" value="{{ product.variants.first.id }}">
+    {% endif %}
+    <input type="number" name="quantity" value="1" min="1">
+    <button type="submit" {% unless product.available %}disabled{% endunless %}>{% if product.available %}Thêm vào giỏ{% else %}Hết hàng{% endif %}</button>
+  {% endform %}
+</div>
+`,
+        'collection.liquid': `{% comment %} Collection listing {% endcomment %}
+<div class="collection-page">
+  <h1 class="collection-page__title">{{ collection.title }}</h1>
+  {% if collection.description != blank %}<div class="collection-page__description">{{ collection.description }}</div>{% endif %}
+  {% paginate collection.products by 24 %}
+    <div class="collection-page__grid">
+      {% for product in collection.products %}
+        {% include 'product-card' %}
+      {% else %}
+        <p class="collection-page__empty">Chưa có sản phẩm nào.</p>
+      {% endfor %}
+    </div>
+    {% if paginate.pages > 1 %}<nav class="pagination">{{ paginate | default_pagination }}</nav>{% endif %}
+  {% endpaginate %}
+</div>
+`,
+        'blog.liquid': `{% comment %} Blog listing {% endcomment %}
+<div class="blog-page">
+  <h1 class="blog-page__title">{{ blog.title }}</h1>
+  {% paginate blog.articles by 12 %}
+    <div class="blog-page__grid">
+      {% for article in blog.articles %}
+        <article class="article-card">
+          {% if article.image %}<img src="{{ article.image | img_url: 'grande' }}" alt="{{ article.title | escape }}">{% endif %}
+          <h2><a href="{{ article.url }}">{{ article.title }}</a></h2>
+          <p>{{ article.excerpt_or_content | strip_html | truncate: 160 }}</p>
+        </article>
+      {% else %}
+        <p>Chưa có bài viết nào.</p>
+      {% endfor %}
+    </div>
+    {% if paginate.pages > 1 %}<nav class="pagination">{{ paginate | default_pagination }}</nav>{% endif %}
+  {% endpaginate %}
+</div>
+`,
+        'article.liquid': `{% comment %} Article detail {% endcomment %}
+<article class="article-page">
+  <h1 class="article-page__title">{{ article.title }}</h1>
+  <p class="article-page__meta">{{ article.published_at | date: '%d/%m/%Y' }}{% if article.author %} · {{ article.author }}{% endif %}</p>
+  {% if article.image %}<img class="article-page__image" src="{{ article.image | img_url: '1024x1024' }}" alt="{{ article.title | escape }}">{% endif %}
+  <div class="article-page__content">{{ article.content }}</div>
+</article>
+`,
+        'cart.liquid': `{% comment %} Cart {% endcomment %}
+<div class="cart-page">
+  <h1>Giỏ hàng</h1>
+  {% if cart.item_count > 0 %}
+    <form action="/cart" method="post">
+      {% for item in cart.items %}
+        <div class="cart-item" data-variant-id="{{ item.variant_id }}">
+          <a href="{{ item.url }}">{{ item.title }}</a>
+          <span>{{ item.price | money }} × {{ item.quantity }}</span>
+          <input type="number" name="updates[{{ item.variant_id }}]" value="{{ item.quantity }}" min="0">
+        </div>
+      {% endfor %}
+      <div class="cart-page__total">Tổng: {{ cart.total_price | money }}</div>
+      <button type="submit" name="update">Cập nhật</button>
+      <button type="submit" name="checkout">Thanh toán</button>
+    </form>
+  {% else %}
+    <p>Giỏ hàng trống.</p>
+  {% endif %}
+</div>
+`,
+        'search.liquid': `{% comment %} Search results {% endcomment %}
+<div class="search-page">
+  <h1>Kết quả tìm kiếm{% if search.terms %} cho "{{ search.terms }}"{% endif %}</h1>
+  {% paginate search.results by 24 %}
+    <div class="search-page__grid">
+      {% for item in search.results %}
+        <div class="search-result"><a href="{{ item.url }}">{{ item.title }}</a></div>
+      {% else %}
+        <p>Không tìm thấy kết quả.</p>
+      {% endfor %}
+    </div>
+    {% if paginate.pages > 1 %}<nav class="pagination">{{ paginate | default_pagination }}</nav>{% endif %}
+  {% endpaginate %}
+</div>
+`,
+        'page.liquid': `{% comment %} Static page {% endcomment %}
+<div class="page">
+  <h1>{{ page.title }}</h1>
+  <div class="page__content">{{ page.content }}</div>
+</div>
+`,
+        '404.liquid': `{% comment %} Not found {% endcomment %}
+<div class="page-404">
+  <h1>404 — Không tìm thấy trang</h1>
+  <p><a href="/">Về trang chủ</a></p>
+</div>
+`,
+      };
+      for (const [name, content] of Object.entries(extraTemplates)) {
+        const p = path.join(stagingDir, 'templates', name);
+        fs.writeFileSync(p, content, 'utf-8');
+        filesWritten.push(p);
+      }
 
       // 7. Generate standard modular snippets. Snippets already emitted from the
       // source IR (cloned header/footer chrome) are excluded: the generic stub
@@ -1749,42 +1926,32 @@ body[data-device="mobile"] .site-footer__mobile {
   box-sizing: border-box;
 }
 
-/* News Slider Cards Height & Aspect Ratio */
-.news-content #slide-1.swiper {
-  width: 100%;
-  overflow: hidden;
-  position: relative;
-}
-.news-content #slide-1 .article-item {
+/* Generic slider card layout — applies to any .swiper/.s-content structure the
+   clone engine emits, not one site's class names. */
+.swiper .swiper-wrapper > .swiper-slide,
+.s-wrap .s-content > .swiper-slide,
+.s-wrap .s-content > .item {
   height: auto;
   display: flex;
   flex-direction: column;
 }
-.news-content #slide-1 .thumbnail-item {
+.swiper .swiper-wrapper .thumbnail-item,
+.s-wrap .s-content .thumbnail-item {
   width: 100%;
-  height: 190px;
   overflow: hidden;
-  border-radius: 6px;
-  background: #f0f2f5;
 }
-.news-content #slide-1 .thumbnail-item img {
+.swiper .swiper-wrapper .thumbnail-item img,
+.s-wrap .s-content .thumbnail-item img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform .3s;
-}
-.news-content #slide-1 .article-item:hover .thumbnail-item img {
-  transform: scale(1.05);
 }
 
-/* Navigation buttons for News and sliders */
-.news-content__block {
+/* Generic slider nav buttons (any .nav-prev/.nav-next inside a slider block) */
+.s-wrap, .swiper, [class*="slider"], [class*="carousel"] {
   position: relative;
 }
-.news-content__block .nav-prev,
-.news-content__block .nav-next,
-#slide-1 .nav-prev,
-#slide-1 .nav-next {
+.nav-prev, .nav-next {
   position: absolute;
   top: 40%;
   transform: translateY(-50%);
@@ -1799,58 +1966,23 @@ body[data-device="mobile"] .site-footer__mobile {
   cursor: pointer;
   z-index: 20;
   transition: all .25s;
-  color: #134374;
 }
-.news-content__block .nav-prev:hover,
-.news-content__block .nav-next:hover,
-#slide-1 .nav-prev:hover,
-#slide-1 .nav-next:hover {
-  background: #134374;
-  color: #fff;
-}
-.news-content__block .nav-prev,
-#slide-1 .nav-prev {
-  left: -20px;
-}
-.news-content__block .nav-next,
-#slide-1 .nav-next {
-  right: -20px;
-}
-.news-content__block .swiper-button-disabled,
-#slide-1 .swiper-button-disabled {
+.nav-prev { left: -20px; }
+.nav-next { right: -20px; }
+.swiper-button-disabled, .nav-prev.disabled, .nav-next.disabled {
   opacity: 0 !important;
   pointer-events: none !important;
   cursor: default;
 }
 
-/* Form file upload tooltip popup (.info-more__button -> .detail) */
-.form-block__content .form-row.row-file {
-  position: relative;
-}
-.form-block__content .form-row.row-file .info-more__button {
-  cursor: pointer;
-}
-.form-block__content .form-row.row-file .detail {
-  z-index: 1002 !important;
-  max-height: 85vh !important;
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch !important;
-}
-.form-block__content .form-row.row-file .detail.active {
-  display: block !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
-}
-
 ${responsiveUtilitiesCss}
 
-/* Mobile Touch Carousel & Zero Horizontal Overflow Rules */
+/* Mobile Touch Carousel & Zero Horizontal Overflow Rules — generic, not site-specific */
 @media (max-width: ${effectiveMobileMax}px) {
-  .home-form { display: none !important; }
-  .block-category__item.flex { flex-direction: column !important; }
-  .block-category__left { width: 100% !important; margin-bottom: 15px !important; }
-  .product-list.flex {
+  [class*="product-list"], [class*="product-grid"], [class*="category"] {
+    max-width: 100vw !important;
+  }
+  [class*="product-list"].flex, [class*="product-grid"].flex {
     display: flex !important;
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
@@ -1859,14 +1991,10 @@ ${responsiveUtilitiesCss}
     gap: 12px !important;
     padding-bottom: 15px !important;
   }
-  .product-list.flex .product-list__item {
+  [class*="product-list"].flex > *, [class*="product-grid"].flex > * {
     flex: 0 0 240px !important;
     max-width: 240px !important;
     scroll-snap-align: start !important;
-  }
-  .suggest, .search-popular, .category-navigation {
-    max-width: 100vw !important;
-    overflow-x: hidden !important;
   }
   body, html {
     overflow-x: hidden !important;
@@ -1918,14 +2046,9 @@ ${responsiveUtilitiesCss}
           const cleanCss = rawCss.replace(/^\s*@charset\s+["'][^"']+["'];\s*/i, '');
           return `@charset "UTF-8";\n${mobileMediaQuery} {\n${cleanCss}\n}`;
         };
-        const wrapMobileJsIfNeeded = (rawJs: string, filename: string): string => {
-          const lower = filename.toLowerCase();
-          if (lower === 'home.js' || (lower.endsWith('.js') && rawJs.includes('.slick(') && rawJs.includes('breakpoint:768'))) {
-            if (rawJs.includes('window.innerWidth <= 768') || rawJs.includes('window.innerWidth < 768')) return rawJs;
-            return `/* AntiFan Mobile-Gated Carousel Runtime */\nif (typeof window !== 'undefined' && window.innerWidth <= 768) {\n${rawJs}\n}`;
-          }
-          return rawJs;
-        };
+        // Mobile JS is copied verbatim — wrapping a specific site's carousel init in
+        // an innerWidth gate was a one-site workaround that breaks other sources.
+        const wrapMobileJsIfNeeded = (rawJs: string, _filename: string): string => rawJs;
 
         // 1. Copy all real files from searchDirs into stagingDir/assets
         for (const sDir of searchDirs) {
@@ -2114,7 +2237,7 @@ ${responsiveUtilitiesCss}
             continue;
           }
 
-          const resolved = resolveRealAsset(ref, searchDirs, cloneAssetMap, allIrAssets);
+          const resolved = resolveRealAsset(ref, searchDirs, cloneAssetMap, allIrAssets, assetDirIndexes);
           if (resolved) {
             if (/\.(?:css|m?js)$/i.test(ref)) this.assertCodeOwnership(fs.readFileSync(resolved.sourcePath, 'utf8'), resolved.sourcePath, options);
             if (fs.existsSync(stagedAssetPath)) {
@@ -2544,15 +2667,13 @@ ${responsiveUtilitiesCss}
     mobileHtml?: string,
     globalBundledSheets?: Set<string>
   ): RouteHeadAssetsResult {
+    // Generic bundle names only — a hashed filename (app-<hash>.css) is one
+    // reference site's build fingerprint and must never be a default global.
     const defaultGlobals = new Set([
       'theme.css',
       'custom.css',
       'app.css',
-      'app-dcc2d3nb.css',
-      'app-mobile-5wa_jy_a.css',
       'home.css',
-      'home-desktop-cw7dk4ja.css',
-      'home-mobile-1bp5y6oy.css',
     ]);
     const globals = globalBundledSheets
       ? new Set([...globalBundledSheets, ...defaultGlobals])

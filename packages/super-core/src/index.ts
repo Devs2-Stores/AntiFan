@@ -43,6 +43,13 @@ export class Core {
       conflicts: c('conflicts'), cases: c('cases'), candidates: c('candidates'),
       adjudications: c('adjudications'), releases: c('releases'), receipts: c('receipts'),
       decisions: c('decisions'), dependencies: c('dependencies'), observations: c('observations'),
+      experienceNodes: c('experience_nodes'), experienceEdges: c('experience_edges'),
+      antiPatterns: c('anti_patterns'), workarounds: c('workarounds'), fixPatterns: c('fix_patterns'),
+      corpusAudits: c('corpus_audit'), phaseGates: c('phase_gates'), regressions: c('regressions'),
+      principles: c('principles'), hiddenRequirements: c('hidden_requirements'),
+      commercialIntel: c('commercial_intel'), toolIntel: c('tool_intel'),
+      archetypes: c('archetypes'), platformSemantics: c('platform_semantics'),
+      practiceParity: c('practice_parity'), skillVersions: c('skill_versions'),
     };
   }
 
@@ -96,6 +103,59 @@ export class Core {
       }
       for (const c of jsonl(path.join(reportsDir, 'conflicts.jsonl'))) {
         ins.conflict.run(c.id, c.kind, c.subject ?? null, JSON.stringify(c.positions ?? []), c.state ?? 'UNRESOLVED', c.note ?? null);
+      }
+      // v4: new JSONL types
+      for (const l of jsonl(path.join(reportsDir, 'experience-nodes.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO experience_nodes(nodeId,kind,refId,label,context,createdAt) VALUES (?,?,?,?,?,?)')
+          .run(l.nodeId ?? `exp-${uuid()}`, l.kind, l.refId ?? null, l.label ?? null, l.context ?? null, l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'experience-edges.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO experience_edges(edgeId,fromNodeId,toNodeId,kind,evidence,createdAt) VALUES (?,?,?,?,?,?)')
+          .run(l.edgeId ?? `edge-${uuid()}`, l.fromNodeId, l.toNodeId, l.kind, l.evidence ?? null, l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'anti-patterns.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO anti_patterns(patternId,name,whatNotToDo,symptoms,evidence,affectedPlatform,replacement,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(l.patternId ?? `ap-${uuid()}`, l.name, l.whatNotToDo ?? null, l.symptoms ?? null, l.evidence ?? null, l.affectedPlatform ?? null, l.replacement ?? null, l.status ?? 'ACTIVE', l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'workarounds.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO workarounds(workaroundId,problem,condition,solution,reason,platform,version,evidence,stillValid,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?)')
+          .run(l.workaroundId ?? `wa-${uuid()}`, l.problem, l.condition ?? null, l.solution ?? null, l.reason ?? null, l.platform ?? null, l.version ?? null, l.evidence ?? null, l.stillValid ?? 1, l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'fix-patterns.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO fix_patterns(fixId,before,after,why,evidence,lesson,createdAt) VALUES (?,?,?,?,?,?,?)')
+          .run(l.fixId ?? `fix-${uuid()}`, l.before ?? null, l.after ?? null, l.why ?? null, l.evidence ?? null, l.lesson ?? null, l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'principles.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO principles(principleId,statement,source,derivedFrom,status,createdAt) VALUES (?,?,?,?,?,?)')
+          .run(l.principleId ?? `prin-${uuid()}`, l.statement, l.source ?? null, l.derivedFrom ?? null, l.status ?? 'ACTIVE', l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'hidden-requirements.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO hidden_requirements(reqId,task,explicitReq,inferredReq,likelihood,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
+          .run(l.reqId ?? `req-${uuid()}`, l.task, l.explicitReq ?? null, l.inferredReq ?? null, l.likelihood ?? null, l.evidence ?? null, l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'commercial-intel.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO commercial_intel(intelId,taskType,quote,scope,estimate,actual,risk,revisionCount,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(l.intelId ?? `ci-${uuid()}`, l.taskType, l.quote ?? null, l.scope ?? null, l.estimate ?? null, l.actual ?? null, l.risk ?? null, l.revisionCount ?? null, l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'tool-intel.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO tool_intel(toolId,name,problemSolved,workflowStage,inputs,outputs,failureModes,timeSaved,maintenanceCost,roi,usageFrequency,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .run(l.toolId ?? `tool-${uuid()}`, l.name, l.problemSolved ?? null, l.workflowStage ?? null, l.inputs ?? null, l.outputs ?? null, l.failureModes ?? null, l.timeSaved ?? null, l.maintenanceCost ?? null, l.roi ?? null, l.usageFrequency ?? null, l.status ?? 'ACTIVE', l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'archetypes.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO archetypes(archetypeId,name,platform,maturityLevel,evidenceJson,createdAt) VALUES (?,?,?,?,?,?)')
+          .run(l.archetypeId ?? `arch-${uuid()}`, l.name, l.platform ?? null, l.maturityLevel ?? null, JSON.stringify(l.evidence ?? []), l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'platform-semantics.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO platform_semantics(semanticId,platform,semanticRole,propertyName,cssFact,semanticTruth,evidence,createdAt) VALUES (?,?,?,?,?,?,?,?)')
+          .run(l.semanticId ?? `sem-${uuid()}`, l.platform, l.semanticRole, l.propertyName ?? null, l.cssFact ?? null, l.semanticTruth ?? null, l.evidence ?? null, l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'practice-parity.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO practice_parity(parityId,practice,declared,observed,gap,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
+          .run(l.parityId ?? `pp-${uuid()}`, l.practice, l.declared ?? null, l.observed ?? null, l.gap ?? null, l.evidence ?? null, l.createdAt ?? now());
+      }
+      for (const l of jsonl(path.join(reportsDir, 'skill-versions.jsonl'))) {
+        this.db.prepare('INSERT OR REPLACE INTO skill_versions(versionId,skillId,version,failure,fix,production,createdAt) VALUES (?,?,?,?,?,?,?)')
+          .run(l.versionId ?? `sv-${uuid()}`, l.skillId, l.version ?? null, l.failure ?? null, l.fix ?? null, l.production ?? null, l.createdAt ?? now());
       }
       for (const d of jsonl(path.join(reportsDir, 'decisions.jsonl'))) {
         ins.decision.run(d.decisionId, d.unitId, d.statement, d.context ?? null, d.alternatives ?? null, d.chosen ?? null, JSON.stringify(d.evidence ?? []), d.createdAt ?? now());
@@ -355,6 +415,349 @@ export class Core {
     const stmt = this.db.prepare("UPDATE claims SET status = 'REVOKED' WHERE claimId = ?");
     for (const c of claims) stmt.run(c.claimId);
     return { revoked: claims.length };
+  }
+
+  // ---- v4: Experience Graph (§14) ------------------------------------------
+  recordExperienceNode(opts: { kind: string; refId?: string; label?: string; context?: string }) {
+    const nodeId = `exp-${uuid()}`;
+    this.db.prepare('INSERT INTO experience_nodes(nodeId,kind,refId,label,context,createdAt) VALUES (?,?,?,?,?,?)')
+      .run(nodeId, opts.kind, opts.refId ?? null, opts.label ?? null, opts.context ?? null, now());
+    return { nodeId };
+  }
+
+  recordExperienceEdge(opts: { fromNodeId: string; toNodeId: string; kind: string; evidence?: string }) {
+    const edgeId = `edge-${uuid()}`;
+    this.db.prepare('INSERT INTO experience_edges(edgeId,fromNodeId,toNodeId,kind,evidence,createdAt) VALUES (?,?,?,?,?,?)')
+      .run(edgeId, opts.fromNodeId, opts.toNodeId, opts.kind, opts.evidence ?? null, now());
+    return { edgeId };
+  }
+
+  experienceChain(fromNodeId: string, depth = 10) {
+    const visited = new Set<string>();
+    const chain: Array<Record<string, unknown>> = [];
+    const queue: Array<{ id: string; d: number }> = [{ id: fromNodeId, d: 0 }];
+    while (queue.length && chain.length < 200) {
+      const { id: nid, d } = queue.shift()!;
+      if (visited.has(nid) || d > depth) continue;
+      visited.add(nid);
+      const node = this.db.prepare('SELECT * FROM experience_nodes WHERE nodeId = ?').get(nid) as Record<string, unknown> | undefined;
+      if (!node) continue;
+      const edges = this.db.prepare('SELECT * FROM experience_edges WHERE fromNodeId = ?').all(nid) as Array<Record<string, unknown>>;
+      chain.push({ ...node, edges });
+      for (const e of edges) queue.push({ id: e.toNodeId as string, d: d + 1 });
+    }
+    return chain;
+  }
+
+  // ---- v4: Anti-Pattern Library (§28) ----------------------------------------
+  recordAntiPattern(opts: { name: string; whatNotToDo?: string; symptoms?: string; evidence?: string; affectedPlatform?: string; replacement?: string }) {
+    const patternId = `ap-${uuid()}`;
+    this.db.prepare('INSERT INTO anti_patterns(patternId,name,whatNotToDo,symptoms,evidence,affectedPlatform,replacement,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(patternId, opts.name, opts.whatNotToDo ?? null, opts.symptoms ?? null, opts.evidence ?? null, opts.affectedPlatform ?? null, opts.replacement ?? null, 'ACTIVE', now());
+    return { patternId };
+  }
+
+  antiPatterns(opts?: { platform?: string; status?: string }) {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (opts?.platform) { where.push('affectedPlatform = ?'); args.push(opts.platform); }
+    if (opts?.status) { where.push('status = ?'); args.push(opts.status); }
+    const sql = `SELECT * FROM anti_patterns${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC`;
+    return this.db.prepare(sql).all(...args as never[]);
+  }
+
+  // ---- v4: Workaround Library (§29) ------------------------------------------
+  recordWorkaround(opts: { problem: string; condition?: string; solution?: string; reason?: string; platform?: string; version?: string; evidence?: string }) {
+    const workaroundId = `wa-${uuid()}`;
+    this.db.prepare('INSERT INTO workarounds(workaroundId,problem,condition,solution,reason,platform,version,evidence,stillValid,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(workaroundId, opts.problem, opts.condition ?? null, opts.solution ?? null, opts.reason ?? null, opts.platform ?? null, opts.version ?? null, opts.evidence ?? null, 1, now());
+    return { workaroundId };
+  }
+
+  workarounds(opts?: { platform?: string; stillValid?: boolean }) {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (opts?.platform) { where.push('platform = ?'); args.push(opts.platform); }
+    if (opts?.stillValid !== undefined) { where.push('stillValid = ?'); args.push(opts.stillValid ? 1 : 0); }
+    const sql = `SELECT * FROM workarounds${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC`;
+    return this.db.prepare(sql).all(...args as never[]);
+  }
+
+  // ---- v4: Fix Patterns (§31) -------------------------------------------------
+  recordFixPattern(opts: { before?: string; after?: string; why?: string; evidence?: string; lesson?: string }) {
+    const fixId = `fix-${uuid()}`;
+    this.db.prepare('INSERT INTO fix_patterns(fixId,before,after,why,evidence,lesson,createdAt) VALUES (?,?,?,?,?,?,?)')
+      .run(fixId, opts.before ?? null, opts.after ?? null, opts.why ?? null, opts.evidence ?? null, opts.lesson ?? null, now());
+    return { fixId };
+  }
+
+  fixPatterns(opts?: { limit?: number }) {
+    return this.db.prepare('SELECT * FROM fix_patterns ORDER BY createdAt DESC LIMIT ?').all(opts?.limit ?? 50);
+  }
+
+  // ---- v4: Case-Based Reasoning (§16) ----------------------------------------
+  findSimilar(opts: { task: string; platform?: string; limit?: number }) {
+    const limit = Math.max(1, Math.min(opts.limit ?? 10, 50));
+    const terms = opts.task.split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, '""')}"`);
+    const orQ = terms.join(' OR ');
+    const claims = terms.length
+      ? this.db.prepare(`SELECT c.*, bm25(claims_fts) AS rank FROM claims_fts f JOIN claims c ON c.claimId = f.claimId WHERE claims_fts MATCH ? AND c.status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED') ORDER BY rank LIMIT ?`).all(orQ, limit)
+      : [];
+    const cases = this.db.prepare('SELECT * FROM cases WHERE task LIKE ? OR context LIKE ? ORDER BY createdAt DESC LIMIT ?')
+      .all(`%${opts.task}%`, `%${opts.task}%`, limit);
+    const decisions = this.db.prepare('SELECT * FROM decisions WHERE statement LIKE ? OR context LIKE ? OR chosen LIKE ? ORDER BY createdAt DESC LIMIT ?')
+      .all(`%${opts.task}%`, `%${opts.task}%`, `%${opts.task}%`, limit);
+    const antiPatterns = this.db.prepare('SELECT * FROM anti_patterns WHERE name LIKE ? OR symptoms LIKE ? OR affectedPlatform LIKE ? ORDER BY createdAt DESC LIMIT ?')
+      .all(`%${opts.task}%`, `%${opts.task}%`, `%${opts.platform ?? ''}%`, limit);
+    const workarounds = this.db.prepare('SELECT * FROM workarounds WHERE problem LIKE ? OR condition LIKE ? OR platform LIKE ? ORDER BY createdAt DESC LIMIT ?')
+      .all(`%${opts.task}%`, `%${opts.task}%`, `%${opts.platform ?? ''}%`, limit);
+    const fixPatterns = this.db.prepare('SELECT * FROM fix_patterns WHERE before LIKE ? OR after LIKE ? OR lesson LIKE ? ORDER BY createdAt DESC LIMIT ?')
+      .all(`%${opts.task}%`, `%${opts.task}%`, `%${opts.task}%`, limit);
+    return { claims, cases, decisions, antiPatterns, workarounds, fixPatterns };
+  }
+
+  // ---- v4: Uncertainty Engine (§37) ------------------------------------------
+  classifyUncertainty(opts: { claimId?: string; task?: string }) {
+    if (opts.claimId) {
+      const claim = this.db.prepare('SELECT * FROM claims WHERE claimId = ?').get(opts.claimId) as Record<string, unknown> | undefined;
+      if (!claim) return { level: 'UNKNOWN', reason: 'claim not found' };
+      const conflicts = this.db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE state = 'UNRESOLVED' AND subject = ?").get((claim.subject as string) ?? '') as { n: number };
+      if (conflicts.n > 0) return { level: 'CONFLICTED', reason: `${conflicts.n} unresolved conflict(s)` };
+      const evidence = this.db.prepare('SELECT COUNT(*) AS n FROM evidence WHERE claimId = ?').get(opts.claimId) as { n: number };
+      if (claim.status === 'PROMOTED' && evidence.n >= 2) return { level: 'STRONGLY_SUPPORTED', reason: `${evidence.n} evidence anchors` };
+      if (claim.status === 'PROMOTED' || claim.status === 'ACTIVE') return { level: 'PROBABLE', reason: 'promoted/active with evidence' };
+      return { level: 'UNKNOWN', reason: `status=${claim.status}` };
+    }
+    const claims = this.query({ text: opts.task ?? '', limit: 5 });
+    if (claims.length === 0) return { level: 'UNKNOWN', reason: 'no matching claims' };
+    const promoted = claims.filter((c) => c.status === 'PROMOTED').length;
+    if (promoted >= 2) return { level: 'STRONGLY_SUPPORTED', reason: `${promoted} promoted claims` };
+    if (claims.length >= 3) return { level: 'PROBABLE', reason: `${claims.length} claims` };
+    return { level: 'UNKNOWN', reason: 'insufficient evidence' };
+  }
+
+  // ---- v4: Knowledge Decay (§36) ---------------------------------------------
+  decayCheck(opts?: { staleDays?: number }) {
+    const staleDays = opts?.staleDays ?? 90;
+    const cutoff = new Date(Date.now() - staleDays * 86400_000).toISOString();
+    const stale = this.db.prepare(
+      `SELECT claimId, statement, status, lastSeen, createdAt FROM claims
+       WHERE status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED')
+       AND (lastSeen IS NULL OR lastSeen < ?) AND createdAt < ?`,
+    ).all(cutoff, cutoff);
+    const aging = this.db.prepare(
+      `SELECT claimId, statement, status, agingSince FROM claims
+       WHERE agingSince IS NOT NULL AND agingSince < ?`,
+    ).all(cutoff);
+    return { stale, aging, cutoff };
+  }
+
+  // ---- v4: Corpus Audit (§50) -------------------------------------------------
+  corpusAudit() {
+    const s = this.stats();
+    const blocked = this.db.prepare("SELECT COUNT(*) AS n FROM artifacts WHERE disposition IN ('BLOCKED','PENDING')").get() as { n: number };
+    const unresolved = this.db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE state = 'UNRESOLVED'").get() as { n: number };
+    const coveragePct = s.artifacts > 0 ? Math.round(((s.artifacts - blocked.n) / s.artifacts) * 1000) / 10 : 0;
+    const auditId = `audit-${uuid()}`;
+    this.db.prepare('INSERT INTO corpus_audit(auditId,artifactsDiscovered,artifactsRead,artifactsAnalyzed,artifactsClassified,artifactsConnected,artifactsExtracted,blocked,reasonsJson,unresolved,coveragePct,rulesGenerated,candidatesPending,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(auditId, s.artifacts, s.artifacts - blocked.n, s.claims, s.claims, s.claims, s.claims, blocked.n, null, unresolved.n, coveragePct, s.claims, s.candidates, now());
+    return { auditId, artifacts: s.artifacts, claims: s.claims, blocked: blocked.n, unresolved: unresolved.n, coveragePct, candidatesPending: s.candidates };
+  }
+
+  // ---- v4: Phase Gates (§51) ---------------------------------------------------
+  checkPhaseGate(phase: string, gate: string) {
+    const gateId = `gate-${uuid()}`;
+    let passed = 0;
+    let detail = '';
+    if (gate === 'coverage') {
+      const s = this.stats();
+      const blocked = this.db.prepare("SELECT COUNT(*) AS n FROM artifacts WHERE disposition IN ('BLOCKED','PENDING')").get() as { n: number };
+      passed = s.artifacts > 0 && (s.artifacts - blocked.n) / s.artifacts >= 0.8 ? 1 : 0;
+      detail = `${s.artifacts - blocked.n}/${s.artifacts} artifacts processed (${Math.round(((s.artifacts - blocked.n) / Math.max(1, s.artifacts)) * 100)}%)`;
+    } else if (gate === 'evidence') {
+      const noEvidence = this.db.prepare('SELECT COUNT(*) AS n FROM claims WHERE claimId NOT IN (SELECT DISTINCT claimId FROM evidence)').get() as { n: number };
+      passed = noEvidence.n === 0 ? 1 : 0;
+      detail = `${noEvidence.n} claims without evidence`;
+    } else if (gate === 'conflict') {
+      const unresolved = this.db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE state = 'UNRESOLVED'").get() as { n: number };
+      passed = unresolved.n === 0 ? 1 : 0;
+      detail = `${unresolved.n} unresolved conflicts`;
+    } else if (gate === 'temporal') {
+      const stale = this.db.prepare("SELECT COUNT(*) AS n FROM claims WHERE status = 'STALE_SOURCE_CHANGED'").get() as { n: number };
+      passed = stale.n === 0 ? 1 : 0;
+      detail = `${stale.n} stale claims`;
+    } else if (gate === 'promotion') {
+      const pending = this.db.prepare("SELECT COUNT(*) AS n FROM candidates WHERE status = 'PENDING'").get() as { n: number };
+      passed = pending.n === 0 ? 1 : 0;
+      detail = `${pending.n} pending candidates`;
+    } else if (gate === 'regression') {
+      const lastReg = this.db.prepare('SELECT replayResult FROM regressions ORDER BY createdAt DESC LIMIT 1').get() as { replayResult?: string } | undefined;
+      passed = lastReg?.replayResult === 'PASS' ? 1 : 0;
+      detail = lastReg ? `last regression: ${lastReg.replayResult}` : 'no regression run';
+    } else {
+      passed = 1;
+      detail = `unknown gate '${gate}' — pass-through`;
+    }
+    this.db.prepare('INSERT INTO phase_gates(gateId,phase,gate,passed,detail,checkedAt) VALUES (?,?,?,?,?,?)')
+      .run(gateId, phase, gate, passed, detail, now());
+    return { gateId, phase, gate, passed: Boolean(passed), detail };
+  }
+
+  // ---- v4: Core Regression (§46) -----------------------------------------------
+  recordRegression(opts: { newKnowledge?: string; affectedRules?: string[]; affectedCases?: string[]; affectedRecommendations?: string[]; replayResult: 'PASS' | 'FAIL' }) {
+    const regressionId = `reg-${uuid()}`;
+    this.db.prepare('INSERT INTO regressions(regressionId,newKnowledge,affectedRulesJson,affectedCasesJson,affectedRecommendationsJson,replayResult,createdAt) VALUES (?,?,?,?,?,?,?)')
+      .run(regressionId, opts.newKnowledge ?? null, JSON.stringify(opts.affectedRules ?? []), JSON.stringify(opts.affectedCases ?? []), JSON.stringify(opts.affectedRecommendations ?? []), opts.replayResult, now());
+    return { regressionId };
+  }
+
+  // ---- v4: Principles (§23) -----------------------------------------------------
+  recordPrinciple(opts: { statement: string; source?: string; derivedFrom?: string }) {
+    const principleId = `prin-${uuid()}`;
+    this.db.prepare('INSERT INTO principles(principleId,statement,source,derivedFrom,status,createdAt) VALUES (?,?,?,?,?,?)')
+      .run(principleId, opts.statement, opts.source ?? null, opts.derivedFrom ?? null, 'ACTIVE', now());
+    return { principleId };
+  }
+
+  principles(opts?: { status?: string }) {
+    const where = opts?.status ? 'WHERE status = ?' : '';
+    const args = opts?.status ? [opts.status] : [];
+    return this.db.prepare(`SELECT * FROM principles ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+  }
+
+  // ---- v4: Hidden Requirements (§25) --------------------------------------------
+  recordHiddenRequirement(opts: { task: string; explicitReq?: string; inferredReq?: string; likelihood?: string; evidence?: string }) {
+    const reqId = `req-${uuid()}`;
+    this.db.prepare('INSERT INTO hidden_requirements(reqId,task,explicitReq,inferredReq,likelihood,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
+      .run(reqId, opts.task, opts.explicitReq ?? null, opts.inferredReq ?? null, opts.likelihood ?? null, opts.evidence ?? null, now());
+    return { reqId };
+  }
+
+  hiddenRequirements(opts?: { task?: string }) {
+    const where = opts?.task ? 'WHERE task LIKE ?' : '';
+    const args = opts?.task ? [`%${opts.task}%`] : [];
+    return this.db.prepare(`SELECT * FROM hidden_requirements ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+  }
+
+  // ---- v4: Commercial Intelligence (§26) ----------------------------------------
+  recordCommercial(opts: { taskType: string; quote?: number; scope?: string; estimate?: number; actual?: number; risk?: string; revisionCount?: number }) {
+    const intelId = `ci-${uuid()}`;
+    this.db.prepare('INSERT INTO commercial_intel(intelId,taskType,quote,scope,estimate,actual,risk,revisionCount,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(intelId, opts.taskType, opts.quote ?? null, opts.scope ?? null, opts.estimate ?? null, opts.actual ?? null, opts.risk ?? null, opts.revisionCount ?? null, now());
+    return { intelId };
+  }
+
+  commercialIntel(opts?: { taskType?: string }) {
+    const where = opts?.taskType ? 'WHERE taskType = ?' : '';
+    const args = opts?.taskType ? [opts.taskType] : [];
+    return this.db.prepare(`SELECT * FROM commercial_intel ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+  }
+
+  // ---- v4: Tool Intelligence (§27) -----------------------------------------------
+  recordTool(opts: { name: string; problemSolved?: string; workflowStage?: string; inputs?: string; outputs?: string; failureModes?: string; timeSaved?: number; maintenanceCost?: number; roi?: number; usageFrequency?: string }) {
+    const toolId = `tool-${uuid()}`;
+    this.db.prepare('INSERT INTO tool_intel(toolId,name,problemSolved,workflowStage,inputs,outputs,failureModes,timeSaved,maintenanceCost,roi,usageFrequency,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(toolId, opts.name, opts.problemSolved ?? null, opts.workflowStage ?? null, opts.inputs ?? null, opts.outputs ?? null, opts.failureModes ?? null, opts.timeSaved ?? null, opts.maintenanceCost ?? null, opts.roi ?? null, opts.usageFrequency ?? null, 'ACTIVE', now());
+    return { toolId };
+  }
+
+  toolIntel(opts?: { status?: string }) {
+    const where = opts?.status ? 'WHERE status = ?' : '';
+    const args = opts?.status ? [opts.status] : [];
+    return this.db.prepare(`SELECT * FROM tool_intel ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+  }
+
+  // ---- v4: Archetypes (§33) ------------------------------------------------------
+  recordArchetype(opts: { name: string; platform?: string; maturityLevel?: number; evidence?: string[] }) {
+    const archetypeId = `arch-${uuid()}`;
+    this.db.prepare('INSERT INTO archetypes(archetypeId,name,platform,maturityLevel,evidenceJson,createdAt) VALUES (?,?,?,?,?,?)')
+      .run(archetypeId, opts.name, opts.platform ?? null, opts.maturityLevel ?? null, JSON.stringify(opts.evidence ?? []), now());
+    return { archetypeId };
+  }
+
+  archetypes(opts?: { platform?: string }) {
+    const where = opts?.platform ? 'WHERE platform = ?' : '';
+    const args = opts?.platform ? [opts.platform] : [];
+    return this.db.prepare(`SELECT * FROM archetypes ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+  }
+
+  // ---- v4: Platform Semantics (§12) -----------------------------------------------
+  recordPlatformSemantic(opts: { platform: string; semanticRole: string; propertyName?: string; cssFact?: string; semanticTruth?: string; evidence?: string }) {
+    const semanticId = `sem-${uuid()}`;
+    this.db.prepare('INSERT INTO platform_semantics(semanticId,platform,semanticRole,propertyName,cssFact,semanticTruth,evidence,createdAt) VALUES (?,?,?,?,?,?,?,?)')
+      .run(semanticId, opts.platform, opts.semanticRole, opts.propertyName ?? null, opts.cssFact ?? null, opts.semanticTruth ?? null, opts.evidence ?? null, now());
+    return { semanticId };
+  }
+
+  platformSemantics(opts?: { platform?: string; semanticRole?: string }) {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (opts?.platform) { where.push('platform = ?'); args.push(opts.platform); }
+    if (opts?.semanticRole) { where.push('semanticRole = ?'); args.push(opts.semanticRole); }
+    const sql = `SELECT * FROM platform_semantics${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC`;
+    return this.db.prepare(sql).all(...args as never[]);
+  }
+
+  // ---- v4: Practice Parity (§21) ---------------------------------------------------
+  recordPracticeParity(opts: { practice: string; declared?: string; observed?: string; gap?: string; evidence?: string }) {
+    const parityId = `pp-${uuid()}`;
+    this.db.prepare('INSERT INTO practice_parity(parityId,practice,declared,observed,gap,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
+      .run(parityId, opts.practice, opts.declared ?? null, opts.observed ?? null, opts.gap ?? null, opts.evidence ?? null, now());
+    return { parityId };
+  }
+
+  practiceParity(opts?: { practice?: string }) {
+    const where = opts?.practice ? 'WHERE practice LIKE ?' : '';
+    const args = opts?.practice ? [`%${opts.practice}%`] : [];
+    return this.db.prepare(`SELECT * FROM practice_parity ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+  }
+
+  // ---- v4: Skill Genealogy (§22) ----------------------------------------------------
+  recordSkillVersion(opts: { skillId: string; version?: string; failure?: string; fix?: string; production?: string }) {
+    const versionId = `sv-${uuid()}`;
+    this.db.prepare('INSERT INTO skill_versions(versionId,skillId,version,failure,fix,production,createdAt) VALUES (?,?,?,?,?,?,?)')
+      .run(versionId, opts.skillId, opts.version ?? null, opts.failure ?? null, opts.fix ?? null, opts.production ?? null, now());
+    return { versionId };
+  }
+
+  skillGenealogy(opts: { skillId: string }) {
+    return this.db.prepare('SELECT * FROM skill_versions WHERE skillId = ? ORDER BY createdAt ASC').all(opts.skillId);
+  }
+
+  // ---- v4: Enriched Context Pack (§39) -----------------------------------------------
+  contextPackV2(opts: PackOpts) {
+    const pack = this.contextPack(opts);
+    const claims = pack.claims as Array<Record<string, unknown>>;
+    const rules = claims.filter((c) => c.kind === 'RULE' || c.kind === 'CONSTRAINT');
+    const similar = this.findSimilar({ task: opts.task, platform: opts.platform, limit: 10 });
+    const uncertainty = this.classifyUncertainty({ task: opts.task });
+    const confidence = claims.length >= 5 ? 'HIGH' : claims.length >= 2 ? 'MEDIUM' : claims.length >= 1 ? 'LOW' : 'UNKNOWN';
+    return {
+      ...pack,
+      rules,
+      historicalCases: similar.cases,
+      knownPitfalls: similar.antiPatterns,
+      knownWorkarounds: similar.workarounds,
+      recommendedPattern: similar.fixPatterns[0] ?? null,
+      uncertainty,
+      confidence,
+    };
+  }
+
+  // ---- v4: Enriched Receipt (§40) -----------------------------------------------------
+  receiptV2(opts: { task: string; packId?: string; recommendation: string; abstained?: boolean }) {
+    const receipt = this.receipt(opts);
+    const similar = this.findSimilar({ task: opts.task, limit: 5 });
+    const uncertainty = this.classifyUncertainty({ task: opts.task });
+    return {
+      ...receipt,
+      why: similar.decisions.slice(0, 3),
+      historicalCases: similar.cases.slice(0, 3),
+      risks: similar.antiPatterns.slice(0, 3),
+      alternatives: similar.fixPatterns.slice(0, 3),
+      uncertainty,
+      confidence: receipt.evidenceRevisions.length >= 3 ? 'HIGH' : receipt.evidenceRevisions.length >= 1 ? 'MEDIUM' : 'LOW',
+    };
   }
 }
 

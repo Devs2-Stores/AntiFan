@@ -95,6 +95,108 @@ const SLIDER_TRACK_CLASSES = ['s-content', 'slick-track', 'swiper-wrapper', 'spl
 const SLIDER_SLIDE_CLASSES = ['slick-slide', 'swiper-slide', 'splide__slide'];
 const CAPTURE_GEOMETRY_PROPERTIES = /^(?:width|min-width|max-width|flex|flex-basis|margin-right)$/;
 
+// Quote-aware attribute span: matches tag content including quoted values that may
+// themselves contain '>' (e.g. alt="a > b", inline onclick). A plain [^>]* truncates
+// the tag at the first '>' inside an attribute and silently drops the binding pass.
+const ATTR_SPAN = String.raw`(?:[^"'>]|"[^"]*"|'[^']*')*`;
+const TAG_OPEN_PREFIX = String.raw`(<[a-z0-9_\-]+(?:\s+` + ATTR_SPAN + String.raw`)?)`;
+
+// Hoisted patterns — compiled once at module load instead of per call / per element.
+const ANY_TAG_RE = new RegExp(String.raw`<[a-z0-9_\-]+(?:\s+` + ATTR_SPAN + String.raw`)?>`, 'gi');
+const TAG_NAME_RE = new RegExp(String.raw`<\/?([a-z0-9_\-]+)\b` + ATTR_SPAN + String.raw`>`, 'gi');
+const STYLE_ATTR_RE = /(\sstyle\s*=\s*)(["'])([^"']*)\2/i;
+const CLASS_ATTR_RE = /\sclass\s*=\s*(["'])([^"']*)\1/i;
+const SLIDER_TRACK_CLASS_TEST_RE = new RegExp(
+  `\\sclass\\s*=\\s*["'][^"']*(?:${SLIDER_TRACK_CLASSES.join('|')})[^"']*["']`,
+  'i'
+);
+const S_CONTENT_OPENER_RE = new RegExp(
+  String.raw`<([a-z0-9_\-]+)` + ATTR_SPAN + String.raw`\bclass=["'][^"']*\bs-content\b[^"']*["']` + ATTR_SPAN + String.raw`>`,
+  'gi'
+);
+
+const ALPINE_CLASS_BINDING_RE = new RegExp(
+  TAG_OPEN_PREFIX + String.raw`\s+:class=(?:"([^"]*)"|'([^']*)')`,
+  'gi'
+);
+const ALPINE_CLICK_OPEN_RE = new RegExp(
+  TAG_OPEN_PREFIX + String.raw`\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*true\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*true\s*')`,
+  'gi'
+);
+const ALPINE_CLICK_CLOSE_RE = new RegExp(
+  TAG_OPEN_PREFIX + String.raw`\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*')`,
+  'gi'
+);
+const ALPINE_CLICK_TOGGLE_RE = new RegExp(
+  TAG_OPEN_PREFIX + String.raw`\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*!\s*\2\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*!\s*\3\s*')`,
+  'gi'
+);
+const ALPINE_SHOW_RE = new RegExp(
+  TAG_OPEN_PREFIX + String.raw`\s+x-show\s*=\s*(?:"\s*([a-zA-Z0-9_$]+)\s*"|'\s*([a-zA-Z0-9_$]+)\s*')`,
+  'gi'
+);
+const ALPINE_CLICK_OUTSIDE_RE = new RegExp(
+  TAG_OPEN_PREFIX + String.raw`\s+(?:@click\.outside|x-on:click\.outside)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*')`,
+  'gi'
+);
+const ANTIFAN_TARGET_TAG_RE = new RegExp(
+  String.raw`<[a-z0-9_\-]+(?:\s+` + ATTR_SPAN + String.raw`)?\s+data-antifan-target\s*=\s*["'][^"']+["']` + ATTR_SPAN + String.raw`>`,
+  'gi'
+);
+const STYLE_ATTR_INNER_RE = /(\sstyle\s*=\s*(["']))([\s\S]*?)\2/i;
+const DISPLAY_NONE_DECL_RE = /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/gi;
+const EDGE_SEMICOLONS_RE = /^;+|;+$/g;
+
+const TRANSLATE_X_RE = /(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translateX\(-?[0-9]+(?:\.[0-9]+)?px\)\s*;?/gi;
+const TRANSLATE_3D_RE = /(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translate3d\(-?[0-9]+(?:\.[0-9]+)?px,\s*0(?:px)?,\s*0(?:px)?\)\s*;?/gi;
+
+const SLICK_DOTS_RE = /<ul\b[^>]*\bclass=["'][^"']*\bslick-dots\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/gi;
+const SLICK_ARROWS_RE = /<button\b[^>]*\bclass=["'][^"']*\bslick-(?:prev|next|arrow)\b[^"']*["'][^>]*>[\s\S]*?<\/button>/gi;
+const SLICK_CLONED_RE = /<[a-z0-9_\-]+[^>]*\bclass=["'][^"']*\bslick-cloned\b[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9_\-]+>/gi;
+const SLICK_LIST_TRACK_OPENER_RE = /<div\b[^>]*\bclass=["'][^"']*\bslick-list\b[^"']*["'][^>]*>\s*<div\b[^>]*\bclass=["'][^"']*\bslick-track\b[^"']*["'][^>]*>/gi;
+const DIV_TAG_RE = new RegExp(String.raw`<\/?div\b` + ATTR_SPAN + String.raw`>`, 'gi');
+const CLASS_ATTR_CLEANUP_RE = /\bclass=(["'])([^"']*)\1/gi;
+const DATA_SLICK_INDEX_RE = /\s+data-slick-index=["'][^"']*["']/gi;
+const SLICK_ARIA_DESCRIBEDBY_RE = /\s+aria-describedby=["'][^"']*slick-slide[^"']*["']/gi;
+
+const BOUND_ATTR_RE = /\s+(?:(?::|x-bind:|v-bind:|@|x-on:|wire:)[a-zA-Z0-9_\-\.:]+|x-(?:data|bind|on|show|model|transition|ref|init|cloak|html|text|teleport|for|if|effect|ignore)(?::[a-zA-Z0-9_\-\.]+)?)(?:=(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s>]+))?/gi;
+
+const REMOTE_DATA_SRC_RE = /\s+data-src=["'][^"']*(?:youtube\.com|youtu\.be|google\.com\/maps)[^"']*["']/gi;
+const REMOTE_IFRAME_SRC_RE = /(<iframe\b[^>]*?)\s+src=["'][^"']*(?:youtube\.com|youtu\.be|google\.com\/maps)[^"']*["']/gi;
+const EMPTY_IFRAME_SRC_RE = /(<iframe\b[^>]*?)\s+src=["']['"]/gi;
+const IFRAME_TAG_RE = /<iframe\b([^>]*?)>/gi;
+const IFRAME_SRC_TEST_RE = /\ssrc=/i;
+
+const NOSCRIPT_RE = /<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi;
+const IF_BLOCK_COMMENT_RE = /<!--\[if (?:END)?BLOCK\]>[\s\S]*?<!\[endif\]-->/gi;
+const LIVEWIRE_COMMENT_RE = /<!--\s*Livewire Component:[\s\S]*?-->/gi;
+const FRAMEWORK_DATA_ATTRS_RE = /\s+data-(?:update-uri|navigate-once|navigate-[a-zA-Z0-9_\-]+|livewire(?:-[a-zA-Z0-9_\-]+)?|csrf)(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi;
+const CSRF_INPUT_RE = /<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*\/?>/gi;
+const CSRF_META_RE = /<meta\s+[^>]*(?:name|property)=["'](?:csrf[-_]token|csrf-param|_token)["'][^>]*\/?>/gi;
+const CSRF_SCRIPT_RE = /<script\b[^>]*\b(?:data-csrf|data-update-uri|data-navigate-once)\b[^>]*>(?:(?!<\/script>)[\s\S])*?<\/script>/gi;
+const TRACKER_SCRIPT_SRC_RE = /<script\b[^>]*src=["'][^"']*(?:livewire|googletagmanager|google-analytics|analytics\.js|gtag|clarity|tawk|twk-chunk|twk-|emojione|connect\.facebook\.net|gtm\.js|1hiir2bkg|js\.js)[^"']*["'][^>]*>(?:(?!<\/script>)[\s\S])*?<\/script>/gi;
+const TRACKER_INLINE_SCRIPT_RE = /<script\b[^>]*>(?:(?!<\/script>)[\s\S])*?(?:Tawk_API|Tawk_|tawk\.to|gtag\(|dataLayer\.push|fbq\(|clarity\(|googletagmanager|Livewire\b|livewire_token|window\.livewire)(?:(?!<\/script>)[\s\S])*?<\/script>/gi;
+const TRACKER_DIV_RE = /<div\b[^>]*id=["'](?:x2err|tawk|twk|subiz|vchat|fb-root|zalo)[^"']*["'][^>]*>(?:(?!<\/div>)[\s\S])*?<\/div>/gi;
+const TRACKER_WRAPPER_DIV_RE = /<div\b[^>]*\bstyle=["'][^"']*(?:z-index:\s*999999|z-index:\s*99999|display:\s*block\s*!important)[^"']*["'][^>]*>(?:(?!<\/?div\b)[\s\S])*?<iframe\b[^>]*>(?:(?!<\/?div\b)[\s\S])*?<\/div>/gi;
+const TRACKER_IFRAME_RE = /<iframe\b[^>]*(?:googletagmanager|recaptcha|google\.com\/recaptcha|facebook\.com\/plugins|tawk|title=["']chat widget["']|Microsoft\.Alpha\(Opacity 1\}\)|outline:none\s*!important)[^>]*>(?:(?!<\/iframe>)[\s\S])*?<\/iframe>/gi;
+const TRACKER_LINK_RE = /<link\b[^>]*\brel=["'](?:profile|dns-prefetch|preconnect|pingback)["'][^>]*\/?>/gi;
+const TRACKER_STYLE_RE = /<style\b[^>]*>(?:(?!<\/style>)[\s\S])*?(?:tawk|twk|#x2err|Microsoft\.Alpha\(Opacity 1\}\)|tawkMaxOpen)(?:(?!<\/style>)[\s\S])*?<\/style>/gi;
+const IMG_TAG_RE = /<img\b[^>]*>/gi;
+
+const IMG_LAZY_LOADING_RE = /\sloading\s*=\s*(?:"lazy"|'lazy'|lazy)/gi;
+const IMG_TAG_NAME_RE = /<img/i;
+const IMG_SRC_REPLACE_RE = /(\ssrc\s*=\s*)(?:"[^"]*"|'[^']*')/i;
+const IMG_SRCSET_REPLACE_RE = /(\ssrcset\s*=\s*)(?:"[^"]*"|'[^']*')/i;
+const DATA_URI_TEST_RE = /^data:/i;
+const IMG_ATTR_VALUE_RE: Record<string, RegExp> = {
+  src: /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i,
+  srcset: /\ssrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/i,
+  'data-src': /\sdata-src\s*=\s*(?:"([^"]*)"|'([^']*)')/i,
+  'data-srcset': /\sdata-srcset\s*=\s*(?:"([^"]*)"|'([^']*)')/i,
+  'data-lazy-src': /\sdata-lazy-src\s*=\s*(?:"([^"]*)"|'([^']*)')/i,
+  'data-lazy': /\sdata-lazy\s*=\s*(?:"([^"]*)"|'([^']*)')/i
+};
+
 function hasClassToken(classAttribute: string, tokens: readonly string[]): boolean {
   return classAttribute.split(/\s+/).some((token) => tokens.includes(token));
 }
@@ -127,16 +229,15 @@ function dropPixelDeclarations(styleValue: string): string {
  * classes (such as .item outside of slider tracks) preserve their inline sizes.
  */
 export function stripCaptureTimeSliderGeometry(html: string): string {
-  const trackClassPattern = `(?:${SLIDER_TRACK_CLASSES.join('|')})`;
-  if (!new RegExp(`\\sclass\\s*=\\s*["'][^"']*${trackClassPattern}[^"']*["']`, 'i').test(html)) {
+  if (!SLIDER_TRACK_CLASS_TEST_RE.test(html)) {
     return html;
   }
 
   // 1. Strip proven capture-time geometry on explicit track and slide tags
-  let result = html.replace(/<[a-z0-9_\-]+(?:\s+[^<>]*)?>/gi, (tag) => {
-    const styleMatch = /(\sstyle\s*=\s*)(["'])([^"']*)\2/i.exec(tag);
+  let result = html.replace(ANY_TAG_RE, (tag) => {
+    const styleMatch = STYLE_ATTR_RE.exec(tag);
     if (!styleMatch) return tag;
-    const classMatch = /\sclass\s*=\s*(["'])([^"']*)\1/i.exec(tag);
+    const classMatch = CLASS_ATTR_RE.exec(tag);
     if (!classMatch) return tag;
     if (
       !hasClassToken(classMatch[2], SLIDER_TRACK_CLASSES) &&
@@ -150,23 +251,51 @@ export function stripCaptureTimeSliderGeometry(html: string): string {
       : tag.replace(styleMatch[0], '');
   });
 
-  // 2. Normalize capture-time geometry for items specifically inside s-content slider tracks
-  result = result.replace(
-    /(<[a-z0-9_\-]+[^>]*\bclass=["'][^"']*\bs-content\b[^"']*["'][^>]*>)([\s\S]*?)(<\/[a-z0-9_\-]+>)/gi,
-    (_full, openTag, content, closeTag) => {
-      const normalizedContent = content.replace(/<[a-z0-9_\-]+(?:\s+[^<>]*)?>/gi, (innerTag: string) => {
-        const styleMatch = /(\sstyle\s*=\s*)(["'])([^"']*)\2/i.exec(innerTag);
-        if (!styleMatch) return innerTag;
-        const classMatch = /\sclass\s*=\s*(["'])([^"']*)\1/i.exec(innerTag);
-        if (!classMatch || !hasClassToken(classMatch[2], ['item'])) return innerTag;
-        const declarations = dropPixelDeclarations(styleMatch[3]);
-        return declarations
-          ? innerTag.replace(styleMatch[0], `${styleMatch[1]}${styleMatch[2]}${declarations}${styleMatch[2]}`)
-          : innerTag.replace(styleMatch[0], '');
-      });
-      return `${openTag}${normalizedContent}${closeTag}`;
+  // 2. Normalize capture-time geometry for items specifically inside s-content slider tracks.
+  // A balanced-tag scan finds the real end of each s-content element: a lazy
+  // ([\s\S]*?)</tag> stops at the first nested closer and leaves items 2..N untouched.
+  S_CONTENT_OPENER_RE.lastIndex = 0;
+  let sContentMatch: RegExpExecArray | null;
+  let sContentLastIdx = 0;
+  let sContentNormalized = '';
+  while ((sContentMatch = S_CONTENT_OPENER_RE.exec(result)) !== null) {
+    if (sContentMatch.index < sContentLastIdx) continue; // nested s-content: already normalized by the outer pass
+    const tagName = sContentMatch[1].toLowerCase();
+    const contentStart = sContentMatch.index + sContentMatch[0].length;
+    let depth = 1;
+    let contentEnd = -1;
+    TAG_NAME_RE.lastIndex = contentStart;
+    let tagMatch: RegExpExecArray | null;
+    while ((tagMatch = TAG_NAME_RE.exec(result)) !== null) {
+      if (tagMatch[1].toLowerCase() !== tagName) continue;
+      if (tagMatch[0].startsWith('</')) {
+        depth--;
+        if (depth === 0) {
+          contentEnd = tagMatch.index;
+          break;
+        }
+      } else if (!tagMatch[0].endsWith('/>')) {
+        depth++;
+      }
     }
-  );
+    if (contentEnd === -1) continue; // unbalanced markup: leave it untouched
+    sContentNormalized += result.slice(sContentLastIdx, contentStart);
+    const content = result.slice(contentStart, contentEnd);
+    sContentNormalized += content.replace(ANY_TAG_RE, (innerTag: string) => {
+      const styleMatch = STYLE_ATTR_RE.exec(innerTag);
+      if (!styleMatch) return innerTag;
+      const classMatch = CLASS_ATTR_RE.exec(innerTag);
+      if (!classMatch || !hasClassToken(classMatch[2], ['item'])) return innerTag;
+      const declarations = dropPixelDeclarations(styleMatch[3]);
+      return declarations
+        ? innerTag.replace(styleMatch[0], `${styleMatch[1]}${styleMatch[2]}${declarations}${styleMatch[2]}`)
+        : innerTag.replace(styleMatch[0], '');
+    });
+    sContentLastIdx = contentEnd;
+  }
+  if (sContentLastIdx > 0) {
+    result = sContentNormalized + result.slice(sContentLastIdx);
+  }
 
   return result;
 }
@@ -175,7 +304,7 @@ export function sanitizeSectionMarkup(html: string): string {
   // 1. Synthesize declarative state/open/close toggle bindings BEFORE stripping reactive framework attributes
   let processed = html
     // :class="{ 'show': varName }" or :class="{ 'active': varName }" -> data-antifan-state="varName" data-antifan-class="show|active"
-    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+:class=(?:"([^"]*)"|'([^']*)')/gi, (match, openTag, expr1, expr2) => {
+    .replace(ALPINE_CLASS_BINDING_RE, (match, openTag, expr1, expr2) => {
       const expr = expr1 || expr2;
       const stateMatch = expr.match(/['"](show|active)['"]\s*:\s*([a-zA-Z0-9_$]+)/);
       if (stateMatch) {
@@ -186,42 +315,42 @@ export function sanitizeSectionMarkup(html: string): string {
       return openTag;
     })
     // @click="varName = true" or x-on:click="varName = true" -> data-antifan-open="varName"
-    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*true\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*true\s*')/gi, (match, openTag, v1, v2) => {
+    .replace(ALPINE_CLICK_OPEN_RE, (match, openTag, v1, v2) => {
       const id = v1 || v2;
       return `${openTag} data-antifan-open="${id}"`;
     })
     // @click="varName = false" or x-on:click="varName = false" -> data-antifan-close="varName"
-    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*')/gi, (match, openTag, v1, v2) => {
+    .replace(ALPINE_CLICK_CLOSE_RE, (match, openTag, v1, v2) => {
       const id = v1 || v2;
       return `${openTag} data-antifan-close="${id}"`;
     })
     // @click="varName = !varName" or x-on:click="varName = !varName" -> data-antifan-toggle="varName"
-    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click|x-on:click)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*!\s*\2\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*!\s*\3\s*')/gi, (match, openTag, v1, v2) => {
+    .replace(ALPINE_CLICK_TOGGLE_RE, (match, openTag, v1, v2) => {
       const id = v1 || v2;
       return `${openTag} data-antifan-toggle="${id}"`;
     })
     // x-show="varName" -> data-antifan-target="varName"
-    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+x-show\s*=\s*(?:"\s*([a-zA-Z0-9_$]+)\s*"|'\s*([a-zA-Z0-9_$]+)\s*')/gi, (match, openTag, p1, p2) => {
+    .replace(ALPINE_SHOW_RE, (match, openTag, p1, p2) => {
       const prop = p1 || p2;
       return `${openTag} data-antifan-target="${prop}"`;
     })
     // @click.outside="varName = false" or x-on:click.outside="varName = false" -> data-antifan-close="varName" data-antifan-outside="varName"
-    .replace(/(<[a-z0-9_\-]+(?:\s+[^>]*)?)\s+(?:@click\.outside|x-on:click\.outside)=(?:"\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*"|'\s*([a-zA-Z0-9_$]+)\s*=\s*false\s*')/gi, (match, openTag, p1, p2) => {
+    .replace(ALPINE_CLICK_OUTSIDE_RE, (match, openTag, p1, p2) => {
       const prop = p1 || p2;
       return `${openTag} data-antifan-close="${prop}" data-antifan-outside="${prop}"`;
     })
     // Strip captured inline display:none on data-antifan-target elements so parity rules govern display cleanly
-    .replace(/<[a-z0-9_\-]+(?:\s+[^>]*)?\s+data-antifan-target\s*=\s*["'][^"']+["'][^>]*>/gi, (tag) => {
-      return tag.replace(/(\sstyle\s*=\s*(["']))([\s\S]*?)\2/i, (_styleMatch, stylePrefix, q, styleContent) => {
-        const cleaned = styleContent.replace(/(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/gi, ';').replace(/^;+|;+$/g, '').trim();
+    .replace(ANTIFAN_TARGET_TAG_RE, (tag) => {
+      return tag.replace(STYLE_ATTR_INNER_RE, (_styleMatch, stylePrefix, q, styleContent) => {
+        const cleaned = styleContent.replace(DISPLAY_NONE_DECL_RE, ';').replace(EDGE_SEMICOLONS_RE, '').trim();
         return cleaned.length > 0 ? `${stylePrefix}${cleaned}${q}` : '';
       });
     });
 
   // 2. Reset transient in-flight slider/carousel transforms to neutral origin
   processed = processed
-    .replace(/(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translateX\(-?[0-9]+(?:\.[0-9]+)?px\)\s*;?/gi, '$1transform: translateX(0px);')
-    .replace(/(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translate3d\(-?[0-9]+(?:\.[0-9]+)?px,\s*0(?:px)?,\s*0(?:px)?\)\s*;?/gi, '$1transform: translate3d(0px, 0px, 0px);');
+    .replace(TRANSLATE_X_RE, '$1transform: translateX(0px);')
+    .replace(TRANSLATE_3D_RE, '$1transform: translate3d(0px, 0px, 0px);');
 
   // 3. Strip proven capture-time slider geometry and unwrap capture-time slick DOM
   processed = stripCaptureTimeSliderGeometry(processed);
@@ -229,30 +358,29 @@ export function sanitizeSectionMarkup(html: string): string {
   // Unwrap injected capture-time .slick-list and .slick-track, strip runtime classes/dots/clones
   // so static markup holds original slide children that client scripts (home.js) cleanly initialize
   processed = processed
-    .replace(/<ul\b[^>]*\bclass=["'][^"']*\bslick-dots\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/gi, '')
-    .replace(/<button\b[^>]*\bclass=["'][^"']*\bslick-(?:prev|next|arrow)\b[^"']*["'][^>]*>[\s\S]*?<\/button>/gi, '')
-    .replace(/<[a-z0-9_\-]+[^>]*\bclass=["'][^"']*\bslick-cloned\b[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9_\-]+>/gi, '');
+    .replace(SLICK_DOTS_RE, '')
+    .replace(SLICK_ARROWS_RE, '')
+    .replace(SLICK_CLONED_RE, '');
     // Balanced tag unwrapper for injected .slick-list and .slick-track, handling nested <div>s safely
-    const openerRegex = /<div\b[^>]*\bclass=["'][^"']*\bslick-list\b[^"']*["'][^>]*>\s*<div\b[^>]*\bclass=["'][^"']*\bslick-track\b[^"']*["'][^>]*>/gi;
+    SLICK_LIST_TRACK_OPENER_RE.lastIndex = 0;
     let slickMatch: RegExpExecArray | null;
     let slickLastIdx = 0;
     let slickUnwrapped = '';
-    while ((slickMatch = openerRegex.exec(processed)) !== null) {
+    while ((slickMatch = SLICK_LIST_TRACK_OPENER_RE.exec(processed)) !== null) {
       slickUnwrapped += processed.slice(slickLastIdx, slickMatch.index);
       const contentStart = slickMatch.index + slickMatch[0].length;
       let depth = 2;
       let trackEnd = -1;
       let listEnd = -1;
-      const tagRe = /<\/?div\b[^>]*>/gi;
-      tagRe.lastIndex = contentStart;
+      DIV_TAG_RE.lastIndex = contentStart;
       let tMatch: RegExpExecArray | null;
-      while ((tMatch = tagRe.exec(processed)) !== null) {
+      while ((tMatch = DIV_TAG_RE.exec(processed)) !== null) {
         if (tMatch[0].startsWith('</')) {
           depth--;
           if (depth === 1 && trackEnd === -1) {
             trackEnd = tMatch.index;
           } else if (depth === 0) {
-            listEnd = tagRe.lastIndex;
+            listEnd = DIV_TAG_RE.lastIndex;
             break;
           }
         } else if (!tMatch[0].endsWith('/>')) {
@@ -268,26 +396,26 @@ export function sanitizeSectionMarkup(html: string): string {
       }
     }
     processed = (slickLastIdx > 0 ? (slickUnwrapped + processed.slice(slickLastIdx)) : processed)
-      .replace(/\bclass=(["'])([^"']*)\1/gi, (m, quote, cls) => {
+      .replace(CLASS_ATTR_CLEANUP_RE, (m, quote, cls) => {
       const cleanedCls = cls
         .split(/\s+/)
         .filter((c: string) => !['slick-initialized', 'slick-slider', 'slick-dotted', 'slick-slide', 'slick-current', 'slick-active'].includes(c))
         .join(' ');
       return `class=${quote}${cleanedCls}${quote}`;
     })
-    .replace(/\s+data-slick-index=["'][^"']*["']/gi, '')
-    .replace(/\s+aria-describedby=["'][^"']*slick-slide[^"']*["']/gi, '');
+    .replace(DATA_SLICK_INDEX_RE, '')
+    .replace(SLICK_ARIA_DESCRIBEDBY_RE, '');
   // 4. Strip whole quote-aware bound attributes (:src, :data-src, x-bind:*, v-bind:*, @*, x-on:*, wire:*, x-*)
   // Bound attributes whose expression contains string literals must be matched in their entirety
   // so that expression bodies are never left behind as malformed text.
-  processed = processed.replace(/\s+(?:(?::|x-bind:|v-bind:|@|x-on:|wire:)[a-zA-Z0-9_\-\.:]+|x-(?:data|bind|on|show|model|transition|ref|init|cloak|html|text|teleport|for|if|effect|ignore)(?::[a-zA-Z0-9_\-\.]+)?)(?:=(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s>]+))?/gi, '');
+  processed = processed.replace(BOUND_ATTR_RE, '');
 
   // 5. Remove any lingering remote network URLs from data-src or src on iframe and media elements
-  processed = processed.replace(/\s+data-src=["'][^"']*(?:youtube\.com|youtu\.be|google\.com\/maps)[^"']*["']/gi, '');
-  processed = processed.replace(/(<iframe\b[^>]*?)\s+src=["'][^"']*(?:youtube\.com|youtu\.be|google\.com\/maps)[^"']*["']/gi, (_m, p1) => p1);
-  processed = processed.replace(/(<iframe\b[^>]*?)\s+src=["']['"]/gi, (_m, p1) => p1 + ' src="about:blank"');
-  processed = processed.replace(/<iframe\b([^>]*?)>/gi, (m, attrs) => {
-    if (!/\ssrc=/i.test(attrs)) {
+  processed = processed.replace(REMOTE_DATA_SRC_RE, '');
+  processed = processed.replace(REMOTE_IFRAME_SRC_RE, (_m, p1) => p1);
+  processed = processed.replace(EMPTY_IFRAME_SRC_RE, (_m, p1) => p1 + ' src="about:blank"');
+  processed = processed.replace(IFRAME_TAG_RE, (m, attrs) => {
+    if (!IFRAME_SRC_TEST_RE.test(attrs)) {
       return `<iframe${attrs} src="about:blank">`;
     }
     return m;
@@ -295,21 +423,21 @@ export function sanitizeSectionMarkup(html: string): string {
 
   // 6. Strip inert framework, tracker, and dead third-party widget shells
   return processed
-    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
-    .replace(/<!--\[if (?:END)?BLOCK\]>[\s\S]*?<!\[endif\]-->/gi, '')
-    .replace(/<!--\s*Livewire Component:[\s\S]*?-->/gi, '')
-    .replace(/\s+data-(?:update-uri|navigate-once|navigate-[a-zA-Z0-9_\-]+|livewire(?:-[a-zA-Z0-9_\-]+)?|csrf)(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
-    .replace(/<input\s+[^>]*name=["'](?:_token|authenticity_token|csrf[-_]token)["'][^>]*\/?>/gi, '')
-    .replace(/<meta\s+[^>]*(?:name|property)=["'](?:csrf[-_]token|csrf-param|_token)["'][^>]*\/?>/gi, '')
-    .replace(/<script\b[^>]*\b(?:data-csrf|data-update-uri|data-navigate-once)\b[^>]*>(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
-    .replace(/<script\b[^>]*src=["'][^"']*(?:livewire|googletagmanager|google-analytics|analytics\.js|gtag|clarity|tawk|twk-chunk|twk-|emojione|connect\.facebook\.net|gtm\.js|1hiir2bkg|js\.js)[^"']*["'][^>]*>(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
-    .replace(/<script\b[^>]*>(?:(?!<\/script>)[\s\S])*?(?:Tawk_API|Tawk_|tawk\.to|gtag\(|dataLayer\.push|fbq\(|clarity\(|googletagmanager|Livewire\b|livewire_token|window\.livewire)(?:(?!<\/script>)[\s\S])*?<\/script>/gi, '')
-    .replace(/<div\b[^>]*id=["'](?:x2err|tawk|twk|subiz|vchat|fb-root|zalo)[^"']*["'][^>]*>(?:(?!<\/div>)[\s\S])*?<\/div>/gi, '')
-    .replace(/<div\b[^>]*\bstyle=["'][^"']*(?:z-index:\s*999999|z-index:\s*99999|display:\s*block\s*!important)[^"']*["'][^>]*>(?:(?!<\/?div\b)[\s\S])*?<iframe\b[^>]*>(?:(?!<\/?div\b)[\s\S])*?<\/div>/gi, '')
-    .replace(/<iframe\b[^>]*(?:googletagmanager|recaptcha|google\.com\/recaptcha|facebook\.com\/plugins|tawk|title=["']chat widget["']|Microsoft\.Alpha\(Opacity 1\}\)|outline:none\s*!important)[^>]*>(?:(?!<\/iframe>)[\s\S])*?<\/iframe>/gi, '')
-    .replace(/<link\b[^>]*\brel=["'](?:profile|dns-prefetch|preconnect|pingback)["'][^>]*\/?>/gi, '')
-    .replace(/<style\b[^>]*>(?:(?!<\/style>)[\s\S])*?(?:tawk|twk|#x2err|Microsoft\.Alpha\(Opacity 1\}\)|tawkMaxOpen)(?:(?!<\/style>)[\s\S])*?<\/style>/gi, '')
-    .replace(/<img\b[^>]*>/gi, (tag) => promoteLazyLoadTarget(tag));
+    .replace(NOSCRIPT_RE, '')
+    .replace(IF_BLOCK_COMMENT_RE, '')
+    .replace(LIVEWIRE_COMMENT_RE, '')
+    .replace(FRAMEWORK_DATA_ATTRS_RE, '')
+    .replace(CSRF_INPUT_RE, '')
+    .replace(CSRF_META_RE, '')
+    .replace(CSRF_SCRIPT_RE, '')
+    .replace(TRACKER_SCRIPT_SRC_RE, '')
+    .replace(TRACKER_INLINE_SCRIPT_RE, '')
+    .replace(TRACKER_DIV_RE, '')
+    .replace(TRACKER_WRAPPER_DIV_RE, '')
+    .replace(TRACKER_IFRAME_RE, '')
+    .replace(TRACKER_LINK_RE, '')
+    .replace(TRACKER_STYLE_RE, '')
+    .replace(IMG_TAG_RE, (tag) => promoteLazyLoadTarget(tag));
 }
 
 /**
@@ -333,7 +461,7 @@ export function localizeSameOriginReferences(html: string, sourceBaseUrl: string
   const originPattern = `(?:https?:)?//${hostPattern}(?::\\d+)?`;
 
   const attributePattern = new RegExp(
-    `(\\s(?:href|src|action|poster|data-src|data-bg|data-href|title|aria-label)\\s*=\\s*)(["'])\\s*${originPattern}(/[^"']*)?\\2`,
+    `(\\s(?:href|src|action|poster|data-src|data-bg|data-href)\\s*=\\s*)(["'])\\s*${originPattern}(/[^"']*)?\\2`,
     'gi'
   );
   const srcsetPattern = new RegExp(`(\\ssrcset\\s*=\\s*)(["'])([^"']*)\\2`, 'gi');
@@ -359,26 +487,26 @@ export function localizeSameOriginReferences(html: string, sourceBaseUrl: string
  * carries its real source is never rewritten.
  */
 function promoteLazyLoadTarget(tag: string): string {
-  let out = tag.replace(/\sloading\s*=\s*(?:"lazy"|'lazy'|lazy)/gi, ' loading="eager"');
+  let out = tag.replace(IMG_LAZY_LOADING_RE, ' loading="eager"');
   const attrValue = (name: string): string | null => {
-    const match = out.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i'));
+    const match = out.match(IMG_ATTR_VALUE_RE[name]);
     if (!match) return null;
     return match[1] !== undefined ? match[1] : match[2];
   };
   const isPlaceholder = (value: string | null): boolean =>
-    value === null || value.trim() === '' || /^data:/i.test(value.trim());
+    value === null || value.trim() === '' || DATA_URI_TEST_RE.test(value.trim());
 
   const deferredSrc = attrValue('data-src') || attrValue('data-lazy-src') || attrValue('data-lazy');
   if (deferredSrc && isPlaceholder(attrValue('src'))) {
     out = attrValue('src') === null
-      ? out.replace(/<img/i, `<img src="${deferredSrc}"`)
-      : out.replace(/(\ssrc\s*=\s*)(?:"[^"]*"|'[^']*')/i, `$1"${deferredSrc}"`);
+      ? out.replace(IMG_TAG_NAME_RE, `<img src="${deferredSrc}"`)
+      : out.replace(IMG_SRC_REPLACE_RE, `$1"${deferredSrc}"`);
   }
   const deferredSrcset = attrValue('data-srcset');
   if (deferredSrcset && isPlaceholder(attrValue('srcset'))) {
     out = attrValue('srcset') === null
-      ? out.replace(/<img/i, `<img srcset="${deferredSrcset}"`)
-      : out.replace(/(\ssrcset\s*=\s*)(?:"[^"]*"|'[^']*')/i, `$1"${deferredSrcset}"`);
+      ? out.replace(IMG_TAG_NAME_RE, `<img srcset="${deferredSrcset}"`)
+      : out.replace(IMG_SRCSET_REPLACE_RE, `$1"${deferredSrcset}"`);
   }
   return out;
 }
@@ -1750,12 +1878,6 @@ ${options.customInteractivityJs ? `\n    /* Custom User / Theme Interactivity */
     if (hasVideoPopup) {
       cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b[^>]*)\s*(data-src=""|data-src="(?:\s*)")([^>]*>)/gi, '$1$3');
       cleaned = cleaned.replace(/(<div id="popup-video"[^>]*?)\s+style="[^"]*"/gi, '$1');
-      cleaned = cleaned.replace(/(<div id="popup-video"[\s\S]*?<iframe\b)([^>]*>)/gi, (m, prefix, attrs) => {
-        if (!/\bdata-src=["'][^"']+["']/i.test(attrs)) {
-          return `${prefix} data-src="https://www.youtube.com/embed/Nt2J6ZXPuw0"${attrs}`;
-        }
-        return m;
-      });
     }
     if (hasLoginPopup) {
       cleaned = cleaned.replace(/(<div id="popup-login"[^>]*?)\s+style="[^"]*"/gi, '$1');
