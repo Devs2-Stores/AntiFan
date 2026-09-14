@@ -7,6 +7,7 @@
 import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net, session, safeStorage } from 'electron';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
+import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
@@ -3773,6 +3774,17 @@ export class NativeTabHost extends EventEmitter {
       const isTargetCrashed = !isTargetDestroyed && (target.state.crashed === true || (typeof target.view.webContents.isCrashed === 'function' && target.view.webContents.isCrashed()));
       if (isTargetDestroyed || isTargetCrashed) {
         console.warn(`[native-tab-host] Target tab ${targetId} webContents is ${isTargetCrashed ? 'crashed' : 'destroyed'}; recreating view`);
+        // Release the previous view before replacing it. A crashed renderer leaves its
+        // WebContentsView attached to the window, holding a renderer, forever: the
+        // detach sweep below walks `this.tabs` and never destroys, so nothing else
+        // would ever free this one. The window can be narrower than the renderer's
+        // appetite, so leaking one view per crash compounds.
+        try {
+          if (this.window && !this.window.isDestroyed() && target.view && this.window.contentView.children.includes(target.view)) {
+            this.window.contentView.removeChildView(target.view);
+          }
+        } catch {}
+        try { this.destroyOwnedWebContents(target.view?.webContents); } catch {}
         target.view = new WebContentsView({
           webPreferences: getSecureWebPreferences(target.state.partition),
         });
@@ -3862,6 +3874,31 @@ export class NativeTabHost extends EventEmitter {
             }
           }
         }
+        // Orphan sweep: a view that no tab record owns any more — a tab whose view was
+        // replaced, or an entry dropped from `this.tabs` — stays in contentView.children
+        // forever and keeps its renderer alive. Walk the real child list instead of
+        // `this.tabs`. Detach rather than destroy: a view this code cannot attribute
+        // could still belong to a shell surface added elsewhere, and detaching is the
+        // reversible half that also makes the leak countable.
+        const ownedViews = new Set<unknown>();
+        for (const ownedTab of this.tabs.values()) {
+          if (ownedTab.view) ownedViews.add(ownedTab.view);
+          if (ownedTab.mobileView) ownedViews.add(ownedTab.mobileView);
+        }
+        for (const shellView of [this.toolbarView, this.sidebarView, this.frameBackdropView]) {
+          if (shellView) ownedViews.add(shellView);
+        }
+        let orphanViewCount = 0;
+        for (const child of Array.from(this.window.contentView.children)) {
+          if (ownedViews.has(child)) continue;
+          orphanViewCount += 1;
+          try { this.window.contentView.removeChildView(child); } catch {}
+        }
+        if (orphanViewCount > 0) {
+          console.warn(`[native-tab-host] Detached ${orphanViewCount} view(s) that no tab or shell surface owns`);
+          recordLifecycleEvent('tabhost.orphanViewsDetached', { count: orphanViewCount, activeTabId: targetId });
+        }
+
         // Assert target view is attached after inactive clean-up
         if (target.view && !this.isTabViewAttached(target.view)) {
           try { this.window.contentView.addChildView(target.view); } catch {}
