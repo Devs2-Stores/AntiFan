@@ -401,8 +401,6 @@ async function run() {
     // Consolidation rewrites an absorbed request's filename in place, so the file a request now
     // names is the file its bytes live in. The first request naming a file owns that file's
     // provenance row; every later request naming the same file was consolidated into it and is
-    // recorded as absorbed. Without this the receipt lists one file twice and claims the file
-    // duplicates itself.
     if (seenFilenames.has(item.filename)) {
       absorbedRequests.push({
         filename: item.filename,
@@ -491,7 +489,9 @@ async function run() {
       })),
       consolidation: {
         physicalDeletions: consolidation.consolidated,
-        freedBytes: consolidation.freedBytes
+        freedBytes: consolidation.freedBytes,
+        freedBytesFormatted: `${(consolidation.freedBytes / (1024 * 1024)).toFixed(2)} MB`,
+        canonicalGroupsCount: consolidation.groups ? consolidation.groups.length : 0
       },
       assetMap,
       provenance: assetProvenance,
