@@ -27,6 +27,7 @@ export interface CoreStorePort {
   revoke(opts: Record<string, unknown>): unknown;
   snapshot(note?: string): unknown;
   rollback(releaseId: string): unknown;
+  resolveConflict(opts: Record<string, unknown>): unknown;
   // v4
   recordExperienceNode(opts: Record<string, unknown>): unknown;
   recordExperienceEdge(opts: Record<string, unknown>): unknown;
@@ -95,8 +96,9 @@ export function createLazyCorePort(): CoreStorePort {
     domain: (n) => load().domain(n),
     invalidate: (o) => load().invalidate(o),
     revoke: (o) => load().revoke(o),
-    snapshot: (n) => load().snapshot(n),
     rollback: (r) => load().rollback(r),
+    snapshot: (n) => load().snapshot(n),
+    resolveConflict: (o) => load().resolveConflict(o),
     // v4
     recordExperienceNode: (o) => load().recordExperienceNode(o),
     recordExperienceEdge: (o) => load().recordExperienceEdge(o),
@@ -316,7 +318,7 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
 
   reg('core.resolve_conflict', 'Resolve or classify a conflict (GENERAL_RULE, CONTEXTUAL_RULE, LEGACY_RULE, EXCEPTION, CONFLICTED, UNRESOLVED).',
     { type: 'object', properties: { id: { type: 'string' }, classification: { type: 'string', enum: ['GENERAL_RULE', 'CONTEXTUAL_RULE', 'LEGACY_RULE', 'EXCEPTION', 'CONFLICTED', 'UNRESOLVED'] }, note: { type: 'string' }, resolved: { type: 'boolean' } }, required: ['id', 'classification'] },
-    WRITE_POLICY, (p: Record<string, unknown>) => (core as unknown as { resolveConflict: (o: Record<string, unknown>) => unknown }).resolveConflict(p));
+    WRITE_POLICY, (p: Record<string, unknown>) => core.resolveConflict(p));
   reg('core.domain', 'Return a domain view (units, claims, eligible skills, gaps) or insufficient-evidence.',
     { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
     READ_POLICY, (p: { name: string }) => core.domain(p.name));

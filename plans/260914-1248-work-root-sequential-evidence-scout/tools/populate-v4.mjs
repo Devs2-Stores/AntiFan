@@ -8,7 +8,7 @@ import path from 'node:path';
 const require = createRequire(path.join(process.cwd(), 'package.json'));
 const { openCore } = require('./packages/super-core/dist/index.js');
 
-const core = openCore('.super-core/core.db');
+const core = openCore(process.env.SUPER_CORE_DB ?? '.super-core/core.db');
 const db = core.db; // runtime-accessible handle for reads, transaction, and observations inserts
 const now = () => new Date().toISOString();
 
@@ -31,6 +31,19 @@ const seen = {
   hiddenRequirements: new Set(), commercialIntel: new Set(), toolIntel: new Set(),
   platformSemantics: new Set(), observations: new Set(),
 };
+// Cross-run idempotency: seed `seen` with keys already in the DB so a re-run
+// inserts nothing instead of doubling rows. Keys mirror the per-case dedup
+// keys used below.
+for (const r of db.prepare('SELECT name FROM anti_patterns').all()) seen.antiPatterns.add(r.name);
+for (const r of db.prepare('SELECT lesson FROM fix_patterns').all()) seen.fixPatterns.add(r.lesson);
+for (const r of db.prepare('SELECT statement FROM principles').all()) seen.principles.add(r.statement);
+for (const r of db.prepare('SELECT inferredReq FROM hidden_requirements').all()) seen.hiddenRequirements.add(r.inferredReq);
+for (const r of db.prepare('SELECT scope FROM commercial_intel').all()) seen.commercialIntel.add(r.scope);
+for (const r of db.prepare('SELECT name, problemSolved FROM tool_intel').all()) seen.toolIntel.add(`${r.name}|${String(r.problemSolved ?? '').replace(/ \[claim:[^\]]+\]$/, '')}`);
+for (const r of db.prepare('SELECT platform, semanticTruth FROM platform_semantics').all()) seen.platformSemantics.add(`${r.platform}|${r.semanticTruth}`);
+for (const r of db.prepare('SELECT payload FROM observations').all()) {
+  try { seen.observations.add(JSON.parse(r.payload).statement); } catch {}
+}
 
 const REQUIREMENT_RE = /must|never|required|bắt buộc|không được/i;
 const MARKERS_RE = /^platform markers observed:\s*(.+)$/;
