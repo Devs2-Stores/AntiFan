@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-09-14T15:45:29.189Z",
+  "generatedAt": "2026-09-15T11:15:58.090Z",
   "deltaTruncated": false,
-  "affectedUnits": 3,
-  "addedRegistered": 589,
+  "affectedUnits": 15,
+  "addedRegistered": 7918,
   "staleClaims": 0,
-  "reanalyzed": 3,
+  "reanalyzed": 15,
   "note": "full delta applied"
 }
