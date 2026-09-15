@@ -88,6 +88,7 @@ function persistTerminalTabPrefs() {
       layout: terminalTabLayout,
       sidebarWidth: terminalSidebarWidth,
       collapsedCategories: Array.from(collapsedCategories),
+      categories: terminalCategories.slice(),
     });
     if (result && typeof result.then === 'function') {
       result
@@ -97,6 +98,10 @@ function persistTerminalTabPrefs() {
             // older/partial reply cannot wipe the local collapse state.
             if (Array.isArray(applied.collapsedCategories)) {
               applyCollapsedCategories(applied.collapsedCategories);
+              if (typeof renderTabs === 'function') renderTabs();
+            }
+            if (Array.isArray(applied.categories)) {
+              applyCategories(applied.categories);
               if (typeof renderTabs === 'function') renderTabs();
             }
             applyTerminalTabLayout(applied.layout, applied.sidebarWidth);
@@ -247,6 +252,14 @@ const SPLIT_TERMINAL_FRACTION = 0.2;
 // ---------------------------------------------------------------------------
 const UNCATEGORIZED_CATEGORY = '__uncategorized__';
 const UNCATEGORIZED_CATEGORY_LABEL = 'Chưa phân nhóm';
+/**
+ * A state bucket, not a real category. Every sleeping session is presented here
+ * instead of inside its own group, so an asleep tab is never mixed into a list of
+ * live ones. It is never a drop target and is never renamed: it is derived from
+ * `session.state`, so it cannot be created, typed into or filed under by hand.
+ */
+const SLEEPING_CATEGORY = '__sleeping__';
+const SLEEPING_CATEGORY_LABEL = 'Đang ngủ';
 const CATEGORY_CHIP_COLORS = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb7185', '#22d3ee', '#f472b6', '#84cc16'];
 const categoryHeaders = new Map();
 /** Sticky order of category keys: a header keeps the slot it first appeared in. */
@@ -279,6 +292,36 @@ function applyCollapsedCategories(list) {
   }
 }
 
+/**
+ * User-managed group names, in display order. This is the renderer's mirror of
+ * `TerminalTabPrefs.categories`.
+ *
+ * Grouping is otherwise *derived* from `session.category`, which cannot represent a
+ * group with no tabs in it. This list is what lets a named group exist — and survive
+ * a restart — while empty, which is why creating a group has to be its own operation
+ * rather than a side effect of filing a tab.
+ */
+let terminalCategories = [];
+
+/** Replace the group list with the values main persisted or echoed back. */
+function applyCategories(list) {
+  if (!Array.isArray(list)) return;
+  const out = [];
+  const seen = new Set();
+  for (const entry of list) {
+    if (typeof entry !== 'string') continue;
+    const name = entry.trim();
+    if (!name) continue;
+    // Case-insensitive de-dupe, mirroring the main process: two names differing
+    // only in case would otherwise paint two headers for one group.
+    const folded = name.toLowerCase();
+    if (seen.has(folded)) continue;
+    seen.add(folded);
+    out.push(name);
+  }
+  terminalCategories = out;
+}
+
 function categoryKeyOf(session) {
   const raw = session && typeof session.category === 'string' ? session.category.trim() : '';
   return raw || UNCATEGORIZED_CATEGORY;
@@ -307,6 +350,25 @@ function categoryColorOf(key) {
 function groupSessionsByCategory(list) {
   const groups = [];
   const byKey = new Map();
+  // User-created groups seed the list first, in their own order, and are emitted even
+  // with no tabs in them: `session.category` alone cannot represent an empty group,
+  // and a group the user created has to stay visible whether or not anything is
+  // currently filed under it.
+  for (const name of terminalCategories) {
+    if (byKey.has(name)) continue;
+    const seeded = { key: name, label: name, color: categoryColorOf(name), items: [] };
+    byKey.set(name, seeded);
+    groups.push(seeded);
+    if (!categoryOrder.includes(name)) {
+      // A group created at runtime must land with the real groups, not below the
+      // "Chưa phân nhóm" catch-all — which already holds a slot by the time the user
+      // creates one. Inserting in front of that slot leaves every existing key exactly
+      // where it was, so the sticky order still holds for everything already on screen.
+      const uncategorizedAt = categoryOrder.indexOf(UNCATEGORIZED_CATEGORY);
+      if (uncategorizedAt === -1) categoryOrder.push(name);
+      else categoryOrder.splice(uncategorizedAt, 0, name);
+    }
+  }
   for (const s of (list || [])) {
     const key = categoryKeyOf(s);
     let group = byKey.get(key);
@@ -2005,6 +2067,97 @@ if (btnNewTerminal) {
   };
 }
 
+/**
+ * A vector icon as an inline SVG string. Icons are deliberately NOT built with
+ * `document.createElementNS`: the renderer test harness stubs `createElement` only, so
+ * an unstubbed `createElementNS` would throw at load and take every renderer test with
+ * it. `innerHTML` parses this into real SVG in Electron, and the markup inherits
+ * `currentColor`, so an icon themes with whatever button owns it.
+ */
+function iconSvg(paths, sizePx) {
+  const size = sizePx || 14;
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
+}
+
+const ICON_PLUS = '<path d="M12 5v14"/><path d="M5 12h14"/>';
+const ICON_LAYERS = '<path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 14l9 5 9-5"/>';
+const ICON_SEARCH = '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>';
+const ICON_CLOSE = '<path d="M6 6l12 12"/><path d="M18 6 6 18"/>';
+
+// The strip's header row: the search field takes the free width, and the two create
+// actions sit on its right, so the affordances read as one deliberate row instead of
+// two stacked full-width blocks.
+const tabToolbar = document.createElement('div');
+tabToolbar.className = 'terminal-tab-toolbar';
+
+const tabSearchInput = document.createElement('input');
+tabSearchInput.type = 'search';
+tabSearchInput.className = 'terminal-tab-search-input';
+tabSearchInput.placeholder = 'Tìm tab…';
+tabSearchInput.setAttribute('aria-label', 'Tìm terminal theo tên, thư mục hoặc nhóm');
+tabSearchInput.spellcheck = false;
+tabSearchInput.autocomplete = 'off';
+
+const btnClearTabSearch = document.createElement('button');
+btnClearTabSearch.type = 'button';
+btnClearTabSearch.className = 'terminal-tab-search-clear';
+btnClearTabSearch.innerHTML = iconSvg(ICON_CLOSE, 12);
+btnClearTabSearch.title = 'Xoá tìm kiếm (Esc)';
+btnClearTabSearch.setAttribute('aria-label', 'Xoá tìm kiếm');
+btnClearTabSearch.onclick = (e) => {
+  e.stopPropagation();
+  setTabSearchQuery('');
+  try { tabSearchInput.focus(); } catch {}
+};
+
+const tabSearchField = document.createElement('div');
+tabSearchField.className = 'terminal-tab-search';
+const tabSearchIcon = document.createElement('span');
+tabSearchIcon.className = 'terminal-tab-search-icon';
+tabSearchIcon.innerHTML = iconSvg(ICON_SEARCH, 13);
+tabSearchField.append(tabSearchIcon, tabSearchInput, btnClearTabSearch);
+
+// Group management is a first-class action, not a right-click on a tab: an empty group
+// has no tab to right-click, which is exactly the case this control exists for.
+const btnNewCategory = document.createElement('button');
+btnNewCategory.type = 'button';
+btnNewCategory.id = 'btnNewCategory';
+btnNewCategory.className = 'terminal-tab-new-category';
+btnNewCategory.innerHTML = iconSvg(ICON_LAYERS, 14);
+btnNewCategory.title = 'Tạo nhóm mới (nhóm rỗng vẫn được giữ lại)';
+btnNewCategory.setAttribute('aria-label', 'Tạo nhóm mới');
+btnNewCategory.onclick = (e) => {
+  e.stopPropagation();
+  startNewCategory(btnNewCategory);
+};
+
+// `#btnNewTerminal` is declared in standalone.html as the strip's first child; it moves
+// into this row so the search field can take the remaining width.
+tabToolbar.append(tabSearchField, btnNewTerminal, btnNewCategory);
+if (tabsEl) tabsEl.insertBefore(tabToolbar, tabsEl.firstChild);
+
+tabSearchInput.addEventListener('input', () => {
+  tabSearchQuery = tabSearchInput.value;
+  renderTabs();
+  updateTabSearchUi();
+});
+tabSearchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    setTabSearchQuery('');
+    tabSearchInput.blur();
+  } else if (e.key === 'Enter' && tabSearchActive) {
+    e.preventDefault();
+    // A search is also a switcher: Enter opens the first tab that survived the filter.
+    const first = tabsEl.querySelector('.terminal-tab-wrap');
+    const sid = first ? first.getAttribute('data-session-id') : '';
+    if (sid) {
+      api?.switchTerminal(sid);
+      tabSearchInput.blur();
+    }
+  }
+});
+
 function getSplitGeometry() {
   const divider = document.getElementById('terminal-divider');
   const dividerHeight = divider?.offsetHeight || 7;
@@ -2352,6 +2505,11 @@ async function updateAffinityBadges() {
 async function showAffinityPicker(sessionId, anchorEl) {
   const popover = document.getElementById('affinityPickerPopover');
   if (!popover || !api?.getTabs) return;
+  // A sleeping session has no PTY, so a browser tab bound to it has nowhere to send
+  // input. Writing that mapping would plant an affinity that cannot be honoured, so
+  // the picker refuses outright rather than collecting a binding that is already
+  // wrong. Wake the tab first (its first keystroke does it), then bind.
+  if (isSessionSleeping(sessionId)) return;
 
   const tabs = await api.getTabs();
   const currentAffinity = api.getTerminalAffinity ? await api.getTerminalAffinity(sessionId) : undefined;
@@ -2597,7 +2755,9 @@ function showCategoryPicker(sessionId, anchorEl) {
   popover.appendChild(input);
 
   // Reuse categories already in use so grouping stays consistent and typo-free.
-  const known = [];
+  // Explicitly created groups are offered too, even when empty: otherwise a group
+  // that exists only in the registry could never be assigned from here.
+  const known = terminalCategories.slice();
   for (const s of (Array.isArray(sessions) ? sessions : [])) {
     const c = (s && typeof s.category === 'string') ? s.category.trim() : '';
     if (c && !known.includes(c)) known.push(c);
@@ -2670,9 +2830,15 @@ function showCategoryPicker(sessionId, anchorEl) {
 function applyCategoryToSession(sessionId, rawCategory, popover) {
   const category = typeof rawCategory === 'string' ? rawCategory.trim() : '';
   if (popover) popover.style.display = 'none';
+  // A name typed here becomes a durable group, not just a value on one tab, so it is
+  // registered in the group list as well and survives that tab being closed.
+  const isNewName = Boolean(category)
+    && !terminalCategories.some((name) => name.toLowerCase() === category.toLowerCase());
+  if (isNewName) terminalCategories.push(category);
   const session = findSession(sessionId);
   if (session) session.category = category || undefined;
   if (typeof renderTabs === 'function') renderTabs();
+  if (isNewName) persistTerminalTabPrefs();
   try {
     api?.setCategory?.(sessionId, category || undefined);
   } catch {}
@@ -3238,7 +3404,33 @@ function ensureCategoryHeader(group) {
     const count = document.createElement('span');
     count.className = 'terminal-tab-category-count';
 
-    header.append(toggle, label, count);
+    // Renaming and dropping are different rights, so they get different guards.
+    // Neither bucket can be renamed: the catch-all has no name to change, and the sleep
+    // bucket's name is a state, not a category. Dropping is the opposite — releasing a
+    // tab onto the catch-all is precisely how a tab leaves its group, so only the sleep
+    // bucket refuses drops, because "file this tab under a state" is not an operation
+    // that exists.
+    const canRename = group.key !== UNCATEGORIZED_CATEGORY && group.key !== SLEEPING_CATEGORY;
+    const canAcceptDrop = group.key !== SLEEPING_CATEGORY;
+
+    // A rename affordance owned by the header itself: renaming a group is its own
+    // operation and must not require right-clicking a tab.
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'terminal-tab-category-rename';
+    rename.textContent = '✎';
+    rename.title = 'Đổi tên nhóm';
+    rename.setAttribute('aria-label', 'Đổi tên nhóm');
+    // `stopPropagation` so renaming never also toggles the collapse underneath it.
+    rename.onclick = (e) => {
+      e.stopPropagation();
+      const key = header.getAttribute('data-category');
+      if (key && key !== UNCATEGORIZED_CATEGORY) beginRenameCategory(key);
+    };
+
+    header.append(toggle, label);
+    if (canRename) header.append(rename);
+    header.append(count);
     header.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleCategoryCollapsed(group.key);
@@ -3247,30 +3439,33 @@ function ensureCategoryHeader(group) {
 
     // Drop target for a dragged tab. The key is read back from the live attribute
     // rather than the captured `group` object: the header element is reused across
-    // renders per key, so a captured object could be stale.
-    header.addEventListener('dragover', (e) => {
-      if (!dragSourceSessionId) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      header.classList.add('drag-over');
-    });
-    header.addEventListener('dragleave', () => {
-      header.classList.remove('drag-over');
-    });
-    header.addEventListener('drop', (e) => {
-      e.preventDefault();
-      header.classList.remove('drag-over');
-      // `findSession` rejects a foreign payload (a file path, a URL), so only a
-      // drag of a real tab can ever change a category.
-      const sourceId = e.dataTransfer.getData('text/plain');
-      const session = sourceId ? findSession(sourceId) : null;
-      if (!session) return;
-      const key = header.getAttribute('data-category') || UNCATEGORIZED_CATEGORY;
-      const target = key === UNCATEGORIZED_CATEGORY ? '' : key;
-      // Already in this group: no IPC round-trip and no disk write.
-      if ((session.category || '') === target) return;
-      applyCategoryToSession(sourceId, target, null);
-    });
+    // renders per key, so a captured object could be stale. The sleep bucket gets no
+    // drop handlers at all, so no drag can ever write a state as a category.
+    if (canAcceptDrop) {
+      header.addEventListener('dragover', (e) => {
+        if (!dragSourceSessionId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        header.classList.add('drag-over');
+      });
+      header.addEventListener('dragleave', () => {
+        header.classList.remove('drag-over');
+      });
+      header.addEventListener('drop', (e) => {
+        e.preventDefault();
+        header.classList.remove('drag-over');
+        // `findSession` rejects a foreign payload (a file path, a URL), so only a
+        // drag of a real tab can ever change a category.
+        const sourceId = e.dataTransfer.getData('text/plain');
+        const session = sourceId ? findSession(sourceId) : null;
+        if (!session) return;
+        const key = header.getAttribute('data-category') || UNCATEGORIZED_CATEGORY;
+        const target = key === UNCATEGORIZED_CATEGORY ? '' : key;
+        // Already in this group: no IPC round-trip and no disk write.
+        if ((session.category || '') === target) return;
+        applyCategoryToSession(sourceId, target, null);
+      });
+    }
 
     categoryHeaders.set(group.key, header);
   }
@@ -3281,7 +3476,9 @@ function ensureCategoryHeader(group) {
   const countText = String(group.items.length);
   if (count && count.textContent !== countText) count.textContent = countText;
 
-  const isCollapsed = collapsedCategories.has(group.key);
+  // While a filter is applied every surviving group is shown open: a collapsed group
+  // hiding the very match the user just searched for would look like a failed search.
+  const isCollapsed = collapsedCategories.has(group.key) && !tabSearchActive;
   header.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
   header.title = isCollapsed
     ? `Mở nhóm ${group.label} (${group.items.length} tab)`
@@ -3296,12 +3493,158 @@ function toggleCategoryCollapsed(key) {
   renderTabs();
 }
 
+/**
+ * The shared name popover for a group-level operation, anchored to the control the
+ * user clicked. Reuses the category-picker element so only one name surface can ever
+ * be open, and drops any stale per-session binding it carried.
+ */
+function promptCategoryName(anchorEl, options) {
+  const popover = document.getElementById('categoryPickerPopover');
+  if (!popover) return;
+  const opts = options || {};
+  popover.innerHTML = '';
+  // Not a per-session action, so a leftover session binding must not linger.
+  popover.removeAttribute('data-active-session-id');
+
+  const header = document.createElement('div');
+  header.className = 'terminal-category-picker-header';
+  header.textContent = opts.title || 'Tên nhóm';
+  popover.appendChild(header);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'terminal-category-picker-input';
+  input.placeholder = opts.placeholder || 'Tên nhóm… (Enter để lưu)';
+  input.value = typeof opts.initial === 'string' ? opts.initial : '';
+  input.spellcheck = false;
+  popover.appendChild(input);
+
+  if (opts.hint) {
+    const hint = document.createElement('div');
+    hint.className = 'terminal-category-picker-hint';
+    hint.textContent = opts.hint;
+    popover.appendChild(hint);
+  }
+
+  const submit = () => {
+    const value = input.value.trim();
+    popover.style.display = 'none';
+    if (typeof opts.onSubmit === 'function') opts.onSubmit(value);
+  };
+
+  const confirm = document.createElement('div');
+  confirm.className = 'terminal-category-picker-item confirm';
+  confirm.textContent = '✓ Lưu (Enter)';
+  confirm.onclick = (ev) => {
+    ev.stopPropagation();
+    submit();
+  };
+  popover.appendChild(confirm);
+
+  input.addEventListener('click', (e) => e.stopPropagation());
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      popover.style.display = 'none';
+    }
+  });
+
+  const rect = (anchorEl && typeof anchorEl.getBoundingClientRect === 'function')
+    ? anchorEl.getBoundingClientRect()
+    : { left: 10, bottom: 10 };
+  popover.style.display = 'block';
+  popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 240, rect.left))}px`;
+  popover.style.top = `${rect.bottom + 4}px`;
+
+  const closeHandler = (e) => {
+    if (!popover.contains(e.target) && e.target !== anchorEl) {
+      popover.style.display = 'none';
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeHandler), 10);
+  try { input.focus(); } catch {}
+}
+
+/**
+ * Create an empty group. The name is registered before any tab joins it, which is the
+ * whole point: the persisted group list is the only thing that can hold a group with
+ * no tabs in it.
+ */
+function startNewCategory(anchorEl) {
+  promptCategoryName(anchorEl, {
+    title: 'Tạo nhóm mới',
+    placeholder: 'Tên nhóm mới… (Enter để tạo)',
+    hint: 'Nhóm rỗng vẫn được giữ lại. Kéo tab vào header để xếp vào nhóm.',
+    onSubmit: (value) => {
+      if (!value) return;
+      const folded = value.toLowerCase();
+      // Idempotent rather than a silent duplicate header.
+      if (terminalCategories.some((name) => name.toLowerCase() === folded)) return;
+      terminalCategories.push(value);
+      persistTerminalTabPrefs();
+      renderTabs();
+    },
+  });
+}
+
+/**
+ * Rename a group, or delete it when the new name is empty.
+ *
+ * Every tab filed under the old name follows the rename, so renaming can never
+ * silently empty a group or strand its tabs under a name that no longer exists.
+ */
+function beginRenameCategory(key) {
+  const anchorEl = categoryHeaders.get(key) || null;
+  promptCategoryName(anchorEl, {
+    title: 'Đổi tên nhóm',
+    placeholder: 'Tên nhóm mới… (Enter để lưu)',
+    initial: key,
+    hint: 'Để trống rồi Enter = xoá nhóm (tab trở về "Chưa phân nhóm").',
+    onSubmit: (value) => {
+      if (value === key) return;
+      const affected = (Array.isArray(sessions) ? sessions : []).filter(
+        (s) => s && typeof s.category === 'string' && s.category.trim() === key,
+      );
+      if (!value) {
+        // Delete: the group disappears and its tabs fall back to uncategorised.
+        terminalCategories = terminalCategories.filter((name) => name !== key);
+        collapsedCategories.delete(key);
+        for (const s of affected) applyCategoryToSession(s.id, '', null);
+      } else {
+        // A rename can collide with an existing group; de-dupe keeps a single header.
+        const seen = new Set();
+        terminalCategories = terminalCategories
+          .map((name) => (name === key ? value : name))
+          .filter((name) => {
+            const folded = name.toLowerCase();
+            if (seen.has(folded)) return false;
+            seen.add(folded);
+            return true;
+          });
+        // Carry the collapsed state across so a collapsed group stays collapsed.
+        if (collapsedCategories.has(key)) {
+          collapsedCategories.delete(key);
+          collapsedCategories.add(value);
+        }
+        for (const s of affected) applyCategoryToSession(s.id, value, null);
+      }
+      persistTerminalTabPrefs();
+      renderTabs();
+    },
+  });
+}
+
 /** Horizontal mode conveys grouping with a colour chip on the pill instead. */
 function applyCategoryChip(wrap, group, isSidebarLayout) {
   const btn = wrap.querySelector('.terminal-tab');
   if (!btn) return;
   const existing = wrap.querySelector('.terminal-tab-category-chip');
-  if (isSidebarLayout || group.key === UNCATEGORIZED_CATEGORY) {
+  if (isSidebarLayout || group.key === UNCATEGORIZED_CATEGORY || group.key === SLEEPING_CATEGORY) {
     if (existing) existing.remove();
     return;
   }
@@ -3323,9 +3666,100 @@ function applyCategoryChip(wrap, group, isSidebarLayout) {
  * Put every header/wrap child of the strip into the computed group order. The
  * "+" button stays pinned first so the sticky affordance never moves.
  */
+/** Live tab-search query. Empty means "no filter" and is a strict no-op. */
+let tabSearchQuery = '';
+/** True while a filter is applied: groups render expanded and emptied ones drop out. */
+let tabSearchActive = false;
+/** The "no matches" notice, created once and then reused. */
+let tabSearchEmptyEl = null;
+
+/**
+ * Fold text for matching: case-, accent- and `đ`-insensitive. This list is full of
+ * Vietnamese names and paths, so "cau hinh" has to find "Cấu hình" and "don hang" has to
+ * find "Đơn hàng" — a search box that cannot do that is useless in this workspace.
+ */
+function foldForSearch(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase();
+}
+
+function parseSearchTokens(query) {
+  return foldForSearch(query).split(/\s+/).filter(Boolean);
+}
+
+/** True when `needle` occurs in `haystack` in order, gaps allowed. */
+function isSubsequence(needle, haystack) {
+  let i = 0;
+  for (let j = 0; j < haystack.length && i < needle.length; j += 1) {
+    if (haystack[j] === needle[i]) i += 1;
+  }
+  return i === needle.length;
+}
+
+/**
+ * Smart match for one token: a literal substring always counts, while a fuzzy
+ * subsequence counts only from three characters up, so "sh2" finds "Seahorse2" but a
+ * stray "a" cannot match half the strip.
+ */
+function tokenMatchesHaystack(token, haystack) {
+  if (haystack.includes(token)) return true;
+  // A path fragment is matched literally: fuzzy-matching across a separator would let
+  // "work\apps" match "work\don-hang apps", which is not the folder the user named.
+  if (token.includes('\\') || token.includes('/')) return false;
+  if (token.length < 3) return false;
+  return isSubsequence(token, haystack);
+}
+
+/**
+ * Every token must match somewhere in the session's searchable text (AND), which is what
+ * makes a second word narrow the result instead of widening it.
+ */
+function sessionMatchesQuery(session, tokens) {
+  if (tokens.length === 0) return true;
+  if (!session) return false;
+  const haystack = [
+    foldForSearch(session.name),
+    foldForSearch(session.cwd),
+    foldForSearch(session.category),
+  ].join(' ');
+  return tokens.every((token) => tokenMatchesHaystack(token, haystack));
+}
+
+/** The single write path for the query, so field, filter and chrome never diverge. */
+function setTabSearchQuery(value) {
+  const next = typeof value === 'string' ? value : '';
+  tabSearchQuery = next;
+  if (tabSearchInput && tabSearchInput.value !== next) tabSearchInput.value = next;
+  renderTabs();
+  updateTabSearchUi();
+}
+
+/** Reflect query state on the field: the clear button only exists when it can act. */
+function updateTabSearchUi() {
+  const hasQuery = tabSearchQuery.length > 0;
+  if (tabSearchField) tabSearchField.classList.toggle('has-query', hasQuery);
+  if (btnClearTabSearch) btnClearTabSearch.style.display = hasQuery ? 'flex' : 'none';
+}
+
+function ensureSearchEmptyState() {
+  if (!tabSearchEmptyEl) {
+    tabSearchEmptyEl = document.createElement('div');
+    tabSearchEmptyEl.className = 'terminal-tab-search-empty';
+    tabSearchEmptyEl.setAttribute('role', 'status');
+  }
+  const text = `Không có tab nào khớp “${tabSearchQuery.trim()}”`;
+  if (tabSearchEmptyEl.textContent !== text) tabSearchEmptyEl.textContent = text;
+  return tabSearchEmptyEl;
+}
+
 function reorderTabChildren(ordered) {
   if (!tabsEl) return;
-  const pinned = (btnNewTerminal && btnNewTerminal.parentNode === tabsEl) ? btnNewTerminal : null;
+  // One pinned row instead of two loose buttons: the search field and both create
+  // actions travel together, and no tab drag can reorder them apart.
+  const pinned = (tabToolbar && tabToolbar.parentNode === tabsEl) ? tabToolbar : null;
   let ref = null;
   for (let i = ordered.length - 1; i >= 0; i -= 1) {
     const el = ordered[i];
@@ -3348,21 +3782,67 @@ function renderTabs() {
     if (sid) currentWraps.set(sid, el);
   });
 
-  // Remove wraps for sessions that no longer exist
-  const currentSessionIds = new Set(sessions.map((s) => s.id));
+  const isSidebarLayout = terminalTabLayout === 'sidebar';
+
+  // Smart search narrows INSIDE each group instead of pre-filtering the sessions that get
+  // grouped. Grouping only the matching subset lets a filter rewrite the sticky group
+  // order: a group with no match is pruned out of `categoryOrder` and comes back at the
+  // end once the query is cleared. An empty query is a strict no-op.
+  const searchTokens = parseSearchTokens(tabSearchQuery);
+  tabSearchActive = searchTokens.length > 0;
+  const allSessions = Array.isArray(sessions) ? sessions : [];
+  const narrow = (items) => (tabSearchActive
+    ? items.filter((s) => sessionMatchesQuery(s, searchTokens))
+    : items);
+
+  // Sleeping sessions are a state, not a category, so they are partitioned out before
+  // grouping: an asleep tab must never sit inside a group of live ones. This is purely a
+  // display split — `session.category` is never touched — which is exactly why waking a
+  // tab puts it back in its own group without anything having to remember where it was.
+  // The bucket is appended last so it reads as "parked", after everything still running.
+  const awakeSessions = [];
+  const sleepingSessions = [];
+  for (const s of allSessions) {
+    if (s && s.state === 'sleeping') sleepingSessions.push(s);
+    else awakeSessions.push(s);
+  }
+  const groups = groupSessionsByCategory(awakeSessions);
+  if (sleepingSessions.length > 0) {
+    groups.push({
+      key: SLEEPING_CATEGORY,
+      label: SLEEPING_CATEGORY_LABEL,
+      color: '',
+      items: sleepingSessions,
+    });
+  }
+  // A registered group that is genuinely empty keeps its header; one emptied by the
+  // active filter drops out, because a header over nothing is noise while filtering.
+  const visibleGroups = tabSearchActive
+    ? groups
+      .map((g) => Object.assign({}, g, { items: narrow(g.items) }))
+      .filter((g) => g.items.length > 0)
+    : groups;
+  const visibleCount = visibleGroups.reduce((total, g) => total + g.items.length, 0);
+
+  // Drop the wrap of every session that is gone, plus every tab the filter excludes. A
+  // filtered-out wrap left in the DOM is invisible to `ordered`, so it could never be
+  // positioned and would strand itself in the middle of the strip.
+  const visibleSessionIds = new Set();
+  for (const g of visibleGroups) {
+    for (const s of g.items) visibleSessionIds.add(s.id);
+  }
   for (const [sid, el] of currentWraps.entries()) {
-    if (!currentSessionIds.has(sid)) {
+    if (!visibleSessionIds.has(sid)) {
       el.remove();
       currentWraps.delete(sid);
     }
   }
 
-  const isSidebarLayout = terminalTabLayout === 'sidebar';
-  const groups = groupSessionsByCategory(sessions);
-
   // Headers are a sidebar-only affordance: drop anything that is not live in the
-  // current layout so a layout flip cannot strand an orphan header in the strip.
-  const liveKeys = new Set(groups.map((g) => g.key));
+  // current layout so a layout flip cannot strand an orphan header in the strip. This
+  // reads `visibleGroups`: a group emptied by the active filter is not rendered, so its
+  // header must be dropped too or it would be stranded outside the ordered run.
+  const liveKeys = new Set(visibleGroups.map((g) => g.key));
   for (const [key, header] of Array.from(categoryHeaders.entries())) {
     if (!isSidebarLayout || !liveKeys.has(key)) {
       header.remove();
@@ -3371,12 +3851,12 @@ function renderTabs() {
   }
 
   const ordered = [];
-  for (const group of groups) {
+  for (const group of visibleGroups) {
     if (isSidebarLayout) {
       const header = ensureCategoryHeader(group);
       if (header) ordered.push(header);
     }
-    const isCollapsed = isSidebarLayout && collapsedCategories.has(group.key);
+    const isCollapsed = isSidebarLayout && collapsedCategories.has(group.key) && !tabSearchActive;
     for (const s of group.items) {
       const wrap = ensureTerminalTabWrap(s, currentWraps);
       wrap.classList.toggle('is-sleeping', s.state === 'sleeping');
@@ -3385,6 +3865,13 @@ function renderTabs() {
       updateTabActivityUi(s.id);
       ordered.push(wrap);
     }
+  }
+  // A filtered-out strip says so rather than just looking empty. The notice joins the
+  // ordered run so its position stays deterministic across renders.
+  if (tabSearchActive && visibleCount === 0) {
+    ordered.push(ensureSearchEmptyState());
+  } else if (tabSearchEmptyEl && tabSearchEmptyEl.parentNode === tabsEl) {
+    tabSearchEmptyEl.remove();
   }
   reorderTabChildren(ordered);
 
@@ -3544,6 +4031,7 @@ async function bootstrapTerminalState() {
     // the initial grid geometry is the user's rather than a horizontal-then-reflow
     // flash. The main process already validated and clamped these values.
     applyCollapsedCategories(s?.terminalTabPrefs?.collapsedCategories);
+    applyCategories(s?.terminalTabPrefs?.categories);
     applyTerminalTabLayout(s?.terminalTabPrefs?.layout, s?.terminalTabPrefs?.sidebarWidth);
   } catch {}
   try {

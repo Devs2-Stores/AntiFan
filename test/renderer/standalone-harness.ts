@@ -452,6 +452,7 @@ export interface StandaloneHarness {
   /** The read-only transcript preview mounted for a sleeping active session. */
   sleepPreview(): FakeElement | null;
   showCategoryPicker: (sessionId: string, anchorEl: FakeElement) => void;
+  showAffinityPicker: (sessionId: string, anchorEl: FakeElement) => Promise<void>;
 }
 
 function computedStyle(): Record<string, string> {
@@ -688,6 +689,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     updateAffinityBadges: read<StandaloneHarness['updateAffinityBadges']>('updateAffinityBadges'),
     sleepPreview: () => read<FakeElement | null>('sleepPreviewEl'),
     showCategoryPicker: read<StandaloneHarness['showCategoryPicker']>('showCategoryPicker'),
+    showAffinityPicker: read<StandaloneHarness['showAffinityPicker']>('showAffinityPicker'),
   };
 }
 

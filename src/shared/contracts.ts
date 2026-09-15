@@ -389,6 +389,15 @@ export interface TerminalTabPrefs {
   layout: TerminalTabLayout;
   sidebarWidth: number;
   collapsedCategories: string[];
+  /**
+   * User-managed group names, in display order.
+   *
+   * Grouping is otherwise *derived* from `session.category`, which cannot express
+   * a group with no tabs in it. This list is what makes an empty group possible
+   * and survivable across a restart, and it is also the authoritative display
+   * order for the sidebar's headers.
+   */
+  categories: string[];
 }
 
 export const TERMINAL_TAB_LAYOUT_MIN_WIDTH = 140;

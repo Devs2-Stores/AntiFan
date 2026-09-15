@@ -113,6 +113,32 @@ const TERMINAL_DATA_FLUSH_MS = 4;
 // Upper bound on persisted collapsed-category names so a corrupt saved-tabs.json
 // cannot smuggle in an unbounded array.
 const TERMINAL_COLLAPSED_CATEGORIES_MAX = 64;
+/** Cap on user-managed groups, and on the length of one group name. */
+const TERMINAL_CATEGORIES_MAX = 64;
+const TERMINAL_CATEGORY_NAME_MAX = 48;
+
+/**
+ * Normalize a persisted or renderer-supplied group list: strings only, trimmed,
+ * non-empty, de-duplicated case-insensitively — two names differing only in case
+ * would otherwise render as two headers for what the user reads as one group — in
+ * the order given, and capped.
+ */
+function normalizeTerminalCategories(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const name = entry.trim().slice(0, TERMINAL_CATEGORY_NAME_MAX);
+    if (!name) continue;
+    const folded = name.toLowerCase();
+    if (seen.has(folded)) continue;
+    seen.add(folded);
+    out.push(name);
+    if (out.length >= TERMINAL_CATEGORIES_MAX) break;
+  }
+  return out;
+}
 /**
  * Safely dispatches IPC messages to a WebContents instance, guarding against
  * frame lifecycle races (e.g. disposed WebFrameMain during process termination/reloads).
@@ -407,6 +433,8 @@ export class NativeTabHost extends EventEmitter {
   private terminalTabLayout: TerminalTabLayout = 'horizontal';
   private terminalSidebarWidth: number = TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH;
   private terminalCollapsedCategories: string[] = [];
+  /** User-managed group names; the only representation of an empty group. */
+  private terminalCategories: string[] = [];
   // Running count of 'antifan:terminal:data' payloads actually handed to
   // safeSendWebContents; readable via getResourceStats/DUMP_DIAGNOSTICS without
   // benchmark mode.
@@ -1915,6 +1943,7 @@ export class NativeTabHost extends EventEmitter {
         layout: this.terminalTabLayout,
         sidebarWidth: this.terminalSidebarWidth,
         collapsedCategories: this.terminalCollapsedCategories,
+        categories: this.terminalCategories,
       } satisfies TerminalTabPrefs;
     });
 
@@ -2232,6 +2261,7 @@ export class NativeTabHost extends EventEmitter {
           layout: this.terminalTabLayout,
           sidebarWidth: this.terminalSidebarWidth,
           collapsedCategories: this.terminalCollapsedCategories,
+          categories: this.terminalCategories,
         } satisfies TerminalTabPrefs,
       };
     });
@@ -6667,6 +6697,9 @@ export class NativeTabHost extends EventEmitter {
         .filter((c): c is string => typeof c === 'string')
         .slice(0, TERMINAL_COLLAPSED_CATEGORIES_MAX);
     }
+    if (Array.isArray(p.categories)) {
+      this.terminalCategories = normalizeTerminalCategories(p.categories);
+    }
     return this.terminalTabLayout !== prevLayout;
   }
 
@@ -6808,6 +6841,7 @@ export class NativeTabHost extends EventEmitter {
       terminalTabLayout: this.terminalTabLayout,
       terminalSidebarWidth: this.terminalSidebarWidth,
       terminalCollapsedCategories: this.terminalCollapsedCategories,
+      terminalCategories: this.terminalCategories,
       isTerminalPopoutOpen: Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed()),
       wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
       popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
@@ -6884,6 +6918,7 @@ export class NativeTabHost extends EventEmitter {
             layout: data.terminalTabLayout,
             sidebarWidth: data.terminalSidebarWidth,
             collapsedCategories: data.terminalCollapsedCategories,
+            categories: data.terminalCategories,
           });
           if (Array.isArray(data.terminalWindows) && data.terminalWindows.length > 0) {
             TerminalManager.getInstance().startTerminal();
