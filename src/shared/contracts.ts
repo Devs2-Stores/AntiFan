@@ -84,6 +84,7 @@ export interface AntiFanPickedElement {
   outerHTML?: string;
   timestamp: number;
   targetSessionId?: string;
+  tabId?: string;
 }
 
 export interface ChatToolCall {
@@ -338,6 +339,11 @@ export const TERMINAL_CHANNELS = {
   GET_DELTA: 'antifan:terminal:get-delta',
   ACK: 'antifan:terminal:ack',
   SYNC_VIEW: 'antifan:terminal:sync-view',
+  SLEEP_SESSION: 'antifan:terminal:sleep-session',
+  WAKE_SESSION: 'antifan:terminal:wake-session',
+  SET_CATEGORY: 'antifan:terminal:set-category',
+  GET_ALL_AFFINITIES: 'antifan:terminal:get-all-affinities',
+  SET_TAB_PREFS: 'antifan:terminal:set-tab-prefs',
 } as const;
 
 export type TerminalSyncViewResult =
@@ -353,6 +359,45 @@ export interface TerminalAckPayload {
   generation: number;
   seq: number;
   role?: 'DOCK' | 'POPOUT';
+}
+
+/**
+ * Renderer-facing terminal output envelope.
+ *
+ * `seq` is intentionally retained as an alias of `throughSeq` (when the batch is
+ * coalesced) so consumers that only understand a single sequence number keep
+ * working. A coalesced batch additionally carries the contiguous range it
+ * covers: the renderer advances `lastRenderedSeq` to `throughSeq` directly
+ * instead of treating the batch as a gap and triggering a resync storm.
+ */
+export interface TerminalDataPayload {
+  sessionId: string;
+  data: string;
+  seq: number;
+  generation?: number;
+  /** First sequence number contained in a coalesced batch. */
+  fromSeq?: number;
+  /** Last sequence number contained in a coalesced batch (equals `seq`). */
+  throughSeq?: number;
+}
+
+/** Tab strip orientation for the terminal surface. Horizontal is the default. */
+export type TerminalTabLayout = 'horizontal' | 'sidebar';
+
+/** Durable terminal tab-strip preferences persisted alongside saved-tabs.json. */
+export interface TerminalTabPrefs {
+  layout: TerminalTabLayout;
+  sidebarWidth: number;
+  collapsedCategories: string[];
+}
+
+export const TERMINAL_TAB_LAYOUT_MIN_WIDTH = 140;
+export const TERMINAL_TAB_LAYOUT_MAX_WIDTH = 400;
+export const TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH = 220;
+
+export function clampTerminalTabSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH;
+  return Math.max(TERMINAL_TAB_LAYOUT_MIN_WIDTH, Math.min(Math.round(width), TERMINAL_TAB_LAYOUT_MAX_WIDTH));
 }
 
 export interface TerminalJournalEntry {

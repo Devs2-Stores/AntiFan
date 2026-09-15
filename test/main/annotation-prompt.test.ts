@@ -9,8 +9,8 @@ import {
 } from '../../src/shared/annotation-prompt';
 
 describe('Annotation prompt self-QA directive', () => {
-  it('bumps AGENT_CONTRACT_VERSION to 3.2.0-lean', () => {
-    assert.strictEqual(AGENT_CONTRACT_VERSION, '3.2.0-lean');
+  it('bumps AGENT_CONTRACT_VERSION to 3.4.0-lean', () => {
+    assert.strictEqual(AGENT_CONTRACT_VERSION, '3.4.0-lean');
   });
 
   it('implementation intents carry the mandatory self-QA directive', () => {
@@ -27,6 +27,42 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(header.includes('ATTACHMENT_REQUIRED'));
     assert.ok(header.includes('ATTACHMENT_INVALID'));
     assert.ok(header.includes('MCP_CONTEXT_REQUIRED'));
+  });
+
+  it('directive covers capability, transient-gate, and target-mismatch branches', () => {
+    const header = buildAgentTaskHeader('fix lỗi lệch header trên mobile');
+    assert.ok(header.includes('CAPABILITY_NOT_FOUND'));
+    assert.ok(header.includes('SETTLE_INCOMPLETE'));
+    assert.ok(header.includes('CAPTURE_NOT_READY'));
+    assert.ok(header.includes('TARGET_MISMATCH'));
+    assert.ok(header.includes('anti.browser.rebind_target'));
+  });
+
+  it('directive mandates live-view inspection and QA binding params before reporting done', () => {
+    const header = buildAgentTaskHeader('fix lỗi lệch header trên mobile');
+    assert.ok(header.includes('anti.inspect.dom'));
+    assert.ok(header.includes('anti.inspect.styles'));
+    assert.ok(header.includes('anti.screenshot.viewport'));
+    assert.ok(header.includes('QA Binding'));
+    assert.ok(header.includes('expectedUrl'));
+    assert.ok(header.includes('verification pending theme sync'));
+  });
+
+  it('directive requires a terminal qaStatus token and receipt evidence', () => {
+    const header = buildAgentTaskHeader('fix lỗi lệch header trên mobile');
+    assert.ok(header.includes('qaStatus'));
+    assert.ok(header.includes('QA_PASSED'));
+    assert.ok(header.includes('QA_FAILED'));
+    assert.ok(header.includes('QA_INCONCLUSIVE'));
+    assert.ok(header.includes('QA_UNAVAILABLE'));
+    assert.ok(header.includes('qa-receipts'));
+    assert.ok(header.includes('annotationId'));
+  });
+
+  it('directive re-probes CAPABILITY_NOT_FOUND once instead of inheriting absence', () => {
+    const header = buildAgentTaskHeader('fix lỗi lệch header trên mobile');
+    assert.ok(header.includes('re-probe'));
+    assert.ok(header.includes('KHÔNG kế thừa'));
   });
 
   it('directive permits up to two self-fix rounds inside the same turn', () => {

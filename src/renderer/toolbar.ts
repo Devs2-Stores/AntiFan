@@ -125,14 +125,108 @@ declare global {
 function getApi(): AntiFanToolbarApi | undefined {
   return window.antifanToolbar;
 }
+
+/**
+ * Overlay ownership: the toolbar WebContentsView is clipped to the strip height
+ * unless the main process expands it via setOverlay. A single global boolean
+ * meant any popup closing re-clipped every other open popup (last-closer-wins).
+ * Tokens fix that: each popup acquires a token on open and releases it on
+ * close; the view collapses only when the last token is released. Tokens carry
+ * an optional customHeight — the active overlay height is the max requested.
+ */
+const overlayTokens = new Map<string, number | undefined>();
+let overlaySyncQueued = false;
+
+function acquireOverlay(token: string, customHeight?: number): void {
+  overlayTokens.set(token, customHeight);
+  syncOverlayState();
+}
+
+function releaseOverlay(token: string): void {
+  if (!overlayTokens.delete(token)) return;
+  syncOverlayState();
+}
+
+function syncOverlayState(): void {
+  if (overlaySyncQueued) return;
+  overlaySyncQueued = true;
+  queueMicrotask(() => {
+    overlaySyncQueued = false;
+    if (overlayTokens.size === 0) {
+      getApi()?.setOverlay(false);
+      return;
+    }
+    let height: number | undefined;
+    for (const h of overlayTokens.values()) {
+      if (h === undefined) {
+        height = undefined;
+        break;
+      }
+      height = Math.max(height ?? 0, h);
+    }
+    getApi()?.setOverlay(true, height);
+  });
+}
+
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function showToolbarToast(message: string, duration = 2500) {
   const toast = document.getElementById('toolbarToast');
   if (!toast) return;
   toast.innerHTML = message;
   toast.style.display = 'flex';
-  setTimeout(() => {
+  // Toast renders below the strip (top:76px) — it needs the view expanded or it
+  // paints over toolbar buttons inside the 74px clip.
+  acquireOverlay('toast', 40);
+  if (toastTimer !== null) { clearTimeout(toastTimer); toastTimer = null; }
+  toastTimer = setTimeout(() => {
     toast.style.display = 'none';
+    releaseOverlay('toast');
+    toastTimer = null;
   }, duration);
+}
+
+/**
+ * Electron renderer has no window.prompt — this modal replaces it.
+ * Resolves null on cancel/backdrop/Escape, string on OK/Enter.
+ */
+function showPromptDialog(title: string, initial = ''): Promise<string | null> {
+  const { promise, resolve } = Promise.withResolvers<string | null>();
+  const overlay = document.getElementById('promptOverlay') as HTMLElement | null;
+  const titleEl = document.getElementById('promptTitle');
+  const input = document.getElementById('promptInput') as HTMLInputElement | null;
+  const btnOk = document.getElementById('promptOk');
+  const btnCancel = document.getElementById('promptCancel');
+  if (!overlay || !input || !btnOk || !btnCancel) {
+    resolve(null);
+    return promise;
+  }
+  if (titleEl) titleEl.textContent = title;
+  input.value = initial;
+  overlay.style.display = 'flex';
+  acquireOverlay('prompt');
+  const done = (value: string | null) => {
+    overlay.style.display = 'none';
+    releaseOverlay('prompt');
+    document.removeEventListener('keydown', onKey, true);
+    overlay.removeEventListener('click', onBackdrop);
+    // Clear handlers so the dismissed invocation's closures aren't retained on
+    // the shared DOM buttons until the next prompt opens.
+    btnOk.onclick = null;
+    btnCancel.onclick = null;
+    resolve(value);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); done(input.value); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(null); }
+  };
+  const onBackdrop = (e: MouseEvent) => { if (e.target === overlay) done(null); };
+  btnOk.onclick = () => done(input.value);
+  btnCancel.onclick = () => done(null);
+  document.addEventListener('keydown', onKey, true);
+  overlay.addEventListener('click', onBackdrop);
+  input.focus();
+  input.select();
+  return promise;
 }
 function renderThemeQa(state: ThemeQaState, report?: Record<string, unknown>) {
   themeQaState = state;
@@ -195,7 +289,7 @@ function openThemeQaSummary() {
   ] : [themeQaState.error || 'No validation has been run.'];
   themeQaSummary.textContent = lines.join('\n');
   themeQaOverlay.style.display = 'flex';
-  getApi()?.setOverlay(true);
+  acquireOverlay('theme-qa');
 }
 
 let currentTabs: AntiFanTab[] = [];
@@ -205,6 +299,7 @@ let isInspecting = false;
 let isFontFinderActive = false;
 let isLensActive = false;
 let isRulerActive = false;
+let isBookmarkBarVisible = false;
 let themeQaState: ThemeQaState = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
 let lastThemeQaReport: any = null;
 const btnPopoutTerminal = document.getElementById('btnPopoutTerminal') as HTMLButtonElement | null;
@@ -260,14 +355,10 @@ const phoneStatusClose = document.getElementById('phoneStatusClose') as HTMLButt
 const btnPhoneStatusRefresh = document.getElementById('btnPhoneStatusRefresh') as HTMLButtonElement | null;
 let lastPhoneStatus: ToolbarPhoneStatus | null = null;
 const btnFontFinder = document.getElementById('btnFontFinder') as HTMLButtonElement;
-const btnRuler = document.getElementById('btnRuler') as HTMLButtonElement;
-const btnCaptureFullPage = document.getElementById('btnCaptureFullPage') as HTMLButtonElement;
-const btnMobileRemote = document.getElementById('btnMobileRemote') as HTMLButtonElement;
 const mobileRemoteOverlay = document.getElementById('mobileRemoteOverlay')!;
 const mobileRemoteClose = document.getElementById('mobileRemoteClose') as HTMLButtonElement;
 const mobileRemoteQrContainer = document.getElementById('mobileRemoteQrContainer')!;
 const mobileRemoteUrlsList = document.getElementById('mobileRemoteUrlsList')!;
-const btnDevTools = document.getElementById('btnDevTools') as HTMLButtonElement;
 const btnToggleSidebar = document.getElementById('btnToggleSidebar') as HTMLButtonElement;
 const btnChromeProfile = document.getElementById('btnChromeProfile') as HTMLButtonElement;
 const profileAvatar = document.getElementById('profileAvatar')!;
@@ -275,18 +366,14 @@ const profileName = document.getElementById('profileName')!;
 const profileDropdownMenu = document.getElementById('profileDropdownMenu')!;
 const profileDropdownList = document.getElementById('profileDropdownList')!;
 const btnMenu = document.getElementById('btnMenu') as HTMLButtonElement | null;
-const codexMainMenu = document.getElementById('codexMainMenu') as HTMLElement | null;
+// (Dead ids removed: btnRuler, btnCaptureFullPage, btnMobileRemote, btnDevTools, codexMainMenu —
+//  none exist in toolbar.html.)
 
 let activeProfileInfo: any = null;
 let availableChromeProfiles: any[] = [];
 
-// Menu Items
-const menuFind = document.getElementById('menuFind') as HTMLElement | null;
-const menuQuickAnnotate = document.getElementById('menuQuickAnnotate') as HTMLElement | null;
-const menuFontFinder = document.getElementById('menuFontFinder') as HTMLElement | null;
-const menuLens = document.getElementById('menuLens') as HTMLElement | null;
-const menuOpenBrowser = document.getElementById('menuOpenBrowser') as HTMLElement | null;
-const menuShortcuts = document.getElementById('menuShortcuts') as HTMLElement | null;
+// (Dead menu ids removed: menuFind, menuQuickAnnotate, menuFontFinder, menuLens,
+//  menuOpenBrowser, menuShortcuts — none exist in toolbar.html.)
 
 // Find Bar
 const findBar = document.getElementById('findBar') as HTMLElement | null;
@@ -368,7 +455,7 @@ function getStepIcon(type: string): string {
 async function openWorkflowHub() {
   if (!workflowHubOverlay) return;
   workflowHubOverlay.style.display = 'flex';
-  getApi()?.setOverlay(true);
+  acquireOverlay('workflow-hub');
 
   try {
     const res = await getApi()?.getWorkflowState();
@@ -393,7 +480,7 @@ async function openWorkflowHub() {
 function closeWorkflowHub() {
   if (!workflowHubOverlay) return;
   workflowHubOverlay.style.display = 'none';
-  getApi()?.setOverlay(false);
+  releaseOverlay('workflow-hub');
 }
 
 function renderHubList() {
@@ -695,7 +782,10 @@ function computeTabsSignature(tabs: AntiFanTab[], activeId: string): string {
 
 function computeBookmarksSignature(bookmarks: Array<{ id?: string; title?: string; url: string }>, activeTab: AntiFanTab | undefined): string {
   const activeUrl = activeTab ? (activeTab.url || '') : '';
-  let sig = `${activeUrl}:${bookmarks.length}`;
+  // isBookmarkBarVisible must be part of the signature: toggling the bar changes
+  // neither bookmarks nor activeTab, so without it renderBookmarks() is skipped
+  // and the bar stays hidden while the host expands the strip by 28px.
+  let sig = `${activeUrl}:${isBookmarkBarVisible ? 1 : 0}:${bookmarks.length}`;
   for (let i = 0; i < bookmarks.length; i++) {
     const b = bookmarks[i];
     if (b) sig += `;${b.url}`;
@@ -1050,11 +1140,6 @@ function updateControls() {
     if (isFontFinderActive) btnFontFinder.classList.add('mode-active');
     else btnFontFinder.classList.remove('mode-active');
   }
-
-  if (btnRuler) {
-    if (isRulerActive) btnRuler.classList.add('mode-active');
-    else btnRuler.classList.remove('mode-active');
-  }
 }
 
 const bookmarkBar = document.getElementById('bookmarkBar') as HTMLElement | null;
@@ -1073,10 +1158,26 @@ function renderBookmarks() {
       btnStarBookmark.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.866 14.85c-.078.444.36.791.746.593l4.39-2.256 4.389 2.256c.386.198.824-.149.746-.592l-.83-4.73 3.522-3.356c.33-.314.16-.888-.282-.95l-4.898-.696L8.465.792a.513.513 0 0 0-.927 0L5.354 5.12l-4.898.696c-.441.062-.612.636-.283.95l3.523 3.356-.83 4.73zm4.905-2.767-3.686 1.894.694-3.957a.565.565 0 0 0-.163-.505L1.71 6.745l4.052-.576a.525.525 0 0 0 .393-.288L8 2.223l1.847 3.658a.525.525 0 0 0 .393.288l4.052.575-2.906 2.77a.565.565 0 0 0-.163.506l.694 3.957-3.686-1.895a.5.5 0 0 0-.461 0z"/></svg>`;
     }
   }
+  // Mirror main-side rule: bar shows only when toggled on AND bookmarks exist
+  // (toolbarHeight already accounts for it — native-tab-host.ts toolbarHeight).
+  const showBar = isBookmarkBarVisible && currentBookmarks.length > 0;
   if (bookmarkBar) {
-    bookmarkBar.style.display = 'none';
+    bookmarkBar.style.display = showBar ? 'flex' : 'none';
+  }
+  document.documentElement.style.setProperty('--bookmark-bar-offset', showBar ? '28px' : '0px');
+  if (bookmarkItems) {
+    bookmarkItems.innerHTML = '';
+    for (const b of currentBookmarks) {
+      const el = document.createElement('button');
+      el.className = 'bookmark-item';
+      el.textContent = b.title || b.url;
+      el.title = b.url;
+      el.addEventListener('click', () => getApi()?.navigate?.(b.url));
+      bookmarkItems.appendChild(el);
+    }
   }
 }
+
 
 // Navigation Listeners
 if (btnNewTab) btnNewTab.addEventListener('click', () => getApi()?.createTab());
@@ -1187,7 +1288,8 @@ if (btnThemeQa) {
       renderThemeQa({ ...themeQaState, report: result.report }, result.report);
       openThemeQaSummary();
     } else if (result && !result.ok) {
-      showToolbarToast(`Theme QA: ${result.error || 'validation failed'}`);
+      themeQaState = { ...themeQaState, status: 'error', error: result.error || 'validation failed' };
+      openThemeQaSummary();
     }
   });
 }
@@ -1200,11 +1302,12 @@ btnThemeQaRerun?.addEventListener('click', async () => {
     renderThemeQa({ ...themeQaState, report: result.report }, result.report);
     openThemeQaSummary();
   } else if (result && !result.ok) {
-    showToolbarToast(`Theme QA: ${result.error || 'validation failed'}`);
+    themeQaState = { ...themeQaState, status: 'error', error: result.error || 'validation failed' };
+    openThemeQaSummary();
   }
 });
-themeQaClose?.addEventListener('click', () => { if (themeQaOverlay) themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); });
-themeQaOverlay?.addEventListener('click', (event) => { if (event.target === themeQaOverlay) { themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); } });
+themeQaClose?.addEventListener('click', () => { if (themeQaOverlay) themeQaOverlay.style.display = 'none'; releaseOverlay('theme-qa'); });
+themeQaOverlay?.addEventListener('click', (event) => { if (event.target === themeQaOverlay) { themeQaOverlay.style.display = 'none'; releaseOverlay('theme-qa'); } });
 
 /**
  * True once this renderer session has actually seen an attached phone.
@@ -1321,16 +1424,13 @@ function openPhoneStatusModal() {
   if (!phoneStatusOverlay) return;
   renderPhoneModalContent(lastPhoneStatus);
   phoneStatusOverlay.style.display = 'flex';
-  getApi()?.setOverlay(true);
+  acquireOverlay('phone-status');
 }
 
 function closePhoneStatusModal() {
   if (!phoneStatusOverlay) return;
   phoneStatusOverlay.style.display = 'none';
-  // Another overlay may own the popped-out state; collapsing it here would resize that panel's layout.
-  if (themeQaOverlay?.style.display !== 'flex' && workflowHubOverlay?.style.display !== 'flex') {
-    getApi()?.setOverlay(false);
-  }
+  releaseOverlay('phone-status');
 }
 
 if (btnPhoneStatus) {
@@ -1348,25 +1448,23 @@ phoneStatusOverlay?.addEventListener('click', (e) => {
   if (e.target === phoneStatusOverlay) closePhoneStatusModal();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && phoneStatusOverlay?.style.display === 'flex') closePhoneStatusModal();
+  if (e.key !== 'Escape') return;
+  if (phoneStatusOverlay?.style.display === 'flex') { closePhoneStatusModal(); return; }
+  if (tabContextMenu?.classList.contains('active')) { hideTabContextMenu(); return; }
+  if (appDropdownMenu?.style.display !== 'none' && appDropdownMenu) { closeAppMenu(); return; }
+  if (profileDropdownMenu?.style.display !== 'none' && profileDropdownMenu) { profileDropdownMenu.style.display = 'none'; releaseOverlay('profile-dropdown'); return; }
+  if (shortcutsOverlay?.style.display === 'flex') { closeShortcutsOverlay(); return; }
+  if (workflowHubOverlay?.style.display === 'flex') { closeWorkflowHub(); return; }
+  if (mobileRemoteOverlay?.style.display === 'flex') { closeMobileRemoteModal(); return; }
+  if (themeQaOverlay?.style.display === 'flex') { themeQaOverlay.style.display = 'none'; releaseOverlay('theme-qa'); return; }
+  if (findBar?.style.display === 'flex') { hideFindBar(); return; }
+  if (omniboxSuggestDropdown?.style.display === 'block') { hideSuggestDropdown(); return; }
 });
 if (btnQuickInspect) btnQuickInspect.addEventListener('click', () => getApi()?.toggleInspect());
 if (btnFontFinder) btnFontFinder.addEventListener('click', () => getApi()?.toggleFontFinder());
-if (btnRuler) btnRuler.addEventListener('click', () => getApi()?.toggleRuler());
-if (btnDevTools) btnDevTools.addEventListener('click', () => getApi()?.toggleDevTools());
 if (btnToggleSidebar) btnToggleSidebar.addEventListener('click', () => getApi()?.toggleSidebar());
 if (btnPopoutTerminal) btnPopoutTerminal.addEventListener('click', () => getApi()?.popoutTerminal?.());
-
-if (btnCaptureFullPage) {
-  btnCaptureFullPage.addEventListener('click', async () => {
-    btnCaptureFullPage.style.color = '#22c55e';
-    await getApi()?.captureViewport();
-    showToolbarToast('📸 Đã sao chép ảnh chụp màn hình vào Clipboard!');
-    setTimeout(() => {
-      btnCaptureFullPage.style.color = '';
-    }, 1500);
-  });
-}
+// (btnRuler/btnDevTools/btnCaptureFullPage listeners removed — elements never existed.)
 
 function renderChromeProfiles() {
   if (profileName) {
@@ -1388,7 +1486,7 @@ function renderChromeProfiles() {
     `;
     item.onclick = async () => {
       profileDropdownMenu.style.display = 'none';
-      getApi()?.setOverlay(false);
+      releaseOverlay('profile-dropdown');
       showToolbarToast(`🔄 Đang đồng bộ Chrome Profile: ${p.name || p.id}...`);
       const res = await getApi()?.syncChromeProfile(p.id);
       if (res && res.success !== false) {
@@ -1420,7 +1518,7 @@ function renderChromeProfiles() {
   backupItem.innerHTML = '<span>💾 Sao lưu Session Vault</span><span style="font-size:10px;color:#38bdf8;">Export</span>';
   backupItem.onclick = async () => {
     profileDropdownMenu.style.display = 'none';
-    getApi()?.setOverlay(false);
+    releaseOverlay('profile-dropdown');
     showToolbarToast('🔄 Đang sao lưu session cookies...');
     const res = await getApi()?.exportSessionVault?.();
     if (res?.success) {
@@ -1437,7 +1535,7 @@ function renderChromeProfiles() {
   restoreItem.innerHTML = '<span>📥 Khôi phục Session Vault</span><span style="font-size:10px;color:#4ade80;">Import</span>';
   restoreItem.onclick = async () => {
     profileDropdownMenu.style.display = 'none';
-    getApi()?.setOverlay(false);
+    releaseOverlay('profile-dropdown');
     showToolbarToast('🔄 Đang nạp cookies từ session-vault.json...');
     const res = await getApi()?.importSessionVault?.();
     if (res?.success) {
@@ -1455,17 +1553,20 @@ if (btnChromeProfile) {
     e.stopPropagation();
     const isHidden = profileDropdownMenu.style.display === 'none';
     if (isHidden) {
-      if (appDropdownMenu) appDropdownMenu.style.display = 'none';
+      if (appDropdownMenu) { appDropdownMenu.style.display = 'none'; releaseOverlay('app-menu'); }
+      // Acquire before the async IPC round-trip: releasing 'app-menu' above can
+      // empty the token set, and the queued microtask would collapse the view
+      // to strip height only to re-expand when profiles resolve (visible flicker).
+      acquireOverlay('profile-dropdown');
       const profiles = await getApi()?.getChromeProfiles();
       if (profiles && Array.isArray(profiles)) {
         availableChromeProfiles = profiles;
       }
       renderChromeProfiles();
       profileDropdownMenu.style.display = 'flex';
-      getApi()?.setOverlay(true);
     } else {
       profileDropdownMenu.style.display = 'none';
-      getApi()?.setOverlay(false);
+      releaseOverlay('profile-dropdown');
     }
   });
 }
@@ -1474,7 +1575,7 @@ document.addEventListener('click', (e) => {
   if (profileDropdownMenu && profileDropdownMenu.style.display !== 'none') {
     if (!profileDropdownMenu.contains(e.target as Node) && !btnChromeProfile.contains(e.target as Node)) {
       profileDropdownMenu.style.display = 'none';
-      getApi()?.setOverlay(false);
+      releaseOverlay('profile-dropdown');
     }
   }
 });
@@ -1536,7 +1637,7 @@ function closeAppMenu() {
       menuProfileContainer.style.display = 'none';
     }
     menuItemSyncProfile?.classList.remove('expanded');
-    getApi()?.setOverlay(false);
+    releaseOverlay('app-menu');
   }
 }
 
@@ -1544,7 +1645,7 @@ async function toggleAppMenu() {
   if (!appDropdownMenu) return;
   const isHidden = appDropdownMenu.style.display === 'none';
   if (isHidden) {
-    if (profileDropdownMenu) profileDropdownMenu.style.display = 'none';
+    if (profileDropdownMenu) { profileDropdownMenu.style.display = 'none'; releaseOverlay('profile-dropdown'); }
     
     // Pre-fetch Chrome profiles asynchronously
     getApi()?.getChromeProfiles().then((profiles) => {
@@ -1557,7 +1658,7 @@ async function toggleAppMenu() {
 
     renderAppMenuProfiles();
     appDropdownMenu.style.display = 'flex';
-    getApi()?.setOverlay(true);
+    acquireOverlay('app-menu');
   } else {
     closeAppMenu();
   }
@@ -1599,7 +1700,6 @@ document.getElementById('menuItemCheckUpdates')?.addEventListener('click', (e) =
   closeAppMenu();
   getApi()?.checkUpdates?.();
 });
-
 document.getElementById('menuItemBookmarkTab')?.addEventListener('click', (e) => {
   e.stopPropagation();
   closeAppMenu();
@@ -1640,7 +1740,30 @@ document.getElementById('menuItemGpuLens')?.addEventListener('click', (e) => {
 document.getElementById('menuItemScreenshot')?.addEventListener('click', (e) => {
   e.stopPropagation();
   closeAppMenu();
-  getApi()?.captureViewport();
+  getApi()?.captureViewport().then(async (dataUrl) => {
+    if (!dataUrl) {
+      showToolbarToast('⚠️ Chụp màn hình thất bại');
+      return;
+    }
+    // captureViewport returns a base64 data URL — write the decoded PNG binary
+    // to the clipboard so paste targets receive an image, not raw base64 text.
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })]);
+      showToolbarToast('📸 Đã sao chép ảnh chụp màn hình vào Clipboard!');
+    } catch {
+      // ClipboardItem/image write unsupported (e.g. permission or platform) —
+      // fall back to text so the capture is still retrievable.
+      try {
+        await navigator.clipboard.writeText(dataUrl);
+        showToolbarToast('📸 Đã sao chép ảnh (dạng text base64)');
+      } catch {
+        showToolbarToast('📸 Đã chụp màn hình (clipboard không khả dụng)');
+      }
+    }
+  }).catch(() => {
+    showToolbarToast('⚠️ Chụp màn hình thất bại');
+  });
 });
 
 document.getElementById('menuItemOpenSystemBrowser')?.addEventListener('click', (e) => {
@@ -1673,14 +1796,14 @@ document.getElementById('menuItemShortcuts')?.addEventListener('click', (e) => {
 });
 function openShortcutsOverlay() {
   if (!shortcutsOverlay) return;
-  getApi()?.setOverlay(true);
+  acquireOverlay('shortcuts');
   shortcutsOverlay.style.display = 'flex';
 }
 
 function closeShortcutsOverlay() {
   if (!shortcutsOverlay) return;
   shortcutsOverlay.style.display = 'none';
-  getApi()?.setOverlay(false);
+  releaseOverlay('shortcuts');
 }
 
 if (shortcutsClose) shortcutsClose.addEventListener('click', closeShortcutsOverlay);
@@ -1692,7 +1815,7 @@ if (shortcutsOverlay) {
 
 async function openMobileRemoteModal() {
   if (!mobileRemoteOverlay) return;
-  getApi()?.setOverlay(true);
+  acquireOverlay('mobile-remote');
   mobileRemoteOverlay.style.display = 'flex';
 
   try {
@@ -1727,12 +1850,15 @@ async function openMobileRemoteModal() {
 function closeMobileRemoteModal() {
   if (!mobileRemoteOverlay) return;
   mobileRemoteOverlay.style.display = 'none';
-  getApi()?.setOverlay(false);
+  releaseOverlay('mobile-remote');
 }
 
-if (btnMobileRemote) {
-  btnMobileRemote.addEventListener('click', openMobileRemoteModal);
-}
+// menuItemMobileRemote (app menu) is the opener — btnMobileRemote never existed in toolbar.html.
+document.getElementById('menuItemMobileRemote')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  openMobileRemoteModal();
+});
 if (mobileRemoteClose) {
   mobileRemoteClose.addEventListener('click', closeMobileRemoteModal);
 }
@@ -1742,41 +1868,8 @@ if (mobileRemoteOverlay) {
   });
 }
 
-if (menuFind) {
-  menuFind.addEventListener('click', () => {
-    showFindBar();
-  });
-}
-
-if (menuQuickAnnotate) {
-  menuQuickAnnotate.addEventListener('click', () => {
-    getApi()?.toggleInspect();
-  });
-}
-
-if (menuFontFinder) {
-  menuFontFinder.addEventListener('click', () => {
-    getApi()?.toggleFontFinder();
-  });
-}
-
-if (menuLens) {
-  menuLens.addEventListener('click', () => {
-    getApi()?.toggleLens();
-  });
-}
-
-if (menuOpenBrowser) {
-  menuOpenBrowser.addEventListener('click', () => {
-    getApi()?.openExternal();
-  });
-}
-
-if (menuShortcuts) {
-  menuShortcuts.addEventListener('click', () => {
-    openShortcutsOverlay();
-  });
-}
+// (Legacy menu* ids — menuFind/menuQuickAnnotate/menuFontFinder/menuLens/menuOpenBrowser/menuShortcuts —
+//  do not exist in toolbar.html; their listeners were dead code and have been removed.)
 
 // Close menus when clicking outside
 // TAB CONTEXT MENU
@@ -1797,7 +1890,7 @@ function hideTabContextMenu() {
   tabContextMenu.classList.remove('active');
   tabContextMenu.style.display = 'none';
   contextMenuTargetTabId = null;
-  getApi()?.setOverlay(false);
+  releaseOverlay('tab-context');
 }
 
 function showTabContextMenu(x: number, y: number, tabId: string) {
@@ -1823,7 +1916,7 @@ function showTabContextMenu(x: number, y: number, tabId: string) {
     }
   }
 
-  getApi()?.setOverlay(true);
+  acquireOverlay('tab-context');
   tabContextMenu.style.display = 'flex';
   tabContextMenu.classList.add('active');
 
@@ -1919,7 +2012,7 @@ if (menuItemSetAlias) {
   menuItemSetAlias.addEventListener('click', async () => {
     if (contextMenuTargetTabId) {
       const currentTab = currentTabs.find(t => t.id === contextMenuTargetTabId);
-      const alias = prompt('Đặt Alias cho tab (ví dụ: @admin, @feedback, @storefront):', currentTab?.alias || '@');
+      const alias = await showPromptDialog('Đặt Alias cho tab (ví dụ: @admin, @feedback, @storefront):', currentTab?.alias || '@');
       if (alias !== null) {
         const trimmed = alias.trim();
         const role = trimmed.startsWith('@') ? trimmed.slice(1).toLowerCase() : undefined;
@@ -1967,9 +2060,7 @@ document.addEventListener('click', (e) => {
       closeAppMenu();
     }
   }
-  if (codexMainMenu && !codexMainMenu.contains(e.target as Node) && e.target !== btnMenu) {
-    codexMainMenu.classList.remove('active');
-  }
+
   if (tabContextMenu && !tabContextMenu.contains(e.target as Node)) {
     hideTabContextMenu();
   }
@@ -1988,7 +2079,7 @@ function hideSuggestDropdown() {
   omniboxSuggestDropdown.style.display = 'none';
   selectedSuggestIndex = -1;
   suggestItems = [];
-  getApi()?.setOverlay(false);
+  releaseOverlay('suggest');
 }
 
 async function updateSuggestDropdown(query: string) {
@@ -2001,7 +2092,7 @@ async function updateSuggestDropdown(query: string) {
       selectedSuggestIndex = -1;
       renderSuggestItems(q);
       omniboxSuggestDropdown.style.display = 'block';
-      getApi()?.setOverlay(true, 420);
+      acquireOverlay('suggest', 420);
     } else {
       hideSuggestDropdown();
     }
@@ -2190,7 +2281,7 @@ if (btnClearOmnibox && urlInput) {
 function showFindBar() {
   if (!findBar || !findInput) return;
   findBar.style.display = 'flex';
-  getApi()?.setOverlay(true, 50);
+  acquireOverlay('find-bar', 50);
   findInput.focus();
   findInput.select();
   const q = findInput.value.trim();
@@ -2204,7 +2295,7 @@ function hideFindBar() {
   findBar.style.display = 'none';
   if (findCount) findCount.textContent = '0/0';
   getApi()?.stopFindInPage();
-  getApi()?.setOverlay(false);
+  releaseOverlay('find-bar');
 }
 
 if (findInput) {
@@ -2248,18 +2339,8 @@ if (findClose) {
   findClose.addEventListener('click', hideFindBar);
 }
 
-// Shortcuts Overlay
-if (shortcutsClose && shortcutsOverlay) {
-  shortcutsClose.addEventListener('click', () => {
-    shortcutsOverlay.style.display = 'none';
-  });
-}
-
-if (shortcutsOverlay) {
-  shortcutsOverlay.addEventListener('click', (e) => {
-    if (e.target === shortcutsOverlay) shortcutsOverlay.style.display = 'none';
-  });
-}
+// (Duplicate shortcuts-close listeners removed — the primary pair at ~line 1730
+//  already handles close + releaseOverlay('shortcuts').)
 
 
 async function initToolbar() {
@@ -2284,6 +2365,7 @@ async function initToolbar() {
       isFontFinderActive = !!state.isFontFinderActive;
       isLensActive = !!state.isLensActive;
       isRulerActive = !!state.isRulerActive;
+      isBookmarkBarVisible = !!state.isBookmarkBarVisible;
       if (state.themeQa) renderThemeQa(state.themeQa);
       if ('phoneStatus' in state) renderPhoneStatus(state.phoneStatus as ToolbarPhoneStatus);
       renderTabs();
@@ -2306,6 +2388,7 @@ async function initToolbar() {
       isFontFinderActive = !!s.isFontFinderActive;
       isLensActive = !!s.isLensActive;
       isRulerActive = !!s.isRulerActive;
+      isBookmarkBarVisible = !!s.isBookmarkBarVisible;
       if (s.themeQa) renderThemeQa(s.themeQa as unknown as ThemeQaState);
       if ('phoneStatus' in s) renderPhoneStatus(s.phoneStatus as ToolbarPhoneStatus);
       const newTabsSig = computeTabsSignature(currentTabs, activeTabId);
@@ -2399,9 +2482,9 @@ async function initToolbar() {
     }
   });
   btnHubNewWorkflow?.addEventListener('click', async () => {
-    const name = prompt('Nhập tên Workflow mới:');
+    const name = await showPromptDialog('Nhập tên Workflow mới:');
     if (!name || !name.trim()) return;
-    const description = prompt('Nhập mô tả kịch bản (tùy chọn):') || '';
+    const description = (await showPromptDialog('Nhập mô tả kịch bản (tùy chọn):')) || '';
     const newWf = {
       name: name.trim(),
       description: description.trim(),

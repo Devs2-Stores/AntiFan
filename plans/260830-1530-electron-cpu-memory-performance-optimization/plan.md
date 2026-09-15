@@ -1,7 +1,8 @@
 ---
 id: 260830-1530-electron-cpu-memory-performance-optimization
 title: "Electron AntiFan CPU & Memory Overload Deep Performance Optimization"
-status: pending
+status: superseded
+supersededBy: [260915-0638-terminal-sidebar-sleep-cls-conpty-perf]
 priority: P1
 effort: "4h"
 created: 2026-08-30

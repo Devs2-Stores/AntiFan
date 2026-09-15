@@ -3,7 +3,7 @@
  * 100% Parity with Antigravity Browser standalone prompt generation contract.
  */
 
-export const AGENT_CONTRACT_VERSION = '3.2.0-lean';
+export const AGENT_CONTRACT_VERSION = '3.4.0-lean';
 
 export type TaskIntent =
   | 'tweak'
@@ -40,7 +40,7 @@ export interface AnnotationEvidenceEnvelope {
   terminalState: TerminalState;
 }
 
-export const STANDALONE_AGENT_CONTRACT = `## Core Execution Invariants (v3.2.0-lean)
+export const STANDALONE_AGENT_CONTRACT = `## Core Execution Invariants (v3.4.0-lean)
 1. **Scope Lock**: Exactly ONE logical outcome matching the user request. Report adjacent issues; do NOT fix them unprompted.
 2. **Scout & Root Cause**: Verify ownership and root-cause mechanism at the source template before editing. Heuristics/locators are hints, not proof.
 3. **Source-Level Edits**: Modify the original component/template/style, not generated files or runtime workarounds.
@@ -72,15 +72,21 @@ const SELF_QA_READONLY_INTENTS: Partial<Record<TaskIntent, true>> = {
  * kết quả QA (Red Team Finding 5). Chuỗi là hằng số để test so khớp được.
  */
 export const SELF_QA_DIRECTIVE = `## Self-QA bắt buộc sau khi sửa (AntiFan Theme QA Gate)
-SAU KHI SỬA file theme: nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), GỌI tool đó, chờ kết quả, và chỉ báo hoàn tất khi \`summary.passed === true\` và \`criticalCount === 0\`.
-1. Kết quả fail → tự sửa tiếp NGAY trong lượt này, tối đa 2 vòng sửa; sau mỗi vòng gọi lại \`theme.qa_validate\` để xác nhận đã qua gate.
-2. Tool \`theme.qa_validate\` KHÔNG có sẵn (no MCP) HOẶC tool trả lỗi auth (ATTACHMENT_REQUIRED, ATTACHMENT_INVALID, MCP_CONTEXT_REQUIRED) → KHÔNG lặp lại call; báo dev xác nhận visual trực tiếp trên AntiFan.
-3. Hết 2 vòng vẫn fail → báo kết quả fail trung thực, liệt kê criticalIssues, nhờ dev xác nhận hướng xử lý — KHÔNG báo hoàn tất.
+SAU KHI SỬA file theme, PHẢI tự kiểm chứng trên AntiFan MCP theo đúng thứ tự — mỗi task tự probe lại tool, KHÔNG kế thừa kết luận "tool không có" từ task trước:
+1. MỞ TAB XEM THẬT: navigate/reload tab tới Page URL (ưu tiên \`tabId\` trong "QA Binding"; không bind được thì navigate tab đang bind), rồi \`anti.inspect.dom\` + \`anti.inspect.styles\` đúng Element Selector xác nhận DOM live đã phản ánh edit. Chưa phản ánh → báo "verification pending theme sync", KHÔNG báo pass/fail.
+2. Chụp bằng chứng: \`anti.screenshot.viewport\` (hoặc \`anti.screenshot.full_page\`) vùng đã sửa.
+3. GỌI \`theme.qa_validate\` với \`tabId\` + \`workspaceRoot\` + \`expectedUrl\` + \`annotationId\` từ "QA Binding"; chỉ báo hoàn tất khi \`summary.passed === true\` và \`criticalCount === 0\`. Tool ghi receipt vào \`.antifan/qa-receipts/\` — receipt là bằng chứng gate, không phải lời báo của agent.
+4. Fail → tự sửa tiếp NGAY trong lượt này, tối đa 2 vòng; sau mỗi vòng lặp lại bước 1-3.
+5. \`CAPABILITY_NOT_FOUND\` → re-probe ĐÚNG 1 lần (capability có thể vừa đăng ký sau restart); vẫn không có → \`qaStatus: QA_UNAVAILABLE\` kèm mã lỗi gốc, báo dev xác nhận visual trực tiếp. Lỗi auth (\`ATTACHMENT_REQUIRED\`, \`ATTACHMENT_INVALID\`, \`MCP_CONTEXT_REQUIRED\`, \`UNAUTHENTICATED\`) → terminal ngay, \`qaStatus: QA_UNAVAILABLE\`.
+6. Lỗi môi trường (\`SETTLE_INCOMPLETE\`, \`CAPTURE_NOT_READY\`) → reload/re-probe rồi retry ĐÚNG 1 lần; vẫn lỗi → \`qaStatus: QA_INCONCLUSIVE\` kèm gate detail (network/fonts/images/dom).
+7. \`TARGET_REQUIRED\`/\`TARGET_MISMATCH\`/\`TARGET_STALE\`/\`URL_*_MISMATCH\` → \`anti.browser.rebind_target\` với \`tabId\` rồi retry 1 lần; vẫn mismatch → navigate tab đang bind tới Page URL rồi chạy lại bước 1-3.
+8. Hết 2 vòng vẫn fail → \`qaStatus: QA_FAILED\`, báo fail trung thực kèm criticalIssues, nhờ dev xác nhận hướng xử lý — KHÔNG báo hoàn tất.
+MỌI đường kết thúc PHẢI khai báo đúng một token \`qaStatus\`: \`QA_PASSED\` | \`QA_FAILED\` | \`QA_INCONCLUSIVE\` | \`QA_UNAVAILABLE\`. Báo "done" mà không có \`qaStatus\` là vi phạm contract.
 CẤM bịa kết quả QA: không có tool thì không có điểm số — không bao giờ tự gán summary.passed hay criticalCount nếu chưa gọi được tool.`;
 
 /** Self-QA variant cho READ-ONLY intents — bằng chứng hiện trạng, không bắt buộc. */
 export const SELF_QA_DIRECTIVE_READONLY = `## Self-QA (READ-ONLY — bằng chứng hiện trạng)
-Nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), dùng nó để cung cấp bằng chứng hiện trạng. Không bắt buộc — task này không sửa file.`;
+Nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), dùng nó để cung cấp bằng chứng hiện trạng — truyền \`tabId\`/\`workspaceRoot\`/\`expectedUrl\` từ dòng "QA Binding" của annotation. Không bắt buộc — task này không sửa file.`;
 
 export function buildSelfQaDirective(intent: TaskIntent): string {
   return SELF_QA_READONLY_INTENTS[intent] ? SELF_QA_DIRECTIVE_READONLY : SELF_QA_DIRECTIVE;

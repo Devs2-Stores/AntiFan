@@ -300,6 +300,11 @@
             <span class="menu-label">GPU Lens Zoom Glass</span>
           </div>
 
+          <div class="app-menu-item" id="menuItemMobileRemote">
+            <span class="menu-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="1.5" width="6" height="13" rx="1.5"/><path d="M7 12.5h2"/></svg></span>
+            <span class="menu-label">📱 Mobile Remote (QR)</span>
+          </div>
+
           <div class="app-menu-divider"></div>
 
           <div class="app-menu-item" id="menuItemScreenshot">
@@ -383,6 +388,7 @@
         </div>
       </div>
     </div>
+
 
     <!-- MOBILE REMOTE QR MODAL -->
     <div class="mobile-remote-overlay" id="mobileRemoteOverlay" style="display:none;">
@@ -590,6 +596,17 @@
       </div>
       <div class="codex-menu-item" id="menuItemCloseTabsToRight">
         <span>Đóng các tab bên phải</span>
+      </div>
+    </div>
+    <!-- PROMPT MODAL -->
+    <div class="prompt-overlay" id="promptOverlay" style="display:none;">
+      <div class="prompt-modal">
+        <div class="prompt-title" id="promptTitle"></div>
+        <input class="prompt-input" id="promptInput" type="text" />
+        <div class="prompt-actions">
+          <button class="prompt-btn" id="promptCancel">Hủy</button>
+          <button class="prompt-btn primary" id="promptOk">OK</button>
+        </div>
       </div>
     </div>
   </div>

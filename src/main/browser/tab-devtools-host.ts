@@ -530,6 +530,7 @@ export class TabDevToolsHost {
       const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
         ...rawResult,
         url: targetTab.state.url,
+        tabId: targetTabId,
         title: targetTab.state.title,
         targetImageBase64,
         viewportImageBase64,
@@ -547,6 +548,7 @@ export class TabDevToolsHost {
         viewportImagePath: annotationResult.viewportImagePath,
         userComment: rawResult.userComment,
         timestamp: Date.now(),
+        tabId: targetTabId,
       };
 
       if (this.ctx.emitElementPicked) {

@@ -1312,7 +1312,7 @@ export class BrowserControlPort {
     return { navigated: true, target: { ...target, tabId, documentGeneration: docGen } };
   }
 
-  private async getLiveTabUrl(tabId: string): Promise<string> {
+  public async getLiveTabUrl(tabId: string): Promise<string> {
     if (typeof this.host.getTabUrl === 'function') {
       const url = this.host.getTabUrl(tabId);
       if (url) return url;
@@ -1333,7 +1333,7 @@ export class BrowserControlPort {
     return '';
   }
 
-  private getTabRedirectChain(tabId: string): string[] {
+  public getTabRedirectChain(tabId: string): string[] {
     if (typeof this.host.getRedirectChain === 'function') {
       const chain = this.host.getRedirectChain(tabId);
       if (Array.isArray(chain)) return chain;

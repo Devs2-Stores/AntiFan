@@ -18,6 +18,7 @@ import { ProofTemplateRegistry, ClaimCategory } from '../verification/proof-temp
 import { ThemeSourceMapper, isAuthoritativeSourceCandidate } from '../browser/theme-source-mapper';
 import { CssCascadeAnalyzer } from '../browser/css-cascade-analyzer';
 import { createThemeEvidenceEnvelope } from './theme-evidence-envelope';
+import { checkRouteIdentity } from '../verification/visual-capture';
 import { ReceiptStore } from '../session/receipt-store';
 import { VerificationCircuitBreaker } from '../verification/circuit-breaker';
 function getThemeHierarchyScript(): string {
@@ -1401,7 +1402,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       type: 'object',
       properties: {
         tabId: { type: 'string' },
-        workspaceRoot: { type: 'string' },
+        workspaceRoot: { type: 'string', description: 'Workspace root path. Confines the QA receipt directory (.antifan/qa-receipts/) and matches the QA Binding workspaceRoot emitted in the annotation markdown' },
+        annotationId: { type: 'string', description: 'Annotation ID this QA run verifies (from the annotation markdown). Recorded on the workspace receipt so consuming-runtime gates can match evidence to the task' },
+        expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab (annotation Page URL). Fail-closed: mismatch throws the route-gate code (URL_HOST_MISMATCH/URL_THEME_MISMATCH/URL_PATH_MISMATCH) instead of silently QA-ing the wrong page or theme' },
         multiBreakpoint: { type: 'boolean' },
         viewports: {
           type: 'object',
@@ -1416,6 +1419,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     execute: async (
       params: {
         tabId?: string;
+        annotationId?: string;
+        expectedUrl?: string;
         workspaceRoot?: string;
         multiBreakpoint?: boolean;
         viewports?: {
@@ -1434,8 +1439,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       if (!themeQaWorkflow) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme QA workflow is not available');
       }
+      if (typeof params.expectedUrl === 'string' && params.expectedUrl.trim()) {
+        const observedUrl = await browser.getLiveTabUrl(target.tabId);
+        const routeCheck = checkRouteIdentity(params.expectedUrl, observedUrl, browser.getTabRedirectChain(target.tabId));
+        if (!routeCheck.ok) {
+          throw new CapabilityError(
+            routeCheck.status,
+            `Theme QA route gate failed on tab '${target.tabId}': ${routeCheck.reason || routeCheck.status} (observed: ${routeCheck.observedUrl || 'unknown'})`
+          );
+        }
+      }
       const confinedRoot = confineWorkspaceRoot(params.workspaceRoot, getWorkspaceRoot?.() || '');
-      return themeQaWorkflow.validate({
+      const report = await themeQaWorkflow.validate({
         runId: context.runId || 'run-unbound',
         attemptId: context.attemptId || 'attempt-unbound',
         workspaceRoot: confinedRoot,
@@ -1443,6 +1458,42 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         viewports: params.viewports,
         target,
       });
+      // Workspace-side QA receipt: consuming runtimes (OMP post-hooks) gate fix
+      // handoffs on this file, not on agent prose. Advisory evidence — a receipt
+      // write failure must never fail the QA call itself.
+      try {
+        if (confinedRoot) {
+          const summary = (report as { summary?: { passed?: boolean; criticalCount?: number } }).summary;
+          const observedUrl = await browser.getLiveTabUrl(target.tabId).catch(() => '');
+          const receipt = {
+            receiptVersion: '1.0',
+            runId: context.runId || 'run-unbound',
+            attemptId: context.attemptId || 'attempt-unbound',
+            annotationId: params.annotationId || null,
+            tabId: target.tabId,
+            documentGeneration: target.documentGeneration ?? null,
+            browserEpoch: (target as { browserEpoch?: number }).browserEpoch ?? null,
+            expectedUrl: params.expectedUrl || null,
+            observedUrl: observedUrl || null,
+            workspaceRoot: confinedRoot,
+            verdict: summary?.passed === true && (summary?.criticalCount ?? 0) === 0 ? 'QA_PASSED' : 'QA_FAILED',
+            passed: summary?.passed ?? null,
+            criticalCount: summary?.criticalCount ?? null,
+            createdAt: new Date().toISOString(),
+          };
+          const receiptsDir = path.join(confinedRoot, '.antifan', 'qa-receipts');
+          fs.mkdirSync(receiptsDir, { recursive: true });
+          const safeRunId = String(receipt.runId).replace(/[^a-zA-Z0-9_-]/g, '_');
+          fs.writeFileSync(
+            path.join(receiptsDir, `${Date.now()}-${safeRunId}.json`),
+            JSON.stringify(receipt, null, 2),
+            'utf8'
+          );
+        }
+      } catch {
+        // Receipt emission is best-effort evidence; swallow and return the report.
+      }
+      return report;
     },
   });
 

@@ -59,6 +59,7 @@ export const ACTIVE_CSS_PROPERTIES: Record<string, true> = {
 
 export interface AnnotationPayload {
   annotationId?: string;
+  tabId?: string;
   workspaceDir?: string;
   url?: string;
   title?: string;
@@ -319,6 +320,7 @@ ${buildAgentTaskHeader(userComment)}
 ## Captured element evidence [Visual Mode: Element SnapDOM Capture]
 - Annotation ID: ${annotationId}
 - Page URL: ${safe(payload.url, 4096)}
+- QA Binding (AntiFan MCP): \`tabId\`: \`${safe(payload.tabId, 100) || 'n/a'}\` · \`workspaceRoot\`: \`${safe(payload.workspaceDir, 4096)}\` · \`expectedUrl\`: \`${safe(payload.url, 4096)}\` · \`annotationId\`: \`${annotationId}\`
 - Element Selector: \`${selector}\`
 - DOM Ancestry: \`${domAncestry || selector}\`
 - Tag Name: \`${safe(payload.tagName, 100)}\`

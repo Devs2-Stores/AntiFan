@@ -1064,6 +1064,7 @@ export class NativeTabHost extends EventEmitter {
         isRulerActive: this.isRulerActive,
         isSidebarOpen: this.isSidebarOpen,
         bookmarks: this.bookmarks,
+        isBookmarkBarVisible: this.isBookmarkBarVisible,
         devicePresets: DEVICE_PRESETS,
         activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
         chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
@@ -2797,7 +2798,7 @@ export class NativeTabHost extends EventEmitter {
     this.isToolbarOverlayActive = active;
     this.toolbarOverlayCustomHeight = customHeight;
     const { width, height } = this.window.getContentBounds();
-    const availableWidth = this.isSidebarOpen ? Math.max(200, width - this.sidebarWidth) : width;
+    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
     if (active) {
       // Give full window height or custom height so dropdowns, popovers, context menus are NEVER clipped!
       const overlayHeight = customHeight && customHeight > 0 ? Math.min(height, this.getToolbarHeight() + customHeight) : height;
@@ -6665,6 +6666,7 @@ export class NativeTabHost extends EventEmitter {
       isRulerActive: this.isRulerActive,
       isSidebarOpen: this.isSidebarOpen,
       bookmarks: this.bookmarks,
+      isBookmarkBarVisible: this.isBookmarkBarVisible,
       devicePresets: DEVICE_PRESETS,
       activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
       chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),

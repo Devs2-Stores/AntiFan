@@ -200,8 +200,8 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+F['"][^]*tabHost\?\.focusFindBar\(\)/);
     assert.match(nativeTabHost, /focusFindBar\s*\(\)\s*:\s*void\s*\{[^}]*antifan:focus-find/);
     // 5. Overlay lifecycle in show/hide find bar
-    assert.match(toolbarTs, /function showFindBar\(\)[^]*getApi\(\)\?\.setOverlay\(true,\s*50\)/);
-    assert.match(toolbarTs, /function hideFindBar\(\)[^]*getApi\(\)\?\.setOverlay\(false\)/);
+    assert.match(toolbarTs, /function showFindBar\(\)[^]*acquireOverlay\('find-bar',\s*50\)/);
+    assert.match(toolbarTs, /function hideFindBar\(\)[^]*releaseOverlay\('find-bar'\)/);
   });
 
   it('verifies search suggestion encoding uses standard UTF-8 parameters and charset fallback', () => {
@@ -235,13 +235,13 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.ok(toolbarTs.includes("document.getElementById('omniboxSuggestList')"), 'toolbar.ts must query omniboxSuggestList');
 
     // 3. Overlay lifecycle when showing and hiding suggest dropdown
-    assert.match(toolbarTs, /omniboxSuggestDropdown\.style\.display\s*=\s*'block'[^]*getApi\(\)\?\.setOverlay\(true,\s*420\)/);
-    assert.match(toolbarTs, /function hideSuggestDropdown\(\)[^]*omniboxSuggestDropdown\.style\.display\s*=\s*'none'[^]*getApi\(\)\?\.setOverlay\(false\)/);
+    assert.match(toolbarTs, /omniboxSuggestDropdown\.style\.display\s*=\s*'block'[^]*acquireOverlay\('suggest',\s*420\)/);
+    assert.match(toolbarTs, /function hideSuggestDropdown\(\)[^]*omniboxSuggestDropdown\.style\.display\s*=\s*'none'[^]*releaseOverlay\('suggest'\)/);
 
     // 4. Must NOT immediately close the suggest dropdown after showing it
     assert.doesNotMatch(
       toolbarTs,
-      /omniboxSuggestDropdown\.style\.display\s*=\s*'block';\s*getApi\(\)\?\.setOverlay\(true,\s*420\);\s*hideSuggestDropdown\(\);/,
+      /omniboxSuggestDropdown\.style\.display\s*=\s*'block';\s*acquireOverlay\('suggest',\s*420\);\s*hideSuggestDropdown\(\);/,
       'Must not call hideSuggestDropdown immediately after opening dropdown'
     );
   });

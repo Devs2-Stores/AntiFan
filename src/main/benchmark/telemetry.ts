@@ -19,9 +19,20 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 export const BENCHMARK_LINE_PREFIX = '[antifan-benchmark]';
 
-/** Benchmark mode is opt-in via env var or explicit argv flag. */
+/**
+ * Benchmark mode is opt-in via env var or explicit argv flag.
+ *
+ * Resolved once at module load: this is read on hot paths (every PTY chunk, every
+ * bridge frame), and `process.env` lookups plus `argv.includes` are measurably
+ * non-free at tens of thousands of calls per second. Env and argv cannot change
+ * after process start, so caching is observationally equivalent.
+ */
+let benchmarkEnabledCache: boolean | undefined;
 export function isBenchmarkEnabled(): boolean {
-  return process.env.ANTIFAN_BENCHMARK === '1' || process.argv.includes('--benchmark');
+  if (benchmarkEnabledCache === undefined) {
+    benchmarkEnabledCache = process.env.ANTIFAN_BENCHMARK === '1' || process.argv.includes('--benchmark');
+  }
+  return benchmarkEnabledCache;
 }
 
 export interface BenchmarkMetric {
