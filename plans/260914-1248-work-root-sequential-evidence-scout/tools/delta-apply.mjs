@@ -17,6 +17,7 @@ const DELTA = JSON.parse(fs.readFileSync(path.join(REPORTS, 'delta-sweep.json'),
 const REGISTER = JSON.parse(fs.readFileSync(path.join(REPORTS, 'project-register.json'), 'utf8'));
 const QUEUE = JSON.parse(fs.readFileSync(path.join(REPORTS, 'queue.json'), 'utf8'));
 const ANALYZER = path.join(SCRIPT_DIR, 'analyze-unit.mjs');
+const DEEP_ANALYZER = path.join(SCRIPT_DIR, 'deep-analyze-unit.mjs');
 
 const unitByPath = new Map(REGISTER.units.map((u) => [`${u.rootId}${u.relPath}`, u]));
 const looseByRoot = new Map(REGISTER.units.filter((u) => u.relPath === '<root-loose>').map((u) => [u.rootId, u]));
@@ -104,6 +105,10 @@ for (const uid of affected) {
   }
   try {
     execFileSync(process.execPath, [ANALYZER, uid], { encoding: 'utf8', cwd: PLAN_DIR, maxBuffer: 16 * 1024 * 1024 });
+    // Mechanical analysis alone marks added files ANALYZED_WITH_CLAIMS but never
+    // produces claims for prose (.md) artifacts — deep analyzer owns those.
+    // Without this, delta-added reports land in the ledger with zero claims.
+    execFileSync(process.execPath, [DEEP_ANALYZER, uid], { encoding: 'utf8', cwd: PLAN_DIR, maxBuffer: 16 * 1024 * 1024, timeout: 120000 });
     reanalyzed.push(uid);
   } catch (e) {
     qu.state = 'BLOCKED';
