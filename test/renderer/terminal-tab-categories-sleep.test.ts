@@ -216,14 +216,18 @@ describe('Renderer terminal tab categories', () => {
     seed(harness, list, 's1');
     harness.renderTabs();
 
-    // A header registers no drop handler at all: dropping a tab onto it is inert.
-    const header = headers(harness)[0];
+    // A header is a category drop target, never a reorder target: a drop on it
+    // must leave the session order completely untouched. s3 is already
+    // uncategorised and this is the uncategorised header, so this drop is also a
+    // category no-op — the assertion is purely about the untouched order.
+    const header = headers(harness)[1];
     assert.ok(header);
+    assert.strictEqual(header.getAttribute('data-category'), '__uncategorized__');
     header.dispatch('drop', { dataTransfer: dataTransfer('s3') });
     assert.deepStrictEqual(
       sessionIds(harness),
       ['s1', 's2', 's3'],
-      'dropping onto a header must not splice anything',
+      'dropping onto a header must never splice the session order',
     );
 
     // Dropping onto a tab resolves both ends by session id, not by DOM index —
@@ -244,6 +248,61 @@ describe('Renderer terminal tab categories', () => {
       ['Build', '__uncategorized__'],
       'reordering tabs must never reshuffle the group order',
     );
+  });
+
+  it('re-groups a tab dropped on a group header, and never reorders it', async () => {
+    const harness = loadStandalone();
+    await flush();
+    harness.assign("applyTerminalTabLayout('sidebar')");
+    seed(harness, [
+      { id: 's1', name: 'One', category: 'Build', state: 'running' },
+      { id: 's2', name: 'Two', state: 'running' },
+      { id: 's3', name: 'Three', state: 'running' },
+    ], 's1');
+    harness.renderTabs();
+
+    const findHeader = (key: string): FakeElement => {
+      const header = headers(harness).find((el) => el.getAttribute('data-category') === key);
+      assert.ok(header, `expected a header for ${key}`);
+      return header;
+    };
+    const buildHeader = findHeader('Build');
+
+    // A dragover with no tab drag in flight must not arm the header, so an
+    // unrelated drag (a file, a link) can never become a category drop.
+    buildHeader.dispatch('dragover', { dataTransfer: dataTransfer('s3') });
+    assert.strictEqual(buildHeader.classList.contains('drag-over'), false);
+
+    wrapFor(harness, 's3').dispatch('dragstart', { dataTransfer: dataTransfer('s3') });
+    buildHeader.dispatch('dragover', { dataTransfer: dataTransfer('s3') });
+    assert.strictEqual(buildHeader.classList.contains('drag-over'), true, 'a live tab drag arms the header');
+
+    buildHeader.dispatch('drop', { dataTransfer: dataTransfer('s3') });
+    assert.strictEqual(buildHeader.classList.contains('drag-over'), false, 'the highlight is cleared');
+    assert.strictEqual(harness.getSessions().find((s) => s.id === 's3')?.category, 'Build');
+    assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['s3', 'Build']);
+    // Membership moved; the session ORDER did not.
+    assert.deepStrictEqual(sessionIds(harness), ['s1', 's2', 's3']);
+    assert.deepStrictEqual(
+      headers(harness).map((el) => el.getAttribute('data-category')),
+      ['Build', '__uncategorized__'],
+      'a category drop must never reshuffle the group order either',
+    );
+
+    // Re-dropping into the group it already belongs to is inert: that guard is what
+    // keeps a stray drop from costing an IPC round-trip and a disk write.
+    const writes = countCalls(harness, 'setCategory');
+    buildHeader.dispatch('drop', { dataTransfer: dataTransfer('s3') });
+    assert.strictEqual(countCalls(harness, 'setCategory'), writes, 're-dropping into the same group is inert');
+
+    // A payload that is not a session id is ignored outright.
+    findHeader('Build').dispatch('drop', { dataTransfer: dataTransfer('C:\\tmp\\file.txt') });
+    assert.strictEqual(countCalls(harness, 'setCategory'), writes, 'a non-session payload changes nothing');
+
+    // Dropping on the uncategorised header releases the tab back to ungrouped.
+    findHeader('__uncategorized__').dispatch('drop', { dataTransfer: dataTransfer('s3') });
+    assert.strictEqual(harness.getSessions().find((s) => s.id === 's3')?.category, undefined);
+    assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['s3', undefined]);
   });
 });
 

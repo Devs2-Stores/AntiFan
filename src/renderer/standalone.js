@@ -252,6 +252,12 @@ const categoryHeaders = new Map();
 /** Sticky order of category keys: a header keeps the slot it first appeared in. */
 const categoryOrder = [];
 const collapsedCategories = new Set();
+/**
+ * Session id of the tab currently being dragged, or null. A group header only
+ * claims a drop while a real tab drag is in flight, so an unrelated drag (a file,
+ * a link, a text selection) can never be read as a category assignment.
+ */
+let dragSourceSessionId = null;
 
 function findSession(sessionId) {
   if (!sessionId || !Array.isArray(sessions)) return null;
@@ -3060,6 +3066,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
     wrap.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', s.id);
       e.dataTransfer.effectAllowed = 'move';
+      dragSourceSessionId = s.id;
       wrap.classList.add('dragging');
     });
 
@@ -3074,6 +3081,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
     });
 
     wrap.addEventListener('dragend', () => {
+      dragSourceSessionId = null;
       wrap.classList.remove('dragging');
       tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
     });
@@ -3214,8 +3222,10 @@ function ensureCategoryHeader(group) {
     header.className = 'terminal-tab-category-header';
     header.setAttribute('data-category', group.key);
     header.setAttribute('role', 'button');
-    // A header is a group label, never a drop target: it must not be draggable
-    // and it registers no dragover/drop, so a tab can never be spliced onto it.
+    // A header is a group label, so it is never a drag SOURCE. It *is* a drop
+    // target: dropping a tab on it re-assigns that tab's category. The drop never
+    // splices the session list, so a header still cannot corrupt the tab order —
+    // only group membership changes.
     header.draggable = false;
 
     const toggle = document.createElement('span');
@@ -3234,6 +3244,34 @@ function ensureCategoryHeader(group) {
       toggleCategoryCollapsed(group.key);
     });
     header.addEventListener('dragstart', (e) => e.preventDefault());
+
+    // Drop target for a dragged tab. The key is read back from the live attribute
+    // rather than the captured `group` object: the header element is reused across
+    // renders per key, so a captured object could be stale.
+    header.addEventListener('dragover', (e) => {
+      if (!dragSourceSessionId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      header.classList.add('drag-over');
+    });
+    header.addEventListener('dragleave', () => {
+      header.classList.remove('drag-over');
+    });
+    header.addEventListener('drop', (e) => {
+      e.preventDefault();
+      header.classList.remove('drag-over');
+      // `findSession` rejects a foreign payload (a file path, a URL), so only a
+      // drag of a real tab can ever change a category.
+      const sourceId = e.dataTransfer.getData('text/plain');
+      const session = sourceId ? findSession(sourceId) : null;
+      if (!session) return;
+      const key = header.getAttribute('data-category') || UNCATEGORIZED_CATEGORY;
+      const target = key === UNCATEGORIZED_CATEGORY ? '' : key;
+      // Already in this group: no IPC round-trip and no disk write.
+      if ((session.category || '') === target) return;
+      applyCategoryToSession(sourceId, target, null);
+    });
+
     categoryHeaders.set(group.key, header);
   }
 
