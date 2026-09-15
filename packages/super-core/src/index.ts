@@ -29,6 +29,7 @@ export class Core {
     this.dbPath = dbPath;
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec(DDL);
     const row = this.db.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string } | undefined;
     let v = row ? parseInt(row.value, 10) : SCHEMA_VERSION;
@@ -63,12 +64,17 @@ export class Core {
     const ins = {
       unit: this.db.prepare('INSERT OR REPLACE INTO units(unitId,rootId,relPath,kind,disposition,parentId,markers,dossierPath) VALUES (?,?,?,?,?,?,?,?)'),
       artifact: this.db.prepare('INSERT OR REPLACE INTO artifacts(entryId,unitId,rootId,relPath,absPath,type,size,mtime,sha256,contentPolicy,disposition,reason,coverage,observedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'),
+      conflict: this.db.prepare(`INSERT INTO conflicts(id,kind,subject,positionsJson,state,classification,note) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+          kind=excluded.kind, subject=excluded.subject, positionsJson=excluded.positionsJson,
+          state=CASE WHEN conflicts.state='RESOLVED' THEN 'RESOLVED' ELSE excluded.state END,
+          classification=COALESCE(conflicts.classification, excluded.classification),
+          note=COALESCE(conflicts.note, excluded.note)`),
       ftsDel: this.db.prepare('DELETE FROM claims_fts WHERE claimId = ?'),
       fts: this.db.prepare('INSERT INTO claims_fts(rowid,statement,kind,unitId,claimId) VALUES ((SELECT rowid FROM claims WHERE claimId=?),?,?,?,?)'),
       evidence: this.db.prepare('INSERT OR REPLACE INTO evidence(id,claimId,entryId,revision,path,anchor) VALUES (?,?,?,?,?,?)'),
       skill: this.db.prepare('INSERT OR REPLACE INTO skills(skillId,name,namespace,rootId,location,akDisposition,analysisState,unitId) VALUES (?,?,?,?,?,?,?,?)'),
       lineage: this.db.prepare('INSERT OR REPLACE INTO lineage(id,kind,subject,evidence,strength,membersJson) VALUES (?,?,?,?,?,?)'),
-      conflict: this.db.prepare('INSERT OR REPLACE INTO conflicts(id,kind,subject,positionsJson,state,note) VALUES (?,?,?,?,?,?)'),
       // Upsert claims but never resurrect an operator-set terminal status
       // (REVOKED / SUPERSEDED / STALE_SOURCE_CHANGED) back to OBSERVED on re-import.
       claim: this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,contextPlatform,contextVersion,createdAt,confidence,validFrom,validUntil,sourceKind,subject) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -107,7 +113,7 @@ export class Core {
         ins.lineage.run(l.id, l.kind, l.name ?? l.base ?? l.sha256 ?? null, l.evidence ?? null, l.strength ?? null, JSON.stringify(l.units ?? l.locations ?? l.paths ?? []));
       }
       for (const c of jsonl(path.join(reportsDir, 'conflicts.jsonl'))) {
-        ins.conflict.run(c.id, c.kind, c.subject ?? null, JSON.stringify(c.positions ?? []), c.state ?? 'UNRESOLVED', c.note ?? null);
+        ins.conflict.run(c.id, c.kind, c.subject ?? null, JSON.stringify(c.positions ?? []), c.state ?? 'UNRESOLVED', c.classification ?? null, c.note ?? null);
       }
       // v4: new JSONL types
       for (const l of jsonl(path.join(reportsDir, 'experience-nodes.jsonl'))) {
