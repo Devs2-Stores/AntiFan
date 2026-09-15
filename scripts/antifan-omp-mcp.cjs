@@ -115,6 +115,7 @@ const definitions = [
   ['core.corpus_audit', 'Run a corpus completion audit and record the result.', {}],
   // v4: Phase Gates
   ['core.check_phase_gate', 'Check a phase gate (coverage, evidence, conflict, temporal, promotion, regression).', { phase: { type: 'string' }, gate: { type: 'string' } }, ['phase', 'gate']],
+  ['core.resolve_conflict', 'Resolve or classify a conflict (GENERAL_RULE, CONTEXTUAL_RULE, LEGACY_RULE, EXCEPTION, CONFLICTED, UNRESOLVED).', { id: { type: 'string' }, classification: { type: 'string', enum: ['GENERAL_RULE', 'CONTEXTUAL_RULE', 'LEGACY_RULE', 'EXCEPTION', 'CONFLICTED', 'UNRESOLVED'] }, note: { type: 'string' }, resolved: { type: 'boolean' } }, ['id', 'classification']],
   // v4: Core Regression
   ['core.record_regression', 'Record a core regression run result.', { newKnowledge: { type: 'string' }, affectedRules: { type: 'array', items: { type: 'string' } }, affectedCases: { type: 'array', items: { type: 'string' } }, affectedRecommendations: { type: 'array', items: { type: 'string' } }, replayResult: { type: 'string', enum: ['PASS', 'FAIL'] } }, ['replayResult']],
   // v4: Principles
@@ -449,6 +450,7 @@ async function invokeCore(method, params) {
     case 'core.decay_check': return core.decayCheck(params);
     case 'core.corpus_audit': return core.corpusAudit();
     case 'core.check_phase_gate': return core.checkPhaseGate(params.phase, params.gate);
+    case 'core.resolve_conflict': return core.resolveConflict(params);
     case 'core.record_regression': return core.recordRegression(params);
     case 'core.record_principle': return core.recordPrinciple(params);
     case 'core.principles': return core.principles(params);

@@ -61,6 +61,7 @@ async function main() {
     case 'decay': out = core.decayCheck(parse(arg)); break;
     case 'audit': out = core.corpusAudit(); break;
     case 'gate': out = core.checkPhaseGate(parse(arg).phase, parse(arg).gate); break;
+    case 'resolve-conflict': out = core.resolveConflict(parse(arg)); break;
     case 'regression': out = core.recordRegression(parse(arg)); break;
     case 'principle': out = core.recordPrinciple(parse(arg)); break;
     case 'principles': out = core.principles(parse(arg)); break;

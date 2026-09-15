@@ -2,7 +2,7 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const DDL = `
 PRAGMA journal_mode = WAL;
@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
   sha256 TEXT,
   contentPolicy TEXT NOT NULL DEFAULT 'ALLOWED',
   disposition TEXT NOT NULL DEFAULT 'INVENTORIED',
+  reason TEXT,
+  coverage TEXT,
   observedAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_unit ON artifacts(unitId);
@@ -57,7 +59,9 @@ CREATE TABLE IF NOT EXISTS claims (
   validFrom TEXT,
   validUntil TEXT,
   sourceKind TEXT,
-  subject TEXT
+  subject TEXT,
+  lastSeen TEXT,
+  agingSince TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_claims_unit ON claims(unitId);
 CREATE INDEX IF NOT EXISTS idx_claims_kind ON claims(kind);
@@ -102,6 +106,7 @@ CREATE TABLE IF NOT EXISTS conflicts (
   subject TEXT,
   positionsJson TEXT,
   state TEXT NOT NULL DEFAULT 'UNRESOLVED',
+  classification TEXT,
   note TEXT
 );
 
@@ -144,6 +149,10 @@ CREATE TABLE IF NOT EXISTS decisions (
   alternatives TEXT,
   chosen TEXT,
   evidenceJson TEXT,
+  problem TEXT,
+  tradeoffs TEXT,
+  outcome TEXT,
+  confidence TEXT,
   createdAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_decisions_unit ON decisions(unitId);
@@ -245,7 +254,7 @@ CREATE TABLE IF NOT EXISTS anti_patterns (
   evidence TEXT,
   affectedPlatform TEXT,
   replacement TEXT,
-  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  status TEXT NOT NULL DEFAULT 'OBSERVED',
   createdAt TEXT NOT NULL
 );
 
@@ -313,7 +322,7 @@ CREATE TABLE IF NOT EXISTS principles (
   statement TEXT NOT NULL,
   source TEXT,
   derivedFrom TEXT,
-  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  status TEXT NOT NULL DEFAULT 'OBSERVED',
   createdAt TEXT NOT NULL
 );
 
@@ -351,7 +360,7 @@ CREATE TABLE IF NOT EXISTS tool_intel (
   maintenanceCost REAL,
   roi REAL,
   usageFrequency TEXT,
-  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  status TEXT NOT NULL DEFAULT 'OBSERVED',
   createdAt TEXT NOT NULL
 );
 
@@ -503,5 +512,13 @@ CREATE TABLE IF NOT EXISTS skill_versions (
   versionId TEXT PRIMARY KEY, skillId TEXT NOT NULL, version TEXT, failure TEXT, fix TEXT, production TEXT, createdAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_skill_versions ON skill_versions(skillId);`,
+  },
+  {
+    from: 4, to: 5,
+    sql: `ALTER TABLE artifacts ADD COLUMN reason TEXT;
+ALTER TABLE artifacts ADD COLUMN coverage TEXT;
+UPDATE anti_patterns SET status = 'OBSERVED' WHERE status = 'ACTIVE';
+UPDATE principles SET status = 'OBSERVED' WHERE status = 'ACTIVE';
+UPDATE tool_intel SET status = 'OBSERVED' WHERE status = 'ACTIVE';`,
   },
 ];

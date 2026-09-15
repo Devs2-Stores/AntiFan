@@ -11,6 +11,11 @@ import { DDL, MIGRATIONS, SCHEMA_VERSION } from './schema.js';
 const id = (s: string) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 20);
 const uuid = () => crypto.randomUUID();
 const now = () => new Date().toISOString();
+// §3 Zero Silent Skip: an artifact is terminal only when it reached a real
+// analyzed/excluded state. BLOCKED is terminal only with a recorded reason.
+const TERMINAL_DISPOSITIONS = new Set(['ANALYZED_NO_CLAIM', 'ANALYZED_WITH_CLAIMS', 'EXCLUDED']);
+const CONFLICT_CLASSIFICATIONS = new Set(['GENERAL_RULE', 'CONTEXTUAL_RULE', 'LEGACY_RULE', 'EXCEPTION', 'CONFLICTED', 'UNRESOLVED']);
+
 
 export interface QueryOpts { text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; }
 export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; }
@@ -42,7 +47,7 @@ export class Core {
       units: c('units'), skills: c('skills'), lineage: c('lineage'),
       conflicts: c('conflicts'), cases: c('cases'), candidates: c('candidates'),
       adjudications: c('adjudications'), releases: c('releases'), receipts: c('receipts'),
-      decisions: c('decisions'), dependencies: c('dependencies'), observations: c('observations'),
+      packs: c('packs'),
       experienceNodes: c('experience_nodes'), experienceEdges: c('experience_edges'),
       antiPatterns: c('anti_patterns'), workarounds: c('workarounds'), fixPatterns: c('fix_patterns'),
       corpusAudits: c('corpus_audit'), phaseGates: c('phase_gates'), regressions: c('regressions'),
@@ -57,7 +62,7 @@ export class Core {
   importScout(reportsDir: string) {
     const ins = {
       unit: this.db.prepare('INSERT OR REPLACE INTO units(unitId,rootId,relPath,kind,disposition,parentId,markers,dossierPath) VALUES (?,?,?,?,?,?,?,?)'),
-      artifact: this.db.prepare('INSERT OR REPLACE INTO artifacts(entryId,unitId,rootId,relPath,absPath,type,size,mtime,sha256,contentPolicy,disposition,observedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'),
+      artifact: this.db.prepare('INSERT OR REPLACE INTO artifacts(entryId,unitId,rootId,relPath,absPath,type,size,mtime,sha256,contentPolicy,disposition,reason,coverage,observedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'),
       ftsDel: this.db.prepare('DELETE FROM claims_fts WHERE claimId = ?'),
       fts: this.db.prepare('INSERT INTO claims_fts(rowid,statement,kind,unitId,claimId) VALUES ((SELECT rowid FROM claims WHERE claimId=?),?,?,?,?)'),
       evidence: this.db.prepare('INSERT OR REPLACE INTO evidence(id,claimId,entryId,revision,path,anchor) VALUES (?,?,?,?,?,?)'),
@@ -73,8 +78,8 @@ export class Core {
           contextVersion=excluded.contextVersion, confidence=excluded.confidence,
           validFrom=excluded.validFrom, validUntil=excluded.validUntil,
           sourceKind=excluded.sourceKind, subject=excluded.subject,
-          status=CASE WHEN claims.status IN ('REVOKED','SUPERSEDED','STALE_SOURCE_CHANGED') THEN claims.status ELSE excluded.status END`),
-      decision: this.db.prepare('INSERT OR REPLACE INTO decisions(decisionId,unitId,statement,context,alternatives,chosen,evidenceJson,createdAt) VALUES (?,?,?,?,?,?,?,?)'),
+          status=CASE WHEN claims.status IN ('REVOKED','SUPERSEDED','STALE_SOURCE_CHANGED','PROMOTED') THEN claims.status ELSE excluded.status END`),
+      decision: this.db.prepare('INSERT OR REPLACE INTO decisions(decisionId,unitId,statement,context,alternatives,chosen,evidenceJson,problem,tradeoffs,outcome,confidence,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'),
       dependency: this.db.prepare('INSERT OR REPLACE INTO dependencies(id,fromUnitId,toUnitId,kind,evidenceJson) VALUES (?,?,?,?,?)'),
     };
     let skippedLines = 0;
@@ -115,7 +120,7 @@ export class Core {
       }
       for (const l of jsonl(path.join(reportsDir, 'anti-patterns.jsonl'))) {
         this.db.prepare('INSERT OR REPLACE INTO anti_patterns(patternId,name,whatNotToDo,symptoms,evidence,affectedPlatform,replacement,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
-          .run(l.patternId ?? `ap-${uuid()}`, l.name, l.whatNotToDo ?? null, l.symptoms ?? null, l.evidence ?? null, l.affectedPlatform ?? null, l.replacement ?? null, l.status ?? 'ACTIVE', l.createdAt ?? now());
+          .run(l.patternId ?? `ap-${uuid()}`, l.name, l.whatNotToDo ?? null, l.symptoms ?? null, l.evidence ?? null, l.affectedPlatform ?? null, l.replacement ?? null, l.status ?? 'OBSERVED', l.createdAt ?? now());
       }
       for (const l of jsonl(path.join(reportsDir, 'workarounds.jsonl'))) {
         this.db.prepare('INSERT OR REPLACE INTO workarounds(workaroundId,problem,condition,solution,reason,platform,version,evidence,stillValid,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?)')
@@ -127,7 +132,7 @@ export class Core {
       }
       for (const l of jsonl(path.join(reportsDir, 'principles.jsonl'))) {
         this.db.prepare('INSERT OR REPLACE INTO principles(principleId,statement,source,derivedFrom,status,createdAt) VALUES (?,?,?,?,?,?)')
-          .run(l.principleId ?? `prin-${uuid()}`, l.statement, l.source ?? null, l.derivedFrom ?? null, l.status ?? 'ACTIVE', l.createdAt ?? now());
+          .run(l.principleId ?? `prin-${uuid()}`, l.statement, l.source ?? null, l.derivedFrom ?? null, l.status ?? 'OBSERVED', l.createdAt ?? now());
       }
       for (const l of jsonl(path.join(reportsDir, 'hidden-requirements.jsonl'))) {
         this.db.prepare('INSERT OR REPLACE INTO hidden_requirements(reqId,task,explicitReq,inferredReq,likelihood,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
@@ -139,7 +144,7 @@ export class Core {
       }
       for (const l of jsonl(path.join(reportsDir, 'tool-intel.jsonl'))) {
         this.db.prepare('INSERT OR REPLACE INTO tool_intel(toolId,name,problemSolved,workflowStage,inputs,outputs,failureModes,timeSaved,maintenanceCost,roi,usageFrequency,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-          .run(l.toolId ?? `tool-${uuid()}`, l.name, l.problemSolved ?? null, l.workflowStage ?? null, l.inputs ?? null, l.outputs ?? null, l.failureModes ?? null, l.timeSaved ?? null, l.maintenanceCost ?? null, l.roi ?? null, l.usageFrequency ?? null, l.status ?? 'ACTIVE', l.createdAt ?? now());
+          .run(l.toolId ?? `tool-${uuid()}`, l.name, l.problemSolved ?? null, l.workflowStage ?? null, l.inputs ?? null, l.outputs ?? null, l.failureModes ?? null, l.timeSaved ?? null, l.maintenanceCost ?? null, l.roi ?? null, l.usageFrequency ?? null, l.status ?? 'OBSERVED', l.createdAt ?? now());
       }
       for (const l of jsonl(path.join(reportsDir, 'archetypes.jsonl'))) {
         this.db.prepare('INSERT OR REPLACE INTO archetypes(archetypeId,name,platform,maturityLevel,evidenceJson,createdAt) VALUES (?,?,?,?,?,?)')
@@ -158,7 +163,7 @@ export class Core {
           .run(l.versionId ?? `sv-${uuid()}`, l.skillId, l.version ?? null, l.failure ?? null, l.fix ?? null, l.production ?? null, l.createdAt ?? now());
       }
       for (const d of jsonl(path.join(reportsDir, 'decisions.jsonl'))) {
-        ins.decision.run(d.decisionId, d.unitId, d.statement, d.context ?? null, d.alternatives ?? null, d.chosen ?? null, JSON.stringify(d.evidence ?? []), d.createdAt ?? now());
+        ins.decision.run(d.decisionId, d.unitId, d.statement, d.context ?? null, d.alternatives ?? null, d.chosen ?? null, JSON.stringify(d.evidence ?? []), d.problem ?? null, d.tradeoffs ?? null, d.outcome ?? null, d.confidence ?? null, d.createdAt ?? now());
       }
       for (const d of jsonl(path.join(reportsDir, 'dependencies.jsonl'))) {
         ins.dependency.run(d.id, d.fromUnitId, d.toUnitId, d.kind ?? 'depends-on', JSON.stringify(d.evidence ?? []));
@@ -172,7 +177,9 @@ export class Core {
           const ud = path.join(unitsDir, uid);
           if (!fs.statSync(ud).isDirectory()) continue;
           for (const l of jsonl(path.join(ud, 'content-ledger.jsonl'))) {
-            ins.artifact.run(l.entryId, uid, unitRoot[uid] ?? 'work-root', l.relPath, l.path, 'file', l.size ?? null, l.mtime ?? null, l.sha256 ?? null, l.contentPolicy ?? 'ALLOWED', l.disposition, l.observedAt ?? now());
+            const disp = TERMINAL_DISPOSITIONS.has(l.disposition) || l.disposition === 'BLOCKED' ? l.disposition : 'BLOCKED';
+            const reason = l.reason ?? (disp === 'BLOCKED' && l.disposition !== 'BLOCKED' ? `unrecognized disposition '${l.disposition}'` : null);
+            ins.artifact.run(l.entryId, uid, unitRoot[uid] ?? 'work-root', l.relPath, l.path, 'file', l.size ?? null, l.mtime ?? null, l.sha256 ?? null, l.contentPolicy ?? 'ALLOWED', disp, reason, l.coverage ?? null, l.observedAt ?? now());
           }
           for (const file of ['claims.jsonl', 'deep-claims.jsonl']) {
             for (const c of jsonl(path.join(ud, file))) {
@@ -339,9 +346,13 @@ export class Core {
     this.db.exec('BEGIN');
     try {
       this.db.prepare('DELETE FROM claims_fts WHERE claimId NOT IN (SELECT claimId FROM release_claims WHERE releaseId = ?)').run(releaseId);
-      this.db.prepare('DELETE FROM claims WHERE claimId NOT IN (SELECT claimId FROM release_claims WHERE releaseId = ?)').run(releaseId);
-      this.db.prepare('UPDATE claims SET status = (SELECT status FROM release_claims WHERE release_claims.releaseId = ? AND release_claims.claimId = claims.claimId) WHERE claimId IN (SELECT claimId FROM release_claims WHERE releaseId = ?)').run(releaseId, releaseId);
       this.db.prepare('DELETE FROM adjudications WHERE candidateId NOT IN (SELECT candidateId FROM release_candidates WHERE releaseId = ?)').run(releaseId);
+      // Adjudications recorded AFTER the snapshot for candidates that existed at
+      // snapshot time must also go — otherwise a rolled-back PENDING candidate
+      // keeps the adjudication that promoted it.
+      this.db.prepare(`DELETE FROM adjudications WHERE at > (SELECT createdAt FROM releases WHERE releaseId = ?)
+        AND candidateId IN (SELECT candidateId FROM release_candidates WHERE releaseId = ?)`).run(releaseId, releaseId);
+      this.db.prepare('UPDATE claims SET status = (SELECT status FROM release_claims WHERE release_claims.releaseId = ? AND release_claims.claimId = claims.claimId) WHERE claimId IN (SELECT claimId FROM release_claims WHERE releaseId = ?)').run(releaseId, releaseId);
       this.db.prepare('DELETE FROM candidates WHERE candidateId NOT IN (SELECT candidateId FROM release_candidates WHERE releaseId = ?)').run(releaseId);
       this.db.prepare('UPDATE candidates SET status = (SELECT status FROM release_candidates WHERE release_candidates.releaseId = ? AND release_candidates.candidateId = candidates.candidateId) WHERE candidateId IN (SELECT candidateId FROM release_candidates WHERE releaseId = ?)').run(releaseId, releaseId);
       this.db.prepare('DELETE FROM cases WHERE caseId NOT IN (SELECT caseId FROM candidates WHERE caseId IS NOT NULL)').run();
@@ -453,7 +464,7 @@ export class Core {
   recordAntiPattern(opts: { name: string; whatNotToDo?: string; symptoms?: string; evidence?: string; affectedPlatform?: string; replacement?: string }) {
     const patternId = `ap-${uuid()}`;
     this.db.prepare('INSERT INTO anti_patterns(patternId,name,whatNotToDo,symptoms,evidence,affectedPlatform,replacement,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(patternId, opts.name, opts.whatNotToDo ?? null, opts.symptoms ?? null, opts.evidence ?? null, opts.affectedPlatform ?? null, opts.replacement ?? null, 'ACTIVE', now());
+      .run(patternId, opts.name, opts.whatNotToDo ?? null, opts.symptoms ?? null, opts.evidence ?? null, opts.affectedPlatform ?? null, opts.replacement ?? null, 'OBSERVED', now());
     return { patternId };
   }
 
@@ -552,16 +563,31 @@ export class Core {
     return { stale, aging, cutoff };
   }
 
-  // ---- v4: Corpus Audit (§50) -------------------------------------------------
   corpusAudit() {
     const s = this.stats();
-    const blocked = this.db.prepare("SELECT COUNT(*) AS n FROM artifacts WHERE disposition IN ('BLOCKED','PENDING')").get() as { n: number };
-    const unresolved = this.db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE state = 'UNRESOLVED'").get() as { n: number };
-    const coveragePct = s.artifacts > 0 ? Math.round(((s.artifacts - blocked.n) / s.artifacts) * 1000) / 10 : 0;
+    const disp = this.db.prepare('SELECT disposition, COUNT(*) AS n FROM artifacts GROUP BY disposition').all() as Array<{ disposition: string; n: number }>;
+    const byDisp: Record<string, number> = {};
+    for (const r of disp) byDisp[r.disposition] = r.n;
+    const discovered = s.artifacts;
+    const analyzed = (byDisp['ANALYZED_NO_CLAIM'] ?? 0) + (byDisp['ANALYZED_WITH_CLAIMS'] ?? 0);
+    const extracted = byDisp['ANALYZED_WITH_CLAIMS'] ?? 0;
+    const blocked = byDisp['BLOCKED'] ?? 0;
+    const blockedReasonless = (this.db.prepare("SELECT COUNT(*) AS n FROM artifacts WHERE disposition = 'BLOCKED' AND (reason IS NULL OR reason = '')").get() as { n: number }).n;
+    const pending = discovered - analyzed - (byDisp['EXCLUDED'] ?? 0) - blocked;
+    const connected = (this.db.prepare('SELECT COUNT(DISTINCT entryId) AS n FROM evidence WHERE entryId IS NOT NULL').get() as { n: number }).n;
+    const unresolved = (this.db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE state = 'UNRESOLVED'").get() as { n: number }).n;
+    const rules = (this.db.prepare("SELECT COUNT(*) AS n FROM claims WHERE kind IN ('RULE','CONSTRAINT')").get() as { n: number }).n;
+    // coveragePct = claim-yield: share of discovered artifacts that produced
+    // claims. A corpus where most artifacts yield nothing reports a low number —
+    // never masked as 100% (§3, §50).
+    const coveragePct = discovered > 0 ? Math.round((extracted / discovered) * 1000) / 10 : 0;
+    const processedPct = discovered > 0 ? Math.round(((analyzed + (byDisp['EXCLUDED'] ?? 0)) / discovered) * 1000) / 10 : 0;
+    const reasonsJson = JSON.stringify({ byDisposition: byDisp, blockedReasonless, pending });
     const auditId = `audit-${uuid()}`;
+    const pendingCands = (this.db.prepare("SELECT COUNT(*) AS n FROM candidates WHERE status = 'PENDING'").get() as { n: number }).n;
     this.db.prepare('INSERT INTO corpus_audit(auditId,artifactsDiscovered,artifactsRead,artifactsAnalyzed,artifactsClassified,artifactsConnected,artifactsExtracted,blocked,reasonsJson,unresolved,coveragePct,rulesGenerated,candidatesPending,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(auditId, s.artifacts, s.artifacts - blocked.n, s.claims, s.claims, s.claims, s.claims, blocked.n, null, unresolved.n, coveragePct, s.claims, s.candidates, now());
-    return { auditId, artifacts: s.artifacts, claims: s.claims, blocked: blocked.n, unresolved: unresolved.n, coveragePct, candidatesPending: s.candidates };
+      .run(auditId, discovered, analyzed, analyzed, analyzed, connected, extracted, blocked, reasonsJson, unresolved, coveragePct, rules, pendingCands, now());
+    return { auditId, artifacts: discovered, claims: s.claims, analyzed, extracted, connected, blocked, blockedReasonless, pending, unresolved, coveragePct, processedPct, candidatesPending: pendingCands };
   }
 
   // ---- v4: Phase Gates (§51) ---------------------------------------------------
@@ -570,10 +596,15 @@ export class Core {
     let passed = 0;
     let detail = '';
     if (gate === 'coverage') {
-      const s = this.stats();
-      const blocked = this.db.prepare("SELECT COUNT(*) AS n FROM artifacts WHERE disposition IN ('BLOCKED','PENDING')").get() as { n: number };
-      passed = s.artifacts > 0 && (s.artifacts - blocked.n) / s.artifacts >= 0.8 ? 1 : 0;
-      detail = `${s.artifacts - blocked.n}/${s.artifacts} artifacts processed (${Math.round(((s.artifacts - blocked.n) / Math.max(1, s.artifacts)) * 100)}%)`;
+      // §3/§50: every artifact must hold a terminal disposition; BLOCKED counts
+      // only with a recorded reason. Claim-yield is reported, not gated.
+      const nonTerminal = (this.db.prepare(
+        `SELECT COUNT(*) AS n FROM artifacts WHERE disposition NOT IN ('ANALYZED_NO_CLAIM','ANALYZED_WITH_CLAIMS','EXCLUDED','BLOCKED')
+         OR (disposition = 'BLOCKED' AND (reason IS NULL OR reason = ''))`,
+      ).get() as { n: number }).n;
+      const total = (this.db.prepare('SELECT COUNT(*) AS n FROM artifacts').get() as { n: number }).n;
+      passed = total > 0 && nonTerminal === 0 ? 1 : 0;
+      detail = `${nonTerminal} artifacts non-terminal or BLOCKED without reason (of ${total})`;
     } else if (gate === 'evidence') {
       const noEvidence = this.db.prepare('SELECT COUNT(*) AS n FROM claims WHERE claimId NOT IN (SELECT DISTINCT claimId FROM evidence)').get() as { n: number };
       passed = noEvidence.n === 0 ? 1 : 0;
@@ -595,12 +626,25 @@ export class Core {
       passed = lastReg?.replayResult === 'PASS' ? 1 : 0;
       detail = lastReg ? `last regression: ${lastReg.replayResult}` : 'no regression run';
     } else {
-      passed = 1;
-      detail = `unknown gate '${gate}' — pass-through`;
+      passed = 0;
+      detail = `unknown gate '${gate}' — fail closed`;
     }
     this.db.prepare('INSERT INTO phase_gates(gateId,phase,gate,passed,detail,checkedAt) VALUES (?,?,?,?,?,?)')
       .run(gateId, phase, gate, passed, detail, now());
     return { gateId, phase, gate, passed: Boolean(passed), detail };
+  }
+
+  // ---- conflict resolution ----------------------------------------------------
+  resolveConflict(opts: { id: string; classification: string; note?: string; resolved?: boolean }) {
+    if (!CONFLICT_CLASSIFICATIONS.has(opts.classification)) {
+      throw new Error(`invalid classification ${opts.classification}; must be one of ${[...CONFLICT_CLASSIFICATIONS].join('|')}`);
+    }
+    const row = this.db.prepare('SELECT id FROM conflicts WHERE id = ?').get(opts.id);
+    if (!row) throw new Error(`unknown conflict ${opts.id}`);
+    const state = opts.resolved === false || opts.classification === 'UNRESOLVED' || opts.classification === 'CONFLICTED' ? 'UNRESOLVED' : 'RESOLVED';
+    this.db.prepare('UPDATE conflicts SET state = ?, classification = ?, note = COALESCE(?, note) WHERE id = ?')
+      .run(state, opts.classification, opts.note ?? null, opts.id);
+    return { id: opts.id, state, classification: opts.classification };
   }
 
   // ---- v4: Core Regression (§46) -----------------------------------------------
@@ -615,7 +659,7 @@ export class Core {
   recordPrinciple(opts: { statement: string; source?: string; derivedFrom?: string }) {
     const principleId = `prin-${uuid()}`;
     this.db.prepare('INSERT INTO principles(principleId,statement,source,derivedFrom,status,createdAt) VALUES (?,?,?,?,?,?)')
-      .run(principleId, opts.statement, opts.source ?? null, opts.derivedFrom ?? null, 'ACTIVE', now());
+      .run(principleId, opts.statement, opts.source ?? null, opts.derivedFrom ?? null, 'OBSERVED', now());
     return { principleId };
   }
 
@@ -657,7 +701,7 @@ export class Core {
   recordTool(opts: { name: string; problemSolved?: string; workflowStage?: string; inputs?: string; outputs?: string; failureModes?: string; timeSaved?: number; maintenanceCost?: number; roi?: number; usageFrequency?: string }) {
     const toolId = `tool-${uuid()}`;
     this.db.prepare('INSERT INTO tool_intel(toolId,name,problemSolved,workflowStage,inputs,outputs,failureModes,timeSaved,maintenanceCost,roi,usageFrequency,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(toolId, opts.name, opts.problemSolved ?? null, opts.workflowStage ?? null, opts.inputs ?? null, opts.outputs ?? null, opts.failureModes ?? null, opts.timeSaved ?? null, opts.maintenanceCost ?? null, opts.roi ?? null, opts.usageFrequency ?? null, 'ACTIVE', now());
+      .run(toolId, opts.name, opts.problemSolved ?? null, opts.workflowStage ?? null, opts.inputs ?? null, opts.outputs ?? null, opts.failureModes ?? null, opts.timeSaved ?? null, opts.maintenanceCost ?? null, opts.roi ?? null, opts.usageFrequency ?? null, 'OBSERVED', now());
     return { toolId };
   }
 
