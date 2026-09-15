@@ -23,8 +23,8 @@ import {
   setupSecureRuntimeAuth,
 } from '../../src/main/native-messaging/windows-acl';
 
-test('resolveCurrentUserSid: returns valid Windows SID format', () => {
-  const sid = resolveCurrentUserSid();
+test('resolveCurrentUserSid: returns valid Windows SID format', async () => {
+  const sid = await resolveCurrentUserSid();
   assert.ok(sid, 'SID should not be empty');
   assert.match(sid, /^S-1-5-\d+(-\d+)+$/, 'SID should match standard Windows S-1-5-... format');
 });
@@ -37,18 +37,16 @@ test('parseSavedDirectorySddl: does not confuse a D drive path with its SDDL', (
   );
 });
 
-test('enforceProtectedDirectoryDacl: successfully applies and verifies DACL invariants on Windows', () => {
+test('enforceProtectedDirectoryDacl: successfully applies and verifies DACL invariants on Windows', async () => {
   const tmpDir = path.join(os.tmpdir(), `antifan-acl-test-${Date.now()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
 
-  const userSid = resolveCurrentUserSid();
+  const userSid = await resolveCurrentUserSid();
 
   // Should succeed with valid User SID
-  assert.doesNotThrow(() => {
-    enforceProtectedDirectoryDacl(tmpDir, userSid);
-  });
-  assert.equal(hasProtectedDirectoryDacl(tmpDir, userSid), true);
-  assert.doesNotThrow(() => enforceProtectedDirectoryDacl(tmpDir, userSid));
+  await assert.doesNotReject(() => enforceProtectedDirectoryDacl(tmpDir, userSid));
+  assert.equal(await hasProtectedDirectoryDacl(tmpDir, userSid), true);
+  await assert.doesNotReject(() => enforceProtectedDirectoryDacl(tmpDir, userSid));
 
   // Clean up
   try {
@@ -56,13 +54,13 @@ test('enforceProtectedDirectoryDacl: successfully applies and verifies DACL inva
   } catch {}
 });
 
-test('setupSecureRuntimeAuth: succeeds on fresh directory and survives re-execution on existing protected directory', () => {
+test('setupSecureRuntimeAuth: succeeds on fresh directory and survives re-execution on existing protected directory', async () => {
   const tmpRuntimeDir = path.join(os.tmpdir(), `antifan-runtime-test-${Date.now()}`);
   fs.mkdirSync(tmpRuntimeDir, { recursive: true });
 
   try {
     // First run on fresh directory
-    const res1 = setupSecureRuntimeAuth('test-uuid-1', 'test-nonce-1', 12345, tmpRuntimeDir);
+    const res1 = await setupSecureRuntimeAuth('test-uuid-1', 'test-nonce-1', 12345, tmpRuntimeDir);
     assert.equal(res1.runtimeDir, tmpRuntimeDir);
     assert.ok(fs.existsSync(res1.authFile));
     const auth1 = JSON.parse(fs.readFileSync(res1.authFile, 'utf8'));
@@ -71,7 +69,7 @@ test('setupSecureRuntimeAuth: succeeds on fresh directory and survives re-execut
     assert.equal(auth1.port, 12345);
 
     // Second run on already protected directory (must NOT fail with SeSecurityPrivilege)
-    const res2 = setupSecureRuntimeAuth('test-uuid-2', 'test-nonce-2', 54321, tmpRuntimeDir);
+    const res2 = await setupSecureRuntimeAuth('test-uuid-2', 'test-nonce-2', 54321, tmpRuntimeDir);
     assert.equal(res2.runtimeDir, tmpRuntimeDir);
     assert.ok(fs.existsSync(res2.authFile));
     const auth2 = JSON.parse(fs.readFileSync(res2.authFile, 'utf8'));
@@ -79,8 +77,8 @@ test('setupSecureRuntimeAuth: succeeds on fresh directory and survives re-execut
     assert.equal(auth2.launchNonce, 'test-nonce-2');
     assert.equal(auth2.port, 54321);
 
-    const userSid = resolveCurrentUserSid();
-    assert.equal(hasProtectedDirectoryDacl(tmpRuntimeDir, userSid), true);
+    const userSid = await resolveCurrentUserSid();
+    assert.equal(await hasProtectedDirectoryDacl(tmpRuntimeDir, userSid), true);
   } finally {
     try {
       fs.rmSync(tmpRuntimeDir, { recursive: true, force: true });
@@ -116,7 +114,7 @@ test('file DACL helpers: exercise script generation and SDDL parsing behavior on
   assert.equal(parseSavedSddl(''), null);
 });
 
-test('enforceProtectedFileDacl: on non-Windows reports not-enforced without throwing', () => {
+test('enforceProtectedFileDacl: on non-Windows reports not-enforced without throwing', async () => {
   const originalPlatform = process.platform;
   try {
     Object.defineProperty(process, 'platform', { value: 'linux' });
@@ -125,8 +123,8 @@ test('enforceProtectedFileDacl: on non-Windows reports not-enforced without thro
 
     // Should NOT throw even with dummy paths / non-existent files on non-Windows
     let result: FileDaclResult | undefined;
-    assert.doesNotThrow(() => {
-      result = enforceProtectedFileDacl(dummyPath, dummySid);
+    await assert.doesNotReject(async () => {
+      result = await enforceProtectedFileDacl(dummyPath, dummySid);
     });
 
     assert.ok(result, 'Result should be returned');
@@ -135,32 +133,32 @@ test('enforceProtectedFileDacl: on non-Windows reports not-enforced without thro
     assert.equal(result.reason, 'not enforced (platform)');
 
     // Also test without passing userSid
-    assert.doesNotThrow(() => {
-      const resWithoutSid = enforceProtectedFileDacl(dummyPath);
+    await assert.doesNotReject(async () => {
+      const resWithoutSid = await enforceProtectedFileDacl(dummyPath);
       assert.equal(resWithoutSid.enforced, false);
       assert.equal(resWithoutSid.platform, 'linux');
     });
 
     // hasProtectedFileDacl should return false on non-Windows
-    assert.equal(hasProtectedFileDacl(dummyPath, dummySid), false);
+    assert.equal(await hasProtectedFileDacl(dummyPath, dummySid), false);
   } finally {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   }
 });
 
-test('SID resolution: resolves current user SID or fails closed with platform error', () => {
+test('SID resolution: resolves current user SID or fails closed with platform error', async () => {
   if (process.platform === 'win32') {
-    const sid = resolveCurrentUserSid();
+    const sid = await resolveCurrentUserSid();
     assert.match(sid, /^S-1-5-\d+(-\d+)+$/, 'Windows SID must follow standard S-1-5 security identifier format');
   } else {
-    assert.throws(
+    await assert.rejects(
       () => resolveCurrentUserSid(),
       /Windows ACL enforcement is only supported on Windows/
     );
   }
 });
 
-test('atomic replacement contract: produces correct file ACL specs and executes atomicWriteWithDacl', () => {
+test('atomic replacement contract: produces correct file ACL specs and executes atomicWriteWithDacl', async () => {
   const testSid = 'S-1-5-21-1000-2000-3000-1001';
   const tempPath = 'C:\\Users\\TestUser\\AppData\\Local\\AntiFan\\runtime\\bridge-manifest.tmp';
   const finalPath = 'C:\\Users\\TestUser\\AppData\\Local\\AntiFan\\runtime\\bridge-manifest.json';
@@ -189,7 +187,7 @@ test('atomic replacement contract: produces correct file ACL specs and executes 
   const payload = JSON.stringify({ secret: 'atomic-dacl-secret', epoch: 1 });
 
   try {
-    atomicWriteWithDacl(targetFile, payload);
+    await atomicWriteWithDacl(targetFile, payload);
     assert.ok(fs.existsSync(targetFile), 'Target file must exist after atomic write');
     assert.equal(fs.readFileSync(targetFile, 'utf8'), payload, 'Content must match exactly');
 
@@ -199,13 +197,11 @@ test('atomic replacement contract: produces correct file ACL specs and executes 
     assert.equal(tmpEntries.length, 0, 'No leftover temporary files must remain');
 
     // Exercise applyProtectedFileDacl directly on an existing file
-    assert.doesNotThrow(() => {
-      applyProtectedFileDacl(targetFile);
-    });
+    await assert.doesNotReject(() => applyProtectedFileDacl(targetFile));
 
     if (process.platform === 'win32') {
-      const userSid = resolveCurrentUserSid();
-      assert.equal(hasProtectedFileDacl(targetFile, userSid), true, 'Target file must pass DACL verification on Windows');
+      const userSid = await resolveCurrentUserSid();
+      assert.equal(await hasProtectedFileDacl(targetFile, userSid), true, 'Target file must pass DACL verification on Windows');
     }
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
@@ -248,13 +244,13 @@ test('verifyProtectedSddl: validates exact ACEs and flags for files and director
   const fullDescriptorSddl = `O:BAG:BAD:PAI(A;;FA;;;SY)(A;;FA;;;${userSid})S:(ML;;NW;;;ME)`;
   assert.equal(verifyProtectedSddl(fullDescriptorSddl, userSid, 'file'), true, 'Must parse DACL portion from full security descriptor');
 });
-test('enforceProtectedFileDacl: [Phase 6 Certification Deferred: Live Windows Execution] live file DACL enforcement and atomic rename on Windows', (t) => {
+test('enforceProtectedFileDacl: [Phase 6 Certification Deferred: Live Windows Execution] live file DACL enforcement and atomic rename on Windows', async (t) => {
   if (process.platform !== 'win32') {
     t.skip('Skipping live Windows DACL enforcement test on non-Windows platform (deferred to Phase 6)');
     return;
   }
 
-  const userSid = resolveCurrentUserSid();
+  const userSid = await resolveCurrentUserSid();
   const tmpFile = path.join(os.tmpdir(), `antifan-file-acl-test-${Date.now()}.json`);
   const finalFile = path.join(os.tmpdir(), `antifan-file-acl-final-${Date.now()}.json`);
 
@@ -263,19 +259,19 @@ test('enforceProtectedFileDacl: [Phase 6 Certification Deferred: Live Windows Ex
 
     // Initially newly created file inherits parent directory ACLs (not protected file DACL)
     // Enforce on temp file
-    const res1 = enforceProtectedFileDacl(tmpFile, userSid);
+    const res1 = await enforceProtectedFileDacl(tmpFile, userSid);
     assert.equal(res1.enforced, true);
     assert.equal(res1.platform, 'win32');
-    assert.equal(hasProtectedFileDacl(tmpFile, userSid), true);
+    assert.equal(await hasProtectedFileDacl(tmpFile, userSid), true);
 
     // Atomic replacement / rename
     fs.renameSync(tmpFile, finalFile);
 
     // Re-enforce on final path
-    const res2 = enforceProtectedFileDacl(finalFile, userSid);
+    const res2 = await enforceProtectedFileDacl(finalFile, userSid);
     assert.equal(res2.enforced, true);
     assert.equal(res2.platform, 'win32');
-    assert.equal(hasProtectedFileDacl(finalFile, userSid), true);
+    assert.equal(await hasProtectedFileDacl(finalFile, userSid), true);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
     try { fs.unlinkSync(finalFile); } catch {}

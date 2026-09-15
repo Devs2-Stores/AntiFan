@@ -799,7 +799,7 @@ describe('Phase 4: Grant Revocation, Rotation Invalidation & LAN Binding', () =>
     (server as unknown as { mobileGrants: Map<string, MobileSessionGrant> }).mobileGrants.set(grantToken, record);
     assert.ok(server.getMobileGrant(grantToken), 'precondition: grant valid');
 
-    server.rotateToken();
+    await server.rotateToken();
     assert.strictEqual(server.getMobileGrant(grantToken), null, 'rotation must revoke all derived mobile grants');
     server.dispose();
   });
@@ -816,7 +816,7 @@ describe('Phase 4: Grant Revocation, Rotation Invalidation & LAN Binding', () =>
 
     const grant2 = server.issueExtensionGrant('partition-cookies-2', ['example.com']);
     assert.ok(server.getExtensionGrant(grant2.grantToken), 'precondition: second grant valid');
-    server.rotateToken();
+    await server.rotateToken();
     assert.strictEqual(server.getExtensionGrant(grant2.grantToken), null, 'rotation must revoke extension grants');
     server.dispose();
   });
@@ -876,7 +876,7 @@ describe('Bridge discovery & pairing queue isolation from the live data root', (
           [],
           'an ephemeral-port instance must not populate the shared pairing queue'
         );
-        const challenge = server.claimPairingChallenge('mcp');
+        const challenge = await server.claimPairingChallenge('mcp');
         assert.ok(challenge?.code, 'ephemeral instances must still serve pairing challenges from their private queue');
       } finally {
         server.dispose();
@@ -1018,13 +1018,13 @@ describe('Bridge discovery & pairing queue isolation from the live data root', (
         // Port 20190 is never bound: start() is not called, so this is inert
         // discovery metadata, and a non-zero port keeps discovery publishing on.
         const server = new BridgeServer(mockHost, 20190, true);
-        server.rotateToken();
+        await server.rotateToken();
         assert.strictEqual(readMirrorPid(mirrorPath), holder.pid, 'a mirror held by a live instance keeps its entry');
 
         holder.kill();
         await new Promise<void>((resolve) => holder.once('exit', () => resolve()));
 
-        server.rotateToken();
+        await server.rotateToken();
         assert.strictEqual(readMirrorPid(mirrorPath), process.pid, 'a mirror whose holder is dead is replaced');
         server.dispose();
       });

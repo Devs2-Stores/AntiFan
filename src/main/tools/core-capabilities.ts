@@ -314,6 +314,9 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     { type: 'object', properties: { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' } }, required: ['task', 'recommendation'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.receiptV2(p));
 
+  reg('core.resolve_conflict', 'Resolve or classify a conflict (GENERAL_RULE, CONTEXTUAL_RULE, LEGACY_RULE, EXCEPTION, CONFLICTED, UNRESOLVED).',
+    { type: 'object', properties: { id: { type: 'string' }, classification: { type: 'string', enum: ['GENERAL_RULE', 'CONTEXTUAL_RULE', 'LEGACY_RULE', 'EXCEPTION', 'CONFLICTED', 'UNRESOLVED'] }, note: { type: 'string' }, resolved: { type: 'boolean' } }, required: ['id', 'classification'] },
+    WRITE_POLICY, (p: Record<string, unknown>) => (core as unknown as { resolveConflict: (o: Record<string, unknown>) => unknown }).resolveConflict(p));
   reg('core.domain', 'Return a domain view (units, claims, eligible skills, gaps) or insufficient-evidence.',
     { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
     READ_POLICY, (p: { name: string }) => core.domain(p.name));

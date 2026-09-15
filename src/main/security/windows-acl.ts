@@ -7,7 +7,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+// Async spawn: icacls/powershell take seconds and must never stall the main
+// thread. windowsHide matches the *Sync default (no console window flash).
+const execFileAsync = promisify(execFile);
 export interface FileDaclResult {
   enforced: boolean;
   platform: string;
@@ -16,7 +21,7 @@ export interface FileDaclResult {
 
 let cachedUserSid: string | null = null;
 
-export function resolveCurrentUserSid(): string {
+export async function resolveCurrentUserSid(): Promise<string> {
   if (process.platform !== 'win32') {
     throw new Error('[AntiFan Security] Windows ACL enforcement is only supported on Windows (win32).');
   }
@@ -25,7 +30,8 @@ export function resolveCurrentUserSid(): string {
     return cachedUserSid;
   }
 
-  const output = execFileSync('whoami', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' }).trim();
+  const { stdout } = await execFileAsync('whoami', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true });
+  const output = String(stdout).trim();
   const parts = output.split(',');
   const rawSid = parts[1];
   if (rawSid) {
@@ -51,13 +57,13 @@ export function parseSavedFileSddl(savedAcl: string): string | null {
   return parseSavedSddl(savedAcl);
 }
 
-function readPathSddl(targetPath: string): string {
+async function readPathSddl(targetPath: string): Promise<string> {
   const normalizedTarget = path.win32.normalize(targetPath);
   const savePath = path.win32.normalize(
     path.join(os.tmpdir(), `antifan-acl-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`)
   );
   try {
-    execFileSync('icacls.exe', [normalizedTarget, '/save', savePath], { stdio: 'pipe' });
+    await execFileAsync('icacls.exe', [normalizedTarget, '/save', savePath], { windowsHide: true });
     const sddl = parseSavedSddl(fs.readFileSync(savePath, 'utf16le'));
     if (!sddl) {
       throw new Error(`[AntiFan Security] icacls returned no DACL for ${normalizedTarget}`);
@@ -75,7 +81,7 @@ function readPathSddl(targetPath: string): string {
  * is simply absent from the result, and callers treat that as "needs repair"
  * — the safe direction.
  */
-function readPathsSddl(targetPaths: string[]): Map<string, string> {
+async function readPathsSddl(targetPaths: string[]): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   if (targetPaths.length === 0) return result;
   const savePath = path.win32.normalize(
@@ -83,7 +89,7 @@ function readPathsSddl(targetPaths: string[]): Map<string, string> {
   );
   try {
     const normalized = targetPaths.map((p) => path.win32.normalize(p));
-    execFileSync('icacls.exe', [...normalized, '/save', savePath], { stdio: 'pipe' });
+    await execFileAsync('icacls.exe', [...normalized, '/save', savePath], { windowsHide: true });
     const lines = fs.readFileSync(savePath, 'utf16le').split(/\r?\n/).filter((l) => l.trim().length > 0);
     // Entries pair a bare path line with its SDDL line (contains 'D:').
     for (let i = 0; i + 1 < lines.length; i += 2) {
@@ -141,10 +147,10 @@ export function verifyProtectedSddl(
   }) && Object.keys(expected).length === 0;
 }
 
-export function hasProtectedDirectoryDacl(dirPath: string, userSid: string): boolean {
+export async function hasProtectedDirectoryDacl(dirPath: string, userSid: string): Promise<boolean> {
   if (process.platform !== 'win32') return false;
   try {
-    const sddl = readPathSddl(dirPath);
+    const sddl = await readPathSddl(dirPath);
     return verifyProtectedSddl(sddl, userSid, 'directory');
   } catch {
     return false;
@@ -167,23 +173,23 @@ export function buildDirectoryAclScript(dirPath: string, userSid: string): strin
   `;
 }
 
-export function enforceProtectedDirectoryDacl(dirPath: string, userSid: string): void {
+export async function enforceProtectedDirectoryDacl(dirPath: string, userSid: string): Promise<void> {
   if (process.platform !== 'win32') {
     throw new Error('[AntiFan Security] Windows ACL enforcement is only supported on Windows (win32).');
   }
-  if (hasProtectedDirectoryDacl(dirPath, userSid)) return;
+  if (await hasProtectedDirectoryDacl(dirPath, userSid)) return;
   // Fail-closed repair path: replace inherited ACLs with exactly two explicit ACEs.
   const psScript = buildDirectoryAclScript(dirPath, userSid);
-  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { stdio: 'pipe' });
-  if (!hasProtectedDirectoryDacl(dirPath, userSid)) {
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { windowsHide: true });
+  if (!(await hasProtectedDirectoryDacl(dirPath, userSid))) {
     throw new Error(`[AntiFan Security] DACL verification failed after repair: ${dirPath}`);
   }
 }
 
-export function hasProtectedFileDacl(filePath: string, userSid: string): boolean {
+export async function hasProtectedFileDacl(filePath: string, userSid: string): Promise<boolean> {
   if (process.platform !== 'win32') return false;
   try {
-    const sddl = readPathSddl(filePath);
+    const sddl = await readPathSddl(filePath);
     return verifyProtectedSddl(sddl, userSid, 'file');
   } catch {
     return false;
@@ -246,10 +252,10 @@ export function buildPathsAclScript(paths: string[], userSid: string): string {
   `;
 }
 
-export function enforceProtectedPathsDacl(
+export async function enforceProtectedPathsDacl(
   paths: string[],
   userSid?: string
-): FileDaclResult {
+): Promise<FileDaclResult> {
   if (process.platform !== 'win32') {
     return {
       enforced: false,
@@ -265,7 +271,7 @@ export function enforceProtectedPathsDacl(
     };
   }
 
-  const effectiveSid = userSid || resolveCurrentUserSid();
+  const effectiveSid = userSid || (await resolveCurrentUserSid());
   if (!/^S-1-5-\d+(-\d+)+$/.test(effectiveSid)) {
     throw new Error(`[AntiFan Security] Invalid Windows User SID provided for file DACL enforcement: ${effectiveSid}`);
   }
@@ -282,10 +288,17 @@ export function enforceProtectedPathsDacl(
   const needingRepair: string[] = [];
   // One icacls spawn verifies every path; per-path reads only for entries the
   // batched save could not resolve (parse gaps are treated as unprotected).
-  const batched = readPathsSddl(paths);
+  const batched = await readPathsSddl(paths);
   for (const p of paths) {
     const isDir = fs.statSync(p).isDirectory();
-    const sddl = batched.get(p) ?? (() => { try { return readPathSddl(p); } catch { return null; } })();
+    let sddl = batched.get(p) ?? null;
+    if (sddl === null) {
+      try {
+        sddl = await readPathSddl(p);
+      } catch {
+        sddl = null;
+      }
+    }
     const isProtected = sddl !== null && verifyProtectedSddl(sddl, effectiveSid, isDir ? 'directory' : 'file');
     if (!isProtected) {
       needingRepair.push(p);
@@ -299,11 +312,13 @@ export function enforceProtectedPathsDacl(
   }
 
   const psScript = buildPathsAclScript(needingRepair, effectiveSid);
-  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { stdio: 'pipe' });
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { windowsHide: true });
 
   for (const p of needingRepair) {
     const isDir = fs.statSync(p).isDirectory();
-    const isProtected = isDir ? hasProtectedDirectoryDacl(p, effectiveSid) : hasProtectedFileDacl(p, effectiveSid);
+    const isProtected = isDir
+      ? await hasProtectedDirectoryDacl(p, effectiveSid)
+      : await hasProtectedFileDacl(p, effectiveSid);
     if (!isProtected) {
       throw new Error(`[AntiFan Security] File DACL verification failed after repair: ${p}`);
     }
@@ -315,25 +330,25 @@ export function enforceProtectedPathsDacl(
   };
 }
 
-export function enforceProtectedFileDacl(
+export async function enforceProtectedFileDacl(
   filePath: string,
   userSid?: string
-): FileDaclResult {
+): Promise<FileDaclResult> {
   return enforceProtectedPathsDacl([filePath], userSid);
 }
 
-export function applyProtectedPathsDacl(paths: string[]): void {
+export async function applyProtectedPathsDacl(paths: string[]): Promise<void> {
   if (process.platform !== 'win32') return;
   if (!Array.isArray(paths) || paths.length === 0) return;
-  const sid = resolveCurrentUserSid();
-  enforceProtectedPathsDacl(paths, sid);
+  const sid = await resolveCurrentUserSid();
+  await enforceProtectedPathsDacl(paths, sid);
 }
 
-export function applyProtectedFileDacl(filePath: string): void {
-  applyProtectedPathsDacl([filePath]);
+export async function applyProtectedFileDacl(filePath: string): Promise<void> {
+  await applyProtectedPathsDacl([filePath]);
 }
 
-export function atomicWriteWithDacl(targetPath: string, content: string): void {
+export async function atomicWriteWithDacl(targetPath: string, content: string): Promise<void> {
   const parentDir = path.dirname(targetPath);
   if (!fs.existsSync(parentDir)) {
     fs.mkdirSync(parentDir, { recursive: true });
@@ -341,7 +356,7 @@ export function atomicWriteWithDacl(targetPath: string, content: string): void {
   const tempPath = `${targetPath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
   fs.writeFileSync(tempPath, '', { encoding: 'utf8', mode: 0o600 });
   try {
-    applyProtectedFileDacl(tempPath);
+    await applyProtectedFileDacl(tempPath);
     fs.writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o600 });
     try {
       fs.renameSync(tempPath, targetPath);
@@ -350,7 +365,7 @@ export function atomicWriteWithDacl(targetPath: string, content: string): void {
         if (!fs.existsSync(targetPath)) {
           fs.writeFileSync(targetPath, '', { encoding: 'utf8', mode: 0o600 });
         }
-        applyProtectedFileDacl(targetPath);
+        await applyProtectedFileDacl(targetPath);
         fs.writeFileSync(targetPath, content, { encoding: 'utf8', mode: 0o600 });
         try { fs.unlinkSync(tempPath); } catch {}
       } catch (fallbackErr) {
@@ -359,7 +374,7 @@ export function atomicWriteWithDacl(targetPath: string, content: string): void {
         throw fallbackErr;
       }
     }
-    applyProtectedFileDacl(targetPath);
+    await applyProtectedFileDacl(targetPath);
   } finally {
     if (fs.existsSync(tempPath)) {
       try { fs.unlinkSync(tempPath); } catch {}

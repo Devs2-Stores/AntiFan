@@ -135,14 +135,18 @@ export class StorageLocations {
       }
     }
 
-    // On Windows, harden the root data directory with user-only DACL
+    // On Windows, harden the root data directory with user-only DACL. The
+    // icacls/powershell spawns run asynchronously so directory setup never
+    // stalls the main thread; enforcement failures stay non-fatal.
     if (process.platform === 'win32') {
-      try {
-        const sid = resolveCurrentUserSid();
-        enforceProtectedDirectoryDacl(this.getDataRoot(customRoot), sid);
-      } catch {
-        // Fallback for non-elevated or mocked test environments
-      }
+      void (async () => {
+        try {
+          const sid = await resolveCurrentUserSid();
+          await enforceProtectedDirectoryDacl(this.getDataRoot(customRoot), sid);
+        } catch {
+          // Fallback for non-elevated or mocked test environments
+        }
+      })();
     }
   }
 }

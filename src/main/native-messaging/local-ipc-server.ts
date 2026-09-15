@@ -29,97 +29,95 @@ export class LocalIpcServer {
     return this.socketPath;
   }
 
-  public start(
+  public async start(
     bridgePort: number,
     onHandshakeRequest: () => HandshakeResponse,
     customRuntimeDir?: string
   ): Promise<{ socketPath: string; instanceUuid: string }> {
-    return new Promise((resolve, reject) => {
-      try {
-        const { socketPath } = setupSecureRuntimeAuth(
-          this.instanceUuid,
-          this.launchNonce,
-          bridgePort,
-          customRuntimeDir
-        );
-        this.socketPath = socketPath;
+    // Awaited before listen: the DACL spawns inside setupSecureRuntimeAuth run
+    // off the main thread, and bridge-auth.json must exist before start()
+    // resolves (clients read it to discover the nonce and pipe path).
+    const { socketPath } = await setupSecureRuntimeAuth(
+      this.instanceUuid,
+      this.launchNonce,
+      bridgePort,
+      customRuntimeDir
+    );
+    this.socketPath = socketPath;
 
-        this.server = net.createServer((socket) => {
-          const decoder = new NativeMessageDecoder();
-          socket.pipe(decoder);
+    const server = net.createServer((socket) => {
+      const decoder = new NativeMessageDecoder();
+      socket.pipe(decoder);
 
-          decoder.on('data', (req: any) => {
-            try {
-              if (req && req.action === 'HANDSHAKE') {
-                if (req.launchNonce !== this.launchNonce) {
-                  const errBuf = encodeNativeMessage({
-                    status: 'ERROR',
-                    error: 'INVALID_LAUNCH_NONCE',
-                    message: 'Supplied launch nonce does not match active instance.',
-                  });
-                  socket.write(errBuf);
-                  socket.destroy();
-                  return;
-                }
-
-                const credentials = onHandshakeRequest();
-                const response = {
-                  status: 'SUCCESS',
-                  token: credentials.token,
-                  port: credentials.port,
-                  activeCapsuleId: credentials.activeCapsuleId,
-                  activePartition: credentials.activePartition,
-                };
-                socket.write(encodeNativeMessage(response));
-              } else if (req && req.action === 'PING') {
-                socket.write(encodeNativeMessage({ status: 'PONG', timestamp: Date.now() }));
-              } else {
-                socket.write(
-                  encodeNativeMessage({
-                    status: 'ERROR',
-                    error: 'UNSUPPORTED_ACTION',
-                    message: `Action "${req?.action}" is not supported over Local IPC.`,
-                  })
-                );
-              }
-            } catch (err) {
-              socket.write(
-                encodeNativeMessage({
-                  status: 'ERROR',
-                  error: 'INTERNAL_ERROR',
-                  message: (err as Error).message,
-                })
-              );
-            }
-          });
-
-          decoder.on('error', (err) => {
-            try {
-              socket.write(
-                encodeNativeMessage({
-                  status: 'ERROR',
-                  error: 'FRAMING_ERROR',
-                  message: err.message,
-                })
-              );
+      decoder.on('data', (req: { action?: string; launchNonce?: string } | null) => {
+        try {
+          if (req && req.action === 'HANDSHAKE') {
+            if (req.launchNonce !== this.launchNonce) {
+              const errBuf = encodeNativeMessage({
+                status: 'ERROR',
+                error: 'INVALID_LAUNCH_NONCE',
+                message: 'Supplied launch nonce does not match active instance.',
+              });
+              socket.write(errBuf);
               socket.destroy();
-            } catch {}
-          });
-        });
+              return;
+            }
 
-        this.server.listen(this.socketPath, () => {
-          this.isRunning = true;
-          resolve({ socketPath: this.socketPath, instanceUuid: this.instanceUuid });
-        });
+            const credentials = onHandshakeRequest();
+            const response = {
+              status: 'SUCCESS',
+              token: credentials.token,
+              port: credentials.port,
+              activeCapsuleId: credentials.activeCapsuleId,
+              activePartition: credentials.activePartition,
+            };
+            socket.write(encodeNativeMessage(response));
+          } else if (req && req.action === 'PING') {
+            socket.write(encodeNativeMessage({ status: 'PONG', timestamp: Date.now() }));
+          } else {
+            socket.write(
+              encodeNativeMessage({
+                status: 'ERROR',
+                error: 'UNSUPPORTED_ACTION',
+                message: `Action "${req?.action}" is not supported over Local IPC.`,
+              })
+            );
+          }
+        } catch (err) {
+          socket.write(
+            encodeNativeMessage({
+              status: 'ERROR',
+              error: 'INTERNAL_ERROR',
+              message: (err as Error).message,
+            })
+          );
+        }
+      });
 
-        this.server.on('error', (err) => {
-          this.isRunning = false;
-          reject(err);
-        });
-      } catch (err) {
-        reject(err);
-      }
+      decoder.on('error', (err) => {
+        try {
+          socket.write(
+            encodeNativeMessage({
+              status: 'ERROR',
+              error: 'FRAMING_ERROR',
+              message: err.message,
+            })
+          );
+          socket.destroy();
+        } catch {}
+      });
     });
+    this.server = server;
+
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(this.socketPath, () => {
+        this.isRunning = true;
+        resolve();
+      });
+    });
+
+    return { socketPath: this.socketPath, instanceUuid: this.instanceUuid };
   }
 
   public close(): void {

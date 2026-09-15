@@ -100,20 +100,20 @@ export function redactCredentials(input: string): string {
     .replace(/("code"\s*:\s*")[^"]+(")/gi, '$1[REDACTED]$2');
 }
 
-export function applyProtectedPathsDaclBridge(paths: string[]): void {
+export async function applyProtectedPathsDaclBridge(paths: string[]): Promise<void> {
   if (process.platform !== 'win32') return;
   if (typeof applyProtectedPathsDacl === 'function') {
-    applyProtectedPathsDacl(paths);
+    await applyProtectedPathsDacl(paths);
   } else if (typeof enforceProtectedFileDacl === 'function') {
-    const sid = typeof resolveCurrentUserSid === 'function' ? resolveCurrentUserSid() : undefined;
+    const sid = typeof resolveCurrentUserSid === 'function' ? await resolveCurrentUserSid() : undefined;
     for (const p of paths) {
-      enforceProtectedFileDacl(p, sid);
+      await enforceProtectedFileDacl(p, sid);
     }
   }
 }
 
-export function applyProtectedFileDacl(filePath: string): void {
-  applyProtectedPathsDaclBridge([filePath]);
+export async function applyProtectedFileDacl(filePath: string): Promise<void> {
+  await applyProtectedPathsDaclBridge([filePath]);
 }
 
 export function isAuthorizedCompanionOrigin(rawOrigin: string): boolean {
@@ -179,6 +179,10 @@ export class BridgeServer {
   private clients: Set<WebSocket> = new Set();
   private readonly socketAttachmentIds: WeakMap<WebSocket, string> = new WeakMap();
   private tabHost: NativeTabHost;
+  private pairingQueueDir: string;
+  private pairingReplenishInFlight: Promise<void> | null = null;
+  private isDisposed = false;
+  private readonly publishesDiscovery: boolean;
   private isDev: boolean = false;
   private port: number = 20129;
   private host: string = '127.0.0.1';
@@ -199,8 +203,6 @@ export class BridgeServer {
   private readonly socketBridgeTokens: WeakSet<WebSocket> = new WeakSet();
   private readonly sessionCapabilityFilters: Map<string, SessionCapabilityFilter> = new Map();
   private lanOptIn: boolean = false;
-  private pairingQueueDir: string;
-  private readonly publishesDiscovery: boolean;
 
   public issueExtensionGrant(targetPartitionId: string, allowedDomains: string[] = DEFAULT_EXTENSION_ALLOWED_DOMAINS, ttlMs = 3600_000): ExtensionSessionGrant {
     this.pruneExpiredGrants();
@@ -274,11 +276,9 @@ export class BridgeServer {
       : path.join(os.tmpdir(), `antifan-pairing-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`);
     BridgeServer.instance = this;
     this.wireTabHostEvents();
-    try {
-      this.replenishPairingQueue();
-    } catch (err) {
-      console.warn('[antifan] Synchronous replenishPairingQueue failed:', err);
-    }
+    void this.replenishPairingQueue().catch((err) => {
+      console.warn('[antifan] Background replenishPairingQueue failed:', err);
+    });
   }
 
   public getHost(): string {
@@ -291,9 +291,8 @@ export class BridgeServer {
   public setControlPlane(controlPlane: ControlPlaneRuntime): void {
     this.controlPlaneRuntime = controlPlane;
   }
-  public rotateToken(): string {
+  public async rotateToken(): Promise<string> {
     this.token = randomUUID();
-    this.persistBridgeInfo();
 
     // Terminate existing master-token WebSocket connections while preserving attachment-scoped clients
     for (const client of Array.from(this.clients)) {
@@ -314,6 +313,10 @@ export class BridgeServer {
       grant.revoked = true;
     }
 
+    // Discovery metadata write carries DACL spawns; awaited last so callers that
+    // await rotateToken observe the persisted file, while the synchronous
+    // invalidation above is already visible to non-awaiting callers.
+    await this.persistBridgeInfo();
     return this.token;
   }
 
@@ -393,7 +396,7 @@ export class BridgeServer {
         if (address && typeof address === 'object') {
           this.port = address.port;
         }
-        this.persistBridgeInfo();
+        void this.persistBridgeInfo();
         resolve();
       });
     });
@@ -450,20 +453,42 @@ export class BridgeServer {
     }
   }
 
-  public replenishPairingQueue(): void {
+  public replenishPairingQueue(): Promise<void> {
+    // Concurrent callers (ctor warm-up, claim-triggered refills, the HTTP
+    // challenge handler) share one in-flight replenish instead of spawning
+    // duplicate icacls/powershell batches.
+    if (!this.pairingReplenishInFlight) {
+      this.pairingReplenishInFlight = this.replenishPairingQueueNow().finally(() => {
+        this.pairingReplenishInFlight = null;
+      });
+    }
+    return this.pairingReplenishInFlight;
+  }
+
+  private async replenishPairingQueueNow(): Promise<void> {
+    if (this.isDisposed) return;
     if (!fs.existsSync(this.pairingQueueDir)) {
       fs.mkdirSync(this.pairingQueueDir, { recursive: true });
       if (process.platform === 'win32') {
         try {
-          const sid = resolveCurrentUserSid();
-          enforceProtectedDirectoryDacl(this.pairingQueueDir, sid);
+          const sid = await resolveCurrentUserSid();
+          await enforceProtectedDirectoryDacl(this.pairingQueueDir, sid);
         } catch {}
       }
     }
 
-    const existing = fs.readdirSync(this.pairingQueueDir);
-    let activeCount = 0;
+    if (this.isDisposed) return;
+    let existing: string[];
+    try {
+      existing = fs.readdirSync(this.pairingQueueDir);
+    } catch (err) {
+      // The queue dir can vanish mid-replenish when dispose() runs during an
+      // in-flight async refill; that teardown race is not a real failure.
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return;
+      throw err;
+    }
     const now = Date.now();
+    let activeCount = 0;
     for (const file of existing) {
       if (!file.endsWith('.json')) continue;
       const filePath = path.join(this.pairingQueueDir, file);
@@ -503,16 +528,16 @@ export class BridgeServer {
         content: JSON.stringify(challengeData, null, 2),
       });
     }
-    if (itemsToWrite.length > 0) {
-      this.atomicWriteManyWithDacl(itemsToWrite);
+    if (itemsToWrite.length > 0 && !this.isDisposed) {
+      await this.atomicWriteManyWithDacl(itemsToWrite);
     }
   }
 
-  public claimPairingChallenge(clientClass: 'mcp' | 'mobile' = 'mcp'): { code: string; expiresAt: number; challengeId?: string } | null {
+  public async claimPairingChallenge(clientClass: 'mcp' | 'mobile' = 'mcp'): Promise<{ code: string; expiresAt: number; challengeId?: string } | null> {
     try {
       if (!fs.existsSync(this.pairingQueueDir)) {
         try {
-          this.replenishPairingQueue();
+          await this.replenishPairingQueue();
         } catch {}
       }
       if (!fs.existsSync(this.pairingQueueDir)) return null;
@@ -521,7 +546,7 @@ export class BridgeServer {
         const files = fs.readdirSync(this.pairingQueueDir).filter(f => f.startsWith('challenge-') && f.endsWith('.json'));
         if (files.length === 0) {
           try {
-            this.replenishPairingQueue();
+            await this.replenishPairingQueue();
           } catch {}
           continue;
         }
@@ -588,18 +613,16 @@ export class BridgeServer {
           }
 
           setImmediate(() => {
-            try {
-              this.replenishPairingQueue();
-            } catch (err) {
+            void this.replenishPairingQueue().catch((err) => {
               console.warn('[antifan] Background replenishPairingQueue failed:', err);
-            }
+            });
           });
           return { code: data.code, expiresAt: data.expiresAt, challengeId: data.challengeId };
         }
 
         if (hasExpiredOrCorrupt) {
           try {
-            this.replenishPairingQueue();
+            await this.replenishPairingQueue();
           } catch {}
         } else {
           break;
@@ -608,8 +631,7 @@ export class BridgeServer {
     } catch {}
     return null;
   }
-
-  private atomicWriteManyWithDacl(items: Array<{ targetPath: string; content: string }>): void {
+  private async atomicWriteManyWithDacl(items: Array<{ targetPath: string; content: string }>): Promise<void> {
     if (!items || items.length === 0) return;
 
     const prepared: Array<{ targetPath: string; content: string; tempPath: string }> = [];
@@ -629,7 +651,7 @@ export class BridgeServer {
 
     try {
       // Apply protected DACL to all empty temp files in ONE batched call before writing content
-      applyProtectedPathsDaclBridge(prepared.map((p) => p.tempPath));
+      await applyProtectedPathsDaclBridge(prepared.map((p) => p.tempPath));
 
       // Write content and atomic rename with fallback
       for (const p of prepared) {
@@ -642,7 +664,7 @@ export class BridgeServer {
             if (!fs.existsSync(p.targetPath)) {
               fs.writeFileSync(p.targetPath, '', { encoding: 'utf8', mode: 0o600 });
             }
-            applyProtectedPathsDaclBridge([p.targetPath]);
+            await applyProtectedPathsDaclBridge([p.targetPath]);
             fs.writeFileSync(p.targetPath, p.content, { encoding: 'utf8', mode: 0o600 });
             try {
               fs.unlinkSync(p.tempPath);
@@ -656,7 +678,13 @@ export class BridgeServer {
       }
 
       // Verify and enforce protected DACL on all final target files in ONE batched call
-      applyProtectedPathsDaclBridge(prepared.map((p) => p.targetPath));
+      await applyProtectedPathsDaclBridge(prepared.map((p) => p.targetPath));
+    } catch (err) {
+      // dispose() can delete the queue dir while an async write is in flight;
+      // that teardown ENOENT is not a real write failure.
+      if (!(this.isDisposed && (err as NodeJS.ErrnoException)?.code === 'ENOENT')) {
+        throw err;
+      }
     } finally {
       // Ensure any leftover temp files are cleaned up if an error occurred
       for (const p of prepared) {
@@ -667,8 +695,8 @@ export class BridgeServer {
     }
   }
 
-  private atomicWriteWithDacl(targetPath: string, content: string): void {
-    this.atomicWriteManyWithDacl([{ targetPath, content }]);
+  private async atomicWriteWithDacl(targetPath: string, content: string): Promise<void> {
+    await this.atomicWriteManyWithDacl([{ targetPath, content }]);
   }
 
   public getRemoteConnectionInfo(): {
@@ -982,16 +1010,17 @@ export class BridgeServer {
           res.end(JSON.stringify({ error: 'FORBIDDEN', message: 'Pairing challenge claims are restricted to loopback callers' }));
           return;
         }
-        // A depleted or fully expired queue is refilled synchronously so the caller that
-        // observed the empty queue still receives a challenge instead of a spurious 404.
-        let challenge = this.claimPairingChallenge('mcp');
+        // A depleted or fully expired queue is refilled before responding so the
+        // caller that observed the empty queue still receives a challenge instead
+        // of a spurious 404.
+        let challenge = await this.claimPairingChallenge('mcp');
         if (!challenge) {
           try {
-            this.replenishPairingQueue();
+            await this.replenishPairingQueue();
           } catch (err) {
             console.warn('[antifan] Challenge replenishPairingQueue failed:', err);
           }
-          challenge = this.claimPairingChallenge('mcp');
+          challenge = await this.claimPairingChallenge('mcp');
         }
         const responseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
         if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
@@ -1475,7 +1504,7 @@ export class BridgeServer {
               this.port = addr.port;
             }
             setTimeout(() => {
-              try { this.persistBridgeInfo(); } catch {}
+              void this.persistBridgeInfo();
             }, 1500);
             resolve(this.port);
           });
@@ -1489,11 +1518,11 @@ export class BridgeServer {
         if (address && typeof address === 'object') {
           this.port = address.port;
         }
-        // persistBridgeInfo pays synchronous DACL spawns per file; delay it past
-        // first paint so the listening socket resolves and the window shows
-        // before the main thread stalls. Discovery consumers poll the file.
+        // persistBridgeInfo carries DACL spawns per file; delay it past first
+        // paint so the listening socket resolves and the window shows first.
+        // Discovery consumers poll the file.
         setTimeout(() => {
-          try { this.persistBridgeInfo(); } catch {}
+          void this.persistBridgeInfo();
         }, 1500);
         resolve(this.port);
       });
@@ -1679,7 +1708,7 @@ export class BridgeServer {
       });
     });
   }
-  private persistBridgeInfo(): void {
+  private async persistBridgeInfo(): Promise<void> {
     if (!this.publishesDiscovery) return;
     const info = {
       port: this.port,
@@ -1714,7 +1743,7 @@ export class BridgeServer {
         }
       }
 
-      this.atomicWriteManyWithDacl(itemsToWrite);
+      await this.atomicWriteManyWithDacl(itemsToWrite);
     } catch (err) {
       console.error('[antifan] Failed to persist bridge info:', err);
     }
@@ -3004,6 +3033,7 @@ export class BridgeServer {
   }
 
   public dispose(): void {
+    this.isDisposed = true;
     if (this.publishesDiscovery) {
       // Only remove discovery metadata this process wrote. Another live instance (or a
       // port-collision fallback that lost the bind race) may own the current file.

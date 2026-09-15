@@ -441,6 +441,8 @@ async function createWindow(): Promise<void> {
   }, controlPlane.artifacts);
   recordBenchmark({ surface: 'startup', name: 'browserPortReady' });
   tabHost.setViewportGate(browserPort.viewportGate);
+  controlPlane.registerBrowser(browserPort);
+  recordBenchmark({ surface: 'startup', name: 'browserRegistered' });
 
   // Tier-2 reality gate: the physical phone is registered as a peer adapter beside the browser port,
   // never inside it. Its lifecycle (attachment epoch + automation session generation) is independent

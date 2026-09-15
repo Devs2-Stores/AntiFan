@@ -17,12 +17,12 @@ export interface RuntimeBridgeAuth {
   createdAt: number;
 }
 
-export function setupSecureRuntimeAuth(
+export async function setupSecureRuntimeAuth(
   instanceUuid: string,
   launchNonce: string,
   port: number,
   customRuntimeDir?: string
-): { runtimeDir: string; authFile: string; socketPath: string } {
+): Promise<{ runtimeDir: string; authFile: string; socketPath: string }> {
   const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
   const runtimeDir = customRuntimeDir || path.join(localAppData, 'AntiFan', 'runtime');
   const authFile = path.join(runtimeDir, 'bridge-auth.json');
@@ -33,8 +33,8 @@ export function setupSecureRuntimeAuth(
   }
 
   // Enforce explicit fail-closed DACL before writing secret nonce
-  const userSid = resolveCurrentUserSid();
-  enforceProtectedDirectoryDacl(runtimeDir, userSid);
+  const userSid = await resolveCurrentUserSid();
+  await enforceProtectedDirectoryDacl(runtimeDir, userSid);
 
   const authData: RuntimeBridgeAuth = {
     instanceUuid,

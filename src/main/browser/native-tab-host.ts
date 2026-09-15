@@ -1144,13 +1144,13 @@ export class NativeTabHost extends EventEmitter {
       }
       return { success: false, error: 'Bridge server not running' };
     });
-    ipcMain.handle('antifan:rotate-bridge-token', (event) => {
+    ipcMain.handle('antifan:rotate-bridge-token', async (event) => {
       if (!isTrustedSessionVaultSender(event)) {
         return { success: false, error: 'FORBIDDEN_SENDER' };
       }
       const bridge = BridgeServer.getInstance();
       if (bridge) {
-        const token = bridge.rotateToken();
+        const token = await bridge.rotateToken();
         clipboard.writeText(token);
         return { success: true };
       }
@@ -2552,10 +2552,10 @@ export class NativeTabHost extends EventEmitter {
       },
       {
         label: '🔄 Rotate Bridge Token (Invalidate & Regenerate)',
-        click: () => {
+        click: async () => {
           const bridge = BridgeServer.getInstance();
           if (bridge) {
-            const token = bridge.rotateToken();
+            const token = await bridge.rotateToken();
             clipboard.writeText(token);
             dialog.showMessageBox(this.window, {
               type: 'info',
