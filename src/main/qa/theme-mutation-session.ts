@@ -192,6 +192,17 @@ export class ThemeMutationSession {
       pattern: options.pattern,
       timeoutMs: options.timeoutMs,
     });
+    // Fail CLOSED before lineage is recorded. An explicitly unsettled receipt (e.g. a
+    // sleeping watcher that produced no upload acknowledgment) must never be promoted
+    // to 'synced': doing so would attest a mutation whose remote sync was never
+    // observed. `settled === false` is authoritative; `undefined` means the receipt
+    // predates the discriminator and keeps its previous behaviour.
+    if (syncResult.settled === false) {
+      throw new CapabilityError(
+        'DURABILITY_FAILED',
+        syncResult.message || 'Remote sync could not be attested'
+      );
+    }
     this.currentLineage = {
       ...this.currentLineage,
       syncGen: syncResult.syncGen,

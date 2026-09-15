@@ -21,6 +21,7 @@ import { createThemeEvidenceEnvelope } from './theme-evidence-envelope';
 import { checkRouteIdentity } from '../verification/visual-capture';
 import { ReceiptStore } from '../session/receipt-store';
 import { VerificationCircuitBreaker } from '../verification/circuit-breaker';
+import { DEADLINES } from '../../shared/deadline-chain';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -190,6 +191,69 @@ export function makeBrowserPolicy(options: {
     cancellationAckTimeoutMs,
     policyVersion: 1,
   };
+}
+
+/**
+ * Terminal verdict recorded on a workspace QA receipt. `QA_INCONCLUSIVE` is the only
+ * honest verdict when the workflow never returned a structured report (any throw),
+ * which is what makes the receipt writable on the failure path at all.
+ */
+export type QaReceiptVerdict = 'QA_PASSED' | 'QA_FAILED' | 'QA_INCONCLUSIVE';
+
+/** Bound on a non-CapabilityError thrown value recorded as `errorCode`. */
+const QA_RECEIPT_ERROR_CODE_MAX = 200;
+/** Bound on the human-readable message recorded as `errorMessage`. */
+const QA_RECEIPT_ERROR_MESSAGE_MAX = 2000;
+
+/** `String(value)` cannot be trusted on a hostile thrown object; it may throw itself. */
+function safeErrorText(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    return 'UNKNOWN_ERROR';
+  }
+}
+
+/**
+ * A throw terminates the QA call without a report, so no pass/fail can be claimed.
+ * The parameter is accepted (not ignored) so callers can extend the classification
+ * per error class without changing the call site.
+ */
+export function classifyTerminalVerdict(_err: unknown): 'QA_INCONCLUSIVE' {
+  return 'QA_INCONCLUSIVE';
+}
+
+/** Leading `UPPER_SNAKE:` token of a message, e.g. `CAPTURE_TIMEOUT: Page.captureScreenshot ...`. */
+const QA_RECEIPT_LEADING_CODE = /^([A-Z][A-Z0-9_]{2,}):/;
+
+/**
+ * Machine-readable code for the receipt, so a consumer gate can branch on the failure
+ * class instead of parsing prose. Ordered by reliability:
+ *   1. `CapabilityError.code` — the control-plane's own taxonomy.
+ *   2. Any other typed error carrying a non-empty string `code` — the production
+ *      `CAPTURE_TIMEOUT` evidence is thrown as a `CaptureError` (`visual-capture.ts`),
+ *      not a `CapabilityError`, and duck-typing is what keeps `errorCode:
+ *      "CAPTURE_TIMEOUT"` true on the real path.
+ *   3. A leading `UPPER_SNAKE:` token of the message (`CAPTURE_TIMEOUT: ...`).
+ *   4. `String(err)`, truncated so one hostile thrown value cannot bloat the receipt.
+ */
+export function extractErrorCode(err: unknown): string {
+  if (err instanceof CapabilityError) return err.code;
+  if (err && typeof err === 'object') {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'string' && code.trim()) return code.slice(0, QA_RECEIPT_ERROR_CODE_MAX);
+  }
+  const message = err instanceof Error ? err.message : safeErrorText(err);
+  const leading = QA_RECEIPT_LEADING_CODE.exec(message.trim());
+  if (leading?.[1]) return leading[1];
+  return safeErrorText(err).slice(0, QA_RECEIPT_ERROR_CODE_MAX);
+}
+
+/** Human-readable detail for the receipt; `null` when the thrown value carries none. */
+export function extractErrorMessage(err: unknown): string | null {
+  if (err instanceof Error) return err.message.slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX);
+  const text = safeErrorText(err);
+  return text ? text.slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : null;
 }
 
 export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string, receipts?: ReceiptStore, getStylesheetUrlMap?: () => Record<string, string>): void {
@@ -878,8 +942,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Set browser responsive viewport dimensions (width, height, mobile emulation, DPR)',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
-    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0 so a persisted preview zoom cannot silently scale the captured raster' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
 
   catalogue.register({
@@ -887,8 +951,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Set browser responsive viewport dimensions (width, height, mobile emulation, DPR) and verify the tab measured them before reporting success',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
-    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0 so a persisted preview zoom cannot silently scale the captured raster' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
   catalogue.register({
     name: 'browser.get-viewport',
@@ -1335,8 +1399,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.set-viewport',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, required: ['width', 'height'] },
-    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
   catalogue.register({
     name: 'antifan_get_viewport',
@@ -1397,7 +1461,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Execute the authoritative Theme QA workflow for the bound storefront tab and workspace',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 60_000 }),
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: DEADLINES.toolPolicyMs }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -1433,67 +1497,101 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       context
     ) => {
       const target = context.browserTarget as BrowserTarget;
-      if (!target?.tabId) {
-        throw new CapabilityError('TARGET_MISMATCH', 'No valid browser target bound to context');
-      }
-      if (!themeQaWorkflow) {
-        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme QA workflow is not available');
-      }
-      if (typeof params.expectedUrl === 'string' && params.expectedUrl.trim()) {
-        const observedUrl = await browser.getLiveTabUrl(target.tabId);
-        const routeCheck = checkRouteIdentity(params.expectedUrl, observedUrl, browser.getTabRedirectChain(target.tabId));
-        if (!routeCheck.ok) {
-          throw new CapabilityError(
-            routeCheck.status,
-            `Theme QA route gate failed on tab '${target.tabId}': ${routeCheck.reason || routeCheck.status} (observed: ${routeCheck.observedUrl || 'unknown'})`
-          );
-        }
-      }
+      const runId = context.runId || 'run-unbound';
+      const attemptId = context.attemptId || 'attempt-unbound';
+      // Resolve the confined workspace root BEFORE any terminal branch. The route gate
+      // and the pre-flight guards below can throw, and every one of those throws is a
+      // terminal QA outcome that still owes the consuming-runtime gate a receipt.
       const confinedRoot = confineWorkspaceRoot(params.workspaceRoot, getWorkspaceRoot?.() || '');
-      const report = await themeQaWorkflow.validate({
-        runId: context.runId || 'run-unbound',
-        attemptId: context.attemptId || 'attempt-unbound',
-        workspaceRoot: confinedRoot,
-        multiBreakpoint: params.multiBreakpoint,
-        viewports: params.viewports,
-        target,
-      });
-      // Workspace-side QA receipt: consuming runtimes (OMP post-hooks) gate fix
-      // handoffs on this file, not on agent prose. Advisory evidence — a receipt
-      // write failure must never fail the QA call itself.
+      let receiptVerdict: QaReceiptVerdict = 'QA_INCONCLUSIVE';
+      let errorCode: string | null = null;
+      let errorMessage: string | null = null;
+      let passed: boolean | null = null;
+      let criticalCount: number | null = null;
       try {
-        if (confinedRoot) {
-          const summary = (report as { summary?: { passed?: boolean; criticalCount?: number } }).summary;
-          const observedUrl = await browser.getLiveTabUrl(target.tabId).catch(() => '');
-          const receipt = {
-            receiptVersion: '1.0',
-            runId: context.runId || 'run-unbound',
-            attemptId: context.attemptId || 'attempt-unbound',
-            annotationId: params.annotationId || null,
-            tabId: target.tabId,
-            documentGeneration: target.documentGeneration ?? null,
-            browserEpoch: (target as { browserEpoch?: number }).browserEpoch ?? null,
-            expectedUrl: params.expectedUrl || null,
-            observedUrl: observedUrl || null,
-            workspaceRoot: confinedRoot,
-            verdict: summary?.passed === true && (summary?.criticalCount ?? 0) === 0 ? 'QA_PASSED' : 'QA_FAILED',
-            passed: summary?.passed ?? null,
-            criticalCount: summary?.criticalCount ?? null,
-            createdAt: new Date().toISOString(),
-          };
-          const receiptsDir = path.join(confinedRoot, '.antifan', 'qa-receipts');
-          fs.mkdirSync(receiptsDir, { recursive: true });
-          const safeRunId = String(receipt.runId).replace(/[^a-zA-Z0-9_-]/g, '_');
-          fs.writeFileSync(
-            path.join(receiptsDir, `${Date.now()}-${safeRunId}.json`),
-            JSON.stringify(receipt, null, 2),
-            'utf8'
-          );
+        if (!target?.tabId) {
+          throw new CapabilityError('TARGET_MISMATCH', 'No valid browser target bound to context');
         }
-      } catch {
-        // Receipt emission is best-effort evidence; swallow and return the report.
+        if (!themeQaWorkflow) {
+          throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme QA workflow is not available');
+        }
+        if (typeof params.expectedUrl === 'string' && params.expectedUrl.trim()) {
+          const observedUrl = await browser.getLiveTabUrl(target.tabId);
+          const routeCheck = checkRouteIdentity(params.expectedUrl, observedUrl, browser.getTabRedirectChain(target.tabId));
+          if (!routeCheck.ok) {
+            throw new CapabilityError(
+              routeCheck.status,
+              `Theme QA route gate failed on tab '${target.tabId}': ${routeCheck.reason || routeCheck.status} (observed: ${routeCheck.observedUrl || 'unknown'})`
+            );
+          }
+        }
+        const report = await themeQaWorkflow.validate({
+          runId,
+          attemptId,
+          workspaceRoot: confinedRoot,
+          multiBreakpoint: params.multiBreakpoint,
+          viewports: params.viewports,
+          target,
+        });
+        const summary = (report as { summary?: { passed?: boolean; criticalCount?: number } }).summary;
+        passed = summary?.passed ?? null;
+        criticalCount = summary?.criticalCount ?? null;
+        receiptVerdict = summary?.passed === true && (summary?.criticalCount ?? 0) === 0 ? 'QA_PASSED' : 'QA_FAILED';
+        return report;
+      } catch (err) {
+        // Terminal failure: the report never materialised, so the receipt must say so.
+        // Diagnostics are best-effort (they must never replace the original error) and
+        // the original error is rethrown unchanged so this call still fails honestly.
+        try {
+          receiptVerdict = classifyTerminalVerdict(err);
+          errorCode = extractErrorCode(err);
+          errorMessage = extractErrorMessage(err);
+        } catch {
+          errorCode = 'UNKNOWN_ERROR';
+          errorMessage = null;
+        }
+        throw err;
+      } finally {
+        // Workspace-side QA receipt: consuming runtimes (OMP post-hooks) gate fix
+        // handoffs on this file, not on agent prose. It is emitted on EVERY terminal
+        // branch — success and every throw — because a gate that only sees passing runs
+        // deadlocks on a failing tab. Advisory evidence: a receipt failure (or the
+        // `observedUrl` probe) must never change the QA call's own outcome.
+        try {
+          if (confinedRoot) {
+            const tabId = target?.tabId;
+            const observedUrl = tabId ? await browser.getLiveTabUrl(tabId).catch(() => '') : '';
+            const receipt = {
+              receiptVersion: '1.1',
+              runId,
+              attemptId,
+              annotationId: params.annotationId || null,
+              tabId: tabId || null,
+              documentGeneration: target?.documentGeneration ?? null,
+              browserEpoch: (target as { browserEpoch?: number } | undefined)?.browserEpoch ?? null,
+              expectedUrl: params.expectedUrl || null,
+              observedUrl: observedUrl || null,
+              workspaceRoot: confinedRoot,
+              verdict: receiptVerdict,
+              errorCode,
+              errorMessage,
+              passed,
+              criticalCount,
+              createdAt: new Date().toISOString(),
+            };
+            const receiptsDir = path.join(confinedRoot, '.antifan', 'qa-receipts');
+            fs.mkdirSync(receiptsDir, { recursive: true });
+            const safeRunId = String(receipt.runId).replace(/[^a-zA-Z0-9_-]/g, '_');
+            fs.writeFileSync(
+              path.join(receiptsDir, `${Date.now()}-${safeRunId}.json`),
+              JSON.stringify(receipt, null, 2),
+              'utf8'
+            );
+          }
+        } catch {
+          // Receipt emission is best-effort evidence; swallow and preserve the outcome.
+        }
       }
-      return report;
     },
   });
 

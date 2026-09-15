@@ -11,16 +11,17 @@
  * reported as `unmeasured` with the exact prerequisite, never substituted.
  *
  * Usage:
- *   node scripts/benchmark-electron-performance.mjs [--scenario all|cold-start|tabs|terminal|artifact|package] [--runs N] [--reports-dir <dir>]
+ *   node scripts/benchmark-electron-performance.mjs [--scenario all|cold-start|tabs|terminal|terminal-stream|artifact|package] [--runs N] [--reports-dir <dir>]
  *
  * Scenarios:
  *   cold-start  Boot production app with isolated user data to first visible window.
  *   tabs        Open/switch/close tabs via Bridge RPC; record switch latency + attached views.
  *   terminal    Create a PTY session, burst output, measure chunk/byte/ordering.
+ *   terminal-stream  Sustained PTY output stream; parses terminal.ackLatency (p50/p95) + ptyData volume.
  *   artifact    In-process ArtifactStore staging at small/max sizes (text, DOM, PNG).
  *   package     npm run compile + scripts/package-windows.mjs; inventory the unpacked output.
  *   packaged    Launch the packaged exe (run --scenario package first); first paint + node-pty smoke.
- *   all         Runs cold-start, tabs, terminal, artifact, package (not 'packaged').
+ *   all         Runs cold-start, tabs, terminal, terminal-stream, artifact, package (not 'packaged').
  */
 import { createRequire } from 'node:module';
 import { performance } from 'node:perf_hooks';
@@ -431,6 +432,134 @@ async function scenarioTerminal(report) {
   }
 }
 
+async function scenarioTerminalStream(report) {
+  // Sustained-stream counterpart to `terminal`: instead of a single burst this
+  // drives a long bounded output stream so the renderer ack pipeline produces
+  // enough terminal.ackLatency samples for meaningful p50/p95. The metric is
+  // emitted by TerminalManager.recordSubscriberAck (emitTime[seq] -> ack) and
+  // only exists while ANTIFAN_BENCHMARK=1 and a renderer is subscribed; absent
+  // samples are reported as unmeasured, never fabricated.
+  const STREAM_LINES = Math.max(1000, Number.parseInt(process.env.BENCH_STREAM_LINES || '60000', 10) || 60000);
+  const STREAM_DEADLINE_MS = Math.max(10000, Number.parseInt(process.env.BENCH_STREAM_DEADLINE_MS || '60000', 10) || 60000);
+  const driver = new AppDriver({ label: 'terminal-stream' });
+  await driver.launch();
+  const init = await driver.waitForMetric('startup', 'firstVisible', LAUNCH_TIMEOUT_MS);
+  if (!init) {
+    report.rows.push(reportRow('terminal-stream', 'ackLatencyMs', observationRows([]), { error: 'app never became visible' }));
+    report.summary.push('terminal-stream: unmeasured (app not visible)');
+    await driver.kill();
+    return;
+  }
+  const info = driver.readBridgeInfo();
+  if (!info || !info.port || !info.token) {
+    report.rows.push(reportRow('terminal-stream', 'ackLatencyMs', observationRows([]), { error: 'bridge info unreadable (requires ANTIFAN_BRIDGE_TOKEN)' }));
+    report.summary.push('terminal-stream: unmeasured (bridge info unreadable or ANTIFAN_BRIDGE_TOKEN missing)');
+    await driver.kill();
+    return;
+  }
+  const { default: WebSocket } = await import('ws');
+  const ws = new WebSocket(`ws://127.0.0.1:${info.port}`, { headers: { authorization: `Bearer ${info.token}` } });
+  const pending = new Map();
+  const terminalEvents = [];
+  let counter = 0;
+  const rpc = (method, params) => new Promise((resolve, reject) => {
+    const id = `bench-ts${counter++}`;
+    const t = setTimeout(() => { pending.delete(id); reject(new Error(`timeout ${method}`)); }, 20000);
+    pending.set(id, (err, data) => { clearTimeout(t); err ? reject(err) : resolve(data); });
+    ws.send(JSON.stringify({ id, method, params: params ?? {} }));
+  });
+  ws.on('message', (raw) => {
+    let msg; try { msg = JSON.parse(String(raw)); } catch { return; }
+    if (msg.event === 'antifan:terminal:data') terminalEvents.push(msg.data);
+    if (msg.id && pending.has(msg.id)) {
+      const cb = pending.get(msg.id); pending.delete(msg.id);
+      msg.success === false ? cb(new Error(msg.error || 'RPC error'), undefined) : cb(null, msg.data);
+    }
+  });
+  const ready = new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+  await ready;
+  try {
+    const created = await rpc('antifan.terminalNewSession', {});
+    const sessionId = created?.sessionId;
+    if (!sessionId) throw new Error('no session created');
+    // Same shell-ready gate as `terminal`: wait for banner output to go idle.
+    const shellReadyDeadline = Date.now() + LAUNCH_TIMEOUT_MS;
+    let lastObservedLength = 0;
+    let lastGrowAt = 0;
+    let sawShellData = false;
+    while (Date.now() < shellReadyDeadline) {
+      if (terminalEvents.length !== lastObservedLength) {
+        lastObservedLength = terminalEvents.length;
+        lastGrowAt = Date.now();
+        sawShellData = true;
+      }
+      if (sawShellData && Date.now() - lastGrowAt > 400) break;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    if (!sawShellData) throw new Error('shell produced no data before ready deadline');
+    terminalEvents.length = 0;
+    // Sustained stream: bounded line flood ending in a shell-assembled sentinel
+    // (input echo cannot fake it). Completion is sentinel-or-deadline.
+    const SENT_A = 50001;
+    const SENT_B = 3;
+    const streamSentinel = `bench-stream-${SENT_A + SENT_B}`;
+    const streamCommand = isWindows
+      ? `1..${STREAM_LINES} | ForEach-Object { "stream-line-$_" }; Write-Output ('bench-stream-' + (${SENT_A} + ${SENT_B}))\r`
+      : `seq 1 ${STREAM_LINES} | sed 's/^/stream-line-/'; printf '%s%s\\n' bench-stream- "$((${SENT_A} + ${SENT_B}))"\n`;
+    const streamStart = performance.now();
+    await rpc('antifan.terminalInput', { sessionId, text: streamCommand });
+    // Sentinel detection scans a rolling tail only — joining the full event
+    // array every poll is O(stream) per iteration and would dominate the run.
+    let tail = '';
+    let consumed = 0;
+    let streamCompleted = false;
+    const streamDeadline = Date.now() + STREAM_DEADLINE_MS;
+    while (Date.now() < streamDeadline) {
+      while (consumed < terminalEvents.length) {
+        tail = (tail + String(terminalEvents[consumed]?.data ?? '')).slice(-256);
+        consumed++;
+      }
+      if (tail.includes(streamSentinel)) { streamCompleted = true; break; }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    while (consumed < terminalEvents.length) {
+      tail = (tail + String(terminalEvents[consumed]?.data ?? '')).slice(-256);
+      consumed++;
+    }
+    const streamMs = performance.now() - streamStart;
+    const streamChunks = terminalEvents.length;
+    const streamBytes = terminalEvents.reduce((s, d) => s + Buffer.byteLength(String(d?.data ?? ''), 'utf8'), 0);
+    driver.parseLines();
+    const ackLatencies = driver.metrics
+      .filter((m) => m.surface === 'terminal' && m.name === 'ackLatency' && typeof m.value === 'number')
+      .map((m) => m.value);
+    const ptyChunks = driver.metrics.filter((m) => m.surface === 'terminal' && m.name === 'ptyData');
+    const ackObs = observationRows(ackLatencies);
+    report.rows.push(reportRow('terminal-stream', 'ackLatencyMs', ackObs, {
+      streamCompleted,
+      streamMs: Math.round(streamMs),
+      streamChunks,
+      streamBytes,
+      note: ackObs.count === 0 ? 'no terminal.ackLatency metrics observed; requires a subscribed renderer acking chunks' : undefined,
+    }));
+    report.rows.push(reportRow('terminal-stream', 'ptyDataChunks', observationRows([ptyChunks.length]), {
+      bytes: ptyChunks.reduce((s, m) => s + (m.value ?? 0), 0),
+    }));
+    report.rows.push(reportRow('terminal-stream', 'streamBytes', observationRows([streamBytes]), {
+      streamMs: Math.round(streamMs),
+      bytesPerSec: streamMs > 0 ? Math.round((streamBytes / streamMs) * 1000) : null,
+    }));
+    report.summary.push(`terminal-stream: ${streamCompleted ? 'completed' : 'deadline'} ${streamChunks} chunks / ${streamBytes} bytes in ${Math.round(streamMs)}ms; ackLatency ${ackObs.count === 0 ? 'unmeasured' : `p50=${ackObs.p50.toFixed(1)}ms p95=${ackObs.p95.toFixed(1)}ms n=${ackObs.count}`}`);
+    try { await rpc('antifan.terminalCloseSession', { sessionId }); } catch {}
+  } catch (err) {
+    report.rows.push(reportRow('terminal-stream', 'ackLatencyMs', observationRows([]), { error: errToString(err) }));
+    report.summary.push('terminal-stream: unmeasured ' + errToString(err));
+  } finally {
+    try { ws.close(); } catch {}
+    await driver.kill();
+  }
+}
+
 async function scenarioArtifact(report) {
   const compiled = path.join(ROOT, '.compiled', 'src', 'main', 'tools', 'artifact-store.js');
   if (!fs.existsSync(compiled)) {
@@ -705,13 +834,14 @@ async function main() {
     runs: [],
     summary: [],
   };
-  const scenarios = SCENARIO === 'all' ? ['cold-start', 'tabs', 'terminal', 'artifact', 'package'] : [SCENARIO];
+  const scenarios = SCENARIO === 'all' ? ['cold-start', 'tabs', 'terminal', 'terminal-stream', 'artifact', 'package'] : [SCENARIO];
   for (const name of scenarios) {
     const t0 = performance.now();
     switch (name) {
       case 'cold-start': await scenarioColdStart(report); break;
       case 'tabs': await scenarioTabs(report); break;
       case 'terminal': await scenarioTerminal(report); break;
+      case 'terminal-stream': await scenarioTerminalStream(report); break;
       case 'artifact': await scenarioArtifact(report); break;
       case 'package': await scenarioPackage(report); break;
       case 'packaged': await scenarioPackaged(report); break;

@@ -230,6 +230,22 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
       color: #fca5a5;
       opacity: 1;
     }
+    /* SLEEPING TAB: a sleeping tab has no live PTY, so it must be distinguishable
+       at a glance from a tab that is running and simply quiet. */
+    .terminal-tab-pill.is-sleeping {
+      border-style: dashed;
+      border-color: rgba(192, 132, 252, 0.45);
+      opacity: 0.78;
+    }
+    .terminal-tab-pill.is-sleeping.active {
+      border-color: rgba(192, 132, 252, 0.75);
+      opacity: 1;
+    }
+    .terminal-tab-pill .tab-sleep-badge {
+      font-size: 10px;
+      line-height: 1;
+      pointer-events: none;
+    }
     .btn-new-tab {
       flex-shrink: 0;
       display: flex;
@@ -281,6 +297,37 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
     .terminal-screen::-webkit-scrollbar-thumb {
       background: rgba(255, 255, 255, 0.15);
       border-radius: 2px;
+    }
+
+    /* SLEEPING SESSION BANNER: with no live PTY nothing will stream into the pane,
+       so the pane alone cannot tell "asleep, transcript retained" from
+       "empty/broken". The banner states which one it is, including the honest
+       case where a sleeping session genuinely retained nothing. */
+    .sleep-banner {
+      flex-shrink: 0;
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.4;
+      color: #d8b4fe;
+      background: rgba(192, 132, 252, 0.12);
+      border-bottom: 1px solid rgba(192, 132, 252, 0.35);
+      user-select: none;
+    }
+    .sleep-banner.visible {
+      display: flex;
+    }
+    .sleep-banner.no-transcript {
+      color: #fcd34d;
+      background: rgba(251, 191, 36, 0.12);
+      border-bottom-color: rgba(251, 191, 36, 0.35);
+    }
+    .sleep-banner .sleep-banner-icon {
+      font-size: 13px;
+      line-height: 1;
     }
 
     /* SCROLL TO BOTTOM BUTTON */
@@ -575,6 +622,11 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
 
   <!-- TERMINAL CONSOLE VIEWPORT -->
   <main class="terminal-container" id="view-terminal">
+    <!-- Sleeping-session affordance: shown only while the viewed tab has no PTY -->
+    <div class="sleep-banner" id="sleepingBanner" role="status" aria-live="polite">
+      <span class="sleep-banner-icon">💤</span>
+      <span class="sleep-banner-text" id="sleepingBannerText"></span>
+    </div>
     <div class="terminal-screen" id="terminalScreen"></div>
     <button class="btn-scroll-bottom" id="btnScrollBottom" onclick="scrollToTerminalBottom()">
       <span>⬇ Cuộn xuống đáy</span>
@@ -664,6 +716,73 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
     let isAiMode = false;
     let userScrolledUp = false;
     let renamingSessionId = '';
+
+    // ---- Sleeping / archived sessions -------------------------------------
+    // A sleeping tab has no live PTY, so no antifan:terminal:data frame will ever
+    // fill its pane again. Its whole transcript is composed by the manager and
+    // served as SessionSummary.buffer = restoredTail + separator + live buffer;
+    // getSessionState().snapshot carries that same string for the active session.
+    // Every payload shape that carries a session list is therefore a transcript
+    // source, and none of them is guessed at here: when the manager publishes no
+    // transcript the pane stays empty and the banner says so explicitly.
+    // NOTE: SessionSummary.bufferLength is the LIVE buffer length, so it is 0 for a
+    // sleeping session even with a full transcript retained. It must never be used
+    // as a "has content" test — that is exactly what renders a sleeping tab blank.
+    function isSleepingSession(session) {
+      return !!session && session.state === 'sleeping';
+    }
+    function sessionById(id) {
+      return terminalSessions.find(s => s && s.id === id) || null;
+    }
+    // The retained transcript of a session, read from the shapes the bridge really
+    // publishes: SessionSummary.buffer (composeTranscript) first, then a per-session
+    // snapshot if a future payload carries one there. Anything else returns '' —
+    // an empty string is a fact about the payload, never a fabricated value.
+    function retainedTranscriptOf(session) {
+      const buffer = session ? session.buffer : undefined;
+      if (typeof buffer === 'string' && buffer.length > 0) return buffer;
+      const snapshot = session ? session.snapshot : undefined;
+      if (typeof snapshot === 'string' && snapshot.length > 0) return snapshot;
+      return '';
+    }
+    // Adopts retained transcripts for sleeping sessions from any session list.
+    // Running/closed sessions are deliberately untouched: their panes are fed by
+    // the live stream exactly as before.
+    function adoptSleepingTranscripts(sessions) {
+      if (!Array.isArray(sessions)) return;
+      for (const session of sessions) {
+        if (!session || typeof session.id !== 'string' || !session.id) continue;
+        if (!isSleepingSession(session)) continue;
+        const retained = retainedTranscriptOf(session);
+        if (retained) {
+          sessionBuffers.set(session.id, retained);
+        } else if (!sessionBuffers.has(session.id)) {
+          sessionBuffers.set(session.id, '');
+        }
+      }
+    }
+    // Tells "sleeping with a retained transcript" apart from "sleeping with
+    // nothing" (and from "not sleeping at all").
+    function renderSleepBanner() {
+      const banner = document.getElementById('sleepingBanner');
+      if (!banner) return;
+      const text = document.getElementById('sleepingBannerText');
+      if (!isSleepingSession(sessionById(activeTerminalId))) {
+        banner.classList.remove('visible');
+        banner.classList.remove('no-transcript');
+        if (text) text.textContent = '';
+        return;
+      }
+      const retained = sessionBuffers.get(activeTerminalId) || '';
+      const hasTranscript = retained.length > 0;
+      banner.classList.add('visible');
+      banner.classList.toggle('no-transcript', !hasTranscript);
+      if (text) {
+        text.textContent = hasTranscript
+          ? 'Tab đang ngủ — shell đã được giải phóng, transcript bên dưới được giữ nguyên. Gõ lệnh để đánh thức.'
+          : 'Tab đang ngủ — shell đã được giải phóng và không có transcript nào được giữ lại.';
+      }
+    }
 
     // ANSI Decoder Colors
     const ANSI_COLORS = {
@@ -830,6 +949,7 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
             terminalSessions.forEach(s => {
               if (s.buffer) sessionBuffers.set(s.id, s.buffer);
             });
+            adoptSleepingTranscripts(terminalSessions);
             renderTabs();
             renderActiveTerminal();
           }
@@ -855,6 +975,7 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
               terminalSessions.forEach(s => {
                 if (s.buffer) sessionBuffers.set(s.id, s.buffer);
               });
+              adoptSleepingTranscripts(terminalSessions);
               renderTabs();
               renderActiveTerminal();
             }
@@ -866,6 +987,10 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
               if (typeof data.snapshot === 'string' && activeTerminalId) {
                 sessionBuffers.set(activeTerminalId, data.snapshot);
               }
+              // A sleep transition broadcasts this shape with the folded
+              // transcript as the session record's buffer field; without
+              // adopting it, a sleeping tab keeps stale output or blanks out.
+              adoptSleepingTranscripts(terminalSessions);
               renderTabs();
               renderActiveTerminal();
             }
@@ -935,8 +1060,9 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
       terminalSessions.forEach((s) => {
         const pill = document.createElement('div');
         const isActive = s.id === activeTerminalId;
-        pill.className = 'terminal-tab-pill' + (isActive ? ' active' : '');
-        pill.title = s.name || s.id;
+        const isSleeping = isSleepingSession(s);
+        pill.className = 'terminal-tab-pill' + (isActive ? ' active' : '') + (isSleeping ? ' is-sleeping' : '');
+        pill.title = (s.name || s.id) + (isSleeping ? ' — đang ngủ (💤), gõ để đánh thức' : '');
 
         const beacon = document.createElement('span');
         beacon.className = 'tab-beacon';
@@ -954,7 +1080,16 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
           closeTerminalTab(s.id);
         };
 
-        pill.append(beacon, title, closeBtn);
+        if (isSleeping) {
+          // Visible sleeping marker: an "empty" tab and a "sleeping" tab must
+          // never be confused with each other on a phone.
+          const sleepBadge = document.createElement('span');
+          sleepBadge.className = 'tab-sleep-badge';
+          sleepBadge.textContent = '💤';
+          pill.append(beacon, sleepBadge, title, closeBtn);
+        } else {
+          pill.append(beacon, title, closeBtn);
+        }
 
         pill.onclick = () => {
           if (s.id !== activeTerminalId) {
@@ -994,6 +1129,7 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
         if (res && res.sessionId) {
           activeTerminalId = res.sessionId;
           if (Array.isArray(res.sessions)) terminalSessions = res.sessions;
+          adoptSleepingTranscripts(terminalSessions);
           renderTabs();
           renderActiveTerminal();
         }
@@ -1008,6 +1144,9 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
         if (res && Array.isArray(res.sessions)) {
           terminalSessions = res.sessions;
           activeTerminalId = res.activeSessionId || (terminalSessions[0] && terminalSessions[0].id) || '';
+          // Closing a tab can hand the view to a sleeping session the phone has
+          // never streamed; adopt before rendering or the pane comes up blank.
+          adoptSleepingTranscripts(terminalSessions);
           renderTabs();
           renderActiveTerminal();
         }
@@ -1037,6 +1176,7 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
       sendRpc('antifan.terminalRenameSession', { id: renamingSessionId, name: newName }).then(res => {
         if (res && Array.isArray(res.sessions)) {
           terminalSessions = res.sessions;
+          adoptSleepingTranscripts(terminalSessions);
           renderTabs();
         }
         closeRenameModal();
@@ -1048,6 +1188,7 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
       if (!screen) return;
       const buf = sessionBuffers.get(activeTerminalId) || '';
       screen.innerHTML = ansiToHtml(buf);
+      renderSleepBanner();
       if (!userScrolledUp) {
         scrollToTerminalBottom();
       }
@@ -1087,6 +1228,7 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
       sessionBuffers.set(activeTerminalId, '');
       const screen = document.getElementById('terminalScreen');
       if (screen) screen.innerHTML = '';
+      renderSleepBanner();
       sendRpc('antifan.terminalSendKey', { key: 'clear', sessionId: activeTerminalId }).catch(() => {});
     }
 

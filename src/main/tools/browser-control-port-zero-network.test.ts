@@ -128,13 +128,17 @@ describe('BrowserControlPort.reloadZeroNetwork & Capability Catalogue Dispatch',
     // A reload is a lifecycle operation: `resolveTargetTab` fences it on document
     // generation, so the target has to be as fresh as the live document (5). The
     // generation is still rebased onto the live value and reported back.
-    const res = await port.reloadZeroNetwork({ ...validTarget, documentGeneration: 5 });
+    // `url` is seeded with a deliberately stale value: the pre-fix response echoed the caller's
+    // binding verbatim, so a lifecycle mutation reported the tab's OLD url.
+    const res = await port.reloadZeroNetwork({ ...validTarget, documentGeneration: 5, url: 'https://stale.example/before-reload' });
 
     assert.strictEqual(res.reloaded, true);
     assert.strictEqual(res.verifiedOffline, true);
     assert.strictEqual(res.blockedCount, 0);
     assert.deepStrictEqual(res.blockedUrls, []);
     assert.strictEqual(res.target.documentGeneration, 5);
+    // The returned target must describe the settled tab, not the binding we were handed.
+    assert.strictEqual(res.target.url, 'http://127.0.0.1:20145/index.html');
 
     // Assert exact chronological event timeline
     assert.deepStrictEqual(eventTimeline, [

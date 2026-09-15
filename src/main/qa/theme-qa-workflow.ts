@@ -436,6 +436,12 @@ export class ThemeQaWorkflow {
           if (!isValidCursor) {
             mutationMissingBarrier = true;
             mutationBarrierError = 'Terminal sync cursor is malformed: sessionId must be non-empty string, baselineSeq and sessionGeneration must be nonnegative integers';
+          } else if (receipt.unsettledReason === 'WATCHER_SLEEPING') {
+            // A sleeping watcher legitimately reports settledMethod 'none', which the
+            // structural check below would misreport as a malformed receipt. Name the
+            // real reason instead. This still FAILS CLOSED: the mutation is not attested.
+            mutationMissingBarrier = true;
+            mutationBarrierError = `Mutation sync could not be attested: watcher terminal is sleeping${receipt.wakeHint ? ` — ${receipt.wakeHint}` : ''}`;
           } else if (!isValidReceipt) {
             mutationMissingBarrier = true;
             mutationBarrierError = 'Mutation sync receipt is malformed: settledMethod must be "terminal-output", lastSeq positive integer, durationMs nonnegative, syncGen and exact sessionGeneration nonnegative integers';

@@ -946,6 +946,44 @@
   var syncActiveTabOnly = false;
   var isDeltaSyncEnabled = true;
   var lastBridgeError = null;
+  var HANDSHAKE_BACKOFF_BASE_MS = 2e3;
+  var HANDSHAKE_BACKOFF_MAX_MS = 6e4;
+  var HANDSHAKE_BACKOFF_STORAGE_KEY = "antifanBridgeHandshakeBackoffUntil";
+  var handshakeFailureCount = 0;
+  var nextHandshakeAttemptAt = 0;
+  function persistHandshakeBackoff(deadline) {
+    if (typeof chrome === "undefined" || !chrome.storage?.local?.set) return;
+    try {
+      const write = chrome.storage.local.set({ [HANDSHAKE_BACKOFF_STORAGE_KEY]: deadline });
+      if (write && typeof write.catch === "function") write.catch(() => {
+      });
+    } catch {
+    }
+  }
+  function recordHandshakeFailure(reason) {
+    handshakeFailureCount = Math.min(handshakeFailureCount + 1, 16);
+    const delay = Math.min(
+      HANDSHAKE_BACKOFF_BASE_MS * 2 ** (handshakeFailureCount - 1),
+      HANDSHAKE_BACKOFF_MAX_MS
+    );
+    nextHandshakeAttemptAt = Date.now() + delay;
+    persistHandshakeBackoff(nextHandshakeAttemptAt);
+    console.warn(
+      `[AntiFan Extension] Native bridge handshake failed (${reason}); next spawn deferred ${delay}ms.`
+    );
+  }
+  function recordHandshakeSuccess() {
+    handshakeFailureCount = 0;
+    nextHandshakeAttemptAt = 0;
+    persistHandshakeBackoff(0);
+  }
+  function applyDisconnectCooldown() {
+    const deadline = Date.now() + HANDSHAKE_BACKOFF_BASE_MS;
+    if (deadline > nextHandshakeAttemptAt) {
+      nextHandshakeAttemptAt = deadline;
+      persistHandshakeBackoff(deadline);
+    }
+  }
   var debouncer = new CookieDebouncer(async (batch) => {
     await dispatchDeltaSync(batch);
   }, 300, 1e3);
@@ -954,11 +992,16 @@
     const stored = await chrome.storage.local.get([
       "enabledProfiles",
       "syncActiveTabOnly",
-      "isDeltaSyncEnabled"
+      "isDeltaSyncEnabled",
+      HANDSHAKE_BACKOFF_STORAGE_KEY
     ]);
     if (stored.enabledProfiles) enabledProfiles = stored.enabledProfiles;
     if (typeof stored.syncActiveTabOnly === "boolean") syncActiveTabOnly = stored.syncActiveTabOnly;
     if (typeof stored.isDeltaSyncEnabled === "boolean") isDeltaSyncEnabled = stored.isDeltaSyncEnabled;
+    const storedBackoff = stored[HANDSHAKE_BACKOFF_STORAGE_KEY];
+    if (typeof storedBackoff === "number" && Number.isFinite(storedBackoff) && storedBackoff > Date.now()) {
+      nextHandshakeAttemptAt = storedBackoff;
+    }
   }
   async function validateBridgeAuth(auth) {
     if (!auth?.token || !auth?.port) return false;
@@ -983,7 +1026,7 @@
     return false;
   }
   function connectNativeMessaging() {
-    if (typeof chrome === "undefined" || !chrome.runtime?.connectNative) return;
+    if (typeof chrome === "undefined" || !chrome.runtime?.connectNative) return false;
     try {
       if (nativePort) {
         const oldPort = nativePort;
@@ -994,6 +1037,16 @@
         }
       }
       const port = chrome.runtime.connectNative(HOST_NAME);
+      const launchError = chrome.runtime?.lastError?.message;
+      if (typeof launchError === "string" && launchError.length > 0) {
+        lastBridgeError = launchError;
+        try {
+          port.disconnect();
+        } catch {
+        }
+        recordHandshakeFailure("launch-failed");
+        return false;
+      }
       nativePort = port;
       port.onMessage.addListener(async (msg) => {
         if (nativePort !== port) return;
@@ -1005,11 +1058,13 @@
             activeCapsuleId: msg.activeCapsuleId,
             activePartition: msg.activePartition
           };
+          recordHandshakeSuccess();
           triggerAutoHydration().catch(() => {
           });
         } else if (msg.status === "ERROR") {
           lastBridgeError = msg.message || msg.error || "NATIVE_IPC_ERROR";
           bridgeAuth = null;
+          recordHandshakeFailure(msg.error || "desktop-error");
           if (nativePort === port) {
             try {
               nativePort.disconnect();
@@ -1025,13 +1080,32 @@
           if (typeof disconnectMsg === "string" && disconnectMsg.length > 0) {
             lastBridgeError = disconnectMsg;
           }
+          const wasAuthenticated = Boolean(bridgeAuth?.token);
           nativePort = null;
           bridgeAuth = null;
+          if (!wasAuthenticated) applyDisconnectCooldown();
         }
       });
-      port.postMessage({ action: "HANDSHAKE" });
+      try {
+        port.postMessage({ action: "HANDSHAKE" });
+      } catch (postErr) {
+        lastBridgeError = postErr?.message || "NATIVE_PORT_DISCONNECTED";
+        if (nativePort === port) {
+          try {
+            nativePort.disconnect();
+          } catch {
+          }
+          nativePort = null;
+        }
+        recordHandshakeFailure("port-disconnected");
+        return false;
+      }
+      return true;
     } catch (err) {
+      lastBridgeError = err?.message || "NATIVE_CONNECT_FAILED";
+      recordHandshakeFailure("connect-threw");
       console.error("[AntiFan Extension] Failed to connect native messaging:", err);
+      return false;
     }
   }
   async function ensureBridgeAuth(forceRefresh = false) {
@@ -1048,6 +1122,8 @@
       }
     } else if (inFlightHandshakePromise) {
       return inFlightHandshakePromise;
+    } else if (Date.now() < nextHandshakeAttemptAt) {
+      return null;
     }
     const token = {};
     activeOperationToken = token;
@@ -1056,18 +1132,20 @@
       try {
         bridgeAuth = null;
         lastBridgeError = null;
+        let attemptedHandshake = false;
         if (!nativePort) {
-          connectNativeMessaging();
+          attemptedHandshake = connectNativeMessaging();
         } else {
           try {
             nativePort.postMessage({ action: "HANDSHAKE" });
+            attemptedHandshake = true;
           } catch {
             try {
               nativePort.disconnect();
             } catch {
             }
             nativePort = null;
-            connectNativeMessaging();
+            attemptedHandshake = connectNativeMessaging();
           }
         }
         const start = Date.now();
@@ -1084,6 +1162,7 @@
           }
           await new Promise((r) => setTimeout(r, 40));
         }
+        if (attemptedHandshake) recordHandshakeFailure("timeout");
         return null;
       } finally {
         if (activeOperationToken === token) {
@@ -1107,6 +1186,8 @@
     activeOperationToken = null;
     inFlightHandshakePromise = null;
     lastBridgeError = null;
+    handshakeFailureCount = 0;
+    nextHandshakeAttemptAt = 0;
   }
   async function executeAuthenticatedCookieImport(payload, authSupplier, reauthSupplier, fetchFn = fetch) {
     let auth = await authSupplier();

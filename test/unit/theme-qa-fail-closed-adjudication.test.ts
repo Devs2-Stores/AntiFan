@@ -272,6 +272,55 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(report.qaMatrix?.verdict, 'INCONCLUSIVE');
   });
 
+  it('4b3. Sleeping watcher is reported as sleeping, never as a malformed receipt', async () => {
+    const ports = createMockPorts();
+    const workflow = new ThemeQaWorkflow(ports);
+
+    // A sleeping watcher legitimately produces settledMethod 'none': no upload
+    // acknowledgment can arrive because its PTY is gone. That must be reported as the
+    // real reason — not as a structurally "malformed" receipt — while still failing
+    // CLOSED (passed:false / INCONCLUSIVE).
+    const report = await workflow.validate({
+      runId: 'run-sleeping-receipt',
+      attemptId: 'att-sleeping-receipt',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(2),
+      mutationContext: {
+        cursor: { sessionId: 'term-1', sessionGeneration: 1, baselineSeq: 10 },
+        syncReceipt: {
+          syncGen: 1,
+          durationMs: 0,
+          settledMethod: 'none',
+          lastSeq: 11,
+          settled: false,
+          unsettledReason: 'WATCHER_SLEEPING',
+          sessionId: 'term-1',
+          baselineSeq: 10,
+          sessionGeneration: 1,
+          message: 'watcher terminal is sleeping',
+          wakeHint: 'terminal.write to session term-1',
+        },
+        initialDocGen: 1,
+      },
+      viewports: {
+        desktop: { mismatchPercent: 0.5, passed: true },
+        tablet: { mismatchPercent: 1.0, passed: true },
+        mobile: { mismatchPercent: 1.5, passed: true },
+      },
+    });
+
+    assert.strictEqual(report.summary.passed, false);
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+    assert.ok(
+      report.findings?.evidenceGaps?.some((i) => i.includes('sleeping')),
+      `expected the sleeping reason, got: ${JSON.stringify(report.findings?.evidenceGaps)}`
+    );
+    assert.ok(
+      !report.findings?.evidenceGaps?.some((i) => i.includes('malformed')),
+      `a sleeping receipt must not be reported as malformed, got: ${JSON.stringify(report.findings?.evidenceGaps)}`
+    );
+  });
+
   it('4c. Rejects pre-mutation receipt (acknowledgment preceding mutation) as INCONCLUSIVE', async () => {
     const ports = createMockPorts();
     const workflow = new ThemeQaWorkflow(ports);

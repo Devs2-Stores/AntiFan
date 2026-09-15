@@ -109,8 +109,15 @@ describe('Capability catalogue', () => {
     let presetName = '';
     let zoomTabId = '';
     let zoomValue = 0;
+    // Mutable tab records: `navigate` advances them the way the real host retitles a tab once
+    // the navigation commits. `browser.navigate` reads the returned target's `url` from the
+    // live tab, so a frozen mock list would make the assertion below pass for the wrong reason.
+    const mockTabRecords = [
+      { id: 'tab-1', url: 'https://example.com' },
+      { id: 'tab-2', url: 'https://other.com' },
+    ];
     const mockHost = {
-      getTabList: () => [{ id: 'tab-1', url: 'https://example.com' }, { id: 'tab-2', url: 'https://other.com' }],
+      getTabList: () => mockTabRecords.map((t) => ({ ...t })),
       getActiveTabId: () => 'tab-1',
       createTab: (url?: string, activate?: boolean) => { openedUrl = `${url || ''}|activate=${activate}`; return 'tab-new'; },
       closeTab: (tabId: string) => { closedTabId = tabId; return true; },
@@ -119,7 +126,13 @@ describe('Capability catalogue', () => {
         switchedTabId = tabId;
         return true;
       },
-      navigate: (tabId: string, url: string) => { navigatedTabId = tabId; navigatedUrl = url; return true; },
+      navigate: (tabId: string, url: string) => {
+        navigatedTabId = tabId;
+        navigatedUrl = url;
+        const record = mockTabRecords.find((t) => t.id === tabId);
+        if (record) record.url = url;
+        return true;
+      },
       reload: () => true,
       getDom: async () => '<html>ok</html>',
       captureScreenshot: async () => 'base64img',
@@ -186,8 +199,15 @@ describe('Capability catalogue', () => {
     assert.deepStrictEqual(inspect, { inspecting: true });
 
     // 8. Navigation with explicit tabId auto-switching
+    //
+    // The returned target is the authority contract a caller feeds into its next call, so it
+    // must describe the SETTLED tab. `url` is read from the live tab this navigate committed
+    // (never echoed from the binding the caller passed in), while the generation is re-stamped
+    // from the host. Regression: the pre-fix spread `{ ...target, tabId, documentGeneration }`
+    // echoed `browserTarget.url` verbatim, so a navigation that had already committed still
+    // reported the pre-navigation URL.
     const navResult = await catalogue.dispatch('browser.navigate', { url: 'https://apshop.vn', tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
-    assert.deepStrictEqual(navResult, { navigated: true, target: { ...boundTarget, tabId: 'tab-2' } });
+    assert.deepStrictEqual(navResult, { navigated: true, target: { ...boundTarget, tabId: 'tab-2', url: 'https://apshop.vn' } });
     assert.strictEqual(switchedTabId, 'tab-2');
     assert.strictEqual(navigatedTabId, 'tab-2');
     assert.strictEqual(navigatedUrl, 'https://apshop.vn');
@@ -203,11 +223,11 @@ describe('Capability catalogue', () => {
     assert.strictEqual(switchedTabId, 'tab-2');
     // 11. Viewport and Mobile Device Emulation
     const vpRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
-    assert.deepStrictEqual(vpRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', observedWidth: 390, observedHeight: 844, verified: true });
+    assert.deepStrictEqual(vpRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', observedWidth: 390, observedHeight: 844, verified: true, zoomFactor: 1, zoomApplied: true });
     assert.deepStrictEqual(viewportOptions, { width: 390, height: 844, mobile: true, tabId: 'tab-2' });
     // 11b. Viewport with reload delegation (no duplicate host reload)
     const vpReloadRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2', reload: true }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
-    assert.deepStrictEqual(vpReloadRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', reloaded: true, observedWidth: 390, observedHeight: 844, verified: true });
+    assert.deepStrictEqual(vpReloadRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', reloaded: true, observedWidth: 390, observedHeight: 844, verified: true, zoomFactor: 1, zoomApplied: true });
     assert.deepStrictEqual(viewportOptions, { width: 390, height: 844, mobile: true, tabId: 'tab-2', reload: true });
 
     // 12. Device Preset

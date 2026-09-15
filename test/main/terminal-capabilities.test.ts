@@ -1,5 +1,8 @@
 import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerTerminalCapabilities } from '../../src/main/tools/terminal-capabilities';
@@ -10,6 +13,21 @@ import {
   RuntimeLease,
   TerminalWaitResult,
 } from '../../src/shared/control-plane-contracts';
+
+/**
+ * Data-safety isolation. This suite drives the REAL `TerminalManager`
+ * singleton (it stubs only `spawn`), and the manager persists
+ * `terminal-sessions.json` into `ANTIFAN_CONFIG_DIR` — falling back to the
+ * live user config directory when that variable is unset. Without this
+ * redirect the suite overwrites the developer's actual terminal sessions on
+ * every run. Empirically verified: with the redirect the scratch directory
+ * receives `terminal-sessions.json` and the live file's mtime does not move.
+ * Same convention as test/main/terminal-sleep-affinity-host.test.ts.
+ */
+const SCRATCH_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-terminal-capabilities-'));
+const PREVIOUS_CONFIG_DIR = process.env.ANTIFAN_CONFIG_DIR;
+process.env.ANTIFAN_CONFIG_DIR = path.join(SCRATCH_DIR, 'config');
+fs.mkdirSync(process.env.ANTIFAN_CONFIG_DIR, { recursive: true });
 
 describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)', () => {
   let terminalManager: TerminalManager;
@@ -85,6 +103,13 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       await terminalManager.dispose();
       (terminalManager as any).spawn = originalSpawn;
       (TerminalManager as any).instance = undefined;
+    } catch {}
+    // Restore the config-dir pointer and drop the scratch state so this suite
+    // leaves no trace in (and takes nothing from) the live user config dir.
+    if (PREVIOUS_CONFIG_DIR === undefined) delete process.env.ANTIFAN_CONFIG_DIR;
+    else process.env.ANTIFAN_CONFIG_DIR = PREVIOUS_CONFIG_DIR;
+    try {
+      fs.rmSync(SCRATCH_DIR, { recursive: true, force: true });
     } catch {}
   });
 

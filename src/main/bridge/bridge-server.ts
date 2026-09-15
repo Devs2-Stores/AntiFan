@@ -129,21 +129,51 @@ export function isAuthorizedCompanionOrigin(rawOrigin: string): boolean {
 const BRIDGE_SOFT_HIGH_WATER = 8 * 1024 * 1024; // bytes buffered per client before coalescing engages
 const BRIDGE_QUEUE_HARD_CAP = 32 * 1024 * 1024; // per-client FIFO cap; a client that cannot drain past it is terminated
 const BRIDGE_DRAIN_INTERVAL_MS = 50; // congestion pump cadence
+// A coalesced terminal:data frame is serialized as
+//   {"event":"antifan:terminal:data","data":{"sessionId":<sid>,"data":<chunks>,"seq":<n>}}
+// Its exact byte size is maintained incrementally instead of by re-serializing the merged payload on
+// every chunk. JSON string escaping is per-character and stateless, so the escaped length of the
+// concatenation is the sum of the escaped lengths of the parts: that keeps merging O(1) per chunk
+// while `bytes`/`queuedBytes` stay EXACT. Exactness is load-bearing — queuedBytes gates
+// BRIDGE_QUEUE_HARD_CAP and slow-client termination, so an over-estimate disconnects healthy clients.
+const BRIDGE_TERMINAL_FRAME_PREFIX_BYTES = Buffer.byteLength('{"event":"antifan:terminal:data","data":{"sessionId":', 'utf8');
+const BRIDGE_TERMINAL_FRAME_MID_BYTES = Buffer.byteLength(',"data":', 'utf8');
+const BRIDGE_TERMINAL_FRAME_SEQ_BYTES = Buffer.byteLength(',"seq":', 'utf8');
+const BRIDGE_TERMINAL_FRAME_SUFFIX_BYTES = Buffer.byteLength('}}', 'utf8');
 const BRIDGE_HEARTBEAT_INTERVAL_MS = 30_000; // ping cadence; peers silent for two ticks are terminated
 
+/**
+ * Escaped byte length of `value` as a JSON string body — i.e. `JSON.stringify(value)` minus the two
+ * surrounding quotes. Escaping is per-character and stateless, so this is additive across the chunks
+ * that make up a coalesced payload.
+ */
+function escapedJsonStringBodyBytes(value: string): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8') - 2;
+}
+
 interface PendingOutboundFrame {
+  /** serialized frame for non-coalesced events; unused for terminal:data frames (serialized lazily at flush) */
   raw: string;
-  /** serialized frame byte size this entry contributes to queuedBytes */
+  /** exact serialized byte size this entry contributes to queuedBytes */
   bytes: number;
   /** non-null => terminal:data frame; consecutive frames for the same session merge */
   coalesceKey: string | null;
   sessionId?: string;
-  data?: string;
+  /** unjoined data chunks; joined and serialized once at flush so merging stays O(1) per chunk */
+  dataParts?: string[];
+  /** escaped byte length of the sessionId JSON field, precomputed once */
+  sessionIdJsonBytes?: number;
+  /** running sum of the escaped byte lengths of `dataParts` (excludes the surrounding quotes) */
+  escapedDataBytes?: number;
   seq?: number;
+  /** merged payload text; joins the pending chunks on demand so merging never concatenates */
+  readonly data?: string;
 }
 
 interface BridgeCongestionState {
   queue: PendingOutboundFrame[];
+  /** index of the first unsent frame; replaces queue.shift() so dequeue is O(1) */
+  head: number;
   queuedBytes: number;
 }
 
@@ -888,6 +918,18 @@ export class BridgeServer {
             }
 
             const grantRanks: Record<string, number> = { read: 1, write: 2, execute: 3, eval: 4 };
+            // An unknown grant name used to pass straight through to the attachment, where it made
+            // every capability invisible: fail-closed, but with nothing to explain why. Refuse it
+            // by name so a typo surfaces as a pairing error instead of a mystery POLICY_DENIED.
+            if (requestedGrant !== undefined && (typeof requestedGrant !== 'string' || !(requestedGrant in grantRanks))) {
+              record.failedAttempts++;
+              res.writeHead(400, responseHeaders);
+              res.end(JSON.stringify({
+                error: 'PAIRING_GRANT_UNKNOWN',
+                message: `Requested grant '${String(requestedGrant)}' is not one of ${Object.keys(grantRanks).join(', ')}`,
+              }));
+              return;
+            }
             if (requestedGrant && record.requestedGrantCeiling) {
               const requestedRank = grantRanks[requestedGrant] ?? 99;
               const ceilingRank = grantRanks[record.requestedGrantCeiling] ?? 0;
@@ -928,7 +970,23 @@ export class BridgeServer {
                 issuedAt: Date.now(),
                 expiresAt: Date.now() + 3_600_000,
               };
+              // Record where the authority came from. A silent fall back to 'write' is what turns a
+              // missing `requestedGrant` into an unexplained POLICY_DENIED much later on an eval-risk
+              // capability (anti.browser.evaluate / anti.inspect.eval), which reads like an
+              // --allow-eval problem and is not one. The default stays fail-closed; it is just loud.
+              const grantSource: 'requested' | 'ceiling' | 'default' = requestedGrant
+                ? 'requested'
+                : record.requestedGrantCeiling
+                ? 'ceiling'
+                : 'default';
               const grant = (requestedGrant || record.requestedGrantCeiling || 'write') as 'read' | 'write' | 'execute' | 'eval';
+              if (grantSource === 'default') {
+                console.warn(
+                  '[BridgeServer] MCP pairing declared no requestedGrant; minting attachment with grant ' +
+                    "'write'. Eval-risk capabilities (anti.browser.evaluate, anti.inspect.eval) will be " +
+                    'refused with POLICY_DENIED. Send requestedGrant in /api/pairing/exchange to avoid this.'
+                );
+              }
               const { launch } = await this.attachmentRegistry.issueAttachment(
                 runId,
                 attemptId,
@@ -959,6 +1017,7 @@ export class BridgeServer {
                 port: this.port,
                 expiresAt: launch.expiresAt,
                 grant,
+                grantSource,
               }));
               return;
             }
@@ -2732,10 +2791,28 @@ export class BridgeServer {
     return true;
   }
 
+  /**
+   * Exact byte size of a coalesced terminal:data frame, derived from its parts rather than by
+   * re-serializing the merged payload. Must stay byte-identical to the frame built at flush time in
+   * `flushCongestedClient` (same key order, no whitespace).
+   */
+  private terminalFrameBytes(sessionIdJsonBytes: number, escapedDataBytes: number, seq: number | undefined): number {
+    const seqBytes = typeof seq === 'number' ? BRIDGE_TERMINAL_FRAME_SEQ_BYTES + String(seq).length : 0;
+    return (
+      BRIDGE_TERMINAL_FRAME_PREFIX_BYTES +
+      sessionIdJsonBytes +
+      BRIDGE_TERMINAL_FRAME_MID_BYTES +
+      2 + // the two quotes JSON.stringify adds around the merged data field
+      escapedDataBytes +
+      seqBytes +
+      BRIDGE_TERMINAL_FRAME_SUFFIX_BYTES
+    );
+  }
+
   private getCongestionState(ws: WebSocket): BridgeCongestionState {
     let state = this.clientCongestion.get(ws);
     if (!state) {
-      state = { queue: [], queuedBytes: 0 };
+      state = { queue: [], head: 0, queuedBytes: 0 };
       this.clientCongestion.set(ws, state);
     }
     return state;
@@ -2806,38 +2883,39 @@ export class BridgeServer {
 
     if (terminalSessionId) {
       const last = state.queue[state.queue.length - 1];
-      if (last && last.coalesceKey === terminalSessionId) {
-        last.data = (last.data ?? '') + dataText;
+      if (last && last.coalesceKey === terminalSessionId && last.dataParts) {
+        // Merge by appending the chunk. The merged text is joined once at flush and the exact frame
+        // size is maintained incrementally, so N chunks cost O(N) instead of O(N^2).
+        last.dataParts.push(dataText);
+        last.escapedDataBytes = (last.escapedDataBytes ?? 0) + escapedJsonStringBodyBytes(dataText);
         if (typeof seq === 'number') {
           last.seq = typeof last.seq === 'number' ? Math.max(last.seq, seq) : seq;
         }
-        const mergedRaw = JSON.stringify({
-          event: 'antifan:terminal:data',
-          data: {
-            sessionId: last.sessionId,
-            data: last.data,
-            ...(typeof last.seq === 'number' ? { seq: last.seq } : {}),
-          },
-        });
-        const newBytes = Buffer.byteLength(mergedRaw, 'utf8');
-        const diff = newBytes - last.bytes;
-        last.bytes = newBytes;
-        state.queuedBytes += diff;
+        const mergedBytes = this.terminalFrameBytes(last.sessionIdJsonBytes ?? 0, last.escapedDataBytes, last.seq);
+        state.queuedBytes += mergedBytes - last.bytes;
+        last.bytes = mergedBytes;
         if (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP) {
           this.dropSlowClient(ws);
         }
         return;
       }
-      const initialRaw = JSON.stringify({
-        event: 'antifan:terminal:data',
-        data: {
-          sessionId: terminalSessionId,
-          data: dataText,
-          ...(typeof seq === 'number' ? { seq } : {}),
+      const sessionIdJsonBytes = Buffer.byteLength(JSON.stringify(terminalSessionId), 'utf8');
+      const escapedDataBytes = escapedJsonStringBodyBytes(dataText);
+      const initialBytes = this.terminalFrameBytes(sessionIdJsonBytes, escapedDataBytes, seq);
+      const entry: PendingOutboundFrame = {
+        raw: '',
+        bytes: initialBytes,
+        coalesceKey: terminalSessionId,
+        sessionId: terminalSessionId,
+        dataParts: [dataText],
+        sessionIdJsonBytes,
+        escapedDataBytes,
+        seq,
+        get data(): string {
+          return entry.dataParts === undefined ? '' : entry.dataParts.join('');
         },
-      });
-      const initialBytes = Buffer.byteLength(initialRaw, 'utf8');
-      state.queue.push({ raw: '', bytes: initialBytes, coalesceKey: terminalSessionId, sessionId: terminalSessionId, data: dataText, seq });
+      };
+      state.queue.push(entry);
       state.queuedBytes += initialBytes;
     } else {
       state.queue.push({ raw, bytes, coalesceKey: null });
@@ -2854,14 +2932,14 @@ export class BridgeServer {
     const state = this.clientCongestion.get(ws);
     if (!state || state.queue.length === 0 || ws.readyState !== WebSocket.OPEN) return;
 
-    while (state.queue.length > 0 && ws.bufferedAmount < BRIDGE_SOFT_HIGH_WATER) {
-      const frame = state.queue[0]!;
+    while (state.head < state.queue.length && ws.bufferedAmount < BRIDGE_SOFT_HIGH_WATER) {
+      const frame = state.queue[state.head]!;
       const raw = frame.coalesceKey
         ? JSON.stringify({
             event: 'antifan:terminal:data',
             data: {
               sessionId: frame.sessionId,
-              data: frame.data,
+              data: frame.dataParts!.join(''),
               ...(typeof frame.seq === 'number' ? { seq: frame.seq } : {}),
             },
           })
@@ -2872,11 +2950,18 @@ export class BridgeServer {
       } catch {
         this.clients.delete(ws);
         state.queue = [];
+        state.head = 0;
         state.queuedBytes = 0;
         return;
       }
-      state.queue.shift();
+      state.head += 1;
       state.queuedBytes = Math.max(0, state.queuedBytes - frameBytes);
+    }
+    // Drop the consumed prefix once it dominates the array so head cannot grow
+    // without bound across drain ticks; amortized O(1) per dequeued frame.
+    if (state.head > 0 && state.head * 2 >= state.queue.length) {
+      state.queue = state.queue.slice(state.head);
+      state.head = 0;
     }
   }
 

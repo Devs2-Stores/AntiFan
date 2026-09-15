@@ -14,7 +14,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, ToolbarPhoneStatus } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, ToolbarPhoneStatus } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -98,11 +98,21 @@ export interface NativeTabHostResourceStats {
   devTools: TabDevToolsStats;
   terminal: TerminalManagerStats;
   controlPlane: ControlPlaneResourceStats | null;
+  terminalFanoutMessages: number;
 }
 
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
 const TITLE_BROADCAST_INTERVAL_MS = 200;
+// Chunks at or below this size with no pending batch bypass coalescing so
+// keystroke echo latency never regresses; `data.length` counts UTF-16 code
+// units, which is what the renderer consumes.
+const TERMINAL_DATA_COALESCE_BYPASS_LENGTH = 256;
+// Upper bound on how long a coalesced batch may wait before it is flushed.
+const TERMINAL_DATA_FLUSH_MS = 4;
+// Upper bound on persisted collapsed-category names so a corrupt saved-tabs.json
+// cannot smuggle in an unbounded array.
+const TERMINAL_COLLAPSED_CATEGORIES_MAX = 64;
 /**
  * Safely dispatches IPC messages to a WebContents instance, guarding against
  * frame lifecycle races (e.g. disposed WebFrameMain during process termination/reloads).
@@ -357,6 +367,19 @@ export interface NativeTabRecord {
   lastNavigationFailure?: { cause: string; message: string; timedOut: boolean };
 }
 
+/** Public DTO describing a terminal session's browser-tab affinity binding. */
+export interface TerminalAgentAffinityInfo {
+  tabId: string;
+  primaryTabId: string;
+  managedTabIds: string[];
+  status: 'alive' | 'closed';
+  lastUrl?: string;
+  isOffscreen?: boolean;
+  isEphemeral?: boolean;
+  title?: string;
+  url?: string;
+}
+
 export class NativeTabHost extends EventEmitter {
   private window: BrowserWindow;
   private toolbarView: WebContentsView;
@@ -364,12 +387,30 @@ export class NativeTabHost extends EventEmitter {
   private sidebarView: WebContentsView | null = null;
   private popoutWindow: BrowserWindow | null = null;
   private terminalWindows: Map<number, BrowserWindow> = new Map();
+  // Per-session coalescing buffer for 'antifan:terminal:data' fan-out. PTY bursts
+  // arrive as thousands of chunks/sec; each flush emits one payload per session
+  // carrying the contiguous {fromSeq, throughSeq} range it covers.
+  private terminalDataBatches: Map<string, { parts: string[]; fromSeq: number; throughSeq: number; generation?: number }> = new Map();
+  private terminalDataFlushTimer: NodeJS.Timeout | null = null;
+  // O(1) sender lookup for findTabByWebContents; entries are keyed by the live
+  // WebContents so replaced views and closed tabs self-clean via GC.
+  private tabByWebContents: WeakMap<Electron.WebContents, { tabId: string; tab: NativeTabRecord }> = new WeakMap();
   private terminalWindowMeta: Map<number, { sessionId?: string; isPopout?: boolean }> = new Map();
   private terminalWindowStateManager: WindowStateManager;
   private isSidebarOpen: boolean = false;
   private wasSidebarOpenBeforePopout: boolean = false;
   private isBookmarkBarVisible: boolean = false;
   private sidebarWidth: number = 380;
+  // Terminal tab-strip prefs are an INNER layout of the standalone renderer —
+  // they never affect this host's outer window geometry. Horizontal is the
+  // default so a fresh install looks exactly like before.
+  private terminalTabLayout: TerminalTabLayout = 'horizontal';
+  private terminalSidebarWidth: number = TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH;
+  private terminalCollapsedCategories: string[] = [];
+  // Running count of 'antifan:terminal:data' payloads actually handed to
+  // safeSendWebContents; readable via getResourceStats/DUMP_DIAGNOSTICS without
+  // benchmark mode.
+  private terminalFanoutMessages = 0;
   private isToolbarOverlayActive: boolean = false;
   private toolbarOverlayCustomHeight?: number;
   private readonly splitCoordinator = new SplitNavigationCoordinator();
@@ -641,6 +682,7 @@ export class NativeTabHost extends EventEmitter {
     };
     return {
       disposed: this.isDisposed,
+      terminalFanoutMessages: this.terminalFanoutMessages,
       tabCount: this.tabs.size,
       attachedTabViewCount: this.countAttachedViews(),
       terminalWindowCount: this.terminalWindows.size,
@@ -825,6 +867,11 @@ export class NativeTabHost extends EventEmitter {
         if (typeof data.sidebarWidth === 'number' && data.sidebarWidth >= 260 && data.sidebarWidth <= 850) {
           this.sidebarWidth = data.sidebarWidth;
         }
+        this.applyTerminalTabPrefs({
+          layout: data.terminalTabLayout,
+          sidebarWidth: data.terminalSidebarWidth,
+          collapsedCategories: data.terminalCollapsedCategories,
+        });
       } catch {}
     } else {
       const activeCapsule = this.capsuleManager.getActive();
@@ -1432,20 +1479,43 @@ export class NativeTabHost extends EventEmitter {
     });
 
     // Terminal IPC Handlers
-    TerminalManager.getInstance().on('data', (payload: { sessionId: string; data: string; seq: number; generation?: number }) => {
-      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-        safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:data', payload);
+    TerminalManager.getInstance().on('data', (payload: TerminalDataPayload) => {
+      const pending = this.terminalDataBatches.get(payload.sessionId);
+      if (!pending && payload.data.length <= TERMINAL_DATA_COALESCE_BYPASS_LENGTH) {
+        // Keystroke echo and other small chunks take the immediate path so typing
+        // latency is identical to the unbuffered baseline.
+        this.dispatchTerminalData(payload);
+        return;
       }
-      for (const [id, win] of this.terminalWindows.entries()) {
-        if (win && !win.isDestroyed()) {
-          safeSendWebContents(win.webContents, 'antifan:terminal:data', payload);
-        } else {
-          this.terminalWindows.delete(id);
-        }
+      if (pending && pending.generation !== payload.generation) {
+        // A generation boundary (session restart) must never merge into the
+        // previous generation's batch — the renderer resets on generation change.
+        this.flushTerminalDataBatch(payload.sessionId);
+      }
+      const batch = this.terminalDataBatches.get(payload.sessionId);
+      if (batch) {
+        batch.parts.push(payload.data);
+        batch.throughSeq = payload.seq;
+      } else {
+        this.terminalDataBatches.set(payload.sessionId, {
+          parts: [payload.data],
+          fromSeq: payload.seq,
+          throughSeq: payload.seq,
+          generation: payload.generation,
+        });
+      }
+      if (!this.terminalDataFlushTimer) {
+        this.terminalDataFlushTimer = setTimeout(() => {
+          this.terminalDataFlushTimer = null;
+          this.flushAllTerminalDataBatches();
+        }, TERMINAL_DATA_FLUSH_MS);
+        this.terminalDataFlushTimer.unref?.();
       }
     });
 
     TerminalManager.getInstance().on('session', (state: unknown) => {
+      // Session state must never overtake buffered output for the same session.
+      this.flushAllTerminalDataBatches();
       if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
         safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:session', state);
       }
@@ -1458,10 +1528,31 @@ export class NativeTabHost extends EventEmitter {
       }
     });
     TerminalManager.getInstance().on('session-closed', ({ id }: { id: string }) => {
+      // Deliver any buffered output for the closing session before the close
+      // notification so subscribers never see close precede its final data.
+      this.flushTerminalDataBatch(id);
       this.clearTerminalAgentAffinity(id);
     });
     TerminalManager.getInstance().on('session-restarted', ({ id, generation }: { id: string; generation: number }) => {
+      this.flushTerminalDataBatch(id);
       this.migrateTerminalAgentAffinityGeneration(id, generation);
+    });
+    // Sleep is not a close: the session record survives with its affinity intact, so
+    // a wake must NOT migrate the generation key — `wakeSession` reuses the reserved
+    // generation, which is exactly the generation the affinity entry is keyed under.
+    // The wake does have to lift any tombstone written while the session slept: a
+    // bound browser tab that closed during the nap leaves `closedAt` set, and
+    // `isTerminalAllowedForTab` rejects a tombstoned entry outright, which would
+    // wedge the agent that owns the terminal. `reviveTerminalAgentAffinity` also
+    // repairs the entry, because the next badge read would otherwise re-arm it.
+    TerminalManager.getInstance().on('session-woken', (payload: { id: string; generation?: number | string }) => {
+      const id = payload?.id;
+      if (!id) return;
+      this.flushTerminalDataBatch(id);
+      this.reviveTerminalAgentAffinity(id, payload?.generation);
+      // The repair changes what buildPersistData writes — `closedAt` no longer
+      // suppresses the entry — so the wake has to save the repaired shape.
+      this.schedulePersist();
     });
     TerminalManager.getInstance().on('session-created', ({ id, parentId, generation }: { id: string; parentId?: string; generation?: number }) => {
       let targetTab: string | undefined = undefined;
@@ -1485,7 +1576,10 @@ export class NativeTabHost extends EventEmitter {
       return tm.getFullBuffer(targetId);
     });
     ipcMain.handle(TERMINAL_CHANNELS.DUMP_DIAGNOSTICS, () => {
-      return TerminalManager.getInstance().getDiagnostics();
+      return {
+        ...TerminalManager.getInstance().getDiagnostics(),
+        fanoutMessages: this.terminalFanoutMessages,
+      };
     });
     ipcMain.handle(TERMINAL_CHANNELS.GET_DELTA, (_event, query: { sessionId: string; generation: number; fromSeq: number }) => {
       if (!query || !query.sessionId) {
@@ -1527,14 +1621,20 @@ export class NativeTabHost extends EventEmitter {
       return true;
     });
 
-    ipcMain.handle('antifan:terminal:input-session', (_event, { id, input }: { id: string; input: string }) => {
+    // One-way channel: the preload uses ipcRenderer.send, so there is no reply
+    // path — permission failures are logged, never thrown back into IPC.
+    ipcMain.on('antifan:terminal:input-session', (_event, { id, input }: { id: string; input: string }) => {
       const senderInfo = this.findTabByWebContents(_event?.sender);
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
       if (isAgent) {
-        return this.terminalWrite(senderInfo.tabId, input, id);
+        try {
+          this.terminalWrite(senderInfo.tabId, input, id);
+        } catch (err) {
+          console.warn(`[native-tab-host] terminal input-session rejected for tab '${senderInfo.tabId}' session '${id}':`, err);
+        }
+        return;
       }
       TerminalManager.getInstance().writeTo(id, input);
-      return true;
     });
 
     ipcMain.handle(TERMINAL_CHANNELS.KILL, (_event) => {
@@ -1752,6 +1852,92 @@ export class NativeTabHost extends EventEmitter {
       const targetId = terminalId || TerminalManager.getInstance().getActiveSessionId();
       if (!targetId) return undefined;
       return this.getTerminalAgentAffinity(targetId);
+    });
+
+    // Sleep is NOT close: the browser-tab affinity mapping must survive so the
+    // session can wake into the same tab. Never call clearTerminalAgentAffinity
+    // or closeSession here. Terminal state (including `state: 'sleeping'`) is
+    // persisted by TerminalManager, so the host has nothing of its own to write.
+    ipcMain.handle(TERMINAL_CHANNELS.SLEEP_SESSION, (_event, payload: unknown) => {
+      const id = this.resolveTerminalChannelId(payload);
+      if (!id) return false;
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        this.assertTerminalAccess(senderInfo.tabId, id);
+      }
+      return TerminalManager.getInstance().sleepSession(id);
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.WAKE_SESSION, (_event, payload: unknown) => {
+      const id = this.resolveTerminalChannelId(payload);
+      if (!id) return false;
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        this.assertTerminalAccess(senderInfo.tabId, id);
+      }
+      // The wake is what emits 'session-woken'; the affinity tombstone written
+      // while the session slept is lifted by the listener, not here.
+      return TerminalManager.getInstance().wakeSession(id);
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.SET_CATEGORY, (_event, payload: unknown, categoryArg?: unknown) => {
+      // Accept both call shapes already used across the terminal channels: a
+      // `{ id, category }` object and a positional `(id, category)` pair.
+      const record = payload && typeof payload === 'object'
+        ? payload as { id?: unknown; sessionId?: unknown; category?: unknown }
+        : undefined;
+      const id = this.resolveTerminalChannelId(payload);
+      if (!id) return false;
+      const category = typeof record?.category === 'string'
+        ? record.category
+        : (typeof categoryArg === 'string' ? categoryArg : undefined);
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        this.assertTerminalAccess(senderInfo.tabId, id);
+      }
+      const result = TerminalManager.getInstance().setCategory(id, category);
+      this.schedulePersist();
+      return result;
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.SET_TAB_PREFS, (_event, prefs: Partial<TerminalTabPrefs>) => {
+      const layoutChanged = this.applyTerminalTabPrefs(prefs);
+      if (layoutChanged) {
+        // The outer window geometry does not depend on the inner tab-strip
+        // layout, but updateLayout is the established re-broadcast point.
+        this.updateLayout();
+      }
+      this.schedulePersist();
+      return {
+        layout: this.terminalTabLayout,
+        sidebarWidth: this.terminalSidebarWidth,
+        collapsedCategories: this.terminalCollapsedCategories,
+      } satisfies TerminalTabPrefs;
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.GET_ALL_AFFINITIES, () => {
+      // One round-trip for every badge on the strip, driven by the affinity map
+      // itself: each session's own generation is passed, which takes the
+      // exact-generation map hit in `getTerminalAgentAffinity` instead of the
+      // O(E) prefix scan a generation-less lookup would run per session. It also
+      // avoids the per-session transcript slicing `listSessions()` performs — a
+      // badge refresh must never touch megabytes of scrollback.
+      const tm = TerminalManager.getInstance();
+      const result: Record<string, TerminalAgentAffinityInfo> = {};
+      for (const terminalId of this.getTerminalIdsWithAffinity()) {
+        const session = tm.getSession(terminalId) as { sessionGeneration?: number } | undefined;
+        // Parity with the session-enumerated version: a terminal whose session no
+        // longer exists has no badge to paint.
+        if (!session) continue;
+        const affinity = this.getTerminalAgentAffinity(terminalId, session.sessionGeneration);
+        if (affinity) {
+          result[terminalId] = affinity;
+        }
+      }
+      return result;
     });
     ipcMain.handle(TERMINAL_CHANNELS.POPOUT, () => {
       return this.togglePopoutTerminal();
@@ -2040,6 +2226,13 @@ export class NativeTabHost extends EventEmitter {
         width: this.sidebarWidth,
         workspacePath: targetWorkspace,
         activeWorkspace: targetWorkspace,
+        // Boot-time prefs so the renderer can paint the persisted tab layout
+        // without a second IPC round-trip.
+        terminalTabPrefs: {
+          layout: this.terminalTabLayout,
+          sidebarWidth: this.terminalSidebarWidth,
+          collapsedCategories: this.terminalCollapsedCategories,
+        } satisfies TerminalTabPrefs,
       };
     });
 
@@ -3750,6 +3943,7 @@ export class NativeTabHost extends EventEmitter {
       };
     }
     this.tabs.set(id, tabEntry);
+    this.indexTabWebContents(id, tabEntry);
     const isAgentTab = isEphemeral || isOffscreen;
     if (!isAgentTab) {
       this.tabOrder.push(id);
@@ -3863,6 +4057,7 @@ export class NativeTabHost extends EventEmitter {
           }
         } catch {}
         try { this.destroyOwnedWebContents(target.view?.webContents); } catch {}
+        if (target.view?.webContents) this.tabByWebContents?.delete(target.view.webContents);
         target.view = new WebContentsView({
           webPreferences: getSecureWebPreferences(target.state.partition),
         });
@@ -3872,6 +4067,7 @@ export class NativeTabHost extends EventEmitter {
         const isBlank = !target.state.url || target.state.url === 'about:blank';
         target.state.isLoading = !isBlank;
         this.setupTabWebContentsEvents(targetId, target.view, target.state, 'desktop');
+        this.tabByWebContents?.set(target.view.webContents, { tabId: targetId, tab: target });
         if (!isBlank && isAllowedNavigation(target.state.url)) {
           target.view.webContents.loadURL(target.state.url).catch((err: unknown) => {
             if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
@@ -4203,6 +4399,7 @@ export class NativeTabHost extends EventEmitter {
       } catch {}
     }
     this.splitCoordinator?.cleanupTab(tabId);
+    this.unindexTabWebContents(target);
     this.tabs.delete(tabId);
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
 
@@ -4694,6 +4891,7 @@ export class NativeTabHost extends EventEmitter {
         const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
         this.setSafeUserAgent(mobileView.webContents, mobileUA || IPHONE_USER_AGENT);
         tab.mobileView = mobileView;
+        this.tabByWebContents?.set(mobileView.webContents, { tabId, tab });
         this.setupTabWebContentsEvents(tabId, mobileView, tab.state, 'mobile');
 
         if (tabId === this.activeTabId) {
@@ -4714,6 +4912,7 @@ export class NativeTabHost extends EventEmitter {
         try {
           this.destroyOwnedWebContents(tab.mobileView.webContents);
         } catch {}
+        this.tabByWebContents?.delete(tab.mobileView.webContents);
         tab.mobileView = undefined;
       }
       tab.state.splitFocusedPane = undefined;
@@ -5446,6 +5645,36 @@ export class NativeTabHost extends EventEmitter {
     return Boolean(this.resolveTargetTabId(tabId));
   }
 
+  /**
+   * Terminal ids that currently hold an affinity entry. Keys are
+   * `${terminalId}@${generation}` and terminal ids never contain `@`, so the id is
+   * everything before the final one. O(E) once — never a scan per id.
+   */
+  private getTerminalIdsWithAffinity(): string[] {
+    if (!this.terminalAgentAffinity || this.terminalAgentAffinity.size === 0) return [];
+    const ids = new Set<string>();
+    for (const key of this.terminalAgentAffinity.keys()) {
+      const separator = key.lastIndexOf('@');
+      ids.add(separator > 0 ? key.slice(0, separator) : key);
+    }
+    return Array.from(ids);
+  }
+
+  /**
+   * A terminal id arrives either bare or wrapped (`{ id }` / `{ sessionId }`);
+   * both shapes are already in use across the terminal channels, so the sleep /
+   * wake / category handlers accept both instead of throwing on a destructure.
+   */
+  private resolveTerminalChannelId(payload: unknown): string {
+    if (typeof payload === 'string') return payload.trim();
+    if (payload && typeof payload === 'object') {
+      const record = payload as { id?: unknown; sessionId?: unknown };
+      if (typeof record.id === 'string') return record.id.trim();
+      if (typeof record.sessionId === 'string') return record.sessionId.trim();
+    }
+    return '';
+  }
+
   private resolveTerminalAffinityEntry(terminalId: string, generation?: number | string) {
     const normGen = generation !== undefined && generation !== '' ? String(generation).trim() : undefined;
     if (normGen) {
@@ -5765,6 +5994,70 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
+  /**
+   * Fans one terminal data payload out to every subscriber. The sidebar only
+   * receives data while it is open — a closed sidebar re-hydrates from
+   * getFullBuffer when toggleSidebar pushes 'antifan:terminal:session' on open,
+   * so dropping sends here costs nothing and saves background render CPU.
+   */
+  private dispatchTerminalData(payload: TerminalDataPayload): void {
+    let sent = 0;
+    if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+      safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:data', payload);
+      sent += 1;
+    }
+    for (const [id, win] of this.terminalWindows.entries()) {
+      if (win && !win.isDestroyed()) {
+        safeSendWebContents(win.webContents, 'antifan:terminal:data', payload);
+        sent += 1;
+      } else {
+        this.terminalWindows.delete(id);
+      }
+    }
+    this.terminalFanoutMessages += sent;
+    // Counts payloads actually dispatched per flush — the true fan-out the
+    // coalescing layer produces, which webContents.send injection cannot see.
+    if (isBenchmarkEnabled()) {
+      recordBenchmark({ surface: 'terminal', name: 'fanoutMessages', value: sent, extra: { sessionId: payload.sessionId, windows: sent } });
+    }
+  }
+
+  /** Emits one session's buffered chunks as a single coalesced payload. */
+  private flushTerminalDataBatch(sessionId: string): void {
+    const batch = this.terminalDataBatches?.get(sessionId);
+    if (!batch) return;
+    this.terminalDataBatches.delete(sessionId);
+    this.dispatchTerminalData({
+      sessionId,
+      data: batch.parts.join(''),
+      // `seq` aliases `throughSeq`: consumers that only read `seq` keep working,
+      // and preload/renderer treat a falsy seq as invalid.
+      seq: batch.throughSeq,
+      fromSeq: batch.fromSeq,
+      throughSeq: batch.throughSeq,
+      generation: batch.generation,
+    });
+  }
+
+  private flushAllTerminalDataBatches(): void {
+    if (!this.terminalDataBatches) return;
+    for (const sessionId of this.terminalDataBatches.keys()) {
+      this.flushTerminalDataBatch(sessionId);
+    }
+  }
+
+  private indexTabWebContents(tabId: string, tab: NativeTabRecord): void {
+    if (!this.tabByWebContents) return;
+    if (tab.view?.webContents) this.tabByWebContents.set(tab.view.webContents, { tabId, tab });
+    if (tab.mobileView?.webContents) this.tabByWebContents.set(tab.mobileView.webContents, { tabId, tab });
+  }
+
+  private unindexTabWebContents(tab: NativeTabRecord): void {
+    if (!this.tabByWebContents) return;
+    if (tab.view?.webContents) this.tabByWebContents.delete(tab.view.webContents);
+    if (tab.mobileView?.webContents) this.tabByWebContents.delete(tab.mobileView.webContents);
+  }
+
   public getEventSenderWebContents(event: unknown): Electron.WebContents | undefined {
     if (event && typeof event === 'object' && 'sender' in event) {
       const sender = (event as { sender: unknown }).sender;
@@ -5777,11 +6070,20 @@ export class NativeTabHost extends EventEmitter {
 
   public findTabByWebContents(sender: Electron.WebContents | null | undefined): { tabId: string; tab: NativeTabRecord } | undefined {
     if (!sender) return undefined;
+    // O(1) fast path; the record is verified against the live views because a
+    // WeakMap entry can outlive a view replacement until GC.
+    const cached = this.tabByWebContents?.get(sender);
+    if (cached && (cached.tab.view?.webContents === sender || cached.tab.mobileView?.webContents === sender)) {
+      return cached;
+    }
+    // Fallback for senders registered before the index existed (e.g. partial
+    // hosts in tests); a hit self-heals the index.
     for (const [id, tab] of this.tabs.entries()) {
       if (
         (tab.view && tab.view.webContents === sender) ||
         (tab.mobileView && tab.mobileView.webContents === sender)
       ) {
+        this.tabByWebContents?.set(sender, { tabId: id, tab });
         return { tabId: id, tab };
       }
     }
@@ -5883,6 +6185,107 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
+  /**
+   * Lifts the "closed" tombstone from every affinity entry for a terminal without
+   * touching its tab bindings. Called when a slept terminal wakes: the bindings were
+   * preserved on purpose, but a browser tab that closed while the session slept left
+   * `closedAt` behind, and `isTerminalAllowedForTab` treats that flag as an outright
+   * denial — the owning agent would get TERMINAL_FORBIDDEN forever.
+   *
+   * Safe when the tab really is gone: `getTerminalAgentAffinity` still reports
+   * `status: 'closed'` because it additionally requires a live bound tab.
+   */
+  public clearTerminalAffinityTombstone(terminalId: string): void {
+    if (!this.terminalAgentAffinity || !terminalId) return;
+    const prefix = `${terminalId}@`;
+    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+      if (key !== terminalId && !key.startsWith(prefix)) continue;
+      if (entry.closedAt === undefined) continue;
+      delete entry.closedAt;
+    }
+  }
+
+  /**
+   * Wake-side half of the Affinity Zombie Guard.
+   *
+   * Sleeping keeps the affinity bindings on purpose, but a browser tab that closed
+   * during the nap left `closedAt` behind, and `isTerminalAllowedForTab` denies a
+   * tombstoned entry outright — the owning agent would get TERMINAL_FORBIDDEN for
+   * the rest of the run.
+   *
+   * Lifting the flag is not enough by itself. `getTerminalAgentAffinity` re-arms
+   * `closedAt` whenever the entry's primary pointer names a tab that no longer
+   * exists, so the first badge refresh after the wake (GET_ALL_AFFINITIES) would
+   * restore the tombstone and wedge the agent again. This therefore also drops dead
+   * ids from the entry and re-points a stale primary at a live tab from the
+   * surviving session pool.
+   *
+   * `generation` is the generation the wake reused. The manager keeps
+   * `reservedGeneration`, so the entry is expected to be keyed under it already and
+   * the key must never migrate: the generation is only used to resolve that exact
+   * entry first. A terminal with no live bound tab left is deliberately left
+   * pointer-stale — `getTerminalAgentAffinity` keeps reporting `status: 'closed'`
+   * for it and no live tab resolves through it, so lifting the flag cannot widen
+   * access to a tab that was never bound.
+   */
+  public reviveTerminalAgentAffinity(terminalId: string, generation?: number | string): void {
+    if (!this.terminalAgentAffinity || !terminalId) return;
+    const reportedGeneration = generation === undefined || generation === null || generation === ''
+      ? undefined
+      : String(generation).trim();
+    if (reportedGeneration) {
+      const wakeEntry = this.resolveTerminalAffinityEntry(terminalId, reportedGeneration);
+      if (wakeEntry && wakeEntry.closedAt !== undefined) delete wakeEntry.closedAt;
+    }
+    this.clearTerminalAffinityTombstone(terminalId);
+    const prefix = `${terminalId}@`;
+    const pool = this.sessionTabPools?.get(terminalId);
+    const firstLiveTabId = (ids: Iterable<string>): string | undefined => {
+      for (const rawId of ids) {
+        const id = typeof rawId === 'string' ? rawId : String(rawId);
+        if (this.hasTab(id)) return id;
+      }
+      return undefined;
+    };
+    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+      if (key !== terminalId && !key.startsWith(prefix)) continue;
+      if (!entry.managedTabIds) entry.managedTabIds = new Set<string>();
+      for (const rawId of Array.from(entry.managedTabIds)) {
+        const id = typeof rawId === 'string' ? rawId : String(rawId);
+        if (this.hasTab(id)) continue;
+        entry.managedTabIds.delete(rawId);
+        entry.lastUrls?.delete(id);
+        entry.lineage?.delete(id);
+      }
+      const primaryAlive = Boolean(entry.primaryTabId) && this.hasTab(entry.primaryTabId);
+      if (primaryAlive) {
+        // `tabId` is the legacy alias of the primary pointer; keep it resolvable.
+        if (!this.hasTab(entry.tabId)) entry.tabId = entry.primaryTabId;
+        continue;
+      }
+      const nextPrimary = firstLiveTabId(entry.managedTabIds) || (pool ? firstLiveTabId(pool) : undefined);
+      if (!nextPrimary) continue;
+      entry.primaryTabId = nextPrimary;
+      entry.tabId = nextPrimary;
+      entry.lastUrl = entry.lastUrls?.get(nextPrimary) || entry.lastUrl;
+    }
+    // A tab that survived the nap keeps its right to operate the woken terminal
+    // even if an earlier affinity rebuild dropped it from the pool.
+    if (pool) {
+      for (const rawId of Array.from(pool)) {
+        const id = typeof rawId === 'string' ? rawId : String(rawId);
+        if (!this.hasTab(id)) {
+          pool.delete(rawId);
+          continue;
+        }
+        const tab = this.tabs.get(id);
+        if (tab && !tab.state.terminalSessionId) {
+          tab.state.terminalSessionId = terminalId;
+        }
+      }
+    }
+  }
+
   public tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void {
     if (!this.terminalAgentAffinity || !tabId) return;
     for (const entry of this.terminalAgentAffinity.values()) {
@@ -5928,17 +6331,7 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): {
-    tabId: string;
-    primaryTabId: string;
-    managedTabIds: string[];
-    status: 'alive' | 'closed';
-    lastUrl?: string;
-    isOffscreen?: boolean;
-    isEphemeral?: boolean;
-    title?: string;
-    url?: string;
-  } | undefined {
+  public getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): TerminalAgentAffinityInfo | undefined {
     if (!this.terminalAgentAffinity || !terminalSessionId) return undefined;
     const entry = this.resolveTerminalAffinityEntry(terminalSessionId, generation);
     if (!entry) return undefined;
@@ -6254,6 +6647,29 @@ export class NativeTabHost extends EventEmitter {
   private broadcastDeadline = 0;
   private readonly BROADCAST_MIN_INTERVAL_MS = 200; // 5 Hz ceiling
 
+  /**
+   * Validates and applies terminal tab-strip prefs from any source
+   * (saved-tabs.json, SET_TAB_PREFS). Unknown fields are ignored; invalid
+   * values are dropped or clamped so a corrupt file can never wedge the
+   * renderer. Returns true when the layout preference actually changed.
+   */
+  private applyTerminalTabPrefs(prefs: Partial<TerminalTabPrefs>): boolean {
+    const p = (prefs && typeof prefs === 'object' ? prefs : {}) as Partial<TerminalTabPrefs>;
+    const prevLayout = this.terminalTabLayout;
+    if (p.layout === 'horizontal' || p.layout === 'sidebar') {
+      this.terminalTabLayout = p.layout;
+    }
+    if (typeof p.sidebarWidth === 'number') {
+      this.terminalSidebarWidth = clampTerminalTabSidebarWidth(p.sidebarWidth);
+    }
+    if (Array.isArray(p.collapsedCategories)) {
+      this.terminalCollapsedCategories = p.collapsedCategories
+        .filter((c): c is string => typeof c === 'string')
+        .slice(0, TERMINAL_COLLAPSED_CATEGORIES_MAX);
+    }
+    return this.terminalTabLayout !== prevLayout;
+  }
+
   private schedulePersist(): void {
     if (this.isDisposed) return;
     if (this.persistTimer) clearTimeout(this.persistTimer);
@@ -6389,6 +6805,9 @@ export class NativeTabHost extends EventEmitter {
       activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
       sidebarWidth: this.sidebarWidth,
       isSidebarOpen: this.isSidebarOpen,
+      terminalTabLayout: this.terminalTabLayout,
+      terminalSidebarWidth: this.terminalSidebarWidth,
+      terminalCollapsedCategories: this.terminalCollapsedCategories,
       isTerminalPopoutOpen: Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed()),
       wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
       popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
@@ -6461,6 +6880,11 @@ export class NativeTabHost extends EventEmitter {
           if (typeof data.isSidebarOpen === 'boolean') {
             this.isSidebarOpen = data.isSidebarOpen;
           }
+          this.applyTerminalTabPrefs({
+            layout: data.terminalTabLayout,
+            sidebarWidth: data.terminalSidebarWidth,
+            collapsedCategories: data.terminalCollapsedCategories,
+          });
           if (Array.isArray(data.terminalWindows) && data.terminalWindows.length > 0) {
             TerminalManager.getInstance().startTerminal();
             const wasOpen = typeof data.wasSidebarOpenBeforePopout === 'boolean' ? data.wasSidebarOpenBeforePopout : true;
@@ -7517,6 +7941,13 @@ export class NativeTabHost extends EventEmitter {
     this.broadcastStatePending = false;
     this.persistTabs();
     this.flushAllSessions().catch(() => {});
+    // Deliver any still-buffered terminal output before views are torn down, then
+    // disarm the flush timer so it cannot fire into destroyed webContents.
+    this.flushAllTerminalDataBatches();
+    if (this.terminalDataFlushTimer) {
+      clearTimeout(this.terminalDataFlushTimer);
+      this.terminalDataFlushTimer = null;
+    }
     this.isDisposed = true;
     this.automationHost?.dispose();
     this.asyncQaQueue?.abortAll();

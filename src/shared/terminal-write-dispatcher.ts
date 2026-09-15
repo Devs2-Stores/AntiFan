@@ -4,10 +4,10 @@
  * Implements:
  * 1. Interactive Fast-Path: 0ms latency for small interactive keystrokes (<= 256 bytes) when idle.
  * 2. In-Flight Backpressure Guard: Guarantees strict FIFO ordering with zero interleaving during async xterm parser ticks.
- * 3. Bounded 64KB UTF-8 Dequeue & Frame Yielding: Caches up to 64KB UTF-8 bytes per frame, safely splitting large or multibyte Unicode strings without splitting code points or surrogate pairs.
+ * 3. Bounded 64K-unit Dequeue & Frame Yielding: Drains up to 64K UTF-16 code units per frame, splitting large chunks without breaking surrogate pairs.
  */
 
-export const MAX_FRAME_WRITE_BYTES = 65536; // 64KB per frame render budget
+export const MAX_FRAME_WRITE_BYTES = 65536; // 64K UTF-16 code units per frame render budget
 
 export interface TerminalWritable {
   write(data: string, callback?: () => void): void;
@@ -20,7 +20,6 @@ export interface TerminalWriteTarget {
   isWriting: boolean;
   writeRafId: number | null;
   onPostWrite?: () => void;
-  writeQueueBytes?: number[];
 }
 
 export interface TerminalDispatcherOptions {
@@ -173,18 +172,15 @@ export class TerminalWriteDispatcher {
       isWriting: false,
       writeRafId: null,
       onPostWrite,
-      writeQueueBytes: [],
     };
   }
 
   public queueWrite(target: TerminalWriteTarget, chunk: string): void {
     if (!target || !chunk) return;
-    const chunkBytes = getUtf8ByteLength(chunk);
+    // Budget in UTF-16 code units (chunk.length): an O(1) measure that tracks
+    // parser cost closely enough for frame budgeting without an O(n) UTF-8 scan.
+    const chunkBytes = chunk.length;
     target.writeQueue.push(chunk);
-    if (!target.writeQueueBytes) {
-      target.writeQueueBytes = [];
-    }
-    target.writeQueueBytes.push(chunkBytes);
     target.queueByteLength += chunkBytes;
     // If a write is currently in-flight in xterm, let the in-flight callback drain the queue to maintain strict FIFO
     if (target.isWriting) {
@@ -221,35 +217,51 @@ export class TerminalWriteDispatcher {
       return;
     }
 
-    // Bounded UTF-8 dequeue: extract at most maxFrameBytes across queue items, splitting if necessary
-    let payload = '';
+    // Bounded dequeue: drain at most maxFrameBytes code units via a head-index
+    // pointer, then join the batch once — per-element shift() is O(n) per chunk.
+    const queue = target.writeQueue;
+    const parts: string[] = [];
     let accumulatedBytes = 0;
+    let drained = 0;
+    let remainder: string | null = null;
 
-    while (target.writeQueue.length > 0 && accumulatedBytes < this.maxFrameBytes) {
-      const head = target.writeQueue[0]!;
-      const headBytes = (target.writeQueueBytes && target.writeQueueBytes.length > 0)
-        ? target.writeQueueBytes[0]!
-        : getUtf8ByteLength(head);
+    while (drained < queue.length && accumulatedBytes < this.maxFrameBytes) {
+      const head = queue[drained]!;
+      const headBytes = head.length;
       const budget = this.maxFrameBytes - accumulatedBytes;
 
       if (headBytes <= budget) {
-        payload += head;
+        parts.push(head);
         accumulatedBytes += headBytes;
-        target.writeQueue.shift();
-        if (target.writeQueueBytes) {
-          target.writeQueueBytes.shift();
-        }
+        drained++;
       } else {
-        const { head: sliceHead, tail: sliceTail, bytes: sliceBytes } = sliceUtf8Bytes(head, budget);
-        payload += sliceHead;
-        accumulatedBytes += sliceBytes;
-        target.writeQueue[0] = sliceTail;
-        if (target.writeQueueBytes) {
-          target.writeQueueBytes[0] = Math.max(0, headBytes - sliceBytes);
+        // Split the head chunk at the budget without breaking a surrogate pair.
+        let sliceEnd = budget;
+        if (sliceEnd > 0 && sliceEnd < headBytes) {
+          const code = head.charCodeAt(sliceEnd - 1);
+          if (code >= 0xd800 && code <= 0xdbff) {
+            sliceEnd--;
+          }
         }
+        if (sliceEnd <= 0) {
+          // Budget too small for even one code point: emit the pair whole rather
+          // than a lone surrogate or an empty write that would stall the queue.
+          sliceEnd = Math.min(2, headBytes);
+        }
+        parts.push(head.slice(0, sliceEnd));
+        accumulatedBytes += sliceEnd;
+        remainder = head.slice(sliceEnd);
+        drained++;
         break;
       }
     }
+
+    if (remainder !== null) {
+      queue.splice(0, drained, remainder);
+    } else if (drained > 0) {
+      queue.splice(0, drained);
+    }
+    const payload = parts.join('');
 
     target.queueByteLength = Math.max(0, target.queueByteLength - accumulatedBytes);
     target.isWriting = true;
@@ -283,7 +295,6 @@ export class TerminalWriteDispatcher {
       target.writeRafId = null;
     }
     target.writeQueue = [];
-    target.writeQueueBytes = [];
     target.queueByteLength = 0;
     target.isWriting = false;
   }

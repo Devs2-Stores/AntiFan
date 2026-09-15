@@ -39,6 +39,7 @@ import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { DeviceManager } from './device/device-manager';
 import { IosDeviceAdapter } from './device/ios-device-adapter';
 import { validateControlPlaneId } from '../shared/control-plane-contracts';
+import { assertDeadlineChain } from '../shared/deadline-chain';
 import { preparePersistentProfile, ProfileMigrationError, ProfileOwnership, ProfileOwnershipError, type PersistentProfileResult, type ProfileLease } from './browser/profile-ownership';
 import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled } from './benchmark/telemetry';
 import type { ActionSequenceParams } from './browser/tab-automation-host';
@@ -48,6 +49,14 @@ import {
   installExitRecorder,
   getLifecycleLogPath,
 } from './diagnostics/main-lifecycle-log';
+
+// Fail-closed boot guard (`AP-DEADLINE-001`): the request deadline chain must strictly
+// increase from the innermost callee bound to the outermost caller bound. A flattened or
+// inverted chain lets a caller abandon a request while its callee still admits it, which
+// converts a recoverable timeout into an orphaned command. Refuse to boot on an incoherent
+// chain instead of serving requests under one. Deliberately above the uncaughtException
+// handler: this throw must be fatal, never swallowed into a boot that continues anyway.
+assertDeadlineChain();
 
 // Every fatal path below also writes a durable journal line. A launch from Explorer
 // or a shortcut has no attached console, so the console.* lines alone are discarded:

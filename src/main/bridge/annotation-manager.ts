@@ -114,20 +114,25 @@ export class AnnotationManager {
     return this.instance;
   }
 
-  private getStorageDirectories(customWsDir?: string): { annotationsDir: string; snapshotsDir: string } {
+  private getStorageDirectories(customWsDir?: string): { annotationsDir: string; snapshotsDir: string; qaReceiptsDir: string } {
     if (!customWsDir || typeof customWsDir !== 'string' || !fs.existsSync(customWsDir)) {
       throw new CapabilityError('WORKSPACE_UNBOUND', 'Annotation processing requires a valid, bound workspace directory');
     }
     const baseDir = path.join(path.resolve(customWsDir), '.antifan');
     const annotationsDir = path.join(baseDir, 'annotations');
     const snapshotsDir = path.join(baseDir, 'snapshots');
+    // Pre-created so consumer-side gates that list `.antifan/qa-receipts/` get a
+    // deterministic empty directory instead of an ENOENT they must treat as "no QA
+    // ever ran" (indistinguishable from a real zero-receipt workspace).
+    const qaReceiptsDir = path.join(baseDir, 'qa-receipts');
 
     try {
       fs.mkdirSync(annotationsDir, { recursive: true });
       fs.mkdirSync(snapshotsDir, { recursive: true });
+      fs.mkdirSync(qaReceiptsDir, { recursive: true });
     } catch {}
 
-    return { annotationsDir, snapshotsDir };
+    return { annotationsDir, snapshotsDir, qaReceiptsDir };
   }
 
   public async processAnnotationPayload(payload: AnnotationPayload): Promise<{

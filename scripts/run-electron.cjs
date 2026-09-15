@@ -32,30 +32,57 @@ const childArgs = stateRecordArgIdx !== -1
   : [...rawArgs];
 
 // Launcher coherence: align with dev.mjs and run-antifan.vbs.
-// Dev starts (--dev, NODE_ENV=development, or ANTIFAN_ALLOW_EVAL=true/1) default to --allow-eval,
-// while production starts (--production, NODE_ENV=production) strictly preserve the secure default.
-// Explicit --no-eval strips the flag and refuses --allow-eval.
+//
+// `src/main/index.ts` resolves ALLOW_EVAL from `--allow-eval`/`--mcp-high-risk` or
+// ANTIFAN_ALLOW_EVAL=true, and treats every launch that is not `--production`/NODE_ENV=production
+// as a dev launch (its IS_PROD/IS_DEV pair). This launcher used to add the flag only for an
+// explicit `--dev`/development-env caller, so `npm start` (`node scripts/run-electron.cjs .`)
+// booted a DEV app with ALLOW_EVAL=false: every eval-risk capability was refused with
+// POLICY_DENIED and nothing indicated that the launcher, not the policy, was the reason.
+// Default the flag on for any non-production start — the same default dev.mjs and
+// run-antifan.vbs already apply — and say which rule decided it. Production starts add nothing,
+// and an explicit opt-out wins over everything below, including an inherited ANTIFAN_ALLOW_EVAL.
 const isProduction = childArgs.includes('--production') || process.env.NODE_ENV === 'production';
+const hasEvalFlag = () => childArgs.includes('--allow-eval') || childArgs.includes('--mcp-high-risk');
 const noEvalIdx = childArgs.indexOf('--no-eval');
 const isExplicitNoEval = noEvalIdx !== -1 || process.env.ANTIFAN_ALLOW_EVAL === 'false';
 if (noEvalIdx !== -1) {
   childArgs.splice(noEvalIdx, 1);
 }
-if (!isProduction && !isExplicitNoEval) {
-  const hasEval = childArgs.includes('--allow-eval') || childArgs.includes('--mcp-high-risk');
-  const shouldDefaultEval = process.env.ANTIFAN_ALLOW_EVAL === 'true' ||
-    process.env.ANTIFAN_ALLOW_EVAL === '1' ||
-    childArgs.includes('--dev') ||
-    process.env.NODE_ENV === 'development';
-  if (shouldDefaultEval && !hasEval) {
-    childArgs.push('--allow-eval');
+if (isExplicitNoEval) {
+  // Make the opt-out mean what this file claims. It used to remove only `--no-eval` itself, so
+  // `run-electron.cjs . --allow-eval --no-eval` — or an inherited ANTIFAN_ALLOW_EVAL=true, since
+  // the caller's environment is passed through below — still started with eval ENABLED while the
+  // caller believed it was disabled.
+  for (const conflicting of ['--allow-eval', '--mcp-high-risk']) {
+    const conflictingIdx = childArgs.indexOf(conflicting);
+    if (conflictingIdx !== -1) childArgs.splice(conflictingIdx, 1);
   }
+}
+let evalSource;
+if (hasEvalFlag()) {
+  evalSource = 'cli-flag';
+} else if (isExplicitNoEval) {
+  evalSource = 'explicit-opt-out (--no-eval or ANTIFAN_ALLOW_EVAL=false)';
+} else if (isProduction) {
+  evalSource = 'production-default-deny';
+} else if (process.env.ANTIFAN_ALLOW_EVAL === 'true' || process.env.ANTIFAN_ALLOW_EVAL === '1') {
+  evalSource = 'env ANTIFAN_ALLOW_EVAL';
+} else {
+  childArgs.push('--allow-eval');
+  evalSource = 'dev-default (non-production start)';
 }
 const script = childArgs[0];
 if (!script) {
   console.error('usage: node scripts/run-electron.cjs <app-dir-or-entry> [...args] [--state-record <path>]');
   process.exit(1);
 }
+// The flag this launcher forwards, its source, and the env opt-in that could still decide the
+// runtime's ALLOW_EVAL. The app logs the value it actually resolved at boot.
+console.log(
+  `[run-electron] eval flag: ${hasEvalFlag() ? '--allow-eval' : 'none'} (source: ${evalSource}); ` +
+  `ANTIFAN_ALLOW_EVAL=${process.env.ANTIFAN_ALLOW_EVAL ?? '<unset>'}; electron args: ${childArgs.join(' ')}`
+);
 
 const ROOT = path.resolve(__dirname, '..');
 const compiledMain = path.join(ROOT, '.compiled', 'src', 'main', 'index.js');
@@ -149,6 +176,10 @@ async function main() {
 
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
+  // An explicit opt-out must also silence the env-var opt-in: the app ORs the two together, so
+  // leaving ANTIFAN_ALLOW_EVAL=true in the child environment would re-enable eval behind the
+  // caller's back. `--no-eval` is a denial, never a hint.
+  if (isExplicitNoEval) delete env.ANTIFAN_ALLOW_EVAL;
 
   const electronBin = require('electron'); // resolves to the binary path under Node
 

@@ -72,6 +72,7 @@ import {
 } from '../verification/baseline-authority.js';
 import { formatInflightNote, type InflightRequestSnapshot, type NetworkTrackerOptions } from '../browser/first-party-network-tracker.js';
 import type { AntiFanTab } from '../../shared/contracts';
+import { DEADLINES } from '../../shared/deadline-chain';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 
 function isTabRecord(item: unknown): item is AntiFanTab {
@@ -786,9 +787,11 @@ export const VIEWPORT_CONFIRM_BOUND_MS = 3_000;
 /**
  * Viewport-capture budget. The host command bound must sit inside the policy
  * cancellation grace: a transport cancel that arrives while CDP still admits the
- * command orphans it and drains the target.
+ * command orphans it and drains the target. The number is the innermost layer of
+ * the request deadline chain (`src/shared/deadline-chain.ts`), which owns it so
+ * this capture bound can never drift out of the chain that composes it.
  */
-export const VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS = 25_000;
+export const VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS = DEADLINES.cdpCaptureMs;
 export const VIEWPORT_CAPTURE_CANCELLATION_ACK_MS = 5_000;
 /**
  * Reference capture budget: the materialization walk, the settle barrier and two
@@ -981,6 +984,90 @@ async function raceWithTimeout<T>(work: Promise<T>, ms: number, onTimeout: () =>
     }
   );
   return gate.promise;
+}
+
+/**
+ * Bound for the CAPTURE_TIMEOUT diagnosis probe: one CDP round-trip, small enough
+ * that explaining a failure can never itself become the delay the caller waits on.
+ */
+const CAPTURE_TIMEOUT_PROBE_BOUND_MS = 1_200;
+/** Longest location fragment embedded in a diagnosis message. */
+const CAPTURE_TIMEOUT_LOCATION_MAX_CHARS = 160;
+/**
+ * How long a capture waits for its own media freeze to confirm. The freeze is a
+ * local operation on an answering renderer; past this it is treated as pending
+ * (still worth releasing) rather than allowed to consume the capture's budget.
+ */
+const MEDIA_FREEZE_BOUND_MS = 4_000;
+
+/**
+ * Read-only DOM census for a capture that never settled on the compositor.
+ *
+ * Counts the two conditions that keep `Page.captureScreenshot` from producing a
+ * stable frame — media that is playing (or ready to play) and CSS animations with
+ * no end — and reports a count per media tag. It never reads element text, never
+ * touches storage or the network, and returns counts only.
+ */
+const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
+  const media = Array.from(document.querySelectorAll('video, audio'));
+  let playing = 0;
+  const tags = {};
+  for (const el of media) {
+    const ready = typeof el.readyState === 'number' && el.readyState > 2;
+    if (el.paused === false || ready) {
+      playing++;
+      const tag = el.tagName ? String(el.tagName).toLowerCase() : 'media';
+      tags[tag] = (tags[tag] || 0) + 1;
+    }
+  }
+  let infiniteAnimations = 0;
+  try {
+    const animations = typeof document.getAnimations === 'function' ? document.getAnimations() : [];
+    for (const animation of animations) {
+      let iterations = 1;
+      try {
+        const effect = animation.effect;
+        const timing = effect && typeof effect.getTiming === 'function' ? effect.getTiming() : null;
+        if (timing && typeof timing.iterations === 'number') iterations = timing.iterations;
+      } catch {}
+      if (iterations === Infinity) infiniteAnimations++;
+    }
+  } catch {}
+  return { playing, tags, infiniteAnimations };
+})()`;
+
+/**
+ * Least-revealing location label for a diagnosis: origin plus path with query and
+ * hash dropped (they carry tokens, addresses and search terms), truncated hard.
+ * Never throws, including on a string that is not a URL.
+ */
+function diagnosticTabLocation(rawUrl: string | undefined): { host: string | null; label: string | null } {
+  if (typeof rawUrl !== 'string' || rawUrl.length === 0) return { host: null, label: null };
+  const truncate = (value: string): string | null => {
+    if (value.length === 0) return null;
+    return value.length > CAPTURE_TIMEOUT_LOCATION_MAX_CHARS
+      ? `${value.slice(0, CAPTURE_TIMEOUT_LOCATION_MAX_CHARS)}...`
+      : value;
+  };
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return { host: parsed.hostname || null, label: truncate(`${parsed.origin}${parsed.pathname}`) };
+    }
+    return { host: null, label: truncate(parsed.protocol.replace(':', '')) };
+  } catch {
+    const pathOnly = rawUrl.split('?')[0]?.split('#')[0] ?? '';
+    return { host: null, label: truncate(pathOnly) };
+  }
+}
+
+/** `video` / `video x2` summary for the media the probe counted. */
+function describeMediaTags(tags: Record<string, number>): string {
+  const entries = Object.entries(tags)
+    .filter(([, count]) => count > 0)
+    .sort((left, right) => right[1] - left[1]);
+  if (entries.length === 0) return 'media';
+  return entries.map(([tag, count]) => (count > 1 ? `${tag} x${count}` : tag)).join(', ');
 }
 
 /**
@@ -1251,6 +1338,13 @@ export class BrowserControlPort {
    * bounds; the verified geometry is the only size a bounded re-apply may restore.
    */
   private readonly verifiedTabGeometry = new Map<string, { width: number; height: number; mobile?: boolean }>();
+  /**
+   * Tabs whose media a capture in flight has frozen, and how many captures hold
+   * that freeze. Ownership is counted per tab rather than per call so a nested or
+   * concurrent capture on the same tab joins the freeze an outer capture took and
+   * cannot unfreeze media that capture is still rasterizing.
+   */
+  private readonly mediaFreezeOwners = new Map<string, number>();
   public readonly baselineAuthority: BaselineAuthority;
   constructor(private readonly host: BrowserHostPort, public readonly artifacts?: BrowserArtifactSink) {
     this.baselineAuthority = new BaselineAuthority({ artifactStore: this.artifacts as any });
@@ -1309,7 +1403,18 @@ export class BrowserControlPort {
     const docGen = typeof this.host.getSemanticDocumentGeneration === 'function'
       ? this.host.getSemanticDocumentGeneration(tabId)
       : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1));
-    return { navigated: true, target: { ...target, tabId, documentGeneration: docGen } };
+    // The returned target IS the authority contract callers feed into the next call and into
+    // target assertions, so it must describe the SETTLED tab. Only `documentGeneration` used to
+    // be re-stamped after the load completed, which left `url` as whatever the authority record
+    // was bound with — a fossil the navigation had just invalidated. Re-read the settled URL
+    // from the tab this call actually navigated (the same authorized tabId, never an ambient
+    // target). When the live read is unavailable, omit `url` rather than assert a value this
+    // call cannot stand behind.
+    const settledUrl = await this.getLiveTabUrl(tabId).catch(() => '');
+    const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen };
+    if (settledUrl) settledTarget.url = settledUrl;
+    else delete settledTarget.url;
+    return { navigated: true, target: settledTarget };
   }
 
   public async getLiveTabUrl(tabId: string): Promise<string> {
@@ -1317,12 +1422,30 @@ export class BrowserControlPort {
       const url = this.host.getTabUrl(tabId);
       if (url) return url;
     }
+    const matchUrl = (tabs: unknown): string | undefined => {
+      if (!Array.isArray(tabs)) return undefined;
+      // Bind the found row to an explicit `Record<string, unknown> | undefined` instead of letting
+      // `Array.prototype.find` on an `unknown`-narrowed array infer a widened element type: reading
+      // `.url` off that shape yields `{} | undefined`, which cannot satisfy this function's
+      // `string | undefined` return. Validate the value to a non-empty string before returning it.
+      const match = (tabs as unknown[]).find(
+        (t: unknown) => !!t && typeof t === 'object' && (t as Record<string, unknown>).id === tabId,
+      ) as Record<string, unknown> | undefined;
+      const url = match?.url;
+      return typeof url === 'string' && url.length > 0 ? url : undefined;
+    };
     try {
-      const tabs = typeof this.host.getTabList === 'function' ? this.host.getTabList() : [];
-      const match = Array.isArray(tabs) ? tabs.find((t: unknown) => t && typeof t === 'object' && (t as Record<string, unknown>).id === tabId) : undefined;
-      if (match && typeof (match as Record<string, unknown>).url === 'string' && (match as Record<string, unknown>).url) {
-        return (match as Record<string, unknown>).url as string;
-      }
+      const fromStrip = matchUrl(typeof this.host.getTabList === 'function' ? this.host.getTabList() : []);
+      if (fromStrip) return fromStrip;
+    } catch {}
+    try {
+      // `getTabList` projects the user's tab strip and deliberately excludes the
+      // offscreen/ephemeral tabs the agent plane creates — which is exactly what a session's
+      // dedicated agent tab is (see resolveTargetTab's auto-provision branch). Consult the
+      // session-scoped record before falling back to an in-page read, or an offscreen target
+      // reports no URL at all.
+      const fromSession = typeof this.host.getSessionTabList === 'function' ? matchUrl(this.host.getSessionTabList(tabId)) : undefined;
+      if (fromSession) return fromSession;
     } catch {}
     try {
       if (typeof this.host.evalJs === 'function') {
@@ -1372,9 +1495,15 @@ export class BrowserControlPort {
 
     const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
     const redirected = (urlBefore && urlAfter && urlBefore !== urlAfter) ? true : false;
+    // Same contract as navigate: the returned target must describe the settled tab, not the
+    // binding we were handed. `urlAfter` is already read live above; when it could not be read,
+    // omit `url` instead of echoing the pre-reload URL.
+    const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen };
+    if (urlAfter) settledTarget.url = urlAfter;
+    else delete settledTarget.url;
     return {
       reloaded: true,
-      target: { ...target, tabId, documentGeneration: docGen },
+      target: settledTarget,
       ...(urlBefore ? { urlBefore } : {}),
       ...(urlAfter ? { urlAfter } : {}),
       ...(urlBefore && urlAfter ? { redirected } : {}),
@@ -1442,9 +1571,16 @@ export class BrowserControlPort {
 
     const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
 
+    // Same contract as navigate: report the settled tab, not the binding we were handed, and
+    // omit `url` when the live read cannot back it.
+    const settledUrl = await this.getLiveTabUrl(tabId).catch(() => '');
+    const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen };
+    if (settledUrl) settledTarget.url = settledUrl;
+    else delete settledTarget.url;
+
     return {
       reloaded: result,
-      target: { ...target, tabId, documentGeneration: docGen },
+      target: settledTarget,
       blockedUrls,
       blockedCount: blockedUrls.length,
       verifiedOffline: blockedUrls.length === 0,
@@ -1763,6 +1899,192 @@ export class BrowserControlPort {
   }
 
   /**
+   * Best-effort media freeze for one bounded capture, owned per tab.
+   *
+   * A capture that rasterizes while a video plays never gets a stable frame: the
+   * compositor keeps producing new ones, so `Page.captureScreenshot` waits out its
+   * whole bound and the target is left draining. Freezing the media first is what
+   * makes the capture deterministic, and it must be released on EVERY exit path.
+   *
+   * Ownership is per tab, not per call: a nested or concurrent capture on the same
+   * tab joins the freeze an outer capture already took, and only the last owner
+   * releases it, so no capture can be un-frozen out from under another one.
+   *
+   * Returns the release function this call must run from its `finally`, or null
+   * when this call owns nothing to release (host cannot evaluate in a page, the
+   * freeze failed, or an outer capture holds the freeze). A freeze that cannot be
+   * taken is a diagnostic, never a capture failure.
+   */
+  private async acquireMediaFreeze(
+    target: BrowserTarget,
+    tabId: string,
+    paneId: 'desktop' | 'mobile' | undefined
+  ): Promise<(() => Promise<void>) | null> {
+    // Feature-detect the capability the freeze needs rather than assuming it: a
+    // host that cannot evaluate in the page cannot freeze or unfreeze anything.
+    if (typeof this.host.evalJs !== 'function') return null;
+    const held = this.mediaFreezeOwners.get(tabId) ?? 0;
+    this.mediaFreezeOwners.set(tabId, held + 1);
+    const release = async (): Promise<void> => {
+      const current = this.mediaFreezeOwners.get(tabId) ?? 0;
+      if (current > 1) {
+        this.mediaFreezeOwners.set(tabId, current - 1);
+        return;
+      }
+      // Last owner. Ownership is cleared whether or not the host confirms the
+      // release: a failed unfreeze must not pin the count forever, because that
+      // would make every later capture on this tab believe an owner still exists
+      // and skip the unfreeze that restores the page. The next capture re-freezes
+      // and releases the page itself, and the injected freeze also self-expires.
+      this.mediaFreezeOwners.delete(tabId);
+      // The release is bounded and swallows every outcome: it runs while the
+      // capture's own result or error is already determined, so it must neither
+      // throw nor hold that answer behind a renderer that stopped answering.
+      try {
+        const outcome = await raceWithTimeout<{ confirmed: boolean; reason?: string }>(
+          this.freezeMedia(target, { freeze: false, normalizeSliders: false }, tabId, paneId).then(
+            () => ({ confirmed: true }),
+            (err: unknown) => ({ confirmed: false, reason: err instanceof Error ? err.message : String(err) })
+          ),
+          MEDIA_FREEZE_BOUND_MS,
+          () => ({ confirmed: false, reason: `no confirmation within ${MEDIA_FREEZE_BOUND_MS}ms` })
+        );
+        if (!outcome.confirmed) {
+          console.warn(`[browser-port] Media unfreeze on tab ${tabId} did not confirm: ${outcome.reason ?? 'unknown reason'}`);
+        }
+      } catch (err) {
+        console.warn(`[browser-port] Media unfreeze on tab ${tabId} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    if (held > 0) return release;
+    // The freeze is a local operation (pause media, inject one stylesheet), so it
+    // answers in milliseconds or the target is not answering at all. The wait is
+    // bounded anyway: this step runs inside the same request budget as the capture
+    // it precedes, and it must never consume the capture's own bound.
+    let attempt: 'applied' | 'failed' | 'pending';
+    try {
+      attempt = await raceWithTimeout<'applied' | 'failed' | 'pending'>(
+        this.freezeMedia(target, { freeze: true, normalizeSliders: true }, tabId, paneId).then(
+          () => 'applied' as const,
+          () => 'failed' as const
+        ),
+        MEDIA_FREEZE_BOUND_MS,
+        () => 'pending' as const
+      );
+    } catch {
+      attempt = 'failed';
+    }
+    if (attempt === 'failed') {
+      this.mediaFreezeOwners.delete(tabId);
+      console.warn(`[browser-port] Media freeze before capture on tab ${tabId} failed`);
+      return null;
+    }
+    // `pending` still owns the release: the freeze may land late, and the release
+    // is dispatched after it on the same target, so FIFO CDP ordering restores the
+    // page instead of leaving it frozen. Un-freezing an unfrozen page is a no-op.
+    if (attempt === 'pending') {
+      console.warn(`[browser-port] Media freeze on tab ${tabId} did not confirm within ${MEDIA_FREEZE_BOUND_MS}ms; capture continues`);
+    }
+    return release;
+  }
+
+  /**
+   * Enrich a capture failure with the likely reason it never settled.
+   *
+   * A capture that times out on the compositor is almost always waiting for a
+   * frame that never becomes stable — a playing video, or an animation that never
+   * ends. The probe is bounded and read-only, and every failure to observe
+   * (unavailable capability, draining target, probe timeout, refused evaluation,
+   * nothing to report) returns the ORIGINAL error unchanged: a diagnostic must
+   * never replace the failure it explains, and never changes the `code` callers
+   * branch on (`CAPTURE_TIMEOUT`, `isTargetDrainFailure`).
+   */
+  private async captureFailureWithDiagnosis(
+    err: unknown,
+    tabId: string,
+    paneId: 'desktop' | 'mobile' | undefined
+  ): Promise<unknown> {
+    const code = err && typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
+    if (code !== 'CAPTURE_TIMEOUT') return err;
+
+    let rawUrl: string | undefined;
+    try {
+      rawUrl = this.host.getTabUrl ? this.host.getTabUrl(tabId) : undefined;
+    } catch {
+      rawUrl = undefined;
+    }
+    const location = diagnosticTabLocation(rawUrl);
+
+    let probed = false;
+    let playing = 0;
+    let infiniteAnimations = 0;
+    const mediaTags: Record<string, number> = {};
+    try {
+      if (typeof this.host.evalJs === 'function') {
+        const sample = await raceWithTimeout<unknown>(
+          (async () => this.host.evalJs(CAPTURE_TIMEOUT_PROBE_EXPRESSION, tabId, paneId, false, CAPTURE_TIMEOUT_PROBE_BOUND_MS))().catch(() => null),
+          CAPTURE_TIMEOUT_PROBE_BOUND_MS,
+          () => null
+        );
+        if (sample && typeof sample === 'object') {
+          probed = true;
+          const census = sample as { playing?: unknown; tags?: unknown; infiniteAnimations?: unknown };
+          if (typeof census.playing === 'number' && Number.isFinite(census.playing) && census.playing > 0) {
+            playing = Math.floor(census.playing);
+          }
+          if (census.tags && typeof census.tags === 'object' && !Array.isArray(census.tags)) {
+            for (const [tag, count] of Object.entries(census.tags as Record<string, unknown>)) {
+              if (typeof count === 'number' && Number.isFinite(count) && count > 0) mediaTags[tag] = Math.floor(count);
+            }
+          }
+          if (typeof census.infiniteAnimations === 'number' && Number.isFinite(census.infiniteAnimations) && census.infiniteAnimations > 0) {
+            infiniteAnimations = Math.floor(census.infiniteAnimations);
+          }
+        }
+      }
+    } catch {
+      probed = false;
+    }
+
+    const observed: string[] = [];
+    if (playing > 0) {
+      const hostSuffix = location.host ? `@${location.host}` : '';
+      observed.push(`${playing} playing media element(s) (${describeMediaTags(mediaTags)}${hostSuffix})`);
+    }
+    if (infiniteAnimations > 0) observed.push(`${infiniteAnimations} infinite CSS animation(s)`);
+    if (observed.length === 0 && !location.label) return err;
+
+    const original = err instanceof Error ? err.message : String(err);
+    // Never claim the probe *saw* nothing when it never ran: an unobserved tab is
+    // reported as unobserved, because a draining target refuses the probe and that
+    // absence is itself the reason the tab may still be unusable.
+    const observedClause = observed.length > 0
+      ? `tab has ${observed.join(', ')}`
+      : probed
+        ? 'the probe observed no playing media and no endless CSS animation'
+        : 'the probe could not observe the tab (it may still be draining a timed-out CDP command)';
+    const locationClause = location.label ? ` on '${location.label}'` : '';
+    const message = `${original} | CAPTURE_TIMEOUT: capture did not settle: ${observedClause}${locationClause}. Remedy: anti.media.freeze(tabId) then retry.`;
+
+    const inherited = err && typeof err === 'object' && 'details' in err && (err as { details?: unknown }).details
+      && typeof (err as { details?: unknown }).details === 'object'
+      ? (err as { details: Record<string, unknown> }).details
+      : {};
+    return new CaptureError('CAPTURE_TIMEOUT', message, {
+      ...inherited,
+      code: 'CAPTURE_TIMEOUT',
+      diagnosis: {
+        probe: probed ? 'observed' : 'unavailable',
+        playingMedia: playing,
+        mediaTags,
+        infiniteAnimations,
+        tabLocation: location.label,
+        remedy: 'anti.media.freeze(tabId) then retry',
+      },
+    });
+  }
+
+  /**
    * Canonical viewport/clip evidence capture. Uses the same verification capture
    * primitive as full-page evidence so every screenshot capability returns an
    * ArtifactRef plus a receipt that names the mode, backend, CSS/raster geometry,
@@ -1783,14 +2105,39 @@ export class BrowserControlPort {
     const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
     return this.passivePool.execute(tabId, async () => {
       await this.assertRenderSurface(tabId, paneId, 'anti.screenshot.viewport');
-      const envelope = await this.host.captureVerificationScreenshot!(undefined, tabId, paneId, {
-        format,
-        quality: options?.quality,
-        fullPage: false,
-        // Inside the policy cancellation grace, so a transport cancel can never
-        // orphan a CDP command that is still allowed to run.
-        timeoutMs: VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS,
-      });
+      // Freeze immediately before the raster so the compositor has a stable frame
+      // to capture; the release runs in the `finally` below and therefore also
+      // when the capture throws or dies at its bound.
+      const releaseMediaFreeze = await this.acquireMediaFreeze(target, tabId, paneId);
+      let envelope: VerificationCaptureEnvelope;
+      try {
+        try {
+          envelope = await this.host.captureVerificationScreenshot!(undefined, tabId, paneId, {
+            format,
+            quality: options?.quality,
+            fullPage: false,
+            // Inside the policy cancellation grace, so a transport cancel can never
+            // orphan a CDP command that is still allowed to run.
+            timeoutMs: VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS,
+          });
+        } catch (err) {
+          // A timeout explains itself with what the tab was doing to the
+          // compositor, or is rethrown untouched.
+          throw await this.captureFailureWithDiagnosis(err, tabId, paneId);
+        }
+      } finally {
+        // The page is restored on every exit path — success, typed failure, or a
+        // throw from the diagnosis itself. `releaseMediaFreeze` swallows its own
+        // errors, and this guard makes sure even an unexpected throw from it can
+        // never mask the capture's own result or error.
+        if (releaseMediaFreeze) {
+          try {
+            await releaseMediaFreeze();
+          } catch (err) {
+            console.warn(`[browser-port] Media unfreeze on tab ${tabId} threw during release: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }
       if (!envelope || typeof envelope.data !== 'string' || envelope.data.length === 0) {
         throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering or target unavailable)`);
       }
@@ -2792,13 +3139,42 @@ export class BrowserControlPort {
       });
     }
   }
-  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean; observedWidth?: number; observedHeight?: number; verified?: boolean }> {
+  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean; zoomFactor?: number }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean; observedWidth?: number; observedHeight?: number; verified?: boolean; zoomFactor: number | null; zoomApplied: boolean }> {
     if (!this.host.setViewportSize) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setViewportSize is not supported by host');
     if (typeof options.width !== 'number' || options.width <= 0 || typeof options.height !== 'number' || options.height <= 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'width and height must be positive numbers');
     }
+    const requestedZoom = options.zoomFactor;
+    if (requestedZoom !== undefined && (typeof requestedZoom !== 'number' || !Number.isFinite(requestedZoom) || requestedZoom < 0.25 || requestedZoom > 5.0)) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'zoomFactor must be a number between 0.25 and 5.0');
+    }
     const effectiveTabId = this.resolveTargetTab(target, options.tabId);
-    const hostResult = await this.host.setViewportSize({ ...options, tabId: effectiveTabId });
+    // A persisted tab zoom is this host's *viewport-preview* scale, not a page
+    // zoom: the host folds it into the emulated view scale for a tab that renders
+    // at its requested size, so a tab left at 1.3 draws and rasterizes 1.3x the
+    // geometry a caller asked for (a 1440x900 request was reported as 1872x1170).
+    // A viewport write is a measurement, so this call pins the zoom it measured at
+    // 1.0 unless the caller asked for something else, instead of inheriting the
+    // preview state of whoever last touched the tab, and echoes what it pinned.
+    const zoomTarget = requestedZoom ?? 1.0;
+    let zoomApplied = false;
+    if (typeof this.host.setZoom === 'function') {
+      try {
+        zoomApplied = this.host.setZoom(effectiveTabId, zoomTarget) === true;
+      } catch {
+        zoomApplied = false;
+      }
+    }
+    const hostResult = await this.host.setViewportSize({
+      width: options.width,
+      height: options.height,
+      // Passed exactly as the caller gave them: an omitted field stays absent for
+      // the host rather than becoming an explicit `undefined`.
+      ...(options.mobile !== undefined ? { mobile: options.mobile } : {}),
+      ...(options.deviceScaleFactor !== undefined ? { deviceScaleFactor: options.deviceScaleFactor } : {}),
+      tabId: effectiveTabId,
+      ...(options.reload !== undefined ? { reload: options.reload } : {}),
+    });
     const isStructured = typeof hostResult === 'object' && hostResult !== null;
     const ok = isStructured ? hostResult.success === true : Boolean(hostResult);
     if (!ok) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Failed to set viewport on tab ${effectiveTabId}`);
@@ -2879,6 +3255,11 @@ export class BrowserControlPort {
       ...(options.reload !== undefined ? { reloaded } : {}),
       ...(observed ? { observedWidth: observed.vw, observedHeight: observed.vh } : {}),
       verified: Boolean(observed),
+      // The zoom this call put in effect, echoed so a caller can detect a
+      // mismatch. `null` means the host cannot apply zoom, so the scale the
+      // geometry above was rendered at is unknown and must not be trusted.
+      zoomFactor: zoomApplied ? zoomTarget : null,
+      zoomApplied,
     };
   }
   async getViewport(

@@ -392,7 +392,18 @@ export class CapabilityCatalogue {
       if (sessionFilter && !isCapabilityNamePermitted(name, sessionFilter)) {
         throw new CapabilityError('REFUSED_TOOL_SURFACE', `Capability '${name}' is forbidden by session tool surface policy`);
       }
-      throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
+      throw new CapabilityError(
+        'POLICY_DENIED',
+        `Capability ${name} is not enabled by the current policy ` +
+          `(capabilityRisk=${definition.risk}, sessionGrant=${context.grant ?? 'none'}, ` +
+          `allowEval=${this.options.allowEval === true}, runtimeMode=${this.runtime.mode}). ` +
+          (definition.risk === 'eval' && context.grant !== 'eval'
+            ? `An 'eval'-risk capability requires sessionGrant='eval'; this session holds '${context.grant ?? 'none'}'. ` +
+              'The grant is fixed at pairing time, so re-pair with requestedGrant=eval.'
+            : definition.risk === 'eval' && this.options.allowEval !== true
+            ? 'sessionGrant is already \'eval\', but the runtime was launched without --allow-eval / ANTIFAN_ALLOW_EVAL=true.'
+            : '')
+      );
     }
 
     // The advertised schema is a promise on this surface: a field it marks required is
@@ -463,7 +474,18 @@ export class CapabilityCatalogue {
       if (sessionFilter && !isCapabilityNamePermitted(name, sessionFilter)) {
         throw new CapabilityError('REFUSED_TOOL_SURFACE', `Capability '${name}' is forbidden by session tool surface policy`);
       }
-      throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
+      throw new CapabilityError(
+        'POLICY_DENIED',
+        `Capability ${name} is not enabled by the current policy ` +
+          `(capabilityRisk=${definition.risk}, sessionGrant=${context.grant ?? 'none'}, ` +
+          `allowEval=${this.options.allowEval === true}, runtimeMode=${this.runtime.mode}). ` +
+          (definition.risk === 'eval' && context.grant !== 'eval'
+            ? `An 'eval'-risk capability requires sessionGrant='eval'; this session holds '${context.grant ?? 'none'}'. ` +
+              'The grant is fixed at pairing time, so re-pair with requestedGrant=eval.'
+            : definition.risk === 'eval' && this.options.allowEval !== true
+            ? 'sessionGrant is already \'eval\', but the runtime was launched without --allow-eval / ANTIFAN_ALLOW_EVAL=true.'
+            : '')
+      );
     }
 
     if (definition.requiresBrowserTarget) {

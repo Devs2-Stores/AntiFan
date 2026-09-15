@@ -11,6 +11,7 @@ import {
   HaravanSyncBarrier,
   TerminalSyncCursor,
   TerminalSyncPort,
+  TerminalSyncLifecycleProbe,
   TabReloadPort,
 } from '../../src/main/qa/haravan-sync-barrier';
 import { ThemeMutationSession } from '../../src/main/qa/theme-mutation-session';
@@ -32,6 +33,7 @@ class MemoryTerminalSyncPort implements TerminalSyncPort {
   private seq = 0;
   private generation = 1;
   private events: Array<{ seq: number; data: string }> = [];
+  private sleeping = false;
 
   public emitOutput(data: string): number {
     this.seq++;
@@ -42,6 +44,23 @@ class MemoryTerminalSyncPort implements TerminalSyncPort {
   public bumpGeneration(): number {
     this.generation++;
     return this.generation;
+  }
+
+  /**
+   * Put the watcher tab to SLEEP: the transcript and its monotonic seq survive, but
+   * no live PTY remains, so no upload acknowledgment can ever arrive.
+   */
+  public setSleeping(sleeping: boolean): void {
+    this.sleeping = sleeping;
+  }
+
+  public getSession(): TerminalSyncLifecycleProbe {
+    return {
+      state: this.sleeping ? 'sleeping' : 'running',
+      disposed: false,
+      lastSeq: this.seq,
+      sessionGeneration: this.generation,
+    };
   }
 
   public captureBaselineSeq(sessionId: string): TerminalSyncCursor {
@@ -446,6 +465,80 @@ test('ThemeTransactionRegistry: EXPLORATORY_HOLD retains lock and supports resol
     const session3 = await registry.begin(context);
     assert.strictEqual(typeof session3.sessionId, 'string');
     await registry.rollback(workspaceRoot);
+  } finally {
+    cleanupWorkspace(workspaceRoot);
+  }
+});
+
+test('ThemeMutationSession: a sleeping watcher can never be recorded as synced (fail-closed)', async () => {
+  const workspaceRoot = createTempWorkspace();
+  const filePort = new WorkspaceFilePort();
+  const termPort = new MemoryTerminalSyncPort();
+  const reloadPort = new MemoryTabReloadPort(1);
+  const syncBarrier = new HaravanSyncBarrier(termPort, reloadPort);
+
+  try {
+    const termId = 'term-sleeping';
+
+    // The watcher acknowledged an upload BEFORE being put to sleep.
+    termPort.emitOutput('[14:30:00] Uploaded: snippets/before-sleep.liquid\n');
+    const cursor = syncBarrier.captureBaselineCursor(termId);
+
+    const context: ThemeWorkspaceContext = {
+      storeId: 'store-123',
+      storeDomain: 'test.myharavan.com',
+      themeId: '100123',
+      workspaceRoot,
+      targetTabId: 'tab-main',
+      platform: 'haravan',
+      terminalSessionId: termId,
+    };
+
+    const session = new ThemeMutationSession(context, filePort, syncBarrier, undefined, { initialDocGen: 1 });
+    await session.begin();
+    await session.writeCAS({
+      relativePath: 'templates/index.liquid',
+      content: '<h1>Mutated while the watcher sleeps</h1>',
+    });
+
+    const target: BrowserTarget = {
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      runtimeId: 'rt-1',
+      tabId: 'tab-main',
+      documentGeneration: 1,
+      browserEpoch: 1,
+    };
+
+    // Put the tab to SLEEP: the transcript and its monotonic seq survive, but the PTY
+    // is gone, so no post-mutation upload acknowledgment can ever arrive.
+    termPort.setSleeping(true);
+    const stateBefore = session.sessionState;
+
+    // The mutation must NOT be attested. Before the guard that returns settled:false
+    // was honoured, this path silently set state='synced' — a fail-open that recorded
+    // a remote sync which was never observed.
+    await assert.rejects(
+      async () => {
+        await session.awaitSyncAndReload(target, { cursor, timeoutMs: 100 });
+      },
+      (err: unknown) => err instanceof CapabilityError && err.code === 'DURABILITY_FAILED'
+    );
+
+    assert.notStrictEqual(
+      session.sessionState,
+      'synced',
+      'a sleeping watcher must never be recorded as synced'
+    );
+    assert.strictEqual(session.sessionState, stateBefore);
+
+    // Waking the watcher and observing a genuine acknowledgment restores the happy path.
+    termPort.setSleeping(false);
+    termPort.emitOutput('[14:30:05] Uploaded: templates/index.liquid\n');
+    const syncRes = await session.awaitSyncAndReload(target, { cursor, timeoutMs: 1000 });
+    assert.strictEqual(syncRes.sync.settled, true);
+    assert.strictEqual(syncRes.sync.settledMethod, 'terminal-output');
+    assert.strictEqual(session.sessionState, 'settled');
   } finally {
     cleanupWorkspace(workspaceRoot);
   }

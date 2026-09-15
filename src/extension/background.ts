@@ -19,6 +19,67 @@ let syncActiveTabOnly = false;
 let isDeltaSyncEnabled = true;
 let lastBridgeError: string | null = null;
 
+// Native handshake backoff (spawn-storm containment).
+//
+// MV3 wakes this service worker on every cookie change, on the 1-minute watchdog
+// alarm and on any popup message — and each wake re-evaluates this module from
+// scratch, so `nativePort` is null again and the bootstrap at the bottom of this
+// file opens a brand new native host. Because the handshake used to fail every
+// single time, that became a spawn every couple of seconds: measured 10,296 host
+// spawns over 22 hours, median gap 1.2 s, with only 92 of them ever receiving a
+// message. A single-flight promise alone cannot contain that, because it only
+// dedupes callers inside one worker lifetime.
+//
+// The deadline is therefore mirrored into chrome.storage.local: module-level
+// state does not survive a worker restart, which is precisely the case that has
+// to be bounded.
+const HANDSHAKE_BACKOFF_BASE_MS = 2000;
+const HANDSHAKE_BACKOFF_MAX_MS = 60000;
+const HANDSHAKE_BACKOFF_STORAGE_KEY = 'antifanBridgeHandshakeBackoffUntil';
+let handshakeFailureCount = 0;
+let nextHandshakeAttemptAt = 0;
+
+function persistHandshakeBackoff(deadline: number): void {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local?.set) return;
+  try {
+    const write = chrome.storage.local.set({ [HANDSHAKE_BACKOFF_STORAGE_KEY]: deadline });
+    if (write && typeof write.catch === 'function') write.catch(() => {});
+  } catch {}
+}
+
+function recordHandshakeFailure(reason: string): void {
+  handshakeFailureCount = Math.min(handshakeFailureCount + 1, 16);
+  const delay = Math.min(
+    HANDSHAKE_BACKOFF_BASE_MS * 2 ** (handshakeFailureCount - 1),
+    HANDSHAKE_BACKOFF_MAX_MS
+  );
+  nextHandshakeAttemptAt = Date.now() + delay;
+  persistHandshakeBackoff(nextHandshakeAttemptAt);
+  console.warn(
+    `[AntiFan Extension] Native bridge handshake failed (${reason}); next spawn deferred ${delay}ms.`
+  );
+}
+
+function recordHandshakeSuccess(): void {
+  handshakeFailureCount = 0;
+  nextHandshakeAttemptAt = 0;
+  persistHandshakeBackoff(0);
+}
+
+/**
+ * A port that died before it ever produced credentials still earns the base
+ * cooldown, so a worker-restart loop cannot respawn the host faster than that
+ * floor. It deliberately does NOT escalate the failure counter: an ordinary
+ * Desktop restart must be able to reconnect promptly once Desktop is back.
+ */
+function applyDisconnectCooldown(): void {
+  const deadline = Date.now() + HANDSHAKE_BACKOFF_BASE_MS;
+  if (deadline > nextHandshakeAttemptAt) {
+    nextHandshakeAttemptAt = deadline;
+    persistHandshakeBackoff(deadline);
+  }
+}
+
 const debouncer = new CookieDebouncer(async (batch: DeltaSyncBatch) => {
   await dispatchDeltaSync(batch);
 }, 300, 1000);
@@ -29,10 +90,17 @@ export async function loadSettings(): Promise<void> {
     'enabledProfiles',
     'syncActiveTabOnly',
     'isDeltaSyncEnabled',
+    HANDSHAKE_BACKOFF_STORAGE_KEY,
   ]);
   if (stored.enabledProfiles) enabledProfiles = stored.enabledProfiles;
   if (typeof stored.syncActiveTabOnly === 'boolean') syncActiveTabOnly = stored.syncActiveTabOnly;
   if (typeof stored.isDeltaSyncEnabled === 'boolean') isDeltaSyncEnabled = stored.isDeltaSyncEnabled;
+  // Restore a persisted cooldown: this runs on every worker wake and before the
+  // bootstrap handshake, so the floor survives a service-worker restart.
+  const storedBackoff = stored[HANDSHAKE_BACKOFF_STORAGE_KEY];
+  if (typeof storedBackoff === 'number' && Number.isFinite(storedBackoff) && storedBackoff > Date.now()) {
+    nextHandshakeAttemptAt = storedBackoff;
+  }
 }
 export async function validateBridgeAuth(auth: BridgeAuth | null): Promise<boolean> {
   if (!auth?.token || !auth?.port) return false;
@@ -56,8 +124,15 @@ export async function validateBridgeAuth(auth: BridgeAuth | null): Promise<boole
   return false;
 }
 
-export function connectNativeMessaging(): void {
-  if (typeof chrome === 'undefined' || !chrome.runtime?.connectNative) return;
+/**
+ * Open one native messaging port and dispatch a single HANDSHAKE.
+ *
+ * Returns true only when a port was actually opened and the handshake frame was
+ * queued; false means no host process could be reached, and the caller must back
+ * off rather than reconnect immediately.
+ */
+export function connectNativeMessaging(): boolean {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.connectNative) return false;
   try {
     if (nativePort) {
       const oldPort = nativePort;
@@ -66,6 +141,19 @@ export function connectNativeMessaging(): void {
     }
 
     const port = chrome.runtime.connectNative(HOST_NAME);
+
+    // Chrome reports a failed launch through runtime.lastError instead of
+    // throwing. Reading it is mandatory here: it clears Chrome's
+    // unchecked-runtime.lastError warning and tells us the port is already dead,
+    // so posting into it (and hot-looping a reconnect) would be pointless.
+    const launchError = chrome.runtime?.lastError?.message;
+    if (typeof launchError === 'string' && launchError.length > 0) {
+      lastBridgeError = launchError;
+      try { port.disconnect(); } catch {}
+      recordHandshakeFailure('launch-failed');
+      return false;
+    }
+
     nativePort = port;
 
     port.onMessage.addListener(async (msg: any) => {
@@ -78,10 +166,14 @@ export function connectNativeMessaging(): void {
           activeCapsuleId: msg.activeCapsuleId,
           activePartition: msg.activePartition,
         };
+        recordHandshakeSuccess();
         triggerAutoHydration().catch(() => {});
       } else if (msg.status === 'ERROR') {
         lastBridgeError = msg.message || msg.error || 'NATIVE_IPC_ERROR';
         bridgeAuth = null;
+        // Desktop answered but refused the handshake (bad nonce, IPC down, ...).
+        // Escalate the cooldown so the answer cannot be retried in a tight loop.
+        recordHandshakeFailure(msg.error || 'desktop-error');
         if (nativePort === port) {
           try { nativePort.disconnect(); } catch {}
           nativePort = null;
@@ -90,18 +182,40 @@ export function connectNativeMessaging(): void {
     });
     port.onDisconnect.addListener(() => {
       if (nativePort === port) {
+        // Must be read inside the listener, otherwise Chrome logs an unchecked
+        // runtime.lastError on every host teardown.
         const disconnectMsg = chrome.runtime.lastError?.message;
         if (typeof disconnectMsg === 'string' && disconnectMsg.length > 0) {
           lastBridgeError = disconnectMsg;
         }
+        const wasAuthenticated = Boolean(bridgeAuth?.token);
         nativePort = null;
         bridgeAuth = null;
+        // Only a port that never produced credentials earns a cooldown. A clean
+        // teardown of an authenticated session (worker suspension) must be free to
+        // re-handshake immediately on the next wake, or cookie sync would stall.
+        if (!wasAuthenticated) applyDisconnectCooldown();
       }
     });
 
-    port.postMessage({ action: 'HANDSHAKE' });
-  } catch (err) {
+    try {
+      port.postMessage({ action: 'HANDSHAKE' });
+    } catch (postErr: any) {
+      // Disconnected port object: fail this attempt instead of reconnecting now.
+      lastBridgeError = postErr?.message || 'NATIVE_PORT_DISCONNECTED';
+      if (nativePort === port) {
+        try { nativePort.disconnect(); } catch {}
+        nativePort = null;
+      }
+      recordHandshakeFailure('port-disconnected');
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    lastBridgeError = err?.message || 'NATIVE_CONNECT_FAILED';
+    recordHandshakeFailure('connect-threw');
     console.error('[AntiFan Extension] Failed to connect native messaging:', err);
+    return false;
   }
 }
 
@@ -116,6 +230,11 @@ export async function ensureBridgeAuth(forceRefresh = false): Promise<BridgeAuth
     }
   } else if (inFlightHandshakePromise) {
     return inFlightHandshakePromise;
+  } else if (Date.now() < nextHandshakeAttemptAt) {
+    // Inside the backoff window. Fail closed and cheap: no host spawn, no
+    // loopback HTTP probe, no cookie bytes leaving the browser. Callers simply
+    // see "not connected" and report NOT_CONNECTED_TO_ANTIFAN.
+    return null;
   }
 
   const token = {};
@@ -127,15 +246,17 @@ export async function ensureBridgeAuth(forceRefresh = false): Promise<BridgeAuth
       bridgeAuth = null;
       lastBridgeError = null;
 
+      let attemptedHandshake = false;
       if (!nativePort) {
-        connectNativeMessaging();
+        attemptedHandshake = connectNativeMessaging();
       } else {
         try {
           nativePort.postMessage({ action: 'HANDSHAKE' });
+          attemptedHandshake = true;
         } catch {
           try { nativePort.disconnect(); } catch {}
           nativePort = null;
-          connectNativeMessaging();
+          attemptedHandshake = connectNativeMessaging();
         }
       }
 
@@ -150,10 +271,18 @@ export async function ensureBridgeAuth(forceRefresh = false): Promise<BridgeAuth
           return currentAuth;
         }
         if (lastBridgeError) {
+          // connectNativeMessaging()/onMessage already recorded the failure and
+          // its cooldown; nothing to add here.
           return null;
         }
         await new Promise((r) => setTimeout(r, 40));
       }
+
+      // The 1500 ms window closed with no credentials. A cold Electron-as-node
+      // host needs 1.1-2.4 s to boot, so this is the common cold-start outcome;
+      // defer the next spawn instead of letting the next cookie change create a
+      // second host while this one's reply is still in flight.
+      if (attemptedHandshake) recordHandshakeFailure('timeout');
 
       return null;
     } finally {
@@ -177,6 +306,8 @@ export function __resetExtensionStateForTesting(): void {
   activeOperationToken = null;
   inFlightHandshakePromise = null;
   lastBridgeError = null;
+  handshakeFailureCount = 0;
+  nextHandshakeAttemptAt = 0;
 }
 
 

@@ -10,7 +10,30 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
 
-export const STANDALONE_PATH = path.resolve(__dirname, '..', '..', '..', 'src', 'renderer', 'standalone.js');
+/**
+ * Locate the shipped renderer relative to the compiled harness.
+ *
+ * Walking up beats a fixed `../../../src` hop: the harness is also compiled into
+ * isolated build directories (e.g. `node_modules/.cache/tsc-wsf/...`) whose depth
+ * differs from the default `.compiled/`, and a fixed hop would silently load a
+ * non-existent path.
+ */
+function resolveStandalonePath(): string {
+  let dir = __dirname;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidate = path.join(dir, 'src', 'renderer', 'standalone.js');
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return path.resolve(__dirname, '..', '..', '..', 'src', 'renderer', 'standalone.js');
+}
+
+export const STANDALONE_PATH = resolveStandalonePath();
+
+/** Directory holding the shipped renderer assets (standalone.js/html/css). */
+export const RENDERER_DIR = path.dirname(STANDALONE_PATH);
 
 export type SyncState = 'READY' | 'GAPPED' | 'RESYNCING' | 'DEGRADED';
 
@@ -54,17 +77,71 @@ export interface KeyEventLike {
   metaKey?: boolean;
   shiftKey?: boolean;
   altKey?: boolean;
+  /** Pointer fields: the same stub also dispatches pointerdown/move/up events. */
+  pointerId?: number;
+  clientX?: number;
+  clientY?: number;
   preventDefault: () => void;
   stopPropagation: () => void;
   target?: unknown;
-  clipboardData?: unknown;
+  clipboardData?: { getData: (type: string) => string };
+  /** Drag & drop payload used by the tab reorder handlers. */
+  dataTransfer?: {
+    getData: (type: string) => string;
+    setData: (type: string, value: string) => void;
+    effectAllowed?: string;
+    dropEffect?: string;
+  };
+}
+
+/**
+ * Inline style stub. Declared fields cover every property the renderer assigns
+ * directly; `setProperty`/`getPropertyValue` cover CSS custom properties (the tab
+ * sidebar width is published as `--term-sidebar-w`), which cannot be plain fields.
+ */
+export class FakeStyle {
+  public cssText = '';
+  public flex = '';
+  public height = '';
+  public minHeight = '';
+  public maxHeight = '';
+  public display = '';
+  public width = '';
+  public left = '';
+  public top = '';
+  public cursor = '';
+  public userSelect = '';
+  public pointerEvents = '';
+  public background = '';
+  public color = '';
+  private readonly customProps = new Map<string, string>();
+
+  public setProperty(name: string, value: string): void {
+    if (name.startsWith('--')) {
+      this.customProps.set(name, String(value));
+      return;
+    }
+    (this as unknown as Record<string, string>)[name] = String(value);
+  }
+
+  public getPropertyValue(name: string): string {
+    if (name.startsWith('--')) return this.customProps.get(name) ?? '';
+    return (this as unknown as Record<string, string>)[name] ?? '';
+  }
+
+  public removeProperty(name: string): void {
+    this.customProps.delete(name);
+  }
 }
 
 export class FakeElement {
   public innerHTML = '';
   public textContent = '';
   public title = '';
-  public style: Record<string, string> = { flex: '', height: '', minHeight: '', maxHeight: '', display: '', left: '', top: '', cursor: '', userSelect: '', pointerEvents: '' };
+  public value = '';
+  public draggable = false;
+  public style = new FakeStyle();
+  public tabIndex = -1;
   public parent: FakeElement | null = null;
   public readonly children: FakeElement[] = [];
   public clientHeight = 400;
@@ -91,8 +168,8 @@ export class FakeElement {
   public get classList() {
     const classes = this.classes;
     return {
-      add: (name: string) => { classes.add(name); },
-      remove: (name: string) => { classes.delete(name); },
+      add: (...names: string[]) => { for (const name of names) classes.add(name); },
+      remove: (...names: string[]) => { for (const name of names) classes.delete(name); },
       contains: (name: string) => classes.has(name),
       toggle: (name: string, force?: boolean) => {
         const next = force === undefined ? !classes.has(name) : force;
@@ -102,7 +179,31 @@ export class FakeElement {
     };
   }
 
+  /** Real-DOM alias the renderer may rely on for parent checks. */
+  public get parentNode(): FakeElement | null {
+    return this.parent;
+  }
+
+  public get firstChild(): FakeElement | null {
+    return this.children[0] ?? null;
+  }
+
+  public get lastChild(): FakeElement | null {
+    return this.children[this.children.length - 1] ?? null;
+  }
+
+  /**
+   * Mirrors the DOM: re-appending an existing child MOVES it to the end instead
+   * of duplicating it. Without this, a re-render would grow `children` forever
+   * and every `querySelectorAll` would return the same node many times.
+   */
   public appendChild<T extends FakeElement>(child: T): T {
+    if (child.parent && child.parent !== this) {
+      child.parent.removeChild(child);
+    } else {
+      const existing = this.children.indexOf(child);
+      if (existing >= 0) this.children.splice(existing, 1);
+    }
     child.parent = this;
     this.children.push(child);
     return child;
@@ -110,6 +211,22 @@ export class FakeElement {
 
   public append(...nodes: FakeElement[]): void {
     for (const node of nodes) this.appendChild(node);
+  }
+
+  /** Mirrors Node.insertBefore, including the `null` reference = append case. */
+  public insertBefore<T extends FakeElement>(node: T, reference: FakeElement | null): T {
+    if (!reference) return this.appendChild(node);
+    if (node.parent && node.parent !== this) {
+      node.parent.removeChild(node);
+    } else {
+      const existing = this.children.indexOf(node);
+      if (existing >= 0) this.children.splice(existing, 1);
+    }
+    node.parent = this;
+    const index = this.children.indexOf(reference);
+    if (index < 0) this.children.push(node);
+    else this.children.splice(index, 0, node);
+    return node;
   }
 
   public removeChild(child: FakeElement): void {
@@ -168,6 +285,10 @@ export class FakeElement {
       ...event,
     };
     for (const listener of [...(this.listeners[type] ?? [])]) listener(payload);
+    // A real dispatch invokes the inline handler too, and the renderer mixes the
+    // two styles (`onclick = ...` on menu rows, addEventListener elsewhere).
+    const inline = (this as unknown as Record<string, unknown>)[`on${type}`];
+    if (typeof inline === 'function') (inline as (event: KeyEventLike) => void)(payload);
   }
 
   public setAttribute(name: string, value: string): void {
@@ -287,6 +408,8 @@ export class FakeFitAddon {
 export interface StandaloneHarness {
   api: StandaloneApi;
   apiCalls: string[];
+  /** Same calls as `apiCalls`, with their arguments, for payload assertions. */
+  apiCallArgs: Array<{ name: string; args: unknown[] }>;
   elements: Map<string, FakeElement>;
   terminals: FakeTerminal[];
   webLinksHandlers: Array<(event: unknown, uri: string) => void>;
@@ -294,11 +417,17 @@ export interface StandaloneHarness {
   mainPane: FakeElement;
   splitButton: FakeElement;
   contextMenu: FakeElement;
+  standaloneRoot: FakeElement;
+  tabLayoutButton: FakeElement;
+  tabSidebarResizer: FakeElement;
+  tabsRoot: FakeElement;
   windowKeydownListeners: Array<(event: KeyEventLike) => boolean | void>;
   documentKeydownListeners: Array<(event: KeyEventLike) => boolean | void>;
   assign(expression: string): void;
   read<T>(expression: string): T;
   processIncomingChunk: (viewState: unknown, chunk: Chunk, isSplit: boolean) => Promise<void>;
+  terminalDataListeners: Array<(payload: unknown) => void>;
+  terminalSessionListeners: Array<(state: unknown) => void>;
   getSplitGeometry: () => SplitGeometry;
   applySplitRatio: (ratio?: number, resizePty?: boolean) => void;
   mountSplit: (sessionId: string, snapshot?: string, snapshotSeq?: number) => void;
@@ -306,6 +435,23 @@ export interface StandaloneHarness {
   showContextMenu: (event: KeyEventLike & { clientX: number; clientY: number }, sessionId: string) => void;
   maxQueueBytes: number;
   maxQueueChunks: number;
+  /** Search the whole stubbed document, like `document.querySelectorAll`. */
+  queryAll(selector: string): FakeElement[];
+  /** Push a session broadcast through the renderer's `onTerminalSession` listener. */
+  emitSession(state: unknown): void;
+  /** Push a terminal data payload through the renderer's `onTerminalData` listener. */
+  emitData(payload: unknown): void;
+  /** Replace the renderer's live `sessions` array (plain data only). */
+  setSessions(list: unknown[]): void;
+  getSessions(): Array<Record<string, unknown>>;
+  setActiveId(id: string): void;
+  getActiveId(): string;
+  renderTabs: () => void;
+  syncTerminalPool: (allSessions: unknown[], currentActiveId: string, snapshot?: string, snapshotThroughSeq?: number) => void;
+  updateAffinityBadges: () => Promise<void>;
+  /** The read-only transcript preview mounted for a sleeping active session. */
+  sleepPreview(): FakeElement | null;
+  showCategoryPicker: (sessionId: string, anchorEl: FakeElement) => void;
 }
 
 function computedStyle(): Record<string, string> {
@@ -314,12 +460,44 @@ function computedStyle(): Record<string, string> {
   }) as Record<string, string>;
 }
 
-export function loadStandalone(): StandaloneHarness {
+export function loadStandalone(options: { initialState?: unknown; contextMenuActions?: string[] } = {}): StandaloneHarness {
   const elements = new Map<string, FakeElement>();
   const elementById = (id: string): FakeElement => {
     if (!elements.has(id)) elements.set(id, new FakeElement('div', id));
     return elements.get(id)!;
   };
+
+  // The renderer captures element references at load time, so the tab-layout
+  // nodes must exist before the script runs. The tree mirrors standalone.html:
+  //   main.standalone > section.controls > #terminalTabs
+  //                   > #tabsSidebarResizer
+  //                   > #terminal
+  const standaloneElement = new FakeElement('main');
+  standaloneElement.className = 'standalone';
+  const controlsElement = new FakeElement('section');
+  controlsElement.className = 'controls';
+  standaloneElement.appendChild(controlsElement);
+  const tabsRootElement = elementById('terminalTabs');
+  controlsElement.appendChild(tabsRootElement);
+  const tabSidebarResizerElement = elementById('tabsSidebarResizer');
+  standaloneElement.appendChild(tabSidebarResizerElement);
+  standaloneElement.appendChild(elementById('terminal'));
+  standaloneElement.appendChild(elementById('terminal-main'));
+
+  // Context-menu rows must exist before the script runs: the renderer binds its
+  // single delegated click handler to whatever `.context-item`s are present at
+  // load time (exactly as standalone.html provides them).
+  const contextMenuElement = elementById('tabContextMenu');
+  for (const action of options.contextMenuActions ?? []) {
+    const item = new FakeElement('div');
+    item.className = 'context-item';
+    item.setAttribute('data-action', action);
+    item.appendChild(new FakeElement('span'));
+    contextMenuElement.appendChild(item);
+  }
+  standaloneElement.appendChild(elementById('affinityPickerPopover'));
+  standaloneElement.appendChild(elementById('categoryPickerPopover'));
+  const tabLayoutButtonElement = elementById('btnTerminalTabLayout');
 
   const documentKeydownListeners: Array<(event: KeyEventLike) => boolean | void> = [];
   const documentStub = {
@@ -337,8 +515,8 @@ export function loadStandalone(): StandaloneHarness {
       const index = documentKeydownListeners.indexOf(listener);
       if (index >= 0) documentKeydownListeners.splice(index, 1);
     },
-    querySelector: () => null,
-    querySelectorAll: () => [],
+    querySelector: (selector: string) => (selector === '.standalone' ? standaloneElement : standaloneElement.querySelector(selector)),
+    querySelectorAll: (selector: string) => standaloneElement.querySelectorAll(selector),
     readyState: 'complete',
     hidden: false,
   };
@@ -368,19 +546,35 @@ export function loadStandalone(): StandaloneHarness {
     getComputedStyle: () => computedStyle(),
   };
   windowStub.window = windowStub;
+  const terminalDataListeners: Array<(payload: unknown) => void> = [];
+  const terminalSessionListeners: Array<(state: unknown) => void> = [];
   const bridgeTarget: Record<string, unknown> = {
     getTerminalDelta: async () => null,
     splitTerminal: async () => '',
     unsplitTerminal: async () => undefined,
     syncTerminalView: async () => null,
     getFullBuffer: async () => null,
+    // Per-id affinity is deliberately a no-op that still records the call, so a
+    // test can prove the bulk `getTerminalAffinities` path replaced the N+1 loop.
+    getTerminalAffinity: async () => undefined,
+    getTerminalAffinities: async () => ({} as Record<string, unknown>),
+    sleepTerminal: async () => true,
+    wakeTerminal: async () => true,
+    setCategory: async () => true,
+    // Boot payload for the sidebar/tab-layout prefs, as GET_INITIAL_STATE returns it.
+    getInitialState: async () => options.initialState,
+    // Capture push-channel listeners so tests can drive the data/session flow.
+    onTerminalData: (listener: (payload: unknown) => void) => { terminalDataListeners.push(listener); },
+    onTerminalSession: (listener: (state: unknown) => void) => { terminalSessionListeners.push(listener); },
   };
   // The renderer wires its whole preload bridge at load time, so unimplemented members are no-ops.
   // Every invocation is recorded so a test can prove which bridge calls a flow actually made.
   const apiCalls: string[] = [];
+  const apiCallArgs: Array<{ name: string; args: unknown[] }> = [];
   const recordCall = (name: string, fn: (...args: unknown[]) => unknown) =>
     (...args: unknown[]): unknown => {
       apiCalls.push(name);
+      apiCallArgs.push({ name, args });
       return fn(...args);
     };
   const api = new Proxy(bridgeTarget, {
@@ -446,6 +640,7 @@ export function loadStandalone(): StandaloneHarness {
   return {
     api,
     apiCalls,
+    apiCallArgs,
     elements,
     terminals,
     webLinksHandlers,
@@ -453,6 +648,10 @@ export function loadStandalone(): StandaloneHarness {
     mainPane: elementById('terminal-main'),
     splitButton: elementById('btnSplitTerminal'),
     contextMenu: elementById('tabContextMenu'),
+    standaloneRoot: standaloneElement,
+    tabLayoutButton: tabLayoutButtonElement,
+    tabSidebarResizer: tabSidebarResizerElement,
+    tabsRoot: tabsRootElement,
     windowKeydownListeners,
     documentKeydownListeners,
     assign: (expression: string) => {
@@ -460,6 +659,8 @@ export function loadStandalone(): StandaloneHarness {
     },
     read,
     processIncomingChunk: read<StandaloneHarness['processIncomingChunk']>('processIncomingChunk').bind(null) as StandaloneHarness['processIncomingChunk'],
+    terminalDataListeners,
+    terminalSessionListeners,
     getSplitGeometry: read<StandaloneHarness['getSplitGeometry']>('getSplitGeometry'),
     applySplitRatio: read<StandaloneHarness['applySplitRatio']>('applySplitRatio'),
     mountSplit: read<StandaloneHarness['mountSplit']>('mountSplit'),
@@ -467,6 +668,26 @@ export function loadStandalone(): StandaloneHarness {
     showContextMenu: read<StandaloneHarness['showContextMenu']>('showContextMenu'),
     maxQueueBytes: read<number>('MAX_RECOVERY_QUEUE_BYTES'),
     maxQueueChunks: read<number>('MAX_RECOVERY_QUEUE_CHUNKS'),
+    queryAll: (selector: string) => standaloneElement.querySelectorAll(selector),
+    emitSession: (state: unknown) => {
+      for (const listener of [...terminalSessionListeners]) listener(state);
+    },
+    emitData: (payload: unknown) => {
+      for (const listener of [...terminalDataListeners]) listener(payload);
+    },
+    setSessions: (list: unknown[]) => {
+      vm.runInContext(`sessions = ${JSON.stringify(list)};`, context);
+    },
+    getSessions: () => read<Array<Record<string, unknown>>>('sessions'),
+    setActiveId: (id: string) => {
+      vm.runInContext(`activeId = ${JSON.stringify(id)};`, context);
+    },
+    getActiveId: () => read<string>('activeId'),
+    renderTabs: read<StandaloneHarness['renderTabs']>('renderTabs'),
+    syncTerminalPool: read<StandaloneHarness['syncTerminalPool']>('syncTerminalPool'),
+    updateAffinityBadges: read<StandaloneHarness['updateAffinityBadges']>('updateAffinityBadges'),
+    sleepPreview: () => read<FakeElement | null>('sleepPreviewEl'),
+    showCategoryPicker: read<StandaloneHarness['showCategoryPicker']>('showCategoryPicker'),
   };
 }
 

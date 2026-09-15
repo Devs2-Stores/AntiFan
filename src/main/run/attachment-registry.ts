@@ -957,9 +957,17 @@ export class AttachmentRegistry {
         }
         if (this.delegate.getAttemptState) {
           const attemptState = this.delegate.getAttemptState(record.attemptId);
-          if (attemptState === undefined || (attemptState !== 'running' && attemptState !== 'prepared' && attemptState !== 'dispatching')) {
+          // `undefined` means "this registry does not track that attempt", not "that attempt is
+          // dead". Pairing-exchange attachments are minted straight into the registry with a fresh
+          // run/attempt pair that RunService never registers (bridge-server startSession), so an
+          // unknown attempt is the NORMAL answer for them -- validateLiveExecution already reads it
+          // that way (`if (state && ...)` above). Revoking on it here made every pair-minted
+          // attachment a one-shot handle that the first heartbeat renewal killed, which surfaced
+          // mid-session as `AUTHENTICATION_DENIED: Attachment <id> has been revoked` and forced a
+          // fresh pairing exchange on nearly every tool call.
+          if (attemptState !== undefined && attemptState !== 'running' && attemptState !== 'prepared' && attemptState !== 'dispatching') {
             record.state = 'revoked';
-            throw new CapabilityError('ATTEMPT_NOT_ACTIVE', `Attempt ${record.attemptId} is in terminal or inactive state: ${attemptState ?? 'unknown'}`);
+            throw new CapabilityError('ATTEMPT_NOT_ACTIVE', `Attempt ${record.attemptId} is in terminal or inactive state: ${attemptState}`);
           }
         }
         if (this.delegate.getBackendId) {

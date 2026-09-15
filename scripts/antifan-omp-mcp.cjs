@@ -277,19 +277,31 @@ function getBootstrap() {
   return null;
 }
 
+// A 401 from /api/artifacts/* is an authority problem, never an artifact problem: the attachment
+// secret this process holds was revoked because the host rotated its epoch (restart/autoheal) and
+// the caller's `bootstrap` snapshot predates that rotation. Other statuses are the artifact's own
+// answer and must not trigger a re-handshake.
+const ARTIFACT_AUTH_FAILURE = /unauthorized|invalid or expired attachment secret|attachment_secret_required|inactive or expired attachment record/i;
+
 /**
  * Fetch raw binary artifact bytes over HTTP from BridgeServer using single-header authentication.
+ *
+ * The authority may rotate mid-call (`ensureDispatchSocket` autoheals and replaces the process
+ * bootstrap), which leaves the `bootstrap` passed in here stale. Without recovery the artifact read
+ * fails with `Unauthorized: Invalid or expired attachment secret` for every screenshot/inspect
+ * payload until the MCP process itself is restarted, even though the dispatch path already healed.
+ * So on an auth-class failure, re-handshake once and retry with the authority the bridge hands back.
  */
 async function fetchArtifactBinary(bootstrap, artifactId) {
-  function fetchChunk(offset = 0, limit = 1024 * 1024) {
+  function fetchChunk(auth, offset = 0, limit = 1024 * 1024) {
     return new Promise((resolve, reject) => {
       const options = {
         hostname: '127.0.0.1',
-        port: bootstrap.port,
+        port: auth.port,
         path: `/api/artifacts/${encodeURIComponent(artifactId)}?offset=${offset}&limit=${limit}`,
         method: 'GET',
         headers: {
-          'x-antifan-attachment-secret': bootstrap.secret,
+          'x-antifan-attachment-secret': auth.secret,
         },
       };
 
@@ -304,7 +316,9 @@ async function fetchArtifactBinary(bootstrap, artifactId) {
               const errObj = JSON.parse(buffer.toString('utf8'));
               if (errObj && errObj.error) errMsg = errObj.error;
             } catch {}
-            return reject(new Error(JSON.stringify({ code: 'ARTIFACT_READ_ERROR', message: errMsg })));
+            const err = new Error(JSON.stringify({ code: 'ARTIFACT_READ_ERROR', message: errMsg }));
+            err.authFailure = res.statusCode === 401 || ARTIFACT_AUTH_FAILURE.test(errMsg);
+            return reject(err);
           }
           const hasMore = res.headers['x-artifact-has-more'] === 'true';
           const totalBytes = parseInt(res.headers['x-artifact-total-bytes'] || '0', 10) || buffer.length;
@@ -329,27 +343,50 @@ async function fetchArtifactBinary(bootstrap, artifactId) {
     });
   }
 
-  const collectedChunks = [];
-  let currentOffset = 0;
-  let finalMimeType = 'application/octet-stream';
-  const CHUNK_SIZE = 1024 * 1024;
+  async function downloadAll(auth) {
+    const collectedChunks = [];
+    let currentOffset = 0;
+    let finalMimeType = 'application/octet-stream';
+    const CHUNK_SIZE = 1024 * 1024;
 
-  while (true) {
-    const chunkRes = await fetchChunk(currentOffset, CHUNK_SIZE);
-    collectedChunks.push(chunkRes.buffer);
-    finalMimeType = chunkRes.mimeType;
-    currentOffset += chunkRes.buffer.length;
+    while (true) {
+      const chunkRes = await fetchChunk(auth, currentOffset, CHUNK_SIZE);
+      collectedChunks.push(chunkRes.buffer);
+      finalMimeType = chunkRes.mimeType;
+      currentOffset += chunkRes.buffer.length;
 
-    if (!chunkRes.hasMore || chunkRes.buffer.length === 0) {
-      break;
+      if (!chunkRes.hasMore || chunkRes.buffer.length === 0) {
+        break;
+      }
     }
+
+    return {
+      data: Buffer.concat(collectedChunks).toString('base64'),
+      mimeType: finalMimeType,
+    };
   }
 
-  const fullBuffer = Buffer.concat(collectedChunks);
-  return {
-    data: fullBuffer.toString('base64'),
-    mimeType: finalMimeType,
-  };
+  // Read with the authority THIS call dispatched under. Artifacts are run/attempt scoped
+  // (the bridge answers ATTACHMENT_MISMATCH otherwise) and every autoheal mints a fresh
+  // run/attempt pair, so a heal performed for some OTHER concurrent invocation must not be
+  // preferred here: its authority would 403 against an artifact this call's stager wrote,
+  // and a 403 is not an auth failure, so the recovery below would never run.
+  try {
+    return await downloadAll(bootstrap);
+  } catch (err) {
+    if (!err || !err.authFailure) throw err;
+    process.stderr.write('[AntiFan MCP] Artifact read refused the held attachment secret; re-handshaking...\n');
+    let refreshed = null;
+    try {
+      refreshed = await autohealSession();
+    } catch (healErr) {
+      process.stderr.write(`[AntiFan MCP] Artifact autoheal failed: ${healErr.message}\n`);
+    }
+    const authority = (refreshed && refreshed.secret) ? refreshed : getBootstrap();
+    // Nothing new to present: surface the original refusal rather than replaying it.
+    if (!authority || !authority.secret || authority.secret === bootstrap.secret) throw err;
+    return await downloadAll(authority);
+  }
 }
 
 // An advertised tool name is authoritative whenever the catalogue registers that
@@ -759,7 +796,94 @@ function wireDispatchSocket(ws) {
   });
 }
 
-function httpJsonPost(host, port, requestPath, payload) {
+// ─── Pairing availability contract ───────────────────────────────────────────
+// The bridge mints pairing challenges into a SMALL on-disk queue and only used to refill it when a
+// consumer asked, paying a PowerShell DACL cost (~10 s on this host) inside the request. Measured
+// live with five concurrent pairs against the running app: 24.4 s / 22.6 s / 4.3 s / 3.8 s / 4.0 s.
+// The pairing socket below gives up at 15 s, so those clients abandoned a bridge that was alive and
+// a second away from answering — and then reported it as DOWN. Two independent defences live here,
+// and they compose:
+//   1. every pairing failure is CLASSIFIED, so a policy refusal is never retried while a transient
+//      stall always is, and the real reason reaches the caller instead of one fixed string; and
+//   2. retries are JITTERED, so N clients that all fail at the same instant do not re-ask in
+//      lockstep and rebuild the very burst that caused the failure.
+const PAIRING_ATTEMPT_LIMIT = 4;
+const PAIRING_ATTEMPT_TIMEOUT_MS = 8000;
+const PAIRING_TOTAL_BUDGET_MS = 30000;
+const PAIRING_RETRY_BASE_MS = 250;
+const PAIRING_RETRY_CAP_MS = 4000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Full jitter: the delay is drawn from [ceiling/2, ceiling]. A fixed exponential schedule would
+// merely re-synchronise the herd it exists to break up.
+function pairingBackoffMs(attempt) {
+  const ceiling = Math.min(PAIRING_RETRY_CAP_MS, PAIRING_RETRY_BASE_MS * Math.pow(2, attempt));
+  return Math.round(ceiling / 2 + Math.random() * (ceiling / 2));
+}
+
+// Refusals a retry cannot fix, because they describe the REQUEST rather than the moment: the grant
+// name is wrong, the client class does not match, the code was revoked. Retrying one of these would
+// hammer the bridge, still fail, and hide a real policy error behind a timeout. Everything else — a
+// stalled socket, a refused connection, a depleted queue, a 5xx, or a code consumed or expired
+// before we could spend it — is a transient availability fact and is retried with a FRESH challenge.
+// A retry never re-presents the previous code, so the single-use guarantee is untouched: the bridge
+// still refuses the old code with 409, and this process never sends it twice.
+const TERMINAL_PAIRING_ERRORS = new Set([
+  'PAIRING_GRANT_UNKNOWN',
+  'PAIRING_GRANT_CEILING_EXCEEDED',
+  'PAIRING_CLIENT_CLASS_MISMATCH',
+  'PAIRING_CLIENT_ID_MISMATCH',
+  'PAIRING_CODE_REVOKED',
+  'INVALID_PAIRING_REQUEST',
+  'INVALID_CLIENT_CLASS',
+  'LAN_ACCESS_FORBIDDEN',
+  'SECRETS_IN_URL_FORBIDDEN',
+  'PAYLOAD_TOO_LARGE',
+]);
+
+function pairingFailureParts(err) {
+  return {
+    msg: err && err.message ? String(err.message) : String(err || ''),
+    status: err && typeof err.status === 'number' ? err.status : null,
+    errorCode: err && typeof err.errorCode === 'string' ? err.errorCode : null,
+  };
+}
+
+function isTerminalPairingFailure(err) {
+  const { msg, errorCode } = pairingFailureParts(err);
+  if (errorCode && TERMINAL_PAIRING_ERRORS.has(errorCode)) return true;
+  for (const code of TERMINAL_PAIRING_ERRORS) {
+    if (msg.includes(code)) return true;
+  }
+  return false;
+}
+
+// 'ECONNREFUSED' means nothing is listening (bridge not running). A timeout or a depleted queue
+// means the bridge IS listening and could not serve pairing in time. Those two need opposite
+// responses from an operator, so they must not collapse into one string.
+function classifyPairingFailure(err) {
+  const { msg, status, errorCode } = pairingFailureParts(err);
+  if (status === 404 || errorCode === 'CHALLENGE_QUEUE_DEPLETED' || /CHALLENGE_QUEUE_DEPLETED/i.test(msg)) {
+    return 'PAIRING_QUEUE_DEPLETED';
+  }
+  if (/ECONNREFUSED|ECONNRESET|EPIPE|EHOSTUNREACH|ENETUNREACH/i.test(msg)) return 'BRIDGE_UNREACHABLE';
+  if (/ECONNREFUSED|ECONNRESET|EPIPE/i.test(errorCode || '')) return 'BRIDGE_UNREACHABLE';
+  if (/timeout|ETIMEDOUT/i.test(msg)) return 'PAIRING_TIMEOUT';
+  if (status !== null && status >= 500) return 'BRIDGE_ERROR';
+  if (errorCode) return errorCode;
+  return 'PAIRING_FAILED';
+}
+
+function describePairingFailure(err) {
+  const { msg, status, errorCode } = pairingFailureParts(err);
+  const label = errorCode || (status !== null ? `HTTP ${status}` : classifyPairingFailure(err));
+  return `${label}: ${msg}`.trim();
+}
+
+function httpJsonPost(host, port, requestPath, payload, timeoutMs = PAIRING_ATTEMPT_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify(payload || {});
     const req = http.request({
@@ -781,15 +905,22 @@ function httpJsonPost(host, port, requestPath, payload) {
             resolve(parsed);
           } else {
             const msg = parsed.message || parsed.error || `HTTP ${res.statusCode}`;
-            reject(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)));
+            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            // Carry the typed reason, not just the prose: the classifier and the CONNECTION_FAILED
+            // cause both key off these, and re-deriving them from a message string is guesswork.
+            err.status = typeof res.statusCode === 'number' ? res.statusCode : null;
+            err.errorCode = typeof parsed.error === 'string' ? parsed.error : null;
+            reject(err);
           }
         } catch {
           reject(new Error(`Failed to parse JSON response (${res.statusCode}): ${data}`));
         }
       });
     });
-    req.setTimeout(15000, () => {
-      req.destroy(new Error('Pairing request timeout'));
+    req.setTimeout(timeoutMs, () => {
+      const err = new Error(`Pairing request timeout after ${timeoutMs}ms (${requestPath})`);
+      err.errorCode = 'PAIRING_TIMEOUT';
+      req.destroy(err);
     });
     req.on('error', (err) => {
       reject(err);
@@ -799,37 +930,222 @@ function httpJsonPost(host, port, requestPath, payload) {
   });
 }
 
-async function performPairingExchange(host, port) {
-  const challenge = await httpJsonPost(host, port, '/api/pairing/challenge', {});
-  const code = challenge?.code;
-  if (!challenge?.success || !code) {
-    throw new Error(`PAIRING_CHALLENGE_FAILED: ${challenge?.message || challenge?.error || 'No challenge code returned'}`);
+// One pairing attempt per iteration, each with its OWN freshly claimed challenge. The retry exists
+// because the bridge can legitimately need a moment to refill its small challenge queue while other
+// clients pair; it does not relax any check, and it never re-sends a code the bridge already saw.
+async function performPairingExchange(host, port, options = {}) {
+  const budgetMs = typeof options.budgetMs === 'number' ? options.budgetMs : PAIRING_TOTAL_BUDGET_MS;
+  const deadline = Date.now() + budgetMs;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < PAIRING_ATTEMPT_LIMIT; attempt++) {
+    if (attempt > 0) {
+      const waitMs = pairingBackoffMs(attempt - 1);
+      process.stderr.write(
+        `[AntiFan Pairing] attempt ${attempt + 1}/${PAIRING_ATTEMPT_LIMIT} for ${host}:${port} in ${waitMs}ms after ` +
+          `${describePairingFailure(lastError)}\n`
+      );
+      await sleep(waitMs);
+    }
+
+    try {
+      const challenge = await httpJsonPost(host, port, '/api/pairing/challenge', {});
+      const code = challenge?.code;
+      if (!challenge?.success || !code) {
+        const err = new Error(`PAIRING_CHALLENGE_FAILED: ${challenge?.message || challenge?.error || 'No challenge code returned'}`);
+        err.errorCode = 'PAIRING_CHALLENGE_FAILED';
+        throw err;
+      }
+      const exchange = await httpJsonPost(host, port, '/api/pairing/exchange', {
+        code,
+        clientClass: 'mcp',
+        // Declare the authority this session needs. Omitting it lets the bridge fall back to a silent
+        // 'write' grant, which then refuses every eval-risk capability (anti.browser.evaluate,
+        // anti.inspect.eval) with a POLICY_DENIED that never mentions the grant.
+        requestedGrant: resolveSessionGrant(),
+      });
+      if (!exchange?.success || !exchange?.secret) {
+        const err = new Error(`PAIRING_EXCHANGE_FAILED: ${exchange?.message || exchange?.error || 'No secret returned'}`);
+        err.errorCode = 'PAIRING_EXCHANGE_FAILED';
+        throw err;
+      }
+      assertGrantNotDowngraded(exchange);
+      return exchange;
+    } catch (err) {
+      lastError = err;
+      if (isTerminalPairingFailure(err)) throw err;
+      if (Date.now() >= deadline) break;
+    }
   }
-  const exchange = await httpJsonPost(host, port, '/api/pairing/exchange', {
-    code,
-    clientClass: 'mcp',
+
+  const fatal = new Error(
+    `PAIRING_UNAVAILABLE after ${PAIRING_ATTEMPT_LIMIT} attempts against ${host}:${port}: ${describePairingFailure(lastError)}`
+  );
+  fatal.errorCode = classifyPairingFailure(lastError);
+  fatal.cause = lastError;
+  throw fatal;
+}
+
+// A silent downgrade is indistinguishable from "the tool is not permitted" once the agent is deep in
+// a run, so surface it at pairing time instead.
+const GRANT_RANKS = { read: 1, write: 2, execute: 3, eval: 4 };
+function assertGrantNotDowngraded(exchange) {
+  const requested = resolveSessionGrant();
+  const granted = exchange?.grant;
+  if (!(requested in GRANT_RANKS) || !(granted in GRANT_RANKS)) return;
+  if (GRANT_RANKS[granted] < GRANT_RANKS[requested]) {
+    process.stderr.write(
+      `ANTIFAN_GRANT_DOWNGRADED: requested grant '${requested}' but the bridge granted '${granted}'; ` +
+        'eval-risk capabilities will be refused with POLICY_DENIED.\n'
+    );
+  }
+}
+
+// ─── Autoheal diagnostics and live-authority reuse ───────────────────────────
+// Why this exists: `CONNECTION_FAILED: Unable to connect to live AntiFan Desktop bridge after
+// autoheal` was thrown no matter WHAT actually went wrong — a refused socket, a pairing queue with
+// no code left, an exchange that answered 429. Each per-candidate reason was written to stderr
+// (which an MCP stdio host discards) and then dropped, so an operator looking at a bridge that was
+// serving other clients read "down". The reasons are now retained and composed into the error the
+// caller sees, so the message names the underlying cause instead of hiding it.
+let lastAutohealFailure = null;
+let lastAutohealFailures = [];
+
+function rememberAutohealFailure(text) {
+  lastAutohealFailure = text;
+  lastAutohealFailures.push(text);
+  if (lastAutohealFailures.length > 8) lastAutohealFailures.shift();
+}
+
+// Minimal request/response over an already-open socket: the reuse probe needs exactly one verb and
+// must not drag in the dispatch plumbing (pendingDispatchCalls, binding, heartbeats) that would then
+// have to be unwound if the probe fails.
+function wsRequest(ws, method, params, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const id = `probe-${crypto.randomUUID()}`;
+    const timer = setTimeout(() => {
+      ws.removeListener('message', onMessage);
+      reject(new Error(`Probe timeout waiting for ${method}`));
+    }, timeoutMs);
+    function onMessage(raw) {
+      let resp;
+      try { resp = JSON.parse(raw.toString()); } catch { return; }
+      if (!resp || resp.id !== id) return;
+      clearTimeout(timer);
+      ws.removeListener('message', onMessage);
+      if (resp.success) resolve(resp.data);
+      else reject(new Error(resp.error || `${method} refused`));
+    }
+    ws.on('message', onMessage);
+    try {
+      ws.send(JSON.stringify({ id, method, params }));
+    } catch (err) {
+      clearTimeout(timer);
+      ws.removeListener('message', onMessage);
+      reject(err);
+    }
   });
-  if (!exchange?.success || !exchange?.secret) {
-    throw new Error(`PAIRING_EXCHANGE_FAILED: ${exchange?.message || exchange?.error || 'No secret returned'}`);
+}
+
+// Reuse before re-pair. Everything the caller needs is already in hand: the attachment id, its
+// secret, its authority revision and its bound tab. Minting a replacement costs a single-use pairing
+// code — the scarcest thing in this system during a burst — and grants nothing that was not already
+// held, so reuse can never widen authority. Re-pairing is required only when the host really did
+// invalidate the attachment, which is what a rebuild does to every connected client at once.
+// Liveness is proven twice over: the WebSocket upgrade itself (the bridge closes 4001 for an
+// attachment that is not active and unexpired) and a bound `renewSession`, which touches no
+// capability and carries the same attachment id and secret.
+async function tryReuseLiveAttachment(candidate) {
+  const existing = getBootstrap();
+  if (!existing || !existing.secret || !existing.attachmentId) return null;
+  if (Number(existing.port) !== Number(candidate.port)) return null;
+  let ws = null;
+  try {
+    ws = new WebSocket(`ws://${candidate.host}:${candidate.port}`, {
+      headers: {
+        Authorization: `Bearer ${existing.secret}`,
+        'x-antifan-attachment-secret': existing.secret,
+      },
+    });
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try { ws.close(); } catch {}
+          reject(new Error('Attachment reuse probe timed out'));
+        }
+      }, 3000);
+      ws.once('open', () => { if (!settled) { settled = true; clearTimeout(timer); resolve(); } });
+      ws.once('error', (err) => { if (!settled) { settled = true; clearTimeout(timer); reject(err); } });
+      ws.once('close', (code, reason) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(new Error(`Attachment reuse refused (${code}): ${reason || ''}`));
+        }
+      });
+    });
+
+    await wsRequest(ws, 'antifan.cli.renewSession', {
+      attachmentId: existing.attachmentId,
+      secret: existing.secret,
+      ownerPid: existing.ownerPid,
+      extensionMs: 7_200_000,
+    }, 4000);
+
+    dynamicBootstrap = { ...existing, token: existing.token || existing.secret };
+    if (existing.authorityRevision) currentAuthorityRevision = existing.authorityRevision;
+    // Wire the dispatch socket before the heartbeat, exactly as the pairing path does, so no
+    // recovery path can observe an unbound dispatcher while the binding is being restored.
+    dispatchWs = ws;
+    wireDispatchSocket(ws);
+    startHeartbeat(dynamicBootstrap);
+    process.stderr.write(
+      `[AntiFan Autoheal] Reused live attachment ${String(existing.attachmentId).slice(0, 24)}... on ` +
+        `${candidate.host}:${candidate.port}; no pairing code spent.\n`
+    );
+    return dynamicBootstrap;
+  } catch (reuseErr) {
+    if (ws) { try { ws.close(); } catch {} }
+    process.stderr.write(
+      `[AntiFan Autoheal] Held authority not reusable on ${candidate.host}:${candidate.port}: ${reuseErr.message}\n`
+    );
+    return null;
   }
-  return exchange;
 }
 
 async function autohealSession() {
   const candidates = resolveFailoverCandidates();
+  lastAutohealFailures = [];
   if (candidates.length === 0) {
+    rememberAutohealFailure('BRIDGE_NOT_RUNNING: no endpoint discovered (no pin and no discovery file)');
     process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running (no candidates discovered).\n');
     return null;
   }
   for (const candidate of candidates) {
     try {
+      // Reuse first: a client that already holds live authority never needs a pairing code, so a
+      // restart only costs a re-pair for the clients whose attachment was actually invalidated.
+      const reused = await tryReuseLiveAttachment(candidate);
+      if (reused) return reused;
+
       let authSecret = candidate.token || '';
       let pairedExchange = null;
       try {
         pairedExchange = await performPairingExchange(candidate.host, candidate.port);
         authSecret = pairedExchange.secret;
       } catch (pairErr) {
-        if (!authSecret) throw pairErr;
+        // Keep the reason. Falling through to a held secret is still worth ONE attempt (the bridge
+        // may accept it), but when that also fails the pairing failure is what explains why.
+        if (!authSecret) {
+          rememberAutohealFailure(`${candidate.host}:${candidate.port} ${describePairingFailure(pairErr)}`);
+          throw pairErr;
+        }
+        process.stderr.write(
+          `[AntiFan Autoheal] Pairing refused on ${candidate.host}:${candidate.port} ` +
+            `(${describePairingFailure(pairErr)}); retrying once with the held secret.\n`
+        );
       }
 
       const wsUrl = `ws://${candidate.host}:${candidate.port}`;
@@ -1021,10 +1337,25 @@ async function autohealSession() {
       startHeartbeat(dynamicBootstrap);
       return dynamicBootstrap;
     } catch (err) {
+      rememberAutohealFailure(`${candidate.host}:${candidate.port} ${err.message}`);
       process.stderr.write(`[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
     }
   }
-  process.stderr.write('MCP_BRIDGE_OFFLINE: All candidate AntiFan Desktop Bridge endpoints failed to connect.\n');
+  const cause = lastAutohealFailures.join(' | ') || 'no candidate answered';
+  lastAutohealFailure = cause;
+  // The prefix is kept because other tooling greps for it; the sentence after it is now true. A
+  // refused connection means nothing is listening; a pairing timeout or a depleted queue means the
+  // bridge IS listening and could not grant access in the client's budget. Reporting the second as
+  // "failed to connect" is the misleading-availability defect this whole path exists to remove.
+  const allRefused = lastAutohealFailures.length > 0
+    && lastAutohealFailures.every((f) => /BRIDGE_UNREACHABLE|ECONNREFUSED|ECONNRESET|EPIPE|not running|no endpoint discovered/i.test(f));
+  process.stderr.write(
+    'MCP_BRIDGE_OFFLINE: ' +
+      (allRefused
+        ? 'AntiFan Desktop Bridge is not listening'
+        : 'AntiFan Desktop Bridge is up but did not grant access (this is NOT a down bridge)') +
+      ` — ${cause}\n`
+  );
   return null;
 }
 
@@ -1096,7 +1427,17 @@ async function ensureDispatchSocket(bootstrap) {
       return dispatchWs;
     }
 
-    throw transportError('CONNECTION_FAILED', JSON.stringify({ code: 'CONNECTION_FAILED', message: 'Unable to connect to live AntiFan Desktop bridge after autoheal' }));
+    // The underlying cause is the whole point of this error, so it travels WITH it. The original
+    // leading sentence is preserved because callers match on it, but the trailing clause now says
+    // whether the bridge was refused, unreachable, or simply unable to hand out pairing codes —
+    // three different operator responses that used to be one indistinguishable string.
+    const failureCause = lastAutohealFailure || 'no candidate answered';
+    throw transportError('CONNECTION_FAILED', JSON.stringify({
+      code: 'CONNECTION_FAILED',
+      message: `Unable to connect to live AntiFan Desktop bridge after autoheal: ${failureCause}`,
+      reason: failureCause,
+      candidates: lastAutohealFailures.slice(),
+    }));
   })().finally(() => {
     dispatchConnecting = null;
   });
@@ -1145,7 +1486,9 @@ async function invoke(method, params = {}, callerRequestId) {
     }
     bootstrap = getBootstrap();
     if (!bootstrap || !bootstrap.secret) {
-      process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge unavailable\n');
+      process.stderr.write(
+        `MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge did not grant access — ${lastAutohealFailure || 'no candidate answered'}\n`
+      );
       throw transportError('MCP_CONTEXT_REQUIRED', JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
     }
   }

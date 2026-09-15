@@ -124,7 +124,8 @@ button {
   color: #f1f5f9;
 }
 
-.icon-button.active {
+.icon-button.active,
+.icon-button[aria-pressed="true"] {
   background: rgba(56, 189, 248, 0.2);
   border-color: #38bdf8;
   color: #38bdf8;
@@ -445,7 +446,8 @@ button {
   color: #ede9fe;
 }
 
-.terminal-affinity-picker {
+.terminal-affinity-picker,
+.terminal-category-picker {
   position: absolute;
   z-index: 10000;
   background: #0d1522;
@@ -459,7 +461,8 @@ button {
   color: #e2e8f0;
 }
 
-.terminal-affinity-picker-header {
+.terminal-affinity-picker-header,
+.terminal-category-picker-header {
   font-weight: 600;
   padding: 5px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -469,7 +472,8 @@ button {
   letter-spacing: 0.5px;
 }
 
-.terminal-affinity-picker-item {
+.terminal-affinity-picker-item,
+.terminal-category-picker-item {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -555,6 +559,85 @@ button {
 .terminal-tab-wrap.active .terminal-tab-close:hover {
   background: rgba(239, 68, 68, 0.25);
   color: #fca5a5;
+}
+
+/* CATEGORY CHIP (horizontal strip only — the sidebar groups with headers) */
+.terminal-tab-category-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 72px;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  letter-spacing: 0.2px;
+  color: #0b1220;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* CATEGORY PICKER POPOVER */
+.terminal-category-picker-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 4px 0;
+  padding: 4px 6px;
+  background: #040810;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  color: #f0f9ff;
+  font-family: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.terminal-category-picker-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.35);
+}
+
+.terminal-category-picker-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.terminal-category-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-category-picker-item:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.terminal-category-picker-item.active {
+  background: rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.terminal-category-picker-item.clear {
+  color: #94a3b8;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 4px;
+}
+
+/* An action that cannot apply to the right-clicked tab (sleep while asleep, wake
+   while running). Kept visible for discoverability, but inert and non-clickable. */
+.context-item.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
 }
 
 /* CONTEXT MENU */
@@ -1055,4 +1138,264 @@ button {
 
 .empty-state-action-btn:active {
   transform: translateY(0);
+}
+
+/* SLEEPING TAB STATE (applies in both layouts — a tab state, not a sidebar rule) */
+.terminal-tab-wrap.is-sleeping {
+  opacity: 0.55;
+  border-left: 2px dashed rgba(148, 163, 184, 0.5);
+  cursor: pointer;
+}
+
+.terminal-tab-wrap.is-sleeping .terminal-tab {
+  color: #64748b;
+  font-style: italic;
+}
+
+.terminal-tab-wrap.is-sleeping:hover {
+  opacity: 0.8;
+}
+
+.terminal-tab-wrap.is-sleeping .terminal-tab-icon {
+  color: #7c8ba1;
+}
+
+.terminal-tab-sleep-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.terminal-tab-status-beacon.sleeping {
+  background: #64748b;
+}
+
+/* SLEEPING SESSION PREVIEW
+   Plain text, deliberately: viewing a slept tab must not build an xterm or wake
+   a PTY. It only exists while the active tab is asleep. */
+.terminal-sleep-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #070b11;
+  outline: none;
+  cursor: text;
+}
+
+.terminal-sleep-preview:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.45);
+}
+
+.terminal-sleep-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.terminal-sleep-preview-icon {
+  font-size: 11px;
+}
+
+.terminal-sleep-preview-name {
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.terminal-sleep-preview-hint {
+  margin-left: auto;
+  font-style: italic;
+  color: #64748b;
+}
+
+.terminal-sleep-preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #93a4b8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* SIDEBAR TAB LAYOUT
+   Every rule below is scoped to .standalone.tabs-sidebar (or a descendant of
+   it) precisely so the default horizontal install stays pixel-identical. */
+.tabs-sidebar-resizer {
+  display: none;
+}
+
+.standalone.tabs-sidebar {
+  display: grid;
+  grid-template-columns: var(--term-sidebar-w, 220px) 5px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px 0;
+}
+
+.standalone.tabs-sidebar > header {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.standalone.tabs-sidebar > .controls {
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.standalone.tabs-sidebar > .tabs-sidebar-resizer {
+  display: block;
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.standalone.tabs-sidebar > #terminal {
+  grid-column: 3;
+  grid-row: 2;
+  min-width: 0;
+}
+
+/* Keep popovers as overlays so they never become grid items */
+.standalone.tabs-sidebar > .tab-context-menu {
+  position: fixed;
+}
+
+.standalone.tabs-sidebar > .terminal-affinity-picker,
+.standalone.tabs-sidebar > .terminal-category-picker {
+  position: absolute;
+}
+
+.standalone.tabs-sidebar .tabs-sidebar-resizer {
+  position: relative;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.standalone.tabs-sidebar .tabs-sidebar-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 0.15s ease;
+}
+
+.standalone.tabs-sidebar .tabs-sidebar-resizer:hover::before,
+.standalone.tabs-sidebar .tabs-sidebar-resizer:focus-visible::before,
+.standalone.tabs-sidebar .tabs-sidebar-resizer.is-dragging::before {
+  background: #38bdf8;
+}
+
+.standalone.tabs-sidebar #terminalTabs {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 0;
+}
+
+.standalone.tabs-sidebar #terminalTabs #btnNewTerminal {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  width: 100%;
+  flex: 0 0 26px;
+  background: #0d1522;
+}
+
+/* Sidebar rows are full-width, so the right-hand metadata cluster is pinned to
+   the right edge: the name takes the slack and ellipsizes, and the affinity
+   badge sits immediately left of the × close button. The status beacon is
+   grouped WITH the badge (it is the same right-hand status/binding cluster) and
+   carries the single `margin-left: auto`; the badge must not also take one.
+   `order` only exists in sidebar scope, so the horizontal strip — where the
+   badge keeps its fixed 78px slot inline — is untouched. */
+.standalone.tabs-sidebar .terminal-tab-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.standalone.tabs-sidebar .terminal-tab-status-beacon {
+  order: 1;
+  margin-left: auto;
+}
+
+.standalone.tabs-sidebar .terminal-tab-affinity-badge {
+  order: 2;
+  margin-left: 4px;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 2px;
+  margin-top: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #64748b;
+  cursor: pointer;
+  user-select: none;
+  flex: 0 0 auto;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header:first-child {
+  margin-top: 0;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header:hover {
+  color: #94a3b8;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header[aria-expanded="false"] .terminal-tab-category-toggle {
+  transform: rotate(-90deg);
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-count {
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 600;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 0 6px;
+  line-height: 14px;
+}
+
+.standalone.tabs-sidebar .terminal-tab-wrap.is-category-collapsed {
+  display: none;
 }

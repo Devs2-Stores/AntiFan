@@ -188,7 +188,93 @@ function compareCandidates(a, b) {
 }
 
 
-function httpJsonPost(host, port, requestPath, payload) {
+// ─── Pairing availability contract ───────────────────────────────────────────
+// The bridge mints pairing challenges into a SMALL on-disk queue and only used to refill it when a
+// consumer asked, paying a PowerShell DACL cost (~10 s on this host) inside the request. Measured
+// live with five concurrent pairs: 24.4 s / 22.6 s / 4.3 s / 3.8 s / 4.0 s. The pairing socket below
+// gives up at 15 s, so those clients abandoned a bridge that was alive and a second away from
+// answering — and then reported it as DOWN. Two independent defences live here, and they compose:
+//   1. every pairing failure is CLASSIFIED, so a policy refusal is never retried while a transient
+//      stall always is, and the real reason reaches the caller instead of one fixed string; and
+//   2. retries are JITTERED, so N clients that all fail at the same instant do not re-ask in
+//      lockstep and rebuild the very burst that caused the failure.
+const PAIRING_ATTEMPT_LIMIT = 4;
+const PAIRING_ATTEMPT_TIMEOUT_MS = 8000;
+const PAIRING_TOTAL_BUDGET_MS = 30000;
+const PAIRING_RETRY_BASE_MS = 250;
+const PAIRING_RETRY_CAP_MS = 4000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Full jitter: the delay is drawn from [ceiling/2, ceiling]. A fixed exponential schedule would
+// merely re-synchronise the herd it exists to break up.
+function pairingBackoffMs(attempt) {
+  const ceiling = Math.min(PAIRING_RETRY_CAP_MS, PAIRING_RETRY_BASE_MS * Math.pow(2, attempt));
+  return Math.round(ceiling / 2 + Math.random() * (ceiling / 2));
+}
+
+// Refusals a retry cannot fix, because they describe the REQUEST rather than the moment: the grant
+// name is wrong, the client class does not match, the code was revoked. Retrying one of these would
+// hammer the bridge, still fail, and hide a real policy error behind a timeout. Everything else — a
+// stalled socket, a refused connection, a depleted queue, a 5xx, or a code consumed or expired
+// before we could spend it — is a transient availability fact and is retried with a FRESH challenge.
+// A retry never re-presents the previous code, so the single-use guarantee is untouched: the bridge
+// still refuses the old code with 409, and this process never sends it twice.
+const TERMINAL_PAIRING_ERRORS = new Set([
+  'PAIRING_GRANT_UNKNOWN',
+  'PAIRING_GRANT_CEILING_EXCEEDED',
+  'PAIRING_CLIENT_CLASS_MISMATCH',
+  'PAIRING_CLIENT_ID_MISMATCH',
+  'PAIRING_CODE_REVOKED',
+  'INVALID_PAIRING_REQUEST',
+  'INVALID_CLIENT_CLASS',
+  'LAN_ACCESS_FORBIDDEN',
+  'SECRETS_IN_URL_FORBIDDEN',
+  'PAYLOAD_TOO_LARGE',
+]);
+
+function pairingFailureParts(err) {
+  return {
+    msg: err && err.message ? String(err.message) : String(err || ''),
+    status: err && typeof err.status === 'number' ? err.status : null,
+    errorCode: err && typeof err.errorCode === 'string' ? err.errorCode : null,
+  };
+}
+
+function isTerminalPairingFailure(err) {
+  const { msg, errorCode } = pairingFailureParts(err);
+  if (errorCode && TERMINAL_PAIRING_ERRORS.has(errorCode)) return true;
+  for (const code of TERMINAL_PAIRING_ERRORS) {
+    if (msg.includes(code)) return true;
+  }
+  return false;
+}
+
+// 'ECONNREFUSED' means nothing is listening (bridge not running). A timeout or a depleted queue
+// means the bridge IS listening and could not serve pairing in time. Those two need opposite
+// responses from an operator, so they must not collapse into one string.
+function classifyPairingFailure(err) {
+  const { msg, status, errorCode } = pairingFailureParts(err);
+  if (status === 404 || errorCode === 'CHALLENGE_QUEUE_DEPLETED' || /CHALLENGE_QUEUE_DEPLETED/i.test(msg)) {
+    return 'PAIRING_QUEUE_DEPLETED';
+  }
+  if (/ECONNREFUSED|ECONNRESET|EPIPE|EHOSTUNREACH|ENETUNREACH/i.test(msg)) return 'BRIDGE_UNREACHABLE';
+  if (/ECONNREFUSED|ECONNRESET|EPIPE/i.test(errorCode || '')) return 'BRIDGE_UNREACHABLE';
+  if (/timeout|ETIMEDOUT/i.test(msg)) return 'PAIRING_TIMEOUT';
+  if (status !== null && status >= 500) return 'BRIDGE_ERROR';
+  if (errorCode) return errorCode;
+  return 'PAIRING_FAILED';
+}
+
+function describePairingFailure(err) {
+  const { msg, status, errorCode } = pairingFailureParts(err);
+  const label = errorCode || (status !== null ? `HTTP ${status}` : classifyPairingFailure(err));
+  return `${label}: ${msg}`.trim();
+}
+
+function httpJsonPost(host, port, requestPath, payload, timeoutMs = PAIRING_ATTEMPT_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify(payload || {});
     const req = http.request({
@@ -210,15 +296,22 @@ function httpJsonPost(host, port, requestPath, payload) {
             resolve(parsed);
           } else {
             const msg = parsed.message || parsed.error || `HTTP ${res.statusCode}`;
-            reject(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)));
+            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            // Carry the typed reason, not just the prose: the classifier and the CONNECTION_FAILED
+            // cause both key off these, and re-deriving them from a message string is guesswork.
+            err.status = typeof res.statusCode === 'number' ? res.statusCode : null;
+            err.errorCode = typeof parsed.error === 'string' ? parsed.error : null;
+            reject(err);
           }
         } catch {
           reject(new Error(`Failed to parse JSON response (${res.statusCode}): ${data}`));
         }
       });
     });
-    req.setTimeout(15000, () => {
-      req.destroy(new Error('Pairing request timeout'));
+    req.setTimeout(timeoutMs, () => {
+      const err = new Error(`Pairing request timeout after ${timeoutMs}ms (${requestPath})`);
+      err.errorCode = 'PAIRING_TIMEOUT';
+      req.destroy(err);
     });
     req.on('error', (err) => {
       reject(err);
@@ -228,20 +321,75 @@ function httpJsonPost(host, port, requestPath, payload) {
   });
 }
 
-async function performPairingExchange(host, port) {
-  const challenge = await httpJsonPost(host, port, '/api/pairing/challenge', {});
-  const code = challenge?.code;
-  if (!challenge?.success || !code) {
-    throw new Error(`PAIRING_CHALLENGE_FAILED: ${challenge?.message || challenge?.error || 'No challenge code returned'}`);
+// One pairing attempt per iteration, each with its OWN freshly claimed challenge. The retry exists
+// because the bridge can legitimately need a moment to refill its small challenge queue while other
+// clients pair; it does not relax any check, and it never re-sends a code the bridge already saw.
+async function performPairingExchange(host, port, options = {}) {
+  const budgetMs = typeof options.budgetMs === 'number' ? options.budgetMs : PAIRING_TOTAL_BUDGET_MS;
+  const deadline = Date.now() + budgetMs;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < PAIRING_ATTEMPT_LIMIT; attempt++) {
+    if (attempt > 0) {
+      const waitMs = pairingBackoffMs(attempt - 1);
+      process.stderr.write(
+        `[AntiFan Pairing] attempt ${attempt + 1}/${PAIRING_ATTEMPT_LIMIT} for ${host}:${port} in ${waitMs}ms after ` +
+          `${describePairingFailure(lastError)}\n`
+      );
+      await sleep(waitMs);
+    }
+
+    try {
+      const challenge = await httpJsonPost(host, port, '/api/pairing/challenge', {});
+      const code = challenge?.code;
+      if (!challenge?.success || !code) {
+        const err = new Error(`PAIRING_CHALLENGE_FAILED: ${challenge?.message || challenge?.error || 'No challenge code returned'}`);
+        err.errorCode = 'PAIRING_CHALLENGE_FAILED';
+        throw err;
+      }
+      const exchange = await httpJsonPost(host, port, '/api/pairing/exchange', {
+        code,
+        clientClass: 'mcp',
+        // Declare the authority this session needs. Omitting it lets the bridge fall back to a silent
+        // 'write' grant, which then refuses every eval-risk capability (anti.browser.evaluate,
+        // anti.inspect.eval) with a POLICY_DENIED that never mentions the grant.
+        requestedGrant: resolveSessionGrant(),
+      });
+      if (!exchange?.success || !exchange?.secret) {
+        const err = new Error(`PAIRING_EXCHANGE_FAILED: ${exchange?.message || exchange?.error || 'No secret returned'}`);
+        err.errorCode = 'PAIRING_EXCHANGE_FAILED';
+        throw err;
+      }
+      assertGrantNotDowngraded(exchange);
+      return exchange;
+    } catch (err) {
+      lastError = err;
+      if (isTerminalPairingFailure(err)) throw err;
+      if (Date.now() >= deadline) break;
+    }
   }
-  const exchange = await httpJsonPost(host, port, '/api/pairing/exchange', {
-    code,
-    clientClass: 'mcp',
-  });
-  if (!exchange?.success || !exchange?.secret) {
-    throw new Error(`PAIRING_EXCHANGE_FAILED: ${exchange?.message || exchange?.error || 'No secret returned'}`);
+
+  const fatal = new Error(
+    `PAIRING_UNAVAILABLE after ${PAIRING_ATTEMPT_LIMIT} attempts against ${host}:${port}: ${describePairingFailure(lastError)}`
+  );
+  fatal.errorCode = classifyPairingFailure(lastError);
+  fatal.cause = lastError;
+  throw fatal;
+}
+
+// A silent downgrade is indistinguishable from "the tool is not permitted" once the agent is deep in
+// a run, so surface it at pairing time instead.
+const GRANT_RANKS = { read: 1, write: 2, execute: 3, eval: 4 };
+function assertGrantNotDowngraded(exchange) {
+  const requested = resolveSessionGrant();
+  const granted = exchange?.grant;
+  if (!(requested in GRANT_RANKS) || !(granted in GRANT_RANKS)) return;
+  if (GRANT_RANKS[granted] < GRANT_RANKS[requested]) {
+    process.stderr.write(
+      `ANTIFAN_GRANT_DOWNGRADED: requested grant '${requested}' but the bridge granted '${granted}'; ` +
+        'eval-risk capabilities will be refused with POLICY_DENIED.\n'
+    );
   }
-  return exchange;
 }
 
 const isFixerSession = process.env.ANTIFAN_FIXER_SESSION === 'true' ||
@@ -318,53 +466,30 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
     let authSecret = candidate.token || '';
     let pairedExchange = null;
     try {
-      if (!authSecret) {
+      // At most two authority attempts per candidate: the one this launcher already holds (an env
+      // pin or a discovery-file token may still name a live attachment), then exactly one fresh
+      // pairing if that one is refused. A rebuild rotates the host epoch and revokes EVERY
+      // attachment at once, so "the token I hold is stale" is the routine case right after one —
+      // treating it as a dead candidate is what turned a routine restart into "bridge offline".
+      // Reuse is tried first because it spends no pairing code and grants nothing new.
+      if (authSecret) {
+        try {
+          ws = await connectAuthenticatedSocket(wsUrl, {
+            Authorization: `Bearer ${authSecret}`,
+            'x-antifan-attachment-secret': authSecret,
+          });
+        } catch (heldErr) {
+          errors.push(`${wsUrl} (held authority rejected): ${heldErr.message}`);
+        }
+      }
+      if (!ws) {
         pairedExchange = await performPairingExchange(candidate.host, candidate.port);
         authSecret = pairedExchange.secret;
+        ws = await connectAuthenticatedSocket(wsUrl, {
+          'x-antifan-attachment-secret': pairedExchange.secret,
+          Authorization: `Bearer ${pairedExchange.secret}`,
+        });
       }
-
-      const headers = {};
-      if (pairedExchange && pairedExchange.secret) {
-        headers['x-antifan-attachment-secret'] = pairedExchange.secret;
-        headers['Authorization'] = `Bearer ${pairedExchange.secret}`;
-      } else if (authSecret) {
-        headers['Authorization'] = `Bearer ${authSecret}`;
-        headers['x-antifan-attachment-secret'] = authSecret;
-      }
-
-      ws = new WebSocket(wsUrl, { headers });
-
-      await new Promise((resolve, reject) => {
-        let settled = false;
-        const connectTimer = setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            reject(new Error('WebSocket connection timed out'));
-          }
-        }, 15000);
-
-        ws.once('open', () => {
-          if (!settled) {
-            settled = true;
-            clearTimeout(connectTimer);
-            resolve();
-          }
-        });
-        ws.once('error', (err) => {
-          if (!settled) {
-            settled = true;
-            clearTimeout(connectTimer);
-            reject(err);
-          }
-        });
-        ws.once('close', (code, reason) => {
-          if (!settled) {
-            settled = true;
-            clearTimeout(connectTimer);
-            reject(new Error(`WebSocket closed early with code ${code}: ${reason?.toString() || 'Unauthorized'}`));
-          }
-        });
-      });
 
       const rawTerminalId = process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID;
       const rawGen = process.env.ANTIFAN_TERMINAL_AFFINITY_GENERATION || process.env.ANTIFAN_TERMINAL_GENERATION;
@@ -436,6 +561,45 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
   throw new Error(`All candidate endpoints failed to authenticate or connect:\n  - ${errors.join('\n  - ')}`);
 }
 
+// A refused upgrade is not the same as an unreachable bridge: the bridge answers 4001 with a reason
+// when it rejects the credential, and that distinction is what tells a caller apart "your authority
+// was rotated" from "nothing is listening". The close reason is therefore preserved, not replaced.
+function connectAuthenticatedSocket(wsUrl, headers, timeoutMs = 15000) {
+  const ws = new WebSocket(wsUrl, { headers });
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const connectTimer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        try { ws.close(); } catch {}
+        reject(new Error(`WebSocket connection timed out after ${timeoutMs}ms (${wsUrl})`));
+      }
+    }, timeoutMs);
+
+    ws.once('open', () => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(connectTimer);
+        resolve(ws);
+      }
+    });
+    ws.once('error', (err) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(connectTimer);
+        reject(err);
+      }
+    });
+    ws.once('close', (code, reason) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(connectTimer);
+        reject(new Error(`WebSocket closed early with code ${code}: ${reason?.toString() || 'Unauthorized'}`));
+      }
+    });
+  });
+}
+
 function rpcCall(ws, method, params = {}, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const id = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -497,6 +661,11 @@ function parseLauncherArgs(argv) {
   return { tabId: explicitTabId, commandArgs };
 }
 let activeCleanup = null;
+// The spawned agent/MCP child is part of this session, so it dies with it. Without this the child
+// outlived the launcher's own exit paths (SIGINT/SIGTERM and spawn failure): the launcher revoked
+// the attachment and closed its socket, while the child kept a stdio transport and a bridge socket
+// open for a session that no longer existed.
+let activeChild = null;
 
 async function main() {
   const rawArgs = process.argv.slice(2);
@@ -558,6 +727,12 @@ async function main() {
       }
     } catch {}
     try { ws.close(); } catch {}
+    // Terminate the wrapped child last: the session is already revoked and the socket closed, so
+    // nothing this child could still do is wanted. A child that exits on its own makes this a no-op.
+    if (activeChild) {
+      try { activeChild.kill(); } catch {}
+      activeChild = null;
+    }
   }
   activeCleanup = cleanup;
 
@@ -621,6 +796,7 @@ async function main() {
     console.error(`\x1b[36m[antifan-agent] Attached session ${session.attachmentId.slice(0, 16)}... to ${args[0]}\x1b[0m`);
 
     const child = spawnAgentChild(command, commandArgs, childEnv);
+    activeChild = child;
 
     heartbeatInterval = setInterval(async () => {
       if (cleanedUp) return;

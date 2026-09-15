@@ -15,14 +15,18 @@ const compiledMain = path.join(__dirname, '.compiled', 'src', 'main', 'index.js'
 const buildInfoPath = path.join(__dirname, '.compiled', '.tsbuildinfo');
 
 // A stale bundle behaves like old code, not like a missing module: decide before launching.
-const bundleState = inspectCompiledBundle({
+// Kept in one object because the verdict is re-checked after a rebuild below.
+const guardInput = {
   bundlePath: compiledMain,
   buildInfoPath,
   sourceRoots: [path.join(__dirname, 'src')],
   configFiles: [path.join(__dirname, 'tsconfig.json')],
-});
+};
+const bundleState = inspectCompiledBundle(guardInput);
 
-if (bundleState.state !== 'fresh') {
+if (bundleState.state === 'fresh') {
+  console.log(`[antifan] Compiled bundle fresh (${bundleState.reason}).`);
+} else {
   if (app && app.isPackaged) {
     dialog.showErrorBox(
       'AntiFan Browser Error',
@@ -47,6 +51,19 @@ if (bundleState.state !== 'fresh') {
       app.quit();
     }
     process.exit(1);
+  }
+
+  // A `npm run compile` that exits 0 while the tree still looks stale would otherwise launch the
+  // old code silently — the exact failure this guard exists to stop. This does not refuse to
+  // start (a false-positive verdict must not brick every launch); it makes the surprise loud.
+  const afterRebuild = inspectCompiledBundle(guardInput);
+  if (afterRebuild.state !== 'fresh') {
+    console.error(
+      `[antifan] WARNING: the compiled bundle still looks ${afterRebuild.state} after a rebuild ` +
+      `(${afterRebuild.reason}).\n` +
+      `[antifan] Launching anyway — the code this process runs may NOT match src/**. Most likely a ` +
+      `concurrent writer (tsc --watch, another npm run compile) is rewriting .compiled right now.`
+    );
   }
 }
 

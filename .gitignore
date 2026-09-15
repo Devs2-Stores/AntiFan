@@ -55,3 +55,10 @@ plans/reports/haravan-live-store-fixture.json
 # go-ios artifacts (developer image ~1 GB; selfIdentity.plist is this host's pairing identity)
 /devimages/
 /selfIdentity.plist
+
+# Scratch renderer-test build dir. The real build output is `.compiled/`; this one exists only so
+# the vm renderer harness has the non-TS assets mirrored next to the emitted tests.
+.compiled-wsf/
+
+# PowerShell's ModuleAnalysisCache, dropped into the repo root when a shell session starts here.
+Microsoft/

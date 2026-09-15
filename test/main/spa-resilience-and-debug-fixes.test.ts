@@ -296,14 +296,21 @@ describe('SPA Resilience and Debug Fixes Verification', () => {
     const controlPort = new BrowserControlPort(mockHost);
     registerBrowserCapabilities(catalogue, controlPort);
 
-    // Step A: Navigate to YouTube URL
+    // Step A: Navigate to YouTube URL.
+    //
+    // The bound target is seeded with a deliberately STALE url. The pre-fix `navigate` spread
+    // that value straight into the response, so a caller that had just navigated kept being
+    // told the tab was still on the previous document while the tab list had already moved.
+    const staleBoundTarget: BrowserTarget = { ...mockTarget, url: 'https://stale.example/previous' };
     const navRes = (await catalogue.dispatch(
       'browser.navigate',
       { url: 'https://www.youtube.com/results?search_query=son+tung+m-tp' },
-      mockContextWrite
+      { ...mockContextWrite, browserTarget: staleBoundTarget }
     )) as { navigated: boolean; target: BrowserTarget };
     assert.ok(navRes.navigated);
     assert.strictEqual(navRes.target.documentGeneration, 2);
+    // `url` must be the SETTLED url read from the live tab, not the stale binding value.
+    assert.strictEqual(navRes.target.url, 'https://www.youtube.com/results?search_query=son+tung+m-tp');
 
     // Step B: Target updated context
     const updatedContext: CapabilityRequestContext = {

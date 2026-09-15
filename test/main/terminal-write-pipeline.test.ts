@@ -126,10 +126,11 @@ describe('TerminalWriteDispatcher (Production Engine Test)', () => {
 
     const target = dispatcher.createTarget(mockTerm);
 
-    // Create a 150KB payload consisting of mixed Unicode text
+    // Create a 150K-unit payload consisting of mixed Unicode text (the frame
+    // budget is measured in UTF-16 code units, not UTF-8 bytes)
     const pattern = 'Line [TEST] - Chào mừng đến với AntiFan Browser 🚀\n';
     let largePayload = '';
-    while (getUtf8ByteLength(largePayload) < 150 * 1024) {
+    while (largePayload.length < 150 * 1024) {
       largePayload += pattern;
     }
     const totalExpectedBytes = getUtf8ByteLength(largePayload);
@@ -137,9 +138,9 @@ describe('TerminalWriteDispatcher (Production Engine Test)', () => {
     // Queue the 150KB payload
     dispatcher.queueWrite(target, largePayload);
 
-    // Slice 1: Must be sent immediately (queue >= 64KB) but capped to <= 64KB
+    // Slice 1: Must be sent immediately (queue >= 64K units) but capped to <= 64K UTF-16 code units
     assert.strictEqual(writtenSlices.length, 1);
-    assert.ok(getUtf8ByteLength(writtenSlices[0]!) <= MAX_FRAME_WRITE_BYTES);
+    assert.ok(writtenSlices[0]!.length <= MAX_FRAME_WRITE_BYTES);
     assert.strictEqual(target.isWriting, true);
 
     // Complete Frame 1 write in xterm
@@ -154,9 +155,9 @@ describe('TerminalWriteDispatcher (Production Engine Test)', () => {
     const frameCb1 = frameCallbacks.shift()!;
     frameCb1();
 
-    // Slice 2: Sent to xterm, capped to <= 64KB
+    // Slice 2: Sent to xterm, capped to <= 64K UTF-16 code units
     assert.strictEqual(writtenSlices.length, 2);
-    assert.ok(getUtf8ByteLength(writtenSlices[1]!) <= MAX_FRAME_WRITE_BYTES);
+    assert.ok(writtenSlices[1]!.length <= MAX_FRAME_WRITE_BYTES);
 
     // Complete Frame 2 write in xterm
     assert.ok(inFlightCb);

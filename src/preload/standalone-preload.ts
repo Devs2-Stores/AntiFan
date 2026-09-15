@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
+import { TERMINAL_CHANNELS } from '../shared/contracts';
+import type { TerminalDataPayload, TerminalTabPrefs } from '../shared/contracts';
 const api = {
   copyToClipboard: (text: string) => clipboard.writeText(text),
   readFromClipboard: () => clipboard.readText(),
@@ -8,7 +10,7 @@ const api = {
   getInitialState: () => ipcRenderer.invoke('antifan:sidebar:get-initial-state'),
   startTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:start', cwd),
   sendTerminalInput: (input: string) => ipcRenderer.invoke('antifan:terminal:input', input),
-  sendTerminalInputTo: (id: string, input: string) => ipcRenderer.invoke('antifan:terminal:input-session', { id, input }),
+  sendTerminalInputTo: (id: string, input: string) => ipcRenderer.send('antifan:terminal:input-session', { id, input }),
   restartTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:restart', cwd),
   killTerminal: () => ipcRenderer.invoke('antifan:terminal:kill'),
   resizeTerminal: (cols: number, rows: number) => ipcRenderer.invoke('antifan:terminal:resize', { cols, rows }),
@@ -27,6 +29,12 @@ const api = {
   adoptTabAffinity: (tabId: string, terminalId?: string) => ipcRenderer.invoke('antifan:terminal:adopt-tab', { tabId, terminalId }),
   removeTabAffinity: (tabId: string, terminalId?: string) => ipcRenderer.invoke('antifan:terminal:remove-tab', { tabId, terminalId }),
   getTerminalAffinity: (terminalId?: string) => ipcRenderer.invoke('antifan:terminal:get-affinity', terminalId),
+  // One round-trip for every tab's affinity: the per-id loop was N+1 IPC calls
+  // per tab-strip render and each generation-less lookup cost an O(E) scan.
+  getTerminalAffinities: () => ipcRenderer.invoke(TERMINAL_CHANNELS.GET_ALL_AFFINITIES),
+  sleepTerminal: (id: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, id),
+  wakeTerminal: (id: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.WAKE_SESSION, id),
+  setCategory: (id: string, category?: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.SET_CATEGORY, { id, category }),
   getTabs: () => ipcRenderer.invoke('antifan:tabs:get-list'),
   closeTerminal: (id: string) => ipcRenderer.invoke('antifan:terminal:close-session', id),
   listCapsules: () => ipcRenderer.invoke('antifan:capsule:list'),
@@ -35,6 +43,7 @@ const api = {
   switchCapsule: (id: string, sessionId?: string) => ipcRenderer.invoke('antifan:capsule:switch', { capsuleId: id, sessionId }),
   togglePanel: () => ipcRenderer.invoke('antifan:toolbar:toggle-sidebar'),
   setPanelWidth: (width: number) => ipcRenderer.invoke('antifan:sidebar:set-width', width),
+  setTerminalTabPrefs: (prefs: Partial<TerminalTabPrefs>) => ipcRenderer.invoke(TERMINAL_CHANNELS.SET_TAB_PREFS, prefs),
   setTerminalHeight: (height: number, finish: boolean = false) => ipcRenderer.invoke('antifan:terminal:set-height', { height, finish }),
   popoutTerminal: () => ipcRenderer.invoke('antifan:terminal:popout'),
   openNewTerminalWindow: (sessionId?: string) => ipcRenderer.invoke('antifan:terminal:new-window', { sessionId }),
@@ -58,7 +67,7 @@ const api = {
     ipcRenderer.invoke('antifan:terminal:sync-view', query),
   ackTerminalChunk: (payload: { rendererInstanceId: string; sessionId: string; generation: number; seq: number; role?: 'DOCK' | 'POPOUT' }) =>
     ipcRenderer.send('antifan:terminal:ack', payload),
-  onTerminalData: (cb: (data: { sessionId: string; data: string; seq: number; generation?: number }) => void) => { const h = (_e: unknown, d: { sessionId: string; data: string; seq: number; generation?: number }) => cb(d); ipcRenderer.on('antifan:terminal:data', h); return () => ipcRenderer.removeListener('antifan:terminal:data', h); },
+  onTerminalData: (cb: (data: TerminalDataPayload) => void) => { const h = (_e: unknown, d: TerminalDataPayload) => cb(d); ipcRenderer.on('antifan:terminal:data', h); return () => ipcRenderer.removeListener('antifan:terminal:data', h); },
   onTerminalSession: (cb: (state: unknown) => void) => { const h = (_e: unknown, d: unknown) => cb(d); ipcRenderer.on('antifan:terminal:session', h); return () => ipcRenderer.removeListener('antifan:terminal:session', h); },
   onTabsUpdated: (cb: (tabs: unknown[]) => void) => { const h = (_e: unknown, d: unknown) => cb(Array.isArray(d) ? d : []); ipcRenderer.on('antifan:tabs:updated', h); return () => ipcRenderer.removeListener('antifan:tabs:updated', h); },
 };
