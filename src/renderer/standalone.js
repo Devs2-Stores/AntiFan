@@ -484,10 +484,46 @@ function teardownSleepPreview() {
   sleepPreviewSessionId = '';
 }
 
+/**
+ * Turn a retained PTY capture into readable plain text.
+ *
+ * The capture is raw terminal output, so it is dense with escape sequences: SGR colour,
+ * line erase (`ESC[0K`), screen clear (`ESC[3J`), cursor moves, window titles. Rendering
+ * them verbatim is what produced a wall of `[0m[0K[?25l` in the preview. A slept tab is a
+ * FINISHED transcript, not a live terminal, so the honest treatment is to drop the control
+ * sequences and keep the text, rather than pretend to emulate them.
+ */
+function transcriptToPlainText(raw) {
+  if (typeof raw !== 'string' || !raw) return '';
+  let text = raw;
+  // OSC (window title, hyperlinks): ESC ] … terminated by BEL or ST.
+  text = text.replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, '');
+  // CSI (colour, erase, cursor): ESC [ params/intermediates then a final byte.
+  text = text.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
+  // Any remaining two-character escape (charset selection, keypad modes, …).
+  text = text.replace(/\u001b[@-Z\\-_]/g, '');
+  // Leftover C0 controls other than tab/newline, plus DEL.
+  text = text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+  // CRLF first, so the carriage-return pass below cannot mistake it for an overwrite.
+  text = text.replace(/\r\n/g, '\n');
+  // A bare CR is an in-place overwrite, and a terminal shows the last thing written to
+  // that line — so keep the last non-empty segment. A partial overwrite therefore shows
+  // the final write rather than a character-exact repaint: this is a transcript, not an
+  // emulator, and saying so is better than half-emulating it.
+  text = text.split('\n').map((line) => {
+    if (!line.includes('\r')) return line;
+    const written = line.split('\r').filter((part) => part.length > 0);
+    return written.length > 0 ? written[written.length - 1] : '';
+  }).join('\n');
+  // Trailing spaces, and the dead space a capture ends parked on, are noise in a
+  // read-only view.
+  return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function sleepPreviewText(session) {
-  return (session && typeof session.buffer === 'string' && session.buffer)
-    ? session.buffer
-    : '(Không có nội dung lưu lại)';
+  const raw = (session && typeof session.buffer === 'string') ? session.buffer : '';
+  const text = transcriptToPlainText(raw);
+  return text || '(Không có nội dung lưu lại)';
 }
 
 /**
@@ -510,20 +546,23 @@ function renderSleepPreview(session) {
   el.className = 'terminal-sleep-preview';
   el.setAttribute('data-session-id', session.id);
   el.tabIndex = 0;
-  el.title = 'Phiên đang ngủ — transcript được giữ lại. Gõ phím để đánh thức.';
+  el.title = 'Phiên đang ngủ. Transcript được giữ lại. Gõ phím để đánh thức.';
 
   const header = document.createElement('div');
   header.className = 'terminal-sleep-preview-header';
   const iconEl = document.createElement('span');
   iconEl.className = 'terminal-sleep-preview-icon';
-  iconEl.textContent = '💤';
+  iconEl.innerHTML = iconSvg(ICON_MOON, 12);
+  const badgeEl = document.createElement('span');
+  badgeEl.className = 'terminal-sleep-preview-badge';
+  badgeEl.textContent = 'Đang ngủ';
   const nameEl = document.createElement('span');
   nameEl.className = 'terminal-sleep-preview-name';
   nameEl.textContent = session.name || 'Terminal';
   const hintEl = document.createElement('span');
   hintEl.className = 'terminal-sleep-preview-hint';
-  hintEl.textContent = 'PTY đã giải phóng — gõ phím để đánh thức phiên này';
-  header.append(iconEl, nameEl, hintEl);
+  hintEl.textContent = 'PTY đã giải phóng. Gõ phím để đánh thức phiên này';
+  header.append(iconEl, badgeEl, nameEl, hintEl);
 
   const body = document.createElement('pre');
   body.className = 'terminal-sleep-preview-body';
@@ -1149,7 +1188,7 @@ function showDegradedBanner(viewState, sessionId) {
     banner = document.createElement('div');
     banner.className = 'terminal-degraded-banner';
     banner.style.cssText = 'position:absolute;top:0;left:0;right:0;background:#451a03;color:#fbbf24;border-bottom:1px solid #b45309;padding:6px 12px;font-size:12px;font-family:sans-serif;z-index:100;display:flex;align-items:center;justify-content:space-between;cursor:pointer;';
-    banner.innerHTML = '<span>⚠️ Terminal Display Out of Sync — Process is Active</span><button style="background:#b45309;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">Resync View</button>';
+    banner.innerHTML = '<span>⚠️ Terminal Display Out of Sync. Process is Active</span><button style="background:#b45309;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">Resync View</button>';
     banner.addEventListener('click', async (e) => {
       e.stopPropagation();
       await forceResyncPane(viewState, sessionId);
@@ -2083,6 +2122,7 @@ const ICON_PLUS = '<path d="M12 5v14"/><path d="M5 12h14"/>';
 const ICON_LAYERS = '<path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 14l9 5 9-5"/>';
 const ICON_SEARCH = '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>';
 const ICON_CLOSE = '<path d="M6 6l12 12"/><path d="M18 6 6 18"/>';
+const ICON_MOON = '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>';
 
 // The strip's header row: the search field takes the free width, and the two create
 // actions sit on its right, so the affordances read as one deliberate row instead of
@@ -3168,7 +3208,7 @@ function updateTabActivityUi(sessionId) {
   if (isSessionSleeping(sessionId)) {
     wrap.classList.remove('is-streaming', 'is-completed');
     if (iconEl) {
-      iconEl.innerHTML = `<span class="terminal-tab-sleep-icon" title="Phiên đang ngủ — gõ phím để đánh thức">💤</span>`;
+      iconEl.innerHTML = `<span class="terminal-tab-sleep-icon" title="Phiên đang ngủ. Gõ phím để đánh thức" aria-label="Đang ngủ">${iconSvg(ICON_MOON, 11)}</span>`;
     }
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon sleeping';
@@ -3393,6 +3433,9 @@ function ensureCategoryHeader(group) {
     // splices the session list, so a header still cannot corrupt the tab order —
     // only group membership changes.
     header.draggable = false;
+    // A `role="button"` a keyboard cannot reach is a lie, so the header takes focus and
+    // answers Enter/Space exactly the way it answers a click.
+    header.tabIndex = 0;
 
     const toggle = document.createElement('span');
     toggle.className = 'terminal-tab-category-toggle';
@@ -3433,6 +3476,14 @@ function ensureCategoryHeader(group) {
     header.append(count);
     header.addEventListener('click', (e) => {
       e.stopPropagation();
+      toggleCategoryCollapsed(group.key);
+    });
+    // Only when the header itself holds focus: the rename control lives inside it, and a
+    // bubbled Enter there must open the rename, not also collapse the group underneath.
+    header.addEventListener('keydown', (e) => {
+      if (e.target !== header) return;
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
       toggleCategoryCollapsed(group.key);
     });
     header.addEventListener('dragstart', (e) => e.preventDefault());

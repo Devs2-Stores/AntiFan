@@ -328,7 +328,7 @@ describe('Renderer sleeping terminal sessions', () => {
 
     const wrap = wrapFor(harness, 'sl1');
     assert.strictEqual(wrap.classList.contains('is-sleeping'), true);
-    assert.match(wrap.querySelector('.terminal-tab-icon')?.innerHTML ?? '', /💤/);
+    assert.match(wrap.querySelector('.terminal-tab-icon')?.innerHTML ?? '', /terminal-tab-sleep-icon/);
     assert.strictEqual(
       wrap.querySelector('.terminal-tab-status-beacon')?.className,
       'terminal-tab-status-beacon sleeping',
@@ -543,6 +543,112 @@ describe('Renderer tab context-menu actions', () => {
     await flush();
     assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['c1', undefined]);
     assert.strictEqual(wrapFor(harness, 'c1').querySelector('.terminal-tab-category-chip'), null);
+  });
+});
+
+describe('Renderer sleep preview: a retained capture renders as text, not as escape codes', () => {
+  /**
+   * The retained buffer is raw PTY output. Rendering it verbatim is what produced a wall
+   * of `[0m[0K[?25l` in the preview, so this pins the treatment: the control sequences go,
+   * and the words the user actually saw stay.
+   */
+  const ansiCapture = [
+    '\u001b[0m\u001b[0K\u001b[?25l',
+    '\u001b[?25hPS E:\\Work\\customizes\\Seahorse2>\u001b[0K\u001b[?25l',
+    '\u001b]0;window title\u0007npm run build',
+    '\u001b[0K',
+    '\u001b[3Jdone in 617ms',
+  ].join('\r\n');
+
+  const previewText = (harness: StandaloneHarness): string =>
+    harness.sleepPreview()?.querySelector('.terminal-sleep-preview-body')?.textContent ?? '';
+
+  it('drops SGR, erase, cursor and window-title sequences while keeping the text', () => {
+    const harness = loadStandalone();
+    const list = [{ id: 'sl1', name: 'Sleepy', state: 'sleeping', buffer: ansiCapture }];
+    seed(harness, list, 'sl1');
+    harness.renderTabs();
+    harness.syncTerminalPool(list, 'sl1');
+
+    const body = previewText(harness);
+    assert.ok(body.includes('PS E:\\Work\\customizes\\Seahorse2>'), 'the prompt line survives');
+    assert.ok(body.includes('npm run build'), 'typed text survives');
+    assert.ok(body.includes('done in 617ms'), 'erase-to-end-of-line must not eat the text');
+    assert.ok(!body.includes('\u001b'), 'no escape byte may reach the DOM');
+    assert.ok(!/\[0m|\[0K|\[\?25|\[3J|\[1G/.test(body), 'no CSI sequence may be shown literally');
+    assert.ok(!body.includes('window title'), 'an OSC window title is chrome, not transcript');
+  });
+
+  it('resolves a carriage-return overwrite to the last write on that line', () => {
+    const harness = loadStandalone();
+    const list = [{ id: 'sl2', name: 'Progress', state: 'sleeping', buffer: 'progress 10%\rprogress 100%\n' }];
+    seed(harness, list, 'sl2');
+    harness.renderTabs();
+    harness.syncTerminalPool(list, 'sl2');
+
+    assert.strictEqual(previewText(harness).trim(), 'progress 100%');
+  });
+
+  it('explains an empty capture instead of rendering a blank pane', () => {
+    const harness = loadStandalone();
+    const list = [{ id: 'sl3', name: 'Blank', state: 'sleeping', buffer: '\u001b[0m\u001b[0K\u001b[?25l' }];
+    seed(harness, list, 'sl3');
+    harness.renderTabs();
+    harness.syncTerminalPool(list, 'sl3');
+
+    assert.match(previewText(harness), /Không có nội dung lưu lại/);
+  });
+});
+
+describe('Renderer group header: reachable and operable from the keyboard', () => {
+  it('takes focus and answers Enter and Space the way it answers a click', async () => {
+    const harness = loadStandalone({
+      initialState: { terminalTabPrefs: { layout: 'sidebar', sidebarWidth: 240 } },
+    });
+    // The boot payload is applied asynchronously, so the render below must wait for it or
+    // it runs under the default layout and no group header exists to test.
+    await flush();
+    const list = [
+      { id: 'k1', name: 'Build', category: 'Build', state: 'running' },
+      { id: 'k2', name: 'Deploy', category: 'Deploy', state: 'running' },
+    ];
+    seed(harness, list, 'k1');
+    harness.renderTabs();
+
+    const header = headers(harness)[0];
+    assert.ok(header, 'the Build header must render');
+    assert.strictEqual(header.getAttribute('role'), 'button');
+    assert.strictEqual(header.tabIndex, 0, 'a role="button" nothing can Tab to is unusable');
+
+    header.dispatch('keydown', { key: 'Enter', target: header });
+    await flush();
+    assert.strictEqual(header.getAttribute('aria-expanded'), 'false', 'Enter collapses');
+    assert.strictEqual(wrapFor(harness, 'k1').classList.contains('is-category-collapsed'), true);
+
+    header.dispatch('keydown', { key: ' ', target: header });
+    await flush();
+    assert.strictEqual(header.getAttribute('aria-expanded'), 'true', 'Space expands again');
+  });
+
+  it('does not collapse when Enter was aimed at the rename control inside it', async () => {
+    const harness = loadStandalone({
+      initialState: { terminalTabPrefs: { layout: 'sidebar', sidebarWidth: 240 } },
+    });
+    await flush();
+    const list = [{ id: 'r1', name: 'Build', category: 'Build', state: 'running' }];
+    seed(harness, list, 'r1');
+    harness.renderTabs();
+
+    const header = headers(harness)[0];
+    assert.ok(header, 'the Build header must render');
+    const rename = header.querySelector('.terminal-tab-category-rename');
+    assert.ok(rename, 'the rename control must exist');
+    // The keydown still bubbles to the header, but a bubbled Enter belongs to the control
+    // that has focus, not to the collapse underneath it.
+    rename.dispatch('keydown', { key: 'Enter', target: rename });
+    await flush();
+
+    assert.strictEqual(header.getAttribute('aria-expanded'), 'true', 'the group must stay open');
   });
 });
 

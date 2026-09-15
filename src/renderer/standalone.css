@@ -403,7 +403,11 @@ button {
   border: 1px solid rgba(56, 189, 248, 0.25);
   margin-left: 4px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  /* Explicit properties, never `all`: a shorthand transition would also animate layout
+     properties the moment one is added here, which is how hover states start to jitter. */
+  transition: background-color 0.15s cubic-bezier(0.25, 1, 0.5, 1),
+    border-color 0.15s cubic-bezier(0.25, 1, 0.5, 1),
+    color 0.15s cubic-bezier(0.25, 1, 0.5, 1);
 }
 .terminal-tab-affinity-badge:hover {
   background: rgba(56, 189, 248, 0.25);
@@ -411,7 +415,19 @@ button {
   color: #e0f2fe;
 }
 
+/* An unbound tab is the DEFAULT state, so it has to read as absence, not as an alert.
+   The amber pill was the loudest thing in the sidebar while saying "nothing here", and it
+   repeated on every row, which is what made the strip look cluttered. Unbound is now
+   muted and traceless; the amber appears on hover, where it is an offer rather than
+   noise. Bound badges stay loud, so attention lands on the tabs that carry something. */
 .terminal-tab-affinity-badge.unbound {
+  background: transparent;
+  color: #64748b;
+  border-color: transparent;
+}
+
+.terminal-tab-affinity-badge.unbound:hover,
+.terminal-tab-affinity-badge.unbound:focus-visible {
   background: rgba(245, 158, 11, 0.12);
   color: #fbbf24;
   border-color: rgba(245, 158, 11, 0.3);
@@ -1164,8 +1180,12 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  color: #8fa0b5;
   line-height: 1;
+}
+
+.terminal-tab-sleep-icon svg {
+  display: block;
 }
 
 .terminal-tab-status-beacon.sleeping {
@@ -1182,54 +1202,84 @@ button {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #070b11;
+  /* A slept tab is inert, so the surface is washed out against a live terminal: one
+     glance has to say "nothing is running here". */
+  background: linear-gradient(180deg, #0a0f17 0%, #070b11 160px);
   outline: none;
   cursor: text;
 }
 
 .terminal-sleep-preview:focus-visible {
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.45);
+  box-shadow: inset 0 0 0 2px rgba(56, 189, 248, 0.5);
 }
 
 .terminal-sleep-preview-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex: 0 0 auto;
-  padding: 4px 10px;
-  font-size: 10.5px;
+  padding: 8px 12px;
+  font-size: 11px;
   color: #94a3b8;
-  background: rgba(15, 23, 42, 0.9);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(15, 23, 42, 0.72);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .terminal-sleep-preview-icon {
-  font-size: 11px;
+  display: flex;
+  flex: 0 0 auto;
+  color: #94a3b8;
+}
+
+/* State as a pill rather than as an emoji: it reads at a glance, survives a font change,
+   and cannot be mistaken for content. */
+.terminal-sleep-preview-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
 }
 
 .terminal-sleep-preview-name {
   font-weight: 600;
-  color: #cbd5e1;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .terminal-sleep-preview-hint {
   margin-left: auto;
-  font-style: italic;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #64748b;
 }
 
 .terminal-sleep-preview-body {
   flex: 1 1 auto;
   min-height: 0;
+  /* A transcript is read like prose, so it gets a readable measure instead of running
+     the full width of a maximised window. */
+  max-width: 110ch;
   margin: 0;
-  padding: 8px 10px;
+  padding: 16px 16px 32px;
   overflow: auto;
   font-family: 'Cascadia Mono', Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.35;
-  color: #93a4b8;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #a8b6c8;
   white-space: pre-wrap;
   word-break: break-word;
+  tab-size: 4;
 }
 
 /* SIDEBAR TAB LAYOUT
@@ -1350,14 +1400,17 @@ button {
 .standalone.tabs-sidebar .terminal-tab-affinity-badge {
   order: 2;
   margin-left: 4px;
+  /* Narrower than the horizontal slot: a 78px pill on a 220px sidebar spent a third of
+     the row restating that nothing is bound. */
+  width: 62px;
 }
 
 .standalone.tabs-sidebar .terminal-tab-category-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px 2px;
-  margin-top: 4px;
+  gap: 8px;
+  padding: 6px 8px 4px;
+  margin-top: 8px;
   font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
@@ -1366,6 +1419,9 @@ button {
   cursor: pointer;
   user-select: none;
   flex: 0 0 auto;
+  border-radius: 6px;
+  transition: color 0.15s cubic-bezier(0.25, 1, 0.5, 1),
+    background-color 0.15s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .standalone.tabs-sidebar .terminal-tab-category-header:first-child {
@@ -1374,6 +1430,13 @@ button {
 
 .standalone.tabs-sidebar .terminal-tab-category-header:hover {
   color: #94a3b8;
+}
+
+/* The header is a real control, so it must show where the keyboard is. */
+.standalone.tabs-sidebar .terminal-tab-category-header:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.7);
+  outline-offset: -2px;
+  color: #cbd5e1;
 }
 
 /* A tab dragged over a group header. The header is a category drop target, so the
