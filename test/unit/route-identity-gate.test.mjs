@@ -366,3 +366,115 @@ test('a route-refused case is tallied ROUTE_REFUSED and never counts as a pass',
   assert.match(hub, /0 PASS \/ 0 FAIL \/ 0 INCONCLUSIVE/);
   assert.match(hub, /ROUTE_REFUSED/);
 });
+
+test('a case whose route was never established is not adjudicable', () => {
+  // Measured shape: a run published `{PASS: 10, FAIL: 17, INCONCLUSIVE: 18}` over 45 cases
+  // of which 42 carried no route identity at all, every one of them with `expectedUrl: null`
+  // and no marker code. `hasMissingExpectation` only fires on an explicit marker, so these
+  // cases reached the tally looking ordinary and took 7 PASS and 17 FAIL with them.
+  const index = buildVerdictIndex({
+    runId: 'run-identity-never-established',
+    pageResults: {
+      2: {
+        slug: 'page-02-brands',
+        name: 'DANH MỤC THƯƠNG HIỆU',
+        viewports: {
+          '1440x900': {
+            overall: 'PASS',
+            status: 'COMPLETED',
+            causeCode: 'STRUCTURAL_PARITY_MISMATCH',
+            visual: { verdict: 'FAIL', mismatchPercentage: 12.5 },
+            capture: { expectedUrl: null },
+          },
+        },
+      },
+    },
+  });
+  assert.equal(index.tally.PASS, 0, 'nothing recorded which page was measured, so it is not a match');
+  assert.equal(index.tally.FAIL, 0, 'and it is not a mismatch either');
+  assert.equal(index.cases[0].verdict, 'INCONCLUSIVE');
+  assert.equal(index.cases[0].causeCode, 'ROUTE_IDENTITY_MISSING');
+  // The observed numbers survive the withholding: the case is unadjudicable, not erased,
+  // so a reader can still see what was measured and why it could not be judged.
+  assert.equal(index.cases[0].mismatchPercentage, 12.5);
+  assert.equal(index.cases[0].visual, 'FAIL');
+});
+
+test('a capture asserting MATCH establishes the route without a page-level identity', () => {
+  // The capture port records identity in `routeAssertion` and narrows its status to
+  // 'MATCH' or 'URL_EXPECTATION_MISSING' (visual-capture.ts:991). A run that leans on that
+  // representation must keep its verdict; only a case naming no route at all is withheld.
+  const index = buildVerdictIndex({
+    runId: 'run-capture-asserted-match',
+    pageResults: {
+      6: {
+        slug: 'page-06-cart',
+        viewports: {
+          '1440x900': {
+            overall: 'PASS',
+            status: 'COMPLETED',
+            capture: {
+              expectedUrl: 'https://example.test/cart',
+              routeAssertion: {
+                status: 'MATCH',
+                requestedUrl: 'https://example.test/cart',
+                observedUrl: 'https://example.test/cart',
+                redirectChain: [],
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  assert.equal(index.cases[0].verdict, 'PASS');
+  assert.equal(index.cases[0].causeCode, 'UNCLASSIFIED');
+  assert.equal(index.cases[0].routeIdentity.observedUrl, 'https://example.test/cart');
+  assert.equal(index.tally.PASS, 1);
+});
+
+/**
+ * An identity object only establishes the route when it attests a match.
+ *
+ * Both shapes below are TRUTHY, so a resolver that tested `if (!identity)`
+ * adjudicated them as ordinary cases — one of them even though it recorded an
+ * explicit path mismatch, minting PASS with exit 0 for a route that did not
+ * match. Only `valid: true` with no recorded mismatch may be adjudicated.
+ */
+function indexWithRouteIdentity(routeIdentity) {
+  return buildVerdictIndex({
+    pageResults: {
+      6: {
+        slug: 'page-06-cart',
+        name: 'CART',
+        routeIdentity: null,
+        viewports: {
+          '1440x900': {
+            overall: 'PASS',
+            capture: { expectedUrl: null },
+            routeIdentity,
+          },
+        },
+      },
+    },
+  });
+}
+
+test('an identity recording a path mismatch is never adjudicated', () => {
+  const index = indexWithRouteIdentity({
+    requestedUrl: 'https://example.test/cart',
+    observedUrl: 'https://example.test/',
+    valid: false,
+    mismatch: { code: 'URL_PATH_MISMATCH' },
+  });
+  assert.equal(index.cases[0].verdict, 'INCONCLUSIVE');
+  assert.equal(index.cases[0].causeCode, 'ROUTE_IDENTITY_MISSING');
+  assert.equal(index.tally.PASS, 0, "an unestablished route never enters the pass tally");
+});
+
+test('an empty identity object does not establish a route', () => {
+  const index = indexWithRouteIdentity({});
+  assert.equal(index.cases[0].verdict, 'INCONCLUSIVE');
+  assert.equal(index.cases[0].causeCode, 'ROUTE_IDENTITY_MISSING');
+  assert.equal(index.tally.PASS, 0, "an unestablished route never enters the pass tally");
+});

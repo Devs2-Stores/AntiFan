@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { openCore } from './index.js';
+import { DatabaseSync } from 'node:sqlite';
+import { openCore, type Core } from './index.js';
 
 function fixtureReports() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-fixture-'));
@@ -33,6 +34,59 @@ function fixtureReports() {
     JSON.stringify({ claimId: 'c2', unitId: 'u-test', statement: 'theme uses settings.html for config', kind: 'THEME', status: 'OBSERVED', extractorVersion: 't', context: { platform: 'haravan' }, evidenceRefs: [{ entryId: 'e1', revision: 'abc', path: 'apps\\demo\\package.json', anchor: 'settings' }] }),
     JSON.stringify({ claimId: 'c3', unitId: 'u-test', statement: 'secret credential value', kind: 'SECRET', status: 'OBSERVED', extractorVersion: 't', context: { platform: 'haravan' }, evidenceRefs: [{ entryId: 'e2', revision: 'def', path: 'apps\\demo\\secret.env', anchor: 'value' }] }),
   ].join('\n') + '\n');
+  return dir;
+}
+
+// Multi-platform fixture: haravan + sapo + untagged claims sharing the terms
+// "settings schema", per-platform conflicts resolvable via positions->skills,
+// and a stale-only platform (shopify) for gap classification.
+function fixturePlatforms() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-plat-'));
+  for (const uid of ['u-har', 'u-sapo', 'u-gen', 'u-old']) {
+    fs.mkdirSync(path.join(dir, 'units', uid), { recursive: true });
+  }
+  fs.writeFileSync(path.join(dir, 'project-register.json'), JSON.stringify({
+    runId: 't', units: [
+      { unitId: 'u-har', rootId: 'work-root', relPath: 'themes\\har', kind: 'package', disposition: 'ELIGIBLE', parentId: null, markers: ['theme-project'] },
+      { unitId: 'u-sapo', rootId: 'work-root', relPath: 'themes\\sapo', kind: 'package', disposition: 'ELIGIBLE', parentId: null, markers: ['theme-project'] },
+      { unitId: 'u-gen', rootId: 'work-root', relPath: 'docs\\gen', kind: 'package', disposition: 'ELIGIBLE', parentId: null, markers: [] },
+      { unitId: 'u-old', rootId: 'work-root', relPath: 'themes\\old', kind: 'package', disposition: 'ELIGIBLE', parentId: null, markers: ['theme-project'] },
+    ],
+  }));
+  fs.writeFileSync(path.join(dir, 'skills-register.json'), JSON.stringify({ skills: [
+    { skillId: 'sk-har', name: 'haravan-theme', namespace: 'haravan-theme', rootId: 'work-root', location: 'haravan-theme', akDisposition: 'ELIGIBLE', analysisState: 'DONE', unitId: 'u-har' },
+    { skillId: 'sk-sapo', name: 'sapo-theme', namespace: 'sapo-theme', rootId: 'work-root', location: 'sapo-theme', akDisposition: 'ELIGIBLE', analysisState: 'DONE', unitId: 'u-sapo' },
+  ] }));
+  fs.writeFileSync(path.join(dir, 'conflicts.jsonl'), [
+    JSON.stringify({ id: 'cf-har', kind: 'version-divergence', subject: 'haravan settings schema', positions: [{ skillId: 'sk-har' }], state: 'UNRESOLVED', note: 'haravan conflict' }),
+    JSON.stringify({ id: 'cf-sapo', kind: 'version-divergence', subject: 'sapo widget', positions: [{ skillId: 'sk-sapo' }], state: 'UNRESOLVED', note: 'sapo conflict' }),
+    JSON.stringify({ id: 'cf-global', kind: 'version-divergence', subject: 'unscoped thing', positions: [], state: 'UNRESOLVED', note: 'global conflict' }),
+  ].join('\n') + '\n');
+  fs.writeFileSync(path.join(dir, 'decisions.jsonl'), [
+    JSON.stringify({ decisionId: 'd-sapo', unitId: 'u-sapo', statement: 'sapo settings schema decision', platform: 'sapo' }),
+    JSON.stringify({ decisionId: 'd-har', unitId: 'u-har', statement: 'haravan settings schema decision' }),
+  ].join('\n') + '\n');
+  const ledger = (uid: string) => fs.writeFileSync(path.join(dir, 'units', uid, 'content-ledger.jsonl'),
+    JSON.stringify({ entryId: `e-${uid}`, relPath: `x\\${uid}.json`, path: `E:\\x\\${uid}.json`, size: 1, mtime: '2026-01-01T00:00:00Z', sha256: 'h', disposition: 'ANALYZED_WITH_CLAIMS', observedAt: '2026-01-01T00:00:00Z' }) + '\n');
+  for (const uid of ['u-har', 'u-sapo', 'u-gen', 'u-old']) ledger(uid);
+  const claim = (cid: string, platform: string | null, stmt: string, createdAt?: string) =>
+    JSON.stringify({
+      claimId: cid, statement: stmt, kind: 'RULE', status: 'OBSERVED', extractorVersion: 't',
+      context: platform ? { platform } : {}, createdAt,
+      evidenceRefs: [{ entryId: `e-UNIT`, revision: 'r1', path: 'p', anchor: 'a' }],
+    });
+  const writeClaims = (uid: string, rows: string[]) =>
+    fs.writeFileSync(path.join(dir, 'units', uid, 'claims.jsonl'), rows.map((r) => r.replace('e-UNIT', `e-${uid}`)).join('\n') + '\n');
+  writeClaims('u-har', [
+    claim('c-har-1', 'haravan', 'haravan theme settings schema rule'),
+    claim('c-har-2', 'haravan', 'haravan settings schema liquid rule'),
+  ]);
+  writeClaims('u-sapo', [
+    claim('c-sapo-1', 'sapo', 'sapo theme settings schema rule'),
+    claim('c-sapo-2', 'sapo', 'sapo settings schema card rule'),
+  ]);
+  writeClaims('u-gen', [claim('c-gen-1', null, 'generic settings schema note')]);
+  writeClaims('u-old', [claim('c-old-1', 'shopify', 'shopify settings schema ancient rule', '2020-01-01T00:00:00Z')]);
   return dir;
 }
 
@@ -112,5 +166,433 @@ test('receipt binds evidence revisions', () => {
   const r = core.receipt({ task: 'demo', packId: pack.packId, recommendation: 'use settings.html' });
   assert.ok(r.receiptId.startsWith('rcpt-'));
   assert.ok(Array.isArray(r.evidenceRevisions));
+  core.close();
+});
+
+// ---- Phase 2: retrieval integrity -------------------------------------------
+
+test('platform policy excludes untagged and wrong-platform claims; includeGlobal opts in', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const sapo = core.query({ text: 'settings schema', platform: 'sapo' });
+  // Positive control first: a broken search returning [] must FAIL here.
+  assert.ok(sapo.length > 0, 'positive control: sapo query returns sapo claims');
+  assert.ok(sapo.every((c) => c.contextPlatform === 'sapo'), 'no haravan/untagged claims under sapo filter');
+  const withGlobal = core.query({ text: 'settings schema', platform: 'sapo', includeGlobal: true });
+  assert.ok(withGlobal.some((c) => c.contextPlatform === 'sapo'), 'positive control: includeGlobal keeps sapo claims');
+  assert.ok(withGlobal.some((c) => c.contextPlatform === null), 'includeGlobal admits untagged claims');
+  assert.equal(withGlobal.filter((c) => c.contextPlatform === 'haravan').length, 0, 'includeGlobal still excludes wrong platform');
+  core.close();
+});
+
+test('contextPack dedupes on (taskHash, platform, sessionId)', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const p1 = core.contextPack({ task: 'settings schema', platform: 'sapo', sessionId: 's1' });
+  assert.ok(p1.claims.length > 0, 'positive control: pack is non-empty');
+  const packsAfterFirst = core.stats().packs;
+  const p2 = core.contextPack({ task: 'settings schema', platform: 'sapo', sessionId: 's1' });
+  assert.equal(p2.packId, p1.packId, 'same identity returns same packId');
+  assert.equal(core.stats().packs, packsAfterFirst, 'repeat call adds no pack row');
+  const p3 = core.contextPack({ task: 'settings schema', platform: 'sapo', sessionId: 's2' });
+  assert.notEqual(p3.packId, p1.packId, 'different session produces a different pack');
+  core.close();
+});
+
+test('abstain gate: <2 quality claims yields UNKNOWN + reasonCode; enough evidence does not abstain', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  // 'card' matches exactly one sapo claim -> below the quality floor.
+  const thin = core.contextPackV2({ task: 'card', platform: 'sapo' });
+  assert.ok(thin.claims.length > 0, 'positive control: the thin query still returns its claim');
+  assert.equal(thin.confidence, 'UNKNOWN');
+  assert.equal(thin.reasonCode, 'INSUFFICIENT_PLATFORM_EVIDENCE');
+  assert.ok(thin.abstained);
+  // An abstention must not ship a confident-looking composite beside it.
+  assert.equal(thin.confidenceScore, null, 'an abstained pack publishes no score');
+  const rec = core.recommend({ task: 'card', platform: 'sapo' });
+  assert.ok(rec.abstained, 'recommend abstains under the same gate');
+  assert.equal(rec.reasonCode, 'INSUFFICIENT_PLATFORM_EVIDENCE');
+  // Positive control: two quality sapo claims -> no abstention.
+  const rich = core.contextPackV2({ task: 'settings schema', platform: 'sapo' });
+  assert.ok(rich.qualityClaims >= 2, 'positive control: enough quality claims');
+  assert.notEqual(rich.confidence, 'UNKNOWN');
+  assert.equal(rich.reasonCode, null);
+  core.close();
+});
+
+test('unresolved conflict lowers confidence; resolving restores it', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const before = core.contextPackV2({ task: 'settings schema', platform: 'sapo' });
+  assert.ok(before.conflicts.some((c) => c.id === 'cf-sapo'), 'positive control: sapo conflict is in scope');
+  core.resolveConflict({ id: 'cf-sapo', classification: 'GENERAL_RULE' });
+  const after = core.contextPackV2({ task: 'settings schema', platform: 'sapo' });
+  const beforeScore = before.confidenceScore;
+  const afterScore = after.confidenceScore;
+  // An abstained pack carries no score, so the comparison is only meaningful
+  // once both packs are proven to have answered.
+  assert.ok(
+    typeof beforeScore === 'number' && typeof afterScore === 'number',
+    'neither pack abstained, so both carry a score',
+  );
+  assert.ok(afterScore > beforeScore, 'resolving the conflict raises the score');
+  assert.equal(after.conflicts.filter((c) => c.id === 'cf-sapo').length, 0, 'resolved conflict leaves scope');
+  core.close();
+});
+
+test('pack conflicts are platform-scoped and unit-scoped', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const pack = core.contextPack({ task: 'settings schema', platform: 'sapo' });
+  assert.ok(pack.conflicts.some((c) => c.id === 'cf-sapo'), 'positive control: sapo conflict present');
+  const ids = pack.conflicts.map((c) => c.id);
+  assert.ok(!ids.includes('cf-har'), 'haravan conflict excluded');
+  assert.ok(!ids.includes('cf-global'), 'untagged conflict excluded by default');
+  const scoped = core.contextPack({ task: 'settings schema', platform: 'sapo', unitIds: ['u-har'] });
+  assert.ok(scoped.conflicts.some((c) => c.id === 'cf-har'), 'explicit unitIds widen conflict scope');
+  core.close();
+});
+
+test('importScout scopes conflicts via positions->skills->unit and backfills platform', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const pack = core.contextPack({ task: 'settings schema', platform: 'sapo' });
+  const sapoConflict = pack.conflicts.find((c) => c.id === 'cf-sapo') as { unitId?: string; platform?: string } | undefined;
+  assert.ok(sapoConflict, 'positive control: cf-sapo present');
+  assert.equal(sapoConflict.unitId, 'u-sapo', 'unitId derived from positions skillId');
+  assert.equal(sapoConflict.platform, 'sapo', 'platform backfilled from unit claims');
+  // cf-global has no positions and no platform keyword: stays untagged, excluded.
+  assert.equal(pack.conflicts.filter((c) => c.id === 'cf-global').length, 0, 'underivable conflict stays untagged and excluded');
+  core.close();
+});
+
+test('findSimilar applies platform policy to all six collections', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  core.ingestOutcome({ task: 'sapo settings schema fix', outcome: 'worked', platform: 'sapo' });
+  core.ingestOutcome({ task: 'haravan settings schema fix', outcome: 'worked', platform: 'haravan' });
+  core.recordAntiPattern({ name: 'sapo settings schema pitfall', affectedPlatform: 'sapo' });
+  core.recordAntiPattern({ name: 'haravan settings schema pitfall', affectedPlatform: 'haravan' });
+  core.recordWorkaround({ problem: 'sapo settings schema issue', platform: 'sapo' });
+  core.recordWorkaround({ problem: 'haravan settings schema issue', platform: 'haravan' });
+  core.recordFixPattern({ before: 'sapo settings schema bad', platform: 'sapo' });
+  core.recordFixPattern({ before: 'haravan settings schema bad', platform: 'haravan' });
+  const sim = core.findSimilar({ task: 'settings schema', platform: 'sapo' });
+  const cols: Array<[string, Array<Record<string, unknown>>]> = [
+    ['claims', sim.claims], ['cases', sim.cases], ['decisions', sim.decisions],
+    ['antiPatterns', sim.antiPatterns], ['workarounds', sim.workarounds], ['fixPatterns', sim.fixPatterns],
+  ];
+  for (const [name, rows] of cols) {
+    assert.ok(rows.length > 0, `positive control: ${name} returns sapo rows`);
+    for (const r of rows) {
+      const p = (r.contextPlatform ?? r.affectedPlatform ?? r.platform) as string | null;
+      assert.equal(p, 'sapo', `${name} leaked a non-sapo row`);
+    }
+  }
+  core.close();
+});
+
+test('content policy holds on findSimilar, not only query', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+  // Positive controls: while the artifact is ALLOWED the claim is reachable on
+  // both paths, so the assertions below cannot pass by returning nothing.
+  assert.ok(core.query({ text: 'credential' }).some((c) => c.claimId === 'c3'), 'positive control: query reaches c3');
+  assert.ok(
+    core.findSimilar({ task: 'credential' }).claims.some((c) => String(c.claimId) === 'c3'),
+    'positive control: findSimilar reaches c3',
+  );
+  const raw = new DatabaseSync(dbPath);
+  try {
+    raw.prepare("UPDATE artifacts SET contentPolicy = 'BLOCKED' WHERE entryId = 'e2'").run();
+  } finally { raw.close(); }
+  assert.equal(core.query({ text: 'credential' }).filter((c) => c.claimId === 'c3').length, 0, 'query excludes BLOCKED-artifact claims');
+  // findSimilar feeds contextPackV2/receiptV2 and, through the bridge, every
+  // prompt: a second retrieval path that skips the policy is a data-exposure path.
+  assert.equal(
+    core.findSimilar({ task: 'credential' }).claims.filter((c) => String(c.claimId) === 'c3').length, 0,
+    'findSimilar applies the same eligible-content policy as query',
+  );
+  core.close();
+});
+
+test('health-surface evaluation records nothing; a real gate run still records', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+  const counts = () => {
+    const handle = new DatabaseSync(dbPath);
+    try {
+      const rowFor = (sql: string) => {
+        const row = handle.prepare(sql).get() as { n: number };
+        return row.n;
+      };
+      return { gates: rowFor('SELECT COUNT(*) AS n FROM phase_gates'), audits: rowFor('SELECT COUNT(*) AS n FROM corpus_audit') };
+    } finally { handle.close(); }
+  };
+  const before = counts();
+  core.corpusAudit({ record: false });
+  core.checkPhaseGate('health-surface', 'coverage', { record: false });
+  core.checkPhaseGate('health-surface', 'evidence', { record: false });
+  assert.deepEqual(counts(), before, 'a read-shaped health evaluation leaves the store unchanged');
+  // The recording form is what a real gate run uses, and it still persists.
+  core.corpusAudit();
+  core.checkPhaseGate('phase-01', 'coverage');
+  const after = counts();
+  assert.equal(after.audits, before.audits + 1, 'a recorded audit appends one row');
+  assert.equal(after.gates, before.gates + 1, 'a recorded gate check appends one row');
+  core.close();
+});
+
+test('knowledgeGaps distinguishes never/stale/conflicted per platform', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const gaps = core.knowledgeGaps({ staleDays: 90 });
+  const byP: Record<string, { kind: string }> = {};
+  for (const g of gaps.gaps) byP[g.platform] = g;
+  assert.equal(byP['sapo'].kind, 'CONFLICTED', 'sapo: fresh claims + unresolved conflict');
+  assert.equal(byP['shopify'].kind, 'STALE', 'shopify: claims exist but all old');
+  core.recordPlatformSemantic({ platform: 'magento', semanticRole: 'x' });
+  const gaps2 = core.knowledgeGaps({ staleDays: 90 });
+  const magento = gaps2.gaps.find((g) => g.platform === 'magento');
+  assert.equal(magento?.kind, 'NO_EVIDENCE', 'magento: known platform, no claims');
+  core.resolveConflict({ id: 'cf-sapo', classification: 'GENERAL_RULE' });
+  const gaps3 = core.knowledgeGaps({ staleDays: 90 });
+  assert.equal(gaps3.gaps.find((g) => g.platform === 'sapo')?.kind, 'NONE', 'sapo covered once conflict resolved');
+  core.close();
+});
+
+test('populated core.db: baseline non-empty, migration v7, isolation, perf bound', { timeout: 300000 }, () => {
+  const src = path.resolve(__dirname, '..', '..', '..', '.super-core', 'core.db');
+  assert.ok(fs.existsSync(src), `populated core.db required at ${src}`);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-real-'));
+  const dst = path.join(dir, 'core.db');
+  for (const suffix of ['', '-wal', '-shm']) {
+    if (fs.existsSync(src + suffix)) fs.copyFileSync(src + suffix, dst + suffix);
+  }
+  const core = openCore(dst); // migration 5->6 runs on the COPY, never the source
+  try {
+    const stats = core.stats();
+    assert.ok(stats.claims >= 20000, `baseline: claims ${stats.claims} >= 20000`);
+    const raw = new DatabaseSync(dst);
+    const haravanCount = (raw.prepare("SELECT COUNT(*) AS n FROM claims WHERE contextPlatform = 'haravan'").get() as { n: number }).n;
+    assert.ok(haravanCount >= 13000, `baseline: haravan claims ${haravanCount} >= 13000`);
+    const version = (raw.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value;
+    assert.equal(version, '7', 'migration to schema v7 ran on populated DB');
+    const conflictCols = raw.prepare('PRAGMA table_info(conflicts)').all().map((c) => (c as { name: string }).name);
+    assert.ok(conflictCols.includes('platform') && conflictCols.includes('unitId'), 'conflicts gained scope columns');
+    const regressionCols = raw.prepare('PRAGMA table_info(regressions)').all().map((c) => (c as { name: string }).name);
+    assert.ok(regressionCols.includes('checksJson') && regressionCols.includes('replayedAt'), 'regressions gained replay columns');
+    raw.close();
+    const sapo = core.query({ platform: 'sapo', limit: 200 });
+    assert.ok(sapo.length > 0, 'positive control: sapo claims exist on real DB');
+    assert.ok(sapo.every((c) => c.contextPlatform === 'sapo'), 'no cross-platform or untagged leak on real DB');
+    const haravanQ = core.query({ platform: 'haravan', limit: 200 });
+    assert.ok(haravanQ.length >= 100, 'positive control: haravan recall saturated');
+    const t0 = Date.now();
+    core.decayCheck();
+    core.corpusAudit();
+    assert.ok(Date.now() - t0 < 30000, `health snapshot within 30s bound (took ${Date.now() - t0}ms)`);
+  } finally {
+    core.close();
+    // The copy is a full multi-hundred-MB database plus its WAL: leaving it in
+    // the temp dir leaks that on every run.
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
+
+// ---- Phase 4: verified learning ---------------------------------------------
+// CoreP4 keeps this suite compilable against a core built before the Phase-4
+// surface existed, so the same tests yield runtime fail-before evidence.
+type CoreP4 = Core & {
+  recordObservation(opts: { source: string; kind: string; payload?: unknown }): { observationId: string };
+  replayRegression(regressionId: string): { regressionId: string; replayResult: string; replayedAt: string; checks: Array<{ kind: string; pass: boolean; detail: string }> };
+};
+
+
+test('ingestOutcome writes a linked observation and never self-promotes', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath) as CoreP4;
+  core.importScout(dir);
+  const claimsBefore = core.stats().claims;
+  const out = core.ingestOutcome({ task: 'fix header', outcome: 'passed QA', verificationRef: 'rcpt-1', unitId: 'u-test' }) as { caseId: string; candidateId: string; status: string; observationId: string };
+  assert.equal(out.status, 'PENDING');
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const obs = raw.prepare('SELECT * FROM observations WHERE id = ?').get(out.observationId) as { source: string; kind: string; payload: string } | undefined;
+    assert.ok(obs, 'outcome writes a raw observation row');
+    assert.equal(obs.source, 'ingestOutcome');
+    const payload = JSON.parse(obs.payload) as Record<string, unknown>;
+    assert.equal(payload.caseId, out.caseId);
+    assert.equal(payload.candidateId, out.candidateId);
+    const caseRow = raw.prepare('SELECT unitId, platform FROM cases WHERE caseId = ?').get(out.caseId) as { unitId: string; platform: string };
+    assert.equal(caseRow.unitId, 'u-test', 'case linked to its unit');
+    assert.equal(caseRow.platform, 'haravan', 'platform derived from the unit claims');
+    const cand = raw.prepare('SELECT status, evidenceJson FROM candidates WHERE candidateId = ?').get(out.candidateId) as { status: string; evidenceJson: string };
+    assert.equal(cand.status, 'PENDING', 'machine candidate stays pending');
+    const ev = JSON.parse(cand.evidenceJson) as Record<string, unknown>;
+    assert.equal(ev.caseId, out.caseId);
+    assert.equal(ev.unitId, 'u-test');
+    assert.equal(ev.observationId, out.observationId);
+    const taskNode = raw.prepare("SELECT nodeId FROM experience_nodes WHERE kind = 'TASK' AND refId = ?").get(out.caseId) as { nodeId: string } | undefined;
+    const lessonNode = raw.prepare("SELECT nodeId FROM experience_nodes WHERE kind = 'LESSON' AND refId = ?").get(out.candidateId) as { nodeId: string } | undefined;
+    assert.ok(taskNode && lessonNode, 'experience nodes recorded for task and lesson');
+    const produced = raw.prepare("SELECT COUNT(*) AS n FROM experience_edges WHERE fromNodeId = ? AND toNodeId = ? AND kind = 'PRODUCED'").get(taskNode.nodeId, lessonNode.nodeId) as { n: number };
+    assert.equal(produced.n, 1, 'task -> lesson edge recorded');
+    const verNode = raw.prepare("SELECT nodeId FROM experience_nodes WHERE kind = 'VERIFICATION' AND refId = 'rcpt-1'").get() as { nodeId: string } | undefined;
+    assert.ok(verNode, 'verification node recorded for verificationRef');
+  } finally { raw.close(); }
+  assert.equal(core.stats().claims, claimsBefore, 'no claim materialized without adjudication');
+  assert.equal(core.query({ text: 'passed QA' }).length, 0, 'outcome invisible to retrieval until promoted');
+  core.close();
+});
+
+test('recordObservation is the raw producer for task-end observations', () => {
+  const dir = fixtureReports();
+  const core = openCore(path.join(dir, 'core.db')) as CoreP4;
+  const before = (core.stats() as Record<string, number>).observations;
+  const { observationId } = core.recordObservation({ source: 'task-end', kind: 'TASK_OUTCOME', payload: { task: 't1', exit: 'ok' } });
+  assert.ok(observationId.startsWith('obs-'));
+  assert.equal((core.stats() as Record<string, number>).observations, before + 1);
+  core.close();
+});
+
+test('adjudicate is the only promotion path; scope is explicit; claim is revision-bound', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+  const { candidateId } = core.ingestOutcome({ task: 'fix header', outcome: 'passed QA', verificationRef: 'rcpt-1', unitId: 'u-test' });
+  assert.throws(() => core.adjudicate({ candidateId, decision: 'PROMOTE', authority: 'test', scope: 'staging' as never }), /invalid scope/);
+  const rej = core.ingestOutcome({ task: 'bad fix', outcome: 'broke layout', unitId: 'u-test' });
+  core.adjudicate({ candidateId: rej.candidateId, decision: 'REJECT', authority: 'test-authority', scope: 'acceptance-test' });
+  const adj = core.adjudicate({ candidateId, decision: 'PROMOTE', authority: 'test-authority', rationale: 'verified', scope: 'acceptance-test' });
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const claim = raw.prepare('SELECT status, sourceKind FROM claims WHERE claimId = ?').get(`claim-${candidateId}`) as { status: string; sourceKind: string };
+    assert.equal(claim.status, 'PROMOTED');
+    const ev = raw.prepare('SELECT revision, anchor FROM evidence WHERE claimId = ?').get(`claim-${candidateId}`) as { revision: string | null; anchor: string };
+    assert.equal(ev.revision, 'rcpt-1', 'promoted claim bound to the verification revision');
+    assert.match(ev.anchor, /^adjudication:adj-/, 'evidence anchored to the adjudication row');
+    const adjRow = raw.prepare('SELECT scope, authority FROM adjudications WHERE id = ?').get(adj.adjudicationId) as { scope: string; authority: string };
+    assert.equal(adjRow.scope, 'acceptance-test');
+    const rejected = raw.prepare('SELECT status FROM candidates WHERE candidateId = ?').get(rej.candidateId) as { status: string };
+    assert.equal(rejected.status, 'REJECTED');
+    const promoted = core.query({ text: 'passed QA' });
+    assert.ok(promoted.some((c) => c.claimId === `claim-${candidateId}`), 'promoted outcome now retrievable');
+  } finally { raw.close(); }
+  core.close();
+});
+
+test('snapshot/rollback round-trips claims, candidates, and adjudications', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+  const base = core.stats();
+  const pre = core.ingestOutcome({ task: 'pre-snapshot outcome', outcome: 'kept pending', unitId: 'u-test' });
+  const rel = core.snapshot('baseline');
+  const countLearning = () => {
+    const handle = new DatabaseSync(dbPath);
+    try {
+      const rowFor = (sql: string) => {
+        const row = handle.prepare(sql).get() as { n: number };
+        return row.n;
+      };
+      return {
+        observations: rowFor('SELECT COUNT(*) AS n FROM observations'),
+        nodes: rowFor('SELECT COUNT(*) AS n FROM experience_nodes'),
+        edges: rowFor('SELECT COUNT(*) AS n FROM experience_edges'),
+      };
+    } finally { handle.close(); }
+  };
+  const atSnapshot = countLearning();
+  // Post-snapshot mutations: promote the pre-existing candidate, ingest a new
+  // outcome, promote it too, and invalidate a live claim.
+  core.adjudicate({ candidateId: pre.candidateId, decision: 'PROMOTE', authority: 'test-authority', scope: 'acceptance-test' });
+  const post = core.ingestOutcome({ task: 'post-snapshot outcome', outcome: 'promoted then rolled back', unitId: 'u-test' });
+  core.adjudicate({ candidateId: post.candidateId, decision: 'PROMOTE', authority: 'test-authority', scope: 'acceptance-test' });
+  core.invalidate({ entryId: 'e2' });
+  const mid = core.stats();
+  assert.equal(mid.candidates, base.candidates + 2);
+  assert.equal(mid.claims, base.claims + 2, 'two promoted claims materialized');
+  core.rollback(rel.releaseId);
+  const after = core.stats();
+  assert.equal(after.claims, base.claims, 'post-snapshot claims removed');
+  assert.equal(after.candidates, base.candidates + 1, 'post-snapshot candidate removed, pre-snapshot kept');
+  assert.equal(after.cases, base.cases + 1);
+  assert.equal(after.adjudications, 0, 'post-snapshot adjudications removed');
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const cand = raw.prepare('SELECT status FROM candidates WHERE candidateId = ?').get(pre.candidateId) as { status: string };
+    assert.equal(cand.status, 'PENDING', 'pre-snapshot candidate restored to PENDING');
+    const c3 = raw.prepare('SELECT status FROM claims WHERE claimId = ?').get('c3') as { status: string };
+    assert.equal(c3.status, 'OBSERVED', 'invalidated claim restored to snapshot status');
+    // Removing a claim must take its evidence with it: the pack's evidence gate
+    // and the evidence-presence check both read this table, so a row left behind
+    // would satisfy them for a claim that no longer exists.
+    const orphans = raw.prepare('SELECT COUNT(*) AS n FROM evidence WHERE claimId NOT IN (SELECT claimId FROM claims)').get() as { n: number };
+    assert.equal(orphans.n, 0, 'no evidence may outlive the claim it anchors');
+  } finally { raw.close(); }
+  // The append-only learning surfaces are snapshot-bounded: the outcome ingested
+  // after the snapshot must not leave observations or experience rows behind.
+  assert.deepEqual(countLearning(), atSnapshot, 'post-snapshot learning rows removed by rollback');
+  core.close();
+});
+
+test('replayRegression re-executes recorded checks against live state', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath) as CoreP4;
+  core.importScout(dir);
+  const { caseId } = core.ingestOutcome({ task: 'replay target', outcome: 'ok', unitId: 'u-test' });
+  // A caller-supplied result is refused: only a real replay may write one.
+  assert.throws(() => core.recordRegression({ replayResult: 'PASS' } as never), /replayResult/);
+  core.recordRegression({ newKnowledge: 'recorded but never replayed' } as never);
+  const gate0 = core.checkPhaseGate('p4', 'regression');
+  assert.equal(gate0.passed, false, 'recorded-but-unreplayed regression does not pass the gate');
+  const { regressionId } = core.recordRegression({
+    newKnowledge: 'c1 must stay live; case must persist; settings query must hit c2',
+    affectedRules: ['c1'],
+    affectedCases: [caseId],
+    checks: [{ kind: 'query-hit', text: 'settings', platform: 'haravan', claimId: 'c2' }],
+  } as never);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const stored = raw.prepare('SELECT replayResult, replayedAt FROM regressions WHERE regressionId = ?').get(regressionId) as { replayResult: string | null; replayedAt: string | null };
+    assert.equal(stored.replayResult, null, 'no result claimed before a real replay');
+    const r1 = core.replayRegression(regressionId);
+    assert.equal(r1.replayResult, 'PASS');
+    assert.ok(r1.replayedAt);
+    assert.equal(r1.checks.length, 3);
+    assert.ok(r1.checks.every((c) => c.pass));
+    const gate1 = core.checkPhaseGate('p4', 'regression');
+    assert.equal(gate1.passed, true, 'gate passes only after a real PASS replay');
+    // Mutate live state: revoking e1 kills c1 and c2, then replay again.
+    core.revoke({ entryId: 'e1' });
+    const r2 = core.replayRegression(regressionId);
+    assert.equal(r2.replayResult, 'FAIL', 'replay detects the now-broken invariant');
+    const failed = r2.checks.filter((c) => !c.pass).map((c) => c.kind);
+    assert.ok(failed.includes('claim-status') && failed.includes('query-hit'));
+    assert.ok(r2.checks.find((c) => c.kind === 'case-present')?.pass, 'unaffected check still passes');
+    const stored2 = raw.prepare('SELECT replayResult, replayedAt FROM regressions WHERE regressionId = ?').get(regressionId) as { replayResult: string; replayedAt: string };
+    assert.equal(stored2.replayResult, 'FAIL');
+    assert.ok(stored2.replayedAt, 'replayedAt written by the replay');
+    const gate2 = core.checkPhaseGate('p4', 'regression');
+    assert.equal(gate2.passed, false, 'gate fails closed on a FAIL replay');
+  } finally { raw.close(); }
   core.close();
 });

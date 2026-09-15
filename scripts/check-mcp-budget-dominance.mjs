@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Compile-time dominance check for the MCP client dispatch ceiling.
+ * Compile-time dominance + parity gate for the MCP client surface.
  *
- * The standalone stdio proxy (scripts/antifan-omp-mcp.cjs) owns exactly one
- * budget number: DEFAULT_CLIENT_TIMEOUT_MS. It exists so the SERVER is always
- * the side that bounds a hung capability first, which is what lets the client
- * observe a typed terminal (or EXECUTION_TIMEOUT_PENDING_CLEANUP) receipt
- * instead of abandoning the invocation and replaying unknown work.
+ * Budget dominance: the standalone stdio proxy (scripts/antifan-omp-mcp.cjs)
+ * owns exactly one budget number: DEFAULT_CLIENT_TIMEOUT_MS. It exists so the
+ * SERVER is always the side that bounds a hung capability first, which is what
+ * lets the client observe a typed terminal (or EXECUTION_TIMEOUT_PENDING_CLEANUP)
+ * receipt instead of abandoning the invocation and replaying unknown work.
  *
  * That guarantee only holds while the ceiling exceeds every capability policy
  * the catalogue can enforce. A per-tool override table used to hold the
@@ -15,6 +15,20 @@
  * the invariant structural: it builds the real catalogue, reads the largest
  * policy from it, and refuses to compile when the ceiling stops dominating —
  * and it refuses a re-introduced per-tool table or a no-op routing row.
+ *
+ * Schema parity: CapabilityDefinition.inputSchema is the single source of
+ * truth for what a capability accepts. The proxy's advertised definitions are
+ * a hand-maintained projection of that source and rot silently — at the time
+ * this gate was added, core.record_regression still demanded a replayResult
+ * argument the store had started throwing on, and core.replay_regression /
+ * core.record_observation were registered but unreachable. The parity section
+ * below fails the build when the advertised surface diverges from the
+ * catalogue, when a core.* tool has no dispatch entry, when a dispatch entry
+ * names a store method that does not exist, or when the catalogue and the
+ * proxy bind the same tool to different store methods.
+ *
+ * --proxy <path> substitutes a fixture proxy module (used by the seeded-drift
+ * test to prove the gate actually fires).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -24,10 +38,31 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const COMPILED = path.join(ROOT, '.compiled', 'src');
-const PROXY_PATH = path.join(ROOT, 'scripts', 'antifan-omp-mcp.cjs');
+const PROXY_PATH = (() => {
+  const idx = process.argv.indexOf('--proxy');
+  if (idx !== -1 && process.argv[idx + 1]) return path.resolve(process.argv[idx + 1]);
+  return path.join(ROOT, 'scripts', 'antifan-omp-mcp.cjs');
+})();
+const SUPER_CORE_DIST = path.join(ROOT, 'packages', 'super-core', 'dist', 'index.js');
+const SUPER_CORE_SRC = path.join(ROOT, 'packages', 'super-core', 'src', 'index.ts');
 
 const problems = [];
 const notes = [];
+
+// Structural schema comparison: a property spec is its type, enum set, and
+// array-item type — the fields that decide whether a call is accepted and how
+// it is coerced. Descriptions and defaults are presentation, not contract.
+function specKey(spec) {
+  if (!spec || typeof spec !== 'object') return JSON.stringify(spec ?? null);
+  return JSON.stringify({
+    type: spec.type ?? null,
+    enum: Array.isArray(spec.enum) ? [...spec.enum].sort() : null,
+    items: spec.items && typeof spec.items === 'object' ? (spec.items.type ?? null) : null,
+  });
+}
+function sortedKeys(obj) {
+  return Object.keys(obj || {}).sort();
+}
 
 function required(rel) {
   const abs = path.join(COMPILED, rel);
@@ -104,6 +139,16 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
   const getWorkspaceRoot = () => ROOT;
   // Stub collaborators: registration validates policy shape, and nothing in a
   // register* call may dereference its collaborator while registering.
+  // The core port is a recording stub instead: the parity check below executes
+  // each advertised core.* capability against it to prove the catalogue binds
+  // the same store method the proxy's CORE_DISPATCH table names.
+  const coreCalls = [];
+  const recordingCorePort = new Proxy({}, {
+    get: (_target, prop) => {
+      if (typeof prop !== 'string') return undefined;
+      return () => { coreCalls.push(prop); return { recorded: prop }; };
+    },
+  });
   const registrations = {
     registerBrowserCapabilities: [browserPort, undefined, getWorkspaceRoot],
     registerFileCapabilities: [{}, getWorkspaceRoot, undefined],
@@ -113,8 +158,7 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
     // The device port is only dereferenced when a device capability executes, never while registering.
     registerDeviceCapabilities: [{}],
     registerWorkflowCapabilities: [{}],
-    // Core port is lazy: registration never touches packages/super-core.
-    registerCoreCapabilities: [{}],
+    registerCoreCapabilities: [recordingCorePort],
   };
   for (const [rel, fnName] of registrationTargets) {
     const mod = required(rel);
@@ -154,6 +198,124 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
       problems.push(`CAPABILITY_MAP target '${target}' is not a registered capability`);
     }
   }
+
+  // ─── Parity: advertised schema vs CapabilityDefinition.inputSchema ──────
+  // The advertised surface is a promise; the catalogue is the source of truth.
+  // Unsafe direction (fails): the client accepts a call the server rejects —
+  // a catalogue-required field the advertisement leaves optional, an
+  // advertised property the capability does not declare, a type/enum that
+  // disagrees. Safe direction (allowed): the advertisement narrows the
+  // declared surface — fewer optional props, stricter required fields.
+  // For core.* the proxy IS the implementation, so the advertised schema must
+  // equal the catalogue schema exactly, in both directions.
+  const coreDispatch = proxy.CORE_DISPATCH || {};
+  const advertisedCore = new Set();
+  for (const [advertised, , advProps, advRequired] of proxy.definitions || []) {
+    const resolved = map[advertised] || advertised;
+    const entry = catalogue.get(resolved);
+    if (!entry) continue; // unresolved advertised names are already reported above
+    const declared = entry.inputSchema || {};
+    const declaredProps = declared.properties || {};
+    const declaredRequired = (declared.required || []).slice().sort();
+    const advPropNames = sortedKeys(advProps);
+    const advReq = (advRequired || []).slice().sort();
+    for (const r of advReq) {
+      if (!advPropNames.includes(r)) {
+        problems.push(`advertised tool '${advertised}' requires '${r}' but does not declare it as a property`);
+      }
+      if (!(r in declaredProps)) {
+        problems.push(`advertised tool '${advertised}' requires '${r}', which '${resolved}' does not declare`);
+      }
+    }
+    for (const r of declaredRequired) {
+      if (!advReq.includes(r)) {
+        problems.push(`advertised tool '${advertised}' does not require '${r}', which '${resolved}' requires — the server would reject calls the client accepted`);
+      }
+    }
+    for (const p of advPropNames) {
+      if (!(p in declaredProps)) {
+        problems.push(`advertised tool '${advertised}' declares property '${p}', which '${resolved}' does not accept`);
+      } else if (specKey(advProps[p]) !== specKey(declaredProps[p])) {
+        problems.push(`advertised tool '${advertised}' property '${p}' diverges from '${resolved}': advertised ${specKey(advProps[p])} vs declared ${specKey(declaredProps[p])}`);
+      }
+    }
+    if (resolved.startsWith('core.')) {
+      advertisedCore.add(resolved);
+      for (const p of sortedKeys(declaredProps)) {
+        if (!advPropNames.includes(p)) {
+          problems.push(`advertised core tool '${advertised}' omits property '${p}', which '${resolved}' declares — the proxy is the implementation, so its schema must be exact`);
+        }
+      }
+      for (const r of advReq) {
+        if (!declaredRequired.includes(r)) {
+          problems.push(`advertised core tool '${advertised}' requires '${r}', which '${resolved}' does not`);
+        }
+      }
+      if (!coreDispatch[resolved]) {
+        problems.push(`advertised core tool '${advertised}' resolves to '${resolved}' but CORE_DISPATCH has no entry — it is unreachable`);
+      }
+    }
+  }
+  // Every catalogue core.* registration must be advertised and dispatched: an
+  // unadvertised registration is unreachable through this surface, and a
+  // dispatch entry with no registration is a phantom.
+  for (const entry of catalogue.listAll()) {
+    if (!entry.name.startsWith('core.')) continue;
+    if (!advertisedCore.has(entry.name)) {
+      problems.push(`catalogue registers '${entry.name}' but the proxy does not advertise it`);
+    }
+    if (!coreDispatch[entry.name]) {
+      problems.push(`catalogue registers '${entry.name}' but CORE_DISPATCH has no entry for it`);
+    }
+  }
+  for (const name of Object.keys(coreDispatch)) {
+    if (!catalogue.has(name)) {
+      problems.push(`CORE_DISPATCH['${name}'] has no catalogue registration`);
+    }
+  }
+  // The store method each dispatch entry names must exist on the real Core
+  // class — this is what catches an advertised capability whose backing store
+  // method was renamed or removed.
+  const storeMethods = resolveCoreStoreMethods();
+  let mutatingCount = 0;
+  for (const [name, dispatchEntry] of Object.entries(coreDispatch)) {
+    const method = Array.isArray(dispatchEntry) ? dispatchEntry[0] : undefined;
+    const adapt = Array.isArray(dispatchEntry) ? dispatchEntry[1] : undefined;
+    const mutating = Array.isArray(dispatchEntry) ? dispatchEntry[2] : undefined;
+    if (typeof method !== 'string' || typeof adapt !== 'function') {
+      problems.push(`CORE_DISPATCH['${name}'] is malformed (expected [storeMethod, adapt, mutating])`);
+      continue;
+    }
+    // Mutability must be declared, never inferred: an unclassified entry
+    // defaults to the soft `{available:false}` path, so a write the caller
+    // believes landed would no-op silently when the store is unreachable.
+    if (typeof mutating !== 'boolean') {
+      problems.push(`CORE_DISPATCH['${name}'] does not declare mutability (expected a boolean third element)`);
+    } else if (mutating) {
+      mutatingCount += 1;
+    }
+    if (storeMethods && !storeMethods.has(method)) {
+      problems.push(`CORE_DISPATCH['${name}'] calls store method '${method}', which does not exist on Core`);
+    }
+  }
+  notes.push(`dispatch: ${mutatingCount} of ${Object.keys(coreDispatch).length} core.* entries declared mutating (refused when the store is unavailable)`);
+  // The catalogue's own binding (core-capabilities.ts) must call the same
+  // store method the proxy dispatches to — two surfaces, one method.
+  const SENTINEL_PARAMS = { name: 'parity', note: 'parity', releaseId: 'parity', fromNodeId: 'parity', depth: 1, phase: 'parity', gate: 'parity', regressionId: 'parity' };
+  for (const name of advertisedCore) {
+    const def = catalogue.get(name);
+    const dispatchEntry = coreDispatch[name];
+    if (!def || !dispatchEntry) continue;
+    coreCalls.length = 0;
+    try {
+      def.execute(SENTINEL_PARAMS, {});
+    } catch { /* a recording port cannot throw; a binding that does is itself drift */ }
+    const called = coreCalls[0];
+    if (called !== dispatchEntry[0]) {
+      problems.push(`catalogue binds '${name}' to store method '${called ?? '(none)'}' but the proxy dispatches '${dispatchEntry[0]}'`);
+    }
+  }
+  notes.push(`parity: ${(proxy.definitions || []).length} advertised tools checked against catalogue schemas; ${advertisedCore.size} core.* dispatched`);
   // A row that redirects a name the catalogue ALSO registers swaps the server's
   // own semantics for the target's. It is reported rather than rejected: several
   // anti.* aliases are independent implementations, so a fatal rule here would
@@ -177,6 +339,40 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
         'a capability using its full budget would be abandoned client-side before the server answers'
     );
   }
+}
+
+// The real store method set: prefer the built package (authoritative), fall
+// back to the TypeScript source's method declarations so the gate still fires
+// in a checkout where packages/super-core has not been built.
+function resolveCoreStoreMethods() {
+  if (fs.existsSync(SUPER_CORE_DIST)) {
+    try {
+      const mod = require(SUPER_CORE_DIST);
+      const CoreClass = mod && mod.Core;
+      if (CoreClass && CoreClass.prototype) {
+        return new Set(Object.getOwnPropertyNames(CoreClass.prototype));
+      }
+    } catch (err) {
+      notes.push(`super-core dist present but not loadable (${err.message}); falling back to source scan`);
+    }
+  }
+  if (fs.existsSync(SUPER_CORE_SRC)) {
+    const src = fs.readFileSync(SUPER_CORE_SRC, 'utf8');
+    const classStart = src.indexOf('export class Core');
+    const classEnd = src.indexOf('\nexport function openCore', classStart);
+    if (classStart !== -1 && classEnd > classStart) {
+      const body = src.slice(classStart, classEnd);
+      const methods = new Set();
+      // `get`/`set` are declaration modifiers, so the alternation must include them:
+      // without it a dispatched accessor looks like a phantom method.
+      const re = /^ {2}(?:private\s+|public\s+|async\s+|static\s+|get\s+|set\s+)*([A-Za-z_$][\w$]*)\s*[(:]/gm;
+      let m;
+      while ((m = re.exec(body)) !== null) methods.add(m[1]);
+      if (methods.size > 0) return methods;
+    }
+  }
+  problems.push('cannot resolve the super-core store method set (dist missing and source scan found no methods); the store-method parity check cannot run');
+  return null;
 }
 
 // ─── 3. Verdict ─────────────────────────────────────────────────────────────

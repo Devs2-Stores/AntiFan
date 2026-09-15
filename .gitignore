@@ -62,3 +62,6 @@ plans/reports/haravan-live-store-fixture.json
 
 # PowerShell's ModuleAnalysisCache, dropped into the repo root when a shell session starts here.
 Microsoft/
+
+# Goal-runner test scratch dirs (created under the repo so the disk-headroom probe is real)
+.goal-test-*/

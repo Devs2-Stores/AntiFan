@@ -52,6 +52,7 @@ import type { ActionSequenceParams, ActionSequenceResult } from './tab-automatio
 import { TerminalManager, type TerminalManagerStats } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
+import { getCoreHealthService } from '../diagnostics/core-health';
 import { WindowStateManager, WindowState } from './window-state';
 import { BridgeServer } from '../bridge/bridge-server';
 import { ViewportGate } from '../tools/browser-control-port';
@@ -2153,6 +2154,30 @@ export class NativeTabHost extends EventEmitter {
         return true;
       }
       return false;
+    });
+    // Core Health surface (Phase 6): aggregated snapshot + drill-downs, all
+    // read through the existing antifan-core CLI surface. Read-only.
+    ipcMain.handle('antifan:core-health:get-state', async () => {
+      try {
+        return await getCoreHealthService().getState();
+      } catch (err) {
+        return {
+          snapshot: {
+            status: 'UNAVAILABLE',
+            reasonCode: 'CORE_HEALTH_SERVICE_FAILED',
+            affected: [String(err instanceof Error ? err.message : err)],
+            evidenceRefs: [],
+            checkedAt: new Date().toISOString(),
+            checks: [],
+          },
+        };
+      }
+    });
+    ipcMain.handle('antifan:core-health:get-task-run-trace', (_event, id: unknown) => {
+      if (typeof id !== 'string' || !id) {
+        return { status: 'UNKNOWN', reasonCode: 'TASK_RUN_NOT_FOUND', affected: [], evidenceRefs: [] };
+      }
+      return getCoreHealthService().getTaskRunTrace(id);
     });
     ipcMain.handle('antifan:capsule:list', () => {
       return {

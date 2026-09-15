@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14",
+  "updatedAt": "2026-09-16",
   "note": "Machine-checkable closure ledger. Every row carries a predicate that returns true when the defect is PRESENT at HEAD. `node scripts/check-bottlenecks.mjs` fails when a row marked `closed` still fires (REOPENED), when a row marked `open` no longer fires (FIXED_UNRECORDED), or when a row marked `refuted` fires (REFUTED_BUT_PRESENT). Rows here replace the prose findings list: a claim that cannot be machine-checked is a row with `kind: \"manual\"`, which is re-verified rather than trusted. Never delete a `refuted` row — it is what stops a dead finding from being re-derived.",
   "rows": [
     {
@@ -11,7 +11,11 @@
       "status": "closed",
       "evidence": "plans/reports/brainstorm-260905-antifan-toda-weaknesses-analysis.md:33 → plans/reports/ultra-260910-bottleneck-scout-final.md:76-78",
       "closedBy": "compile no longer runs clean; de-destruction verified by a live mtime probe while the app was running",
-      "predicate": { "kind": "script-matches", "script": "compile", "pattern": "npm run clean" }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "compile",
+        "pattern": "npm run clean"
+      }
     },
     {
       "id": "B2",
@@ -21,7 +25,11 @@
       "status": "closed",
       "evidence": "package.json `test` opened with `npm run clean && npm run compile`",
       "closedBy": "test now starts with `npm run compile`, which no longer cleans",
-      "predicate": { "kind": "script-matches", "script": "test", "pattern": "npm run clean" }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "test",
+        "pattern": "npm run clean"
+      }
     },
     {
       "id": "B3",
@@ -31,7 +39,11 @@
       "status": "closed",
       "evidence": "tsconfig.json compilerOptions had no `incremental`; .gitignore already ignored *.tsbuildinfo",
       "closedBy": "incremental: true with a dedicated tsBuildInfoFile under .compiled",
-      "predicate": { "kind": "file-absent-regex", "file": "tsconfig.json", "pattern": "\"incremental\"" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "tsconfig.json",
+        "pattern": "\"incremental\""
+      }
     },
     {
       "id": "B4",
@@ -41,7 +53,11 @@
       "status": "closed",
       "evidence": "tsconfig.json compilerOptions had no `tsBuildInfoFile`",
       "closedBy": "emit buildinfo pinned to .compiled/.tsbuildinfo; watch and typecheck own separate files",
-      "predicate": { "kind": "file-absent-regex", "file": "tsconfig.json", "pattern": "\"tsBuildInfoFile\"" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "tsconfig.json",
+        "pattern": "\"tsBuildInfoFile\""
+      }
     },
     {
       "id": "B5",
@@ -51,7 +67,11 @@
       "status": "closed",
       "evidence": "main.cjs:12 existsSync(compiledMain) with no mtime comparison",
       "closedBy": "scripts/launch-guard.cjs compares the bundle mtime against the newest src/**/*.ts and tsconfig.json input; main.cjs builds (dev) or refuses with an error box (packaged) when the bundle is missing or stale. Covered by test/unit/launch-guard.test.mjs in the canary lane",
-      "predicate": { "kind": "file-regex", "file": "main.cjs", "pattern": "existsSync" }
+      "predicate": {
+        "kind": "file-regex",
+        "file": "main.cjs",
+        "pattern": "existsSync"
+      }
     },
     {
       "id": "B6",
@@ -61,7 +81,11 @@
       "status": "closed",
       "evidence": "src/main/tools/artifact-store.ts:48,71; src/main/control-plane/control-plane-runtime.ts:61-75 return undefined unless env overrides are set",
       "closedBy": "the production resolver always returns enableRetentionCleaner: true, and ArtifactStore.sweepRetention exempts artifacts whose declared retentionPolicy is permanent (report.generate, the only capability declared permanent, stages with it) plus pre-policy report index entries that carry no policy — so the sweep prunes captures and run-durable reports past the age or byte ceilings, never permanent evidence. The run-durable policy is declared at the workflow and theme-QA report stage sites so `undefined` means legacy entry only.",
-      "predicate": { "kind": "file-absent-regex", "file": "src/main/control-plane/control-plane-runtime.ts", "pattern": "enableRetentionCleaner" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "src/main/control-plane/control-plane-runtime.ts",
+        "pattern": "enableRetentionCleaner"
+      }
     },
     {
       "id": "B7",
@@ -71,7 +95,11 @@
       "status": "closed",
       "evidence": "package.json had no test:file script; closing one finding cost test:fast + site-clone + integration + main + e2e",
       "closedBy": "`npm run test:file <path>` for a single compiled file or directory",
-      "predicate": { "kind": "script-exists", "script": "test:file", "negate": true }
+      "predicate": {
+        "kind": "script-exists",
+        "script": "test:file",
+        "negate": true
+      }
     },
     {
       "id": "B8",
@@ -81,7 +109,11 @@
       "status": "closed",
       "evidence": "test/unit/*.test.mjs matched by no glob in package.json and never compiled (no allowJs)",
       "closedBy": "`test:canary` is lane 2 of `scripts/run-test-pipeline.mjs`, which the `test` script invokes without short-circuiting; 40 tests across 12 suites, all passing",
-      "predicate": { "kind": "file-absent-regex", "file": "scripts/run-test-pipeline.mjs", "pattern": "test:canary" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "scripts/run-test-pipeline.mjs",
+        "pattern": "test:canary"
+      }
     },
     {
       "id": "B9",
@@ -91,7 +123,12 @@
       "status": "closed",
       "evidence": "test/renderer/terminal-gap-state-machine.test.ts compiles to a path no npm glob matched",
       "closedBy": "glob added to test:fast",
-      "predicate": { "kind": "script-matches", "script": "test:fast", "pattern": "test/renderer", "negate": true }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "test:fast",
+        "pattern": "test/renderer",
+        "negate": true
+      }
     },
     {
       "id": "B10",
@@ -101,7 +138,12 @@
       "status": "closed",
       "evidence": "src/main/browser/network-policy.test.ts, src/main/browser/zero-network-interceptor.test.ts, src/main/tools/browser-control-port-zero-network.test.ts",
       "closedBy": "glob added to test:fast",
-      "predicate": { "kind": "script-matches", "script": "test:fast", "pattern": "\\.compiled/src/", "negate": true }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "test:fast",
+        "pattern": "\\.compiled/src/",
+        "negate": true
+      }
     },
     {
       "id": "B11",
@@ -111,7 +153,12 @@
       "status": "closed",
       "evidence": "shared .compiled tree required by path, with existsSync-only guards at main.cjs:12 and scripts/run-electron.cjs:43",
       "closedBy": "scripts/prune-orphan-emit.mjs runs inside compile, skipping .compiled/src/renderer/** which copy-static.mjs owns",
-      "predicate": { "kind": "script-matches", "script": "compile", "pattern": "prune-orphan-emit", "negate": true }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "compile",
+        "pattern": "prune-orphan-emit",
+        "negate": true
+      }
     },
     {
       "id": "B24",
@@ -121,7 +168,11 @@
       "status": "closed",
       "evidence": "src/main/tools/browser-control-port-zero-network.test.ts test 3 passed `validTarget` (documentGeneration 1) to reloadZeroNetwork while its mock host reported generation 5, and asserted the result was rebased to 5. reloadZeroNetwork passes operationType 'lifecycle', which resolveTargetTab fences: effectful operations throw TARGET_STALE on generation drift and only passive reads auto-sync. The test had been failing invisibly because .compiled/src/** was covered by no glob.",
       "closedBy": "test 3 now supplies a fresh target for the lifecycle path; new test 3b asserts the target is STALE, that both generations are reported, and that the fence holds before any CDP command or host reload fires",
-      "predicate": { "kind": "file-absent-regex", "file": "src/main/tools/browser-control-port-zero-network.test.ts", "pattern": "TARGET_STALE" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "src/main/tools/browser-control-port-zero-network.test.ts",
+        "pattern": "TARGET_STALE"
+      }
     },
     {
       "id": "B12",
@@ -131,7 +182,11 @@
       "status": "closed",
       "evidence": "scripts/kill-all.mjs:5 execSync('taskkill /F /IM electron.exe')",
       "closedBy": "scoped to processes launched from this repo's electron dist or naming the repo root; --all restores the old behaviour deliberately",
-      "predicate": { "kind": "file-absent-regex", "file": "scripts/kill-all.mjs", "pattern": "function belongsToRepo" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "scripts/kill-all.mjs",
+        "pattern": "function belongsToRepo"
+      }
     },
     {
       "id": "B13",
@@ -141,7 +196,11 @@
       "status": "closed",
       "evidence": "node_modules/.cache/antifan-dev.pid read by scripts/dev.mjs:45-51",
       "closedBy": "kill-all reconciles the lock when its owner pid is dead",
-      "predicate": { "kind": "file-absent-regex", "file": "scripts/kill-all.mjs", "pattern": "antifan-dev\\.pid" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "scripts/kill-all.mjs",
+        "pattern": "antifan-dev\\.pid"
+      }
     },
     {
       "id": "B14",
@@ -151,7 +210,11 @@
       "status": "closed",
       "evidence": "src/main/tools/artifact-retention-cleaner.ts sweep filter",
       "closedBy": "the sweep now also prunes a run's index.json once that run holds no captures, and the class documents that workspace-owned annotation documents and snapshots are out of scope; covered by the run-tree case in artifact-retention-cleaner.test.ts",
-      "predicate": { "kind": "file-absent-regex", "file": "src/main/tools/artifact-retention-cleaner.ts", "pattern": "annotation" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "src/main/tools/artifact-retention-cleaner.ts",
+        "pattern": "annotation"
+      }
     },
     {
       "id": "B15",
@@ -160,7 +223,11 @@
       "severity": "P1",
       "status": "refuted",
       "evidence": "False at HEAD. scripts/run-electron.cjs already imported ./lib/atomic-record.mjs and ./lib/process-identity.mjs; the 7 canary modules are already tracked under scripts/lib/; and .canary/ is only partially ignored — 24 files under it are tracked, including canary-run.mjs, canary-session.mjs, fifteen-pages-run.mjs, phase4-verify.mjs and viewport-run.mjs, all of which already imported ../../scripts/lib/. The finding came from a worktree divergence: the local working copy still carried the pre-migration ../.canary/tools/ paths while HEAD had already migrated. Restoring the worktree to the committed paths made the claim disappear, which is why this row is kept — it is precisely the 'prose finding outlives the fix' pathology this ledger exists to stop.",
-      "predicate": { "kind": "file-regex", "file": "scripts/run-electron.cjs", "pattern": "\\.canary/tools" }
+      "predicate": {
+        "kind": "file-regex",
+        "file": "scripts/run-electron.cjs",
+        "pattern": "\\.canary/tools"
+      }
     },
     {
       "id": "B25",
@@ -170,7 +237,11 @@
       "status": "closed",
       "closedBy": "Both canary report tests now drive a tracked fixture: test/fixtures/canary-run/evidence/ holds the real run3 evidence documents (11 JSON files, 647 KiB, PNGs excluded) and the tests pass it as the run directory, so the lane works from a clean clone. Verified by the same assertions that ran against .canary/run3 (verdict INCONCLUSIVE, EXCESSIVE_REFERENCE_DRIFT blocker, interpolated Section 16 actions bound to each viewport document) — 3/3 pass — with the fixture byte-identical after the run (md5sum -c OK), so nothing rewrites it. The dead leaseToken in pipeline.json was redacted to a fixed placeholder before committing.",
       "evidence": "test/unit/build-report-embedded-drift.test.mjs and build-report-next-action.test.mjs run scripts/lib/build-report.mjs against `.canary/run3`. Only `.canary/run3/REPORT.md` is tracked; the rest of the run directory (evidence documents, attempt pointers) is untracked, and the suite rewrites REPORT.md on every run. So the canary suites' modules are tracked but their fixtures are not.",
-      "predicate": { "kind": "file-regex", "file": "test/unit/build-report-next-action.test.mjs", "pattern": "\\.canary/run3" }
+      "predicate": {
+        "kind": "file-regex",
+        "file": "test/unit/build-report-next-action.test.mjs",
+        "pattern": "\\.canary/run3"
+      }
     },
     {
       "id": "B26",
@@ -180,7 +251,12 @@
       "status": "closed",
       "evidence": "measured — with incremental enabled, deleting .compiled/src/main/index.js and .compiled/src/shared/control-plane-contracts.js then running `npm run compile` emitted neither file; tsc trusted its build info and skipped emit. main.cjs guards the entry with existsSync and run-electron only compiles when the bundle is absent, so the app would launch against an incomplete program.",
       "closedBy": "scripts/check-emit-integrity.mjs runs before tsc in the compile chain and discards the build info whenever any expected emit file is absent, forcing a full rebuild",
-      "predicate": { "kind": "script-matches", "script": "compile", "pattern": "check-emit-integrity", "negate": true }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "compile",
+        "pattern": "check-emit-integrity",
+        "negate": true
+      }
     },
     {
       "id": "B16",
@@ -189,7 +265,12 @@
       "severity": "P2",
       "status": "refuted",
       "evidence": "False at HEAD: scripts/cdp is an external override hook, so an empty in-tree directory is its normal state, like .env. src/main/browser/scripts/injected-script-store.ts:57-62 resolves it from ANTIFAN_CDP_SCRIPTS_DIR, cwd()/scripts/cdp or __dirname/../../../../scripts/cdp, and :399-403 serves <id>.source.js disk overrides from it with token substitution. scripts/dev.mjs:33-36 creates it and :226-228 watches it, relaunching on exactly those files; test/unit/injected-script-store.test.ts covers override loading, cache invalidation after clearOverrides, an explicit-null overrideDir and a directory created after construction. Deleting the branch would remove a live capability.",
-      "predicate": { "kind": "file-regex", "file": "src/main/browser/scripts/injected-script-store.ts", "pattern": "ANTIFAN_CDP_SCRIPTS_DIR", "negate": true }
+      "predicate": {
+        "kind": "file-regex",
+        "file": "src/main/browser/scripts/injected-script-store.ts",
+        "pattern": "ANTIFAN_CDP_SCRIPTS_DIR",
+        "negate": true
+      }
     },
     {
       "id": "B17",
@@ -199,7 +280,12 @@
       "status": "closed",
       "evidence": "verify ran typecheck (full program) then compile (full program) against one tsconfig",
       "closedBy": "typecheck and watch each own a separate tsBuildInfoFile under .compiled",
-      "predicate": { "kind": "script-matches", "script": "typecheck", "pattern": "tsbuildinfo\\.typecheck", "negate": true }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "typecheck",
+        "pattern": "tsbuildinfo\\.typecheck",
+        "negate": true
+      }
     },
     {
       "id": "B18",
@@ -209,7 +295,11 @@
       "status": "closed",
       "evidence": "package.json verify = typecheck + test, and test begins with compile",
       "closedBy": "verify delegates the program type check to the compile step inside npm test, which runs tsc over the same tsconfig",
-      "predicate": { "kind": "script-matches", "script": "verify", "pattern": "npm run typecheck" }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "verify",
+        "pattern": "npm run typecheck"
+      }
     },
     {
       "id": "B19",
@@ -261,7 +351,11 @@
       "status": "closed",
       "evidence": "57 plan.md files carrying 9 distinct status spellings (pending, in-progress, completed, active, complete, done, superseded, \"superseded\", and none) — no script parses the field",
       "closedBy": "scripts/check-plans.mjs consumes status: across all 58 plan.md files (48 classified into done/pending/active/superseded/blocked, 10 without frontmatter), fails the gate on any unrecognized spelling, and is wired into verify as plans:check; covered by test/unit/check-plans.test.mjs",
-      "predicate": { "kind": "file-absent-regex", "file": "package.json", "pattern": "plans:check" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "package.json",
+        "pattern": "plans:check"
+      }
     },
     {
       "id": "B23",
@@ -271,10 +365,8 @@
       "status": "open",
       "evidence": ".canary/15-pages/_verdicts.json reports executiveVerdict INCONCLUSIVE with tally all zero and cases empty",
       "predicate": {
-        "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
-        "lastVerifiedBy": "verdict file inspection",
-        "reVerifyWith": "re-run the 15-page campaign and require a non-INCONCLUSIVE executiveVerdict with a non-empty case tally"
+        "kind": "campaign-verdict-ledger",
+        "file": ".canary/15-pages/_verdicts.json"
       }
     },
     {
@@ -283,7 +375,12 @@
       "title": "REFUTED: background-tab throttling is unfixed and blocks the automation surface",
       "status": "refuted",
       "evidence": "fixed at HEAD — src/main/browser/native-tab-host.ts creates offscreen views with backgroundThrottling disabled and applies scoped unthrottling; closed in plan 260901-1630/phase-02. The item kept circulating because it was inherited from prose written before the fix.",
-      "predicate": { "kind": "file-regex", "file": "src/main/browser/native-tab-host.ts", "pattern": "backgroundThrottling", "negate": true }
+      "predicate": {
+        "kind": "file-regex",
+        "file": "src/main/browser/native-tab-host.ts",
+        "pattern": "backgroundThrottling",
+        "negate": true
+      }
     },
     {
       "id": "R2",
@@ -315,7 +412,12 @@
       "title": "REFUTED: the dev-mode bridge port shift (20129 → 20130) breaks the MCP client",
       "status": "refuted",
       "evidence": "scripts/antifan-agent.cjs injects ANTIFAN_MCP_PORT and ANTIFAN_MCP_BOOTSTRAP into the child environment, so the launcher already owns the port mapping. Downgraded, not a defect.",
-      "predicate": { "kind": "file-regex", "file": "scripts/antifan-agent.cjs", "pattern": "ANTIFAN_MCP_PORT", "negate": true }
+      "predicate": {
+        "kind": "file-regex",
+        "file": "scripts/antifan-agent.cjs",
+        "pattern": "ANTIFAN_MCP_PORT",
+        "negate": true
+      }
     },
     {
       "id": "B27",
@@ -325,7 +427,12 @@
       "status": "closed",
       "evidence": "The proxy carried a hand-maintained CLIENT_TIMEOUT_MS table (8 entries, 30 s default) while the catalogue grew to a 180 s policy (browser.visual_compare). theme.debug_bundle carried a 60 s policy with no table entry, so the 30 s default fired first, and the human-read verdict at .canary/CORE-BOTTLENECKS.md:402 had already recorded this class as fixed.",
       "closedBy": "The per-tool table is deleted; the proxy owns one ceiling (DEFAULT_CLIENT_TIMEOUT_MS = 240000) and scripts/check-mcp-budget-dominance.mjs runs inside `compile`, builds the real catalogue, and fails when the ceiling stops dominating the largest policy, when a per-tool table reappears, or when a routing row is a no-op.",
-      "predicate": { "kind": "script-matches", "script": "compile", "pattern": "check-mcp-budget-dominance", "negate": true }
+      "predicate": {
+        "kind": "script-matches",
+        "script": "compile",
+        "pattern": "check-mcp-budget-dominance",
+        "negate": true
+      }
     },
     {
       "id": "B28",
@@ -335,20 +442,24 @@
       "status": "closed",
       "evidence": "The proxy advertised `all: { default: true }` while CAPABILITY_MAP rewrote the name to browser.list-tabs, whose handler is session-scoped unless `all` is truthy, and the proxy never applies JSON-Schema defaults. Live probes: `{}` returned the bound tab only, `{all: true}` returned the window strip.",
       "closedBy": "The routing row is deleted, so the advertised name reaches the catalogue's own anti.browser.tabs.list (window-wide unless all === false), and an E2E case in test/main/omp-mcp-adapter.test.ts asserts the dispatched name.",
-      "predicate": { "kind": "file-absent-regex", "file": "test/main/omp-mcp-adapter.test.ts", "pattern": "dispatches anti\\.browser\\.tabs\\.list under its own name" }
+      "predicate": {
+        "kind": "file-absent-regex",
+        "file": "test/main/omp-mcp-adapter.test.ts",
+        "pattern": "dispatches anti\\.browser\\.tabs\\.list under its own name"
+      }
     },
     {
       "id": "B29",
       "group": "mcp",
-      "title": "23 anti.* routing rows redirect a name the catalogue already registers, silently substituting the target's semantics for the server's",
+      "title": "20 anti.* routing rows redirect a name the catalogue already registers; every remaining row is proven behaviour-preserving, and a row that diverges from its registration is caught by test",
       "severity": "P2",
       "status": "open",
-      "evidence": "`node scripts/check-mcp-budget-dominance.mjs` reports 23 shadowing rows at HEAD (anti.browser.tabs.create, .activate, .close, navigate, reload, anti.inspect.dom, …). The server registers an `anti.*` alias for each of them, so the routing row — not the server — decides which implementation runs; several anti.* aliases are independent reimplementations with different defaults, so a row's removal is a behaviour change that needs its own proof. anti.browser.tabs.list was one instance of this shape and is fixed: it routed to browser.list-tabs (session-scoped) while the alias it bypassed is window-wide by default.",
+      "evidence": "Measured sweep 2026-09-16: `node scripts/check-mcp-budget-dominance.mjs` reports 20 shadowing rows at HEAD (anti.browser.tabs.create/.activate/.close, anti.browser.navigate/.reload/.set_viewport/.get_viewport, anti.inspect.dom/.styles/.region/.page_inventory, anti.agent.cursor.* (7), anti.agent.sequence, anti.trace.interaction). Per-row evidence gathered by invoking each registration and each routing target through a recording port: 19 of 20 bind the same port method with the same required set and risk class, so for those rows the routing row substitutes no semantics and its removal would be behaviour-preserving. The 20th diverged and was a real defect: anti.agent.cursor.move advertised 'move' but its registration bound agentHover while the routing row sent it to browser.agent-move (agentMove), so the two paths disagreed and the advertised name hovered or moved depending on which path ran; the registration now binds agentMove. The invariant is asserted per row by test/unit/mcp-core-parity.test.mjs ('every shadowing routing row agrees with its registration on the port method'). Rows are NOT retired: retiring a redundant row is a wire-name change that still needs its own behaviour proof, and 2 rows (anti.browser.tabs.create, anti.agent.sequence) advertise schemas that differ from their target's, so removal would also move payload validation.",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T16:40:00.000Z",
-        "lastVerifiedBy": "compile-time routing report (check-mcp-budget-dominance)",
-        "reVerifyWith": "run node scripts/check-mcp-budget-dominance.mjs and diff the reported shadowing set against the previous sweep; retire a row only after an omp-mcp-adapter case proves the dispatched name change is behaviour-preserving"
+        "lastVerifiedAt": "2026-09-16T00:00:00.000Z",
+        "lastVerifiedBy": "controller sweep: 20 rows measured via recording-port probe, 1 divergence fixed",
+        "reVerifyWith": "run `node scripts/check-mcp-budget-dominance.mjs` for the shadow count and `node --test test/unit/mcp-core-parity.test.mjs` for the per-row port-method agreement; retire a row only after an omp-mcp-adapter case proves the dispatched-name change is behaviour-preserving"
       }
     },
     {
@@ -356,14 +467,34 @@
       "group": "gate",
       "title": "The clone campaign's measured viewports produce no adjudicable verdict: anti.visual.compare's normalization apply exceeds its 15 s bound, so capture.valid is false and every desktop/tablet case is CAPTURE_INVALID",
       "severity": "P1",
-      "status": "open",
+      "status": "closed",
       "evidence": "`.canary/15-pages/_verdicts.json` (run campaign-e2214e66, 2026-09-10T16:52:04Z) records 3 cases and no verdict: 390 REFUSED/MOBILE_BUNDLE_ABSENT, and 1440 + 1024 COMPLETED/INCONCLUSIVE/CAPTURE_INVALID with captureValid=false, visual=INCONCLUSIVE, mismatchPercentage=100 and artifacts.referencePng/clonePng=null. `page-01-home/attempts/attempt-96a175b8-f1bb-437b-9467-accc53d2e661/evidence/summary.json` names the cause for both: visual.reason = \"Reversible normalization could not be applied on tab '<tabId>': Visual compare normalization apply (<tabId>) exceeded its 15000ms bound\". The same record shows the structure matched exactly at both widths (refDocH/cloneDocH 5546/5546 and 5422/5422, sections 15/15, cards 83/83, overflowX 0/0) while capture.valid was false with exists=false, bytes=0 — yet the standalone PNGs exist on disk (1024: 1.76 MB / 2.00 MB, 1440: 2.36 MB / 2.62 MB). So the clone's structure was measured and matches; the raster verdict is what cannot be produced. scripts/lib/evidence-provenance.mjs:197 is what turns captureValid=false into CAPTURE_INVALID.",
       "predicate": {
-        "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T16:52:04.000Z",
-        "lastVerifiedBy": "artifact replay of .canary/15-pages/_verdicts.json and the attempt summary (2026-09-11)",
-        "reVerifyWith": "re-run the campaign and require a revision-bound verdict ledger: a `_verdicts.json` whose `exit` and `finishedAt` are non-null and whose every adjudicated case carries a non-null `routeIdentity`, containing at least one case whose verdict is PASS or FAIL and zero cases with causeCode CAPTURE_INVALID. NOTE (2026-09-14): an exit code alone is NOT closure proof for this row — `.canary/tools/fifteen-pages-run.mjs:1850-1851` states that a fidelity FAIL is campaign output and exits 0, so the exit status speaks only to provenance completeness. The exit code was nevertheless made case-derived in the same pass: `scripts/lib/campaign-verdicts.mjs` now refuses (code 1, NO_ADJUDICATED_CASE) on every branch when `adjudicableCases === 0`, where full scope previously returned `{code:0,reason:'OK'}` (proved before/after against HEAD). This row therefore stays open until a revision-bound run adjudicates at least one case with no CAPTURE_INVALID."
-      }
+        "kind": "any-of",
+        "predicates": [
+          {
+            "kind": "file-regex",
+            "file": "src/main/tools/browser-control-port.ts",
+            "pattern": "setTimeout(r, 60)"
+          },
+          {
+            "kind": "file-absent-regex",
+            "file": "src/main/tools/browser-control-port.ts",
+            "pattern": "NORMALIZATION_SCROLL_CASCADE_BUDGET_MS"
+          },
+          {
+            "kind": "file-regex",
+            "file": "src/main/tools/browser-control-port.ts",
+            "pattern": "mismatchPercentage: 100"
+          },
+          {
+            "kind": "file-regex",
+            "file": "src/main/verification/visual-capture.ts",
+            "pattern": "mismatchPercentage: isMissingExpectation ? 100"
+          }
+        ]
+      },
+      "closedBy": "normalization apply no longer dwells on throttled timers: the hydration cascade yields via MessageChannel under a 10s wall-clock deadline inside the 15s bound, and every no-diff path emits mismatchPercentage null instead of a fabricated 100 (src/main/tools/browser-control-port.ts, src/main/verification/visual-capture.ts)"
     },
     {
       "id": "B31",
@@ -384,14 +515,24 @@
       "group": "gate",
       "title": "The published campaign verdict artifact is not revision-bound: it records `exit`, `finishedAt` and `instance` as null, so its tally cannot be attributed to the code at HEAD and no number from it may be quoted as evidence about current behaviour",
       "severity": "P1",
-      "status": "open",
+      "status": "closed",
       "evidence": "`.canary/15-pages/_verdicts.json` (runId aggregate-1cce3d25c1614b30, generatedAt 2026-09-12T06:55:20Z) measured at HEAD cc6e077 on 2026-09-14: `exit` null, `finishedAt` null, `scope.excluded` [], `routeRefusals` [], tally PASS 10 / FAIL 17 / INCONCLUSIVE 18, and 24 of 45 cases carry `routeIdentity` null while still being adjudicated PASS or FAIL. `scripts/lib/campaign-verdicts.mjs:272` writes `exit: runSummary.exit ?? null` and `:241` copies `routeIdentity` through, but the artifact shows neither was produced by the run that generated it. The runner DOES produce both (`/E:/Work/apps/AntiFan/.canary/tools/fifteen-pages-run.mjs:650` assigns `routeIdentity` unconditionally and `:658` throws on a mismatch), so a null there means the aggregation did not come from the current runner. Consequence: the cart@1440 PASS (mismatch 1.81%) whose reference geometry is identical to homepage@1440 (docHeight 5422, sections 15, cards 83) cannot be shown to be a mis-bound reference rather than a correct comparison, and the row B30 closure argument rested on this artifact. One fail-open is confirmed independently of the artifact: `.canary/tools/fifteen-pages-run.mjs:653` sets `valid: !routeMismatch`, so when the final URL is unreadable `checkObservedUrl` returns null (`/E:/Work/apps/AntiFan/.canary/tools/theme-fidelity.mjs:1427`) and the route is recorded as valid with a null observation. NOTE: `test/unit/route-identity-gate.test.mjs:42-43` currently encodes that fail-open as the expected contract, so closing it is a deliberate contract change plus test update, not a silent patch.",
       "predicate": {
-        "kind": "manual",
-        "lastVerifiedAt": "2026-09-14T00:00:00.000Z",
-        "lastVerifiedBy": "direct read of .canary/15-pages/_verdicts.json plus the writer sites scripts/lib/campaign-verdicts.mjs:241,272 and .canary/tools/fifteen-pages-run.mjs:650,658 (2026-09-14)",
-        "reVerifyWith": "require the campaign to emit a revision-bound artifact: `_verdicts.json` asserting non-null `exit`, non-null `finishedAt`, and a non-null `routeIdentity` for every adjudicated case; until then quote no tally from any artifact lacking them. Closing this row also requires deciding the `valid: !routeMismatch` contract at .canary/tools/fifteen-pages-run.mjs:653 together with test/unit/route-identity-gate.test.mjs:42-43."
-      }
+        "kind": "any-of",
+        "predicates": [
+          {
+            "kind": "file-regex",
+            "file": "scripts/lib/campaign-verdicts.mjs",
+            "pattern": "exit: runSummary.exit ?? null"
+          },
+          {
+            "kind": "file-absent-regex",
+            "file": "scripts/lib/campaign-verdicts.mjs",
+            "pattern": "ROUTE_IDENTITY_MISSING"
+          }
+        ]
+      },
+      "closedBy": "the writer never emits a null exit (EXIT_UNRECORDED refusal instead), finishedAt falls back to completedAt and runComplete marks mid-run snapshots, the aggregate path stamps finishedAt/exit before indexing, and the routeIdentity gate is shared by the index, the case scanner and the exit tally (scripts/lib/campaign-verdicts.mjs, .canary/tools/fifteen-pages-run.mjs)"
     }
   ]
 }

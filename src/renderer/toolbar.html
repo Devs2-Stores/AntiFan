@@ -474,6 +474,31 @@
             <span>MCP Tools Catalogue</span>
             <span class="hub-tab-badge" id="badgeMcpCount">0</span>
           </button>
+          <button class="hub-nav-tab" id="tabNavCoreHealth">
+            <span class="hub-tab-icon">🩺</span>
+            <span>Core Health</span>
+            <span class="hub-tab-badge" id="badgeCoreHealth">–</span>
+          </button>
+          <button class="hub-nav-tab" id="tabNavBridge">
+            <span class="hub-tab-icon">🌉</span>
+            <span>Bridge</span>
+            <span class="hub-tab-badge" id="badgeBridge">–</span>
+          </button>
+          <button class="hub-nav-tab" id="tabNavTaskRuns">
+            <span class="hub-tab-icon">🧾</span>
+            <span>Task Runs</span>
+            <span class="hub-tab-badge" id="badgeTaskRuns">0</span>
+          </button>
+          <button class="hub-nav-tab" id="tabNavRootCauses">
+            <span class="hub-tab-icon">🧩</span>
+            <span>Root Causes</span>
+            <span class="hub-tab-badge" id="badgeRootCauses">0</span>
+          </button>
+          <button class="hub-nav-tab" id="tabNavRegressions">
+            <span class="hub-tab-icon">🧪</span>
+            <span>Core Regression</span>
+            <span class="hub-tab-badge" id="badgeRegressions">0</span>
+          </button>
         </div>
 
         <!-- Main Body: Two Panes -->
@@ -554,6 +579,24 @@
               <div class="hub-section-title">⚙️ THAM SỐ ĐẦU VÀO (INPUT SCHEMA)</div>
               <div class="hub-schema-view" id="mcpSchemaView">
                 <pre class="hub-schema-code" id="mcpSchemaCode"></pre>
+              </div>
+            </div>
+
+            <!-- Core Health / Bridge / Task Run / Root Cause / Regression Detail -->
+            <div class="hub-mcp-detail" id="hubCoreDetail" style="display:none;">
+              <div class="hub-detail-header">
+                <div class="hub-detail-header-left">
+                  <span class="hub-cat-pill" id="coreDetailCategory">CORE</span>
+                  <div class="hub-detail-name" id="coreDetailName">Core Health</div>
+                  <div class="hub-detail-desc" id="coreDetailDesc"></div>
+                </div>
+                <div class="hub-detail-header-right">
+                  <span class="hub-status-pill pill-ready" id="coreStatusPill">UNKNOWN</span>
+                  <button class="hub-btn-secondary" id="btnCoreRefresh" title="Làm mới dữ liệu Core">🔄 Làm mới</button>
+                </div>
+              </div>
+              <div class="hub-schema-view" id="coreDetailBody">
+                <pre class="hub-schema-code" id="coreDetailCode"></pre>
               </div>
             </div>
           </div>

@@ -1393,7 +1393,8 @@ export interface VisualStructuralMetrics {
 export function generateVisualMetricSamples(params: {
   diffResult?: {
     match: boolean;
-    mismatchPercentage: number;
+    /** Measured pixel mismatch; null when no diff ran (e.g. a structural short-circuit). */
+    mismatchPercentage: number | null;
     dimensionsMatch: boolean;
   };
   captureStateCompatible: boolean;
@@ -1405,14 +1406,18 @@ export function generateVisualMetricSamples(params: {
 
   if (params.diffResult) {
     const mismatchPct = params.diffResult.mismatchPercentage;
-    samples.push({
-      metric: 'visual.pixel_mismatch_pct',
-      value: mismatchPct,
-      actual: mismatchPct,
-      delta: mismatchPct,
-      source: 'deterministic',
-      message: `Visual pixel mismatch: ${mismatchPct}%`,
-    });
+    // A null mismatch means no pixel diff ran, so no pixel sample exists either:
+    // emitting one would publish a number the measurement never produced.
+    if (typeof mismatchPct === 'number') {
+      samples.push({
+        metric: 'visual.pixel_mismatch_pct',
+        value: mismatchPct,
+        actual: mismatchPct,
+        delta: mismatchPct,
+        source: 'deterministic',
+        message: `Visual pixel mismatch: ${mismatchPct}%`,
+      });
+    }
 
     const dimMatch = params.diffResult.dimensionsMatch;
     samples.push({
@@ -1485,7 +1490,8 @@ export function generateVisualMetricSamples(params: {
  */
 export function createVisualEvidenceReceipt(params: {
   match: boolean;
-  mismatchPercentage: number;
+  /** Measured pixel mismatch; null when no admissible diff was computed. */
+  mismatchPercentage: number | null;
   dimensionsMatch: boolean;
   captureStateCompatible: boolean;
   maskResolutionStatus: string;
@@ -1505,7 +1511,9 @@ export function createVisualEvidenceReceipt(params: {
     : params.notes;
   return {
     match: isMissingExpectation ? false : params.match,
-    mismatchPercentage: isMissingExpectation ? 100 : params.mismatchPercentage,
+    // A refused verdict publishes no number: the diff may have run, but without an
+    // asserted route it is inadmissible, and a fabricated 100 reads as a measurement.
+    mismatchPercentage: isMissingExpectation ? null : params.mismatchPercentage,
     dimensionsMatch: params.dimensionsMatch,
     captureStateCompatible: params.captureStateCompatible,
     maskResolutionStatus: params.maskResolutionStatus,

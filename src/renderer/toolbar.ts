@@ -86,6 +86,8 @@ interface AntiFanToolbarApi {
   deleteWorkflow: (id: string) => Promise<boolean>;
   getWorkflowArtifact: (artifactId: string) => Promise<any>;
   onWorkflowEvent: (callback: (event: any) => void) => () => void;
+  getCoreHealthState?: () => Promise<any>;
+  getCoreTaskRunTrace?: (id: string) => Promise<any>;
   clearStorage: () => Promise<{ success: boolean; cleared: boolean; reason?: string; origin?: string }>;
   getChromeProfiles: () => Promise<any>;
   syncChromeProfile: (profileId: string) => Promise<any>;
@@ -425,8 +427,39 @@ const mcpDetailName = document.getElementById('mcpDetailName') as HTMLElement | 
 const mcpDetailDesc = document.getElementById('mcpDetailDesc') as HTMLElement | null;
 const mcpDetailPermission = document.getElementById('mcpDetailPermission') as HTMLElement | null;
 const mcpSchemaCode = document.getElementById('mcpSchemaCode') as HTMLElement | null;
+const tabNavCoreHealth = document.getElementById('tabNavCoreHealth') as HTMLButtonElement | null;
+const tabNavBridge = document.getElementById('tabNavBridge') as HTMLButtonElement | null;
+const tabNavTaskRuns = document.getElementById('tabNavTaskRuns') as HTMLButtonElement | null;
+const tabNavRootCauses = document.getElementById('tabNavRootCauses') as HTMLButtonElement | null;
+const tabNavRegressions = document.getElementById('tabNavRegressions') as HTMLButtonElement | null;
+const badgeCoreHealth = document.getElementById('badgeCoreHealth') as HTMLElement | null;
+const badgeBridge = document.getElementById('badgeBridge') as HTMLElement | null;
+const badgeTaskRuns = document.getElementById('badgeTaskRuns') as HTMLElement | null;
+const badgeRootCauses = document.getElementById('badgeRootCauses') as HTMLElement | null;
+const badgeRegressions = document.getElementById('badgeRegressions') as HTMLElement | null;
+const hubCoreDetail = document.getElementById('hubCoreDetail') as HTMLElement | null;
+const coreDetailCategory = document.getElementById('coreDetailCategory') as HTMLElement | null;
+const coreDetailName = document.getElementById('coreDetailName') as HTMLElement | null;
+const coreDetailDesc = document.getElementById('coreDetailDesc') as HTMLElement | null;
+const coreStatusPill = document.getElementById('coreStatusPill') as HTMLElement | null;
+const coreDetailCode = document.getElementById('coreDetailCode') as HTMLElement | null;
+const btnCoreRefresh = document.getElementById('btnCoreRefresh') as HTMLButtonElement | null;
 
-let hubActiveTab: 'workflows' | 'mcp' = 'workflows';
+type HubTab = 'workflows' | 'mcp' | 'core-health' | 'bridge' | 'task-runs' | 'root-causes' | 'regressions';
+const HUB_CORE_TABS: HubTab[] = ['core-health', 'bridge', 'task-runs', 'root-causes', 'regressions'];
+const HUB_NAV_BUTTONS: Record<HubTab, HTMLButtonElement | null> = {
+  'workflows': tabNavWorkflows,
+  'mcp': tabNavMcp,
+  'core-health': tabNavCoreHealth,
+  'bridge': tabNavBridge,
+  'task-runs': tabNavTaskRuns,
+  'root-causes': tabNavRootCauses,
+  'regressions': tabNavRegressions,
+};
+let hubCoreState: any = null;
+let hubCoreSelected: { tab: HubTab; id: string } | null = null;
+
+let hubActiveTab: HubTab = 'workflows';
 let hubWorkflows: any[] = [];
 let hubMcpTools: any[] = [];
 let hubSelectedWorkflow: any = null;
@@ -469,12 +502,45 @@ async function openWorkflowHub() {
     console.error('[workflow hub] Failed to fetch state:', err);
   }
 
+  await refreshCoreHealthState();
+
   renderHubList();
   if (hubActiveTab === 'workflows' && hubWorkflows.length > 0 && !hubSelectedWorkflow) {
     selectWorkflow(hubWorkflows[0]);
   } else if (hubActiveTab === 'mcp' && hubMcpTools.length > 0 && !hubSelectedMcpTool) {
     selectMcpTool(hubMcpTools[0]);
+  } else if (HUB_CORE_TABS.includes(hubActiveTab)) {
+    renderCoreListSelection();
   }
+}
+
+async function refreshCoreHealthState() {
+  try {
+    const res = await getApi()?.getCoreHealthState?.();
+    if (res) {
+      hubCoreState = res;
+      updateCoreBadges();
+    }
+  } catch (err) {
+    console.error('[core health] Failed to fetch state:', err);
+    hubCoreState = {
+      snapshot: { status: 'UNAVAILABLE', reasonCode: 'IPC_FAILED', affected: [String(err)], evidenceRefs: [], checks: [] },
+    };
+    updateCoreBadges();
+  }
+}
+
+function updateCoreBadges() {
+  const snap = hubCoreState?.snapshot;
+  if (badgeCoreHealth) badgeCoreHealth.textContent = snap?.status ?? '–';
+  const bridge = hubCoreState?.bridge;
+  if (badgeBridge) badgeBridge.textContent = bridge?.status ?? '–';
+  const tr = hubCoreState?.taskRuns;
+  if (badgeTaskRuns) badgeTaskRuns.textContent = String((tr?.taskRuns?.length || 0) + (tr?.packs?.length || 0) + (tr?.cases?.length || 0));
+  const rc = hubCoreState?.rootCauses;
+  if (badgeRootCauses) badgeRootCauses.textContent = String(rc?.openTotal ?? 0);
+  const reg = hubCoreState?.regressions;
+  if (badgeRegressions) badgeRegressions.textContent = String(reg?.rows?.length ?? 0);
 }
 
 function closeWorkflowHub() {
@@ -521,6 +587,9 @@ function renderHubList() {
       item.onclick = () => selectWorkflow(wf);
       hubItemsList.appendChild(item);
     });
+  } else if (HUB_CORE_TABS.includes(hubActiveTab)) {
+    renderCoreHubList(search);
+    return;
   } else {
     const filtered = hubMcpTools.filter((t) =>
       t.name.toLowerCase().includes(search) ||
@@ -561,6 +630,7 @@ function selectWorkflow(wf: any) {
 
   if (hubDetailEmpty) hubDetailEmpty.style.display = 'none';
   if (hubMcpDetail) hubMcpDetail.style.display = 'none';
+  if (hubCoreDetail) hubCoreDetail.style.display = 'none';
   if (hubWfDetail) hubWfDetail.style.display = 'flex';
 
   if (wfDetailCategory) {
@@ -608,6 +678,246 @@ function selectWorkflow(wf: any) {
   if (wfArtifactsGrid) wfArtifactsGrid.innerHTML = '';
 }
 
+
+// ---- Core Health surfaces (Phase 6: items 13, 14, 15, 28, 29) --------------
+// Every status carries reasonCode + affected; degraded never shows a bare %.
+
+function coreStatusPillClass(status: string): string {
+  if (status === 'HEALTHY' || status === 'PASS') return 'pill-passed';
+  if (status === 'DEGRADED' || status === 'UNAVAILABLE' || status === 'FAIL') return 'pill-failed';
+  return 'pill-ready';
+}
+
+interface CoreListItem { id: string; title: string; desc: string; status: string; meta: string }
+
+function coreListItems(): CoreListItem[] {
+  const s = hubCoreState;
+  if (!s) return [];
+  if (hubActiveTab === 'core-health') {
+    const snap = s.snapshot || {};
+    const checks = (snap.checks || []) as Array<{ name: string; status: string; reasonCode: string; detail?: string }>;
+    const items: CoreListItem[] = [{
+      id: '__snapshot__', title: 'Overall Core Health',
+      desc: String(snap.reasonCode || ''), status: String(snap.status || 'UNKNOWN'),
+      meta: String(snap.checkedAt || ''),
+    }];
+    for (const c of checks) {
+      items.push({
+        id: c.name, title: c.name, desc: c.detail || c.reasonCode, status: c.status,
+        meta: `reasonCode: ${c.reasonCode}`,
+      });
+    }
+    return items;
+  }
+  if (hubActiveTab === 'bridge') {
+    const b = s.bridge || {};
+    const items: CoreListItem[] = [{
+      id: '__bridge__', title: 'Bridge status', desc: b.reasonCode || '', status: b.status || 'UNKNOWN',
+      meta: `coreReachable: ${Boolean(b.coreReachable)}`,
+    }];
+    for (const p of (b.recentPacks || []) as Array<Record<string, unknown>>) {
+      items.push({
+        id: String(p.packId), title: String(p.task || p.packId), desc: `context pack ${p.packId}`,
+        status: 'INFO', meta: String(p.createdAt || ''),
+      });
+    }
+    return items;
+  }
+  if (hubActiveTab === 'task-runs') {
+    const t = s.taskRuns || {};
+    const items: CoreListItem[] = [];
+    for (const r of (t.taskRuns || []) as Array<Record<string, unknown>>) {
+      const rid = String(r.runId || r.taskRunId || r.id || '');
+      items.push({ id: rid, title: String(r.task || rid || 'task run'), desc: 'task_runs row', status: 'INFO', meta: String(r.createdAt || '') });
+    }
+    for (const p of (t.packs || []) as Array<Record<string, unknown>>) {
+      items.push({
+        id: String(p.packId), title: String(p.task || p.packId),
+        desc: `context pack${p.platform ? ` · ${p.platform}` : ''}${p.taskHash ? ` · taskHash ${String(p.taskHash).slice(0, 12)}` : ''}`,
+        status: 'INFO', meta: String(p.createdAt || ''),
+      });
+    }
+    for (const c of (t.cases || []) as Array<Record<string, unknown>>) {
+      items.push({ id: String(c.caseId), title: String(c.task || c.caseId), desc: 'verified outcome case', status: 'INFO', meta: String(c.createdAt || '') });
+    }
+    return items;
+  }
+  if (hubActiveTab === 'root-causes') {
+    const groups = (s.rootCauses?.groups || []) as Array<{ key: string; count: number; issueClass: string; worstSeverity: string; latestMessage?: string }>;
+    return groups.map((g) => ({
+      id: g.key, title: g.key, desc: g.latestMessage || '',
+      status: g.worstSeverity === 'P0' || g.worstSeverity === 'P1' ? 'DEGRADED' : 'UNKNOWN',
+      meta: `×${g.count} · ${g.issueClass}`,
+    }));
+  }
+  if (hubActiveTab === 'regressions') {
+    const r = s.regressions || {};
+    const items: CoreListItem[] = [{
+      id: '__regressions__', title: 'Replay engine',
+      desc: r.replayEngineAvailable ? 'available' : 'NOT_IMPLEMENTED — recorded rows shown read-only',
+      status: r.status || 'UNKNOWN', meta: r.reasonCode || '',
+    }];
+    for (const row of (r.rows || []) as Array<Record<string, unknown>>) {
+      items.push({
+        id: String(row.regressionId), title: String(row.newKnowledge || row.regressionId),
+        desc: `replayResult: ${row.replayResult || 'n/a'}`,
+        status: row.replayResult === 'PASS' ? 'HEALTHY' : 'DEGRADED',
+        meta: String(row.createdAt || ''),
+      });
+    }
+    return items;
+  }
+  return [];
+}
+
+function renderCoreHubList(search: string) {
+  if (!hubItemsList) return;
+  const items = coreListItems().filter((it) =>
+    it.title.toLowerCase().includes(search) || it.desc.toLowerCase().includes(search) || it.id.toLowerCase().includes(search));
+  if (items.length === 0) {
+    hubItemsList.innerHTML = `<div style="color:#64748b;font-size:12px;padding:20px;text-align:center;">${hubCoreState ? 'Không có mục nào.' : 'Đang tải dữ liệu Core…'}</div>`;
+    return;
+  }
+  items.forEach((it) => {
+    const item = document.createElement('div');
+    item.className = `hub-list-item ${hubCoreSelected?.id === it.id ? 'selected' : ''}`;
+    item.innerHTML = `
+      <div class="hub-item-top">
+        <span class="hub-item-title">${escapeHtml(it.title)}</span>
+        <span class="hub-item-pill">${escapeHtml(it.status)}</span>
+      </div>
+      <div class="hub-item-desc">${escapeHtml(it.desc)}</div>
+      <div class="hub-item-meta"><span>${escapeHtml(it.meta)}</span></div>`;
+    item.onclick = () => { void selectCoreItem(it.id); };
+    hubItemsList.appendChild(item);
+  });
+}
+
+function renderCoreListSelection() {
+  const items = coreListItems();
+  if (items.length > 0 && items[0]) {
+    void selectCoreItem(items[0].id);
+  } else {
+    showCoreDetailEmpty();
+  }
+}
+
+function showCoreDetailEmpty() {
+  if (hubWfDetail) hubWfDetail.style.display = 'none';
+  if (hubMcpDetail) hubMcpDetail.style.display = 'none';
+  if (hubCoreDetail) hubCoreDetail.style.display = 'none';
+  if (hubDetailEmpty) hubDetailEmpty.style.display = 'flex';
+}
+
+async function selectCoreItem(id: string) {
+  hubCoreSelected = { tab: hubActiveTab, id };
+  hubSelectedWorkflow = null;
+  hubSelectedMcpTool = null;
+  renderHubList();
+
+  if (hubDetailEmpty) hubDetailEmpty.style.display = 'none';
+  if (hubWfDetail) hubWfDetail.style.display = 'none';
+  if (hubMcpDetail) hubMcpDetail.style.display = 'none';
+  if (hubCoreDetail) hubCoreDetail.style.display = 'flex';
+  await renderCoreDetail(id);
+}
+
+async function renderCoreDetail(id: string) {
+  const s = hubCoreState;
+  const setHeader = (name: string, desc: string, status: string, reasonCode: string) => {
+    if (coreDetailName) coreDetailName.textContent = name;
+    if (coreDetailDesc) coreDetailDesc.textContent = desc;
+    if (coreStatusPill) {
+      coreStatusPill.textContent = status;
+      coreStatusPill.className = `hub-status-pill ${coreStatusPillClass(status)}`;
+    }
+    if (coreDetailCategory) coreDetailCategory.textContent = reasonCode;
+  };
+  const setBody = (obj: unknown) => {
+    if (coreDetailCode) coreDetailCode.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+  };
+  if (!s) {
+    setHeader('Core', 'no data loaded', 'UNKNOWN', 'NO_DATA');
+    setBody('Core state not loaded.');
+    return;
+  }
+
+  if (hubActiveTab === 'core-health') {
+    const checks = (s.snapshot?.checks || []) as Array<{ name: string; status: string; reasonCode: string; detail?: string; affected?: string[]; evidenceRefs?: string[] }>;
+    const check = checks.find((c) => c.name === id);
+    const snap = s.snapshot || {};
+    if (check) {
+      setHeader(check.name, check.detail || '', check.status, check.reasonCode);
+      setBody({ ...check, snapshotStats: snap.stats, audit: snap.audit, decay: snap.decay, uncertainty: snap.uncertainty, openIssues: snap.openIssues });
+    } else {
+      setHeader('Core Health', String(snap.checkedAt || ''), String(snap.status || 'UNKNOWN'), String(snap.reasonCode || 'NO_DATA'));
+      setBody(snap);
+    }
+    return;
+  }
+  if (hubActiveTab === 'bridge') {
+    const b = s.bridge || {};
+    if (id === '__bridge__') {
+      setHeader('Core Bridge', b.telemetryFound ? 'telemetry file found' : 'no telemetry file', String(b.status || 'UNKNOWN'), String(b.reasonCode || ''));
+      setBody({ coreReachable: b.coreReachable, telemetryPaths: b.telemetryPaths, failures: b.failures, unknowns: b.unknowns });
+    } else {
+      const pack = ((b.recentPacks || []) as Array<Record<string, unknown>>).find((p) => p.packId === id);
+      setHeader(id, String(pack?.task || ''), 'INFO', 'PACK');
+      setBody(pack || 'pack not found');
+    }
+    return;
+  }
+  if (hubActiveTab === 'task-runs') {
+    if (coreDetailCode) coreDetailCode.textContent = 'Đang tải trace…';
+    try {
+      const trace = await getApi()?.getCoreTaskRunTrace?.(id);
+      setHeader(id, String(trace?.kind || ''), String(trace?.status || 'UNKNOWN'), String(trace?.reasonCode || ''));
+      setBody(trace || 'trace unavailable');
+    } catch (err) {
+      setHeader(id, '', 'UNAVAILABLE', 'IPC_FAILED');
+      setBody(String(err));
+    }
+    return;
+  }
+  if (hubActiveTab === 'root-causes') {
+    const groups = (s.rootCauses?.groups || []) as Array<{ key: string; worstSeverity: string; issueClass: string; latestMessage?: string }>;
+    const g = groups.find((x) => x.key === id);
+    if (g) {
+      setHeader(g.key, g.latestMessage || '', g.worstSeverity === 'P0' || g.worstSeverity === 'P1' ? 'DEGRADED' : 'UNKNOWN', g.issueClass);
+      setBody(g);
+    }
+    return;
+  }
+  if (hubActiveTab === 'regressions') {
+    const r = s.regressions || {};
+    if (id === '__regressions__') {
+      setHeader('Core Regression', r.replayEngineAvailable ? 'replay engine available' : 'replay engine NOT_IMPLEMENTED', String(r.status || 'UNKNOWN'), String(r.reasonCode || ''));
+      setBody({ replayEngineAvailable: r.replayEngineAvailable, rows: r.rows });
+    } else {
+      const row = ((r.rows || []) as Array<Record<string, unknown>>).find((x) => x.regressionId === id);
+      setHeader(id, String(row?.newKnowledge || ''), row?.replayResult === 'PASS' ? 'HEALTHY' : 'DEGRADED', String(row?.replayResult || 'NO_RESULT'));
+      setBody(row || 'row not found');
+    }
+    return;
+  }
+}
+
+function setHubTab(tab: HubTab) {
+  hubActiveTab = tab;
+  for (const t of Object.keys(HUB_NAV_BUTTONS) as HubTab[]) {
+    const btn = HUB_NAV_BUTTONS[t];
+    if (btn) btn.classList.toggle('active', t === tab);
+  }
+  hubCoreSelected = null;
+  renderHubList();
+  if (tab === 'workflows') {
+    if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);
+  } else if (tab === 'mcp') {
+    if (hubMcpTools.length > 0) selectMcpTool(hubMcpTools[0]);
+  } else {
+    renderCoreListSelection();
+  }
+}
 function selectMcpTool(tool: any) {
   hubSelectedMcpTool = tool;
   hubSelectedWorkflow = null;
@@ -615,6 +925,7 @@ function selectMcpTool(tool: any) {
 
   if (hubDetailEmpty) hubDetailEmpty.style.display = 'none';
   if (hubWfDetail) hubWfDetail.style.display = 'none';
+  if (hubCoreDetail) hubCoreDetail.style.display = 'none';
   if (hubMcpDetail) hubMcpDetail.style.display = 'flex';
 
   if (mcpDetailCategory) {
@@ -2438,19 +2749,17 @@ async function initToolbar() {
   workflowHubOverlay?.addEventListener('click', (e) => {
     if (e.target === workflowHubOverlay) closeWorkflowHub();
   });
-  tabNavWorkflows?.addEventListener('click', () => {
-    hubActiveTab = 'workflows';
-    tabNavWorkflows.classList.add('active');
-    tabNavMcp?.classList.remove('active');
+  tabNavWorkflows?.addEventListener('click', () => setHubTab('workflows'));
+  tabNavMcp?.addEventListener('click', () => setHubTab('mcp'));
+  tabNavCoreHealth?.addEventListener('click', () => setHubTab('core-health'));
+  tabNavBridge?.addEventListener('click', () => setHubTab('bridge'));
+  tabNavTaskRuns?.addEventListener('click', () => setHubTab('task-runs'));
+  tabNavRootCauses?.addEventListener('click', () => setHubTab('root-causes'));
+  tabNavRegressions?.addEventListener('click', () => setHubTab('regressions'));
+  btnCoreRefresh?.addEventListener('click', async () => {
+    await refreshCoreHealthState();
     renderHubList();
-    if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);
-  });
-  tabNavMcp?.addEventListener('click', () => {
-    hubActiveTab = 'mcp';
-    tabNavMcp.classList.add('active');
-    tabNavWorkflows?.classList.remove('active');
-    renderHubList();
-    if (hubMcpTools.length > 0) selectMcpTool(hubMcpTools[0]);
+    if (hubCoreSelected) await renderCoreDetail(hubCoreSelected.id);
   });
   hubSearchInput?.addEventListener('input', () => {
     if (hubSearchClear && hubSearchInput) {

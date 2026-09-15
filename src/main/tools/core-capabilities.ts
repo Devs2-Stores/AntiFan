@@ -44,6 +44,8 @@ export interface CoreStorePort {
   corpusAudit(): unknown;
   checkPhaseGate(phase: string, gate: string): unknown;
   recordRegression(opts: Record<string, unknown>): unknown;
+  replayRegression(regressionId: string): unknown;
+  recordObservation(opts: Record<string, unknown>): unknown;
   recordPrinciple(opts: Record<string, unknown>): unknown;
   principles(opts?: Record<string, unknown>): unknown;
   recordHiddenRequirement(opts: Record<string, unknown>): unknown;
@@ -62,6 +64,7 @@ export interface CoreStorePort {
   skillGenealogy(opts: Record<string, unknown>): unknown;
   contextPackV2(opts: Record<string, unknown>): unknown;
   receiptV2(opts: Record<string, unknown>): unknown;
+  knowledgeGaps(opts?: Record<string, unknown>): unknown;
 }
 
 // Lazy adapter: resolves packages/super-core/dist relative to this compiled
@@ -115,6 +118,8 @@ export function createLazyCorePort(): CoreStorePort {
     corpusAudit: () => load().corpusAudit(),
     checkPhaseGate: (p, g) => load().checkPhaseGate(p, g),
     recordRegression: (o) => load().recordRegression(o),
+    replayRegression: (r) => load().replayRegression(r),
+    recordObservation: (o) => load().recordObservation(o),
     recordPrinciple: (o) => load().recordPrinciple(o),
     principles: (o) => load().principles(o),
     recordHiddenRequirement: (o) => load().recordHiddenRequirement(o),
@@ -133,6 +138,7 @@ export function createLazyCorePort(): CoreStorePort {
     skillGenealogy: (o) => load().skillGenealogy(o),
     contextPackV2: (o) => load().contextPackV2(o),
     receiptV2: (o) => load().receiptV2(o),
+    knowledgeGaps: (o) => load().knowledgeGaps(o),
   };
 }
 
@@ -164,15 +170,15 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     catalogue.register({ name, description, risk: (policy as { risk: 'read' | 'write' }).risk, policy: policy as never, inputSchema: inputSchema as never, execute: (params: never) => run(params) });
 
   reg('core.query', 'Query the local Super Core evidence store: anchored claims filtered by text/platform/unit/kind.',
-    { type: 'object', properties: { text: { type: 'string' }, platform: { type: 'string' }, unitId: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, kind: { type: 'string' }, limit: { type: 'number' } } },
+    { type: 'object', properties: { text: { type: 'string' }, platform: { type: 'string' }, unitId: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, kind: { type: 'string' }, limit: { type: 'number' }, includeGlobal: { type: 'boolean' } } },
     READ_POLICY, (p: Parameters<CoreStorePort['query']>[0]) => core.query(p));
 
   reg('core.context_pack', 'Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope.',
-    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' } }, required: ['task'] },
+    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, required: ['task'] },
     READ_POLICY, (p: Parameters<CoreStorePort['contextPack']>[0]) => core.contextPack(p));
 
   reg('core.recommend', 'Recommend from evidence: Context Pack + recommendation or explicit abstention.',
-    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } } }, required: ['task'] },
+    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, required: ['task'] },
     READ_POLICY, (p: Parameters<CoreStorePort['recommend']>[0]) => core.recommend(p));
 
   reg('core.stats', 'Return Super Core store counts for verification.',
@@ -216,7 +222,7 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
 
   // v4: Case-Based Reasoning
   reg('core.find_similar', 'Find similar claims, cases, decisions, anti-patterns, workarounds, fix patterns.',
-    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, limit: { type: 'number' } }, required: ['task'] },
+    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, limit: { type: 'number' }, includeGlobal: { type: 'boolean' } }, required: ['task'] },
     READ_POLICY, (p: Record<string, unknown>) => core.findSimilar(p));
 
   // v4: Uncertainty Engine
@@ -228,6 +234,9 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
   reg('core.decay_check', 'Check for stale/aging claims.',
     { type: 'object', properties: { staleDays: { type: 'number' } } },
     READ_POLICY, (p: Record<string, unknown>) => core.decayCheck(p));
+  reg('core.knowledge_gaps', 'Classify per-platform knowledge gaps: NO_EVIDENCE, STALE, CONFLICTED, NONE.',
+    { type: 'object', properties: { staleDays: { type: 'number' } } },
+    READ_POLICY, (p: Record<string, unknown>) => core.knowledgeGaps(p));
 
   // v4: Corpus Audit
   reg('core.corpus_audit', 'Run a corpus completion audit.',
@@ -238,11 +247,16 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
   reg('core.check_phase_gate', 'Check a phase gate.',
     { type: 'object', properties: { phase: { type: 'string' }, gate: { type: 'string' } }, required: ['phase', 'gate'] },
     READ_POLICY, (p: { phase: string; gate: string }) => core.checkPhaseGate(p.phase, p.gate));
-
-  // v4: Core Regression
-  reg('core.record_regression', 'Record a core regression run.',
-    { type: 'object', properties: { newKnowledge: { type: 'string' }, affectedRules: { type: 'array', items: { type: 'string' } }, affectedCases: { type: 'array', items: { type: 'string' } }, affectedRecommendations: { type: 'array', items: { type: 'string' } }, replayResult: { type: 'string', enum: ['PASS', 'FAIL'] } }, required: ['replayResult'] },
+  // v4: Core Regression — record stores the definition; only replay writes a result.
+  reg('core.record_regression', 'Record a core regression definition (checks re-executed by core.replay_regression).',
+    { type: 'object', properties: { newKnowledge: { type: 'string' }, affectedRules: { type: 'array', items: { type: 'string' } }, affectedCases: { type: 'array', items: { type: 'string' } }, affectedRecommendations: { type: 'array', items: { type: 'string' } }, checks: { type: 'array', items: { type: 'object' } } } },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordRegression(p));
+  reg('core.replay_regression', 'Re-execute a recorded regression\'s checks against live state and write replayResult + replayedAt.',
+    { type: 'object', properties: { regressionId: { type: 'string' } }, required: ['regressionId'] },
+    WRITE_POLICY, (p: { regressionId: string }) => core.replayRegression(p.regressionId));
+  reg('core.record_observation', 'Record a raw observation (source, kind, payload) into the learning loop.',
+    { type: 'object', properties: { source: { type: 'string' }, kind: { type: 'string' }, payload: {} }, required: ['source', 'kind'] },
+    WRITE_POLICY, (p: Record<string, unknown>) => core.recordObservation(p));
 
   // v4: Principles
   reg('core.record_principle', 'Record a personal engineering principle.',
@@ -310,10 +324,10 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
 
   // v4: Enriched Context Pack & Receipt
   reg('core.context_pack_v2', 'Build an enriched Context Pack with rules, cases, pitfalls, workarounds, pattern, uncertainty, confidence.',
-    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' } }, required: ['task'] },
+    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, required: ['task'] },
     READ_POLICY, (p: Record<string, unknown>) => core.contextPackV2(p));
   reg('core.receipt_v2', 'Issue an enriched Decision Receipt with why, cases, risks, alternatives, uncertainty, confidence.',
-    { type: 'object', properties: { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' } }, required: ['task', 'recommendation'] },
+    { type: 'object', properties: { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' }, platform: { type: 'string' } }, required: ['task', 'recommendation'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.receiptV2(p));
 
   reg('core.resolve_conflict', 'Resolve or classify a conflict (GENERAL_RULE, CONTEXTUAL_RULE, LEGACY_RULE, EXCEPTION, CONFLICTED, UNRESOLVED).',
@@ -328,11 +342,11 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     WRITE_POLICY, (p: Parameters<CoreStorePort['receipt']>[0]) => core.receipt(p));
 
   reg('core.ingest_outcome', 'Ingest a verified outcome as a case + pending candidate (never auto-promoted).',
-    { type: 'object', properties: { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' } }, required: ['task', 'outcome'] },
+    { type: 'object', properties: { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' }, platform: { type: 'string' } }, required: ['task', 'outcome'] },
     WRITE_POLICY, (p: Parameters<CoreStorePort['ingestOutcome']>[0]) => core.ingestOutcome(p));
 
   reg('core.adjudicate', 'Adjudicate a candidate (PROMOTE/REJECT/SUPERSEDE) with explicit authority.',
-    { type: 'object', properties: { candidateId: { type: 'string' }, decision: { type: 'string', enum: ['PROMOTE', 'REJECT', 'SUPERSEDE'] }, authority: { type: 'string' }, rationale: { type: 'string' } }, required: ['candidateId', 'decision', 'authority'] },
+    { type: 'object', properties: { candidateId: { type: 'string' }, decision: { type: 'string', enum: ['PROMOTE', 'REJECT', 'SUPERSEDE'] }, authority: { type: 'string' }, rationale: { type: 'string' }, scope: { type: 'string', enum: ['production', 'acceptance-test'] } }, required: ['candidateId', 'decision', 'authority'] },
     WRITE_POLICY, (p: Parameters<CoreStorePort['adjudicate']>[0]) => core.adjudicate(p));
 
   reg('core.invalidate', 'Mark claims stale when their source changed or was deleted.',

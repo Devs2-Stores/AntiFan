@@ -6,7 +6,7 @@
 //   pack '{"task":"..."}'   context pack
 //   recommend '{"task":"..."}'
 //   receipt '{"task":"...","recommendation":"..."}'
-//   outcome '{"task":"...","outcome":"..."}'
+//   outcome '{"task":"...","outcome":"..."}'  case + PENDING candidate + observation
 //   adjudicate '{"candidateId":"...","decision":"PROMOTE","authority":"..."}'
 //   stats
 //   domain <name>
@@ -14,6 +14,13 @@
 //   revoke '{"path":"..."}'
 //   snapshot [note]
 //   rollback <releaseId>
+//   health                 aggregated stats+audit+decay+gates+uncertainty (Core Health UI)
+//   regressions            {replayEngineAvailable, rows} from the regressions table
+//   task-runs              {taskRunsTable, taskRuns, packs, cases}
+//   pack-detail <packId>   pack + its claims + receipts
+//   case-detail <caseId>   case + its candidates
+//   observe '{"source":"...","kind":"..."}'  raw observation producer
+//   replay <regressionId>  re-execute a recorded regression's checks
 
 const path = require('node:path');
 
@@ -63,6 +70,74 @@ async function main() {
     case 'gate': out = core.checkPhaseGate(parse(arg).phase, parse(arg).gate); break;
     case 'resolve-conflict': out = core.resolveConflict(parse(arg)); break;
     case 'regression': out = core.recordRegression(parse(arg)); break;
+    case 'observe': out = core.recordObservation(parse(arg)); break;
+    case 'replay': out = core.replayRegression(arg); break;
+    // Read-only list surfaces for the Core Health UI. The Core class exposes no
+    // list methods for these tables, so the CLI reads them through the same
+    // store handle — never a second authority, never a parallel DB.
+    case 'regressions': {
+      const lim = Math.min(parse(arg).limit ?? 50, 200);
+      out = {
+        replayEngineAvailable: typeof core.replayRegression === 'function',
+        rows: core.db.prepare('SELECT * FROM regressions ORDER BY createdAt DESC LIMIT ?').all(lim),
+      };
+      break;
+    }
+    case 'task-runs': {
+      const lim = Math.min(parse(arg).limit ?? 50, 200);
+      const hasTaskRuns = Boolean(core.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_runs'").get());
+      out = {
+        taskRunsTable: hasTaskRuns,
+        taskRuns: hasTaskRuns ? core.db.prepare('SELECT * FROM task_runs LIMIT ?').all(lim) : [],
+        packs: core.db.prepare('SELECT * FROM packs ORDER BY createdAt DESC LIMIT ?').all(lim),
+        cases: core.db.prepare('SELECT * FROM cases ORDER BY createdAt DESC LIMIT ?').all(lim),
+      };
+      break;
+    }
+    case 'pack-detail': {
+      const pack = core.db.prepare('SELECT * FROM packs WHERE packId = ?').get(arg);
+      if (!pack) { out = { error: 'PACK_NOT_FOUND', packId: arg }; break; }
+      const claimIds = JSON.parse(pack.claimIdsJson || '[]');
+      const claims = claimIds.length
+        ? core.db.prepare(`SELECT claimId, statement, kind, status, contextPlatform, confidence FROM claims WHERE claimId IN (${claimIds.map(() => '?').join(',')})`).all(...claimIds)
+        : [];
+      const receipts = core.db.prepare('SELECT * FROM receipts WHERE packId = ? ORDER BY createdAt DESC').all(arg);
+      out = { pack, claims, receipts };
+      break;
+    }
+    case 'case-detail': {
+      const kase = core.db.prepare('SELECT * FROM cases WHERE caseId = ?').get(arg);
+      if (!kase) { out = { error: 'CASE_NOT_FOUND', caseId: arg }; break; }
+      const candidates = core.db.prepare('SELECT * FROM candidates WHERE caseId = ?').all(arg);
+      out = { case: kase, candidates };
+      break;
+    }
+    case 'health': {
+      const staleDays = parse(arg).staleDays;
+      // Read-only: the Core Health UI re-runs this on every open and refresh, so
+      // gate and audit evaluation must not persist rows here. Only a real gate
+      // run records, via the default `record: true`.
+      const gate = (name) => core.checkPhaseGate('health-surface', name, { record: false });
+      out = {
+        stats: core.stats(),
+        audit: core.corpusAudit({ record: false }),
+        decay: core.decayCheck(staleDays ? { staleDays } : undefined),
+        gates: {
+          coverage: gate('coverage'),
+          evidence: gate('evidence'),
+          conflict: gate('conflict'),
+          temporal: gate('temporal'),
+          promotion: gate('promotion'),
+          regression: gate('regression'),
+        },
+        // Uncertainty is scoped to a task or claim by construction. Reporting it
+        // unscoped would classify whichever claims happen to sort first and
+        // present that as a corpus health signal, so it is reported UNKNOWN with
+        // the missing scope named instead.
+        uncertainty: { level: 'UNKNOWN', reason: 'unscoped: uncertainty is per-task/claim, not corpus-wide' },
+      };
+      break;
+    }
     case 'principle': out = core.recordPrinciple(parse(arg)); break;
     case 'principles': out = core.principles(parse(arg)); break;
     case 'hidden-req': out = core.recordHiddenRequirement(parse(arg)); break;

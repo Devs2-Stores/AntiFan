@@ -32,6 +32,16 @@ const page = (id, name, slug, verdicts) => ({
   evidenceRoot: `E:/attempts/${slug}`,
   status: 'COMPLETED',
   bundle: { entrySha256: `sha-${id}`, attemptId: `attempt-${id}` },
+  // The orchestrator stamps this once per page, after the reference tab settles and
+  // before any viewport is measured, so every viewport of the page inherits it. A case
+  // that never got one is withheld from the fidelity tallies rather than adjudicated.
+  routeIdentity: {
+    requestedUrl: `https://example.test/${slug}`,
+    observedUrl: `https://example.test/${slug}`,
+    valid: true,
+    redirectCount: 0,
+    mismatch: null,
+  },
   viewports: Object.fromEntries(
     Object.entries(verdicts).map(([label, verdict]) => [
       label,
@@ -402,4 +412,57 @@ test('a full-scope run that adjudicates nothing exits non-zero, exactly like a r
   assert.equal(withVerdict.adjudicableCases, 1);
   assert.equal(withVerdict.code, 0);
   assert.equal(withVerdict.reason, 'OK');
+});
+
+test('a case that claims a verdict but names no route is not adjudicated by the exit status', () => {
+  // The index withholds a route-less case from the tallies; the exit classifier
+  // must not count it as adjudicated either, or a run of unbound verdicts would
+  // still exit 0 and read as publishable evidence.
+  const unbound = summary({
+    1: page(1, 'HOME', 'page-01-home', { 1440: 'PASS', 1024: 'PASS', 390: 'PASS' }),
+  });
+  delete unbound.pageResults[1].routeIdentity;
+
+  const index = buildVerdictIndex(unbound);
+  assert.equal(index.tally.PASS, 0, 'no PASS may be minted for a case that never named its route');
+  assert.equal(index.cases[0].verdict, 'INCONCLUSIVE');
+  assert.equal(index.cases[0].causeCode, 'ROUTE_IDENTITY_MISSING');
+
+  const exit = computeRunExit(unbound, [1], { targetPages: TARGET_PAGES, viewportLabels: VIEWPORT_LABELS });
+  assert.equal(exit.code, 1, 'a run whose only verdicts are route-less must not exit 0');
+  assert.equal(exit.reason, 'INCOMPLETE_CASES');
+  assert.ok(exit.detail.some((d) => d.includes('ROUTE_IDENTITY_MISSING')));
+});
+
+test('the index never ships a null exit, and a completed run carries a real finishedAt', () => {
+  // B32: the published artifact recorded exit/finishedAt as null, so its tally
+  // could not be attributed to the code at HEAD. The writer now synthesizes a
+  // named refusal when the summary carries no exit, and marks mid-run snapshots
+  // as incomplete instead of letting them pose as finished runs.
+  const inProgress = summary({ 1: page(1, 'HOME', 'page-01-home', { 1440: 'PASS' }) });
+  const midIndex = buildVerdictIndex(inProgress);
+  assert.notEqual(midIndex.exit, null, 'exit is never null');
+  assert.equal(midIndex.exit.reason, 'EXIT_UNRECORDED');
+  assert.equal(midIndex.exit.code, 1);
+  assert.equal(midIndex.finishedAt, null, 'a mid-run snapshot honestly reports it is not finished');
+  assert.equal(midIndex.runComplete, false);
+
+  const finished = summary({ 1: page(1, 'HOME', 'page-01-home', { 1440: 'PASS' }) }, {
+    finishedAt: '2026-09-16T01:00:00.000Z',
+    exit: { code: 0, reason: 'OK', adjudicableCases: 1, inconclusiveCases: 0 },
+  });
+  const doneIndex = buildVerdictIndex(finished);
+  assert.equal(doneIndex.finishedAt, '2026-09-16T01:00:00.000Z');
+  assert.equal(doneIndex.runComplete, true);
+  assert.equal(doneIndex.exit.reason, 'OK');
+
+  // Aggregate runs carry completedAt (the newest page publication) instead of
+  // finishedAt; the index binds to it rather than shipping null.
+  const aggregate = summary({ 1: page(1, 'HOME', 'page-01-home', { 1440: 'PASS' }) }, {
+    completedAt: '2026-09-16T02:00:00.000Z',
+    exit: { code: 0, reason: 'AGGREGATE_COMPLETE' },
+  });
+  const aggIndex = buildVerdictIndex(aggregate);
+  assert.equal(aggIndex.finishedAt, '2026-09-16T02:00:00.000Z');
+  assert.equal(aggIndex.runComplete, true);
 });

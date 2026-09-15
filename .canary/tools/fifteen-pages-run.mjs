@@ -1,10 +1,16 @@
 /**
- * ANTiFan — Real 15-Page Hoplongtech Clone Canary Orchestrator
+ * ANTiFan — Real 15-Page Clone Canary Orchestrator
  *
  * Executes the complete empirical pipeline across all 15 locked target pages
  * and 3 viewports (1440x900, 1024x900, 390x844) = 45 render cases. The viewport set
  * is selectable (`--viewports`), and a reduced run declares the viewports it left
  * unverified in its summary, index, hub and report instead of measuring them as pass.
+ *
+ * The target storefront is a parameter, not a constant: `--base-url <url>` or
+ * `ANTIFAN_CAMPAIGN_BASE_URL` re-points every page URL, per-page domain, the clone
+ * builder base and the network audit's reference-host allowlist. It defaults to
+ * https://hangquoctai.myharavan.com. `--print-config` prints the resolved target
+ * and page set without touching the browser; `--help` prints usage.
  *
  * Sequence per page:
  *   1. Discovery (Phase A & A0): Real Chromium navigation, hydration, settlement,
@@ -25,6 +31,42 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
+import {
+  resolveCampaignBaseUrl,
+  campaignReferenceHosts,
+  buildCampaignTargetPages,
+  CAMPAIGN_BASE_URL_ENV,
+  CAMPAIGN_BASE_URL_FLAG,
+} from '../../scripts/lib/campaign-target.mjs';
+
+// The campaign runs only when this file is the entrypoint. Importing the module
+// (the report renderer's test does) must not start a live run — and the flag/env
+// resolution below must not read a test runner's argv either.
+const isEntrypoint = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+// Resolved once at module load: --base-url flag > ANTIFAN_CAMPAIGN_BASE_URL >
+// default. Under a test runner the argv is ignored, so TARGET_PAGES always
+// reflects the env-or-default target an importer would observe.
+export const TARGET = resolveCampaignBaseUrl({ argv: isEntrypoint ? process.argv.slice(2) : [] });
+export const TARGET_BASE_URL = TARGET.baseUrl;
+export const TARGET_HOST = TARGET.host;
+export const REFERENCE_HOSTS = campaignReferenceHosts(TARGET_HOST);
+export const TARGET_PAGES = buildCampaignTargetPages(TARGET_BASE_URL);
+
+// `--help` and `--print-config` answer before the RPC/session modules load, so a
+// target check never requires a minted canary session or a live browser.
+if (isEntrypoint) {
+  const earlyArgs = process.argv.slice(2);
+  if (earlyArgs.includes('--help') || earlyArgs.includes('-h')) {
+    printUsage();
+    process.exit(0);
+  }
+  if (earlyArgs.includes('--print-config')) {
+    printTargetConfig();
+    process.exit(0);
+  }
+}
+
 
 const { call, evalOn, bootstrap: boot, reloadBootstrap } = await import('./lib-rpc.mjs');
 const { requireDoubleSettledMetrics, hydrateToCapturedState, releaseSettleOverrides } = await import('./canary-settle.mjs');
@@ -49,128 +91,8 @@ const { checkObservedUrl, normalizeRoutePath } = await import('./theme-fidelity.
 
 
 
-export const TARGET_PAGES = [
-  {
-    id: 1,
-    name: 'TRANG CHỦ',
-    url: 'https://hoplongtech.com/',
-    slug: 'page-01-home',
-    domain: 'hoplongtech.com',
-    specialNote: 'Hero, banner, category, product, brand, news, partner, footer, responsive.'
-  },
-  {
-    id: 2,
-    name: 'DANH MỤC THƯƠNG HIỆU',
-    url: 'https://hoplongtech.com/brands',
-    slug: 'page-02-brands',
-    domain: 'hoplongtech.com',
-    specialNote: 'Brand list, logos, grouping, search/filter, responsive layout.'
-  },
-  {
-    id: 3,
-    name: 'NHÓM KHÔNG FILTER',
-    url: 'https://hoplongtech.com/category/cam-bien',
-    slug: 'page-03-category-cam-bien',
-    domain: 'hoplongtech.com',
-    specialNote: 'Category structure, product listing, sidebar absence, pagination/load more.'
-  },
-  {
-    id: 4,
-    name: 'TRANG NHÓM SẢN PHẨM',
-    url: 'https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127',
-    slug: 'page-04-category-contactor',
-    domain: 'hoplongtech.com',
-    specialNote: 'Filter state preserved, selected brand, product results, cardinality.'
-  },
-  {
-    id: 5,
-    name: 'NHÓM SẢN PHẨM BRAND',
-    url: 'https://hoplongtech.com/brands/ecovacs',
-    slug: 'page-05-brands-ecovacs',
-    domain: 'hoplongtech.com',
-    specialNote: 'Brand banner, description, group info, products in group.'
-  },
-  {
-    id: 6,
-    name: 'GIỎ HÀNG',
-    url: 'https://hoplongtech.com/cart',
-    slug: 'page-06-cart',
-    domain: 'hoplongtech.com',
-    specialNote: 'Cart layout, product row, totals. (Unauthenticated redirect -> openLogin=1).'
-  },
-  {
-    id: 7,
-    name: 'CHI TIẾT SẢN PHẨM',
-    url: 'https://hoplongtech.com/products/lc1d09m7',
-    slug: 'page-07-product-detail',
-    domain: 'hoplongtech.com',
-    specialNote: 'Product info, gallery, price, CTA, description, related products, reviews.'
-  },
-  {
-    id: 8,
-    name: 'BÁO GIÁ',
-    url: 'https://hoplongtech.com/bao-gia',
-    slug: 'page-08-bao-gia',
-    domain: 'hoplongtech.com',
-    specialNote: 'Form, input, product selection, quantity, submit behavior (~10 items).'
-  },
-  {
-    id: 9,
-    name: 'TÀI LIỆU',
-    url: 'https://hoplongtech.com/tai-lieu-ky-thuat',
-    slug: 'page-09-tai-lieu',
-    domain: 'hoplongtech.com',
-    specialNote: 'Document listing, file metadata, download CTA, upload/config semantics.'
-  },
-  {
-    id: 10,
-    name: 'TIN TỨC',
-    url: 'https://hoplongtech.com/tin-tuc',
-    slug: 'page-10-tin-tuc',
-    domain: 'hoplongtech.com',
-    specialNote: 'Article list, thumbnail images, title, metadata, pagination.'
-  },
-  {
-    id: 11,
-    name: 'CHI TIẾT TIN TỨC',
-    url: 'https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html',
-    slug: 'page-11-tin-tuc-detail',
-    domain: 'hoplongtech.com',
-    specialNote: 'Article body, images, inline media, related articles. (Omit view count ok).'
-  },
-  {
-    id: 12,
-    name: 'GIỚI THIỆU',
-    url: 'https://hoplong.com/gioi-thieu-ve-hop-long/',
-    slug: 'page-12-gioi-thieu',
-    domain: 'hoplong.com',
-    specialNote: 'hoplong.com domain, content structure, headings, blocks.'
-  },
-  {
-    id: 13,
-    name: 'LỊCH SỬ',
-    url: 'https://hoplong.com/lich-su-phat-trien/',
-    slug: 'page-13-lich-su',
-    domain: 'hoplong.com',
-    specialNote: 'hoplong.com domain, timeline structure, images, milestones.'
-  },
-  {
-    id: 14,
-    name: 'TUYỂN DỤNG',
-    url: 'https://hoplong.com/tuyen-dung/',
-    slug: 'page-14-tuyen-dung',
-    domain: 'hoplong.com',
-    specialNote: 'hoplong.com domain, job listing, departments, CTA.'
-  },
-  {
-    id: 15,
-    name: 'CHI TIẾT TUYỂN DỤNG',
-    url: 'https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/',
-    slug: 'page-15-tuyendung-detail',
-    domain: 'hoplong.com',
-    specialNote: 'hoplong.com domain, job detail, requirements, location, CTA/form.'
-  }
-];
+// TARGET_PAGES is built above from the resolved base URL — see CAMPAIGN_PAGE_SPECS
+// in scripts/lib/campaign-target.mjs for the 15 locked routes.
 
 // `mobile` marks the narrow tier that a run may leave unverified (`mobileUnverified`);
 // it does not select a mobile client: every tier renders the responsive document with
@@ -389,7 +311,7 @@ const DISCOVERY_PROBE_EXPR = `(() => {
 // ── In-page Network Resources Audit Expression ─────────────────────────────────
 const NETWORK_AUDIT_EXPR = `(() => {
   const entries = performance.getEntriesByType('resource');
-  const referenceHosts = ['hoplongtech.com', 'hoplong.com', 'img.hoplongtech.com'];
+  const referenceHosts = ${JSON.stringify(REFERENCE_HOSTS)};
 
   const referenceVisualRequests = [];
   const externalRequests = [];
@@ -533,6 +455,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
 
   const runSummary = {
     runId,
+    target: { baseUrl: TARGET_BASE_URL, host: TARGET_HOST, source: TARGET.source },
     startedAt: new Date().toISOString(),
     viewports: RUN_VIEWPORTS,
     scope,
@@ -547,8 +470,9 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
   };
 
   console.log(`================================================================`);
-  console.log(`ANTiFan — REAL 15-PAGE HOPLONGTECH CLONE TEST`);
+  console.log(`ANTiFan — REAL 15-PAGE CLONE TEST — target ${TARGET_BASE_URL}`);
   console.log(`Target: ${TARGET_PAGES.length} pages x ${RUN_VIEWPORTS.length} viewports = ${TARGET_PAGES.length * RUN_VIEWPORTS.length} render cases`);
+  console.log(`Target source: ${TARGET.source} (${TARGET.source === 'flag' ? CAMPAIGN_BASE_URL_FLAG : TARGET.source === 'env' ? CAMPAIGN_BASE_URL_ENV : 'built-in default'})`);
   if (scope.excluded.length > 0) {
     console.log(`SCOPE: excluding ${scope.excluded.map((e) => e.label).join(', ')} — those viewports are NOT verified by this run`);
   }
@@ -564,7 +488,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
 
     const pageStartT = Date.now();
     console.log(`\n----------------------------------------------------------------`);
-    console.log(`>>> PAGE ${p.id}/15: ${p.name}`);
+    console.log(`>>> PAGE ${p.id}/${TARGET_PAGES.length}: ${p.name}`);
     console.log(`    URL: ${p.url}`);
     console.log(`    Slug: ${p.slug} | Domain: ${p.domain}`);
     console.log(`----------------------------------------------------------------`);
@@ -752,7 +676,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       // ══════════════════════════════════════════════════════════════════════
       console.log(`[P${p.id}] Phase A1/A2: Building independent HTML clone...`);
       const telemetryPath = path.join(evDir, 'build-telemetry.json');
-      const baseDomain = p.url.includes('hoplong.com') ? 'https://hoplong.com' : 'https://hoplongtech.com';
+      const baseDomain = new URL(p.url).origin;
       const buildRes = await runCommand(
         'node',
         ['.canary/tools/build-clone.mjs', refHtmlPath, cloneDir, telemetryPath, 'undefined', 'undefined', baseDomain],
@@ -1402,7 +1326,7 @@ export function generateReport(summary) {
     ? `\nUNVERIFIED VIEWS  : ${excludedViewports.map((label) => `${label} — excluded from this run: not measured, not passing`).join('; ')}`
     : '';
 
-  let md = `# AntiFan — Hoplongtech 15-Page Clone Canary
+  let md = `# AntiFan — 15-Page Clone Canary — ${TARGET_HOST}
 
 ## 1. Executive Verdict
 
@@ -1410,7 +1334,7 @@ export function generateReport(summary) {
 EXECUTIVE VERDICT : ${executiveVerdict}${excludedViewports.length > 0 ? ' — SCOPE-REDUCED (not a whole-clone verdict)' : ''}
 SCOPE             : ${scopedViewportLabels.join('/')} measured${excludedViewports.length > 0 ? ` | ${excludedViewports.join('/')} EXCLUDED (unverified, not passing)` : ''}
 FINAL DECISION    : ${finalDecisionEnum}
-PAGES EXECUTED    : ${totalTested} / 15 (${unexecutedPages.length > 0 ? `${unexecutedPages.length} pages UNTESTED in this batch` : 'ALL 15 PAGES TESTED'})
+PAGES EXECUTED    : ${totalTested} / ${TARGET_PAGES.length} (${unexecutedPages.length > 0 ? `${unexecutedPages.length} pages UNTESTED in this batch` : `ALL ${TARGET_PAGES.length} PAGES TESTED`})
 RENDER CASES RUN  : ${totalRenderCasesRun} / ${totalScopedCases} (PASS: ${totalPass} | FAIL: ${totalFail} | INCONCLUSIVE: ${totalInconclusive})${unverifiedLine}
 COMPLETION DATE   : ${summary.completedAt || new Date().toISOString()}
 \`\`\`
@@ -1433,6 +1357,7 @@ ${TARGET_PAGES.map(p => {
 
 \`\`\`text
 Runtime Platform   : Windows_NT x64 (Electron 28.3.3 / Chromium 120.0.6099.291)
+Target Storefront  : ${summary.target?.baseUrl ?? TARGET_BASE_URL} (${summary.target?.source ?? TARGET.source})
 ${summary.aggregate
   ? `Evidence Source    : aggregated from ${Object.keys(summary.pageResults ?? {}).length} published page attempts; each page's own session identity is in its attempt evidence`
   : `AntiFan Port       : ${boot.port}
@@ -1536,7 +1461,7 @@ ${routeRefusedPages.map(p => `- **Page ${p.id} (${p.name})**: \`${renderPageStat
 
 - **Acceptance Invariant**: \`REQUESTS TO REFERENCE DOMAIN FOR VISUAL ASSETS = 0\`.
 - **Total Viewports Audited**: ${networkAudits.length}.
-- **Audited Domains**: \`hoplongtech.com\`, \`hoplong.com\`, \`img.hoplongtech.com\`.
+- **Audited Domains**: ${REFERENCE_HOSTS.map((h) => `\`${h}\``).join(', ')}.
 - **Reference Visual Requests Detected**: ${networkAudits.reduce((sum, a) => sum + (a.referenceRequests || 0), 0)}.
 - **Verdict**: ${networkAudits.length > 0 && networkAudits.every(a => a.passed) ? 'PASS — Zero external reference visual requests on all tested clone tabs.' : (networkAudits.length === 0 ? 'NOT_TESTED' : 'FAIL_EXTERNAL_ASSET_CONTAMINATION')}.
 
@@ -1787,6 +1712,7 @@ async function runAggregateOnly() {
     pagesRun: pageCount,
     scope: { pages: 'all', viewports: VIEWPORTS.map((v) => v.label), excluded: [] },
     runId,
+    target: { baseUrl: TARGET_BASE_URL, host: TARGET_HOST, source: TARGET.source },
     absent,
     // The campaign's own completion is the newest publication among the pages it holds:
     // a regeneration timestamp would make two identical reads of unchanged evidence
@@ -1798,6 +1724,25 @@ async function runAggregateOnly() {
     // evidence came from instead.
     aggregate: true,
   };
+  // The aggregate's exit is decided by the same provenance rule the index enforces:
+  // a completed case that names no bundle or instance is not publishable evidence.
+  // It is computed on the raw page results — before the index exists — so the
+  // artifact it produces is revision-bound instead of shipping exit/finishedAt null.
+  const aggregateGaps = casesWithoutProvenance(
+    Object.values(pageResults).flatMap((p) =>
+      Object.entries(p.viewports || {}).map(([label, vp]) => ({
+        pageId: p.id,
+        viewport: label,
+        status: vp.status,
+        bundle: vp.bundle ?? p.bundle ?? null,
+        instance: vp.instance ?? runSummary.instance ?? null,
+      }))
+    )
+  );
+  runSummary.finishedAt = newestPublication;
+  runSummary.exit = aggregateGaps.length > 0
+    ? { code: 1, reason: 'PROVENANCE_INCOMPLETE', detail: aggregateGaps.map(({ pageId, viewport }) => `NO_PROVENANCE@page-${pageId}:${viewport}`) }
+    : { code: 0, reason: 'AGGREGATE_COMPLETE' };
   const indexPlan = planVerdictIndex(runSummary, baseRunDir);
   const reportDir = path.join(baseRunDir, 'reports', runId);
   fs.mkdirSync(reportDir, { recursive: true });
@@ -1822,11 +1767,40 @@ async function runAggregateOnly() {
   console.log(`Report written to ${retainedReportPath} and published to ${reportPath}`);
   return { code: indexPlan.gaps.length ? 1 : 0, reason: indexPlan.gaps.length ? 'PROVENANCE_INCOMPLETE' : 'AGGREGATE_COMPLETE' };
 }
+function printUsage() {
+  console.log(`ANTiFan — 15-page clone-fidelity campaign
+
+Usage: node .canary/tools/fifteen-pages-run.mjs [options]
+
+Options:
+  ${CAMPAIGN_BASE_URL_FLAG} <url>   Target storefront base URL (default: ${TARGET_BASE_URL};
+                        also settable via ${CAMPAIGN_BASE_URL_ENV}; the flag wins)
+  --pages <filter>      Page ids to run, e.g. 6 or 1-5,8 (default: all ${TARGET_PAGES.length})
+  --viewports <labels>  Viewport labels to measure, e.g. 1440,1024,390 (default: all)
+  --aggregate-only      Rebuild the aggregate report from published page attempts
+  --print-config        Print the resolved target and page set, then exit
+  --help, -h            Print this help, then exit
+
+Resolved target: ${TARGET_BASE_URL} (source: ${TARGET.source})
+Reference hosts audited for zero-hotlink: ${REFERENCE_HOSTS.join(', ')}`);
+}
+
+function printTargetConfig() {
+  console.log(JSON.stringify({
+    baseUrl: TARGET_BASE_URL,
+    host: TARGET_HOST,
+    source: TARGET.source,
+    referenceHosts: REFERENCE_HOSTS,
+    pages: TARGET_PAGES.map((p) => ({ id: p.id, name: p.name, url: p.url, slug: p.slug, domain: p.domain })),
+  }, null, 2));
+}
+
 
 // ── CLI Execution Entrypoint ──────────────────────────────────────────────────
 // The campaign runs only when this file is the entrypoint. Importing the module
 // (the report renderer's test does) must not start a live run.
-const isEntrypoint = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// `isEntrypoint` is resolved at module top (before the RPC imports) so --help and
+// --print-config answer without a session; this block only runs the campaign.
 
 if (isEntrypoint) {
   const args = process.argv.slice(2);

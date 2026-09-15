@@ -22,17 +22,18 @@ export const BENCHMARK_LINE_PREFIX = '[antifan-benchmark]';
 /**
  * Benchmark mode is opt-in via env var or explicit argv flag.
  *
- * Resolved once at module load: this is read on hot paths (every PTY chunk, every
- * bridge frame), and `process.env` lookups plus `argv.includes` are measurably
- * non-free at tens of thousands of calls per second. Env and argv cannot change
- * after process start, so caching is observationally equivalent.
+ * This is read on hot paths (every PTY chunk, every bridge frame), so the
+ * expensive part — scanning argv — is resolved once at module load: process
+ * arguments cannot change after start.
+ *
+ * The env var is deliberately NOT cached. It is a runtime-mutable surface (test
+ * harnesses and embedding code flip it mid-process), and the module contract is
+ * that `isBenchmarkEnabled()` reports the current mode. A frozen env snapshot
+ * silently ignored later changes, which is why the contract test rejects it.
  */
-let benchmarkEnabledCache: boolean | undefined;
+const argvRequestsBenchmark = process.argv.includes('--benchmark');
 export function isBenchmarkEnabled(): boolean {
-  if (benchmarkEnabledCache === undefined) {
-    benchmarkEnabledCache = process.env.ANTIFAN_BENCHMARK === '1' || process.argv.includes('--benchmark');
-  }
-  return benchmarkEnabledCache;
+  return process.env.ANTIFAN_BENCHMARK === '1' || argvRequestsBenchmark;
 }
 
 export interface BenchmarkMetric {

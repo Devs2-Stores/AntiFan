@@ -59,6 +59,7 @@
     "benchmark:soak": "node scripts/benchmark-electron-performance.mjs --scenario soak",
     "smoke:soak": "npm run compile && node scripts/run-electron.cjs scripts/smoke-real-soak.cjs",
     "smoke:theme-golden-live": "npm run compile && node scripts/run-theme-golden-live-proof.cjs",
+    "harness:theme": "node scripts/run-theme-harness.mjs",
     "certify:core-freeze": "node scripts/certify-core-freeze.cjs",
     "smoke:multitasking": "npm run compile && node scripts/run-electron.cjs scripts/smoke-background-multitasking.cjs",
     "smoke:parity": "npm run compile && node scripts/run-electron.cjs scripts/smoke-playwright-parity.cjs",
@@ -89,6 +90,7 @@
     "@types/ws": "^8.5.10",
     "electron": "^43.4.0",
     "esbuild": "^0.28.2",
+    "jsdom": "^29.1.1",
     "typescript": "^5.5.0"
   }
 }

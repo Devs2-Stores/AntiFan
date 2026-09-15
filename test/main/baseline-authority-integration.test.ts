@@ -307,7 +307,8 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
       assert.equal(res.code, 'URL_EXPECTATION_MISSING');
       assert.equal(res.match, false);
       assert.equal(res.receipt.match, false);
-      assert.equal(res.receipt.mismatchPercentage, 100);
+      // The verdict was withheld, so the receipt publishes no pixel number.
+      assert.equal(res.receipt.mismatchPercentage, null);
       assert.equal(res.routeAssertions?.target?.status, 'URL_EXPECTATION_MISSING');
 
       // Additive: the receipt must keep the legacy marker sentence that downstream detectors match

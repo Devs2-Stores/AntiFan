@@ -107,7 +107,9 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
     );
 
     assert.strictEqual(result.match, false);
-    assert.strictEqual(result.mismatchPercentage, 100);
+    // No pixel diff ran — the dimensions short-circuit refused it — so the result
+    // carries no fabricated percentage.
+    assert.strictEqual(result.mismatchPercentage, null);
     assert.strictEqual(result.verdict, 'STRUCTURAL_TRUNCATION_DETECTED');
     assert.ok(typeof result.reason === 'string' && result.reason.includes('Structural height mismatch'));
   });

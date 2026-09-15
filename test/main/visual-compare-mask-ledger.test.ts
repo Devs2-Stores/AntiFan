@@ -1560,7 +1560,8 @@ describe('visualCompare structural height drift & truncation controls', () => {
 
     assert.strictEqual(result.match, false);
     assert.strictEqual((result as any).verdict, 'STRUCTURAL_TRUNCATION_DETECTED');
-    assert.strictEqual((result as any).mismatchPercentage, 100);
+    // The truncation gate refused before any pixel diff, so no percentage is emitted.
+    assert.strictEqual((result as any).mismatchPercentage, null);
     assert.ok((result as any).reason.includes('Structural height mismatch exceeds 10% tolerance'));
   });
 

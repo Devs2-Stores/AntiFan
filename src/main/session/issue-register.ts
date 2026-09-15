@@ -31,6 +31,79 @@ export interface IssueRecord {
   workaroundApplied?: string;
   status: 'OPEN' | 'RESOLVED' | 'BYPASSED';
   notes?: string;
+  /**
+   * Phase 6 taxonomy extension (all optional, additive — existing consumers
+   * keep working unchanged):
+   * - issueClass: coarse subsystem bucket for root-cause grouping.
+   * - reasonCode: machine-stable reason (e.g. BRIDGE_CONTEXT_FAILED).
+   * - affected: entities the issue touched (tab ids, claim ids, paths).
+   */
+  issueClass?: IssueClass;
+  reasonCode?: string;
+  affected?: string[];
+}
+
+/** Coarse subsystem buckets for root-cause grouping. Open string set — new
+ * classes may be added; never a second register. */
+export type IssueClass =
+  | 'core-store'
+  | 'bridge'
+  | 'verification'
+  | 'browser'
+  | 'workflow'
+  | 'terminal'
+  | 'theme'
+  | 'uncategorized';
+
+const ISSUE_CLASS_BY_CODE: Record<string, IssueClass> = {
+  BRIDGE_CONTEXT_FAILED: 'bridge',
+  CORE_UNAVAILABLE: 'core-store',
+  CAPABILITY_NOT_FOUND: 'core-store',
+  POLICY_DENIED: 'verification',
+  STALEMATE: 'verification',
+  DURABILITY_FAILED: 'core-store',
+};
+
+// Order is significant: the first matching prefix wins, so a more specific
+// prefix must be declared before its parent. Without the `anti.theme.` and
+// `anti.verification.` entries ahead of the `anti.` catch-all, every one of those
+// tools' failures is grouped as 'browser' and root-cause analysis is pointed at
+// the wrong surface.
+const ISSUE_CLASS_BY_TOOL_PREFIX: Record<string, IssueClass> = {
+  'core.': 'core-store',
+  'anti.theme.': 'theme',
+  'anti.verification.': 'verification',
+  'anti.': 'browser',
+  'browser': 'browser',
+  'workflow': 'workflow',
+  'terminal': 'terminal',
+  'theme': 'theme',
+  'verification': 'verification',
+};
+
+/** Derive the effective class for a record: explicit field wins, then
+ * errorCode, then tool-name prefix, then 'uncategorized'. */
+export function classifyIssue(issue: Pick<IssueRecord, 'issueClass' | 'errorCode' | 'toolName'>): IssueClass {
+  if (issue.issueClass) return issue.issueClass;
+  const byCode = issue.errorCode ? ISSUE_CLASS_BY_CODE[issue.errorCode] : undefined;
+  if (byCode) return byCode;
+  const tool = issue.toolName || '';
+  for (const prefix of Object.keys(ISSUE_CLASS_BY_TOOL_PREFIX)) {
+    const cls = ISSUE_CLASS_BY_TOOL_PREFIX[prefix];
+    if (cls && tool.startsWith(prefix)) return cls;
+  }
+  return 'uncategorized';
+}
+
+export interface IssueGroupSummary {
+  key: string;
+  issueClass: IssueClass;
+  count: number;
+  worstSeverity: IssueRecord['severity'];
+  affected: string[];
+  latestIssueId: string;
+  latestMessage: string;
+  workaround?: string;
 }
 
 export class IssueRegister {
@@ -91,7 +164,7 @@ export class IssueRegister {
   }
 
 
-  public record(issue: Omit<IssueRecord, 'id' | 'timestamp' | 'timeFormatted' | 'severity'> & { id?: string; severity?: 'P0' | 'P1' | 'P2' | 'P3' }): IssueRecord {
+  public record(issue: Omit<IssueRecord, 'id' | 'timestamp' | 'timeFormatted' | 'severity' | 'status'> & { id?: string; severity?: 'P0' | 'P1' | 'P2' | 'P3'; status?: IssueRecord['status'] }): IssueRecord {
     const now = Date.now();
     const id = issue.id || `ISS-${now}-${Math.random().toString(36).substring(2, 7)}`;
     const fullRecord: IssueRecord = {
@@ -114,7 +187,7 @@ export class IssueRegister {
     return fullRecord;
   }
 
-  public list(options?: { status?: string; severity?: string; limit?: number }): IssueRecord[] {
+  public list(options?: { status?: string; severity?: string; issueClass?: string; errorCode?: string; limit?: number }): IssueRecord[] {
     let result = [...this.issues];
     if (options?.status) {
       const statusLower = options.status.toLowerCase();
@@ -124,11 +197,64 @@ export class IssueRegister {
       const sevUpper = options.severity.toUpperCase();
       result = result.filter((i) => Boolean(i.severity && i.severity.toUpperCase() === sevUpper));
     }
+    if (options?.issueClass) {
+      const cls = options.issueClass;
+      result = result.filter((i) => classifyIssue(i) === cls);
+    }
+    if (options?.errorCode) {
+      const code = options.errorCode;
+      result = result.filter((i) => i.errorCode === code || i.reasonCode === code);
+    }
     result.sort((a, b) => b.timestamp - a.timestamp);
     if (options?.limit && options.limit > 0) {
       result = result.slice(0, options.limit);
     }
     return result;
+  }
+
+  /**
+   * Group OPEN issues by root-cause key (errorCode ?? reasonCode ?? toolName),
+   * newest-first. Powers the Root Cause surface — one register, one taxonomy.
+   */
+  public summarizeOpen(): IssueGroupSummary[] {
+    const severityRank: Record<IssueRecord['severity'], number> = { P0: 3, P1: 2, P2: 1, P3: 0 };
+    const groups = new Map<string, IssueGroupSummary>();
+    for (const issue of this.issues) {
+      if (issue.status !== 'OPEN') continue;
+      const key = issue.errorCode || issue.reasonCode || issue.toolName || 'UNCLASSIFIED';
+      const existing = groups.get(key);
+      const affected = [
+        ...(issue.affected ?? []),
+        ...(issue.targetUrl ? [issue.targetUrl] : []),
+        ...(issue.tabId ? [issue.tabId] : []),
+      ];
+      if (!existing) {
+        groups.set(key, {
+          key,
+          issueClass: classifyIssue(issue),
+          count: 1,
+          worstSeverity: issue.severity,
+          affected: [...new Set(affected)],
+          latestIssueId: issue.id,
+          latestMessage: issue.errorMessage,
+          workaround: issue.workaroundApplied,
+        });
+        continue;
+      }
+      existing.count += 1;
+      if (severityRank[issue.severity] > severityRank[existing.worstSeverity]) {
+        existing.worstSeverity = issue.severity;
+      }
+      existing.affected = [...new Set([...existing.affected, ...affected])].slice(0, 20);
+      if (issue.timestamp > (this.issues.find((i) => i.id === existing.latestIssueId)?.timestamp ?? 0)) {
+        existing.latestIssueId = issue.id;
+        existing.latestMessage = issue.errorMessage;
+      }
+      if (!existing.workaround && issue.workaroundApplied) {
+        existing.workaround = issue.workaroundApplied;
+      }
+    }
+    return [...groups.values()].sort((a, b) => severityRank[b.worstSeverity] - severityRank[a.worstSeverity] || b.count - a.count);
   }
 
   public resolve(id: string, resolutionNotes?: string): boolean {

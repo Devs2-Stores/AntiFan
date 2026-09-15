@@ -195,6 +195,45 @@ export function casesWithoutProvenance(cases) {
     .map((c) => ({ pageId: c.pageId, viewport: c.viewport ?? null }));
 }
 
+/**
+ * An identity establishes the route only when it positively records a match.
+ *
+ * Truthiness is not enough: `{}` and `{valid:false, mismatch:{code:...}}` are
+ * both truthy, so treating any object as established adjudicated a case whose
+ * route explicitly MISMATCHED as a PASS carrying exit 0. The declared shape
+ * always sets `valid`, so requiring `valid === true` with no recorded mismatch
+ * rejects exactly the shapes that do not attest a route.
+ */
+function establishesRoute(identity) {
+  if (identity === null || typeof identity !== 'object') return false;
+  return identity.valid === true && !identity.mismatch;
+}
+
+/**
+ * The route a case actually measured, resolved from every place a producer can
+ * record it: `routeIdentity` (the campaign runner stamps it after a page
+ * settles) or `capture.routeAssertion` (the capture port narrows its status to
+ * 'MATCH' or 'URL_EXPECTATION_MISSING'). A case is adjudicable only when one of
+ * them names the route that was actually rendered, so the index, the exit
+ * classifier and the case scanner all read identity through this one resolver.
+ */
+export function resolveCaseRouteIdentity(vp, page) {
+  const assertion = vp?.capture?.routeAssertion ?? vp?.routeAssertion ?? null;
+  const recorded =
+    vp?.routeIdentity ??
+    page?.routeIdentity ??
+    (assertion && assertion.status === 'MATCH'
+      ? {
+          requestedUrl: assertion.requestedUrl ?? null,
+          observedUrl: assertion.observedUrl ?? null,
+          valid: true,
+          redirectCount: Array.isArray(assertion.redirectChain) ? assertion.redirectChain.length : 0,
+          mismatch: null,
+        }
+      : null);
+  return establishesRoute(recorded) ? recorded : null;
+}
+
 export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
   const cases = [];
   for (const [pageId, page] of Object.entries(runSummary.pageResults || {})) {
@@ -208,6 +247,13 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
         );
       }
       const routeRefused = Boolean(vp.refusal && ROUTE_REFUSAL_CODE_SET.has(vp.refusal.code));
+      const identity = resolveCaseRouteIdentity(vp, page);
+      // Without an established route the measurement is neither a MATCH nor a MISMATCH:
+      // nothing recorded which page was measured. `hasMissingExpectation` above only fires
+      // on an explicit marker, so a producer that emits a null expectation with no marker
+      // reaches this point looking like an ordinary case. Minting it INCONCLUSIVE keeps it
+      // out of the PASS and FAIL tallies while leaving every observed number intact.
+      const identityMissing = !routeRefused && !identity;
       cases.push({
         pageId: Number(pageId),
         slug: page.slug,
@@ -217,8 +263,10 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
         // A route refusal is a typed refusal, not a fidelity verdict: minting it as its
         // own class keeps the tally, the hub counts, and the case table on one reading
         // of the same fact, and keeps a refused leg out of PASS/FAIL/INCONCLUSIVE.
-        verdict: routeRefused ? 'ROUTE_REFUSED' : (vp.overall ?? 'INCONCLUSIVE'),
-        causeCode: vp.causeCode ?? (vp.status === 'BLOCKED_BY_BUILD' ? 'CLONE_BUILD_FAILED' : 'UNCLASSIFIED'),
+        verdict: routeRefused ? 'ROUTE_REFUSED' : identityMissing ? 'INCONCLUSIVE' : (vp.overall ?? 'INCONCLUSIVE'),
+        causeCode: identityMissing
+          ? 'ROUTE_IDENTITY_MISSING'
+          : (vp.causeCode ?? (vp.status === 'BLOCKED_BY_BUILD' ? 'CLONE_BUILD_FAILED' : 'UNCLASSIFIED')),
         status: vp.status ?? null,
         visual: vp.visual?.verdict ?? null,
         mismatchPercentage: vp.visual?.mismatchPercentage ?? null,
@@ -238,7 +286,7 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
         instance: vp.instance ?? runSummary.instance ?? null,
         attemptId: page.attemptId ?? null,
         evidenceRoot: page.evidenceRoot ?? null,
-        routeIdentity: vp.routeIdentity ?? page.routeIdentity ?? null,
+        routeIdentity: identity,
         expectedUrl: vp.capture?.expectedUrl ?? vp.expectedUrl ?? null,
       });
     }
@@ -251,11 +299,20 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
     tally[c.verdict] = (tally[c.verdict] || 0) + 1;
   }
 
+  // A verdict artifact is revision-bound only while it says when the run ended and
+  // how it exited. `finishedAt` stays null on a mid-run snapshot — the index is
+  // rewritten after every page — and `runComplete` says so; a completed run must
+  // carry a real timestamp (aggregate runs use `completedAt`, the newest page
+  // publication). `exit` is never null: a run that recorded none gets a named
+  // refusal instead of a silent gap a reader could quote as success.
+  const finishedAt = runSummary.finishedAt ?? runSummary.completedAt ?? null;
+  const exit = runSummary.exit ?? { code: 1, reason: 'EXIT_UNRECORDED', detail: 'the run summary carried no exit status; this index is not a completed-run verdict' };
   return {
     runId: runSummary.runId,
     generatedAt: new Date().toISOString(),
     startedAt: runSummary.startedAt,
-    finishedAt: runSummary.finishedAt ?? null,
+    finishedAt,
+    runComplete: finishedAt !== null,
     instance: runSummary.instance ?? null,
     instanceRecord: runSummary.instanceRecord ?? null,
     runLock: runSummary.runLock ?? null,
@@ -269,7 +326,7 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
     cases,
     superseded: supersededSlugs.map((slug) => ({ slug, reason: 'evidence predates any attempt pointer' })),
     routeRefusals: cases.filter((c) => c.verdict === 'ROUTE_REFUSED'),
-    exit: runSummary.exit ?? null,
+    exit,
   };
 }
 
@@ -305,6 +362,12 @@ function scanRequestedCases(runSummary, requestedPages, viewportLabels) {
       // compare (readiness, rasterization) or the case was refused outright: either
       // way the requested case did not happen.
       else if (vp.status === 'REFUSED') incomplete.push({ pageId: p.id, viewport: label, code: code || 'CASE_REFUSED' });
+      // A case that claims a verdict but names no route it measured is not an
+      // adjudication: the index withholds it from the tallies, so the exit
+      // classifier must not count it as completed either.
+      else if (!resolveCaseRouteIdentity(vp, pageResult)) {
+        incomplete.push({ pageId: p.id, viewport: label, code: 'ROUTE_IDENTITY_MISSING' });
+      }
       else if (vp.overall !== 'PASS' && vp.overall !== 'FAIL' && vp.overall !== 'INCONCLUSIVE') {
         incomplete.push({ pageId: p.id, viewport: label, code: code || 'NO_VERDICT' });
       }
@@ -417,11 +480,13 @@ export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportL
   const cases = Object.values(runSummary.pageResults || {}).flatMap((p) =>
     Object.entries(p.viewports || {})
       .filter(([label]) => !outOfScope.has(label) && (labels.length === 0 || labels.includes(label)))
-      .map(([, vp]) => vp)
+      .map(([, vp]) => ({ vp, page: p }))
   );
   const tally = {
-    adjudicableCases: cases.filter((c) => c.overall === 'PASS' || c.overall === 'FAIL').length,
-    inconclusiveCases: cases.filter((c) => c.overall === 'INCONCLUSIVE').length,
+    // A PASS/FAIL that names no route it measured is not adjudicated: the index
+    // withholds it from the tallies, so the exit status must not count it either.
+    adjudicableCases: cases.filter(({ vp, page }) => (vp.overall === 'PASS' || vp.overall === 'FAIL') && resolveCaseRouteIdentity(vp, page)).length,
+    inconclusiveCases: cases.filter(({ vp }) => vp.overall === 'INCONCLUSIVE').length,
   };
   // A batch that adjudicated nothing has verified nothing, whether or not it declared a
   // narrower scope. This refusal therefore sits ABOVE the scope branch: a run that
@@ -429,7 +494,7 @@ export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportL
   // exit is what the bottleneck ledger cites as closure proof. The declared exclusion,
   // when there is one, still travels with the status.
   if (tally.adjudicableCases === 0) {
-    const causes = [...new Set(cases.map((c) => c.causeCode).filter(Boolean))];
+    const causes = [...new Set(cases.map(({ vp }) => vp.causeCode).filter(Boolean))];
     return {
       code: 1,
       reason: 'NO_ADJUDICATED_CASE',

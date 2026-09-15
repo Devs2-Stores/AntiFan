@@ -295,7 +295,8 @@ export const VISUAL_METRICS = {
 
 export interface VisualEvidenceReceipt {
   match: boolean;
-  mismatchPercentage: number;
+  /** Measured pixel mismatch, or null when no admissible diff was computed. */
+  mismatchPercentage: number | null;
   dimensionsMatch: boolean;
   captureStateCompatible: boolean;
   maskResolutionStatus: string;

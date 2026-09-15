@@ -126,8 +126,62 @@ function evaluate(row) {
   return result;
 }
 
+function evaluateLeaf(predicate) {
+  const result = evaluateRaw(predicate);
+  if (predicate.negate === true && result.present !== null) {
+    return { present: !result.present, detail: `negated: ${result.detail}` };
+  }
+  return result;
+}
+
 function evaluateRaw(predicate) {
   switch (predicate.kind) {
+    case 'any-of': {
+      const subs = Array.isArray(predicate.predicates) ? predicate.predicates : [];
+      if (subs.length === 0) return { present: null, detail: 'any-of with no predicates' };
+      const parts = subs.map(evaluateLeaf);
+      if (parts.some((p) => p.present === null)) return { present: null, detail: parts.map((p) => p.detail).join(' | ') };
+      const fired = parts.filter((p) => p.present === true);
+      return { present: fired.length > 0, detail: fired.length > 0 ? fired.map((p) => p.detail).join(' | ') : parts.map((p) => p.detail).join(' | ') };
+    }
+
+    case 'all-of': {
+      const subs = Array.isArray(predicate.predicates) ? predicate.predicates : [];
+      if (subs.length === 0) return { present: null, detail: 'all-of with no predicates' };
+      const parts = subs.map(evaluateLeaf);
+      if (parts.some((p) => p.present === null)) return { present: null, detail: parts.map((p) => p.detail).join(' | ') };
+      return { present: parts.every((p) => p.present === true), detail: parts.map((p) => p.detail).join(' | ') };
+    }
+
+    case 'campaign-verdict-ledger': {
+      // The defect this checks: the published verdict artifact is not a
+      // revision-bound adjudication — an INCONCLUSIVE or empty tally, a missing
+      // exit/finishedAt, an adjudicated case with no route identity, or a case
+      // that could not even capture. Any of those means the ledger still cannot
+      // prove rendered fidelity, so the row stays open until a live re-run
+      // publishes a complete, bound artifact.
+      const file = predicate.file || '.canary/15-pages/_verdicts.json';
+      const index = readJson(file);
+      if (index === null) return { present: true, detail: `${file} missing or unparseable` };
+      const cases = Array.isArray(index.cases) ? index.cases : [];
+      const problems = [];
+      if (index.executiveVerdict === 'INCONCLUSIVE' || index.executiveVerdict === undefined || index.executiveVerdict === null) problems.push(`executiveVerdict=${JSON.stringify(index.executiveVerdict)}`);
+      if (cases.length === 0) problems.push('cases empty');
+      if (index.finishedAt === null || index.finishedAt === undefined) problems.push('finishedAt null');
+      if (index.exit === null || index.exit === undefined) problems.push('exit null');
+      if (index.runComplete === false) problems.push('runComplete false');
+      const adjudicated = cases.filter((c) => c && (c.verdict === 'PASS' || c.verdict === 'FAIL'));
+      if (adjudicated.length === 0) problems.push('no adjudicated case');
+      const unbound = adjudicated.filter((c) => !c.routeIdentity);
+      if (unbound.length > 0) problems.push(`${unbound.length} adjudicated case(s) without routeIdentity`);
+      const captureInvalid = cases.filter((c) => c && c.causeCode === 'CAPTURE_INVALID');
+      if (captureInvalid.length > 0) problems.push(`${captureInvalid.length} case(s) CAPTURE_INVALID`);
+      return {
+        present: problems.length > 0,
+        detail: problems.length > 0 ? `${file}: ${problems.join('; ')}` : `${file}: revision-bound ledger (${adjudicated.length} adjudicated of ${cases.length})`,
+      };
+    }
+
     case 'manual':
       return { present: null, detail: `last verified ${predicate.lastVerifiedAt || '(never)'} by ${predicate.lastVerifiedBy || '(unknown)'}` };
 

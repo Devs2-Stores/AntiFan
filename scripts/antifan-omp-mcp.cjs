@@ -29,7 +29,7 @@ const definitions = [
   ['anti.agent.cursor.hover', 'Move visual Agent Cursor to hover over an element in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.agent.cursor.highlight', 'Highlight a DOM element with visual Agent Cursor overlay in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.agent.cursor.clear', 'Clear all active Agent Cursor overlays in live AntiFan Desktop tab.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['browser_find', 'Search the accessibility snapshot of the current page for text, pattern, query, or a regular expression.', { text: { type: 'string' }, pattern: { type: 'string' }, query: { type: 'string' }, regex: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
+  ['browser_find', 'Search the accessibility snapshot of the current page for text, pattern, query, or a regular expression.', { text: { type: 'string' }, pattern: { type: 'string' }, query: { type: 'string' }, regex: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, maxMatches: { type: 'number' } }],
   ['browser_press_key', 'Send native keyboard key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Control+a) to the active tab', { key: { type: 'string' }, tabId: { type: 'string' } }, ['key']],
   // Tier-2 device surface: the physical phone, driven directly over WebDriverAgent. These rows are
   // advertised under their catalogue names, so dispatch is unchanged and no routing row is needed.
@@ -80,11 +80,11 @@ const definitions = [
   ['anti.theme.export_clean', 'Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath']],
   ['anti.browser.dump_dom', 'Stream clean or raw page DOM directly to a workspace file with zero MCP transport truncation and Windows-safe atomic writes.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath']],
   ['anti.verification.list', 'List recorded verification claims and their current verdicts.', { verdict: { type: 'string', enum: ['VERIFIED', 'PARTIAL', 'REJECTED', 'INCONCLUSIVE', 'UNVERIFIED'] }, actor: { type: 'string', enum: ['agent', 'user'] }, tabId: { type: 'string' }, stalemateState: { type: 'string', enum: ['ACTIVE', 'STALEMATE', 'EXEMPTION_WAIVED'] }, limit: { type: 'number' } }],
-  ['core.query', 'Query the local Super Core evidence store: anchored claims filtered by text/platform/unit/kind.', { text: { type: 'string' }, platform: { type: 'string' }, unitId: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number' } }],
-  ['core.context_pack', 'Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' } }, ['task']],
-  ['core.recommend', 'Recommend from evidence: Context Pack + recommendation or explicit abstention.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } } }, ['task']],
+  ['core.query', 'Query the local Super Core evidence store: anchored claims filtered by text/platform/unit/kind. Platform filter excludes untagged claims unless includeGlobal.', { text: { type: 'string' }, platform: { type: 'string' }, unitId: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, kind: { type: 'string' }, limit: { type: 'number' }, includeGlobal: { type: 'boolean' } }],
+  ['core.context_pack', 'Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope. Packs dedupe on (task, platform, sessionId).', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, ['task']],
+  ['core.recommend', 'Recommend from evidence: Context Pack + recommendation or explicit abstention.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, ['task']],
   ['core.receipt', 'Issue a Decision Receipt binding task context and evidence revisions. Refused when Core unavailable.', { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' } }, ['task', 'recommendation']],
-  ['core.ingest_outcome', 'Ingest a verified outcome as a case + pending candidate (never auto-promoted).', { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' } }, ['task', 'outcome']],
+  ['core.ingest_outcome', 'Ingest a verified outcome as a case + pending candidate (never auto-promoted).', { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' }, platform: { type: 'string' } }, ['task', 'outcome']],
   ['core.adjudicate', 'Adjudicate a candidate (PROMOTE/REJECT/SUPERSEDE) with explicit authority. Refused when Core unavailable.', { candidateId: { type: 'string' }, decision: { type: 'string', enum: ['PROMOTE', 'REJECT', 'SUPERSEDE'] }, authority: { type: 'string' }, rationale: { type: 'string' }, scope: { type: 'string', enum: ['production', 'acceptance-test'] } }, ['candidateId', 'decision', 'authority']],
   ['core.stats', 'Return Super Core store counts for verification.', {}],
   ['core.domain', 'Return a domain view (units, claims, eligible skills, gaps) or insufficient-evidence.', { name: { type: 'string' } }, ['name']],
@@ -106,18 +106,21 @@ const definitions = [
   ['core.record_fix_pattern', 'Record a fix pattern: before, after, why, evidence, lesson.', { before: { type: 'string' }, after: { type: 'string' }, why: { type: 'string' }, evidence: { type: 'string' }, lesson: { type: 'string' } }],
   ['core.fix_patterns', 'List fix patterns.', { limit: { type: 'number' } }],
   // v4: Case-Based Reasoning
-  ['core.find_similar', 'Find similar claims, cases, decisions, anti-patterns, workarounds, fix patterns for a task.', { task: { type: 'string' }, platform: { type: 'string' }, limit: { type: 'number' } }, ['task']],
+  ['core.find_similar', 'Find similar claims, cases, decisions, anti-patterns, workarounds, fix patterns for a task. Platform filter excludes untagged rows unless includeGlobal.', { task: { type: 'string' }, platform: { type: 'string' }, limit: { type: 'number' }, includeGlobal: { type: 'boolean' } }, ['task']],
   // v4: Uncertainty Engine
   ['core.classify_uncertainty', 'Classify uncertainty level for a claim or task.', { claimId: { type: 'string' }, task: { type: 'string' } }],
   // v4: Knowledge Decay
   ['core.decay_check', 'Check for stale/aging claims beyond a threshold.', { staleDays: { type: 'number' } }],
   // v4: Corpus Audit
   ['core.corpus_audit', 'Run a corpus completion audit and record the result.', {}],
+  ['core.knowledge_gaps', 'Classify per-platform knowledge gaps: NO_EVIDENCE (never had claims), STALE (claims exist, none fresh), CONFLICTED (claims + unresolved conflicts), NONE.', { staleDays: { type: 'number' } }],
   // v4: Phase Gates
   ['core.check_phase_gate', 'Check a phase gate (coverage, evidence, conflict, temporal, promotion, regression).', { phase: { type: 'string' }, gate: { type: 'string' } }, ['phase', 'gate']],
   ['core.resolve_conflict', 'Resolve or classify a conflict (GENERAL_RULE, CONTEXTUAL_RULE, LEGACY_RULE, EXCEPTION, CONFLICTED, UNRESOLVED).', { id: { type: 'string' }, classification: { type: 'string', enum: ['GENERAL_RULE', 'CONTEXTUAL_RULE', 'LEGACY_RULE', 'EXCEPTION', 'CONFLICTED', 'UNRESOLVED'] }, note: { type: 'string' }, resolved: { type: 'boolean' } }, ['id', 'classification']],
   // v4: Core Regression
-  ['core.record_regression', 'Record a core regression run result.', { newKnowledge: { type: 'string' }, affectedRules: { type: 'array', items: { type: 'string' } }, affectedCases: { type: 'array', items: { type: 'string' } }, affectedRecommendations: { type: 'array', items: { type: 'string' } }, replayResult: { type: 'string', enum: ['PASS', 'FAIL'] } }, ['replayResult']],
+  ['core.record_regression', 'Record a core regression definition; core.replay_regression re-executes its checks against live state and writes the result.', { newKnowledge: { type: 'string' }, affectedRules: { type: 'array', items: { type: 'string' } }, affectedCases: { type: 'array', items: { type: 'string' } }, affectedRecommendations: { type: 'array', items: { type: 'string' } }, checks: { type: 'array', items: { type: 'object' } } }],
+  ['core.replay_regression', 'Re-execute a recorded regression\'s checks against live state and write replayResult + replayedAt.', { regressionId: { type: 'string' } }, ['regressionId']],
+  ['core.record_observation', 'Record a raw observation (source, kind, payload) into the learning loop.', { source: { type: 'string' }, kind: { type: 'string' }, payload: {} }, ['source', 'kind']],
   // v4: Principles
   ['core.record_principle', 'Record a personal engineering principle.', { statement: { type: 'string' }, source: { type: 'string' }, derivedFrom: { type: 'string' } }, ['statement']],
   ['core.principles', 'List principles.', { status: { type: 'string' } }],
@@ -143,8 +146,8 @@ const definitions = [
   ['core.record_skill_version', 'Record a skill version/failure/fix/production event.', { skillId: { type: 'string' }, version: { type: 'string' }, failure: { type: 'string' }, fix: { type: 'string' }, production: { type: 'string' } }, ['skillId']],
   ['core.skill_genealogy', 'List skill version history.', { skillId: { type: 'string' } }, ['skillId']],
   // v4: Enriched Context Pack & Receipt
-  ['core.context_pack_v2', 'Build an enriched Context Pack: claims + rules + historical cases + pitfalls + workarounds + recommended pattern + uncertainty + confidence.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' } }, ['task']],
-  ['core.receipt_v2', 'Issue an enriched Decision Receipt: evidence revisions + why + historical cases + risks + alternatives + uncertainty + confidence.', { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' } }, ['task', 'recommendation']],
+  ['core.context_pack_v2', 'Build an enriched Context Pack: claims + rules + historical cases + pitfalls + workarounds + recommended pattern + uncertainty + confidence.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, ['task']],
+  ['core.receipt_v2', 'Issue an enriched Decision Receipt: evidence revisions + why + historical cases + risks + alternatives + uncertainty + confidence.', { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' }, platform: { type: 'string' } }, ['task', 'recommendation']],
 ];
 
 let currentAuthorityRevision = null;
@@ -423,7 +426,10 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.trace.interaction': 'browser.trace_interaction',
   'anti.inspect.page_inventory': 'browser.page-inventory',
   'anti.agent.sequence': 'browser.agent-sequence',
-  'browser_find': 'browser.find',
+  // browser_find needs no row: the catalogue registers it under its own name
+  // with an execute/policy identical to browser.find (both call
+  // browser.agentFind under the same short-passive read policy), so routing to
+  // the registration is behaviour-preserving and keeps pattern/query honest.
   'anti.artifact.read': 'artifact.read',
   'artifact_read': 'artifact.read',
   'anti.artifact.stat': 'artifact.stat',
@@ -450,65 +456,85 @@ function getCore() {
     return null;
   }
 }
+// core.* dispatch table: advertised name -> [store method, argument adapter].
+// This table is the proxy's half of the single-source contract — the parity
+// gate (check-mcp-budget-dominance.mjs) requires every advertised core.* tool
+// to appear here, every entry's store method to exist on the real Core class,
+// and the catalogue's own binding (core-capabilities.ts) to call the same
+// method. A name missing here is unreachable; a method missing on the store
+// is a phantom.
+const CORE_DISPATCH = Object.freeze({
+  'core.query': ['query', (p) => [p], false],
+  'core.context_pack': ['contextPack', (p) => [p], false],
+  'core.recommend': ['recommend', (p) => [p], true],
+  'core.receipt': ['receipt', (p) => [p], true],
+  'core.ingest_outcome': ['ingestOutcome', (p) => [p], true],
+  'core.adjudicate': ['adjudicate', (p) => [p], true],
+  'core.stats': ['stats', () => [], false],
+  'core.domain': ['domain', (p) => [p.name], false],
+  'core.invalidate': ['invalidate', (p) => [p], true],
+  'core.revoke': ['revoke', (p) => [p], true],
+  'core.snapshot': ['snapshot', (p) => [p.note], true],
+  'core.rollback': ['rollback', (p) => [p.releaseId], true],
+  // v4
+  'core.record_experience_node': ['recordExperienceNode', (p) => [p], true],
+  'core.record_experience_edge': ['recordExperienceEdge', (p) => [p], true],
+  'core.experience_chain': ['experienceChain', (p) => [p.fromNodeId, p.depth], false],
+  'core.record_anti_pattern': ['recordAntiPattern', (p) => [p], true],
+  'core.anti_patterns': ['antiPatterns', (p) => [p], false],
+  'core.record_workaround': ['recordWorkaround', (p) => [p], true],
+  'core.workarounds': ['workarounds', (p) => [p], false],
+  'core.record_fix_pattern': ['recordFixPattern', (p) => [p], true],
+  'core.fix_patterns': ['fixPatterns', (p) => [p], false],
+  'core.find_similar': ['findSimilar', (p) => [p], false],
+  'core.classify_uncertainty': ['classifyUncertainty', (p) => [p], false],
+  'core.decay_check': ['decayCheck', (p) => [p], false],
+  'core.corpus_audit': ['corpusAudit', () => [], true],
+  'core.knowledge_gaps': ['knowledgeGaps', (p) => [p], false],
+  'core.check_phase_gate': ['checkPhaseGate', (p) => [p.phase, p.gate], true],
+  'core.resolve_conflict': ['resolveConflict', (p) => [p], true],
+  'core.record_regression': ['recordRegression', (p) => [p], true],
+  'core.replay_regression': ['replayRegression', (p) => [p.regressionId], true],
+  'core.record_observation': ['recordObservation', (p) => [p], true],
+  'core.record_principle': ['recordPrinciple', (p) => [p], true],
+  'core.principles': ['principles', (p) => [p], false],
+  'core.record_hidden_requirement': ['recordHiddenRequirement', (p) => [p], true],
+  'core.hidden_requirements': ['hiddenRequirements', (p) => [p], false],
+  'core.record_commercial': ['recordCommercial', (p) => [p], true],
+  'core.commercial_intel': ['commercialIntel', (p) => [p], false],
+  'core.record_tool': ['recordTool', (p) => [p], true],
+  'core.tool_intel': ['toolIntel', (p) => [p], false],
+  'core.record_archetype': ['recordArchetype', (p) => [p], true],
+  'core.archetypes': ['archetypes', (p) => [p], false],
+  'core.record_platform_semantic': ['recordPlatformSemantic', (p) => [p], true],
+  'core.platform_semantics': ['platformSemantics', (p) => [p], false],
+  'core.record_practice_parity': ['recordPracticeParity', (p) => [p], true],
+  'core.practice_parity': ['practiceParity', (p) => [p], false],
+  'core.record_skill_version': ['recordSkillVersion', (p) => [p], true],
+  'core.skill_genealogy': ['skillGenealogy', (p) => [p], false],
+  'core.context_pack_v2': ['contextPackV2', (p) => [p], false],
+  'core.receipt_v2': ['receiptV2', (p) => [p], true],
+});
 async function invokeCore(method, params) {
   const core = getCore();
-  const mutating = new Set(['core.receipt','core.adjudicate','core.ingest_outcome','core.invalidate','core.revoke','core.snapshot','core.rollback']);
+  // Mutability is declared in CORE_DISPATCH, next to each store binding, so a new
+  // dispatch entry cannot silently miss a hand-maintained side list — which is how
+  // replay_regression and record_observation ended up returning a soft
+  // `{available:false}` for a write the caller believed had landed.
+  const entry = CORE_DISPATCH[method];
   if (!core) {
-    if (mutating.has(method)) {
+    if (!entry) throw new Error(`unknown core capability: ${method}`);
+    if (entry[2]) {
       throw new Error(JSON.stringify({ code: 'CORE_UNAVAILABLE', message: `Super Core store unavailable; mutating action ${method} refused` }));
     }
     return { available: false, reason: 'super-core package not built or db unreachable', method };
   }
-  switch (method) {
-    case 'core.query': return core.query(params);
-    case 'core.context_pack': return core.contextPack(params);
-    case 'core.recommend': return core.recommend(params);
-    case 'core.receipt': return core.receipt(params);
-    case 'core.ingest_outcome': return core.ingestOutcome(params);
-    case 'core.adjudicate': return core.adjudicate(params);
-    case 'core.stats': return core.stats();
-    case 'core.domain': return core.domain(params.name);
-    case 'core.invalidate': return core.invalidate(params);
-    case 'core.revoke': return core.revoke(params);
-    case 'core.snapshot': return core.snapshot(params.note);
-    case 'core.rollback': return core.rollback(params.releaseId);
-    // v4
-    case 'core.record_experience_node': return core.recordExperienceNode(params);
-    case 'core.record_experience_edge': return core.recordExperienceEdge(params);
-    case 'core.experience_chain': return core.experienceChain(params.fromNodeId, params.depth);
-    case 'core.record_anti_pattern': return core.recordAntiPattern(params);
-    case 'core.anti_patterns': return core.antiPatterns(params);
-    case 'core.record_workaround': return core.recordWorkaround(params);
-    case 'core.workarounds': return core.workarounds(params);
-    case 'core.record_fix_pattern': return core.recordFixPattern(params);
-    case 'core.fix_patterns': return core.fixPatterns(params);
-    case 'core.find_similar': return core.findSimilar(params);
-    case 'core.classify_uncertainty': return core.classifyUncertainty(params);
-    case 'core.decay_check': return core.decayCheck(params);
-    case 'core.corpus_audit': return core.corpusAudit();
-    case 'core.check_phase_gate': return core.checkPhaseGate(params.phase, params.gate);
-    case 'core.resolve_conflict': return core.resolveConflict(params);
-    case 'core.record_regression': return core.recordRegression(params);
-    case 'core.record_principle': return core.recordPrinciple(params);
-    case 'core.principles': return core.principles(params);
-    case 'core.record_hidden_requirement': return core.recordHiddenRequirement(params);
-    case 'core.hidden_requirements': return core.hiddenRequirements(params);
-    case 'core.record_commercial': return core.recordCommercial(params);
-    case 'core.commercial_intel': return core.commercialIntel(params);
-    case 'core.record_tool': return core.recordTool(params);
-    case 'core.tool_intel': return core.toolIntel(params);
-    case 'core.record_archetype': return core.recordArchetype(params);
-    case 'core.archetypes': return core.archetypes(params);
-    case 'core.record_platform_semantic': return core.recordPlatformSemantic(params);
-    case 'core.platform_semantics': return core.platformSemantics(params);
-    case 'core.record_practice_parity': return core.recordPracticeParity(params);
-    case 'core.practice_parity': return core.practiceParity(params);
-    case 'core.record_skill_version': return core.recordSkillVersion(params);
-    case 'core.skill_genealogy': return core.skillGenealogy(params);
-    case 'core.context_pack_v2': return core.contextPackV2(params);
-    case 'core.receipt_v2': return core.receiptV2(params);
-    default: throw new Error(`unknown core capability: ${method}`);
+  if (!entry) throw new Error(`unknown core capability: ${method}`);
+  const [storeMethod, adapt] = entry;
+  if (typeof core[storeMethod] !== 'function') {
+    throw new Error(JSON.stringify({ code: 'CAPABILITY_NOT_FOUND', message: `Super Core store has no method ${storeMethod} for ${method}` }));
   }
+  return core[storeMethod](...adapt(params || {}));
 }
 
 const isFixerSession = process.env.ANTIFAN_FIXER_SESSION === 'true' ||
@@ -1951,6 +1977,9 @@ module.exports = {
   fetchArtifactBinary,
   definitions,
   CAPABILITY_MAP,
+  CORE_DISPATCH,
+  invoke,
+  invokeCore,
   DEFAULT_CLIENT_TIMEOUT_MS,
 };
 

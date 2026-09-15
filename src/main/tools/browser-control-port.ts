@@ -913,6 +913,8 @@ interface CompareTransaction {
   domTransactions: Map<string, string>;
   /** Tabs where THIS transaction's normalizeScroll inject created the style. */
   normalizationOwned: Set<string>;
+  /** Per-tab hydration-cascade completion reported by the normalization apply. */
+  scrollCascade: Map<string, boolean>;
   leaseToken?: string;
   continuationValid: boolean;
   quarantined: boolean;
@@ -1214,8 +1216,19 @@ class CompareBudget {
  * touches and never removes a page node or installs a permanent style setter.
  * Carousel tracks are neutralized with inline styles only, which the restore
  * script replays from the record.
+ *
+ * The hydration cascade (step 3) dwells between scroll steps so IntersectionObserver
+ * callbacks can fire. It cannot use setTimeout for that dwell: compare runs on
+ * background tabs, where timers are clamped to >=1s, so a ~25-step page would
+ * exceed the 15s NORMALIZATION_BOUND_MS before any capture ran. A MessageChannel
+ * postMessage yield is not timer-throttled, so the dwell stays wall-clock short,
+ * and a hard deadline caps the whole cascade inside the outer bound.
  */
-function buildReversibleNormalizationApplyScript(txnId: string): string {
+export const NORMALIZATION_SCROLL_CASCADE_BUDGET_MS = 10_000;
+const SCROLL_CASCADE_DWELL_MS = 60;
+const SCROLL_CASCADE_STEP_PX = 800;
+
+export function buildReversibleNormalizationApplyScript(txnId: string, cascadeBudgetMs: number = NORMALIZATION_SCROLL_CASCADE_BUDGET_MS): string {
   return `(async () => {
     const TXN = ${JSON.stringify(txnId)};
     const registry = (window.${REVERSIBLE_DOM_TXN_GLOBAL} = window.${REVERSIBLE_DOM_TXN_GLOBAL} || {});
@@ -1224,6 +1237,20 @@ function buildReversibleNormalizationApplyScript(txnId: string): string {
     const record = (el, attr) => {
       if (el && typeof el.getAttribute === 'function') records.push({ el, attr, prev: el.getAttribute(attr) });
     };
+    // MessageChannel yields are not subject to background-tab timer clamping, so
+    // the dwell between scroll steps stays wall-clock short where setTimeout
+    // would be clamped to >=1s and blow the normalization bound on tall pages.
+    // The ports are closed when the script finishes: an open channel would keep
+    // the page's event loop referenced for no reason.
+    const channel = new MessageChannel();
+    const pending = [];
+    channel.port1.onmessage = () => { const r = pending.shift(); if (r) r(); };
+    const yieldTask = () => new Promise((r) => { pending.push(r); channel.port2.postMessage(0); });
+    const dwell = async (ms, deadline) => {
+      const end = Date.now() + ms;
+      do { await yieldTask(); } while (Date.now() < end && Date.now() < deadline);
+    };
+    let scrollCascadeComplete = true;
     try {
       // 1. Dismiss backdrop / modal / popups with inline display only.
       const popups = document.querySelectorAll('.modal, .modal-backdrop, .modal-coupon--backdrop, .fancybox-overlay, .popup-content, #fake-order-popup, #haravan-notification, .loomline-modal-backdrop, [class*="modal-backdrop"]');
@@ -1246,15 +1273,19 @@ function buildReversibleNormalizationApplyScript(txnId: string): string {
         } catch {}
       }
       // 3. Cascade scroll for lazy/Livewire hydration, then return to origin.
+      //    The deadline keeps a pathological document inside the outer
+      //    normalization bound; a truncated pass is reported, not hidden.
       try {
         const scrollH = Math.max(
           document.documentElement ? document.documentElement.scrollHeight : 0,
           document.body ? document.body.scrollHeight : 0
         );
         if (scrollH > window.innerHeight) {
-          for (let y = 0; y <= scrollH; y += 800) {
+          const cascadeDeadline = Date.now() + ${JSON.stringify(cascadeBudgetMs)};
+          for (let y = 0; y <= scrollH; y += ${SCROLL_CASCADE_STEP_PX}) {
+            if (Date.now() >= cascadeDeadline) { scrollCascadeComplete = false; break; }
             window.scrollTo({ top: y, left: 0, behavior: 'instant' });
-            await new Promise((r) => setTimeout(r, 60));
+            await dwell(${SCROLL_CASCADE_DWELL_MS}, cascadeDeadline);
           }
         }
         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
@@ -1298,8 +1329,9 @@ function buildReversibleNormalizationApplyScript(txnId: string): string {
         }
       }
     } catch {}
+    try { channel.port1.close(); channel.port2.close(); } catch {}
     registry[TXN] = records;
-    return { applied: true, recorded: records.length };
+    return { applied: true, recorded: records.length, scrollCascadeComplete };
   })()`;
 }
 
@@ -4570,6 +4602,7 @@ export class BrowserControlPort {
       }),
       domTransactions: new Map<string, string>(),
       normalizationOwned: new Set<string>(),
+      scrollCascade: new Map<string, boolean>(),
       leaseToken: params.leaseToken,
       continuationValid: true,
       quarantined: false,
@@ -4947,9 +4980,13 @@ export class BrowserControlPort {
         () => this.host.evalJs(buildReversibleNormalizationApplyScript(txnId), tabId, txn.paneId),
         NORMALIZATION_BOUND_MS
       );
-      const recorded = raw && typeof raw === 'object' && typeof (raw as { recorded?: unknown }).recorded === 'number'
-        ? (raw as { recorded: number }).recorded
-        : 0;
+      const applyResult = raw && typeof raw === 'object' ? (raw as { recorded?: unknown; scrollCascadeComplete?: unknown }) : null;
+      const recorded = typeof applyResult?.recorded === 'number' ? applyResult.recorded : 0;
+      // A truncated hydration cascade is a measurement-quality fact, not a
+      // normalization failure: the settle barrier still gates what loaded.
+      if (typeof applyResult?.scrollCascadeComplete === 'boolean') {
+        txn.scrollCascade.set(tabId, applyResult.scrollCascadeComplete);
+      }
       txn.domTransactions.set(tabId, txnId);
       return { ok: true, recorded };
     } catch (err) {
@@ -5291,10 +5328,18 @@ export class BrowserControlPort {
     // attempt are superseded and must never be reported as this pair.
     txn.stagedTarget = undefined;
     txn.stagedBaseline = undefined;
-    const settled = (body: Record<string, unknown>): VisualCompareAttemptOutcome => ({
-      settle: true,
-      result: this.withStagedArtifacts(txn, body),
-    });
+    const settled = (body: Record<string, unknown>): VisualCompareAttemptOutcome => {
+      // The hydration cascade's completion is evidence about the measured pair:
+      // a truncated pass means content below the cutoff may not have loaded, so
+      // the result must say so rather than read as a clean capture.
+      if (txn.scrollCascade.size > 0 && body.scrollCascade === undefined) {
+        body.scrollCascade = {
+          target: txn.scrollCascade.get(tabId),
+          comparison: compTabTarget ? txn.scrollCascade.get(compTabTarget) : undefined,
+        };
+      }
+      return { settle: true, result: this.withStagedArtifacts(txn, body) };
+    };
 
     const guard = new TwoSourceCoherenceGuard();
     const readIdentity = (t: string): CaptureIdentitySnapshot => ({
@@ -5411,14 +5456,14 @@ export class BrowserControlPort {
           status: 'INCONCLUSIVE',
           reason: targetPrep.reason,
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           totalPixels: 0,
           normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
           maskResolution: { status: maskStatus, maskedAreaRatio: 0, optionalUnmatched: [] },
           settle: { target: targetSettle },
           receipt: createVisualEvidenceReceipt({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             dimensionsMatch: false,
             captureStateCompatible: false,
             maskResolutionStatus: maskStatus,
@@ -5443,14 +5488,14 @@ export class BrowserControlPort {
             status: 'INCONCLUSIVE',
             reason: compPrep.reason,
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             totalPixels: 0,
             normalization: { target: targetNormalize, comparison: compNormalize },
             maskResolution: { status: maskStatus, maskedAreaRatio: 0, optionalUnmatched: [] },
             settle: { target: targetSettle, comparison: compSettle },
             receipt: createVisualEvidenceReceipt({
               match: false,
-              mismatchPercentage: 100,
+              mismatchPercentage: null,
               dimensionsMatch: false,
               captureStateCompatible: false,
               maskResolutionStatus: maskStatus,
@@ -5501,7 +5546,7 @@ export class BrowserControlPort {
           reason: targetStaged.reason,
           code: targetStaged.code,
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           totalPixels: 0,
           normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
           maskResolution: { status: maskStatus, maskedAreaRatio: 0, optionalUnmatched: [] },
@@ -5510,7 +5555,7 @@ export class BrowserControlPort {
           metricSamples: generateVisualMetricSamples({ captureStateCompatible: false, maskResolutionStatus: maskStatus, settleComplete: true }),
           receipt: createVisualEvidenceReceipt({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             dimensionsMatch: false,
             captureStateCompatible: false,
             maskResolutionStatus: maskStatus,
@@ -5561,7 +5606,7 @@ export class BrowserControlPort {
             reason: compStaged.reason,
             code: compStaged.code,
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             totalPixels: 0,
             normalization: { target: targetNormalize, comparison: compNormalize },
             maskResolution: { status: maskStatus, maskedAreaRatio: 0, optionalUnmatched: [] },
@@ -5570,7 +5615,7 @@ export class BrowserControlPort {
             metricSamples: generateVisualMetricSamples({ captureStateCompatible: false, maskResolutionStatus: maskStatus, settleComplete: true }),
             receipt: createVisualEvidenceReceipt({
               match: false,
-              mismatchPercentage: 100,
+              mismatchPercentage: null,
               dimensionsMatch: false,
               captureStateCompatible: false,
               maskResolutionStatus: maskStatus,
@@ -5607,7 +5652,7 @@ export class BrowserControlPort {
           status: 'INCONCLUSIVE',
           reason: `Capture transaction was never coherent across ${maxAttempts} attempts (resampleCount: ${nextCount})`,
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           totalPixels: 0,
           normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
           maskResolution: { status: 'RESAMPLE_EXHAUSTED', maskedAreaRatio: 0, optionalUnmatched: [] },
@@ -5621,7 +5666,7 @@ export class BrowserControlPort {
           metricSamples: generateVisualMetricSamples({ captureStateCompatible: false, maskResolutionStatus: 'RESAMPLE_EXHAUSTED', settleComplete: true }),
           receipt: createVisualEvidenceReceipt({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             dimensionsMatch: false,
             captureStateCompatible: false,
             maskResolutionStatus: 'RESAMPLE_EXHAUSTED',
@@ -5641,7 +5686,7 @@ export class BrowserControlPort {
           status: 'INCONCLUSIVE',
           reason: `Normalization is asymmetric across the pair (target owned=${targetNormalize.owned} injectError=${targetNormalize.injectError || 'none'}; comparison owned=${compNormalize.owned} injectError=${compNormalize.injectError || 'none'}) — pixel diff cancelled`,
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           totalPixels: 0,
           normalization: { target: targetNormalize, comparison: compNormalize },
           maskResolution: { status: 'NORMALIZATION_ASYMMETRIC', maskedAreaRatio: 0, optionalUnmatched: [] },
@@ -5656,7 +5701,7 @@ export class BrowserControlPort {
           metricSamples,
           receipt: createVisualEvidenceReceipt({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             dimensionsMatch: false,
             captureStateCompatible: false,
             maskResolutionStatus: 'NORMALIZATION_ASYMMETRIC',
@@ -5690,7 +5735,7 @@ export class BrowserControlPort {
             status: 'INCONCLUSIVE',
             reason: `Promoted baseline capture state mismatch: ${compat.reason}`,
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             totalPixels: 0,
             normalization: { target: targetNormalize },
             maskResolution: { status: maskStatus, maskedAreaRatio: 0, optionalUnmatched: [] },
@@ -5707,7 +5752,7 @@ export class BrowserControlPort {
             },
             receipt: createVisualEvidenceReceipt({
               match: false,
-              mismatchPercentage: 100,
+              mismatchPercentage: null,
               dimensionsMatch: false,
               captureStateCompatible: false,
               maskResolutionStatus: maskStatus,
@@ -5733,7 +5778,7 @@ export class BrowserControlPort {
           status: 'INCONCLUSIVE',
           reason: `Stored baseline comparison against '${params.baselineScreenshotRef}' is inconclusive: baseline capture state is unverified pending Phase 6 baseline authority certification`,
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           totalPixels: 0,
           normalization: { target: targetNormalize },
           maskResolution: { status: 'ok', maskedAreaRatio: 0, optionalUnmatched: [] },
@@ -5747,7 +5792,7 @@ export class BrowserControlPort {
           captureReceipts: { target: targetCapture! },
           receipt: createVisualEvidenceReceipt({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             dimensionsMatch: false,
             captureStateCompatible: false,
             maskResolutionStatus: 'ok',
@@ -5777,7 +5822,7 @@ export class BrowserControlPort {
             status: 'INCONCLUSIVE',
             reason: `Capture state mismatch: ${compat.reason}`,
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             totalPixels: 0,
             normalization: { target: targetNormalize, comparison: compNormalize },
             maskResolution: { status: 'ok', maskedAreaRatio: 0, optionalUnmatched: [] },
@@ -5792,7 +5837,7 @@ export class BrowserControlPort {
             captureReceipts: { target: targetCapture!, baseline: compCapture },
             receipt: createVisualEvidenceReceipt({
               match: false,
-              mismatchPercentage: 100,
+              mismatchPercentage: null,
               dimensionsMatch: false,
               captureStateCompatible: false,
               maskResolutionStatus: 'ok',
@@ -5815,7 +5860,7 @@ export class BrowserControlPort {
           status: 'NORMALIZATION_RESTORE_FAILED',
           reason: `Owned style restore could not be verified (target: ${targetNormalize.restoreError || restoreOutcome.error || 'unknown'}, comparison: ${compNormalize.restoreError || 'n/a'})`,
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           totalPixels: 0,
           normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
           maskResolution: { status: 'NORMALIZATION_RESTORE_FAILED', maskedAreaRatio: 0, optionalUnmatched: [] },
@@ -5831,7 +5876,7 @@ export class BrowserControlPort {
           metricSamples,
           receipt: createVisualEvidenceReceipt({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             dimensionsMatch: false,
             captureStateCompatible: false,
             maskResolutionStatus: 'NORMALIZATION_RESTORE_FAILED',
@@ -5860,7 +5905,7 @@ export class BrowserControlPort {
         const allowHeightDrift = Boolean(params.allowHeightDrift);
         if (!allowHeightDrift && heightDelta > effectiveHeightTolerance) {
           const metricSamples = generateVisualMetricSamples({
-            diffResult: { match: false, mismatchPercentage: 100, dimensionsMatch: false },
+            diffResult: { match: false, mismatchPercentage: null, dimensionsMatch: false },
             captureStateCompatible: Boolean(captureStateCompatible),
             maskResolutionStatus: 'ok',
             settleComplete: true,
@@ -5868,11 +5913,11 @@ export class BrowserControlPort {
           });
           return settled({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             verdict: 'STRUCTURAL_TRUNCATION_DETECTED',
             reason: `Structural height mismatch exceeds ${(effectiveHeightTolerance * 100).toFixed(0)}% tolerance (current: ${curDims.height}px, baseline: ${baseDims.height}px, delta: ${(heightDelta * 100).toFixed(1)}%). Potential DOM truncation or viewport-only capture detected. Pass allowHeightDrift: true or adjust heightTolerance to compare pages with differing article/product content counts.`,
             dimensions: {
-              visual: { verdict: 'FAIL', mismatchPercentage: 100, heightRatio: curDims.height / baseDims.height },
+              visual: { verdict: 'FAIL', mismatchPercentage: null, heightRatio: curDims.height / baseDims.height },
               layout: { verdict: 'FAIL', currentHeight: curDims.height, baselineHeight: baseDims.height, deltaPx: Math.abs(curDims.height - baseDims.height) },
             },
             normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
@@ -5887,7 +5932,7 @@ export class BrowserControlPort {
             },
             receipt: createVisualEvidenceReceipt({
               match: false,
-              mismatchPercentage: 100,
+              mismatchPercentage: null,
               dimensionsMatch: false,
               captureStateCompatible: Boolean(captureStateCompatible),
               maskResolutionStatus: 'ok',
@@ -6036,7 +6081,7 @@ export class BrowserControlPort {
           code: 'URL_EXPECTATION_MISSING',
           reason: `Cannot publish verdict: capture identity was not asserted against an expected route (URL_EXPECTATION_MISSING). ${expectationRemedy}`,
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           totalPixels: diffResult.totalPixels,
           dimensionsMatch: diffResult.dimensionsMatch,
           normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
@@ -6056,7 +6101,7 @@ export class BrowserControlPort {
           notes: `URL_EXPECTATION_MISSING: expected route not declared for the ${missingSideList} side(s); verdict withheld by design — declare ${missingParams.join(' and ')}`,
           receipt: createVisualEvidenceReceipt({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             dimensionsMatch: diffResult.dimensionsMatch,
             captureStateCompatible: false,
             maskResolutionStatus: 'ok',
@@ -6141,7 +6186,7 @@ export class BrowserControlPort {
           status: err.status,
           reason: err.message,
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           totalPixels: 0,
           normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
           maskResolution: { status: err.status, reason: err.message, maskedAreaRatio: err.maskedAreaRatio, entries: err.entries.map(maskEntryReceipt) },
@@ -6156,7 +6201,7 @@ export class BrowserControlPort {
           },
           receipt: createVisualEvidenceReceipt({
             match: false,
-            mismatchPercentage: 100,
+            mismatchPercentage: null,
             dimensionsMatch: false,
             captureStateCompatible: false,
             maskResolutionStatus: err.status,
@@ -6177,7 +6222,7 @@ export class BrowserControlPort {
         });
         const receipt = createVisualEvidenceReceipt({
           match: false,
-          mismatchPercentage: 100,
+          mismatchPercentage: null,
           dimensionsMatch: false,
           captureStateCompatible: false,
           maskResolutionStatus: maskStatus,

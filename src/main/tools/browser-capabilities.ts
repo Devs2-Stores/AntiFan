@@ -1200,6 +1200,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         regex: { type: 'string', description: 'Regular expression to search for in page snapshot' },
         pattern: { type: 'string' },
         query: { type: 'string' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        maxMatches: { type: 'number' },
       },
     },
     execute: (params: { text?: string; regex?: string; pattern?: string; query?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, context) =>
@@ -2094,12 +2097,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'anti.agent.cursor.move',
-    description: 'Alias for browser.agent-hover',
+    description: 'Alias for browser.agent-move',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentMove(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
