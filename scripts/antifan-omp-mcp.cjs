@@ -1017,6 +1017,25 @@ function rememberAutohealFailure(text) {
   if (lastAutohealFailures.length > 8) lastAutohealFailures.shift();
 }
 
+// Availability facts, most specific first, without the duplicate socket errors that a
+// pairing-then-held-secret retry produces (both attempts fail with the same message, but only one
+// of them explains anything).
+const PAIRING_CAUSE_PATTERN = /pairing unavailable|BRIDGE_NOT_RUNNING|CHALLENGE_QUEUE_DEPLETED|PAIRING_(?:QUEUE_DEPLETED|TIMEOUT|UNAVAILABLE|GRANT_|CLIENT_|CODE_)|ECONNREFUSED|ENOTFOUND/i;
+
+function composeAutohealCause() {
+  const seen = new Set();
+  const unique = [];
+  for (const entry of lastAutohealFailures) {
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    unique.push(entry);
+  }
+  if (unique.length === 0) return 'no candidate answered';
+  const leading = unique.filter((entry) => PAIRING_CAUSE_PATTERN.test(entry));
+  const rest = unique.filter((entry) => !PAIRING_CAUSE_PATTERN.test(entry));
+  return [...leading, ...rest].join(' | ');
+}
+
 // Minimal request/response over an already-open socket: the reuse probe needs exactly one verb and
 // must not drag in the dispatch plumbing (pendingDispatchCalls, binding, heartbeats) that would then
 // have to be unwound if the probe fails.
@@ -1108,6 +1127,9 @@ async function tryReuseLiveAttachment(candidate) {
     return dynamicBootstrap;
   } catch (reuseErr) {
     if (ws) { try { ws.close(); } catch {} }
+    // Recorded, not merely logged: "the authority I held was rejected" and "the bridge is not
+    // listening" are opposite facts, and only the first one means a restart invalidated us.
+    rememberAutohealFailure(`${candidate.host}:${candidate.port} held authority not reusable (${reuseErr.message})`);
     process.stderr.write(
       `[AntiFan Autoheal] Held authority not reusable on ${candidate.host}:${candidate.port}: ${reuseErr.message}\n`
     );
@@ -1136,12 +1158,14 @@ async function autohealSession() {
         pairedExchange = await performPairingExchange(candidate.host, candidate.port);
         authSecret = pairedExchange.secret;
       } catch (pairErr) {
-        // Keep the reason. Falling through to a held secret is still worth ONE attempt (the bridge
-        // may accept it), but when that also fails the pairing failure is what explains why.
-        if (!authSecret) {
-          rememberAutohealFailure(`${candidate.host}:${candidate.port} ${describePairingFailure(pairErr)}`);
-          throw pairErr;
-        }
+        // Keep the reason in BOTH branches. Falling through to a held secret is still worth ONE
+        // attempt (the bridge may accept it), but the pairing failure is what actually explains the
+        // outage, and the socket error that follows it would otherwise be the only thing recorded —
+        // which is how "all pairing codes were consumed or the queue was too slow" degraded into a
+        // bare "Unexpected server response" that names nothing.
+        const pairingCause = `${candidate.host}:${candidate.port} pairing unavailable (${describePairingFailure(pairErr)})`;
+        rememberAutohealFailure(pairingCause);
+        if (!authSecret) throw pairErr;
         process.stderr.write(
           `[AntiFan Autoheal] Pairing refused on ${candidate.host}:${candidate.port} ` +
             `(${describePairingFailure(pairErr)}); retrying once with the held secret.\n`
@@ -1337,11 +1361,14 @@ async function autohealSession() {
       startHeartbeat(dynamicBootstrap);
       return dynamicBootstrap;
     } catch (err) {
-      rememberAutohealFailure(`${candidate.host}:${candidate.port} ${err.message}`);
+      rememberAutohealFailure(`${candidate.host}:${candidate.port} connect failed (${err.message})`);
       process.stderr.write(`[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
     }
   }
-  const cause = lastAutohealFailures.join(' | ') || 'no candidate answered';
+  // Pairing reasons name the actual availability fact — no codes left, the queue too slow, the
+  // bridge restarting. A socket error that follows one only says the retry with a stale secret also
+  // failed, so it must not be allowed to lead the message and bury the cause.
+  const cause = composeAutohealCause();
   lastAutohealFailure = cause;
   // The prefix is kept because other tooling greps for it; the sentence after it is now true. A
   // refused connection means nothing is listening; a pairing timeout or a depleted queue means the
