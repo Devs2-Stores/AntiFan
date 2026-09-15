@@ -74,3 +74,32 @@ and verified:
 One self-inflicted regression was caught during the fix: restoring the
 `snapshot()` `COMMIT` that a mis-targeted edit removed (test caught it:
 "cannot start a transaction within a transaction").
+
+## Post-acceptance amendment (2026-09-15): domain-skill ingestion + v4 population
+
+User approved relaxing the AK-skill exclusion for user-authored domain skills.
+`route-units.mjs` now consults `reports/domain-skill-allowlist.json` (60 names:
+haravan-*, sapo-*, shopify-*, f1genz-*, theme-qa-az, pagespeed, site-clone,
+customer-theme-guide, wireframe-roadmap, sheet-to-spec, ghpm, turnstile-spin,
+google-form-sheet, customize-customer-guide). Installer-root copies stay
+EXCLUDED (dedup); runtime-loaded `.claude/skills` copies became ELIGIBLE.
+
+Re-route + scaffold + deep-analyze results:
+- 203 newly eligible skill units scaffolded and analyzed (section-level mining
+  added to deep-analyze-unit.mjs: RULE/ANTIPATTERN/RISK/DECISION sections +
+  bullet-level rules; deep-claims.jsonl write step restored — it was missing).
+- Claims: 3,322 -> 6,132 (RULE 2,384 new kind; haravan 1,115 -> 2,428,
+  shopify 31 -> 683, sapo 27 -> 567).
+- Skills: 220 ANALYZED, 325 EXCLUDED (installer-root + non-domain AK), 2 PENDING.
+
+v4 population (tools/populate-v4.mjs, every row traceable to a claimId):
+antiPatterns 30, fixPatterns 341, principles 651, platformSemantics 156,
+observations 174, hiddenRequirements 2, commercialIntel 24, toolIntel 62.
+Deliberately empty (no honest claim mapping): workarounds, archetypes,
+practice_parity, skill_versions, experience_edges.
+
+Startup fix follow-through: windows-acl spawns converted to async execFile
+(end-to-end through setupSecureRuntimeAuth, replenishPairingQueue,
+atomicWriteManyWithDacl, persistBridgeInfo, rotateToken). Cold start on
+isolated profile: bootstrap 432ms, firstVisible 988ms, windowCreated 1.8s,
+bridgeStarted 3.3s. Full pipeline 7/7 lanes green.

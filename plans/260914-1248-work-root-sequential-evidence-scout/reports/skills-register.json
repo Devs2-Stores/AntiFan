@@ -1,6 +1,6 @@
 {
   "runId": "wrses-20260914T135118Z",
-  "generatedAt": "2026-09-14T15:24:21.445Z",
+  "generatedAt": "2026-09-15T01:56:59.517Z",
   "skills": [
     {
       "skillId": "sk-70026932d299",
@@ -130,9 +130,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\apps\\.claude\\skills\\haravan-app",
       "unitId": "u-676ef73a54a8",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-2737fc661720",
@@ -142,9 +142,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\apps\\.claude\\skills\\haravan-app-feasibility",
       "unitId": "u-2737fc661720",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-7165447e2a16",
@@ -154,9 +154,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\apps\\.claude\\skills\\sapo-app",
       "unitId": "u-7165447e2a16",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-7abec8646183",
@@ -166,9 +166,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\apps\\.claude\\skills\\sapo-app-feasibility",
       "unitId": "u-7abec8646183",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-9906fab99af5",
@@ -250,9 +250,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\f1genz-header-desktop-menu",
       "unitId": "u-c48dc6a9449d",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ffddcfa4eb70",
@@ -262,9 +262,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan",
       "unitId": "u-ffddcfa4eb70",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-6323a973839a",
@@ -274,9 +274,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-accessibility",
       "unitId": "u-6323a973839a",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-56c11b71dc63",
@@ -286,9 +286,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-audit",
       "unitId": "u-56c11b71dc63",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-d0797bf0d41c",
@@ -298,9 +298,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-demo-kit",
       "unitId": "u-d0797bf0d41c",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-f7a9a23cad21",
@@ -310,9 +310,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-pages",
       "unitId": "u-f7a9a23cad21",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-c21b876d1be9",
@@ -322,9 +322,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-performance",
       "unitId": "u-c21b876d1be9",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ec507579b86e",
@@ -334,9 +334,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-preview-screenshot",
       "unitId": "u-ec507579b86e",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-db7a877812a8",
@@ -346,9 +346,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-stitch-full-run",
       "unitId": "u-db7a877812a8",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-4ae2e326e815",
@@ -358,9 +358,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-theme",
       "unitId": "u-4ae2e326e815",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-4918c37b309d",
@@ -370,9 +370,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo",
       "unitId": "u-4918c37b309d",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0494a30a6dff",
@@ -382,9 +382,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-liquid",
       "unitId": "u-0494a30a6dff",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ee1686e26472",
@@ -394,9 +394,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme",
       "unitId": "u-ee1686e26472",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0a57434af2e5",
@@ -406,9 +406,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-quality",
       "unitId": "u-0a57434af2e5",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-5d7e4515bb78",
@@ -418,9 +418,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-workflow",
       "unitId": "u-5d7e4515bb78",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-73b1d5d52018",
@@ -430,9 +430,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-validation",
       "unitId": "u-73b1d5d52018",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-27dfe2d0e354",
@@ -442,9 +442,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify",
       "unitId": "u-27dfe2d0e354",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e50b968af251",
@@ -454,9 +454,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme",
       "unitId": "u-e50b968af251",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-d156bcc90e6d",
@@ -466,9 +466,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-cli",
       "unitId": "u-d156bcc90e6d",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-bbbf2c67bce0",
@@ -478,9 +478,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-quality",
       "unitId": "u-bbbf2c67bce0",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-6ee5d6965fc5",
@@ -490,9 +490,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\theme-qa-az",
       "unitId": "u-6ee5d6965fc5",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-64861fe54f58",
@@ -502,9 +502,9 @@
       "location": "themes\\.claude\\skills\\f1genz-header-desktop-menu",
       "unitId": "u-64861fe54f58",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e49805f70186",
@@ -514,9 +514,9 @@
       "location": "themes\\.claude\\skills\\haravan",
       "unitId": "u-e49805f70186",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-3d3487f2d0a5",
@@ -526,9 +526,9 @@
       "location": "themes\\.claude\\skills\\haravan-accessibility",
       "unitId": "u-3d3487f2d0a5",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-cf8485382d60",
@@ -538,9 +538,9 @@
       "location": "themes\\.claude\\skills\\haravan-audit",
       "unitId": "u-cf8485382d60",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-38f6aa1a8b4b",
@@ -550,9 +550,9 @@
       "location": "themes\\.claude\\skills\\haravan-demo-kit",
       "unitId": "u-38f6aa1a8b4b",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-692fdcd227db",
@@ -562,9 +562,9 @@
       "location": "themes\\.claude\\skills\\haravan-pages",
       "unitId": "u-692fdcd227db",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-28fe33700a72",
@@ -574,9 +574,9 @@
       "location": "themes\\.claude\\skills\\haravan-performance",
       "unitId": "u-28fe33700a72",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-905f98ef53d1",
@@ -586,9 +586,9 @@
       "location": "themes\\.claude\\skills\\haravan-preview-screenshot",
       "unitId": "u-905f98ef53d1",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-49f361d8b9c6",
@@ -598,9 +598,9 @@
       "location": "themes\\.claude\\skills\\haravan-settings-schema",
       "unitId": "u-49f361d8b9c6",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-6dafa73162e8",
@@ -610,9 +610,9 @@
       "location": "themes\\.claude\\skills\\haravan-stitch-full-run",
       "unitId": "u-6dafa73162e8",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-7c4c92d47be6",
@@ -622,9 +622,9 @@
       "location": "themes\\.claude\\skills\\haravan-theme",
       "unitId": "u-7c4c92d47be6",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-f1646464ea8b",
@@ -634,9 +634,9 @@
       "location": "themes\\.claude\\skills\\sapo",
       "unitId": "u-f1646464ea8b",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-da6f8a806db8",
@@ -646,9 +646,9 @@
       "location": "themes\\.claude\\skills\\sapo-liquid",
       "unitId": "u-da6f8a806db8",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-19c7e2c7eff7",
@@ -658,9 +658,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme",
       "unitId": "u-19c7e2c7eff7",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-f5f164388ea4",
@@ -670,9 +670,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-quality",
       "unitId": "u-f5f164388ea4",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-9758cf2c5c3f",
@@ -682,9 +682,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-workflow",
       "unitId": "u-9758cf2c5c3f",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-773bfa9cf377",
@@ -694,9 +694,9 @@
       "location": "themes\\.claude\\skills\\sapo-validation",
       "unitId": "u-773bfa9cf377",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-aecbbd2a4e32",
@@ -706,9 +706,9 @@
       "location": "themes\\.claude\\skills\\shopify",
       "unitId": "u-aecbbd2a4e32",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0fbc7039eb28",
@@ -718,9 +718,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme",
       "unitId": "u-0fbc7039eb28",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-b4c0f99a17ea",
@@ -730,9 +730,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-cli",
       "unitId": "u-b4c0f99a17ea",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-947494f49f48",
@@ -742,9 +742,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-quality",
       "unitId": "u-947494f49f48",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-701664bbba6e",
@@ -754,9 +754,9 @@
       "location": "themes\\.claude\\skills\\theme-qa-az",
       "unitId": "u-701664bbba6e",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-dd723b63a09d",
@@ -778,9 +778,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\f1genz-header-desktop-menu",
       "unitId": "u-2ca678276975",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-092064f21ee6",
@@ -790,9 +790,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan",
       "unitId": "u-092064f21ee6",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0755bd6f2024",
@@ -802,9 +802,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-accessibility",
       "unitId": "u-0755bd6f2024",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-efabb8c6d2de",
@@ -814,9 +814,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-audit",
       "unitId": "u-efabb8c6d2de",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-2b2351e35ae6",
@@ -826,9 +826,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-demo-kit",
       "unitId": "u-2b2351e35ae6",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-8ad3bf040a2c",
@@ -838,9 +838,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-pages",
       "unitId": "u-8ad3bf040a2c",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-bd0bef9e8a0e",
@@ -850,9 +850,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-performance",
       "unitId": "u-bd0bef9e8a0e",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-3d409cd7645a",
@@ -862,9 +862,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-preview-screenshot",
       "unitId": "u-3d409cd7645a",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-30f4bb51c283",
@@ -874,9 +874,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-stitch-full-run",
       "unitId": "u-30f4bb51c283",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-3a9277968b5a",
@@ -886,9 +886,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-theme",
       "unitId": "u-3a9277968b5a",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e750c540ceec",
@@ -898,9 +898,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo",
       "unitId": "u-e750c540ceec",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-af7048d04029",
@@ -910,9 +910,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-liquid",
       "unitId": "u-af7048d04029",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-13ad9538c5eb",
@@ -922,9 +922,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme",
       "unitId": "u-13ad9538c5eb",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0748d92f6a27",
@@ -934,9 +934,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-quality",
       "unitId": "u-0748d92f6a27",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-a5a65b1326c3",
@@ -946,9 +946,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-workflow",
       "unitId": "u-a5a65b1326c3",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e90fb05a03fc",
@@ -958,9 +958,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-validation",
       "unitId": "u-e90fb05a03fc",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-c751157e6b10",
@@ -970,9 +970,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify",
       "unitId": "u-c751157e6b10",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-d0269482dd75",
@@ -982,9 +982,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme",
       "unitId": "u-d0269482dd75",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-3aefba54c657",
@@ -994,9 +994,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-cli",
       "unitId": "u-3aefba54c657",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-2c03843a6b0e",
@@ -1006,9 +1006,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-quality",
       "unitId": "u-2c03843a6b0e",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-aefbcbb0b4d7",
@@ -1018,9 +1018,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\theme-qa-az",
       "unitId": "u-aefbcbb0b4d7",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-c9f756cee270",
@@ -1114,9 +1114,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\apps\\.claude\\skills\\haravan-app",
       "unitId": "u-d805960aff48",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-251a11322bb8",
@@ -1126,9 +1126,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\apps\\.claude\\skills\\haravan-app-feasibility",
       "unitId": "u-251a11322bb8",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-c00f2f7586af",
@@ -1138,9 +1138,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\apps\\.claude\\skills\\sapo-app",
       "unitId": "u-c00f2f7586af",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ae2b6310b8e8",
@@ -1150,9 +1150,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\apps\\.claude\\skills\\sapo-app-feasibility",
       "unitId": "u-ae2b6310b8e8",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-13ec639b9be2",
@@ -1174,9 +1174,9 @@
       "location": "apps\\.claude\\skills\\haravan-app",
       "unitId": "u-18f20e718878",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-d5403fe3929b",
@@ -1186,9 +1186,9 @@
       "location": "apps\\.claude\\skills\\haravan-app-feasibility",
       "unitId": "u-d5403fe3929b",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-1aeb98274595",
@@ -1198,9 +1198,9 @@
       "location": "apps\\.claude\\skills\\sapo-app",
       "unitId": "u-1aeb98274595",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-4de58f23d536",
@@ -1210,9 +1210,9 @@
       "location": "apps\\.claude\\skills\\sapo-app-feasibility",
       "unitId": "u-4de58f23d536",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-59d599a8778f",
@@ -1246,9 +1246,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-accessibility",
       "unitId": "u-c082376134cd",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-10c0bf00f002",
@@ -1258,9 +1258,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-audit",
       "unitId": "u-10c0bf00f002",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e5f664b3509d",
@@ -1270,9 +1270,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-collection-page",
       "unitId": "u-e5f664b3509d",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-200d8460ce0d",
@@ -1282,9 +1282,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-performance",
       "unitId": "u-200d8460ce0d",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-64ebb219977e",
@@ -1294,9 +1294,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-product-page",
       "unitId": "u-64ebb219977e",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-b4697a9da171",
@@ -1306,9 +1306,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-seo-content",
       "unitId": "u-b4697a9da171",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-7b5a2214cace",
@@ -1318,9 +1318,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-settings",
       "unitId": "u-7b5a2214cace",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-bfa4c9cea8a8",
@@ -1330,9 +1330,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-snippets",
       "unitId": "u-bfa4c9cea8a8",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-4730d9d1afe4",
@@ -1342,9 +1342,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-store-readiness",
       "unitId": "u-4730d9d1afe4",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-8a075969ce4a",
@@ -1354,9 +1354,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-templates",
       "unitId": "u-8a075969ce4a",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-386a44466b4e",
@@ -1366,9 +1366,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-liquid",
       "unitId": "u-386a44466b4e",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-213f8621fa51",
@@ -1378,9 +1378,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-accessibility",
       "unitId": "u-213f8621fa51",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-415258389c01",
@@ -1390,9 +1390,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-audit",
       "unitId": "u-415258389c01",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-6ad584b44316",
@@ -1402,9 +1402,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-collection-page",
       "unitId": "u-6ad584b44316",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-b3d8b40c9616",
@@ -1414,9 +1414,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-performance",
       "unitId": "u-b3d8b40c9616",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-eedbd68f4b1b",
@@ -1426,9 +1426,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-product-page",
       "unitId": "u-eedbd68f4b1b",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-cb7b153105a5",
@@ -1438,9 +1438,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-sections",
       "unitId": "u-cb7b153105a5",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-60d699f3e765",
@@ -1450,9 +1450,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-seo-content",
       "unitId": "u-60d699f3e765",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0554becd1ae6",
@@ -1462,9 +1462,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-settings",
       "unitId": "u-0554becd1ae6",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-de8ff4624cb4",
@@ -1474,9 +1474,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-snippets",
       "unitId": "u-de8ff4624cb4",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-1aa4bb16a811",
@@ -1486,9 +1486,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-store-readiness",
       "unitId": "u-1aa4bb16a811",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-5776fc44eed0",
@@ -1498,9 +1498,9 @@
       "location": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-templates",
       "unitId": "u-5776fc44eed0",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-231758ca2862",
@@ -1558,9 +1558,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-accessibility",
       "unitId": "u-cd29e91d6e39",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-71f294061c47",
@@ -1570,9 +1570,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-audit",
       "unitId": "u-71f294061c47",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-b2d81f67f0e7",
@@ -1582,9 +1582,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-collection-page",
       "unitId": "u-b2d81f67f0e7",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-720792082c4e",
@@ -1594,9 +1594,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-performance",
       "unitId": "u-720792082c4e",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-764b5b04c893",
@@ -1606,9 +1606,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-product-page",
       "unitId": "u-764b5b04c893",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-bd7fa3c320ee",
@@ -1618,9 +1618,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-seo-content",
       "unitId": "u-bd7fa3c320ee",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-33670435b3c5",
@@ -1630,9 +1630,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-settings",
       "unitId": "u-33670435b3c5",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-a8293328e05d",
@@ -1642,9 +1642,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-snippets",
       "unitId": "u-a8293328e05d",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-519d10a1a770",
@@ -1654,9 +1654,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-store-readiness",
       "unitId": "u-519d10a1a770",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-44ad69ad4f8a",
@@ -1666,9 +1666,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-templates",
       "unitId": "u-44ad69ad4f8a",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-2a9682568b69",
@@ -1678,9 +1678,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-liquid",
       "unitId": "u-2a9682568b69",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-2ed9fea4ac37",
@@ -1690,9 +1690,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-accessibility",
       "unitId": "u-2ed9fea4ac37",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-273fc6e81c83",
@@ -1702,9 +1702,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-audit",
       "unitId": "u-273fc6e81c83",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-896e9218cdcd",
@@ -1714,9 +1714,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-collection-page",
       "unitId": "u-896e9218cdcd",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-814f07059fa0",
@@ -1726,9 +1726,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-performance",
       "unitId": "u-814f07059fa0",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-d4e1ec07a2c3",
@@ -1738,9 +1738,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-product-page",
       "unitId": "u-d4e1ec07a2c3",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-62ada47d5051",
@@ -1750,9 +1750,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-sections",
       "unitId": "u-62ada47d5051",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-f80d1967bebe",
@@ -1762,9 +1762,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-seo-content",
       "unitId": "u-f80d1967bebe",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-dc7f4ed36edd",
@@ -1774,9 +1774,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-settings",
       "unitId": "u-dc7f4ed36edd",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-bd78a6a5e6ee",
@@ -1786,9 +1786,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-snippets",
       "unitId": "u-bd78a6a5e6ee",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ed1cfa941b38",
@@ -1798,9 +1798,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-store-readiness",
       "unitId": "u-ed1cfa941b38",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-14cbd6e3a47b",
@@ -1810,9 +1810,9 @@
       "location": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-templates",
       "unitId": "u-14cbd6e3a47b",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0569869f2728",
@@ -1846,9 +1846,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-accessibility",
       "unitId": "u-fda62e292fd5",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-f34a0a4d5dcd",
@@ -1858,9 +1858,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-audit",
       "unitId": "u-f34a0a4d5dcd",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-42e077df2c7a",
@@ -1870,9 +1870,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-collection-page",
       "unitId": "u-42e077df2c7a",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-27507db86bbf",
@@ -1882,9 +1882,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-performance",
       "unitId": "u-27507db86bbf",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-9f87e559dd33",
@@ -1894,9 +1894,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-product-page",
       "unitId": "u-9f87e559dd33",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-1b9496dc5426",
@@ -1906,9 +1906,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-seo-content",
       "unitId": "u-1b9496dc5426",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-88e5532ee820",
@@ -1918,9 +1918,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-settings",
       "unitId": "u-88e5532ee820",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-3253206bd968",
@@ -1930,9 +1930,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-snippets",
       "unitId": "u-3253206bd968",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ec16a3e1cf47",
@@ -1942,9 +1942,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-store-readiness",
       "unitId": "u-ec16a3e1cf47",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-4a2bccae1131",
@@ -1954,9 +1954,9 @@
       "location": "themes\\.claude\\skills\\sapo-theme-templates",
       "unitId": "u-4a2bccae1131",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-679ee20c2d5d",
@@ -1966,9 +1966,9 @@
       "location": "themes\\.claude\\skills\\shopify-liquid",
       "unitId": "u-679ee20c2d5d",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-512545e1c7de",
@@ -1978,9 +1978,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-accessibility",
       "unitId": "u-512545e1c7de",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-452a68e29d01",
@@ -1990,9 +1990,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-audit",
       "unitId": "u-452a68e29d01",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-a1eb315d875a",
@@ -2002,9 +2002,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-collection-page",
       "unitId": "u-a1eb315d875a",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-cefdeb1b7851",
@@ -2014,9 +2014,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-performance",
       "unitId": "u-cefdeb1b7851",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ba911935e91e",
@@ -2026,9 +2026,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-product-page",
       "unitId": "u-ba911935e91e",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-65ac8b82252a",
@@ -2038,9 +2038,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-sections",
       "unitId": "u-65ac8b82252a",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-65f94870dac1",
@@ -2050,9 +2050,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-seo-content",
       "unitId": "u-65f94870dac1",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-a94a6e325c83",
@@ -2062,9 +2062,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-settings",
       "unitId": "u-a94a6e325c83",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-f911cedeeb4c",
@@ -2074,9 +2074,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-snippets",
       "unitId": "u-f911cedeeb4c",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-d728c9cff3e5",
@@ -2086,9 +2086,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-store-readiness",
       "unitId": "u-d728c9cff3e5",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-5c307c501ae6",
@@ -2098,9 +2098,9 @@
       "location": "themes\\.claude\\skills\\shopify-theme-templates",
       "unitId": "u-5c307c501ae6",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-915782f45b75",
@@ -3202,9 +3202,9 @@
       "location": "ak-shopify",
       "unitId": "u-57c1c32460fc",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e9dfc9feea9e",
@@ -3526,9 +3526,9 @@
       "location": "customer-theme-guide",
       "unitId": "u-6845e90b84fe",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-f9538163bcad",
@@ -3538,9 +3538,9 @@
       "location": "customize-customer-guide",
       "unitId": "u-f9538163bcad",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-99554b3e61c5",
@@ -3562,9 +3562,9 @@
       "location": "f1genz-header-desktop-menu",
       "unitId": "u-9fb9c158dda1",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-8cc5b6c05175",
@@ -3574,9 +3574,9 @@
       "location": "f1genz-review",
       "unitId": "u-8cc5b6c05175",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-6da8f316d578",
@@ -3598,9 +3598,9 @@
       "location": "ghpm",
       "unitId": "u-500a709aed7f",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-34dfc4fb34f2",
@@ -3610,9 +3610,9 @@
       "location": "google-form-sheet",
       "unitId": "u-34dfc4fb34f2",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-a7bc195cc131",
@@ -3622,9 +3622,9 @@
       "location": "haravan",
       "unitId": "u-a7bc195cc131",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-134577e69a58",
@@ -3634,9 +3634,9 @@
       "location": "haravan-accessibility",
       "unitId": "u-134577e69a58",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-991f202660e2",
@@ -3646,9 +3646,9 @@
       "location": "haravan-app",
       "unitId": "u-991f202660e2",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-a3c57654469d",
@@ -3658,9 +3658,9 @@
       "location": "haravan-app-feasibility",
       "unitId": "u-a3c57654469d",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-b3ec0c5d6be1",
@@ -3670,9 +3670,9 @@
       "location": "haravan-audit",
       "unitId": "u-b3ec0c5d6be1",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-28b100b5cd73",
@@ -3682,9 +3682,9 @@
       "location": "haravan-demo-kit",
       "unitId": "u-28b100b5cd73",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-1447630c2233",
@@ -3694,9 +3694,9 @@
       "location": "haravan-pages",
       "unitId": "u-1447630c2233",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0900ec313228",
@@ -3706,9 +3706,9 @@
       "location": "haravan-performance",
       "unitId": "u-0900ec313228",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-6990f3ab5323",
@@ -3718,9 +3718,9 @@
       "location": "haravan-preview-screenshot",
       "unitId": "u-6990f3ab5323",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-2f4e431ef0b7",
@@ -3742,9 +3742,9 @@
       "location": "haravan-settings",
       "unitId": "u-6d2a38be611e",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-6cbe0b5d123a",
@@ -3754,9 +3754,9 @@
       "location": "haravan-settings-schema",
       "unitId": "u-6cbe0b5d123a",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-2bde8791a5fa",
@@ -3766,9 +3766,9 @@
       "location": "haravan-stitch-full-run",
       "unitId": "u-2bde8791a5fa",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-1e5dddc54184",
@@ -3778,9 +3778,9 @@
       "location": "haravan-theme",
       "unitId": "u-1e5dddc54184",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-452d0834b961",
@@ -3790,9 +3790,9 @@
       "location": "haravan-upload-file",
       "unitId": "u-452d0834b961",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e586ebab7c8d",
@@ -3802,9 +3802,9 @@
       "location": "pagespeed",
       "unitId": "u-e586ebab7c8d",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-4daeadc2aff9",
@@ -3862,9 +3862,9 @@
       "location": "sapo",
       "unitId": "u-b25db907ab7a",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-b7eb860a42b3",
@@ -3874,9 +3874,9 @@
       "location": "sapo-app",
       "unitId": "u-b7eb860a42b3",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-48320c1208df",
@@ -3886,9 +3886,9 @@
       "location": "sapo-app-feasibility",
       "unitId": "u-48320c1208df",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e93888acd335",
@@ -3898,9 +3898,9 @@
       "location": "sapo-liquid",
       "unitId": "u-e93888acd335",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-cdaf4a4095c9",
@@ -3910,9 +3910,9 @@
       "location": "sapo-theme",
       "unitId": "u-cdaf4a4095c9",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-d830141469c5",
@@ -3922,9 +3922,9 @@
       "location": "sapo-theme-accessibility",
       "unitId": "u-d830141469c5",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-dfab933270f9",
@@ -3934,9 +3934,9 @@
       "location": "sapo-theme-audit",
       "unitId": "u-dfab933270f9",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-3323af2e4021",
@@ -3946,9 +3946,9 @@
       "location": "sapo-theme-collection-page",
       "unitId": "u-3323af2e4021",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-09d25f052b9c",
@@ -3958,9 +3958,9 @@
       "location": "sapo-theme-performance",
       "unitId": "u-09d25f052b9c",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-dc00a60f85ab",
@@ -3970,9 +3970,9 @@
       "location": "sapo-theme-product-page",
       "unitId": "u-dc00a60f85ab",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-21583e84460e",
@@ -3982,9 +3982,9 @@
       "location": "sapo-theme-quality",
       "unitId": "u-21583e84460e",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-83bfdfd28898",
@@ -3994,9 +3994,9 @@
       "location": "sapo-theme-seo-content",
       "unitId": "u-83bfdfd28898",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-b97088a35c80",
@@ -4006,9 +4006,9 @@
       "location": "sapo-theme-settings",
       "unitId": "u-b97088a35c80",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-95f568b2ad23",
@@ -4018,9 +4018,9 @@
       "location": "sapo-theme-snippets",
       "unitId": "u-95f568b2ad23",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-1abe67a97994",
@@ -4030,9 +4030,9 @@
       "location": "sapo-theme-store-readiness",
       "unitId": "u-1abe67a97994",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-b04ae3e1110d",
@@ -4042,9 +4042,9 @@
       "location": "sapo-theme-templates",
       "unitId": "u-b04ae3e1110d",
       "hasSkillMd": false,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-92dbf3e4d21b",
@@ -4054,9 +4054,9 @@
       "location": "sapo-theme-workflow",
       "unitId": "u-92dbf3e4d21b",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-c4bc08049321",
@@ -4066,9 +4066,9 @@
       "location": "sapo-validation",
       "unitId": "u-c4bc08049321",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ca187dbb4a29",
@@ -4078,9 +4078,9 @@
       "location": "sheet-to-spec",
       "unitId": "u-ca187dbb4a29",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-0dfc903589a0",
@@ -4090,9 +4090,9 @@
       "location": "shopify",
       "unitId": "u-0dfc903589a0",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-825ec7b39688",
@@ -4102,9 +4102,9 @@
       "location": "shopify-liquid",
       "unitId": "u-825ec7b39688",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-190f2ca322af",
@@ -4114,9 +4114,9 @@
       "location": "shopify-theme",
       "unitId": "u-190f2ca322af",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-8e66b52adcfa",
@@ -4126,9 +4126,9 @@
       "location": "shopify-theme-accessibility",
       "unitId": "u-8e66b52adcfa",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-56e87f45c563",
@@ -4138,9 +4138,9 @@
       "location": "shopify-theme-audit",
       "unitId": "u-56e87f45c563",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-fcaeaf331ef7",
@@ -4150,9 +4150,9 @@
       "location": "shopify-theme-cli",
       "unitId": "u-fcaeaf331ef7",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-4451a2783375",
@@ -4162,9 +4162,9 @@
       "location": "shopify-theme-collection-page",
       "unitId": "u-4451a2783375",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-e20edf7bb991",
@@ -4174,9 +4174,9 @@
       "location": "shopify-theme-performance",
       "unitId": "u-e20edf7bb991",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-8a4f468570df",
@@ -4186,9 +4186,9 @@
       "location": "shopify-theme-product-page",
       "unitId": "u-8a4f468570df",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-a212375c5917",
@@ -4198,9 +4198,9 @@
       "location": "shopify-theme-quality",
       "unitId": "u-a212375c5917",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-08a7949807f2",
@@ -4210,9 +4210,9 @@
       "location": "shopify-theme-sections",
       "unitId": "u-08a7949807f2",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-ca06623c7c8a",
@@ -4222,9 +4222,9 @@
       "location": "shopify-theme-seo-content",
       "unitId": "u-ca06623c7c8a",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-dd7f7fd5a6a3",
@@ -4234,9 +4234,9 @@
       "location": "shopify-theme-settings",
       "unitId": "u-dd7f7fd5a6a3",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-7402756627b3",
@@ -4246,9 +4246,9 @@
       "location": "shopify-theme-snippets",
       "unitId": "u-7402756627b3",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-f662991272c3",
@@ -4258,9 +4258,9 @@
       "location": "shopify-theme-store-readiness",
       "unitId": "u-f662991272c3",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-010e050de05d",
@@ -4270,9 +4270,9 @@
       "location": "shopify-theme-templates",
       "unitId": "u-010e050de05d",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-56871965e311",
@@ -4282,9 +4282,9 @@
       "location": "site-clone",
       "unitId": "u-56871965e311",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-546849c41a7b",
@@ -4294,9 +4294,9 @@
       "location": "theme-qa-az",
       "unitId": "u-546849c41a7b",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-37410262b6b2",
@@ -4306,9 +4306,9 @@
       "location": "turnstile-spin",
       "unitId": "u-37410262b6b2",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-bbaf91e82607",
@@ -4330,9 +4330,9 @@
       "location": "wireframe-roadmap",
       "unitId": "u-4d3c34678c7f",
       "hasSkillMd": true,
-      "originEvidence": "agentkit-installer-root",
-      "akDisposition": "EXCLUDED_AK_SKILL",
-      "analysisState": "EXCLUDED"
+      "originEvidence": "non-ak-name",
+      "akDisposition": "ELIGIBLE",
+      "analysisState": "PENDING"
     },
     {
       "skillId": "sk-5bcc289d817a",

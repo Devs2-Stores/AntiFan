@@ -147,10 +147,18 @@ if (loose.length) {
 const agentsNames = new Set(
   entries.filter((x) => x.rootId === 'skills-agents' && x.depth === 1 && x.type === 'directory').map((x) => x.name.toLowerCase()),
 );
+// User-approved amendment (2026-09-15): domain skills authored for the user's
+// commerce platforms are corpus knowledge even when a same-named package exists
+// under the installer root — the .claude/skills copy is what the runtime loads.
+// Names absent from this list keep the installer-provenance exclusion.
+const DOMAIN_SKILL_ALLOWLIST = new Set(
+  JSON.parse(fs.readFileSync(path.join(REPORTS, 'domain-skill-allowlist.json'), 'utf8')).map((n) => String(n).toLowerCase()),
+);
+const isUserDomainSkill = (name) => DOMAIN_SKILL_ALLOWLIST.has(String(name).toLowerCase());
 const inRootSkillRoots = dirs.filter((d) => d.rootId === 'work-root' && /[\\/](\.agents|\.claude)[\\/]skills$/i.test(d.relPath));
 for (const sr of inRootSkillRoots) {
   for (const e of childrenOf(sr.rootId, sr.relPath).filter((k) => k.type === 'directory')) {
-    const disposition = agentsNames.has(e.name.toLowerCase()) ? 'EXCLUDED_AK_SKILL' : 'ELIGIBLE';
+    const disposition = agentsNames.has(e.name.toLowerCase()) && !isUserDomainSkill(e.name) ? 'EXCLUDED_AK_SKILL' : 'ELIGIBLE';
     addUnit({
       rootId: 'work-root', relPath: e.relPath, kind: 'skill',
       markers: ['in-root-skill-root-child'],
@@ -178,7 +186,7 @@ for (const rootId of ['skills-claude', 'skills-agents']) {
     if (rootId === 'skills-agents') {
       disposition = 'EXCLUDED_AK_SKILL';
       note = 'AgentKit installer root: every child has installer provenance';
-    } else if (agentsNames.has(e.name.toLowerCase())) {
+    } else if (agentsNames.has(e.name.toLowerCase()) && !isUserDomainSkill(e.name)) {
       disposition = 'EXCLUDED_AK_SKILL';
       note = 'same-named package under installer root (mirror or modified copy)';
     } else {

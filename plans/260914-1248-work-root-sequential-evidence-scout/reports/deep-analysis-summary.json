@@ -1,15 +1,15 @@
 {
-  "ranAt": "2026-09-14T19:00:19.137Z",
-  "units": 246,
-  "claims": 1947,
+  "ranAt": "2026-09-15T02:33:42.891Z",
+  "units": 449,
+  "claims": 42063,
   "decisions": 310,
-  "dependencies": 432,
+  "dependencies": 239,
   "errors": 0,
   "results": [
     {
       "unitId": "u-70612d4eeac3",
       "relPath": ".agents",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -22,7 +22,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 3,
       "decisions": 0,
       "dependencies": 0
     },
@@ -282,7 +282,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -302,7 +302,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 49,
       "decisions": 0,
       "dependencies": 0
     },
@@ -422,7 +422,7 @@
         "risks": 5,
         "outcomes": 2
       },
-      "claims": 11,
+      "claims": 258,
       "decisions": 2,
       "dependencies": 0
     },
@@ -442,7 +442,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 11,
       "decisions": 0,
       "dependencies": 0
     },
@@ -462,7 +462,7 @@
         "risks": 0,
         "outcomes": 1
       },
-      "claims": 2,
+      "claims": 57,
       "decisions": 0,
       "dependencies": 0
     },
@@ -482,9 +482,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 0,
+      "claims": 153,
       "decisions": 0,
-      "dependencies": 3
+      "dependencies": 2
     },
     {
       "unitId": "u-d2985e6336f5",
@@ -502,7 +502,7 @@
         "risks": 39,
         "outcomes": 53
       },
-      "claims": 110,
+      "claims": 965,
       "decisions": 15,
       "dependencies": 0
     },
@@ -522,7 +522,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 13,
       "decisions": 0,
       "dependencies": 0
     },
@@ -542,7 +542,7 @@
         "risks": 16,
         "outcomes": 13
       },
-      "claims": 58,
+      "claims": 258,
       "decisions": 27,
       "dependencies": 0
     },
@@ -562,7 +562,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 4,
       "decisions": 0,
       "dependencies": 0
     },
@@ -582,7 +582,7 @@
         "risks": 22,
         "outcomes": 8
       },
-      "claims": 34,
+      "claims": 248,
       "decisions": 3,
       "dependencies": 0
     },
@@ -622,7 +622,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 6,
+      "claims": 340,
       "decisions": 4,
       "dependencies": 0
     },
@@ -662,7 +662,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 60,
       "decisions": 0,
       "dependencies": 0
     },
@@ -702,7 +702,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 5,
       "decisions": 0,
       "dependencies": 0
     },
@@ -742,7 +742,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 3,
       "decisions": 0,
       "dependencies": 0
     },
@@ -762,7 +762,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 155,
       "decisions": 0,
       "dependencies": 0
     },
@@ -782,7 +782,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -802,7 +802,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -822,9 +822,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 129,
       "decisions": 0,
-      "dependencies": 2
+      "dependencies": 0
     },
     {
       "unitId": "u-eb7191521698",
@@ -862,7 +862,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 0,
+      "claims": 1,
       "decisions": 0,
       "dependencies": 0
     },
@@ -889,7 +889,7 @@
     {
       "unitId": "u-53295f215981",
       "relPath": ".agents\\skills\\customer-theme-guide",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -902,7 +902,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 24,
       "decisions": 0,
       "dependencies": 0
     },
@@ -922,7 +922,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 3,
       "decisions": 0,
       "dependencies": 0
     },
@@ -942,7 +942,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -962,14 +962,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-b3800c3120e7",
       "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\Convert Sapo - Haravan\\data-xplat",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -982,14 +982,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 62,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-d7af2bd4d0a8",
       "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\Convert Sapo - Haravan\\Haravan F1GENZ Genz",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -1002,14 +1002,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-da11d491855f",
       "relPath": ".claude\\worktrees\\gentle-hugging-newt\\tools\\Convert Sapo - Haravan\\theme-xplat",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -1022,7 +1022,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 65,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1042,9 +1042,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 3,
       "decisions": 0,
-      "dependencies": 3
+      "dependencies": 0
     },
     {
       "unitId": "u-8bc20f16c97a",
@@ -1062,9 +1062,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 14,
       "decisions": 0,
-      "dependencies": 28
+      "dependencies": 2
     },
     {
       "unitId": "u-50bb3e122094",
@@ -1082,7 +1082,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1122,9 +1122,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
-      "dependencies": 12
+      "dependencies": 0
     },
     {
       "unitId": "u-7240708a2c12",
@@ -1142,7 +1142,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1162,7 +1162,7 @@
         "risks": 23,
         "outcomes": 8
       },
-      "claims": 35,
+      "claims": 430,
       "decisions": 2,
       "dependencies": 0
     },
@@ -1182,7 +1182,7 @@
         "risks": 23,
         "outcomes": 8
       },
-      "claims": 35,
+      "claims": 426,
       "decisions": 2,
       "dependencies": 0
     },
@@ -1202,7 +1202,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 4,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1222,7 +1222,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1242,7 +1242,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 15,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1282,7 +1282,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1302,7 +1302,7 @@
         "risks": 7,
         "outcomes": 2
       },
-      "claims": 19,
+      "claims": 123,
       "decisions": 9,
       "dependencies": 0
     },
@@ -1322,7 +1322,7 @@
         "risks": 5,
         "outcomes": 9
       },
-      "claims": 15,
+      "claims": 91,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1342,7 +1342,7 @@
         "risks": 2,
         "outcomes": 1
       },
-      "claims": 4,
+      "claims": 34,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1362,9 +1362,9 @@
         "risks": 10,
         "outcomes": 6
       },
-      "claims": 20,
+      "claims": 177,
       "decisions": 3,
-      "dependencies": 2
+      "dependencies": 0
     },
     {
       "unitId": "u-e98a099501c3",
@@ -1382,7 +1382,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 79,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1402,7 +1402,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 79,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1422,9 +1422,9 @@
         "risks": 5,
         "outcomes": 3
       },
-      "claims": 12,
+      "claims": 169,
       "decisions": 3,
-      "dependencies": 2
+      "dependencies": 0
     },
     {
       "unitId": "u-b6e54c3a8e0e",
@@ -1462,7 +1462,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1582,7 +1582,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 4,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1602,7 +1602,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 5,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1622,14 +1622,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-8ccad0318aac",
       "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\Convert Sapo - Haravan\\data-xplat",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -1642,14 +1642,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 62,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-1b15cd66eee2",
       "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\Convert Sapo - Haravan\\Haravan F1GENZ Genz",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -1662,14 +1662,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-d8f9f48b52b9",
       "relPath": ".claude\\worktrees\\aqua-404-image\\tools\\Convert Sapo - Haravan\\theme-xplat",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -1682,7 +1682,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 64,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1702,7 +1702,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 44,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1722,7 +1722,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 5,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1742,7 +1742,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1762,7 +1762,7 @@
         "risks": 0,
         "outcomes": 1
       },
-      "claims": 2,
+      "claims": 17,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1782,7 +1782,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 25,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1802,9 +1802,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 207,
       "decisions": 0,
-      "dependencies": 2
+      "dependencies": 0
     },
     {
       "unitId": "u-e5376c2d309a",
@@ -1822,14 +1822,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 43,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-c319190af2ca",
       "relPath": "apps\\AntiFan\\.omp\\extensions\\antifan-fix-guard\\skills\\antifan-theme",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -1842,7 +1842,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 17,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1862,7 +1862,7 @@
         "risks": 1,
         "outcomes": 3
       },
-      "claims": 5,
+      "claims": 2396,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1882,7 +1882,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1902,7 +1902,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 50,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1922,7 +1922,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1942,7 +1942,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 46,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1962,7 +1962,7 @@
         "risks": 5,
         "outcomes": 0
       },
-      "claims": 6,
+      "claims": 270,
       "decisions": 0,
       "dependencies": 0
     },
@@ -1982,7 +1982,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 50,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2002,7 +2002,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 18,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2022,7 +2022,7 @@
         "risks": 8,
         "outcomes": 3
       },
-      "claims": 14,
+      "claims": 516,
       "decisions": 1,
       "dependencies": 0
     },
@@ -2042,7 +2042,7 @@
         "risks": 37,
         "outcomes": 11
       },
-      "claims": 50,
+      "claims": 957,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2062,7 +2062,7 @@
         "risks": 37,
         "outcomes": 12
       },
-      "claims": 62,
+      "claims": 699,
       "decisions": 10,
       "dependencies": 0
     },
@@ -2082,7 +2082,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2102,7 +2102,7 @@
         "risks": 9,
         "outcomes": 10
       },
-      "claims": 23,
+      "claims": 295,
       "decisions": 2,
       "dependencies": 0
     },
@@ -2122,7 +2122,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 22,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2142,7 +2142,7 @@
         "risks": 1,
         "outcomes": 1
       },
-      "claims": 5,
+      "claims": 286,
       "decisions": 1,
       "dependencies": 0
     },
@@ -2162,7 +2162,7 @@
         "risks": 4,
         "outcomes": 4
       },
-      "claims": 11,
+      "claims": 268,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2182,7 +2182,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2202,7 +2202,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2222,14 +2222,14 @@
         "risks": 0,
         "outcomes": 1
       },
-      "claims": 3,
+      "claims": 755,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-a48357e6b2cb",
       "relPath": "customizes\\Seahorse2",
-      "platform": "generic-liquid",
+      "platform": "haravan",
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -2242,7 +2242,7 @@
         "risks": 13,
         "outcomes": 38
       },
-      "claims": 55,
+      "claims": 761,
       "decisions": 2,
       "dependencies": 0
     },
@@ -2262,7 +2262,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2282,7 +2282,7 @@
         "risks": 13,
         "outcomes": 8
       },
-      "claims": 29,
+      "claims": 127,
       "decisions": 6,
       "dependencies": 0
     },
@@ -2302,7 +2302,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2322,7 +2322,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2342,7 +2342,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2362,7 +2362,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 67,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2382,7 +2382,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 1657,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2402,7 +2402,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2422,7 +2422,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 46,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2442,7 +2442,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2462,9 +2462,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 5,
       "decisions": 0,
-      "dependencies": 5
+      "dependencies": 0
     },
     {
       "unitId": "u-7a3cd575966d",
@@ -2482,9 +2482,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 6,
       "decisions": 0,
-      "dependencies": 15
+      "dependencies": 14
     },
     {
       "unitId": "u-25e0bb2ab52d",
@@ -2502,7 +2502,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2522,7 +2522,7 @@
         "risks": 0,
         "outcomes": 1
       },
-      "claims": 2,
+      "claims": 34,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2542,7 +2542,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 57,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2562,9 +2562,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 208,
       "decisions": 0,
-      "dependencies": 2
+      "dependencies": 0
     },
     {
       "unitId": "u-faef9d3e3b42",
@@ -2572,8 +2572,8 @@
       "platform": "haravan",
       "gitStats": {
         "commits": 500,
-        "fixes": 207,
-        "features": 107,
+        "fixes": 206,
+        "features": 106,
         "decisions": 99
       },
       "planStats": {
@@ -2582,7 +2582,7 @@
         "risks": 26,
         "outcomes": 22
       },
-      "claims": 388,
+      "claims": 17859,
       "decisions": 119,
       "dependencies": 0
     },
@@ -2602,7 +2602,7 @@
         "risks": 10,
         "outcomes": 11
       },
-      "claims": 23,
+      "claims": 176,
       "decisions": 2,
       "dependencies": 0
     },
@@ -2622,7 +2622,7 @@
         "risks": 14,
         "outcomes": 11
       },
-      "claims": 59,
+      "claims": 544,
       "decisions": 4,
       "dependencies": 0
     },
@@ -2642,7 +2642,7 @@
         "risks": 30,
         "outcomes": 18
       },
-      "claims": 95,
+      "claims": 623,
       "decisions": 13,
       "dependencies": 0
     },
@@ -2662,7 +2662,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 40,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2682,7 +2682,7 @@
         "risks": 3,
         "outcomes": 4
       },
-      "claims": 15,
+      "claims": 88,
       "decisions": 3,
       "dependencies": 0
     },
@@ -2702,7 +2702,7 @@
         "risks": 10,
         "outcomes": 0
       },
-      "claims": 13,
+      "claims": 216,
       "decisions": 1,
       "dependencies": 0
     },
@@ -2722,7 +2722,7 @@
         "risks": 36,
         "outcomes": 32
       },
-      "claims": 83,
+      "claims": 604,
       "decisions": 13,
       "dependencies": 0
     },
@@ -2742,9 +2742,9 @@
         "risks": 25,
         "outcomes": 24
       },
-      "claims": 53,
+      "claims": 362,
       "decisions": 2,
-      "dependencies": 15
+      "dependencies": 14
     },
     {
       "unitId": "u-37e5f6524c9c",
@@ -2762,9 +2762,9 @@
         "risks": 22,
         "outcomes": 15
       },
-      "claims": 57,
+      "claims": 418,
       "decisions": 11,
-      "dependencies": 36
+      "dependencies": 0
     },
     {
       "unitId": "u-2b006b753ebb",
@@ -2782,7 +2782,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 155,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2802,9 +2802,9 @@
         "risks": 0,
         "outcomes": 1
       },
-      "claims": 2,
+      "claims": 18,
       "decisions": 0,
-      "dependencies": 36
+      "dependencies": 0
     },
     {
       "unitId": "u-1d1761937947",
@@ -2822,9 +2822,89 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 10,
+      "claims": 19,
       "decisions": 0,
-      "dependencies": 15
+      "dependencies": 14
+    },
+    {
+      "unitId": "u-676ef73a54a8",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\apps\\.claude\\skills\\haravan-app",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 74,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2737fc661720",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\apps\\.claude\\skills\\haravan-app-feasibility",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 43,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7165447e2a16",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\apps\\.claude\\skills\\sapo-app",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 17,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7abec8646183",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\apps\\.claude\\skills\\sapo-app-feasibility",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 7,
+      "decisions": 0,
+      "dependencies": 0
     },
     {
       "unitId": "u-a78523974b4f",
@@ -2842,7 +2922,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 3,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2862,7 +2942,427 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c48dc6a9449d",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\f1genz-header-desktop-menu",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ffddcfa4eb70",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6323a973839a",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-accessibility",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-56c11b71dc63",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-audit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 28,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d0797bf0d41c",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-demo-kit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 20,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f7a9a23cad21",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-pages",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c21b876d1be9",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-performance",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ec507579b86e",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-preview-screenshot",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 21,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-db7a877812a8",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-stitch-full-run",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 70,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4ae2e326e815",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\haravan-theme",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 45,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4918c37b309d",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 16,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0494a30a6dff",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-liquid",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ee1686e26472",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 22,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0a57434af2e5",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-quality",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-5d7e4515bb78",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-workflow",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 13,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-73b1d5d52018",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-validation",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-27dfe2d0e354",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 31,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e50b968af251",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 26,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d156bcc90e6d",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-cli",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 42,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-bbbf2c67bce0",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-quality",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6ee5d6965fc5",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\theme-qa-az",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 43,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2882,7 +3382,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 6,
+      "claims": 9,
       "decisions": 1,
       "dependencies": 0
     },
@@ -2902,9 +3402,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 12,
+      "claims": 20,
       "decisions": 2,
-      "dependencies": 15
+      "dependencies": 14
     },
     {
       "unitId": "u-c767934c4e97",
@@ -2922,7 +3422,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 6,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2942,7 +3442,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 6,
       "decisions": 0,
       "dependencies": 0
     },
@@ -2962,14 +3462,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-d01ce3bb607b",
       "relPath": "tools\\Convert Sapo - Haravan\\data-xplat",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -2982,14 +3482,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 62,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-956527bb68cd",
       "relPath": "tools\\Convert Sapo - Haravan\\Haravan",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -3002,14 +3502,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-1d452c12a156",
       "relPath": "tools\\Convert Sapo - Haravan\\Haravan F1GENZ Genz",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -3022,14 +3522,14 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-a7d885861fe1",
       "relPath": "tools\\Convert Sapo - Haravan\\theme-xplat",
-      "platform": "haravan",
+      "platform": null,
       "gitStats": {
         "commits": 0,
         "fixes": 0,
@@ -3042,7 +3542,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 65,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3062,7 +3562,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3082,9 +3582,449 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
-      "dependencies": 15
+      "dependencies": 14
+    },
+    {
+      "unitId": "u-64861fe54f58",
+      "relPath": "themes\\.claude\\skills\\f1genz-header-desktop-menu",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e49805f70186",
+      "relPath": "themes\\.claude\\skills\\haravan",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3d3487f2d0a5",
+      "relPath": "themes\\.claude\\skills\\haravan-accessibility",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cf8485382d60",
+      "relPath": "themes\\.claude\\skills\\haravan-audit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 29,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-38f6aa1a8b4b",
+      "relPath": "themes\\.claude\\skills\\haravan-demo-kit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 31,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-692fdcd227db",
+      "relPath": "themes\\.claude\\skills\\haravan-pages",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-28fe33700a72",
+      "relPath": "themes\\.claude\\skills\\haravan-performance",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-905f98ef53d1",
+      "relPath": "themes\\.claude\\skills\\haravan-preview-screenshot",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 21,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-49f361d8b9c6",
+      "relPath": "themes\\.claude\\skills\\haravan-settings-schema",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 9,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6dafa73162e8",
+      "relPath": "themes\\.claude\\skills\\haravan-stitch-full-run",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 70,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7c4c92d47be6",
+      "relPath": "themes\\.claude\\skills\\haravan-theme",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 52,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f1646464ea8b",
+      "relPath": "themes\\.claude\\skills\\sapo",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 16,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-da6f8a806db8",
+      "relPath": "themes\\.claude\\skills\\sapo-liquid",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-19c7e2c7eff7",
+      "relPath": "themes\\.claude\\skills\\sapo-theme",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 22,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f5f164388ea4",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-quality",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-9758cf2c5c3f",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-workflow",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 13,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-773bfa9cf377",
+      "relPath": "themes\\.claude\\skills\\sapo-validation",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-aecbbd2a4e32",
+      "relPath": "themes\\.claude\\skills\\shopify",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 31,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0fbc7039eb28",
+      "relPath": "themes\\.claude\\skills\\shopify-theme",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 26,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b4c0f99a17ea",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-cli",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 42,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-947494f49f48",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-quality",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-701664bbba6e",
+      "relPath": "themes\\.claude\\skills\\theme-qa-az",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 49,
+      "decisions": 0,
+      "dependencies": 0
     },
     {
       "unitId": "u-00e21d258df3",
@@ -3102,7 +4042,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3122,7 +4062,7 @@
         "risks": 7,
         "outcomes": 7
       },
-      "claims": 18,
+      "claims": 98,
       "decisions": 2,
       "dependencies": 0
     },
@@ -3142,7 +4082,7 @@
         "risks": 7,
         "outcomes": 7
       },
-      "claims": 18,
+      "claims": 98,
       "decisions": 2,
       "dependencies": 0
     },
@@ -3162,7 +4102,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3182,7 +4122,7 @@
         "risks": 14,
         "outcomes": 7
       },
-      "claims": 45,
+      "claims": 556,
       "decisions": 18,
       "dependencies": 0
     },
@@ -3202,7 +4142,7 @@
         "risks": 14,
         "outcomes": 7
       },
-      "claims": 45,
+      "claims": 562,
       "decisions": 18,
       "dependencies": 0
     },
@@ -3222,7 +4162,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 6,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3242,7 +4182,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 9,
       "decisions": 0,
       "dependencies": 3
     },
@@ -3262,7 +4202,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 18,
       "decisions": 0,
       "dependencies": 3
     },
@@ -3282,7 +4222,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 9,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3302,7 +4242,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 3
     },
@@ -3322,9 +4262,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 3,
       "decisions": 0,
-      "dependencies": 5
+      "dependencies": 0
     },
     {
       "unitId": "u-21da1e4ba2e7",
@@ -3342,9 +4282,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
-      "dependencies": 15
+      "dependencies": 14
     },
     {
       "unitId": "u-a62270929bcc",
@@ -3362,7 +4302,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3382,7 +4322,7 @@
         "risks": 0,
         "outcomes": 1
       },
-      "claims": 2,
+      "claims": 17,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3402,7 +4342,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 25,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3422,9 +4362,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 207,
       "decisions": 0,
-      "dependencies": 2
+      "dependencies": 0
     },
     {
       "unitId": "u-3cf6d8c0f3d2",
@@ -3442,7 +4382,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 6,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3462,7 +4402,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3482,7 +4422,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 47,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3502,7 +4442,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3522,7 +4462,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3542,7 +4482,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3562,7 +4502,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3582,7 +4522,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 11,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3602,7 +4542,7 @@
         "risks": 0,
         "outcomes": 1
       },
-      "claims": 2,
+      "claims": 16,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3622,7 +4562,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 155,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3664,7 +4604,7 @@
       },
       "claims": 0,
       "decisions": 0,
-      "dependencies": 3
+      "dependencies": 1
     },
     {
       "unitId": "u-05c264458632",
@@ -3682,7 +4622,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 0,
+      "claims": 1,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3702,9 +4642,429 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 6,
       "decisions": 0,
-      "dependencies": 15
+      "dependencies": 14
+    },
+    {
+      "unitId": "u-2ca678276975",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\f1genz-header-desktop-menu",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-092064f21ee6",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0755bd6f2024",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-accessibility",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-efabb8c6d2de",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-audit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 28,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2b2351e35ae6",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-demo-kit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 29,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8ad3bf040a2c",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-pages",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-bd0bef9e8a0e",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-performance",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3d409cd7645a",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-preview-screenshot",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 21,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-30f4bb51c283",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-stitch-full-run",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 70,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3a9277968b5a",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\haravan-theme",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 45,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e750c540ceec",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 16,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-af7048d04029",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-liquid",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-13ad9538c5eb",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 22,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0748d92f6a27",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-quality",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a5a65b1326c3",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-workflow",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 13,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e90fb05a03fc",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-validation",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c751157e6b10",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 31,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d0269482dd75",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 26,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3aefba54c657",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-cli",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 42,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2c03843a6b0e",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-quality",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-aefbcbb0b4d7",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\theme-qa-az",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 43,
+      "decisions": 0,
+      "dependencies": 0
     },
     {
       "unitId": "u-c874ff7f17fa",
@@ -3722,7 +5082,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 4,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3742,7 +5102,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 47,
+      "claims": 81,
       "decisions": 2,
       "dependencies": 0
     },
@@ -3762,9 +5122,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 65,
+      "claims": 131,
       "decisions": 2,
-      "dependencies": 4
+      "dependencies": 2
     },
     {
       "unitId": "u-569099249b57",
@@ -3802,9 +5162,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 8,
       "decisions": 0,
-      "dependencies": 6
+      "dependencies": 0
     },
     {
       "unitId": "u-33e60ec9a242",
@@ -3822,9 +5182,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 3,
       "decisions": 0,
-      "dependencies": 16
+      "dependencies": 14
     },
     {
       "unitId": "u-a1c35c33ab09",
@@ -3842,7 +5202,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 6,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3862,9 +5222,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 15,
       "decisions": 0,
-      "dependencies": 16
+      "dependencies": 14
     },
     {
       "unitId": "u-3a349ff3ec57",
@@ -3882,7 +5242,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3902,7 +5262,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 5,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3922,7 +5282,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 3,
       "decisions": 0,
       "dependencies": 0
     },
@@ -3942,7 +5302,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 6,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4022,7 +5382,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 6,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4042,7 +5402,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 29,
       "decisions": 0,
       "dependencies": 3
     },
@@ -4062,7 +5422,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4082,7 +5442,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 18,
       "decisions": 0,
       "dependencies": 3
     },
@@ -4102,7 +5462,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 9,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4122,7 +5482,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 3
     },
@@ -4142,7 +5502,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4182,7 +5542,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 3,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4202,7 +5562,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4222,9 +5582,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
-      "dependencies": 15
+      "dependencies": 14
     },
     {
       "unitId": "u-f9848fc87567",
@@ -4242,7 +5602,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 9,
       "decisions": 0,
       "dependencies": 3
     },
@@ -4262,7 +5622,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 18,
       "decisions": 0,
       "dependencies": 3
     },
@@ -4282,7 +5642,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 9,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4302,7 +5662,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 3
     },
@@ -4322,7 +5682,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4342,7 +5702,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 4,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4404,7 +5764,7 @@
       },
       "claims": 1,
       "decisions": 0,
-      "dependencies": 1
+      "dependencies": 0
     },
     {
       "unitId": "u-7f4160b15f1c",
@@ -4422,9 +5782,89 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 8,
       "decisions": 0,
-      "dependencies": 4
+      "dependencies": 2
+    },
+    {
+      "unitId": "u-d805960aff48",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\apps\\.claude\\skills\\haravan-app",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 74,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-251a11322bb8",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\apps\\.claude\\skills\\haravan-app-feasibility",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 43,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c00f2f7586af",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\apps\\.claude\\skills\\sapo-app",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 17,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ae2b6310b8e8",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\apps\\.claude\\skills\\sapo-app-feasibility",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 7,
+      "decisions": 0,
+      "dependencies": 0
     },
     {
       "unitId": "u-d0ba1deb46e4",
@@ -4442,7 +5882,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 20,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4462,7 +5902,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 8,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4482,9 +5922,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 10,
+      "claims": 21,
       "decisions": 0,
-      "dependencies": 6
+      "dependencies": 0
     },
     {
       "unitId": "u-ee53c1fcbe28",
@@ -4502,9 +5942,9 @@
         "risks": 0,
         "outcomes": 1
       },
-      "claims": 47,
+      "claims": 88,
       "decisions": 3,
-      "dependencies": 16
+      "dependencies": 14
     },
     {
       "unitId": "u-22d83358f8f0",
@@ -4522,7 +5962,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4542,7 +5982,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4562,9 +6002,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
-      "dependencies": 15
+      "dependencies": 14
     },
     {
       "unitId": "u-13ec639b9be2",
@@ -4582,7 +6022,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 13,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4602,7 +6042,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 0,
+      "claims": 1,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4624,7 +6064,7 @@
       },
       "claims": 1,
       "decisions": 0,
-      "dependencies": 9
+      "dependencies": 3
     },
     {
       "unitId": "u-4a1ac0324d6a",
@@ -4642,9 +6082,9 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 9,
       "decisions": 0,
-      "dependencies": 16
+      "dependencies": 2
     },
     {
       "unitId": "u-5ad5b3444c56",
@@ -4662,7 +6102,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 6,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4682,7 +6122,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4724,7 +6164,7 @@
       },
       "claims": 0,
       "decisions": 0,
-      "dependencies": 3
+      "dependencies": 1
     },
     {
       "unitId": "u-28fb41595d15",
@@ -4742,7 +6182,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4762,7 +6202,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 7,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4782,7 +6222,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4802,9 +6242,89 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 2,
       "decisions": 0,
-      "dependencies": 15
+      "dependencies": 14
+    },
+    {
+      "unitId": "u-18f20e718878",
+      "relPath": "apps\\.claude\\skills\\haravan-app",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 74,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d5403fe3929b",
+      "relPath": "apps\\.claude\\skills\\haravan-app-feasibility",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 43,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1aeb98274595",
+      "relPath": "apps\\.claude\\skills\\sapo-app",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 17,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4de58f23d536",
+      "relPath": "apps\\.claude\\skills\\sapo-app-feasibility",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 7,
+      "decisions": 0,
+      "dependencies": 0
     },
     {
       "unitId": "u-4da71a068845",
@@ -4822,7 +6342,7 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 4,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4842,13 +6362,1353 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 1,
+      "claims": 41,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c082376134cd",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-accessibility",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-10c0bf00f002",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-audit",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 17,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e5f664b3509d",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-collection-page",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-200d8460ce0d",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-performance",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-64ebb219977e",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-product-page",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b4697a9da171",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-seo-content",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7b5a2214cace",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-settings",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-bfa4c9cea8a8",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-snippets",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4730d9d1afe4",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-store-readiness",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8a075969ce4a",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\sapo-theme-templates",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-386a44466b4e",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-liquid",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-213f8621fa51",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-accessibility",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-415258389c01",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-audit",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6ad584b44316",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-collection-page",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b3d8b40c9616",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-performance",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 7,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-eedbd68f4b1b",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-product-page",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cb7b153105a5",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-sections",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-60d699f3e765",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-seo-content",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0554becd1ae6",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-settings",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-de8ff4624cb4",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-snippets",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1aa4bb16a811",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-store-readiness",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 8,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-5776fc44eed0",
+      "relPath": ".claude\\worktrees\\aqua-404-image\\themes\\.claude\\skills\\shopify-theme-templates",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cd29e91d6e39",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-accessibility",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-71f294061c47",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-audit",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 17,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b2d81f67f0e7",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-collection-page",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-720792082c4e",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-performance",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-764b5b04c893",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-product-page",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-bd7fa3c320ee",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-seo-content",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-33670435b3c5",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-settings",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a8293328e05d",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-snippets",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-519d10a1a770",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-store-readiness",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-44ad69ad4f8a",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\sapo-theme-templates",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2a9682568b69",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-liquid",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2ed9fea4ac37",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-accessibility",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-273fc6e81c83",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-audit",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-896e9218cdcd",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-collection-page",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-814f07059fa0",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-performance",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 7,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d4e1ec07a2c3",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-product-page",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-62ada47d5051",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-sections",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f80d1967bebe",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-seo-content",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-dc7f4ed36edd",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-settings",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-bd78a6a5e6ee",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-snippets",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ed1cfa941b38",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-store-readiness",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 8,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-14cbd6e3a47b",
+      "relPath": ".claude\\worktrees\\gentle-hugging-newt\\themes\\.claude\\skills\\shopify-theme-templates",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-fda62e292fd5",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-accessibility",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f34a0a4d5dcd",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-audit",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 17,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-42e077df2c7a",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-collection-page",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-27507db86bbf",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-performance",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-9f87e559dd33",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-product-page",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1b9496dc5426",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-seo-content",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-88e5532ee820",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-settings",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3253206bd968",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-snippets",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ec16a3e1cf47",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-store-readiness",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4a2bccae1131",
+      "relPath": "themes\\.claude\\skills\\sapo-theme-templates",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-679ee20c2d5d",
+      "relPath": "themes\\.claude\\skills\\shopify-liquid",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-512545e1c7de",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-accessibility",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-452a68e29d01",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-audit",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a1eb315d875a",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-collection-page",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cefdeb1b7851",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-performance",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 7,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ba911935e91e",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-product-page",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-65ac8b82252a",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-sections",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-65f94870dac1",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-seo-content",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a94a6e325c83",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-settings",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f911cedeeb4c",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-snippets",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d728c9cff3e5",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-store-readiness",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 8,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-5c307c501ae6",
+      "relPath": "themes\\.claude\\skills\\shopify-theme-templates",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
       "decisions": 0,
       "dependencies": 0
     },
     {
       "unitId": "u-f9d9ced21e7e",
       "relPath": "scratch\\lh\\node_modules\\lighthouse\\.agents\\skills\\lighthouse-verification",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 0,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-57c1c32460fc",
+      "relPath": "ak-shopify",
       "platform": null,
       "gitStats": {
         "commits": 0,
@@ -4882,7 +7742,307 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 43,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6845e90b84fe",
+      "relPath": "customer-theme-guide",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 24,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f9538163bcad",
+      "relPath": "customize-customer-guide",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 8,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-9fb9c158dda1",
+      "relPath": "f1genz-header-desktop-menu",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 10,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8cc5b6c05175",
+      "relPath": "f1genz-review",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-500a709aed7f",
+      "relPath": "ghpm",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 23,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-34dfc4fb34f2",
+      "relPath": "google-form-sheet",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 23,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a7bc195cc131",
+      "relPath": "haravan",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-134577e69a58",
+      "relPath": "haravan-accessibility",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-991f202660e2",
+      "relPath": "haravan-app",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 74,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a3c57654469d",
+      "relPath": "haravan-app-feasibility",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 43,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b3ec0c5d6be1",
+      "relPath": "haravan-audit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 29,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-28b100b5cd73",
+      "relPath": "haravan-demo-kit",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 31,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1447630c2233",
+      "relPath": "haravan-pages",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0900ec313228",
+      "relPath": "haravan-performance",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6990f3ab5323",
+      "relPath": "haravan-preview-screenshot",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 21,
       "decisions": 0,
       "dependencies": 0
     },
@@ -4902,7 +8062,907 @@
         "risks": 0,
         "outcomes": 0
       },
-      "claims": 2,
+      "claims": 20,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6d2a38be611e",
+      "relPath": "haravan-settings",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 23,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-6cbe0b5d123a",
+      "relPath": "haravan-settings-schema",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 9,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-2bde8791a5fa",
+      "relPath": "haravan-stitch-full-run",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 70,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1e5dddc54184",
+      "relPath": "haravan-theme",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 52,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-452d0834b961",
+      "relPath": "haravan-upload-file",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e586ebab7c8d",
+      "relPath": "pagespeed",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 15,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b25db907ab7a",
+      "relPath": "sapo",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 16,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b7eb860a42b3",
+      "relPath": "sapo-app",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 17,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-48320c1208df",
+      "relPath": "sapo-app-feasibility",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 7,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e93888acd335",
+      "relPath": "sapo-liquid",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-cdaf4a4095c9",
+      "relPath": "sapo-theme",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 22,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-d830141469c5",
+      "relPath": "sapo-theme-accessibility",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-dfab933270f9",
+      "relPath": "sapo-theme-audit",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 17,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-3323af2e4021",
+      "relPath": "sapo-theme-collection-page",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-09d25f052b9c",
+      "relPath": "sapo-theme-performance",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-dc00a60f85ab",
+      "relPath": "sapo-theme-product-page",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-21583e84460e",
+      "relPath": "sapo-theme-quality",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 18,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-83bfdfd28898",
+      "relPath": "sapo-theme-seo-content",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b97088a35c80",
+      "relPath": "sapo-theme-settings",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-95f568b2ad23",
+      "relPath": "sapo-theme-snippets",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-1abe67a97994",
+      "relPath": "sapo-theme-store-readiness",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-b04ae3e1110d",
+      "relPath": "sapo-theme-templates",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-92dbf3e4d21b",
+      "relPath": "sapo-theme-workflow",
+      "platform": "sapo",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 13,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-c4bc08049321",
+      "relPath": "sapo-validation",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 3,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ca187dbb4a29",
+      "relPath": "sheet-to-spec",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 23,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-0dfc903589a0",
+      "relPath": "shopify",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 35,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-825ec7b39688",
+      "relPath": "shopify-liquid",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-190f2ca322af",
+      "relPath": "shopify-theme",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 26,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8e66b52adcfa",
+      "relPath": "shopify-theme-accessibility",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 4,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-56e87f45c563",
+      "relPath": "shopify-theme-audit",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-fcaeaf331ef7",
+      "relPath": "shopify-theme-cli",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 42,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4451a2783375",
+      "relPath": "shopify-theme-collection-page",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-e20edf7bb991",
+      "relPath": "shopify-theme-performance",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 8,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-8a4f468570df",
+      "relPath": "shopify-theme-product-page",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-a212375c5917",
+      "relPath": "shopify-theme-quality",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-08a7949807f2",
+      "relPath": "shopify-theme-sections",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 11,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-ca06623c7c8a",
+      "relPath": "shopify-theme-seo-content",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 5,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-dd7f7fd5a6a3",
+      "relPath": "shopify-theme-settings",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 6,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-7402756627b3",
+      "relPath": "shopify-theme-snippets",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 12,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-f662991272c3",
+      "relPath": "shopify-theme-store-readiness",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 9,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-010e050de05d",
+      "relPath": "shopify-theme-templates",
+      "platform": "shopify",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 13,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-56871965e311",
+      "relPath": "site-clone",
+      "platform": "haravan",
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 15,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-546849c41a7b",
+      "relPath": "theme-qa-az",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 49,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-37410262b6b2",
+      "relPath": "turnstile-spin",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 22,
+      "decisions": 0,
+      "dependencies": 0
+    },
+    {
+      "unitId": "u-4d3c34678c7f",
+      "relPath": "wireframe-roadmap",
+      "platform": null,
+      "gitStats": {
+        "commits": 0,
+        "fixes": 0,
+        "features": 0,
+        "decisions": 0
+      },
+      "planStats": {
+        "files": 0,
+        "decisions": 0,
+        "risks": 0,
+        "outcomes": 0
+      },
+      "claims": 63,
       "decisions": 0,
       "dependencies": 0
     },
