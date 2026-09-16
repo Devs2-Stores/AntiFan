@@ -1,6 +1,6 @@
 {
-  "runId": "ladder-round3",
-  "runDir": "E:\\Work\\apps\\AntiFan\\.goal-runs\\ladder-round3",
+  "runId": "ladder-round4",
+  "runDir": "E:\\Work\\apps\\AntiFan\\.goal-runs\\ladder-round4",
   "status": "completed",
   "abortReason": null,
   "abortDetail": null,
@@ -11,7 +11,7 @@
     "PASS": 31
   },
   "unboundPasses": [],
-  "durationMs": 53988,
+  "durationMs": 56340,
   "items": [
     {
       "phaseId": "p0a",
@@ -20,8 +20,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=pack trace resolves claims|TASK_RUN_NOT_FOUND\" .compiled/test/unit/core-health-service.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:02.685Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:29.760Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -31,8 +31,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=hook discovery scans only pre/|bridge hook is placed inside\" test/unit/context-bridge.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:03.248Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:30.452Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -42,8 +42,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=before_agent_start returns one pack message\" test/unit/context-bridge.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:04.308Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:31.599Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -53,8 +53,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=platform filter isolates wrong-platform claims|platform policy excludes untagged and wrong-platform claims|findSimilar applies platform policy to all six collections|content policy holds on findSimilar\" packages/super-core/dist/core.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:06.092Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:33.697Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -64,8 +64,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=pack conflicts are platform-scoped and unit-scoped|abstain gate: <2 quality claims|unresolved conflict lowers confidence\" packages/super-core/dist/core.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:07.475Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:35.064Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -75,8 +75,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=context handler drops stale and duplicate pack messages\" test/unit/context-bridge.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:08.184Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:36.044Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -86,8 +86,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=session.compacting preserves packId|session.compacting records unavailable state\" test/unit/context-bridge.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:09.014Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:37.041Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -97,8 +97,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=exactly one BRIDGE_CONTEXT_FAILED|fail-open with one event|hard spawn timeout fires\" test/unit/context-bridge.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:10.114Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:38.282Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -108,8 +108,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=contextPack dedupes on\" packages/super-core/dist/core.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:10.871Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:39.099Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -119,8 +119,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap test/unit/context-bridge.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:15.326Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:43.692Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -130,8 +130,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=all gates pass|seeded degraded scenario|CLI failure\" .compiled/test/unit/core-health-service.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:16.047Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:44.160Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -141,8 +141,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=empty store|no regression run|missing telemetry file|BRIDGE_CONTEXT_FAILED event|seeded pending candidate\" .compiled/test/unit/core-health-service.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:19.759Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:47.698Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -152,8 +152,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=Health surface\" .compiled/test/renderer/core-health-hub.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:24.884Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:52.538Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -163,8 +163,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=Bridge surface\" .compiled/test/renderer/core-health-hub.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:28.869Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:05:56.988Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -174,8 +174,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=Task Run surface\" .compiled/test/renderer/core-health-hub.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:32.954Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:00.699Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -185,8 +185,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=classifyIssue: explicit field|subdomains classify by their own surface\" .compiled/test/unit/issue-register-taxonomy.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:33.367Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:01.167Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -196,8 +196,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=record accepts new taxonomy fields\" .compiled/test/unit/issue-register-taxonomy.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:33.730Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:01.547Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -207,8 +207,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=parity gate passes at HEAD\" test/unit/mcp-core-parity.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:35.769Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:03.409Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -218,8 +218,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=every shadowing routing row agrees|retired browser_find routing row\" test/unit/mcp-core-parity.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:36.980Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:04.446Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -229,8 +229,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=Dispatches Playwright canonical browser_find|Dispatches anti.agent.cursor.type\" .compiled/test/main/mcp-industrial-e2e.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:38.728Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:06.162Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -240,8 +240,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=parity gate fails on seeded schema drift|parity gate fails when a dispatch entry names a store method\" test/unit/mcp-core-parity.test.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:41.471Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:08.766Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -251,8 +251,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=Connects persistent dispatch channel|Dispatches 10 concurrent tool calls\" .compiled/test/main/mcp-persistent-transport.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:42.835Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:09.900Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -262,8 +262,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=Rejects in-flight requests cleanly\" .compiled/test/main/mcp-persistent-transport.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:43.769Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:10.984Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -273,8 +273,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=carries stable evidence metadata|failures are structured and carry authority revision\" .compiled/test/main/mcp-result-envelope.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:44.180Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:11.334Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -284,8 +284,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe scripts/goal/ladder/probes/mcp-health-metrics.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:45.377Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:12.533Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -295,8 +295,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe scripts/goal/ladder/probes/retrieval-ranking.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:46.003Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:13.105Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -306,8 +306,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe scripts/goal/ladder/probes/reuse-metric.mjs",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:46.679Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:13.692Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -317,8 +317,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=Root cause surface\" .compiled/test/renderer/core-health-hub.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:49.943Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:17.391Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -328,8 +328,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=Regression surface\" .compiled/test/renderer/core-health-hub.test.js && C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=replayRegression re-executes\" packages/super-core/dist/core.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:53.831Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:22.793Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -339,8 +339,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=knowledgeGaps distinguishes never/stale/conflicted|no-match query abstains\" packages/super-core/dist/core.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:54.664Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:23.913Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     },
     {
@@ -350,8 +350,8 @@
       "verdict": "PASS",
       "routeIdentity": "C:\\Program Files\\nodejs\\node.exe --test --test-force-exit --test-reporter=tap \"--test-name-pattern=ingestOutcome writes a linked observation|recordObservation is the raw producer|adjudicate is the only promotion path\" packages/super-core/dist/core.test.js",
       "exit": 0,
-      "finishedAt": "2026-09-16T04:02:55.940Z",
-      "gitSha": "b93dadfa62cd57997c38d7fc395498664addc7fc",
+      "finishedAt": "2026-09-16T04:06:25.271Z",
+      "gitSha": "d22c86976b57444787ecb40927774713d86da7f7",
       "reason": null
     }
   ]
