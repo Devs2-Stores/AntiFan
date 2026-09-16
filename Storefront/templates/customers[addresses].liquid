@@ -1,0 +1,292 @@
+<div id="account-page">
+	<div class="container">
+		<div class="account-page-wrap">
+			<div class="account-page-sidebar">
+				{%- include 'account-sidebar' -%}
+			</div>
+			<div class="account-page-content">
+				<h1>
+					<span>Danh sách địa chỉ</span>
+				</h1>
+				<div class="account-page-detail account-page-addresses">
+					<div class="row">
+						<div class="col-md-7 col-12">
+							<div class="address-tables">
+								<h2>
+									Địa chỉ mặc định
+								</h2>
+								{%- for address in customer.addresses -%}
+								{%- if address == customer.default_address -%}
+								<div class="address-item">
+									<div id="view_address_{{address.id}}" class="view-address">
+										<div class="row">
+											<div class="col-9">
+												<div class="address-name">{{address.last_name }} {{ address.first_name }}</div>
+											</div>
+											<div class="col-3 text-right">
+												{{ '<i class="las la-user-edit"></i>' | edit_customer_address_link: address.id }}
+											</div>
+										</div>
+										<div class="row">
+											<div class="col-4">
+												Địa chỉ:
+											</div>
+											<div class="col-8">
+												{%- if address.address1 -%}
+												{{ address.address1 }} 
+												{%- endif -%}
+												{%- if address.address2%}
+												,	{{ address.address2 }} 
+												{%endif%}
+												{%- if address.ward -%}
+												, {{ address.ward}} 
+												{%- endif -%}
+												{%- if address.district -%}
+												, {{ address.district}} 
+												{%- endif -%}
+												{%- if address.province -%}
+												, {{ address.province}}
+												{%- endif -%}
+												{%- if address.country -%}
+												, {{ address.country}}
+												{%- endif -%}
+											</div>
+										</div>
+										<div class="row">
+											<div class="col-4">
+												Điện thoại:
+											</div>
+											<div class="col-8">
+												{{ address.phone }}
+											</div>
+										</div>
+										<div class="row">
+											<div class="col-4">
+												Công ty:
+											</div>
+											<div class="col-8">
+												{{ address.company }}
+											</div>
+										</div>
+									</div>    
+									<div id="edit_address_{{address.id}}" class="edit-address" style="display:none;">
+										{%- form 'customer_address', address -%}
+										<div class="form-group">
+											<label for="address_last_name_{{form.id}}">Họ của bạn</label>
+											<input class="form-control" type="text" id="address_last_name_{{form.id}}" name="address[last_name]" value="{{form.last_name}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_first_name_{{form.id}}">Tên của bạn</label>
+											<input class="form-control" type="text" id="address_first_name_{{form.id}}" name="address[first_name]" value="{{form.first_name}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_company_{{form.id}}">Công ty</label>
+											<input class="form-control" type="text" id="address_company_{{form.id}}" name="address[company]" value="{{form.company}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_phone_{{form.id}}">Số điện thoại</label>
+											<input class="form-control" type="text" id="address_phone_{{form.id}}" name="address[phone]" value="{{form.phone}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_address1_{{form.id}}">Địa chỉ 1</label>
+											<input class="form-control" type="text" id="address_address1_{{form.id}}" name="address[address1]" value="{{form.address1}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_address2_{{form.id}}">Địa chỉ 2</label>
+											<input class="form-control" type="text" id="address_address2_{{form.id}}" name="address[address2]" value="{{form.address2}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_country_{{form.id}}">Quốc gia</label>
+											<select class="form-control" id="address_country_{{form.id}}" name="address[country]" data-default="{{form.country}}">{{ country_option_tags }}</select>
+										</div>
+										<div class="form-group" id="address_province_container_{{address.id}}" style="display:none">
+											<label for="address_province_{{form.id}}">Tỉnh thành</label>
+											<select class="form-control" id="address_province_{{form.id}}" name="address[province]" data-default="{{form.province}}"></select>
+										</div>
+										<div class="form-group">
+											{{ form.set_as_default_checkbox }}
+											<label for="address_default_address_{{form.id}}">Đặt làm địa chỉ mặc định</label>
+										</div>
+										<div class="form-group">
+											<button type="submit" class="btn btn-primary">
+												Cập nhật
+											</button>
+											<span class="">hoặc <a href="/" onclick="Haravan.CustomerAddress.toggleForm({{form.id}}); return false;">Hủy</a></span>
+										</div>       
+										{%- endform -%}
+									</div>
+								</div>
+								{%- endif -%}
+								{%- endfor -%}
+								<h2>
+									Địa chỉ khác
+								</h2>
+								{%- for address in customer.addresses -%}
+								{%- unless address == customer.default_address -%}
+								<div class="address-item">
+									<div id="view_address_{{address.id}}" class="view-address">
+										<div class="row">
+											<div class="col-9">
+												<div class="address-name">{{address.last_name }} {{ address.first_name }}</div>
+											</div>
+											<div class="col-3 text-right">
+												{{ '<i class="las la-user-edit"></i>' | edit_customer_address_link: address.id }}
+												{{ '<i class="las la-trash-alt"></i>' | delete_customer_address_link: address.id }}
+											</div>
+										</div>
+										<div class="row">
+											<div class="col-4">
+												Địa chỉ:
+											</div>
+											<div class="col-8">
+												{%- if address.address1 -%}
+												{{ address.address1 }} 
+												{%- endif%}
+												{%- if address.address2 -%}
+												,	{{ address.address2 }} 
+												{%- endif%}
+												{%- if address.ward -%}
+												, {{ address.ward}} 
+												{%- endif -%}
+												{%- if address.district -%}
+												, {{ address.district}} 
+												{%- endif -%}
+												{%if address.province -%}
+												, {{ address.province}}
+												{%- endif -%}
+												{%- if address.country -%}
+												, {{ address.country}}
+												{%- endif -%}
+											</div>
+										</div>
+										<div class="row">
+											<div class="col-4">
+												Điện thoại:
+											</div>
+											<div class="col-8">
+												{{ address.phone }}
+											</div>
+										</div>
+										<div class="row">
+											<div class="col-4">
+												Công ty:
+											</div>
+											<div class="col-8">
+												{{ address.company }}
+											</div>
+										</div>
+									</div>    
+									<div id="edit_address_{{address.id}}" class="edit-address" style="display:none;">
+										{%- form 'customer_address', address -%}
+										<div class="form-group">
+											<label for="address_last_name_{{form.id}}">Họ của bạn</label>
+											<input class="form-control" type="text" id="address_last_name_{{form.id}}" name="address[last_name]" value="{{form.last_name}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_first_name_{{form.id}}">Tên của bạn</label>
+											<input class="form-control" type="text" id="address_first_name_{{form.id}}" name="address[first_name]" value="{{form.first_name}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_company_{{form.id}}">Công ty</label>
+											<input class="form-control" type="text" id="address_company_{{form.id}}" name="address[company]" value="{{form.company}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_phone_{{form.id}}">Số điện thoại</label>
+											<input class="form-control" type="text" id="address_phone_{{form.id}}" name="address[phone]" value="{{form.phone}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_address1_{{form.id}}">Địa chỉ 1</label>
+											<input class="form-control" type="text" id="address_address1_{{form.id}}" name="address[address1]" value="{{form.address1}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_address2_{{form.id}}">Địa chỉ 2</label>
+											<input class="form-control" type="text" id="address_address2_{{form.id}}" name="address[address2]" value="{{form.address2}}"/>
+										</div>
+										<div class="form-group">
+											<label for="address_country_{{form.id}}">Quốc gia</label>
+											<select class="form-control" id="address_country_{{form.id}}" name="address[country]" data-default="{{form.country}}">{{ country_option_tags }}</select>
+										</div>
+										<div class="form-group" id="address_province_container_{{address.id}}" style="display:none">
+											<label for="address_province_{{form.id}}">Tỉnh thành</label>
+											<select class="form-control" id="address_province_{{form.id}}" name="address[province]" data-default="{{form.province}}"></select>
+										</div>
+										<div class="form-group">
+											{{ form.set_as_default_checkbox }}
+											<label for="address_default_address_{{form.id}}">Đặt làm địa chỉ mặc định</label>
+										</div>
+										<div class="form-group">
+											<button type="submit" class="btn btn-primary">
+												Cập nhật
+											</button>
+											<span class="">hoặc <a href="/" onclick="Haravan.CustomerAddress.toggleForm({{form.id}}); return false;">Hủy</a></span>
+										</div>
+										{%- endform -%}
+									</div>
+								</div>
+								{%- endunless -%}
+								{%- endfor -%}
+							</div>
+						</div>
+
+						<div class="col-md-5 col-12">
+								<div class="new-address-btn">
+									<a href="#" onclick="Haravan.CustomerAddress.toggleNewForm(); return false;">Nhập địa chỉ mới</a>
+								</div>
+								<div id="add_address" class="new-address" style="display:none;">
+									{%- form 'customer_address', customer.new_address -%}
+									<div class="form-group">
+										<label for="address_last_name_new">Họ của bạn</label>
+										<input class="form-control" type="text" id="address_last_name_new" name="address[last_name]" value="{{form.last_name}}"/>
+									</div>
+									<div class="form-group">
+										<label for="address_first_name_new">Tên của bạn</label>
+										<input class="form-control" type="text" id="address_first_name_new" name="address[first_name]" value="{{form.first_name}}"/>
+									</div>
+									<div class="form-group">
+										<label for="address_company_new">Công ty</label>
+										<input class="form-control" type="text" id="address_company_new" name="address[company]" value="{{form.company}}"/>
+									</div>
+									<div class="form-group">
+										<label for="address_phone_new">Số điện thoại</label>
+										<input class="form-control" type="text" id="address_phone_new" name="address[phone]" value="{{form.phone}}"/>
+									</div>
+									<div class="form-group">
+										<label for="address_address1_new">Địa chỉ 1</label>
+										<input class="form-control" type="text" id="address_address1_new" name="address[address1]" value="{{form.address1}}"/>
+									</div>
+									<div class="form-group">
+										<label for="address_address2_new">Địa chỉ 2</label>
+										<input class="form-control" type="text" id="address_address2_new" name="address[address2]" value="{{form.address2}}"/>
+									</div>
+									<div class="form-group">
+										<label for="address_country_new">Quốc gia</label>
+										<select class="form-control" id="address_country_new" name="address[country]" data-default="{{form.country}}">{{ country_option_tags }}</select>
+									</div>
+									<div class="form-group" id="address_province_container_new" style="display:none">
+										<label for="address_province_new">Tỉnh thành</label>
+										<select class="form-control" id="address_province_new" name="address[province]" data-default="{{form.province}}"></select>
+									</div>
+									<div class="form-group">
+										{{ form.set_as_default_checkbox }}
+										<label for="address_default_address_new">Đặt làm địa chỉ mặc định</label>
+									</div>
+									<div class="form-group">
+										<button type="submit" class="btn btn-primary">
+											Thêm mới
+										</button>
+										<span class="">hoặc <a href="#" onclick="Haravan.CustomerAddress.toggleNewForm(); return false;">Hủy</a></span>
+									</div>     
+									{%- endform -%}
+								</div>
+							</div> 
+					</div>
+				</div>
+			</div>
+		</div>
+</div>
+<script type="text/javascript" charset="utf-8">
+	new Haravan.CountryProvinceSelector('address_country_new', 'address_province_new', {hideElement: 'address_province_container_new'});  
+	{% for address in customer.addresses %}
+	new Haravan.CountryProvinceSelector('address_country_{{address.id}}', 'address_province_{{address.id}}', {hideElement: 'address_province_container_{{address.id}}'});
+	{% endfor %}
+</script>

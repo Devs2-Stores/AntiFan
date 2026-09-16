@@ -1,0 +1,6 @@
+{%- layout none -%}
+<div class="superContent-collection">
+	{%- for product in collection.products limit: 10 -%}
+	{%- include 'product-item' -%}  
+	{%- endfor -%}
+</div>

@@ -1,0 +1,46 @@
+<ul class="shop-social"> 
+	{%- if settings.linkFbsocial != '' and settings.linkFbsocial != _blank -%}
+	<li>
+		<a href="{{ settings.linkFbsocial }}" target="_blank" aria-label="{{ shop.name }} - Facebook" title="{{ shop.name }} - Facebook">
+			<img width="30" height="30" loading="lazy" title="{{ shop.name }} - Facebook"
+					 src="https://file.hstatic.net/200000588277/file/facebook__6__53aaa8d352524d3eb025af5203eaa437_icon.png" alt="{{ shop.name }} - Facebook">
+		</a>
+	</li>
+	{%- endif -%}
+
+	{%- if settings.linkYtsocial != '' and settings.linkYtsocial != _blank -%}
+	<li>
+		<a href="{{ settings.linkYtsocial }}" target="_blank" aria-label="{{ shop.name }} - Youtube" title="{{ shop.name }} - Youtube">
+			<img width="30" height="30" loading="lazy" title="{{ shop.name }} - Youtube"
+					 src="https://file.hstatic.net/200000588277/file/youtube__5__4f04522e10494557a651f53a33ad4d76_icon.png" alt="{{ shop.name }} - Youtube">
+		</a>
+	</li>
+	{%- endif -%}
+
+	{%- if settings.linkPisocial != '' and settings.linkPisocial != _blank -%}
+	<li>
+		<a href="{{ settings.linkPisocial }}" target="_blank" aria-label="{{ shop.name }} - Pinterest" title="{{ shop.name }} - Pinterest">
+			<img width="30" height="30" loading="lazy" title="{{ shop.name }} - Pinterest"
+					 src="https://file.hstatic.net/200000588277/file/pinterest_a1a15995132a4275845412deba5f1193_icon.png" alt="{{ shop.name }} - Youtube">
+		</a>
+	</li>
+	{%- endif -%}
+
+	{%- if settings.linkTwsocial != '' and settings.linkTwsocial != _blank -%}
+	<li>
+		<a href="{{ settings.linkTwsocial }}" target="_blank" aria-label="{{ shop.name }} - TikTok" title="{{ shop.name }} - TikTok">
+			<img width="30" height="30" loading="lazy" title="{{ shop.name }} - TikTok"
+					 src="https://file.hstatic.net/200000588277/file/tik-tok_d85bb4e7468c43ac9ed5437649b7405c_icon.png" alt="{{ shop.name }} - TikTok">
+		</a>
+	</li>
+	{%- endif -%}
+
+	{%- if settings.linkInsocial != '' and settings.linkInsocial != _blank -%}
+	<li>
+		<a href="{{ settings.linkInsocial }}" target="_blank" aria-label="{{ shop.name }} - Instagram" title="{{ shop.name }} - Instagram">
+			<img width="30" height="30" loading="lazy" title="{{ shop.name }} - Instagram"
+					 src="https://file.hstatic.net/200000588277/file/instagram__3__7de3ebbce1f24003b516ca6c1d7c24d5_icon.png" alt="{{ shop.name }} - Instagram">
+		</a>
+	</li>
+	{%- endif -%}
+</ul>

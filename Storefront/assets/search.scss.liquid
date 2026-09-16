@@ -1,0 +1,202 @@
+@mixin m1200($string: max) {
+	@if $string == min{
+		@media(min-width: 1200px){ @content; }
+	}@else {
+		@media(max-width: 1200px){ @content; }
+	}
+}
+@mixin m1024($string: max) {
+	@if $string == min{
+		@media(min-width: 1024px){ @content; }
+	}@else {
+		@media(max-width: 1024px){ @content; }
+	}
+}
+@mixin m0991($string: max) {
+	@if $string == min{
+		@media(min-width: 991px){ @content; }
+	}@else {
+		@media(max-width: 991px){ @content; }
+	}
+}
+@mixin m0767($string: max) {
+	@if $string == min{
+		@media(min-width: 767px){ @content; }
+	}@else {
+		@media(max-width: 767px){ @content; }
+	}
+}
+@mixin m0480($string: max) {
+	@if $string == min{
+		@media(min-width: 480px){ @content; }
+	}@else {
+		@media(max-width: 480px){ @content; }
+	}
+}
+@mixin m0360($string: max) {
+	@if $string == min{
+		@media(min-width: 360px){ @content; }
+	}@else {
+		@media(max-width: 360px){ @content; }
+	}
+}
+@mixin sectionPadding {
+	padding: 30px 0;
+	@include m0767{ padding: 15px 0; }
+}
+@mixin dFlex($flex: flex, $wrap: wrap, $justify: center, $align: center){
+	display: $flex;
+	flex-wrap: $wrap;
+	justify-content: $justify;
+	align-items: $align;
+}
+@mixin wrapText($numberLine){
+	overflow: hidden;
+	-webkit-line-clamp: $numberLine;
+	-webkit-box-orient: vertical;
+	display: -webkit-box;
+}
+@mixin fixMargin {
+	@include m0767 { margin-left: -5px; margin-right: -5px; }
+	@include m0767(min) { margin-left: -10px; margin-right: -10px; }
+}
+@mixin fixPadding {
+	@include m0767{ padding-left: 5px; padding-right: 5px; }
+	@include m0767(min) { padding-left: 10px; padding-right: 10px; }
+}
+@mixin resetButton{
+	background: transparent;
+	border: none;
+	outline: none;
+	padding: 0;
+	box-shadow: none; 
+}
+@mixin buttonStyle1{
+	display: inline-block;
+	width: 300px;
+	margin: 0 auto;
+	text-align: center;
+	border: 1px solid #CCC;
+	padding: 5px 10px;
+	text-transform: uppercase;
+	font-size: 1.1rem;
+	font-weight: bold;
+	position: relative; 
+	transition: color .4s .4s ease-in, border .4s .4s ease-in;
+	overflow: hidden;
+	@include m0360{ width: 280px; }  
+	&:hover {
+		color: var(--color_main);
+		border-color: var(--color_main);
+		&:after {
+			transform: scale(1);
+		}
+	}
+	&:after {
+		content: '';
+		position: absolute;
+		height: 3px;
+		width: 100%;
+		background: var(--color_main);
+		left: 0;
+		bottom: 0;
+		transition: all 0.4s ease-in;
+		transform: scale(0);
+		border-radius: var(--border_radius);
+	}
+}
+.main-search{
+	@include sectionPadding;
+	padding-top: 0 !important;
+	.main-search-breadcrumb{
+		padding: 10px 0;
+		margin-bottom: 15px;
+		background: #F9F9F9;
+		/* background-size: cover;
+		background-repeat: no-repeat;
+		background-position: center center;
+		text-align: left;
+		@include m1200{ padding: 90px 0; margin-bottom: 28px; }
+		@include m1024{ padding: 80px 0; margin-bottom: 26px; }
+		@include m0991{ padding: 70px 0; margin-bottom: 24px; }
+		@include m0767{ padding: 60px 0; margin-bottom: 22px; }
+		@include m0480{ padding: 50px 0; margin-bottom: 20px; }
+		@include m0360{ padding: 40px 0; margin-bottom: 15px; }
+		h1{ 
+			max-width: 50%; 
+			line-height: 1.5;
+			@include m0991{ max-width: 100%; }
+		}
+		ol{ justify-content: flex-start; } */
+	}
+	.main-search-wrap{
+		.main-search-data{
+			.section-title-all{
+				margin-bottom: 20px;
+				@include m0991{ margin-bottom: 10px; }
+			}
+			.main-search-data-none{
+				@include dFlex(flex, wrap, flex-start, center);
+				@include fixMargin;
+				.section-title-all{
+					width: 50%;
+					@include dFlex(flex, wrap, center, center);
+					flex-direction: column;
+					@include m0991{ width: 100%; }
+					p{ text-align: center; margin-top: 10px; }
+				}
+				> span{
+					width: 50%;
+					display: block;
+					@include fixPadding;
+					img{ padding: 10%; }
+					@include m0991{ width: 100%; margin-top: 15px; }
+				}
+				form{
+					position: relative;
+					width: 50%;
+					margin-top: 15px;
+					@include m0991{ width: 100%;  }
+					input{
+						@include resetButton;
+						border-bottom: 1px solid #DbDbDb;
+						padding: 5px 25px 5px 5px;
+						width: 100%;
+						color: var(--color);
+						&::placeholder{
+							color: var(--color);
+						}
+						@include m1024{ padding: 5px 25px 5px 15px; }
+					}
+					button{
+						@include resetButton;
+						position: absolute;
+						top: 0;
+						right: 0;
+						bottom: 0;
+						svg { 
+							width: 15px;
+							height: 15px;
+							*{
+								fill: var(--color1);
+							}
+						}
+					}
+				}
+			}
+			.main-search-data-full{
+				@include dFlex(flex, wrap, flex-start, flex-start);
+				@include fixMargin;
+				.product-item{
+					width: calc(100%/4);
+					@include m0767{ width: calc(100%/2); }
+				}
+				.shop-pagination{
+					width: 100%;
+					text-align: center;
+					margin: 0 auto;
+				}
+			}
+		}
+	}
+}

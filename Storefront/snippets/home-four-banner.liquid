@@ -1,0 +1,27 @@
+{%- if settings.index_four_banner_check -%}
+<div class="index_four_banner section-distance">
+  <div class="index_four_banner-items">
+    {%- for i in (1..4) -%}
+    {%- capture check -%}index_four_banner_item_check_{{ i }}{%- endcapture -%}
+    {%- capture image -%}index_four_banner_item_image_{{ i }}.png{%- endcapture -%}
+    {%- capture title -%}index_four_banner_item_title_{{ i }}{%- endcapture -%}
+    {%- capture description -%}index_four_banner_item_description_{{ i }}{%- endcapture -%}
+    {%- capture cta -%}index_four_banner_item_cta_{{ i }}{%- endcapture -%}
+    {%- capture link -%}index_four_banner_item_link_{{ i }}{%- endcapture -%}
+	{%- assign d_width = 600 -%}{%- assign d_height = 400 -%}
+	{%- if i == 1 -%}{%- assign d_width = 1200 -%}{%- assign d_height = 800 -%}{%- endif -%}
+	{%- if i == 4 -%}{%- assign d_width = 12000 -%}{%- assign d_height = 400 -%}{%- endif -%}
+    <div class="index_four_banner-item" title="{{ settings[title] }}">
+      <div class="index_four_banner-item-image">
+        {%- include 'image-clone' with image, d_width, d_height -%}
+      </div>
+      <div class="index_four_banner-item-content">
+        <h2 class="font-special letter-spacing-medium">{{ settings[title] }}</h2>
+        <p>{{ settings[description] }}</p>
+        <a class="reset-button buttonStyle1" href="{{ settings[link] }}" title="{{ settings[cta] | escape }}">{{ settings[cta] }}</a>
+      </div>
+    </div>
+    {%- endfor -%}
+  </div>
+</div>
+{%- endif -%}

@@ -1,0 +1,159 @@
+{%- capture check -%}{{ key_module }}_background{%- endcapture -%}
+{%- if settings[check] -%}
+{%- capture bg -%}{{ key_module }}_background{%- endcapture -%}
+{%- capture color -%}{{ key_module }}_color{%- endcapture -%}
+{%- capture box_check -%}{{ key_module }}_box_check{%- endcapture -%}
+{%- capture shadow_check -%}{{ key_module }}_shadow_check{%- endcapture -%}
+
+{%- if settings[shadow_check] -%} 
+<style>
+	/* Shadown */
+	#{{ key_module }}-section{
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5), 0 6px 20px rgba(0, 0, 0, 0.5);
+	}
+</style>
+{%- endif -%}
+{%- if settings[box_check] -%}
+<style>
+	/* Padding */
+	#{{ key_module }}-section{ padding: 2rem; border: 1px solid {{ settings[bg] }}; }
+	#{{ key_module }}-section .isc-head .isc-head-tabs li a{ box-shadow: inset 1px 1px 1px 1px rgba(0, 0, 0, .35); }
+	#{{ key_module }}-section .isc-body .isc-body-cols p.fill-color{ padding: 1rem; }
+	@media(max-width: 991px){
+		#{{ key_module }}-section{ padding: 1rem; }
+		#{{ key_module }}-section .isc-body .isc-body-cols p.fill-color{ padding: 1rem; }
+	}
+</style>
+{%- endif -%}
+
+<div class="index_special_collection-container {% unless settings.isc_fullwidth %} container{% endunless %}">
+	<div style="position:relative; z-index: 1; background: linear-gradient(360deg, {{ settings[bg] }} 50%, transparent 30%, transparent 30%);">
+		<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="123" viewBox="0 0 1440 123" style="width: 100%; height: auto; overflow: visible;">
+			<path id="wavepath" fill="transparent" stroke="#ede939" stroke-width="64px" d="M0 33V33C24.7671 33 49.3015 37.7803 72.2569 47.0787L117.088 65.2381C192.409 95.7478 276.921 94.1781 351.057 60.8926L360.843 56.4992C436.256 22.6403 522.889 24.4444 596.827 61.4134V61.4134C674.366 100.183 765.634 100.183 843.173 61.4134V61.4134C917.111 24.4444 1003.74 22.6403 1079.16 56.4992L1088.94 60.8926C1163.08 94.1781 1247.59 95.7478 1322.91 65.2381L1367.74 47.0787C1390.7 37.7803 1415.23 33 1440 33V33"></path>
+			<text text-anchor="middle" style="fill: #0c2340;">
+				<textPath href="#wavepath" startOffset="50%"><tspan alignment-baseline="central">{%- for i in (1..100) %} OUR BEST SELLERS ● {% endfor -%}</tspan></textPath>
+			</text>
+		</svg>
+	</div>
+	<section class="index_special_collection" id="{{ key_module }}-section"
+			 style="--isc-background: {{ settings[bg] }}; --isc-color: {{ settings[color] }}">
+		<!-- Config for Banner -->
+		{%- capture layout -%}{{ key_module }}_banner_layout{%- endcapture -%}
+		<div class="isc-banners {{ settings[layout] }}" id="{{ key_module }}-banners">
+			{%- for i in (1..4) -%}
+			{%- capture check -%}{{ key_module }}_banner_check_{{ i }}{%- endcapture -%}
+			{%- capture media -%}{{ key_module }}_banner_media_{{ i }}{%- endcapture -%}
+			{%- capture alt -%}{{ key_module }}_banner_alt_{{ i }}{%- endcapture -%}
+			{%- capture link -%}{{ key_module }}_banner_link_{{ i }}{%- endcapture -%}
+			{%- if settings[check] -%}
+			<div class="isc-banner" id="{{ key_module }}-banner-{{ i }}">
+				<a href="{{ settings[link] }}" title="{{ settings[alt] | escape }}">
+					{%- if settings[media] contains 'mp4' or settings[media] contains 'mov' -%}
+					<video class="fill-video isc-banner-media" id="{{ key_module }}-banner-media-{{ i }}"
+						   autoplay muted loop playsinline>
+						<source src="{{ settings[media] }}" type="video/mp4">
+						<source src="{{ settings[media] }}" type="video/mov">
+					</video>
+					{%- else -%}
+					<img class="fill-image" loading="lazy" decoding="async" src="{{ settings[media] }}" alt="{{ settings[alt] | escape }}">
+					{%- endif -%}
+				</a>
+			</div>
+			{%- endif -%}
+			{%- endfor -%}
+		</div>
+		<!-- End Config for Banner -->
+
+
+		<!-- Config for Flashsale -->
+		{%- capture check_flashsale -%}{{ key_module }}_flashsale_check{%- endcapture -%}
+		{%- capture check_flashsale_reverse -%}{{ key_module }}_flashsale_reverse_check{%- endcapture -%}
+		{%- capture bg_flashsale -%}{{ key_module }}_flashsale_background{%- endcapture -%}
+		{%- capture color_flashsale -%}{{ key_module }}_flashsale_color{%- endcapture -%}
+		{%- capture countdown_flashsale -%}{{ key_module }}_flashsale_countdown{%- endcapture -%}
+		{%- capture banner_flashsale_check -%}{{ key_module }}_flashsale_banner_check{%- endcapture -%}
+		{%- capture banner_flashsale_image -%}{{ key_module }}_flashsale_banner_image{%- endcapture -%}
+		{%- if settings[check_flashsale] -%}
+		<div class="isc-flashsale {% if settings[banner_flashsale_check] %}hasBanner{% endif %} {% if settings[check_flashsale_reverse] %}hasRowReverse{% endif %}" id="{{ key_module }}-flashsale">
+			{%- if settings[banner_flashsale_check] -%}
+			<div class="isc-flashsale-image">
+				<img src="{{ settings[banner_flashsale_image] }}" alt="{{ shop.name }} - FSALE"/>
+			</div>
+			{%- endif -%}
+			<div class="isc-flashsale-countdown" id="{{ key_module }}-flashsale-countdown"
+				 data-time="{{ settings[countdown_flashsale] }}" 
+				 style="--isc-fs-background: {{ settings[bg_flashsale] }}; --isc-fs-color: {{ settings[color_flashsale] }}"></div>
+		</div>
+		{%- endif -%}
+		<!-- End Config for FlashSale -->
+
+
+		<!-- Config for Heading -->
+		<div class="isc-head">
+			{%- capture title -%}{{ key_module }}_head_title{%- endcapture -%}
+			{%- capture content -%}{{ key_module }}_head_content{%- endcapture -%}
+			<h2 class="heading-style1 isc-head-title fill-color">{{ settings[title] | newline_to_br }}</h2>
+			<ul class="isc-head-tabs">
+				{%- capture tab_check -%}{{ key_module }}_head_tabs_check{%- endcapture -%}
+				{%- capture tab_linklist -%}{{ key_module }}_head_tabs_tab_linklist{%- endcapture -%}
+				{%- capture tab_linklist_handle -%}{{ settings[tab_linklist] }}{%- endcapture -%}
+				{%- if settings[tab_check] -%}
+				{%- for link in linklists[tab_linklist_handle]links -%}
+				{%- if link.type == "collection_link" -%}
+				<li class="isc-head-tab">
+					<a href="{{ link.url }}" title="{{ link.title | escape }}" data-handle="{{ collections[link.object.handle.handle }}">{{ link.title }}</a>
+				</li>
+				{%- endif -%}
+				{%- endfor -%}
+				{%- endif -%}
+
+				{%- assign body_cols_handle = settings.isc_body_cols_handle -%}
+				{%- if collections[body_cols_handle].products_count > 0 -%}
+				<li class="isc-head-tab">
+					<a class="fill-color view-all" href="{{ collections[body_cols_handle]url }}">Xem tất cả</a>
+				</li>
+				{%- endif -%}
+			</ul>
+			<p class="fill-color">{{ settings[content] | newline_to_br }}</p>
+		</div>
+		<!-- End Config for Heading -->
+
+
+		<!-- Config for Body Collections -->
+		{%- capture layout -%}{{ key_module }}_body_layout{%- endcapture -%}
+		<div class="isc-body" id="{{ key_module }}-body">
+			<div class="isc-body-cols {{ settings[layout] }}">
+				{%- capture body_cols_flag_handle -%}{{ key_module }}_body_cols_handle{%- endcapture -%}
+				{%- capture body_cols_limit -%}{{ key_module }}_body_cols_limit{%- endcapture -%}
+				{%- capture body_cols_handle -%}{{ settings[body_cols_flag_handle] }}{%- endcapture -%}
+				{%- if collections[body_cols_handle] -%}
+				{%- if collections[body_cols_handle].products_count > 0 -%}
+				{%- for product in collections[body_cols_handle].products limit: settings[body_cols_limit] -%}
+				{%- include "product-item" -%}
+				{%- endfor -%}
+				{%- else -%}
+				<p class="w-100 m-0 text-start fill-color">Nội dung đang được cập nhật...</p>
+				{%- endif -%}
+				{%- else -%}
+				{%- if collections.all.products_count > 0 -%}
+				{%- for product in collections.all.products limit: settings[body_cols_limit] -%}
+				{%- include "product-item" -%}
+				{%- endfor -%}
+				{%- else -%}
+				<p class="w-100 m-0 text-start fill-color">Nội dung đang được cập nhật...</p>
+				{%- endif -%}
+				{%- endif -%}
+			</div>
+		</div>
+		<!-- End Config for Body Collections -->
+	</section>
+	<div class="index-special-collection-line-bottom" style="position:relative; z-index: 1; background: linear-gradient(360deg, transparent 50%, transparent 30%, {{ settings[bg] }} 30%);">
+		<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="123" viewBox="0 0 1440 123" style="width: 100%; height: auto; overflow: visible;">
+			<path id="wavepath" fill="transparent" stroke="#ede939" stroke-width="64px" d="M0 33V33C24.7671 33 49.3015 37.7803 72.2569 47.0787L117.088 65.2381C192.409 95.7478 276.921 94.1781 351.057 60.8926L360.843 56.4992C436.256 22.6403 522.889 24.4444 596.827 61.4134V61.4134C674.366 100.183 765.634 100.183 843.173 61.4134V61.4134C917.111 24.4444 1003.74 22.6403 1079.16 56.4992L1088.94 60.8926C1163.08 94.1781 1247.59 95.7478 1322.91 65.2381L1367.74 47.0787C1390.7 37.7803 1415.23 33 1440 33V33"></path>
+			<text text-anchor="middle" style="fill: #0c2340;">
+				<textPath href="#wavepath" startOffset="50%"><tspan alignment-baseline="central">{%- for i in (1..100) %} OUR BEST SELLERS ● {% endfor -%}</tspan></textPath>
+			</text>
+		</svg>
+	</div>
+</div>
+{% endif %}

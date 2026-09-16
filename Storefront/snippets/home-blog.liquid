@@ -1,0 +1,36 @@
+{%- if settings.home_blog_check -%}
+<section class="home-blog section-distance">
+	<div class="home-blog-wrap section-wrapper {% unless settings.home_blog_fullwidth %} container{% endunless %}">
+		<div class="home-blog-header home-header">
+			{%- capture link -%}home_blogs_header_link{%- endcapture -%}
+			{%- if settings.home_product_blogs_header != _blank && settings.home_product_blogs_header != "" -%}
+			<h2 class="home-blog-header-title home-header-title">
+				<a href="{{ settings[link] | escape }}" title="{{ settings.home_product_blogs_header | escape }}">
+					{{ settings.home_product_blogs_header | strip }}
+				</a>
+			</h2>
+			{%- endif -%}
+		</div>
+		<div class="home-blog-main">
+			<div class="home-blog-items">
+				{%- if blogs[settings.home_blog_handle] -%}
+				{%- if blogs[settings.home_blog_handle].articles.size > 0 -%}
+				{%- for article in blogs[settings.home_blog_handle].articles limit: settings.home_blog_limit -%}
+				<div class="home-blog-item">{%- include 'article-item' -%}</div>
+				{%- endfor -%}
+				{%- else -%}
+				<p class="w-100">Chưa có bài viết nào trong danh mục này</p>
+				{%- endif -%}
+				{%- else -%}
+				{%- if blogs.all.articles.size > 0 -%}
+				{%- for article in blogs.all.articles limit: settings.home_blog_limit -%}
+				<div class="home-blog-item">{%- include 'article-item' -%}</div>
+				{%- endfor -%}
+				{%- else -%}<p class="w-100">Chưa có bài viết nào trong danh mục này</p>
+				{%- endif -%}
+				{%- endif -%}
+			</div>
+		</div>
+	</div>
+</section>
+{%- endif -%}

@@ -1,0 +1,28 @@
+{%- if settings.shop_coupon_check -%}
+<div class="shop-coupon-popup" id="shop-coupon-popup">
+	<label class="coupon-head">Voucher ưu đãi</label>
+	{%- for i in (1..3) -%}
+	{%- capture check -%}shop_coupon_item_check_{{ i }}{%- endcapture -%}
+	{%- capture image -%}shop_coupon_item_image_{{ i }}.png{%- endcapture -%}
+	{%- capture title -%}shop_coupon_item_title_{{ i }}{%- endcapture -%}
+	{%- capture content -%}shop_coupon_item_content_{{ i }}{%- endcapture -%}
+	{%- capture deadline -%}shop_coupon_item_deadline_{{ i }}{%- endcapture -%}
+	{%- capture id -%}shop_coupon_item_id_{{ i }}{%- endcapture -%}
+	{%- if settings[check] -%}
+	<div class="coupon-body">
+		<div class="coupon-body-wrap">
+			<div class="coupon-body-left">
+				<span><img src="{{ image | asset_url  }}" alt="{{ settings[title] }}"></span>
+			</div>
+			<div class="coupon-body-right">
+				<strong>{{ settings[title] }}</strong>
+				<p>{{ settings[content] }}</p>
+				<span>{{ settings[deadline] }}</span>
+				<button type="button" data-coupon="{{ settings[id] }}" data-type="shop-coupon-confirm">Sao chép</button>
+			</div>
+		</div>
+	</div>
+	{%- endif -%}
+	{%- endfor -%}
+</div>
+{%- endif -%}

@@ -1,0 +1,22 @@
+{%- if settings.shop_modal_phone_check -%}
+{%- unless template contains 'product' or template contains 'page.contact' -%}
+<div class="modal-phone" id="shop-modal-phone">
+	<div class="modal-phone-wrap">
+		<div class="section-title-all">
+			<span>{{ settings.shop_modal_phone_title }}</span>
+			<p>{{ settings.shop_modal_phone_description }}</p>
+		</div>
+		{%- capture formContact -%} 
+		{%- form 'contact' -%}  
+		<input type="hidden" name="contact[name]" id="shop-modal-phone-name" value="{% if form.name %}{{ form.name }}{% elsif customer %}{{ customer.name }}{% endif %}">
+		<input type="hidden" name="contact[email]" id="shop-modal-phone-email" value="{% if form.email %}{{ form.email }}{% elsif customer %}{{ customer.email }}{% endif %}">
+		<input type="number" placeholder="Nhập số điện thoại của bạn..." name="contact[phone]" id="shop-modal-phone-number" value="{% if form.phone %}{{ form.phone }}{% elsif customer %}{{ customer.phone }}{% endif %}">
+		<input type="hidden" name="contact[body]" id="shop-modal-phone-body" value="{{ settings.shop_modal_phone_description | strip_html }}">
+		<button type="submit" title="Đăng ký"><span>Đăng ký</span></button>
+		{%- endform -%}
+		{%- endcapture -%}
+		{{ formContact | replace: 'script', 'noscript' | replace:'noscript src=', 'noscript data-src='}}
+	</div>
+</div>
+{%- endunless -%}
+{%- endif -%}

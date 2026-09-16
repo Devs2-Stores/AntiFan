@@ -1,0 +1,38 @@
+F1GENZ.Customer = {
+  init: function () {
+    this.loginTabs();
+    this.sidebar();
+  },
+  loginTabs: function () {
+    switch (window.location.hash) {
+      case "#recover":
+        $("#auth-form")
+          .removeClass("login-layout recover-layout")
+          .addClass("recover-layout");
+        break;
+      case "#login":
+        $("#auth-form")
+          .removeClass("login-layout recover-layout")
+          .addClass("login-layout");
+        break;
+    }
+    $("body").on("click", ".auth-layout-trigger", function (e) {
+      e.preventDefault();
+      var layout = $(this).attr("data-layout");
+      $("#auth-form")
+        .removeClass("login-layout recover-layout")
+        .addClass(layout);
+    });
+  },
+  sidebar: function () {
+    var path = window.location.pathname;
+    var s = window.location.search;
+    $('.account-sidebar-menu a[href="' + path + s + '"]').addClass("active");
+    if (path.indexOf("/account/orders/") !== -1) {
+      $('.account-sidebar-menu a[href="/account?view=orders"]').addClass(
+        "active"
+      );
+    }
+  },
+};
+F1GENZ.Customer.init();

@@ -1,0 +1,33 @@
+<div class="pgallery">
+	<div class="container">
+		<h1 class="pgallery-heading">{{ page.title }}</h1>
+	</div>
+	<div class="pgallery-body">
+		<div id="data-container"></div>
+		<div class="container">
+			<div id="pagination-container"></div>
+		</div>
+	</div>
+</div>
+<script src="https://pagination.js.org/dist/2.6.0/pagination.min.js"></script>
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/paginationjs/2.0.8/pagination.css">
+<script>
+	window.addEventListener("load", function(){
+		function simpleTemplating(data) {
+			var html = '<ul>';
+			$.each(data, function(index, item){
+				html += '<li><a class="fancybox" data-fancybox="gallery" href="' + item + '"><img src="' + item + '" alt="{{ shop.name | escape }}"/></a></li>';
+			});
+			html += '</ul>';
+			return html;
+		}
+		$('#pagination-container').pagination({ 
+			dataSource: [{%- if page.content contains "img" -%}{%- assign img_src = page.content | split: ' src="' -%}{%- assign img_size = img_src.size | minus: 1 -%}{%- for i in (1..img_size) -%}"{{ img_src[i] | split: '"' | first }}"{%- unless forloop.last -%} ,{%- endunless -%}{%- endfor -%}{%- endif -%}],
+						 pageSize: 9,
+						 callback: function(data, pagination) {
+						 var html = simpleTemplating(data);
+						 $('#data-container').html(html);
+						 }
+						 })
+						 })
+</script>

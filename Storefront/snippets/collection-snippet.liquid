@@ -1,0 +1,54 @@
+<div class="main-collection" data-id="{{ collection.id }}">
+	<div title="{%- if collection.handle == 'all' -%}Tất cả sản phẩm{%- else -%}{{ collection.title }}{%- endif -%}" class="main-collection-breadcrumb">
+		<div class="container">
+			<div class="section-title-all" hidden>
+				<!--<h1>{%- if collection.handle == 'all' -%}Tất cả sản phẩm{%- else -%}{{ collection.title }}{%- endif -%}</h1>-->
+			</div>
+			{%- include 'shop-breadcrumb' -%}
+		</div>
+	</div>
+	<div class="container">
+		{%- if settings.main_collection_banner_check -%}
+		{%- assign colImage = 'main_collection_banner.jpg' | asset_url | img_url: '2048x2048' -%}
+		{%- if collection.image.src != blank -%}{%- assign colImage = collection.image.src | img_url: '2048x2048' -%}{%- endif -%}
+		<div class="main-collection-banner">
+			<img loading="eager" decoding="sync" fetchpriority="high" width="1920" height="640"
+				 src="{{ colImage }}" alt="{%- if collection.handle == 'all' -%}Tất cả sản phẩm{%- else -%}{{ collection.title }}{%- endif -%}"/>
+		</div>
+		{%- endif -%}
+		<div class="main-collection-wrap {{ styleCol }}">
+			{%- unless styleCol == "nofilter" -%}
+			<div class="main-collection-left">
+				{%- include 'shop-filter' -%}
+			</div>
+			{%- endunless -%}
+			<div class="main-collection-right {% if styleCol == 'vertical' and settings.shop_filter_check_2 != true and settings.shop_filter_check_3 != true and settings.shop_filter_check_4 != true and settings.shop_filter_check_5 != true and settings.shop_filter_check_6 != true and settings.shop_filter_check_7 != true %} full-width {% endif %}">
+				{%- unless styleCol == "nofilter" -%}
+				<div class="main-collection-head">
+					{%- include 'shop-sort' -%}
+				</div>
+				{%- endunless -%}
+				<div class="main-collection-info">
+					<h1 class="titleStyle1">{%- if collection.handle == 'all' -%}Tất cả sản phẩm{%- else -%}{{ collection.title }}{%- endif -%}</h1>
+					{%- if collection.description and collection.description != "" -%}
+					<div class="main-collection-info-description">
+						{{ collection.description }}	
+					</div>
+					{%- endif -%}
+				</div>
+				<div class="main-collection-data four">
+					{%- paginate collection.products by settings.main_collection_limit -%}
+					{%- if collection.products_count > 0 -%}
+					{%- for product in collection.products  -%}
+					{%- include 'product-item' -%}
+					{%- endfor -%}	
+					{%- else -%}
+					<p>Chưa có sản phẩm nào trong mục này</p>
+					{%- endif -%}
+					{%- include 'shop-pagination' -%}
+					{%- endpaginate -%}
+				</div>
+			</div>
+		</div>
+	</div>
+</div>

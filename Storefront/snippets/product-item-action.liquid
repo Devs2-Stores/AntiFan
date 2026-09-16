@@ -1,0 +1,74 @@
+{%- assign onSale = false -%}
+{%- assign price = product.variants.first.price -%}
+{%- assign compare = product.variants.first.compare_at_price -%}
+{%- assign discount = compare | minus: price | divided_by: compare | times : 100 | round: 0 -%}
+{%- assign percent = compare | minus: price | divided_by: compare | times : 100 -%}
+{%- if percent > 99 -%}{%- assign discount = 99 -%}{%- endif -%}
+{%- if percent < 1 -%}{%- assign discount = 1 -%}{%- endif -%}
+{%- if percent > 0 and percent < 100 -%}{%- assign onSale = true -%}{%- endif -%}
+<div class="product-item product-item-action" data-id="{{ product.first_available_variant.id }}" data-handle="{{ product.handle }}">
+	<div class="product-item-action-wrap">
+		<div class="product-item-action-top">
+			<div class="product-item-action-top-image">
+				<a href="{{ product.url }}" class="product-item-action-top-image-showcase {% if product.images.size > 1 %}product-image-switch{% endif %}">
+					<img src="{%- if product.images.size > 0 %}{{ product.featured_image.src | img_url: 'large' }}{%- else -%}https://bizweb.dktcdn.net/100/513/073/themes/945034/assets/product_demo_1.jpg?1711535923031{% endif %}" 
+						 alt='{%- if product.featured_image_alt.size > 0 %}{{ product.featured_image.alt | escape }}{%- else -%}{{ product.title | escape }}{%- endif -%}'
+						 title='{%- if product.featured_image_alt.size > 0 %}{{ product.featured_image.alt | escape }}{%- else -%}{{ product.title | escape }}{%- endif -%}' width="480" height="480" loading="lazy" decoding="async">
+					{%- if product.images.size > 1 -%}
+					<img src="{{ product.images[1].src | img_url: "large" }}"
+						 alt="{%- if product.images[1].alt.size > 0 %}{{ product.images[1].alt | escape }}{%- else -%}{{ product.title | escape }}{%- endif -%}"
+						 title="{%- if product.images[1].alt.size > 0 %}{{ product.images[1].alt | escape }}{%- else -%}{{ product.title | escape }}{%- endif -%}" width="480" height="480" loading="lazy" decoding="async">
+					{%- endif -%}
+				</a>
+			</div>
+			{%- if onSale -%}
+			<div class="product-item-action-label-sale"><span>-{{ discount }}%</span></div>
+			{%- endif -%}
+		</div>
+		<div class="product-item-action-detail">
+			<div class="product-item-action-detail-available">
+				{%- if product.available -%}
+				<div class="product-item-action-detail-available-ok">Còn hàng</div>
+				{%- else -%}
+				<div class="product-item-action-detail-available-no">Hết hàng</div>
+				{%- endif -%}
+			</div>
+			<h3 class="product-item-action-detail-title fontTitle">
+				<a href="{{ product.url }}" title="{{ product.title | escape }}" aria-label="{{ product.title | escape }}">{{ product.title }}</a>
+			</h3>
+			
+			<div class="product-item-action-detail-price">
+				{%- if price != 0 -%}
+				<strong>{{ price | money }}</strong>
+				{%- if onSale -%}<del>{{ compare | money }}</del>{%- endif -%}
+				{%- else -%}
+				<span style="margin: 0 !important; color: #F30;">Liên hệ</span>
+				{%- endif -%}
+			</div>
+			<div class="product-item-action-detail-info">
+				{%- if product.vendor != null and product.vendor !="" -%}<p class="product-item-action-detail-info-vendor"><strong>Thương hiệu:</strong> {{ product.vendor }}</p>{%- endif -%}
+				{%- if product.type != null and product.type !="" -%}<p class="product-item-action-detail-info-type"><strong>Loại sản phẩm:</strong> {{ product.type }}</p>{%- endif -%}
+				<div class="product-item-action-detail-info-quantity shop-quantity-wrap">
+					<div class="shop-quantity">
+						<button class="qtyBtn minusQuan" data-type="shop-quantity-minus" title="Giảm">-</button>
+						<input type="number" id="quantity{{ product.id}}-action" name="quantity{{ product.id}}-action" value="1" min="1" class="quantitySelector" title="Số lượng">
+						<button class="qtyBtn plusQuan" data-type="shop-quantity-plus" title="Tăng">+</button>
+					</div>
+					<select class="product-item-action-detail-info-variants {% if product.variants.first.title == "Default Title" %} hidden d-none{% endif %}" aria-label="Lựa chọn" {% if product.variants.first.title == "Default Title" %}hidden{% endif %}>
+						{%- for variant in product.variants -%}
+						<option value="{{ variant.id }}" data-price="{{ variant.price }}" data-compare-price="{{ variant.compare_at_price }}">{{ variant.title }}</option>
+						{%- endfor -%}
+					</select>
+				</div>
+				<div class="product-item-action-detail-info-buttons">
+					{%- if product.available -%}
+					{%- if product.variants.first.price != 0 -%}
+					<button type="button" title="Thêm vào giỏ" class="shop-addLoop-button" data-type="shop-addLoop-button-action">Thêm ngay</button>
+					{%- endif -%}
+					{%- endif -%}
+					<button type="button" title="Xem nhanh" class="shop-quickview-button" data-type="shop-quickview-button"><span>Xem nhanh</span><span><i class='bx bx-low-vision'></i></span></button>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>

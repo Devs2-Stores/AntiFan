@@ -1,0 +1,93 @@
+<div class="main-blog" data-blog-id="{{ blog.id }}">
+	<div class="main-blog-breadcrumb" title="{%- if blog.handle == 'all' -%}Tất cả bài viết{%- else -%}{{ blog.name }}{%- endif -%}">
+		<div class="container">
+			<div hidden class="section-title-all">
+				<h1>{%- if blog.handle == 'all' -%}Tất cả bài viết{%- else -%}{{ blog.name }}{%- endif -%}</h1>
+			</div>
+			{%- include 'shop-breadcrumb' -%}
+		</div>
+	</div>
+	<div class="container">
+		<div class="main-blog-wrap">
+			<div class="main-blog-left">
+				{%- paginate blog.articles by settings.main_blog_limit -%}
+				<div class="main-blog-left-data">
+					{%- if blog.articles.size > 0 -%}
+					{%- for article in blog.articles -%}
+					{%- include 'article-item' -%}
+					{%- endfor -%}
+					{%- else -%}
+					<p class="main-blog-left-data-empty w-100 text-center">Chưa có bài viết nào trong danh mục này</p>
+					{%- endif -%}
+				</div>
+				{%- include 'shop-pagination' -%}
+				{%- endpaginate -%}
+			</div>
+			<div class="main-blog-right">
+				{%- if settings.main_blog_newest_check -%}
+				<div class="main-blog-right-newest">
+					<div class="section-title-all">
+						<span>{{ settings.main_blog_newest_title }}</span>
+					</div>
+					{%- if settings.main_blog_newest_handle == blank -%}
+					<p class="w-100 m-0 text-center">Nội dung đang được cập nhật</p>
+					{%- else -%}
+					{%- if blogs[settings.main_blog_newest_handle] -%}
+					{%- if blogs[settings.main_blog_newest_handle].articles.size > 0 %}
+					{%- for article in blogs[settings.main_blog_newest_handle]articles limit: settings.main_blog_newest_limit -%}
+					{%- include 'article-item' with layout: 'layout-small', count: forloop.index -%}
+					{%- endfor -%}
+					{%- else %}
+					<p class="w-100 text-center">Chưa có bài viết nào trong danh mục này</p>
+					{%- endif -%}
+					{%- else -%}
+					{%- if blogs.all.articles.size > 0 -%}
+					{%- for article in blogs.all.articles limit: settings.main_blog_newest_limit -%}
+					{%- include 'article-item' with layout: 'layout-small', count: forloop.index -%}
+					{%- endfor -%}
+					{%- else -%}
+					<p class="w-100 m-0 text-center">Nội dung đang được cập nhật</p>
+					{%- endif -%}
+					{%- endif -%}
+					{%- endif -%}
+				</div>
+				{%- endif -%}
+				{%- if settings.main_blog_menu_check -%}
+				<div class="main-blog-right-menu">
+					<div class="section-title-all">
+						<span>{{ settings.main_blog_menu_title }}</span>
+					</div>
+					<ul class="main-blog-right-menu-data">
+						{%- if settings.main_blog_menu == blank -%}
+						<li style="padding: 5px 0;">Nội dung đang được cập nhật...</li>
+						{%- else -%}
+						{%- if linklists[settings.main_blog_menu]links == blank -%}
+						{%- include 'shop-menu-demo' -%}
+						{%- else -%}
+						{%- for link in linklists[settings.main_blog_menu]links -%}
+						{%- include 'shop-menu' -%}
+						{%- endfor -%}
+						{%- endif -%}
+						{%- endif -%}
+					</ul>
+				</div>
+				{%- endif -%}
+				{%- if settings.main_blog_banner_check -%}
+				<div class="main-blog-right-banner">
+					<a href="{{ settings.main_blog_banner_link | default: '/' }}" aria-label="{{ settings.main_blog_banner_title }}" title="{{ settings.main_blog_banner_title }}">
+						<div class="section-title-all">
+							<span>{{ settings.main_blog_banner_title }}</span>
+						</div>
+						<picture>
+							<source media="(max-width: 480px)" width="480" height="480" srcset="{{ 'main_blog_banner_image.jpg' |  img_url: 'large'   | asset_url  }}">
+							<source media="(min-width: 481px)" width="600" height="600" srcset="{{ 'main_blog_banner_image.jpg' |  img_url: 'grande'  | asset_url  }}">
+							<img width="600" height="600" loading="lazy" title="{{ settings.main_blog_banner_title | default: shop.name }}"
+								 src="{{ 'main_blog_banner_image.jpg' |   img_url: 'grande'  | asset_url  }}" alt="{{ shop.name }} - main_blog_banner_title">
+						</picture>
+					</a>
+				</div>
+				{%- endif -%}
+			</div>
+		</div>
+	</div>
+</div>

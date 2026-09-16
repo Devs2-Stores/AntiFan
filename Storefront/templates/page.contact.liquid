@@ -1,0 +1,48 @@
+<div class="page-about-new" data-page-id="{{ page.id }}">
+	<div class="container">
+		<div class="page-about-new-main">
+			{%- for i in (1..2) -%}
+			{%- capture check -%}page-about-new-check-{{i}}{%- endcapture -%}
+			{%- capture img -%}page-about-new-image-{{i}}.jpg{%- endcapture -%}
+			{%- capture title -%}page-about-new-title-{{i}}{%- endcapture -%}
+			{%- capture content -%}page-about-new-content-{{i}}{%- endcapture -%}
+			{%- if settings[check] -%}
+			<div class="page-about-new-main-item">
+				<div class="page-about-new-main-item-left">
+					<img {% if forloop.first %}loading="eager" decoding="sync" fetchpriotrity="high"{% else %}loading="lazy" decoding="async"{% endif %}
+						 title="{{ settings[title] }}" src="{{ img | asset_url  }}" alt="{{ settings[title] }}">
+				</div>
+				<div class="page-about-new-main-item-right">
+					<div class="section-title-all">
+						<span>{{ settings[title] }}</span>
+						<p>{{ settings[content] }}</p>
+					</div>
+				</div>
+			</div>
+			{%- endif -%}
+			{%- endfor -%}
+			<div class="page-about-new-contact">
+				{%- form 'contact' -%}
+				<div class="section-title-all">
+					<span>Kết nối ngay với chúng tôi</span>
+					<h1 hidden>{{ page.title }}</h1>
+				</div>
+				{%- if form.posted_successfully? -%}
+				<div class="alert alert-success">
+					Cám ơn bạn đã liên hệ! Chúng tôi sẽ trả lời ngay khi có thể
+				</div>
+				{%- endif -%}
+				<input required type="text" id="contactFormName" class="form-control input-lg" name="contact[name]" placeholder="Tên của bạn" autocapitalize="words" value="{% if form.name %}{{ form.name }}{% elsif customer %}{{ customer.name }}{% endif %}">
+				<input required type="number" id="contactFormPhone" class="form-control input-lg" name="contact[phone]" placeholder="Số điện thoại của bạn" autocapitalize="words" value="{% if form.phone %}{{ form.phone }}{% elsif customer %}{{ customer.phone }}{% endif %}">
+				<input required type="email" name="contact[email]" placeholder="Email của bạn" id="contactFormEmail" class="form-control input-lg" autocapitalize="off" value="{% if form.email %}{{ form.email }}{% elsif customer %}{{ customer.email }}{% endif %}">
+				<textarea required rows="6" name="contact[body]" class="form-control" placeholder="Viết bình luận" id="contactFormMessage">{% if form.body %}{{ form.body }}{% endif %}</textarea>
+				<button type="submit" class="btn btn-outline insButton" title="Gửi thông tin">Gửi thông tin</button>
+				{%- include 'shop-social' -%}
+				{%- endform -%}
+				<div class="page-about-new-contact-map">
+					{{ settings.google_maps_code }}
+				</div>
+			</div>
+		</div>
+	</div>
+</div>

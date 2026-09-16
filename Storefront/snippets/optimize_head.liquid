@@ -1,0 +1,39 @@
+<script>
+	const buildForScript = async (name) => {
+		let thisElement = document.getElementById(name);
+		if(!thisElement) return;
+		let src = thisElement.getAttribute("data-src");
+		thisElement.setAttribute("src", src);
+	}
+</script>
+<script>
+	if(f1genzPS){
+		
+		
+		var aweSome = document.createElement("link");
+		aweSome.type = "text/css";
+		aweSome.rel = "stylesheet";  
+		aweSome.href ="https://pro.fontawesome.com/releases/v5.12.1/css/all.css";
+		document.head.appendChild(aweSome);
+
+		var mainFont = document.createElement("link");
+		mainFont.type = "text/css";
+		mainFont.rel = "stylesheet";
+		mainFont.href ="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&family=Anton&display=swap";
+		document.head.appendChild(mainFont);
+	}
+</script>
+
+
+<style>
+	.home-slider .home-slider-items:not(.slick-initialized){ display: grid; grid-auto-flow: column; grid-auto-columns: 100%; overflow: hidden; width: 100%; }
+	.home-slider .home-slider-items:not(.slick-initialized) > *:nth-child(2) * { display: none; opacity: 0; visibility: hidden; width:0; height:0; content-visibility: hidden; }
+	.preload * { -webkit-transition: none !important; -moz-transition: none !important; -ms-transition: none !important;	-o-transition: none !important; }
+	.w-100{ width: 100% !important; }
+</style>
+
+<link rel="dns-prefetch" href="{{ shop.url }}">
+<link rel="dns-prefetch" href="//hstatic.net">
+<link rel="dns-prefetch" href="//theme.hstatic.net/">
+<link rel="dns-prefetch" href="//product.hstatic.net/">
+<link rel="dns-prefetch" href="//file.hstatic.net/">

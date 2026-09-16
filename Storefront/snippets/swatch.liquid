@@ -1,0 +1,53 @@
+{%- for op in product.options -%}
+{%- assign option = 'option' | append: forloop.index -%}
+{%- assign option_flag = '' -%}
+{%- assign opx = op | handleize | strip -%}
+{%- if opx contains 'mau-sac' or opx contains 'color' or opx contains 'mau' -%}
+{%- assign option_flag = 'color' -%}
+{%- endif -%}
+{%- assign values = '' -%}
+{%- for variant in product.variants -%}
+{%- assign value = variant[option] -%}
+{%- unless values contains value -%}
+{%- assign values = values | join: ',' -%}
+{%- assign values = values | append: ',' | append: value -%} 
+{%- assign values = values | split: ',' -%}
+{%- endunless -%}
+{%- endfor -%}
+<div class="product-sw-line">
+	<div class="product-sw-select">
+		<div class="product-sw-title">{{ op }}</div>
+		{%- for value in values -%}
+		{%- assign flagImg = '' -%}
+		{%- for variant in product.variants -%}
+		{%- assign valueImg = variant[option] -%}
+		{%- if valueImg == value -%}
+		{%- assign flagImg = variant.image.src | img_url: 'small' -%}
+		{%- break -%}
+		{%- endif -%}
+		{%- endfor -%}
+		{%- unless value == '' -%}
+		{%- if option_flag == 'color' -%}
+		{%- assign color = value | handleize | replace: '-', '' | strip -%}
+		<span class="product-sw-select-item {% unless flagImg contains 'noimage' %}sw-color{% endunless %}">
+			{%- if option_flag == 'color' -%}<span class="colorHover"></span>{%- endif -%}
+			<input type="radio" data-value="{{ value }}" name="product{{ layout }}-choose-{{ opx }}" data-name="{{ option }}" value="{{ value }}" class="trigger-option-sw d-none" id="product{{ layout }}-choose-{{ opx }}-{{ forloop.index }}">
+			<label  title="{{ value }}" for="product{{ layout }}-choose-{{ opx }}-{{ forloop.index }}" class="product-sw-select-item-span sw-color-{{color}}-label">
+				{% if flagImg contains 'noimage' %}
+				{{ value }}
+				{% else %}
+				<span style="background-image: url({{ flagImg }})" class="sw-color-{{color}}"></span>
+				{%- endif -%}
+			</label>
+		</span>
+		{%- else -%}
+		<span class="product-sw-select-item">
+			<input type="radio" data-value="{{ value }}" name="product{{ layout }}-choose-{{ opx }}" data-name="{{ option }}" value="{{ value }}" class="trigger-option-sw d-none" id="product{{ layout }}-choose-{{ opx }}-{{forloop.index}}"> 
+			<label for="product{{ layout }}-choose-{{ opx }}-{{ forloop.index }}" class="product-sw-select-item-span">{{ value }}</label>
+		</span>
+		{%- endif -%}
+		{%- endunless -%}
+		{%- endfor -%}
+	</div>
+</div>
+{%- endfor -%}

@@ -1,0 +1,81 @@
+<div class="my-account-wrap">
+  <div class="container">
+    <div class="row">
+      <div class="col-12 col-sm-6 col-md-4 offset-sm-3 offset-md-4">
+        <div id="auth-form" class="login-layout">
+          <div class="auth-heading">
+            <i class="lar la-user"></i>
+            <h1>
+              <span class="login-form-heading">Đăng nhập</span>
+              <span class="recover-form-heading">Quên mật khẩu</span>
+            </h1>
+          </div>
+          <div class="auth-form-body">
+            <div class="login-form-body">
+              {%- form 'customer_login' -%}
+                {{ form.errors | default_errors }}
+                <div class="form-group">
+                  <label for="login-email">Email*</label>
+                  <input
+                    type="email"
+                    id="login-email"
+                    class="form-control"
+                    name="customer[email]"
+                    required>
+                </div>
+                <div class="form-group">
+                  <label for="login-password">Mật khẩu*</label>
+                  <input
+                    type="password"
+                    id="login-password"
+                    class="form-control"
+                    name="customer[password]"
+                    required>
+                </div>
+                <div class="auth-recover-btn">
+                  <a
+                    href="#"
+                    data-layout="recover-layout"
+                    class="auth-layout-trigger">Quên mật khẩu?</a>
+                </div>
+                <div class="form-group">
+                  <button type="submit" class="btn btn-primary">
+                    ĐĂNG NHẬP
+                  </button>
+                </div>
+                <div class="auth-back-btn">
+                  <a href="/account/register">Đăng ký</a>
+                </div>
+              {%- endform -%}
+            </div>
+            <div class="recover-form-body">
+              {% form 'recover_customer_password' %}
+                {{ form.errors | default_errors }}
+                <div class="form-group">
+                  <label for="recover-email">Email*</label>
+                  <input
+                    type="email"
+                    id="recover-email"
+                    class="form-control"
+                    name="email"
+                    required>
+                </div>
+                <div class="form-group">
+                  <button type="submit" class="btn btn-primary">
+                    Gửi
+                  </button>
+                </div>
+                <div class="auth-back-btn">
+                  <a
+                    href="#"
+                    data-layout="login-layout"
+                    class="auth-layout-trigger">Đăng nhập</a>
+                </div>
+              {%- endform -%}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

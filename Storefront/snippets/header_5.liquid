@@ -1,0 +1,65 @@
+<header class="headers5">
+	<div class="container">
+		<div class="headers5-wrap">
+			<div class="headers5-left">
+				{%- if settings.shop_logo_check -%}
+				<a href="{{ shop.url }}" aria-label="{{ shop.name }}">
+					<img class="fill-logo" src="{{ 'shop_logo_image.png' |  img_url: 'medium'  | asset_url  }}" alt="{{ shop.name }}"
+						 title="{{ shop.name }}">
+				</a>
+				{%- else -%}
+				<a href="/" aria-label="{{ shop.name }}">{{ shop.name }}</a>
+				{%- endif -%}
+			</div>
+			<div class="headers5-right">
+				<div class="headers5-right-search">
+					<form class="tool-search" action="/search">
+						<input type="hidden" name="type" value="product">
+						<input required name="q" autocomplete="off" type="text" placeholder="Tìm kiếm sản phẩm...">
+						<button type="submit" title="Tìm kiếm"><i class="fal fa-search"></i></button>
+						<button class="tool-search-overplay" title="Đóng"></button>
+						<div class="tool-search-smart"></div>
+					</form>
+				</div>
+				<div class="headers5-right-action">
+					<button class="shop-tool" type="button" data-type="shop-customer-header" data-toggle="modal"
+							data-target="#accountLogin" data-whatever="@accountLogin" title="Tài khoản">
+						<strong>Tài khoản</strong>
+						<i class="fal fa-user"></i>
+					</button>
+					<button class="shop-tool" type="button" data-type="shop-menu-mobile-header" title="Menu">
+						<i class="fal fa-bars"></i>
+					</button>
+					<button class="shop-tool has-count" type="button" data-type="shop-wishlist-header" title="Yêu thích">
+						<strong>Yêu thích</strong>
+						<i class="fal fa-heart"></i>
+						<span class="shop-wishlist-count">0</span>
+					</button>
+					<button class="shop-tool has-count" type="button" data-type="shop-compare-header" title="So sánh">
+						<strong>So sánh</strong>
+						<i class="fas fa-compress-alt"></i>
+						<span class="shop-compare-count">0</span>
+					</button>
+					<button class="shop-tool has-count" type="button" data-type="shop-cart-header" title="Giỏ hàng">
+						<strong>Giỏ hàng</strong>
+						<i class="fal fa-shopping-bag"></i>
+						<span class="shop-cart-count">{{ cart.item_count }}</span>
+					</button>
+				</div>
+				<div class="headers5-right-menu">
+					<div class="headers5-right-menu-wrap header-menu-horizontal">
+						{%- include 'header-menu-horizontal' -%}
+					</div>
+					{%- if settings.use_right_livestrem -%}
+					<div class="headers5-right-livestream">
+						<a href="{{ settings.link_livestream }}" data-fancybox title="Video" aria-label="Video">
+							{{ settings.text_lives_streams }}
+							<svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="512" height="512" x="0" y="0" viewBox="0 0 512 512" style="enable-background:new 0 0 512 512" xml:space="preserve" class=""><g><path fill="#ff4f6b" d="M417.249 350.751H163.392V161.249h253.857C469.579 161.249 512 203.67 512 256c0 52.33-42.421 94.751-94.751 94.751z" data-original="#ff4f6b" class=""></path><path fill="#fb2b3a" d="M417.249 161.249h-30.905c52.329 0 94.751 42.421 94.751 94.751 0 52.33-42.422 94.751-94.751 94.751h30.905C469.578 350.751 512 308.33 512 256c0-52.33-42.422-94.751-94.751-94.751z" data-original="#fb2b3a"></path><g fill="#fff"><path d="M303.605 282.447h-.044c-5.617.031-11.651.054-16.203.057V221.77a7.725 7.725 0 0 0-7.726-7.726 7.725 7.725 0 0 0-7.726 7.726v68.403a7.725 7.725 0 0 0 6.421 7.615c.556.096 17.5.155 25.322.112a7.726 7.726 0 0 0-.044-15.453zM330.338 214.043a7.725 7.725 0 0 0-7.726 7.726v68.461a7.725 7.725 0 0 0 7.726 7.726 7.725 7.725 0 0 0 7.726-7.726v-68.46a7.726 7.726 0 0 0-7.726-7.727zM461.069 282.192h-20.857v-18.466h18.749a7.726 7.726 0 1 0 0-15.452h-18.749v-18.466h20.857a7.725 7.725 0 0 0 7.726-7.726 7.725 7.725 0 0 0-7.726-7.726h-28.584a7.725 7.725 0 0 0-7.726 7.726v67.837a7.725 7.725 0 0 0 7.726 7.726h28.584c4.268 0 7.726-3.459 7.726-7.726s-3.458-7.727-7.726-7.727zM408.187 214.563a7.725 7.725 0 0 0-9.768 4.896l-16.613 50.007-17.436-50.23c-1.398-4.032-5.803-6.17-9.832-4.766a7.726 7.726 0 0 0-4.766 9.832l23.426 67.49a9.28 9.28 0 0 0 8.735 6.165l.065-.001c3.942-.027 7.444-2.553 8.73-6.338l22.353-67.288a7.722 7.722 0 0 0-4.894-9.767z" fill="#ffffff" data-original="#ffffff" class=""></path></g><circle cx="120.466" cy="256" r="120.466" fill="#ff4f6b" data-original="#ff4f6b" class=""></circle><path fill="#fb2b3a" d="M120.466 135.534c-5.235 0-10.392.337-15.453.988C164.168 144.13 210.027 194.81 210.027 256s-45.86 111.87-105.014 119.478c5.061.651 10.218.988 15.453.988 66.425 0 120.467-54.04 120.467-120.466 0-66.425-54.041-120.466-120.467-120.466z" data-original="#fb2b3a"></path><ellipse cx="120.467" cy="256" fill="#ffffff" rx="89.56" ry="89.561" transform="rotate(-80.8 120.424 256.008)" data-original="#ffffff" class=""></ellipse><path fill="#ff4f6b" d="M95.54 291.375v-70.751c0-7.166 8.153-11.282 13.92-7.028l47.945 35.375c4.731 3.491 4.731 10.565 0 14.056l-47.945 35.375c-5.767 4.256-13.92.139-13.92-7.027z" data-original="#ff4f6b" class=""></path><path fill="#fb2b3a" d="m157.404 248.972-47.945-35.375c-5.766-4.254-13.92-.138-13.92 7.028v5.505c20.109 14.837 20.109 44.904 0 59.741v5.505c0 7.166 8.153 11.282 13.92 7.028l47.945-35.375c4.731-3.492 4.731-10.566 0-14.057z" data-original="#fb2b3a"></path></g></svg>
+						</a>
+					</div>
+					{%- endif -%}
+				</div>
+			</div>
+		</div>
+	</div>
+</header>

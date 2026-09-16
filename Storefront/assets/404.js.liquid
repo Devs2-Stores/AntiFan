@@ -1,0 +1,16 @@
+F1GENZ.page_404 = {
+	init: function(){
+		$('body').on('click', '.main-404 form button', function(e){
+			e.preventDefault();
+			F1GENZ.Helper.postForm('.main-404', window.F1GENZ_vars.shop.url + '/contact');
+			swal({
+				title: "Cảm ơn bạn!",
+				text: "Chúng tôi sẽ liên hệ lại trong thời gian sớm nhất",
+				type: "success"
+			}, function() {
+				window.location.href = "/";
+			});
+		})
+	}
+}
+f1genzPS && F1GENZ.page_404.init();

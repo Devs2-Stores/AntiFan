@@ -1,0 +1,28 @@
+{% assign indexColor = 0 %}
+{% for option in product.options %}
+{% assign optionHandle = option | handleize %}
+{% if optionHandle contains 'color' or optionHandle contains 'mau-sac' or optionHandle contains 'mau' or optionHandle contains 'colour'-%}
+{% assign indexColor = forloop.index | minus: 1 %}
+{% endif %}
+{% endfor %}
+
+{% assign arrayColor = "" %}
+{% for variant in product.variants %}
+{% assign variantSplit = variant.title | split: "/" %}
+{% assign variantColor = variantSplit[indexColor] %}
+{% assign arrayColor = arrayColor | append: variantColor | append: "," %}
+{% endfor %}
+
+{% assign arrayColorUniq = arrayColor | split: ',' | uniq %}
+
+<div class="Home-Product-Slider-Container-Bottonm-Section">
+	{% for color in arrayColorUniq %}
+	{% if color != "" %}
+	<div class="Home-Product-Slider-Container-Bottonm-Section-Rounded">
+		<div class="Home-Product-Slider-Container-Bottonm-Section-Rounded-Object-Outline" data-tooltip="{{ color | lstrip | rstrip }}" data-tooltip-handle="{{ color | lstrip | rstrip | handleize }}">
+			<div class="Home-Product-Slider-Container-Bottonm-Section-Rounded-Object {{ color | lstrip | rstrip | handleize }}"></div>
+		</div>
+	</div>
+	{% endif %}
+	{% endfor %}
+</div>

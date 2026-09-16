@@ -1,0 +1,127 @@
+<footer class="footers2" style="background-image: url({{ 'shop_footer_background.jpg' | asset_url  }})">
+	<div class="container">
+		<div class="footers2-wrap">
+			{%- if settings.footers2_letter_check -%}
+			<div class="footers2-letter">
+				<div class="footers2-letter-title">
+					<h2>{{ settings.footers2_letter_title }}</h2>
+					<p>{{ settings.footers2_letter_content }}</p>
+				</div>
+				<div class="footers2-letter-form">
+					<form id="mc-form4" action="{{ settings.shop_mailChimp }}">
+						<input aria-label="Địa chỉ Email" type="email" placeholder="Nhập email ưu đãi" name="EMAIL" required autocomplete="off">
+						<button type="submit" aria-label="Đăng ký nhận tin" name="subscribe">Đăng ký</button>
+					</form>
+				</div>
+			</div>
+			{%- endif -%}
+			<div class="footers2-top">
+				<div class="footers2-top-item footers2-top-one">
+					<a href="/" title="{{ shop.name }}" aria-label="{{ shop.name }}">
+						<img title="{{ shop.name }}" loading="lazy" src="{{ 'shop_footer_logo.png' |  img_url: 'medium'  | asset_url  }}" alt="{{ shop.name }}">
+					</a>
+					<p>{{ settings.footers2_one_content }}</p>
+					{%- if settings.footers2_one_info1 != blank and settings.footers2_one_info1 != "" -%}
+					<p class="footers2-top-info">
+						<a role="button">
+							<img src="https://file.hstatic.net/200000928091/file/location.png" loading="lazy" decoding="async" alt="{{ shop.name }}">
+							{{ settings.footers2_one_info1 }}
+						</a>
+					</p>
+					{%- endif -%}
+					{%- if settings.footers2_one_info2 != blank and settings.footers2_one_info2 != "" -%}
+					<p class="footers2-top-info">
+						<a href="mailto:{{ settings.footers2_one_info2 }}" title="Liên hệ ngay {{ settings.footers2_one_info2 }}">
+							<img src="https://file.hstatic.net/200000928091/file/mail__1_.png" loading="lazy" decoding="async" alt="{{ shop.name }}" title="Liên hệ ngay">
+							{{ settings.footers2_one_info2 }}
+						</a>
+					</p>
+					{%- endif -%}
+					{%- if settings.footers2_one_info3 != blank and settings.footers2_one_info3 != "" -%}
+					<p class="footers2-top-info">
+						<a href="tel:{{ settings.footers2_one_info3 | replace: " ", "" }}" title="Liên hệ ngay {{ settings.footers2_one_info3 | replace: " ", "" }}">
+							<img src="https://file.hstatic.net/200000928091/file/phone.png" loading="lazy" decoding="async" alt="{{ shop.name }}" title="Liên hệ ngay">
+							{{ settings.footers2_one_info3 }}
+						</a>
+					</p>
+					{%- endif -%}
+					{%- if settings.footers2_one_info4 != blank and settings.footers2_one_info4 != "" -%}
+					<p class="footers2-top-info">
+						<a role="button">
+							<img src="https://file.hstatic.net/200000998655/file/info__1_.png" loading="lazy" decoding="async" alt="{{ shop.name }}" title="Thông tin thêm">
+							{{ settings.footers2_one_info4 }}
+						</a>
+					</p>
+					{%- endif -%}
+				</div>
+				<div class="footers2-top-item footers2-top-two">
+					<h4>{{ settings.footers2_two_title }} <i class="fa fa-chevron-down"></i></h4>
+					<div class="footers2-top-item-content">
+						<p>{% if settings.footers2_two_content != "" %}{{ settings.footers2_two_content }}{% else %}Nội dung đang được cập nhật...{% endif %}</p>
+					</div>
+				</div>
+				<div class="footers2-top-item footers2-top-three">
+					<h4>{{ settings.footers2_three_title }} <i class="fa fa-chevron-down"></i></h4>
+					<div class="footers2-top-item-content">
+						<ul>
+							{%- if settings.footers2_three_handle == blank -%} 
+							<li>Nội dung đang được cập nhật...</li>
+							{%- else -%}
+							{%- if linklists[settings.footers2_three_handle]links == _blank -%}
+							{%- include 'shop-menu-demo' -%}
+							{%- else -%}
+							{%- for link in linklists[settings.footers2_three_handle]links -%}
+							<li><a href="{{ link.url }}" aria-label="{{ link.title }}" title="{{ link.title }}">{{ link.title }}</a></li>
+							{%- endfor -%}
+							{%- endif -%}
+							{%- endif -%}
+						</ul>
+					</div>
+				</div>
+				<div class="footers2-top-item footers2-top-four">
+					<h4>{{ settings.footers2_four_title }} <i class="fa fa-chevron-down"></i></h4>
+					<div class="footers2-top-item-content">
+						<ul>
+							{%- if settings.footers2_four_handle == blank -%} 
+							<li>Nội dung đang được cập nhật...</li>
+							{%- else -%}
+							{%- if linklists[settings.footers2_four_handle]links == _blank -%}
+							{%- include 'shop-menu-demo' -%}
+							{%- else -%}
+							{%- for link in linklists[settings.footers2_four_handle]links -%}
+							<li><a href="{{ link.url }}" aria-label="{{ link.title }}" title="{{ link.title }}">{{ link.title }}</a></li>
+							{%- endfor -%}
+							{%- endif -%}
+							{%- endif -%}
+						</ul>
+					</div>
+				</div>
+				<div class="footers2-top-item footers2-top-five">
+					<h4>{{ settings.footers2_five_title }} <i class="fa fa-chevron-down"></i></h4>
+					<div class="footers2-top-item-content">
+						<p>{% if settings.footers2_five_content != "" %}{{ settings.footers2_five_content }}{% else %}Nội dung đang được cập nhật...{% endif %}</p>
+						{%- include 'shop-social' -%}
+					</div>
+					{%- if settings.shop_bct_check -%}
+					<a class="shop-bct" href="{{ settings.shop_bct_link }}" aria-label="Bộ Công Thương" title="Bộ Công Thương">
+						<img src="{{ 'shop_bct_image.png' | asset_url  }}" alt="Bộ Công Thương"/>
+					</a>
+					{%- endif -%}
+					{%- if settings.shop_fanpage_check -%}
+					<div class="fb-page mt-3" data-href="{{ settings.shop_fanpage_link }}" data-tabs="" data-width="" data-height="" data-small-header="false" data-adapt-container-width="true" data-hide-cover="false" data-show-facepile="true"><blockquote cite="{{ settings.shop_fanpage_link }}" class="fb-xfbml-parse-ignore"><a href="{{ settings.shop_fanpage_link }}">{{ shop.name }}</a></blockquote></div>
+					<div id="fb-root"></div>
+					<script async defer crossorigin="anonymous" src="https://connect.facebook.net/vi_VN/sdk.js#xfbml=1&version=v22.0&appId=529288194394899"></script>
+					{%- endif -%}
+				</div>
+			</div>
+			{%- include "home-newletter" -%}
+			<div class="footers2-bot">
+				<p class="text-copyright">© {{ "now" | date: "%Y" }} - Bản quyền thuộc về 
+					<a target="_blank" aria-label="{{ settings.ccompany_name }}" title="{{ settings.ccompany_name }}" href="{{ settings.ccompany_link }}"><strong>{{ settings.ccompany_name }}</strong></a> 
+					{%- if template == 'index' -%}<a target="_blank" href="https://www.haravan.com?ref=f1genz" rel="nofollow">Cung cấp bởi <strong>Haravan</strong></a>{%- else -%}Cung cấp bởi <strong>Haravan</strong>{%- endif -%}
+				</p>
+				{%- include 'shop-payment' -%}
+			</div>
+		</div>
+	</div>
+</footer>

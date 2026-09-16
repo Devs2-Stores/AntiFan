@@ -1,0 +1,21 @@
+{%- if settings.shop_mobar_check -%}
+<div class="shop-mobar"> 
+	<div class="shop-mobar-wrap"> 
+		<ul>
+			{%- for i in (1..4) -%}
+			{%- capture image -%}shop_mobar_item_image_{{ i }}.png{%- endcapture -%}
+			{%- capture title -%}shop_mobar_item_title_{{ i }}{%- endcapture -%}
+			{%- capture link -%}shop_mobar_item_link_{{ i }}{%- endcapture -%}
+			<li>
+				<a class="{% if forloop.last %}tool-contact-popup{% endif %}" aria-label="{{ shop.name }} - {{ settings[title] }}"
+					 href="{% if forloop.last %}/account{% else %}{{ settings[link] }}{% endif %}" title="{{ settings[title] }}">
+					<img loading="lazy" decoding="async" width="64" height="64"
+						 src="{{ image |  img_url: 'small'  | asset_url  }}" alt="{{ shop.name }} - {{ settings[title] }}" title="{{ settings[title] }}">
+					<span>{%- if template contains 'index' -%}{{ settings[title] }}{%- else -%}{%- if forloop.last -%}Đăng ký{%- else -%}{{ settings[title] }}{%- endif -%}{%- endif %}</span>
+				</a>
+			</li>
+			{%- endfor -%}
+		</ul>
+	</div>
+</div>
+{%- endif -%}

@@ -1,0 +1,117 @@
+{%- layout none -%} 
+{%- for product in search.results limit: 1 -%}
+<script>window.F1GENZ_vars.quickview = {{ product | json }}</script>
+{%- assign discount = product.variants[0].compare_at_price | minus: product.variants[0].price | divided_by:product.variants[0].compare_at_price | times : 100 | round -%}
+{%- assign percent = product.variants[0].compare_at_price | minus: product.variants[0].price | divided_by:product.variants[0].compare_at_price | times : 100 -%}
+{%- if percent > 99 -%}{%- assign discount = 99 -%}{%- endif -%}
+{%- if percent < 1 -%}{%- assign discount = 1 -%}{%- endif -%}
+{%- assign onSale = false -%}{%- if percent > 0 and percent < 100 -%}{%- assign onSale = true -%}{%- endif -%}
+<div class="product-quickview" id="product-quickview">
+	<div class="product-quickview-left">
+		<div class="product-quickview-feature has-spin">
+			{%- if product.images.size > 0 -%}
+			{%- for thumb in product.images -%}
+			<a href="{{ product.url }}" title="{{ product.title }}" aria-label="{{ product.title }}" data-index="{{ forloop.index }}">
+				<img class="w-auto" width="600" height="600" title="{% if thumb.alt.size > 0 %}{{ thumb.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+					 src="{{ thumb.src }}" 
+					 alt="{% if thumb.alt.size > 0 %}{{ thumb.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+					 data-id="{{ thumb.id }}"
+					 data-index="{{ forloop.index }}">
+			</a>
+			{%- endfor -%} 
+			{%- else -%}
+			<img class="w-auto" width="600" height="600" src="https://theme.hstatic.net/200000588277/1000936869/14/no_image.jpg?v=1" alt="{{ product.title }}"/>
+			{%- endif -%}
+		</div>
+	</div>
+	<div class="product-quickview-right">
+		<h2 class="product-quickview-title">
+			<a href="{{ product.url }}" title="{{ product.title }}" aria-label="{{ product.title }}">{{ product.title }}</a>
+		</h2>
+		<div class="product-quickview-info">
+			<div class="product-quickview-info-sku">
+				<strong>Mã sản phẩm: </strong>
+				<span>{%- if product.variants[0].sku != null and product.variants[0].sku !="" -%}{{ product.variants[0].sku }}{%- else -%}Đang cập nhật{%- endif -%}</span>
+			</div>
+			<div class="product-quickview-info-barcode">
+				<strong>Barcode: </strong>
+				<span>{%- if product.variants[0].barcode != null and product.variants[0].barcode !="" -%}{{ product.variants[0].barcode }}{%- else -%}Đang cập nhật{%- endif -%}</span>
+			</div>
+			<div class="product-quickview-info-vendor">
+				<strong>Thương hiệu: </strong>
+				<span>{%- if product.vendor != null and product.vendor !="" -%}{{ product.vendor }}{%- else -%}Đang cập nhật{%- endif -%}</span>
+			</div>
+			<div class="product-quickview-info-type">
+				<strong>Dòng sản phẩm: </strong>
+				<span>{%- if product.type != null and product.type !="" -%}{{ product.type }}{%- else -%}Đang cập nhật{%- endif -%}</span>
+			</div>
+		</div>
+		<div class="product-quickview-price">
+			<div class="product-quickview-price-wrap">
+				<del {% unless onSale %}hidden{% endunless %} class="product-quickview-price-compare">{{ product.variants[0].compare_at_price | money }}</del>
+
+				{%- if product.variants.first.price != 0 -%}
+				<span class="product-quickview-price-this">{{ product.variants[0].price | money }}</span>
+				{%- else -%}
+				<span class="product-quickview-price-this contact">
+					<strong>{{ settings.main_product_price_contact_text }}</strong>
+				</span>
+				{%- endif -%}  
+
+				<span {% unless onSale %}hidden{% endunless %} class="product-quickview-price-discount">Tiết kiệm {{ discount }}%</span>
+			</div>
+		</div>
+		<div class="d-none">
+			<select id="product-quickview-select" name="id">
+				{%- for variant in product.variants -%}
+				<option value="{{ variant.id }}">{{ variant.title }}</option>
+				{%- endfor -%}
+			</select>
+		</div>
+		<div class="product-quickview-swatch">
+			{%- if product.available and product.variants.size > 1 -%}
+			{%- include 'swatch' width layout: '-quickview' -%}
+			{%- endif -%}
+		</div>
+		<div class="product-quickview-quantity shop-quantity-wrap" {% if product.available and product.variants.first.price != 0 %}style="display: none;"{% endif %}>
+			<label>Số lượng</label>
+			<div class="shop-quantity">
+				<button type="button" data-type="shop-quantity-minus" title="Giảm">-</button>
+				<input type="number" name="product-quickview-quantity" value="1" min="1" readonly>
+				<button type="button" data-type="shop-quantity-plus" title="Tăng">+</button>
+			</div>
+		</div>
+		<div class="product-quickview-cta">
+			{%- if product.available -%}
+			{%- if product.first_available_variant.price != 0 -%}
+			<button type="button" data-type="product-quickview-add" title="Thêm vào giỏ">
+				<strong>Thêm vào giỏ</strong>
+				<span>Chọn ngay sản phẩm bạn yêu thích</span>
+			</button>
+			{%- else -%}
+			<button type="button" data-type="product-quickview-add" title="Thêm vào giỏ" disabled>
+				<strong>Liên hệ ngay</strong>
+				<span>Liên hệ để được tư vấn thêm</span>
+			</button>
+			{%- endif -%}
+			{%- else -%}
+			{%- if product.first_available_variant.price != 0 -%}
+			<button type="button" data-type="product-quickview-add" title="Tạm hết hàng" disabled>
+				<strong>Tạm hết hàng</strong>
+				<span>Liên hệ để được tư vấn thêm</span>
+			</button>
+			{%- else -%}
+			<button type="button" data-type="product-quickview-add" title="Thêm vào giỏ" disabled>
+				<strong>Liên hệ ngay</strong>
+				<span>Liên hệ để được tư vấn thêm</span>
+			</button>
+			{%- endif -%}
+			{%- endif -%}
+			<button type="button" data-type="product-quickview-detail" title="Xem chi tiết" onclick="window.location.href='{{ product.url }}'">
+				<strong>Xem chi tiết</strong>
+				<span>Tổng quan về sản phẩm</span>
+			</button>
+		</div>
+	</div>
+</div>
+{%- endfor -%}

@@ -1,0 +1,21 @@
+<div class="main-page" data-page-id="{{ page.id }}">
+	<div class="main-page-breadcrumb">
+		<div class="container">
+			<div hidden class="section-title-all">
+				<h1>{{ page.title }}</h1>
+			</div>
+			{%- include 'shop-breadcrumb' -%}
+		</div>
+	</div>
+	<div class="main-page-wrap">
+		<div class="container">
+			<div class="main-page-data">
+				{%- if page.content != null and page.content != '' -%}
+				{{ page.content }}
+				{%- else -%}
+				Nội dung đang được cập nhật...
+				{%- endif -%}
+			</div>
+		</div>
+	</div>
+</div>

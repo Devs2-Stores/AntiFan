@@ -1,0 +1,7 @@
+{%- include "home-slider" -%}
+{%- for i in (1..10) -%}
+{%- capture sectionName -%}index_section_{{ i }}{%- endcapture -%}
+{%- if settings[sectionName] and settings[sectionName] != "none" -%}
+{%- include settings[sectionName] -%}
+{%- endif -%}
+{%- endfor -%}

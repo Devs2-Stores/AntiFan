@@ -1,0 +1,17 @@
+{%- if settings.home-newletter-check -%} 
+<div class="section_index--newletter">
+	<div class="section_index--newletter-wrap">
+		<div class="section_index--newletter-left">
+			<h2>{{ settings.home-newletter-title }}</h2>
+			<p>{{ settings.home-newletter-content }}</p>
+			<p>{{ settings.home-newletter-content-2 }}</p>
+		</div>
+		<div class="section_index--newletter-right">
+			<form id="mc-form10" action="{{ settings.shop_mailChimp }}">
+				<input aria-label="Địa chỉ Email" type="email" placeholder="Nhập email của bạn" name="EMAIL" required autocomplete="off">
+				<button type="submit" aria-label="Đăng ký nhận tin" name="subscribe">Đăng ký</button>
+			</form>
+		</div>
+	</div>
+</div>
+{%- endif -%}

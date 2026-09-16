@@ -1,0 +1,47 @@
+<header class="headers3">
+	<div class="container">
+		<div class="headers3-wrap">
+			<div class="headers3-left">
+				<form class="tool-search" action="/search">
+					<input type="hidden" name="type" value="product">
+					<input required name="q" autocomplete="off" type="text" placeholder="Tìm kiếm sản phẩm...">
+					<button type="submit" title="Tìm kiếm"><i class="fal fa-search"></i></button>
+					<button class="tool-search-overplay" title="Đóng"></button>
+					<div class="tool-search-smart"></div>
+				</form>
+			</div>
+			<div class="headers3-center">
+				{%- if settings.shop_logo_check -%}
+				<a href="{{ shop.url }}" aria-label="{{ shop.name }}">
+					<img class="fill-logo" src="{{ 'shop_logo_image.png' |  img_url: 'medium'  | asset_url  }}" alt="{{ shop.name }}" title="{{ shop.name }}">
+				</a>
+				{%- else -%}
+				<a href="/" aria-label="{{ shop.name }}">{{ shop.name }}</a>
+				{%- endif -%}
+			</div>
+			<div class="headers3-right">
+				<button class="shop-tool" type="button" data-type="shop-customer-header" data-toggle="modal" data-target="#accountLogin" data-whatever="@accountLogin" title="Tài khoản">
+					<i class="fal fa-user"></i>
+				</button>
+				<button class="shop-tool" type="button" data-type="shop-menu-mobile-header" title="Menu">
+					<i class="fal fa-bars"></i>
+				</button>
+				<button class="shop-tool has-count" type="button" data-type="shop-wishlist-header" title="Yêu thích">
+					<i class="fal fa-heart"></i>
+					<span class="shop-wishlist-count">0</span>
+				</button>
+				<button class="shop-tool has-count" type="button" data-type="shop-compare-header" title="So sánh">
+					<i class="fas fa-compress-alt"></i>
+					<span class="shop-compare-count">0</span>
+				</button>
+				<button class="shop-tool has-count" type="button" data-type="shop-cart-header" title="Giỏ hàng">
+					<i class="fal fa-shopping-bag"></i>
+					<span class="shop-cart-count">{{ cart.item_count }}</span>
+				</button>
+			</div>
+			<div class="headers3-bot header-menu-horizontal">
+				{%- include 'header-menu-horizontal' -%}
+			</div>
+		</div>
+	</div>
+</header>

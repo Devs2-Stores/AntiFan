@@ -1,0 +1,33 @@
+<nav class="header-menu-horizontal-nav">
+	<ul class="menu0">
+		<li class="header-menu-horizontal-head">
+			<label>Danh mục</label>
+			<button type="button" data-type="close-menu-mobile" title="Đóng">{%- include 'icon-close' -%}</button>
+		</li>
+		{%- if settings.shop_main_menu == blank -%}
+		{%- else -%}
+		{%- if linklists[settings.shop_main_menu]links == blank -%}
+		{%- include 'shop-menu-demo' -%}
+		{%- else -%}
+		{%- for link in linklists[settings.shop_main_menu]links -%}
+		{%- include 'shop-menu' with indexMenu: forloop.index -%}
+		{%- endfor -%}
+		{%- endif -%}
+		{%- endif -%}
+		<li class="header-menu-horizontal-foot">
+			<div class="section-title-all">
+				<span>{{ settings.shop_menu_mobile_sub_title }}</span>
+				<p>{{ settings.shop_menu_mobile_content }}</p>
+			</div>
+			<form id="mc-form3" action="{{ settings.shop_mailChimp }}">
+				<input aria-label="Địa chỉ Email" type="email" placeholder="Nhập email ưu đãi" name="EMAIL" required autocomplete="off">
+				<button type="submit" title="Đăng ký nhận tin" name="subscribe">Đăng ký</button>
+			</form>
+			{%- include 'shop-social' -%}
+		</li>
+	</ul>
+</nav>
+<div class="header-menu-arrow">
+	<button style="pointer-events: none;" type="button" class="header-menu-arrow-prev" title="Trước" data-action="prev"><i class="fa fa-chevron-left"></i></button>
+	<button type="button" class="header-menu-arrow-next" title="Sau" data-action="next"><i class="fa fa-chevron-right"></i></button>
+</div>

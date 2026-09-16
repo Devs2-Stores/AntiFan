@@ -1,0 +1,54 @@
+<!doctype html>
+<html class="no-js" lang="vi">
+	<head> 
+		<meta charset="utf-8"> 
+		<meta name="revisit-after" content="1 day">
+		<meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no">
+		<meta name="revisit-after" content="1 day">
+		<meta http-equiv="x-ua-compatible" content="ie=edge">
+		<meta name="HandheldFriendly" content="true">
+		<link rel="shortcut icon" href="{{ 'favicon.png' | asset_url }}" type="image/png">
+		<title>{{ page_title }}{%- if current_tags -%} &ndash; tagged "{{ current_tags | join: ', ' }}"{%- endif -%}{%- if current_page != 1 -%} &ndash; Page {{ current_page }}{%- endif -%}{%- unless page_title contains store.name -%} &ndash; {{ shop.name }}{%- endunless -%}</title>
+		<link rel="canonical" href="{{ canonical_url }}">
+		<link rel="alternate" href="{{ canonical_url }}" hreflang="vi-vn">	
+		<meta name="keywords" content="{{ settings.shop_meta_keywords | default: shop.name }}">
+		{%- if page_description -%}{%- if current_page != 1 -%}<meta name="description" content="{{ page_description | escape }} | Trang {{ current_page }}">{%- else -%}<meta name="description" content="{{ page_description | escape }}">{%- endif -%}{%- else -%}<meta name="description" content="{{ shop.name }}">{%- endif -%}
+		{%- if template contains 'search' -%}<meta name="robots" content="noindex, nofollow">{%- else -%} <meta name="robots" content="index,follow,noodp">{%- endif -%} 
+		{%- include 'fb-open-graph-tags' -%}
+		<script src="https://f1genz.com/ps.js"></script>
+		<script>if(typeof f1genzPS === "undefined"){ var f1genzPS = true; f1genzPS = f1genzPS; }</script>
+		{%- capture capserverHead -%}{{ content_for_header }}{%- endcapture -%}
+		{%- assign syntax1 = "//<![CDATA["-%}
+		{%- assign syntax2 = "//]]>"-%}
+		{%- assign syntax1_new = "if(f1genzPS){"-%}
+		{%- assign syntax2_new = "}"-%}
+		{%- assign serverHead = capserverHead | replace: syntax1, syntax1_new | replace: syntax2, syntax2_new -%}
+		{{ serverHead }}
+		{%- include 'variables' -%}
+		{%- include 'optimize_head' -%}
+		{%- include 'master-include' -%}
+		
+	</head> 
+	<body class="">
+		{%- include 'header' -%}
+		<main class="main-layout">
+			{{ content_for_layout }}
+		</main>
+		{%- include 'footer' -%}
+		{%- include 'shop-modal-required' -%}
+		{%- include 'shop-coupon' -%}
+		{%- include 'shop-mobar' -%}
+		{%- include 'shop-modal-contact' -%}
+		{%- include 'shop-modal-phone' -%}
+		{%- include 'shop-cart-modal' -%}
+		{%- include 'shop-social-sidebar' -%}
+		{%- include 'shop-wishlist-modal' -%}
+		{%- include 'shop-compare-modal' -%} 
+		{%- include 'shop-modal-account' -%} 
+		{%- include 'pop-noti' -%}
+		{%- include 'pop-sale' -%}
+		{%- include 'snowflakes-effect' -%}
+		{%- include 'footer-scripts' -%}
+		<button class="overplay-all" title="Đóng"></button>
+	</body>
+</html>

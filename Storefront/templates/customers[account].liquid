@@ -1,0 +1,56 @@
+<div id="account-page">
+  <div class="container">
+    <div class="account-page-wrap">
+      <div class="account-page-sidebar">
+        {%- include 'account-sidebar' -%}
+      </div>
+      <div class="account-page-content">
+        <h1>
+          <span>Thông tin tài khoản</span>
+        </h1>
+        <div class="account-page-detail account-page-info">
+          <div class="table-responsive">
+            <table class="table">
+              <tbody>
+                <tr>
+                  <td>Họ tên</td>
+                  <td>{{ customer.last_name }} {{ customer.first_name }}</td>
+                </tr>
+                <tr>
+                  <td>Email</td>
+                  <td>{{ customer.email }}</td>
+                </tr>
+                <tr>
+                  <td>Giới tính</td>
+                  <td>
+                    {% case customer.gender %}
+                      {% when '0' %}Nữ{% when '1' %}Nam{% else %}
+                  {% endcase %}
+                </td>
+              </tr>
+              <tr>
+                <td>Số điện thoại</td>
+                <td>{{ customer.default_address.phone }}</td>
+              </tr>
+              <tr>
+                <td>Địa chỉ</td>
+                <td>
+                  {{ customer.default_address.address1 }}
+                  {%- if customer.default_address.ward -%}
+                    , {{ customer.default_address.ward }}
+                  {%- endif -%}
+                  {%- if customer.default_address.district -%}
+                    , {{ customer.default_address.district }}
+                  {%- endif -%}
+                  {%- if customer.default_address.province -%}
+                    , {{ customer.default_address.province }}
+                  {%- endif -%}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>

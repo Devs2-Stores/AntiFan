@@ -1,0 +1,14 @@
+<div class="main-product-feature-thumbs" style="--item_in_row: {{ settings.main_product_style_gallery_5_items | default: 3 }}">
+	{%- for media in product.images -%}
+	<a data-fancybox="gallery" href="{{ media.src }}" aria-label="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+	   title="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}" data-index="{{ forloop.index }}">
+		<picture>
+			<source width="480" height="480" media="(max-width: 480px)" srcset="{{ media.src | product_img_url : 'grande' }}"> 
+			<source width="2048" height="2048" media="(min-width: 481px)" srcset="{{ media.src | product_img_url : '2048x2048' }}">
+			<img class="w-auto" width="2048" height="2048" src="{{ media.src | product_img_url : '2048x2048' }}" title="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+				 alt="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+				 loading="eager" decoding="sync" fetchpriority="high">
+		</picture>
+	</a> 
+	{%- endfor -%} 
+</div>

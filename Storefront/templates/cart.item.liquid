@@ -1,0 +1,31 @@
+{%- layout none -%}
+{%- for item in cart.items -%}
+<div class="shop-cart-item" data-id="{{ item.variant_id }}">
+	<div class="shop-cart-item-left">
+		<a href="{{ item.product.url }}" title="{{ item.product.title }}">
+			<img title="{{ item.product.title }}" src="{% if item.image %}{{ item.image }}{% elsif item.product.featured_image.src %}{{ item.product.featured_image.src }}{% else %}https://theme.hstatic.net/200000588277/1000936869/14/no_image.jpg?v=1{% endif %}" alt="{{ item.title }}"/>
+		</a>
+	</div>
+	<div class="shop-cart-item-right">
+		<h4><a href="{{ item.product.url }}" title="{{ item.product.title }}">{{ item.product.title }}</a></h4>
+		{%- if item.variant.title != "Default Title" -%}<span>{{ item.variant.title }}</span>{%- endif -%}
+		<p>{%- if item.price == 0 -%}Liên hệ{%- else -%}{{ item.price | money }}{%- endif -%}</p>
+		<div class="shop-cart-item-right-action">
+			{% if item.price > 0 %}
+			<div class="shop-cart-item-right-action-quantity shop-quantity-wrap">
+				<label>Số lượng</label>
+				<div class="shop-quantity">
+					<button type="button" data-type="shop-quantity-minus" title="Giảm">-</button>
+					<input type="number" name="quantity_{{ item.id }}" value="{{ item.quantity }}" min="1" readonly>
+					<button type="button" data-type="shop-quantity-plus" title="Tăng">+</button>
+				</div>
+
+			</div>
+			{% endif %}
+			<div class="shop-cart-item-right-action-remove"> 
+				<button type="button" title="Xóa" data-type="shop-cart-item-remove" data-href="/cart/change?line={{ forloop.index }}&quantity=0" data-id="{{ item.variant_id }}">Xóa</button>
+			</div>
+		</div>
+	</div>
+</div>
+{%- endfor -%}

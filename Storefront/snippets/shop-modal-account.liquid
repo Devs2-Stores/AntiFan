@@ -1,0 +1,125 @@
+<div class="modal fade" id="accountModal" tabindex="-1" role="dialog" aria-labelledby="accountModal" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-body">
+        <div class="row">
+          <div class="col-lg-3 col-md-3">
+            <div class="modalLogo"> 
+              {%- if settings.shop_logo_check -%}
+              <a href="{{ shop.url }}" title="{{ shop.name }}" aria-label="{{ shop.name }}">
+                <img src="{{ 'shop_logo_image.png' | asset_url  }}" alt="{{ shop.name }}">
+              </a>
+              {%- else -%}
+              <a href="/" title="{{ shop.name }}" aria-label="{{ shop.name }}">{{ shop.name }}</a>
+              {%- endif -%}
+            </div>
+            <div class="nav flex-column nav-pills" id="v-pills-tab" role="tablist" aria-orientation="vertical">
+              <a class="nav-link active" id="modalLoginTab" data-toggle="pill" href="#modalLogin" role="tab"
+                aria-controls="modalLogin" aria-selected="true" title="Đăng nhập" aria-label="Đăng nhập">Đăng nhập</a>
+              <a class="nav-link" id="modalForgetTab" data-toggle="pill" href="#modalForget" role="tab"
+                aria-controls="modalForget" aria-selected="false" title="Quên mật khẩu" aria-label="Quên mật khẩu">Quên
+                mật khẩu</a>
+              <a class="nav-link" id="modalRegisterTab" data-toggle="pill" href="#modalRegister" role="tab"
+                aria-controls="modalRegister" aria-selected="false" title="Đăng ký" aria-label="Đăng ký">Đăng ký</a>
+            </div>
+          </div>
+          <div class="col-lg-9 col-md-9">
+            <div class="tab-content" id="v-pills-tabContent">
+              <div class="tab-pane fade show active" id="modalLogin" role="tabpanel" aria-labelledby="modalLoginTab">
+                <label class="text-center">ĐĂNG NHẬP</label>
+                <div class="login-form-body">
+                  {%- capture formLogin -%}
+                  {%- form 'customer_login' -%}
+                  {{ form.errors | default_errors }}
+                  <div class="form-group">
+                    <label for="login-email">Email*</label>
+                    <input type="email" id="login-email" class="form-control" name="email" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="login-password">Mật khẩu*</label>
+                    <input type="password" id="login-password" class="form-control" name="password" required>
+                  </div>
+                  <div class="form-group">
+                    <button type="submit" class="btn btn-primary hoverOpacity">
+                      ĐĂNG NHẬP
+                    </button>
+                  </div>
+                  {%- endform -%}
+                  {%- endcapture -%}
+                  {{ formLogin | replace: 'script', 'noscript' | replace:'noscript src=', 'noscript data-src='}}
+
+                  <div class="socialLogin">
+                    Hoặc đăng nhập bằng:
+                    <a title="Đăng nhập Facebook" aria-label="Đăng nhập Facebook" href="#"
+                      class="social-login--facebook" onclick="loginFacebook()"><img width="129" height="37"
+                        alt="facebook-login-button" src="https://file.hstatic.net/200000928091/file/fb-btn.svg"></a>
+                    <a title="Đăng nhập Google" aria-label="Đăng nhập Google" href="#" class="social-login--google"
+                      onclick="loginGoogle()"><img width="129" height="37" alt="google-login-button"
+                        src="https://file.hstatic.net/200000928091/file/gp-btn.svg"></a>
+                  </div>
+                </div>
+              </div>
+              <div class="tab-pane fade" id="modalForget" role="tabpanel" aria-labelledby="modalForgetTab">
+                <label class="text-center">QUÊN MẬT KHẨU</label>
+                <div class="recover-form-body">
+                  {% capture formRecover %}
+                  {% form 'recover_customer_password' %}
+                  {{ form.errors | default_errors }}
+                  <div class="form-group">
+                    <label for="recover-email">Email*</label>
+                    <input type="email" id="recover-email" class="form-control" name="Email" required>
+                  </div>
+                  <div class="form-group">
+                    <button type="submit" class="btn btn-primary hoverOpacity">
+                      Gửi
+                    </button>
+                  </div>
+                  {% endform %}
+                  {% endcapture %}
+                  {{ formRecover | replace: 'script', 'noscript' | replace:'noscript src=', 'noscript data-src='}}
+                </div>
+              </div>
+              <div class="tab-pane fade" id="modalRegister" role="tabpanel" aria-labelledby="modalRegisterTab">
+                <label class="text-center">ĐĂNG KÝ</label>
+                <div class="register-form-body">
+                  {%- capture formRegister -%}
+                  {%- form 'create_customer' -%}
+                  {{ form.errors | default_errors }}
+                  <div class="form-group">
+                    <label for="register-last-name">Họ của bạn*</label>
+                    <input type="text" id="register-last-name" class="form-control" name="lastName" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="register-first-name">Tên của bạn*</label>
+                    <input type="text" id="register-first-name" class="form-control" name="firstName" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="register-phone">Số điện thoại</label>
+                    <input type="number" id="register-phone" class="form-control" name="phone">
+                  </div>
+                  <div class="form-group">
+                    <label for="register-email">Email*</label>
+                    <input type="email" id="register-email" class="form-control" name="email" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="register-password">Mật khẩu*</label>
+                    <input type="password" id="register-password" class="form-control" name="password" required>
+                  </div>
+                  <div class="form-group">
+                    <button type="submit" class="btn btn-primary hoverOpacity">
+                      ĐĂNG KÝ
+                    </button>
+                  </div>
+                  {%- endform -%}
+                  {%- endcapture -%}
+                  {{ formRegister | replace: 'script', 'noscript' | replace:'noscript src=', 'noscript data-src='}}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button class="closeModal"><i class="lni lni-close"></i></button>
+    </div>
+  </div>
+</div>

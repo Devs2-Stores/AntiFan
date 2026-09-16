@@ -1,0 +1,64 @@
+{%- capture checkMega -%}shop_mega_menu_check_{{ indexMenu }}{%- endcapture -%}
+{%- capture columnMega -%}shop_mega_menu_column_{{ indexMenu }}{%- endcapture -%}
+{%- capture imageMega -%}shop_mega_menu_image_{{ indexMenu }}.jpg{%- endcapture -%}
+{%- capture imagePosMega -%}shop_mega_menu_image_pos_{{ indexMenu }}{%- endcapture -%}
+{%- capture titleMega -%}shop_mega_menu_title_{{ indexMenu }}{%- endcapture -%}
+{%- capture linkMega -%}shop_mega_menu_link_{{ indexMenu }}{%- endcapture -%}
+{%- if linklists[link.handle].links -%}
+<li class="hasChild{% if link.active  %} active{% endif %}{% if settings[checkMega] %} isMega{% endif %}">
+	<a href="{{ link.url }}" title="{{ link.title }}" aria-label="{{ link.title }}">{{ link.title }}<span>{%- include 'icon-right' -%}</span></a>
+	{%- if settings[checkMega] -%}
+	<div class="mega-box">
+		<div class="container">
+			<div class="mega-box-wrap {{ settings[imagePosMega] }}" style="--columnMega: {{ settings[columnMega] | default: 4 }}"> 
+				<div class="mega-box-left">
+					<a title="{{ settings[titleMega] }}" href="{{ settings[linkMega] }}"><img loading="lazy" decoding="async" width="600" height="600"
+																							  src="{{ imageMega | asset_url  }}" alt="{{ settings[titleMega] }}"/></a>
+				</div>
+				<div class="mega-box-right">
+					{%- endif -%}
+					<ul class="menu1"> 
+						{%- for link_1 in linklists[link.handle].links -%}
+						{%- if  linklists[link_1.handle].links -%}
+						<li class="hasChild{% if link_1.active  %} active{% endif %}{% if settings[checkMega] %} isMega{% endif %}">
+							<a href="{{ link_1.url }}" title="{{ link_1.title }}" aria-label="{{ link_1.title }}">{{ link_1.title }}<span>{%- include 'icon-right' -%}</span></a>
+							<ul class="menu2">
+								{%- for link_2 in linklists[link_1.handle].links -%}
+								{%- if  linklists[link_2.handle].links -%}
+								<li class="hasChild {% if link_2.active  %}active{% endif %}{% if settings[checkMega] %} isMega{% endif %}">
+									<a href="{{ link_2.url }}" title="{{ link_2.title }}" aria-label="{{ link_2.title }}">{{ link_2.title }}<span>{%- include 'icon-right' -%}</span></a>
+									<ul class="menu3">
+										{%- for link_3 in linklists[link_2.handle].links -%}
+										<li class="{% if link_3.active  %}active{% endif %}">
+											<a href="{{ link_3.url }}" title="{{ link_3.title }}" aria-label="{{ link_3.title }}">{{ link_3.title }}</a>
+										</li>
+										{%- endfor -%}
+									</ul>
+								</li>
+								{%- else -%}
+								<li class="{% if link_2.active  %}active{% endif %}">
+									<a href="{{ link_2.url }}" title="{{ link_2.title }}" aria-label="{{ link_2.title }}">{{ link_2.title }}</a>
+								</li>
+								{%- endif -%}
+								{%- endfor -%}
+							</ul>
+						</li>
+						{%- else -%}
+						<li class="{% if link_1.active  %}active{% endif %}">
+							<a href="{{ link_1.url }}" title="{{ link_1.title }}" aria-label="{{ link_1.title }}">{{ link_1.title }}</a>
+						</li>
+						{%- endif -%}
+						{%- endfor -%}
+					</ul>
+					{%- if settings[checkMega] -%}
+				</div>
+			</div>
+		</div>
+	</div>
+	{%- endif -%}
+</li>
+{%- else -%}
+<li class="{% if link.active  %}active{% endif %}">
+	<a href="{{ link.url }}" title="{{ link.title }}" aria-label="{{ link.title }}">{{ link.title }}</a>
+</li>
+{%- endif -%}

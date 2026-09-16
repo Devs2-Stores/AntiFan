@@ -1,0 +1,11 @@
+{%- layout none -%}
+{%- paginate search.results by settings.main_collection_limit -%}
+{%- if search.results.size == 0 -%}
+<p>Chưa có sản phẩm nào trong mục này</p>
+{%- else -%}
+{%- for product in search.results  -%}
+{%- include 'product-item' -%}
+{%- endfor -%}	
+{%- endif -%}
+{%- include 'shop-pagination' -%}
+{%- endpaginate -%}

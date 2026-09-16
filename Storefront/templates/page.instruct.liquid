@@ -1,0 +1,609 @@
+{%- layout none -%}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+<style>
+	body::-webkit-scrollbar,
+	html::-webkit-scrollbar {
+		width: 7.5px;
+	}
+	body::-webkit-scrollbar-track,
+	html::-webkit-scrollbar-track {
+		background: #F1F1F1;
+	}
+	body::-webkit-scrollbar-thumb,
+	html::-webkit-scrollbar-thumb {
+		background: #333;
+	}
+	body img,
+	html img {
+		max-width: 100%;
+		height: auto;
+	}
+	body #instruct,
+	html #instruct {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		align-items: flex-start;
+	}
+	body #instruct .instruct-sidebar,
+	html #instruct .instruct-sidebar {
+		position: sticky;
+		top: 0;
+		width: 17.5%;
+		background: #000;
+		height: 100vh;
+	}
+	@media (max-width: 991px) {
+		body #instruct .instruct-sidebar,
+		html #instruct .instruct-sidebar {
+			position: relative;
+			top: inherit;
+			width: 100%;
+			height: auto;
+		}
+	}
+	body #instruct .instruct-sidebar a,
+	html #instruct .instruct-sidebar a {
+		padding: 15px 15px 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	body #instruct .instruct-sidebar a:first-child,
+	html #instruct .instruct-sidebar a:first-child {
+		height: 100px;
+	}
+	body #instruct .instruct-sidebar a:first-child img,
+	html #instruct .instruct-sidebar a:first-child img {
+		max-height: 75%;
+		width: auto;
+	}
+	body #instruct .instruct-sidebar a:last-child,
+	html #instruct .instruct-sidebar a:last-child {
+		height: 75px;
+		color: #FFF;
+		text-decoration: none;
+	}
+	body #instruct .instruct-sidebar .instruct-sidebar-content,
+	html #instruct .instruct-sidebar .instruct-sidebar-content {
+		height: calc(100% - 175px);
+		overflow-y: auto;
+		text-transform: capitalize;
+	}
+	body #instruct .instruct-sidebar .instruct-sidebar-content::-webkit-scrollbar,
+	html #instruct .instruct-sidebar .instruct-sidebar-content::-webkit-scrollbar {
+		width: 5px;
+	}
+	body #instruct .instruct-sidebar .instruct-sidebar-content::-webkit-scrollbar-track,
+	html #instruct .instruct-sidebar .instruct-sidebar-content::-webkit-scrollbar-track {
+		background: #FFF;
+	}
+	body #instruct .instruct-sidebar .instruct-sidebar-content::-webkit-scrollbar-thumb,
+	html #instruct .instruct-sidebar .instruct-sidebar-content::-webkit-scrollbar-thumb {
+		background: #CCC;
+	}
+	body #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-normal,
+	body #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-special,
+	html #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-normal,
+	html #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-special {
+		padding: 10px 15px;
+		cursor: pointer;
+		color: #FFF;
+		box-shadow: inset 0 -1px 0 #263238;
+	}
+	body #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-item.active,
+	html #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-item.active {
+		background: #F30 !important;
+	}
+	body #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-special,
+	html #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-special {
+		position: relative;
+		padding-left: 50px;
+	}
+	body #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-special:before,
+	html #instruct .instruct-sidebar .instruct-sidebar-content .instruct-main-special:before {
+		content: "";
+		position: absolute;
+		left: 10px;
+		top: 5px;
+		z-index: 9;
+		height: 30px;
+		width: 30px;
+		background: url("https://file.hstatic.net/200000306687/file/imager_8176_d244203aa9cf4dfbb410e1377abdac72.jpg");
+		background-size: contain;
+		background-repeat: no-repeat;
+		background-position: left;
+	}
+	body #instruct .instruct-sidebar img,
+	html #instruct .instruct-sidebar img {
+		max-width: 100%;
+		height: auto;
+	}
+	body #instruct .instruct-main,
+	html #instruct .instruct-main {
+		width: 82.5%;
+		padding: 20px 30px 30px 50px;
+	}
+	@media (max-width: 991px) {
+		body #instruct .instruct-main,
+		html #instruct .instruct-main {
+			width: 100%;
+			padding: 15px;
+		}
+	}
+	body #instruct .instruct-main .instruct-main-head,
+	html #instruct .instruct-main .instruct-main-head {
+		// height: 100vh;
+	}
+	@media (max-width: 991px) {
+		body #instruct .instruct-main .instruct-main-head,
+		html #instruct .instruct-main .instruct-main-head {
+			height: auto;
+			margin-bottom: 60px;
+		}
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-title,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-title {
+		margin-bottom: 15px;
+		padding-bottom: 15px;
+		box-shadow: inset 0 -1px 0 rgba(38, 50, 56, 0.1);
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-title h1,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-title h1 {
+		color: #f8571d;
+		text-transform: uppercase;
+		line-height: 1;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-title p,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-title p {
+		font-size: 20px;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		align-items: flex-start;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left {
+		width: 40%;
+		padding-top: 30px;
+		padding-right: 50px;
+	}
+	@media (max-width: 991px) {
+		body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left,
+		html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left {
+			width: 100%;
+			padding-right: 0;
+		}
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left a,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left a {
+		padding: 5px 10px;
+		background: #F30;
+		color: #FFF;
+		text-decoration: none;
+		border: 1px solid #F30;
+		transition: all 0.5s;
+		border-radius: 5px;
+		display: inline-block;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left a:hover,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left a:hover {
+		color: #F30;
+		background: #FFF;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left a#instruct-to-now,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left a#instruct-to-now {
+		background: #333;
+		color: #FFF;
+		border: 1px solid #333;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left a#instruct-to-now:hover,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-left a#instruct-to-now:hover {
+		background: #FFF;
+		color: #333;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right {
+		width: 60%;
+		position: relative;
+		min-height: calc(100vh - 200px);
+	}
+	@media (max-width: 991px) {
+		body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right,
+		html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right {
+			display: none;
+		}
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right .image-desktop,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right .image-desktop {
+		top: 0;
+		background: url("https://themes.sapo.vn/Themes/Portal/Default/Styles/images/detail/new/bg-image-desktop-detail.png") no-repeat center center;
+		width: 636px;
+		background-size: cover;
+		height: 597px;
+		overflow: hidden;
+		padding: 70px 33px 0;
+		position: absolute;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right .image-mobile,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right .image-mobile {
+		position: absolute;
+		bottom: 0;
+		right: 0;
+		background: url("https://themes.sapo.vn/Themes/Portal/Default/Styles/images/detail/new/bg-image-mobile-detail.png") no-repeat center center;
+		width: 282px;
+		height: 425px;
+		overflow: hidden;
+		padding-top: 29px;
+		padding-right: 43px;
+		text-align: right;
+		border-radius: 7px;
+		overflow: hidden;
+	}
+	body #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right .image-mobile img,
+	html #instruct .instruct-main .instruct-main-head .instruct-main-head-body .instruct-main-head-body-right .image-mobile img {
+		width: 197px;
+		height: 358px;
+		border-top-left-radius: 7px;
+		border-top-right-radius: 7px;
+	}
+	body #instruct .instruct-main .instruct-main-body img{
+		width: 100%;
+		border-radius: 10px;
+		box-shadow: 0 0 1px 1.5px rgba(0, 0, 0, .1);
+	}
+	body #instruct .instruct-main .instruct-main-body h2,
+	body #instruct .instruct-main .instruct-main-body h3,
+	html #instruct .instruct-main .instruct-main-body h2,
+	html #instruct .instruct-main .instruct-main-body h3 {
+		font-weight: bold;
+		color: #f8571d;
+		font-size: 22px;
+		text-transform: capitalize;
+		position: relative;
+		padding-left: 27.5px;
+		line-height: 1;
+		text-shadow: 0 1px 0 #444;
+		margin-bottom: 25px;
+		padding-bottom: 25px;
+		box-shadow: inset 0 -1px 0 rgba(38, 50, 56, 0.1);
+	}
+	body #instruct .instruct-main .instruct-main-body h2:not(:first-child),
+	body #instruct .instruct-main .instruct-main-body h3:not(:first-child),
+	html #instruct .instruct-main .instruct-main-body h2:not(:first-child),
+	html #instruct .instruct-main .instruct-main-body h3:not(:first-child) {
+		margin-top: 25px;
+	}
+	body #instruct .instruct-main .instruct-main-body h2:before,
+	body #instruct .instruct-main .instruct-main-body h3:before,
+	html #instruct .instruct-main .instruct-main-body h2:before,
+	html #instruct .instruct-main .instruct-main-body h3:before {
+		content: "";
+		position: absolute;
+		left: 0;
+		top: 5px;
+		z-index: 9;
+		height: 15px;
+		width: 20px;
+		background: url("//bizweb.dktcdn.net/100/482/001/themes/906081/assets/image_title_all.png?1684231212402");
+		background-size: cover;
+		background-repeat: no-repeat;
+		background-position: left;
+	}
+	body #instruct .instruct-main .instruct-main-body h3,
+	html #instruct .instruct-main .instruct-main-body h3 {
+		padding-left: 40px;
+	}
+	body #instruct .instruct-main .instruct-main-body h3:before,
+	html #instruct .instruct-main .instruct-main-body h3:before {
+		background: url("https://file.hstatic.net/200000306687/file/imager_8176_d244203aa9cf4dfbb410e1377abdac72.jpg");
+		height: 30px;
+		width: 30px;
+		background-size: contain;
+		top: 0;
+	}
+</style>
+<div id="instruct"> 
+	<div class="instruct-sidebar">
+		<a href="/" title="{{ shop.name }}"><img src="https://theme.hstatic.net/1000360248/1000996899/14/logo.png?v=7" alt="{{ shop.name }}"></a>
+		<div class="instruct-sidebar-content">
+
+		</div>
+		<a href="/">Copyright F1GENZ Themes</a>
+	</div>
+	<div class="instruct-main">
+		<div class="instruct-main-head">
+			<div class="instruct-main-head-title">
+				<h1>{{ shop.name }}</h1>
+				<p>Hướng dẫn sử dụng</p>
+			</div>
+			<div class="instruct-main-head-body">
+			</div>
+		</div>
+		<div class="instruct-main-body" id="instruct-now">
+			{{ page.content }}
+		</div>
+	</div>
+</div>
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script>
+	var catalog = "";
+	$('.instruct-main .instruct-main-body').find('h2, h3').each(function(i, v){
+		$(this).attr('data-id', `catalog${i}`);
+		if($(this)[0].localName == 'h2') catalog += `<div class="instruct-main-item instruct-main-normal" data-id="${$(this)[0].dataset.id}"><strong>${$(this)[0].innerText}</strong></div>`
+		else catalog += `<div class="instruct-main-item instruct-main-special" data-id="${$(this)[0].dataset.id}"><strong>${$(this)[0].innerText}</strong></div>`;
+	})
+	$('.instruct-sidebar .instruct-sidebar-content').append(catalog);
+
+	$('body').on('click', '#instruct-to-now', function(e){
+		e.preventDefault();
+		$('body, html').animate({
+			scrollTop: $('#instruct-now').offset().top - 50
+		})
+	})
+
+	$('body').on('click', '.instruct-main-item', function(){
+		$('body, html').animate({
+			scrollTop: $(`#instruct-now [data-id="${$(this).attr('data-id')}"]`).offset().top - 50
+		})
+	})
+
+	$(window).on('scroll', function(){
+		var lastElement = null;
+		var scrollTop = $(this).scrollTop();
+		$('.instruct-main .instruct-main-body').find('h2, h3').each(function(i, v){
+			if(scrollTop > ($(this).offset().top - $(window).outerHeight() + 50)) lastElement = $(this).last();
+		})
+		$('.instruct-main-item').removeClass('active');
+		$(`.instruct-main-item[data-id="${$(lastElement).attr('data-id')}"]`).addClass('active');
+	})
+</script>
+
+<!--
+body,
+html {
+&::-webkit-scrollbar {
+width: 7.5px;
+}
+&::-webkit-scrollbar-track {
+background: #F1F1F1;
+}
+&::-webkit-scrollbar-thumb {
+background: #333;
+}
+img{ max-width: 100%; height: auto; }
+#instruct {
+display: flex;
+flex-wrap: wrap;
+justify-content: center;
+align-items: flex-start;
+.instruct-sidebar {
+position: sticky;
+top: 0;
+width: 17.5%;
+background: #000;
+height: 100vh;
+@media(max-width: 991px) {
+position: relative;
+top: inherit;
+width: 100%;
+height: auto;
+}
+a {
+padding: 15px 15px 0;
+display: flex;
+align-items: center;
+justify-content: center;
+&:first-child {
+height: 100px;
+img {
+max-height: 75%;
+width: auto;
+}
+}
+&:last-child {
+height: 75px;
+color: #FFF;
+//border-top: 1px solid #DbDbDB;
+text-decoration: none;
+}
+}
+.instruct-sidebar-content {
+height: calc(100% - 175px);
+overflow-y: auto;
+text-transform: capitalize;
+&::-webkit-scrollbar {
+width: 5px;
+}
+&::-webkit-scrollbar-track {
+background: #FFF;
+}
+&::-webkit-scrollbar-thumb {
+background: #CCC;
+}
+.instruct-main-normal,
+.instruct-main-special {
+padding: 10px 15px;
+cursor: pointer;
+color: #FFF;
+box-shadow: inset 0 -1px 0 rgba(38,50,56,1);
+}
+.instruct-main-item{
+&.active{
+background: red !important;
+}
+}
+.instruct-main-special {
+position: relative;
+padding-left: 50px;
+&:before {
+content: "";
+position: absolute;
+left: 10px;
+top: 5px;
+z-index: 9;
+height: 30px;
+width: 30px;
+background: url("https://file.hstatic.net/200000306687/file/imager_8176_d244203aa9cf4dfbb410e1377abdac72.jpg");
+background-size: contain;
+background-repeat: no-repeat;
+background-position: left;
+}
+}
+}
+img {
+max-width: 100%;
+height: auto;
+}
+}
+.instruct-main {
+width: 82.5%;
+padding: 20px 30px 30px 50px;
+@media(max-width: 991px) {
+width: 100%;
+padding: 15px;
+}
+.instruct-main-head{
+height: 100vh;
+@media(max-width: 991px){
+height: auto;
+margin-bottom: 60px;
+}
+.instruct-main-head-title{
+margin-bottom: 15px;
+padding-bottom: 15px;
+box-shadow: inset 0 -1px 0 rgba(38,50,56,.1);
+h1 {
+color: #f8571d;
+text-transform: uppercase;
+line-height: 1;
+}
+p{ font-size: 20px; }
+}
+.instruct-main-head-body{
+display: flex;
+flex-wrap: wrap;
+justify-content: center;
+align-items: flex-start;
+.instruct-main-head-body-left{
+width: 40%;
+padding-top: 30px;
+padding-right: 50px;
+@media(max-width: 991px){
+width: 100%;
+padding-right: 0;
+}
+a{
+padding: 5px 10px;
+background: #F30;
+color: #FFF;
+text-decoration: none;
+border: 1px solid #F30;
+transition: all .5s;
+border-radius: 5px;
+display: inline-block;
+&:hover{
+color: #F30;
+background: #FFF;
+}
+&#instruct-to-now{
+background: #333;
+color: #FFF;
+border: 1px solid #333;
+&:hover{
+background: #FFF;
+color: #333;
+}
+}
+}
+}
+.instruct-main-head-body-right{
+width: 60%;
+position: relative;
+min-height: calc(100vh - 200px);
+@media(max-width: 991px){
+display: none;
+}
+.image-desktop{
+top: 0;
+background: url(https://themes.sapo.vn/Themes/Portal/Default/Styles/images/detail/new/bg-image-desktop-detail.png) no-repeat center center;
+width: 636px;
+background-size: cover;
+height: 597px;
+overflow: hidden;
+padding: 70px 33px 0 33px;
+position: absolute;
+}
+.image-mobile{
+position: absolute;
+bottom: 0;
+right: 0;
+background: url(https://themes.sapo.vn/Themes/Portal/Default/Styles/images/detail/new/bg-image-mobile-detail.png) no-repeat center center;
+width: 282px;
+height: 425px;
+overflow: hidden;
+padding-top: 29px;
+padding-right: 43px;
+text-align: right;
+border-radius: 7px;
+overflow: hidden;
+img{
+width: 197px;
+height: 358px;
+border-top-left-radius: 7px;
+border-top-right-radius: 7px;
+}
+}
+}
+}
+}
+.instruct-main-body {
+h2,
+h3 {
+font-weight: bold;
+color: #f8571d;
+font-size: 22px;
+text-transform: capitalize;
+position: relative;
+padding-left: 27.5px;
+line-height: 1;
+text-shadow: 0 1px 0 #444;
+margin-bottom: 25px;
+padding-bottom: 25px;
+box-shadow: inset 0 -1px 0 rgba(38,50,56,.1);
+&:not(:first-child) {
+margin-top: 25px;
+}
+&:before {
+content: "";
+position: absolute;
+left: 0;
+top: 5px;
+z-index: 9;
+height: 15px;
+width: 20px;
+background: url("//bizweb.dktcdn.net/100/482/001/themes/906081/assets/image_title_all.png?1684231212402");
+background-size: cover;
+background-repeat: no-repeat;
+background-position: left;
+}
+}
+h3 {
+padding-left: 40px;
+&:before {
+background: url("https://file.hstatic.net/200000306687/file/imager_8176_d244203aa9cf4dfbb410e1377abdac72.jpg");
+height: 30px;
+width: 30px;
+background-size: contain;
+top: 0;
+}
+}
+}
+}
+}
+}
+
+-->

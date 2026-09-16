@@ -1,0 +1,10 @@
+{% comment %}
+{%- capture button_content -%}{%- endcapture -%}
+{%- capture link -%}{%- endcapture -%}
+{% include "button-clone" with s_primary: 1 %}
+{% endcomment %}
+{%- if settings[button_content] != "" && settings[button_content] != _blank -%}
+<div class="{%- if is_primary == 1 -%}primary-btn{%- else -%}secondary-btn{%- endif -%}">
+	<p>{{ settings[button_content] }}</p>
+</div>
+{%- endif -%}

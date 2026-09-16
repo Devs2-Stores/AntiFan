@@ -1,0 +1,53 @@
+<div id="account-page">
+  <div class="container">
+    <div class="account-page-wrap">
+      <div class="account-page-sidebar">
+        {%- include 'account-sidebar' -%}
+      </div>
+      <div class="account-page-content">
+        <h1>
+          <span>Lịch sử mua hàng</span>
+        </h1>
+        <div class="account-page-detail account-page-order-list">
+          <div class="table-responsive">
+            {%- if customer.orders.size != 0 -%}
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>TT</th>
+                    <th>Mã đơn hàng</th>
+                    <th>Ngày đặt</th>
+                    <th>Sản phẩm</th>
+                    <th>Tổng tiền</th>
+                    <th>Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {%- for order in customer.orders -%}
+                    <tr>
+                      <td>{{ forloop.index }}</td>
+                      <td>{{ order.name | link_to: order.customer_url }}</td>
+                      <td>{{ order.created_at | date: "%d/%m/%Y" }}</td>
+                      <td>
+                        {%- for line_item in order.line_items -%}
+                          - {{ line_item.title | link_to: line_item.url }} <br/>
+                        {%- endfor -%}
+                      </td>
+                      <td>{{ order.total_price | money }}</td>
+                      <td>
+                        {%- case order.financial_status -%}
+                          {%- when 'pending' -%}Chờ xử lý{%- when 'authorized' -%}Ủy quyền{%- when 'paid' -%}Đã thanh toán{%- when 'partially_paid' -%}Đã thanh toán một phần{%- when 'refunded' -%}Trả lại{%- when 'partially_refunded' -%}Trả lại một phần{%- else -%}Hết hiệu lực{%- endcase -%}
+                      </td>
+                    </tr>
+                  {%- endfor -%}
+                </tbody>
+              </table>
+            {%- else -%}
+              <p class="text-center">Bạn chưa đặt mua sản phẩm nào!</p>
+            {%- endif -%}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,95 @@
+<footer class="footer" style="background-image: url({{ 'shop_footer_background.jpg' | asset_url  }})">
+	<div class="container">
+		<div class="footer-top">
+			{%- if settings.footer-top-check-1 -%}
+			<div class="footer-top-item">
+				<h4>{{ settings.footer-top-title-1 }}</h4>
+				<ul class="footer-top-item-content">
+					{%- if settings.footer-top-menu-1 == blank -%} 
+					<li>Nội dung đang được cập nhật...</li>
+					{%- else -%}
+					{%- if linklists[settings.footer-top-menu-1]links == _blank -%}
+					{%- include 'shop-menu-demo' -%}
+					{%- else -%}
+					{%- for link in linklists[settings.footer-top-menu-1]links -%}
+					<li><a href="{{ link.url }}" aria-label="{{ link.title }}" title="{{ link.title }}">{{ link.title }}</a></li>
+					{%- endfor -%}
+					{%- endif -%}
+					{%- endif -%}
+				</ul>
+			</div>
+			{%- endif -%}
+			{%- if settings.footer-top-check-2 -%}
+			<div class="footer-top-item">
+				<h4>{{ settings.footer-top-title-2 }}</h4>
+				<ul class="footer-top-item-content">
+					{%- if settings.footer-top-menu-2 == blank -%}
+					<li>Nội dung đang được cập nhật...</li>
+					{%- else -%}
+					{%- if linklists[settings.footer-top-menu-2]links == _blank -%}
+					{%- include 'shop-menu-demo' -%}
+					{%- else -%}
+					{%- for link in linklists[settings.footer-top-menu-2]links -%}
+					<li><a href="{{ link.url }}" aria-label="{{ link.title }}" title="{{ link.title }}">{{ link.title }}</a></li>
+					{%- endfor -%}
+					{%- endif -%}
+					{%- endif -%}
+				</ul>
+			</div>
+			{%- endif -%}
+
+			{%- if settings.footer-top-check-3 -%}
+			<div class="footer-top-item">
+				<h4>{{ settings.footer-top-title-3 }}</h4>
+				<ul class="footer-top-item-content">
+					{%- if settings.footer-top-menu-3 == blank -%}
+					<li>Nội dung đang được cập nhật...</li>
+					{%- else -%}
+					{%- if linklists[settings.footer-top-menu-3]links == _blank -%}
+					{%- include 'shop-menu-demo' -%}
+					{%- else -%}
+					{%- for link in linklists[settings.footer-top-menu-3]links -%}
+					<li><a href="{{ link.url }}" aria-label="{{ link.title }}" title="{{ link.title }}">{{ link.title }}</a></li>
+					{%- endfor -%}
+					{%- endif -%}
+					{%- endif -%}
+				</ul>
+			</div>
+			{%- endif -%}
+			{%- if settings.footer-top-check-4 -%}
+			<div class="footer-top-item">
+				<h4>{{ settings.footer-top-title-4 }}</h4>
+				<div class="footer-top-item-content">
+					{%- if pages[settings.footer-top-content-4] and pages[settings.footer-top-content-4]content != "" -%}
+					{{ pages[settings.footer-top-content-4]content | strip_html | truncatewords: 60 }}
+					{%- else -%}
+					Nội dung đang được cập nhật...
+					{%- endif -%}
+
+					{%- if settings.shop_bct_check -%}
+					<a class="shop-bct" href="{{ settings.shop_bct_link }}" aria-label="Bộ Công Thương" title="Bộ Công Thương">
+						<img src="{{ 'shop_bct_image.png' | asset_url  }}" alt="Bộ Công Thương"/>
+					</a>
+					{%- endif -%}
+				</div>
+			</div>
+			{%- endif -%}
+		</div>
+		{%- include "home-newletter" -%}
+		{%- if settings.use_footer_bottomx -%}
+		<div class="footer-bot">
+			<div class="copyright">
+				<div class="logo-footer">
+					<a href="{{ shop.url }}" title="{{ shop.name }}" aria-label="{{ shop.name }}" class="logo">
+						<img title="{{ shop.name }}" loading="lazy" src="{{ 'shop_footer_logo.png' |  img_url: 'medium'  | asset_url  }}" alt="{{ shop.name }}">
+					</a>
+				</div>
+				<p class="text-copyright mb-0">© {{ "now" | date: "%Y" }} - Bản quyền thuộc về 
+					<a target="_blank" aria-label="{{ settings.ccompany_name }}" title="{{ settings.ccompany_name }}" href="{{ settings.ccompany_link }}"><strong>{{ settings.ccompany_name }}</strong></a> 
+					{%- if template == 'index' -%}<a target="_blank" href="https://www.haravan.com?ref=f1genz" rel="nofollow">Cung cấp bởi <strong>Haravan</strong></a>{%- else -%}Cung cấp bởi <strong>Haravan</strong>{%- endif -%}
+				</p>
+			</div>
+		</div>
+		{%- endif -%}
+	</div>
+</footer>

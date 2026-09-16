@@ -1,0 +1,10 @@
+{%- if settings.shop_freeship_check -%}
+<div class="shop-freeship" data-freeship-price="{{ settings.shop_freeship_success | divided_by: 1 }}">
+	<div class="shop-freeship-bar">
+		<div class="shop-freeship-bar-main"><span></span></div>
+	</div>
+	<div class="shop-freeship-note"> 
+		Mua thêm <span>{{ settings.shop_freeship_success | divided_by: 1 | minus: cart.total_price | money }}</span> để được miễn phí giao hàng trên toàn quốc
+	</div>
+</div>
+{%- endif -%}

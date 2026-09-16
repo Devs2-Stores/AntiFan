@@ -1,0 +1,373 @@
+{%- if settings.shop_social_sidebar_check -%}
+{%- assign style = settings.shop_social_sidebar_style -%}
+{%- if style == "style1" -%}
+<!-- Style 1 -->
+<div class="shop-social-sidebar">
+	{% for i in (1..6) %}
+	{% capture check %}shop_social_sidebar_item_check_{{ i }}{% endcapture %}
+	{% capture image %}shop_social_sidebar_item_image_{{ i }}.png{% endcapture %}
+	{% capture background %}shop_social_sidebar_item_background_{{ i }}{% endcapture %}
+	{% capture link %}shop_social_sidebar_item_link_{{ i }}{% endcapture %}
+	{% capture title %}shop_social_sidebar_item_title_{{ i }}{% endcapture %}
+	{% if settings[check] %}
+	<a class="hiddenMob" style="background-color: {{ settings[background] }};" href="{{ settings[link] }}" title="{{ settings[title] }}" aria-label="{{ shop.name }} - {{ settings[title] }}" target="_blank">
+		<img width="32" height="32" loading="lazy" decoding="async"
+			 src="{{ image | asset_url   }}" alt="Social {{ settings[title] }}" title="Social {{ settings[title] }}">
+		{{ settings[title] }}
+	</a>
+	{% endif %}
+	{% endfor %}
+	{%- if settings.shop_social_sidebar_item_check_7 and settings.shop_modal_phone_check -%}
+	{%- unless template contains 'product' or template contains 'page.contact' -%}
+	<button class="hiddenMob" data-fancybox data-src="#shop-modal-phone" style="background-color: {{ settings.shop_social_sidebar_item_background_7 }};" title="{{ shop.name }} - Support">
+		<img width="32" height="32" loading="lazy" decoding="async"
+			 src="{{ 'shop_social_sidebar_item_image_7.png' | asset_url   }}" alt="{{ shop.name }} - {{ settings.shop_social_sidebar_item_title_7 }}" title="{{ settings.shop_social_sidebar_item_title_7 }}">
+		{{ settings.shop_social_sidebar_item_title_7 }}
+	</button>
+	{%- endunless -%}
+	{%- endif -%}
+	<button class="back-to-top" title="Back to top">
+		<img width="32" height="32" loading="lazy" decoding="async"
+			 src="https://file.hstatic.net/200000588277/file/arrow-up_eb1426bb7fc647eab89f9279695752cd.png" alt="Back to top" title="Back to top">
+		Lên đầu trang
+	</button>
+</div>
+{%- else -%}
+<!-- Style 2 -->
+<style>
+	@keyframes f1zs-livechatchannels__fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+	.f1zs-trigger {
+		display: flex;
+		justify-content: flex-end;
+		cursor: pointer;
+		-webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+		justify-content: flex-end;
+	}
+	.f1zs-trigger__close {
+		width: 50px;
+		height: 50px;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		border-radius: 50%;
+		margin-top: 14px;
+		color: #fff;
+		font-size: 22px;
+		background-color: rgb(253, 204, 182); 
+		border-radius: 50%;
+	}
+	.f1zs-trigger__icon {
+		width: 50px;
+		height: 50px;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		border-radius: 50%;
+		margin-top: 14px;
+		background: #2f2f2f;
+		color: #fff;
+		font-size: 22px;
+		background-color: #fdccb6;
+		border-radius: 50%;
+	}
+	.f1zs-trigger__icon .f1zs-livechatchannels-animated--shake {
+		animation: f1zs-LiveChatChannels__Shake 1s;
+		animation-iteration-count: 10;
+		animation-delay: 5s;
+	}
+	.f1zs-trigger__icon .f1zs-livechatchannels-animated--pulse {
+		animation: f1zs-LiveChatChannels__Pulse 3s ease-in-out 10 both;
+		animation-delay: 5s;
+	}
+	.f1zs-trigger__icon .f1zs-livechatchannels-animated--jello-shake {
+		animation: f1zs-LiveChatChannels__JelloShake 3s 10 both;
+		animation-delay: 5s;
+	}
+	.f1zs-trigger__icon .f1zs-livechatchannels-animated--wobble-wobble {
+		animation: f1zs-LiveChatChannels__WobbleWobble 6s ease-in-out 10 both;
+		animation-delay: 5s;
+	}
+	.f1zs-trigger__icon .f1zs-livechatchannels-animated--vibrate {
+		animation: f1zs-LiveChatChannels__Vibrate 1.5s linear 4 both;
+		animation-delay: 5s;
+	}
+	.f1zs-trigger__icon .f1zs-livechatchannels-animated--swing {
+		animation: f1zs-LiveChatChannels__Swing ease-in-out 4s 10 alternate;
+		transform-origin: center -20px;
+		animation-delay: 5s;
+	}
+	.f1zs-livechatchannels .f1zs-livechatchannelswidget {
+		position: fixed;
+		bottom: 20px;
+		z-index: 99;
+		top: inherit !important;
+		bottom: 20px;
+		right: 20px;
+	}
+	@media(max-width: 1024px){
+		.f1zs-livechatchannels .f1zs-livechatchannelswidget {
+			bottom: 70px;
+			right: 15px;
+		}
+	}
+	.f1zs-livechatchannels .f1zs-livechatchannelswidget--full .f1zs-livechatchannelswidget__content {
+		width: 340px;
+		display: none;
+	}
+	.f1zs-livechatchannels .f1zs-livechatchannelswidget--full .f1zs-livechatchannelswidget__content.f1zs-livechatchannels--fade-in {
+		display: block;
+	}
+	.f1zs-livechatchannels .f1zs-allinonechatwidget {
+		position: fixed;
+		bottom: 20px;
+		z-index: 99;
+	}
+	.f1zs-livechatchannels .f1zs-allinonechatwidget--full .f1zs-allinonechatwidget__content {
+		width: 340px;
+	}
+	.f1zs-livechatchannels .f1zs-livechatchannelsheader {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 12px 24px 32px;
+		border-radius: 6px 6px 0 0;
+		position: relative;
+	}
+
+	.f1zs-livechatchannels .f1zs-livechatchannelsheader__content {
+		width: 100%;
+	}
+	.f1zs-livechatchannels .f1zs-livechatchannelsheader__title {
+		margin: 0 0 4px;
+		font-size: 20px;
+		font-weight: 600;
+		line-height: 1.4;
+		color: #FFF;
+	}
+	.f1zs-livechatchannels .f1zs-livechatchannelsheader__message {
+		margin: 0 0 4px;
+		font-size: 16px;
+		line-height: 1.2;
+	}
+	.f1zs-livechatchannels .f1zs-livechatchannelsheader__note {
+		margin: 0 0 4px;
+		font-size: 14px;
+		line-height: 1.2;
+	}
+	.f1zs-livechatchannels .f1zs-livechatchannelshidget__content.f1zs-livechatchannels--fade-in {
+		display: block;
+	}
+	.f1zs-livechatchannels--fade-in {
+		animation: f1zs-livechatchannels__fadeIn 0.3s ease-in-out;
+	}
+	.f1zs-channel {
+		position: relative;
+	}
+	.f1zs-channel:hover .f1zs-channel__tooltip {
+		display: block;
+	}
+	.f1zs-channel--full {
+		padding: 12px 24px;
+		width: 100%;
+		transition: color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+	}
+	.f1zs-channel--full:not(:last-child) {
+		border-bottom: 1px solid #f1f1f1;
+	}
+	.f1zs-channel--full:hover {
+		box-shadow: inset 340px 0 0 0 #fafafa;
+	}
+	.f1zs-channel--full .f1zs-channel__icon {
+		width: 48px;
+		height: 48px;
+		border-radius: 50%;
+	}
+	.f1zs-channel--full .f1zs-channel__details {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.2;
+		margin-left: 12px;
+	}
+	.f1zs-channel--full .f1zs-channel__agent {
+		font-weight: 600;
+		font-size: 16px;
+		margin: 0 0 4px;
+	}
+	.f1zs-channel--full .f1zs-channel__platform {
+		font-weight: 600;
+	}
+	.f1zs-channel--full .f1zs-channel__role {
+		margin: 0;
+		padding: 0;
+		font-size: 14px;
+	}
+	.f1zs-channel__link {
+		display: flex;
+		align-items: center;
+		flex-direction: row;
+		text-decoration: none;
+		color: #313131;
+		cursor: pointer;
+	}
+	.f1zs-channel__link:hover{
+		text-decoration:none;
+	}
+	.f1zs-livechatchannelsheader {
+		background: linear-gradient(180deg, var(--color_main), #fff);
+	}
+	.f1zs-channellist {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		padding: 0;
+	}
+	.f1zs-channellist--full {
+		width: 100%;
+		background: #fff;
+		border-radius: 0 0 6px 6px;
+		box-shadow: 6px 6px 20px -7px rgba(0, 0, 0, .2);
+		overflow-y: scroll;
+		padding: 0;
+		scroll-padding: 0;
+	}
+	.f1zs-channellist--full::-webkit-scrollbar {
+		width: 8px;
+	}
+	.f1zs-channellist--full::-webkit-scrollbar-track {
+		background-color: rgba(0, 0, 0, 0);
+	}
+	.f1zs-channellist--full::-webkit-scrollbar-thumb {
+		background-color: #d6dee1;
+		border-radius: 20px;
+		border: 6px solid rgba(0, 0, 0, 0);
+		background-clip: content-box;
+	}
+	.f1zs-channellist--full::-webkit-scrollbar-thumb:hover {
+		background-color: #a8bbbf;
+	}
+	.f1zs-channel__icon{
+		border-radius: 50%;
+	}
+	@media( max-width: 767px) {
+		.f1zs-livechatchannels .f1zs-livechatchannelswidget--full .f1zs-livechatchannelswidget__content {
+			width: 300px;
+		}
+		.f1zs-livechatchannels .f1zs-allinonechatwidget--full .f1zs-allinonechatwidget__content {
+			width: 300px;
+		}
+		.f1zs-livechatchannels .f1zs-livechatchannelsheader {
+			padding: 12px 16px 20px;
+		}
+		.f1zs-channel--full {
+			padding: 12px 16px;
+		}
+	}
+	.back-to-top {
+		position: fixed;
+		top: inherit !important;
+		right: 20px;
+		bottom: 80px;
+		width: 50px;
+		z-index: 99;
+		height: 50px;
+		display: none;
+		justify-content: center;
+		align-items: center;
+		border-radius: 50%;
+		background-color: var(--color_main);
+		border: 1px solid var(--color_main);
+		border-radius: 50%;
+	}
+	.back-to-top.active {
+		display: flex;
+	}
+	.back-to-top img {
+		filter:brightness(1) invert(1);
+		max-width: 24px;
+	}
+	@media(max-width: 1024px){
+		.back-to-top{
+			bottom: 130px; right: 15px; 
+		}
+	}
+</style>
+<button class="back-to-top" title="Back to top">
+	<img width="32" height="32" loading="lazy" decoding="async"
+		 src="https://file.hstatic.net/200000588277/file/arrow-up_eb1426bb7fc647eab89f9279695752cd.png" alt="Back to top" title="Back to top">
+</button>
+{% assign widget_class = "f1zs-livechatchannelswidget f1zs-livechatchannelswidget--full" %}
+{% assign content_class = "f1zs-livechatchannelswidget__content" %}
+{% assign header_class = "f1zs-livechatchannelsheader" %}
+{% assign channel_class = "f1zs-channel f1zs-channel--full" %}
+{% assign link_class = "f1zs-channel__link" %}
+{% assign icon_class = "f1zs-channel__icon" %}
+{% assign details_class = "f1zs-channel__details" %}
+<div class="f1zs-livechatchannels">
+	<div class="{{ widget_class }}">
+		<div class="{{ content_class }}">
+			<div class="{{ header_class }}">
+				<div class="f1zs-livechatchannelsheader__content">
+					<h5 class="f1zs-livechatchannelsheader__title">{{ settings.shop_social_sidebartwo_title1 }}</h5>
+					<p class="f1zs-livechatchannelsheader__message">{{ settings.shop_social_sidebartwo_content1 }}</p>
+					<p class="f1zs-livechatchannelsheader__note">{{ settings.shop_social_sidebartwo_content2 }}</p>
+				</div>
+			</div>
+			<div class="f1zs-channellist f1zs-channellist--full">
+				{%- for i in (1..4) -%}
+				{%- capture check -%}shop_social_sidebartwo_item_check_{{ i }}{%- endcapture -%}
+				{%- capture image -%}shop_social_sidebartwo_item_image_{{ i }}.png{%- endcapture -%}
+				{%- capture title -%}shop_social_sidebartwo_item_title_{{ i }}{%- endcapture -%}
+				{%- capture content -%}shop_social_sidebartwo_item_content_{{ i }}{%- endcapture -%}
+				{%- if settings[check] -%}
+				<div class="{{ channel_class }}">
+					<a class="{{ link_class }}" target="_blank" rel="noreferrer" href="">
+						<img class="{{ icon_class }}" alt="Jane" src="{{ image |  img_url: 'thumb'  | asset_url  }}" width="50" height="50" loading="lazy">
+						<div class="{{ details_class }}">
+							<h5 class="f1zs-channel__agent">{{ settings[title] }}</h5>
+							<p class="f1zs-channel__role">{{ settings[content] }}</p>
+						</div>
+					</a>
+				</div>
+				{%- endif -%}
+				{%- endfor -%}
+			</div>
+		</div>
+		<div class="f1zs-trigger">
+			<div class="f1zs-trigger__icon" style="background-color: var(--color_main); border-radius: 50%;">
+				<img class="f1zs-livechatchannels-animated--swing" alt="Chat icon" src="{{ 'shop_social_sidebartwo_iconz.png' | asset_url  }}" width="30" height="30" loading="lazy">
+			</div>
+			<div class="f1zs-trigger__close" style="display:none;">
+				<span>✕</span>
+			</div>
+		</div>
+	</div>
+</div>
+<script>
+	$(document).ready(function () {
+		const $triggerIcon = $('.f1zs-trigger__icon');
+		const $triggerClose = $('.f1zs-trigger__close');
+		const $widgetContent = $('.f1zs-livechatchannelswidget__content');
+		$widgetContent.removeClass('f1zs-livechatchannels--fade-in');
+		$triggerClose.hide();
+		$triggerIcon.on('click', function () {
+			$triggerIcon.hide(); 
+			$triggerClose.show(); 
+			$widgetContent.addClass('f1zs-livechatchannels--fade-in');
+		});
+		$triggerClose.on('click', function () {
+			$triggerClose.hide();
+			$triggerIcon.show(); 
+			$widgetContent.removeClass('f1zs-livechatchannels--fade-in'); 
+		});
+	});
+</script>
+{%- endif -%}
+{%- endif -%}

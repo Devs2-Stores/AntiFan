@@ -1,0 +1,28 @@
+<div class="index-instagram section-distance">
+	<div class="index-instagram-container {% unless settings.ii_fullwidth %} container{% endunless %}">
+		<h2 class="box-title">
+			<a href="{{ settings.ii_link }}" title="{{ settings.ii_title | escape }}">
+				{{ settings.ii_title }}
+			</a>
+		</h2>
+		<div class="ii-body">
+			<ul class="ii-body-cols">
+				{%- for idx in (1..11) -%}
+				{%- capture check -%}ii_item_check_{{ idx }}{%- endcapture -%}
+				{%- capture image -%}ii_item_image_{{ idx }}.jpg{%- endcapture -%}
+				{%- capture title -%}ii_item_alt_{{ idx }}{%- endcapture -%}
+				{%- capture link -%}ii_item_link_{{ idx }}{%- endcapture -%}
+				{%- if settings[check] -%}
+				<li class="ii-body-col">
+					{%- if forloop.first -%}
+					{%- include 'image-clone' with image, link, title, d_width: 1200, d_height: 600, count: 1, responsive: 0 -%}
+					{%- else -%}
+					{%- include 'image-clone' with image, link, title, d_width: 600, d_height: 600, count: 1, responsive: 0 -%}
+					{%- endif -%}
+				</li>
+				{%- endif -%}
+				{%- endfor -%}
+			</ul>
+		</div>
+	</div>
+</div>

@@ -1,0 +1,41 @@
+{%- if template == "index" -%}
+<script>
+	if(f1genzPS){
+		var scriptTiktok = document.createElement("script");
+		scriptTiktok.src = "https://www.tiktok.com/embed.js";
+		$("head").append(scriptTiktok);
+	}
+</script>
+{%- endif -%}
+<script >
+	$("body").removeClass("preload");
+	document.addEventListener('lazybeforeunveil', function(e){
+		var bg = e.target.getAttribute('data-bg');
+		if(bg) e.target.style.backgroundImage = 'url(' + bg + ')';
+	});
+	if(f1genzPS){
+		window.addEventListener("load", (event) => {
+			if($('input[name="g-recaptcha-response"]').length > 0){
+				$.getScript('https://www.google.com/recaptcha/api.js?render=6LdD18MUAAAAAHqKl3Avv8W-tREL6LangePxQLM-').done(function(s,r){			
+					$('head').append(s);
+					$('input[name="g-recaptcha-response"]').each(function(){
+						var flagId = $(this).attr('id');
+						grecaptcha.ready(function() {
+							grecaptcha.execute('6LdD18MUAAAAAHqKl3Avv8W-tREL6LangePxQLM-', {action: 'submit'})
+								.then(function(token) {
+								document.getElementById(flagId).value = token;
+							});
+						});
+					})
+				});
+			}
+
+			$('img[loading="lazy"]').each(function(){
+				$(this).removeAttr('loading');
+			})
+		});
+	}else{
+		// Jquery touch
+		jQuery.event.special.touchstart={setup:function(e,t,n){this.addEventListener("touchstart",n,{passive:!t.includes("noPreventDefault")})}},jQuery.event.special.touchmove={setup:function(e,t,n){this.addEventListener("touchmove",n,{passive:!t.includes("noPreventDefault")})}};
+	}
+</script>

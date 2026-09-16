@@ -1,0 +1,10 @@
+{%- layout none -%}
+{%- if collection -%}
+{%- if collection.products_count > 0 -%}
+{%- for product in collection.products limit: 10 -%}
+{%- include "product-item" -%}
+{%- endfor -%}
+{%- else -%}
+<p class="w-100 m-0 text-center fill-color">Nội dung đang được cập nhật...</p>
+{%- endif -%}
+{%- endif -%}

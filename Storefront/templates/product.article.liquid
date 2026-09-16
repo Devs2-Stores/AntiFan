@@ -1,0 +1,31 @@
+{%- layout none -%}
+<div class="superContent-product">
+	<div class="superContent-product-left">
+		<a href="{{ product.url }}" title="{{ product.title }}"><img title="{{ product.title }}" src="{{ product.featured_image.src | product_img_url : 'master' }}" alt="{% if product.images.alt.size > 0 %}{{ product.images.alt | escape }}{% else%}{{ product.title }}{% endif %}"></a>
+	</div>
+	<div class="superContent-product-right">
+		<h3 class="superContent-product-right-title"><a href="{{ product.url }}">{{ product.title }}</a></h3>
+		<div class="superContent-product-right-info">
+			<span>{%- if product.variants[0].sku != null and product.variants[0].sku != "" -%}Mã sản phẩm: <span>{{ product.variants[0].sku }}</span>{%- else -%}Mã sản phẩm: <span>Đang cập nhật</span>{%- endif -%}</span>
+			<span>{%- if product.variants[0].vendor != null and product.variants[0].vendor != "" -%}Thương hiệu: {{ product.vendor  }}{%- else -%}Thương hiệu: Đang cập nhật{%- endif -%}</span>
+		</div>
+		<p class="superContent-product-right-price"> 
+			{%- if product.variants[0].price == 0 -%}
+			<strong>Liên hệ </strong>
+			{% else %}
+			<strong>{{ product.variants[0].price | money }}</strong>
+			{%- if product.variants[0].compare_at_price > product.variants[0].price -%}
+			<del>{{ product.variants[0].compare_at_price | money }}</del>
+			<span>(-{{product.variants[0].compare_at_price | minus: product.variants[0].price | divided_by:product.variants[0].compare_at_price | times : 100 | round : 0}}%)</span>
+			{%- endif -%}
+			{%- endif -%}
+			
+		</p>
+		<div class="superContent-product-right-des">
+			{{ product.content | strip_html | truncatewords: 100 }}
+		</div>
+		<div class="superContent-product-right-cta">
+			<a class="superContent-product-right-cta-more" title="Xem ngay" href="{{ product.url }}">Xem chi tiết</a>
+		</div>
+	</div>
+</div>

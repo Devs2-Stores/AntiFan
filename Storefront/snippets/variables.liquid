@@ -1,0 +1,62 @@
+<script>
+window.F1GENZ_vars = { 			
+	template: "{{ template }}",
+	formatMoney: "{{ shop.money_format }}",
+	account: {
+		logged: {% if customer %}true{% else %}false{% endif %},
+		id: {% if customer %}{{ customer.id }}{% else %}null{% endif %},
+		email: {% if customer %}"{{ customer.email }}"{% else %}null{% endif %}
+	},
+	shop:{
+		url: "{{ shop.url }}",
+		name: "{{ shop.name }}",
+		phone: "{{ shop.phone }}",
+		featured:{
+			super_fs: {
+				all_day: {{ settings.home_fsale_all_day }},
+				slider: {{ settings.home_fsale_slider }},
+			},
+			animate: {{ settings.shop_animate_check }},
+			contactPopup: {
+				check: {{ settings.shop_modal_contact_check }},
+				time: {{ settings.shop_modal_contact_time | default: 5000 }},
+			},
+			popSale: {
+				check: {{ settings.shop_pop_sale_check }},
+				names: "{{ settings.shop_pop_sale_names }}",
+				handle: "{%- if collections[settings.shop_pop_sale_handle] and collections[settings.shop_pop_sale_handle].products_count > 0 -%}{{ settings.shop_pop_sale_handle }}{%- endif -%}"
+			},
+			shopping: {{ settings.shop_shopping_status | default: false }},
+			hoverTab: {
+				check: {{ settings.hovertab_check }},
+				title: "{{ settings.hovertab_title }}",
+				text: "{{ settings.hovertab_text }}",
+				button1: "{{ settings.hovertab_button1 }}",
+				button2: "{{ settings.hovertab_button2 }}",
+				link: "{{ settings.hovertab_link }}",
+				minutes: {% if settings.hovertab_minutes != '' %}{{ settings.hovertab_minutes | default: 5 }}{% else %}5{% endif %}
+			}
+		}
+	},
+	collection:{
+		defaultSort: "{{ collection.default_sort_by }}",
+		featured: "{{ settings.main_collection_sidebar | default: 'vertical' }}"
+	},
+	quickview: null,
+	product: {
+		data: {% if template contains 'product' %}{{ product | json }}{%- else -%}null{% endif %},
+		gift: false,
+		availableOption: true,
+		featured: {
+			style_gallery: "{{ settings.main_product_style_gallery | default: 'style1' }}",
+			item_in_style5: {{ settings.main_product_style_gallery_5_items | default: 3 }},
+			contact_0: {
+				text: {% if settings.main_product_price_contact_text != _blank %}"{{ settings.main_product_price_contact_text }}"{% else %}"Liên hệ ngay"{% endif %},
+			}
+		}
+	},
+	article: { 
+		data: `{% if template == 'article' %}{{ article.content | replace: 'div', 'p' | replace: '"', ''' }}{% else %}null{% endif %}`,
+	},
+}		
+</script>

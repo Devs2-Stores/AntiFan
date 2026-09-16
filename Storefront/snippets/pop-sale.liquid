@@ -1,0 +1,13 @@
+{%- if settings.shop_pop_sale_check -%}
+<div class="pop-sale">
+	<div class="pop-sale-img">
+		<img width="110" height="110" loading="lazy" decoding="async"
+			 src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" alt="sale popup">
+	</div>
+	<div class="pop-sale-content"> 
+		<a href="#" class="pop-sale-title" aria-label="{{ shop.name }}"></a>
+		<p><span class="pop-sale-name"></span> vừa mua cách đây <span class="pop-sale-minutes"></span> phút</p>
+		<a href="" class="pop-sale-title-buynow">Mua ngay</a>
+	</div>
+</div>
+{%- endif -%}

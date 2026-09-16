@@ -1,0 +1,77 @@
+<footer class="footers3" style="background-image: url({{ 'shop_footer_background.jpg' | asset_url  }})">
+	<div class="container">
+		<div class="footers3-wrap">
+			<div class="footers3-top">
+				<div class="footers3-top-left">
+					<a class="footers3-top-logo" href="/" title="{{ shop.name }}" aria-label="{{ shop.name }}">
+						<img title="{{ shop.name }}" loading="lazy" src="{{ 'shop_footer_logo.png' |  img_url: 'medium'  | asset_url  }}"
+							 alt="{{ shop.name }}">
+					</a>
+				</div>
+				<div class="footers3-top-right">
+					{%- if settings.footers3_info1_content != blank and settings.footers3_info1_content != "" -%}
+					<p class="footers3-top-info">
+						<a title="{{ settings.footers3_info1_content | escape }}" {% if settings.footers3_info1_link == blank %}role="button"{% else %}target="_blank" href="{{ settings.footers3_info1_link }}"{% endif %}>{{ settings.footers3_info1_content | newline_to_br }}</a>
+					</p>
+					{%- endif -%}
+					{%- if settings.footers3_info2_content != blank and settings.footers3_info2_content != "" -%}
+					<p class="footers3-top-info">
+						<a title="{{ settings.footers3_info2_content | escape }}" {% if settings.footers3_info2_link == blank %}role="button"{% else %}target="_blank" href="{{ settings.footers3_info2_link }}"{% endif %}>{{ settings.footers3_info2_content | newline_to_br }}</a>
+					</p>
+					{%- endif -%}
+					{%- if settings.footers3_info3_content != blank and settings.footers3_info3_content != "" -%}
+					<p class="footers3-top-info">
+						<a title="{{ settings.footers3_info3_content | escape }}" {% if settings.footers3_info3_link == blank %}role="button"{% else %}target="_blank" href="{{ settings.footers3_info3_link }}"{% endif %}>{{ settings.footers3_info3_content | newline_to_br }}</a>
+					</p>
+					{%- endif -%}
+					{%- if settings.footers3_info4_content != blank and settings.footers3_info4_content != "" -%}
+					<p class="footers3-top-info">
+						<a title="{{ settings.footers3_info4_content | escape }}" {% if settings.footers3_info4_link == blank %}role="button"{% else %}target="_blank" href="{{ settings.footers3_info4_link }}"{% endif %}>{{ settings.footers3_info4_content | newline_to_br }}</a>
+					</p>
+					{%- endif -%}
+					<div class="footers3-top-social">
+						{%- include 'shop-social' -%}
+					</div>
+					{%- if settings.shop_bct_check -%}
+					<a class="shop-bct" href="{{ settings.shop_bct_link }}" aria-label="Bộ Công Thương" title="Bộ Công Thương">
+						<img src="{{ 'shop_bct_image.png' | asset_url  }}" alt="Bộ Công Thương"/>
+					</a>
+					{%- endif -%}
+				</div>
+			</div>
+			<div class="footers3-mid">
+				{%- for i in (1..4) -%}
+				{%- capture check -%}footers3_mid_item_check_{{ i }}{%- endcapture -%}
+				{%- capture title -%}footers3_mid_item_title_{{ i }}{%- endcapture -%}
+				{%- capture menu -%}footers3_mid_item_menu_{{ i }}{%- endcapture -%}
+				{%- capture menuHandle -%}{{ settings[menu] }}{%- endcapture -%}
+				{%- if settings[check] -%}
+				<div class="footers3-mid-item">
+					<strong class="heading">{{ settings[title] | newline_to_br }}</strong>
+					<ul class="list-unstyled">
+						{%- if settings[menu] == blank -%} 
+						<li>Nội dung đang được cập nhật...</li>
+						{%- else -%}
+						{%- if linklists[menuHandle]links == _blank -%}
+						{%- include 'shop-menu-demo' -%}
+						{%- else -%}
+						{%- for link in linklists[menuHandle]links -%}
+						<li><a href="{{ link.url }}" aria-label="{{ link.title }}" title="{{ link.title }}">{{ link.title }}</a></li>
+						{%- endfor -%}
+						{%- endif -%}
+						{%- endif -%}
+					</ul>
+				</div>
+				{%- endif -%}
+				{%- endfor -%}
+			</div>
+			<div class="footers3-bot">
+				<p class="text-copyright">© {{ "now" | date: "%Y" }} - Bản quyền thuộc về 
+					<a target="_blank" aria-label="{{ settings.ccompany_name }}" title="{{ settings.ccompany_name }}" href="{{ settings.ccompany_link }}"><strong>{{ settings.ccompany_name }}</strong></a> 
+					{%- if template == 'index' -%}<a target="_blank" href="https://www.haravan.com?ref=f1genz" rel="nofollow">Cung cấp bởi <strong>Haravan</strong></a>{%- else -%}Cung cấp bởi <strong>Haravan</strong>{%- endif -%}
+				</p>
+				{%- include 'shop-payment' -%}
+			</div>
+		</div>
+	</div>
+</footer>

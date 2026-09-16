@@ -1,0 +1,33 @@
+<div class="main-404">
+	<div class="main-404-breadcrumb">
+		<div class="container">
+			<div hidden class="section-title-all">
+				<h1>Trang không tồn tại</h1>
+			</div>
+			{%- include 'shop-breadcrumb' -%}
+		</div>
+	</div>
+	<div class="main-404-wrap">
+		<div class="container">
+			<div class="main-404-data">
+				<div class="main-404-data-none">
+					<div class="section-title-all">
+						<span>Không tìm thấy trang</span>
+						<p>Vui lòng kiểm tra lại liên kết của bạn! Nếu bạn đang tìm kiếm điều gì, hãy để chúng tôi giúp bạn.</p>
+						{%- capture formContact -%}
+						{%- form 'contact' -%}		
+						<input required type="text" name="contact[name]" value="" placeholder="Họ tên của bạn">
+						<input required type="email" name="contact[email]" value="" placeholder="Email của bạn">
+						<input required type="number" name="contact[phone]" value="" placeholder="Số điện thoại của bạn">
+						<textarea type="text" name="contact[body]" placeholder="Nhập nội dung bạn cần tư vấn"></textarea>
+						<button type="button">Đăng ký</button>
+						{%- endform -%}
+						{%- endcapture -%}
+						{{ formContact | replace: 'script', 'noscript' | replace:'noscript src=', 'noscript data-src='}}
+					</div>
+					<span><img width="600" height="600" loading="lazy" src="{{ '404.png' |  img_url: 'grande'  | asset_url  }}" title="404 Not Found" alt="404 Not Found"/></span>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>

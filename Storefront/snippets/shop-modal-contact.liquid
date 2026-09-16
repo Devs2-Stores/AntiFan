@@ -1,0 +1,38 @@
+{%- if settings.shop_modal_contact_check -%}
+<div class="modal" tabindex="-1" role="dialog" id="shop-modal-contact">
+	<div class="modal-dialog modal-dialog-centered" role="document">
+		<div class="modal-content">
+			<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+				{%- include 'icon-close' -%}
+			</button>
+			<div class="modal-contact">
+				<div class="modal-contact-wrap">
+					<div class="modal-contact-wrap-right">
+						<div class="modal-contact-wrap-right-content">
+							<div class="section-title-all">
+								<span>{{ settings.shop_modal_contact_title }}</span>
+								<p>{{ settings.shop_modal_contact_description }}</p>
+							</div>
+							{%- capture formCustomer -%}
+							{%- form 'customer' -%}		 
+							<input name="form_type" type="hidden" value="customer">
+							<input type="hidden" name="utf8" value="✓">
+							<input type="hidden" name="contact[tags]" value="Khách hàng đăng ký nhận tin">
+							<input type="hidden" name="contact[first_name]" value="Người đăng ký">
+							<input type="hidden" name="contact[last_name]" value="">
+							<input type="email" required placeholder="Nhập địa chỉ email của bạn..." name="contact[email]">                
+							<button type="submit" aria-label="Đăng ký nhận tin">Đăng ký nhận tin</button>
+							{%- endform -%}
+							{%- endcapture -%}
+							{{ formCustomer | replace: 'script', 'noscript' | replace:'noscript src=', 'noscript data-src='}}
+						</div>
+					</div>
+					<div class="modal-contact-wrap-left">
+						<img width="480" height="480" loading="lazy" src="{{ 'shop_modal_contact_image.jpg' |  img_url: 'large'  | asset_url  }}" alt="{{ shopName }} - Contact">
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+{%- endif -%}

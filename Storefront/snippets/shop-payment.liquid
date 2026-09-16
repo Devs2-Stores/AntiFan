@@ -1,0 +1,15 @@
+<ul class="shop-payment"> 
+	{%- for i in (1..5) -%}
+	{%- capture check -%}shop_payment_item_check_{{ i }}{%- endcapture -%}
+	{%- capture image -%}shop_payment_item_image_{{ i }}.png{%- endcapture -%}
+	{%- capture alt -%}shop_payment_item_alt_{{ i }}{%- endcapture -%}
+	{%- capture link -%}shop_payment_item_link_{{ i }}{%- endcapture -%}
+	{%- if settings[check] -%}
+	<li class="shop-payment-item">
+		<a href="{{ settings[link] | default: '/' }}" aria-label="{{ settings[link] | default: shop.name }} - Payment" title="{{ settings[alt] | default: shop.name }} - Payment">
+			<img width="76" height="48" loading="lazy" src="{{ image | asset_url  }}" alt="{{ settings[alt] | default: shop.name }} - Payment">
+		</a>
+	</li>
+	{%- endif -%}
+	{%- endfor -%}
+</ul>

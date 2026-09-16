@@ -1,0 +1,39 @@
+<section class="home-slider index-scss section-distance {% unless settings.home_slider_fullwidth %}section-distance-top{% endunless %}">
+	<div class="home-slider-container {% unless settings.home_slider_fullwidth %} container{% endunless %}">
+		<div class="home-slider-items">
+			{%- assign count = 0 -%} 
+			{%- for i in (1..3) -%}
+			{%- capture check -%}home_slider_item_check_{{ i }}{%- endcapture -%}
+			{%- capture imagelg -%}home_slider_item_imagelg_{{ i }}.jpg{%- endcapture -%}
+			{%- capture imagexs -%}home_slider_item_imagexs_{{ i }}.jpg{%- endcapture -%}
+			{%- capture usecontent -%}home_slider_item_usecontent_{{ i }}{%- endcapture -%}
+			{%- capture title -%}home_slider_item_title_{{ i }}{%- endcapture -%}
+			{%- capture subtitle -%}home_slider_item_subtitle_{{ i }}{%- endcapture -%}
+			{%- capture cta -%}home_slider_item_cta_{{ i }}{%- endcapture -%}
+			{%- capture link -%}home_slider_item_link_{{ i }}{%- endcapture -%}
+			{%- if settings[check] -%}
+			<div class="home-slider-item">
+				<a href="{{ settings[link] }}" aria-label="{{ settings[title] }}" title="{{ settings[title] }}">
+					<picture>
+						<source media="(min-width: 600px)" srcset="{{ imagelg | asset_url  }}"/>
+						<source media="(min-width: 0)" srcset="{{ imagexs | asset_url  }}"/>
+						<img {% if count == 0 %}loading="eager" decoding="sync" fetchpriority="high"{% else %}loading="lazy" decoding="async" fetchpriority="low"{% endif %}
+							 width="1920" height="640" class="w-100" src="{{ imagelg | asset_url  }}" alt="{{ settings[title] }}" title="{{ settings[title] }}">
+					</picture>
+				</a>
+				{%- if settings[usecontent] -%}
+				<div class="home-slider-item-content d-flex-vertical layout-fix">
+					<h2 class="home-slider-header w-text">{{ settings[title] | strip }}</h2> 
+					<p class="home-slider-item-subtitle w-text">{{ settings[subtitle] | strip }}</p>
+					{%- if settings[cta] != blank && settings[cta] != "" -%}
+					<a class="buttonStyle1" href="{{ settings[link] }}" aria-label="{{ settings[cta] }}" title="{{ settings[cta] }}"><span>{{ settings[cta] | strip | truncate: 20 }}</span></a>
+					{%- endif -%}
+				</div>
+				{%- endif -%}
+			</div>
+			{%- assign count = count | plus: 1 -%}
+			{%- endif -%}
+			{%- endfor -%}
+		</div> 
+	</div>
+</section>

@@ -1,0 +1,26 @@
+<section class="index-whatsnew section-distance">
+	<div class="index-whatsnew-container {% unless settings.iwn_fullwidth %} container{% endunless %}">
+		<h2 class="box-title">
+			<a href="{{ settings.iwn_link }}" title="{{ settings.iwn_title | escape }}">
+				{{ settings.iwn_title }}
+			</a>
+		</h2>
+		<div class="iwn-body">
+			<div class="swiper h-auto">
+				<ul class="iwn-body-cols swiper-wrapper">
+					{%- for idx in (1..10) -%}
+					{%- capture check -%}iwn_item_check_{{ idx }}{%- endcapture -%}
+					{%- capture image -%}iwn_item_image_{{ idx }}.jpg{%- endcapture -%}
+					{%- capture alt -%}iwn_item_alt_{{ idx }}{%- endcapture -%}
+					{%- capture link -%}iwn_item_link_{{ idx }}{%- endcapture -%}
+					{%- if settings[check] -%}
+					<li class="iwn-body-col swiper-slide">
+						{%- include "image-clone" with image, link, title: alt, d_width: 800, d_height: 100, count: 1, responsive: 0 -%}
+					</li>
+					{%- endif -%}
+					{%- endfor -%}
+				</ul>
+			</div>
+		</div>
+	</div>
+</section>

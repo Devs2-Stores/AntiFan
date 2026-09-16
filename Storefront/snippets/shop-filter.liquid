@@ -1,0 +1,141 @@
+<div class="shop-filter-wrap shop-filter-mobile">
+  <div class="shop-filter-choose">
+    <label>Bạn chọn:
+      <button
+        type="button"
+        data-type="shop-filter-choose-remove"
+        title="Bỏ hết">Bỏ hết</button>
+    </label>
+    <ul class="shop-filter-choose-data"></ul>
+  </div>
+  {%- if settings.shop_filter_check_2 and collection.all_vendors.size > 0 -%}
+    <div class="shop-filter" data-type="vendor">
+      <h4>{{ settings.shop_filter_title_2 }}</h4>
+      <div class="shop-filter-list">
+        {%- for vendor in collection.all_vendors -%}
+          {%- if vendor != blank -%}
+            <div class="shop-filter-item">
+              <input
+                type="checkbox"
+                id="shop-filter-vendor{{ forloop.index }}"
+                value="{{ vendor }}"
+                data-type="vendor">
+              <label for="shop-filter-vendor{{ forloop.index }}">{{ vendor }}</label>
+            </div>
+          {%- endif -%}
+        {%- endfor -%}
+      </div>
+    </div>
+  {%- endif -%}
+  {%- if settings.shop_filter_check_3 and collection.all_types.size > 0 -%}
+    <div class="shop-filter" data-type="type">
+      <h4>{{ settings.shop_filter_title_3 }}</h4>
+      <div class="shop-filter-list">
+        {%- for type in collection.all_types -%}
+          {%- if type != blank -%}
+            <div class="shop-filter-item">
+              <input
+                type="checkbox"
+                id="shop-filter-type{{ forloop.index }}"
+                value="{{ type }}"
+                data-type="type">
+              <label for="shop-filter-type{{ forloop.index }}">{{ type }}</label>
+            </div>
+          {%- endif -%}
+        {%- endfor -%}
+      </div>
+    </div>
+  {%- endif -%}
+  {%- if settings.shop_filter_check_4 -%}
+    <div class="shop-filter" data-type="variant1">
+      <h4>{{ settings.shop_filter_title_4 }}</h4>
+      {%- assign variants = settings.shop_filter_variant_4 | split: ',' -%}
+      <div class="shop-filter-list">
+        {%- for variant in variants -%}
+          <div class="shop-filter-item">
+            <input
+              type="checkbox"
+              id="shop-filter-tag-item1{{ forloop.index }}"
+              value="{{ variant }}"
+              data-type="tag">
+            <label for="shop-filter-tag-item1{{ forloop.index }}">{{ variant }}</label>
+          </div>
+        {%- endfor -%}
+      </div>
+    </div>
+  {%- endif -%}
+  {%- if settings.shop_filter_check_5 -%}
+    <div class="shop-filter" data-type="variant2">
+      <h4>{{ settings.shop_filter_title_5 }}</h4>
+      {%- assign variants = settings.shop_filter_variant_5 | split: ',' -%}
+      <div class="shop-filter-list">
+        {%- for variant in variants -%}
+          <div class="shop-filter-item">
+            <input
+              type="checkbox"
+              id="shop-filter-tag-item2{{ forloop.index }}"
+              value="{{ variant }}"
+              data-type="tag">
+            <label for="shop-filter-tag-item2{{ forloop.index }}">{{ variant }}</label>
+          </div>
+        {%- endfor -%}
+      </div>
+    </div>
+  {%- endif -%}
+  {%- if settings.shop_filter_check_6 -%}
+    <div class="shop-filter" data-type="variant3">
+      <h4>{{ settings.shop_filter_title_6 }}</h4>
+      {%- assign variants = settings.shop_filter_variant_6 | split: ',' -%}
+      <div class="shop-filter-list color">
+        {%- for variant in variants -%}
+          <div class="shop-filter-item color {{ variant | lstrip | rstrip | handleize }}">
+            <input
+              type="checkbox"
+              id="shop-filter-tag-item3{{ forloop.index }}"
+              value="{{ variant }}"
+              data-type="tag">
+            <label for="shop-filter-tag-item3{{ forloop.index }}" title="{{ variant }}">{{ variant }}</label>
+          </div>
+        {%- endfor -%}
+      </div>
+    </div>
+  {%- endif -%}
+  {%- if settings.shop_filter_check_7 -%}
+    <div class="shop-filter" data-type="price">
+      <h4>{{ settings.shop_filter_title_7 }}</h4>
+      <div class="shop-filter-list">
+        {%- for i in (1..5) -%}
+          {%- capture check -%}shop_filter_price_check_{{ i }}{%- endcapture -%}
+          {%- capture content -%}shop_filter_price_content_{{ i }}{%- endcapture -%}
+          {%- assign contentSplit = settings[content] | split: '-' -%}
+          {%- assign index = forloop.index -%}
+          {%- case index -%}
+            {%- when 1 -%}
+              {%- capture label -%}Dưới {{ contentSplit[0] | money }}{%- endcapture -%}
+              {%- capture value -%}(price_variant:product range 0_{{ contentSplit[0] }}){%- endcapture -%}
+            {%- when 2 -%}
+              {%- capture label -%}Từ {{ contentSplit[0] | money }} - {{ contentSplit[1] | money }}{%- endcapture -%}
+              {%- capture value -%}(price_variant:product range {{ contentSplit[0] }}_{{ contentSplit[1] }}){%- endcapture -%}
+            {%- when 3 -%}
+              {%- capture label -%}Từ {{ contentSplit[0] | money }} - {{ contentSplit[1] | money }}{%- endcapture -%}
+              {%- capture value -%}(price_variant:product range {{ contentSplit[0] }}_{{ contentSplit[1] }}){%- endcapture -%}
+            {%- when 4 -%}
+              {%- capture label -%}Từ {{ contentSplit[0] | money }} - {{ contentSplit[1] | money }}{%- endcapture -%}
+              {%- capture value -%}(price_variant:product range {{ contentSplit[0] }}_{{ contentSplit[1] }}){%- endcapture -%}
+            {%- else -%}
+              {%- capture label -%}Trên {{ contentSplit[0] | money }}{%- endcapture -%}
+              {%- capture value -%}(price_variant:product range {{ contentSplit[0] }}_1000000000){%- endcapture -%}
+          {%- endcase -%}
+          <div class="shop-filter-item">
+            <input
+              type="checkbox"
+              id="shop-filter-price-item{{ forloop.index }}"
+              value="{{ value }}"
+              data-type="price">
+            <label for="shop-filter-price-item{{ forloop.index }}" title="{{ label }}">{{ label }}</label>
+          </div>
+        {%- endfor -%}
+      </div>
+    </div>
+  {%- endif -%}
+</div>

@@ -1,0 +1,29 @@
+<div class="main-product-feature-thumbs">
+	{%- for media in product.images -%}
+	<a href="#" onclick="return false;" aria-label="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}" 
+	   title="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}" data-index="{{ forloop.index }}" data-id="{{ media.id }}"
+	   data-src="{{ media.src | product_img_url : 'master' }}">
+		<picture>
+			<source width="480" height="480" media="(max-width: 480px)" srcset="{{ media.src | product_img_url : 'grande' }}"> 
+			<source width="1024" height="1024" media="(min-width: 481px)" srcset="{{ media.src | product_img_url : '1024x1024' }}">
+			<img class="w-auto" width="1024" height="1024" src="{{ media.src | product_img_url : '1024x1024' }}"  title="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+				 alt="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+				 {% if forloop.first %}loading="eager" decoding="sync" fetchpriority="high"{% else %}loading="lazy" decoding="async" fetchpriority="low"{% endif %}>
+		</picture>
+	</a>
+	{%- endfor -%} 
+</div>
+<div class="main-product-feature-featured">
+	{%- for media in product.images limit: 1 -%}
+	<a data-fancybox="gallery" href="{{ media.src | product_img_url : 'grande' }}" aria-label="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}" 
+	   title="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}" data-index="{{ forloop.index }}">
+		<picture>
+			<source width="480" height="480" media="(max-width: 480px)" srcset="{{ media.src | product_img_url : 'grande' }}"> 
+			<source width="1024" height="1024" media="(min-width: 481px)" srcset="{{ media.src | product_img_url : '1024x1024' }}">
+			<img class="w-auto" width="1024" height="1024" src="{{ media.src | product_img_url : '1024x1024' }}"  title="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+				 alt="{% if media.alt != _blank %}{{ media.alt | escape }}{% else %}{{ product.title }}{% endif %}"
+				 {% if forloop.first %}loading="eager" decoding="sync" fetchpriority="high"{% else %}loading="lazy" decoding="async" fetchpriority="low"{% endif %}>
+		</picture>
+	</a> 
+	{%- endfor -%} 
+</div>

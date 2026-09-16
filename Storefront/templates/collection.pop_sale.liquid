@@ -1,0 +1,11 @@
+{%- layout none -%}
+[
+	{%- for product in collection.products -%}
+	{
+		"items": "{{ forloop.index }}",
+		"title": "{{ product.title }}",
+		"url": "{{ product.url }}",
+		"image": "{%- if product.images.size > 0 -%}{{ product.featured_image.src | img_url: 'small' }}{%- else -%}https://bizweb.dktcdn.net/100/513/073/themes/945034/assets/product_demo_1.jpg?1711535923031{%- endif -%}"
+	}{% unless forloop.last %},{% endunless %}
+	{%- endfor -%}
+]

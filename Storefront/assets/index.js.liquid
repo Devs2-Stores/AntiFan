@@ -1,0 +1,101 @@
+F1GENZ.Index = {
+	init: function(){
+		let self = this;
+		self.slider();
+		self.special_collection();
+		self.whatsnew();
+		F1GENZ.Stores.init();
+	},
+	slider: function(){
+		if($('.home-slider .home-slider-item').length > 0)
+			F1GENZ.Helper.productSlider('.home-slider .home-slider-items', 1, 1, 1, 1, { arrows: true, autoplay: true, infinite: true, fade: true, }); 
+
+		F1GENZ.Helper.productSlider(".home-product-list-slider",4,3,2,1.5,{ rows: 2 })
+
+		if($('.home-blog .home-blog-items .article-item').length > 0)
+			F1GENZ.Helper.productSlider('.home-blog .home-blog-items', 4, 3, 2, 1, { arrows: true, autoplay: true, infinite: true }); 
+
+		if($('.home-vendor .home-vendor-items .home-vendor-item').length > 0){
+			F1GENZ.Helper.productSlider( 
+				'.home-vendor .home-vendor-items', Number($('.home-vendor .home-vendor-items .home-vendor-item').length - 1), 3, 2, 1, 
+				{ variableWidth: true, speed: 500, arrows: false, autoplay: true, infinite: true, centerMode: true, initialSlide: 1, cssEase: 'linear' }
+			); 
+			setTimeout(function(){
+				$('.home-vendor .home-vendor-items').slick('slickSetOption', 'autoplay', true);
+			}, 0)
+		}
+	},
+	special_collection: function(){
+		$(document).on("click", ".isc-head-tab a", function(e){
+			e.preventDefault();
+			var that = $(this);
+			let bigParent = that.parents(".index_special_collection");
+			let thisHandle = that.attr("data-handle");
+			let thisUrl = that.attr("href");
+			if(that.hasClass("view-all")) window.location.href = thisUrl;
+			else{
+				that.parent().addClass("active").siblings().removeClass("active");
+				$.get(`/collections/${thisHandle}?view=data`).done(function(data){
+					if($(".index_special_collection .slider_4_columns.slick-initialized").length > 0) $(".index_special_collection .slider_4_columns.slick-initialized").slick("unslick");
+					if($(".index_special_collection .slider_5_columns.slick-initialized").length > 0) $(".index_special_collection .slider_5_columns.slick-initialized").slick("unslick");
+					bigParent.find(".view-all").attr("href", thisUrl);
+					bigParent.find(".isc-body .isc-body-cols").html(data);
+					if(window.innerWidth > 991){
+						setTimeout(function(){
+							if($(".index_special_collection .slider_4_columns").length > 0)
+								F1GENZ.Helper.productSlider('.index_special_collection  .slider_4_columns', 4, 3, 2, 1, { arrows: true, dots: true, autoplay: true, infinite: true, adaptiveHeight: false }); 
+
+							if($(".index_special_collection .slider_5_columns").length > 0)
+								F1GENZ.Helper.productSlider('.index_special_collection  .slider_5_columns', 5, 3, 2, 1, { arrows: true, dots: true, autoplay: true, infinite: true, adaptiveHeight: false }); 
+						})
+					}
+				}, 500)
+			}
+		})
+
+		if(window.innerWidth > 1024){
+			if($(".index_special_collection .slider_1_item").length > 0)
+				F1GENZ.Helper.productSlider('.index_special_collection  .slider_1_item', 1, 1, 1, 1, { arrows: true, dots: true, autoplay: true, infinite: true, adaptiveHeight: false }); 
+
+			if($(".index_special_collection .slider_2_items").length > 0)
+				F1GENZ.Helper.productSlider('.index_special_collection  .slider_2_items', 2, 2, 2, 1, { arrows: true, dots: true, autoplay: true, infinite: true, adaptiveHeight: false }); 
+
+			if($(".index_special_collection .slider_3_items").length > 0)
+				F1GENZ.Helper.productSlider('.index_special_collection  .slider_3_items', 3, 3, 2, 1, { arrows: true, dots: true, autoplay: true, infinite: true, adaptiveHeight: false }); 
+
+			if($(".index_special_collection .slider_4_columns").length > 0)
+				F1GENZ.Helper.productSlider('.index_special_collection  .slider_4_columns', 4, 3, 2, 1, { arrows: true, dots: true, autoplay: true, infinite: true, adaptiveHeight: true }); 
+		}else{
+			if($(".index_special_collection .slider_5_columns").length > 0)
+				F1GENZ.Helper.productSlider('.index_special_collection  .slider_5_columns', 5, 3, 2, 1, { arrows: true, dots: true, autoplay: true, infinite: true, adaptiveHeight: true }); 
+		}
+	},
+	whatsnew: function(){
+		var swiper = new Swiper(".index-whatsnew .swiper", {
+			slidesPerView: 1,
+			spaceBetween: 10,
+			centeredSlides: true,
+			initialSlide: 3,
+			loop: true,
+			autoplay: {
+				delay: 4000, // 3 giây chuyển slide
+				disableOnInteraction: false // Không tắt autoplay khi user vuốt
+			},
+			pagination: {
+				el: ".swiper-pagination",
+				clickable: true,
+			},
+			breakpoints: {
+				640: {
+					slidesPerView: 2,
+					spaceBetween: 20,
+				},
+				1024: {
+					slidesPerView: 4,
+					spaceBetween: 40,
+				},
+			},
+		});
+	}
+}
+f1genzPS && F1GENZ.Index.init();

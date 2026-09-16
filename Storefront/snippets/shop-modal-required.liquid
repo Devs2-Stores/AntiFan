@@ -1,0 +1,52 @@
+{%- if settings.shop_modal_required_check -%}
+<shop-modal-required class="shop-modal-required" style="display: none;">
+  <a role="button" class="shop-modal-required-overplay" aria-label="Đóng Popup"></a>
+  <div class="shop-modal-required-body" style="--shop-modal-required-background: url({{ 'shop_modal_required_image.png' | asset_url  }})">
+    <div class="shop-modal-require-body-content">
+		<h2>{{ settings.shop_modal_required_title | newline_to_br }}</h2>
+		<p>{{ settings.shop_modal_required_content | newline_to_br }}</p>
+		<button type="button" class="button-fstyle1" data-type="no-accept-required"><span>{{ settings.shop_modal_required_no_accept }}</span></button>
+		<button type="button" class="button-fstyle1" data-type="accept-required"><span>{{ settings.shop_modal_required_accept }}</span></button>
+	</div>
+  </div>
+</shop-modal-required>
+<script>
+	if(f1genzPS){
+	  if (!customElements.get("shop-modal-required")) {
+		customElements.define("shop-modal-required",
+		  class ShopModalRequired extends HTMLElement {
+			constructor() {
+			  super();
+
+			  this.nameLocal = "shop-modal-required";
+			  this.overplayButton = this.querySelector(".shop-modal-required-overplay");
+			  this.noAcceptButton = this.querySelector(`button[data-type="no-accept-required"]`);
+			  this.acceptButton = this.querySelector(`button[data-type="accept-required"]`);
+			  this.isRequired = localStorage.getItem(this.nameLocal);
+			  if (this.isRequired) this.remove();
+			  else{
+				this.style.display = "block";
+				document.body.classList.add("open-noscroll");
+				window.scrollTo(0, 0);
+			  }
+
+			  this.overplayButton.addEventListener("click", this.noAcceptRequired.bind(this));
+			  this.noAcceptButton.addEventListener("click", this.noAcceptRequired.bind(this));
+			  this.acceptButton.addEventListener("click", this.acceptRequired.bind(this)); 
+			}
+
+			noAcceptRequired() {
+				window.location.reload();
+			}
+
+			acceptRequired() {
+			  localStorage.setItem(this.nameLocal, true);
+			  document.querySelector("shop-modal-required").remove();
+			  document.body.classList.remove("open-noscroll");
+			}
+		  }
+		);
+	  }
+	}
+</script>
+{%- endif -%}

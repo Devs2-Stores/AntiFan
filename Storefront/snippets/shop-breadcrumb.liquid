@@ -1,0 +1,90 @@
+<div class="breadcrumb-wrap">
+	<ol class="breadcrumb">
+		<li class="breadcrumb-item"><a href="/" aria-label="Trang chủ" title="Trang chủ">Trang chủ</a></li>
+		{%- if template contains 'page' -%}
+		<li class="breadcrumb-item active"><span>{{ page.title }}</span></li>
+		{%- elseif template contains 'list-collections' -%}
+		<li class="breadcrumb-item active"><span>Danh mục</span></li>
+		{%- elseif template contains 'product' -%}
+		{%- if product.collections.first -%}
+		<li class="breadcrumb-item"><a href="{{ product.collections.first.url }}" aria-label="{{ product.collections.first.title }}" title="{{ product.collections.first.title }}">{{ product.collections.first.title }}</a></li>
+		{%- endif -%}
+		<li class="breadcrumb-item active"><span> {{ product.title }}</span></li>
+		{%- elseif template contains 'collection' and collection.handle -%}
+
+		{%- if current_tags -%}
+
+		<li class="breadcrumb-item active">Tag: "{{ current_tags.first | capitalize }}"</li>
+		{%- else -%}
+		{%- if collection.handle == 'all' -%}
+
+		<li class="breadcrumb-item active"><span>Tất cả sản phẩm</span></li>
+		{%- else -%}
+
+		<li class="breadcrumb-item active"><span>{{ collection.title }}</span></li>
+		{%- endif -%}
+		{%- endif -%}
+		{%- elseif template contains 'search' -%}
+
+		<li class="breadcrumb-item"><span>Tìm kiếm</span></li>
+		<li class="breadcrumb-item"><span>{{ search.terms | split: "name:" | last }}</span></li>		
+		{%- elseif template contains 'blog' -%}		
+		{%- if current_tags -%}
+
+		<li class="breadcrumb-item"><a href="{{ blog.url }}" aria-label="Blog - {{ blog.title }}" title="Blog - {{ blog.title }}">Blog - {{ blog.title }}</a></li>
+
+		<li class="breadcrumb-item"><span>{{ current_tags | join: " + " }}</span></li>		
+		{%- else -%}
+
+		<li class="breadcrumb-item active"><span>Blog - {{ blog.title }}</span></li>
+		{%- endif -%}
+		{%- elseif template contains 'article' -%}
+
+		<li class="breadcrumb-item"><a href="/blogs/{{ blog.handle }}" aria-label="Blog - {{ blog.title }}" title="Blog - {{ blog.title }}">Blog - {{ blog.title }}</a></li>
+
+		<li class="breadcrumb-item active"><span>{{ article.title }}</span></li>
+		{%- elseif template contains "404" -%}
+
+		<li class="breadcrumb-item active">Lỗi 404</li>
+		{%- elseif template contains "customers[account]" -%}
+
+		<li class="breadcrumb-item"><a href="/account" aria-label="Tài khoản" title="Tài khoản">Tài khoản</a></li>
+		{%- elseif template contains "customers[register]" -%}
+
+		<li class="breadcrumb-item"><a href="/account" aria-label="Tài khoản" title="Tài khoản">Tài khoản</a></li>
+
+		<li class="breadcrumb-item active"><span>Ðăng ký</span></li>
+		{%- elseif template contains "customers[login]" -%}
+
+		<li class="breadcrumb-item"><a href="/account" aria-label="Tài khoản" title="Tài khoản">Tài khoản</a></li>
+
+		<li class="breadcrumb-item active"><span>Đăng nhập</span></li>
+		{%- elseif template contains "customers[activate_account]" -%}
+
+		<li class="breadcrumb-item"><a href="/account" aria-label="Tài khoản" title="Tài khoản">Tài khoản</a></li>
+
+		<li class="breadcrumb-item active"><span>Kích hoạt</span></li>
+		{%- elseif template contains "customers[reset_password]" -%}
+
+		<li class="breadcrumb-item"><a href="/account" aria-label="Tài khoản" title="Tài khoản">Tài khoản</a></li>
+
+		<li class="breadcrumb-item active"><span>Thiết lập lại mật khẩu</span></li>
+		{%- elseif template contains "customers[addresses]" -%}
+
+		<li class="breadcrumb-item"><a href="/account" aria-label="Tài khoản" title="Tài khoản">Tài khoản</a></li>
+		<li class="breadcrumb-item active"><span>Ðịa chỉ</span></li>
+		{%- elseif template contains "customers[order]" -%}
+
+		<li class="breadcrumb-item"><a href="/account" aria-label="Tài khoản" title="Tài khoản">Tài khoản</a></li>
+
+		<li class="breadcrumb-item"><a href="/account" aria-label="Đơn hàng" title="Đơn hàng">Đơn hàng:</a></li>
+		<li class="breadcrumb-item active"><span>{{ order.name }}</span></li>
+		{%- elseif template contains 'cart' -%}
+
+		<li class="breadcrumb-item active"><span>Giỏ hàng</span></li>
+		{%- else -%}
+
+		<li class="breadcrumb-item active"><span>{{ page_title }}</span></li>
+		{%- endif -%}
+	</ol>
+</div>

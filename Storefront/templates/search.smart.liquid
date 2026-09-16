@@ -1,0 +1,21 @@
+{%- layout none -%}
+{%- if search.results.size == 0 -%}
+<p class="text-center">Không có kết quả được tìm thấy</p>
+{%- else -%}
+<div class="tool-search-smart-product tool-search-smart-data">
+	<label>Sản phẩm ({{ search.results.size }})</label> 
+	<ul>
+		{%- for product in search.results -%}
+		<li>
+			<a title="{{ product.title }}" aria-label="{{ product.title }}" href="{{ product.url }}">
+				<span><img title="{{ product.title }}" src="{% if product.images.size > 0 %}{{ product.featured_image.src | img_url: 'large' }}{% else %}https://theme.hstatic.net/200000588277/1000936869/14/no_image.jpg?v=1{% endif %}"></span>
+				<strong>
+					{{ product.title }} <br>
+					<b style="color: #F30">{%- if product.price == 0 -%}Liên hệ{%- else -%}{{ product.price | money }}{%- endif -%}</b>
+				</strong>
+			</a>
+		</li>
+		{%- endfor -%}
+	</ul>
+</div>
+{%- endif -%}

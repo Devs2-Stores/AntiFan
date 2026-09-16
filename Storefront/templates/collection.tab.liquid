@@ -1,0 +1,8 @@
+{%- layout none -%}
+{%- if collection.products_count == 0 -%}
+<p>Các sản phẩm đang được cập nhật.</p>
+{%- else -%} 
+{%- for product in collection.products limit: settings.home_collections_limit -%}
+{%- include 'product-item' -%}
+{%- endfor -%}
+{%- endif -%}

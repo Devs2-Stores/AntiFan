@@ -1,0 +1,98 @@
+<div class="my-account-wrap">
+  <div class="container">
+    <div class="row">
+      <div class="col-12 col-sm-6 col-md-4 offset-sm-3 offset-md-4">
+        <div id="auth-form">
+          <div class="auth-heading">
+            <i class="lar la-user"></i>
+            <h1>
+              Đăng ký
+            </h1>
+          </div>
+          <div class="auth-form-body">
+            <div class="register-form-body">
+              {% form 'create_customer' %}
+                {{ form.errors | default_errors }}
+                <div class="form-group">
+                  <label for="register-last-name">Họ của bạn*</label>
+                  <input
+                    type="text"
+                    id="register-last-name"
+                    class="form-control"
+                    name="customer[last_name]"
+                    required>
+                </div>
+                <div class="form-group">
+                  <label for="register-first-name">Tên của bạn*</label>
+                  <input
+                    type="text"
+                    id="register-first-name"
+                    class="form-control"
+                    name="customer[first_name]"
+                    required>
+                </div>
+                <div class="form-group">
+                  <label for="register-phone">Số điện thoại</label>
+                  <input
+                    type="text"
+                    id="register-phone"
+                    class="form-control"
+                    name="customer[phone]"
+                    pattern='^\+?\d{0,10}'>
+                </div>
+                <div class="form-group">
+                  <label>Giới tính</label>
+                  <div class="row">
+                    <div class="col-6">
+                      <input
+                        type="radio"
+                        id="register-gender-0"
+                        value="0"
+                        name="customer[gender]"
+                        checked />
+                      <label for="register-gender-0">Nữ</label>
+                    </div>
+                    <div class="col-6">
+                      <input
+                        type="radio"
+                        id="register-gender-1"
+                        value="1"
+                        name="customer[gender]" />
+                      <label for="register-gender-1">Nam</label>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="register-email">Email*</label>
+                  <input
+                    type="email"
+                    id="register-email"
+                    class="form-control"
+                    name="customer[email]"
+                    required>
+                </div>
+                <div class="form-group">
+                  <label for="register-password">Mật khẩu*</label>
+                  <input
+                    type="password"
+                    id="register-password"
+                    class="form-control"
+                    name="customer[password]"
+                    required>
+                </div>
+                <div class="form-group">
+                  <button type="submit" class="btn btn-primary">
+                    ĐĂNG KÝ
+                  </button>
+                </div>
+                <div class="auth-back-btn">
+                  <a href="/account/login">Đăng nhập</a>
+                </div>
+              {% endform %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

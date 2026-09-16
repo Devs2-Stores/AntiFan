@@ -1,0 +1,90 @@
+{%- if settings.snowflakes_check -%}
+{%- assign widthSnowflakes = settings.snowflakes_width -%} <!-- Kích thước gốc của bông tuyết -->
+{%- assign speedSnowflakes = settings.snowflakes_speed -%} <!-- Vùng di chuyển qua lại của bông tuyết -->
+{%- assign translateSnowflakes = settings.snowflakes_translate -%} <!-- Vùng di chuyển qua lại của bông tuyết -->
+{%- assign scaleSnowflakes = 3 | plus: 5 | times: 1.0 | divided_by: 10 -%} <!-- Độ chuyển động xoay của bông tuyết -->
+{%- assign countSnowflakes = settings.snowflakes_images | split: '||' | size -%} <!-- Số lượng bông tuyết -->
+{%- assign countDuplicateSnowflakes = settings.snowflakes_duplicate -%} <!-- Số lần duplicate số lượng bông tuyết gốc -->
+{%- assign totalSnowflakes = countSnowflakes | times: countDuplicateSnowflakes -%} <!-- Tổng số lượng bông tuyết sau khi duplicate -->
+<style>
+	@keyframes snowflakes-fall {
+		0% { top: -15%;}
+		100% { top: 115%; }
+	}
+	@keyframes snowflakes-shake {
+		0% { transform: translateX(0px) scaleX(1); }
+		50% { transform: translateX({{ translateSnowflakes }}px) scaleX({{ scaleSnowflakes }}); }
+		100% { transform: translateX(0px) scaleX(1); }
+	}
+	.snowflakes-effect-item {
+		position: fixed;
+		top: -15%;
+		z-index: 9999;
+		-webkit-user-select: none;
+		-moz-user-select: none;
+		-ms-user-select: none;
+		user-select: none;
+		cursor: default;
+		-webkit-animation-name: snowflakes-fall, snowflakes-shake;
+		-webkit-animation-duration: var(--snowflakes_speed), 4s;
+		-webkit-animation-timing-function: linear, ease-in-out;
+		-webkit-animation-iteration-count: infinite, infinite;
+		-webkit-animation-play-state: running, running;
+		animation-name: snowflakes-fall, snowflakes-shake;
+		animation-duration: var(--snowflakes_speed), 4s;
+		animation-timing-function: linear, ease-in-out;
+		animation-iteration-count: infinite, infinite;
+		animation-play-state: running, running; 
+		cursor: pointer;
+	}
+	.snowflakes-effect-item img{
+		filter: drop-shadow(-1px 1px 1px rgba(0, 0, 0, 0.1));
+	}
+	{%- for i in (0..totalSnowflakes) -%}
+	.snowflakes-effect-item:nth-of-type({{ i | plus: 1 }}) {
+		left: calc((100%/{{totalSnowflakes}})*{{ i }} + 10px);
+		-webkit-animation-delay: var(--snowflakes_delay1), var(--snowflakes_delay2);
+		animation-delay: var(--snowflakes_delay1), var(--snowflakes_delay2);
+	}
+	{%- endfor -%}
+	@media(max-width: 600px){
+		.snowflakes-effect-item:nth-of-type(even) { display: none !important; }
+	}
+</style>
+<snowflakes-effect class="snowflakes-effect">
+	<div class="snowflakes-effect-items">
+		{%- assign listImages = settings.snowflakes_images | split: '||' -%}
+		{%- for i in (1..countDuplicateSnowflakes) -%}
+		{%- for image in listImages -%}
+		<snowflakes-effect-item class="snowflakes-effect-item"><img src="{{ image | lstrip | rstrip }}" alt="{{ shop.name | escape }}"></snowflakes-effect-item>
+		{%- endfor -%}
+		{%- endfor -%}
+	</div>
+</snowflakes-effect>
+<script type="text/javascript">
+	const snowflakesEffectObj = {
+		elements: {
+			snowflakes: "snowflakes-effect",
+			snowflakesItem: "snowflakes-effect-item",
+		}
+	}
+	class SnowflakesEffect extends HTMLElement{
+		constructor(){
+			super()
+			this.listSnowflakes = document.querySelectorAll(snowflakesEffectObj.elements.snowflakesItem);
+			this.initializeSnowflakes();
+		}
+		initializeSnowflakes() {
+			if (this.listSnowflakes.length === 0) return;
+			this.listSnowflakes.forEach(snowflake => {
+				this.setRandomStyles(snowflake);
+			});
+		}
+		setRandomStyles(snowflake) {
+			snowflake.setAttribute("style", `--snowflakes_speed: ${Math.floor(Math.random() * 5) + 1 + {{ speedSnowflakes }}}s; --snowflakes_delay1: ${Math.random() * {{ totalSnowflakes }}}s; --snowflakes_delay2: ${Math.random() * {{ countSnowflakes }}}s;`);
+			snowflake.querySelector("img").setAttribute("width", `${Math.random() * {{ widthSnowflakes }} + 16}px`);
+		}
+	}
+	customElements.define(snowflakesEffectObj.elements.snowflakes, SnowflakesEffect);
+</script>
+{%- endif -%}

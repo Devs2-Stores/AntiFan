@@ -1,0 +1,3 @@
+{%- assign total_price = total_price | plus: product.price -%}
+{%- assign total_price_compare = total_price_compare | plus: product.compare_at_price -%}
+{%- include 'product-item' -%}

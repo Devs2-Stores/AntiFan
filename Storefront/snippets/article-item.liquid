@@ -1,0 +1,46 @@
+{%- if layout == "layout-small" -%}
+{%- assign isSmall = true %}
+{%- assign resize = "medium" -%}
+{%- else -%}
+{%- assign isSmall = false %}
+{%- assign resize = "grande" -%}
+{%- endif -%}
+
+<div class="article-item {{ layout }}" data-index="{{ count }}"> 
+	<div class="article-item-wrap">
+		<a href= "{{ article.url }}" class="article-item-image" title="{{ article.title | escape }}">
+			{%- if article.image -%}
+			<img loading="lazy" decoding="async" width="600" height="400"
+				 src="{{ article.image.src | img_url: resize }}" alt="{{ article.title | escape }}" title="{{ article.title | escape }}"> 
+			{%- elsif article.content contains 'src="' -%}
+			{%- assign page_img = article.content | split: 'src="' -%}
+			{%- assign page_img = page_img[1] | split: '"' | first | replace: '//cdn', 'http://cdn' | replace: 'http:http://', 'http://' | remove: 'https:' -%}
+			<img loading="lazy" decoding="async" src="{{ page_img }}" alt="{{ article.title }}" | escape/>
+			{%- else -%}
+			<img loading="lazy" decoding="async" src="//theme.hstatic.net/1000300454/1000391697/14/blog_no_image.jpg" alt="{{ article.title | escape }}" title="{{ article.title | escape }}"/>
+			{%- endif -%}
+			<div class="article-item-date">
+				<span class="article-item-date-big" style="color: rgb(160, 62, 44);">{{ article.published_at | date: '%d' }}</span>
+				<span class="article-item-date-small" style="color: rgb(160, 62, 44);">{{ article.published_at | date: '%m/%Y' }}</span>
+			</div>
+		</a>
+		<div class="article-item-detail">
+			<h3 class="article-item-detail-title"><a class="fontTitle" title="{{ article.title | escape }}" href="{{ article.url }}">{{ article.title }}</a></h3>
+			{%- unless isSmall -%}
+			<div class="article-item-detail-info">
+				<span class="article-item-detail-info-author" style="color: rgb(42, 161, 161);"><i class='fal fa-edit' ></i> {{ article.author }}</span> 
+			</div>
+			<div class="article-item-detail-content">
+				{%- if layout == 'layout_small' -%}
+				{{ article.content | strip_html | truncatewords: 30 | replace: '[collection]', ' ' | replace: '[/collection]', ' ' | replace: '[product]', ' ' | replace: '[/product]', ' ' }}
+				{%- else -%}
+				{{ article.content | strip_html | truncatewords: 55 | replace: '[collection]', ' ' | replace: '[/collection]', ' ' | replace: '[product]', ' ' | replace: '[/product]', ' ' }}
+				{%- endif -%}
+			</div>
+			{% if article.content != "" %}
+			<a title="Xem thêm" href="{{ article.url }}" class="reset-button button-style1 article-item-detail-more" >Xem thêm</a>
+			{% endif %}
+			{%- endunless -%}
+		</div>
+	</div>
+</div>

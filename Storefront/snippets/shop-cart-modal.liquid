@@ -1,0 +1,36 @@
+<div class="shop-cart-sidebar">
+	<div class="shop-cart-sidebar-head">
+		<label>Giỏ hàng</label>
+		<button type="button" data-type="shop-cart-sidebar-close" title="Đóng">
+			<svg class="Icon Icon--close" role="presentation" viewBox="0 0 16 14" width="15" height="15"><path d="M15 0L1 14m14 0L1 0" stroke="currentColor" fill="none" fill-rule="evenodd"></path></svg>
+		</button>
+		<div class="shop-cart-sidebar-top-freeship">
+			{%- include 'shop-freeship' -%}
+			<div class="shop-cart-sidebar-top-freeship-label">
+				<img class="lazyload" width="75" height="62" title="Free Ship"
+						 src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" 
+						 data-src="https://file.hstatic.net/200000306687/file/giphy__1__c91b6f02cea04a969d655681bb73caf8_small.gif" alt="{{ shopName }} - Free Ship">
+			</div>
+		</div>
+	</div>
+	<div class="shop-cart-sidebar-body">
+		<div class="shop-cart-sidebar-yes"></div>
+		{%- if cart.item_count == 0 -%}
+		<div class="shop-cart-sidebar-no">Giỏ hàng của bạn còn trống</div>
+		{%- endif -%}
+	</div>
+	<div class="shop-cart-sidebar-foot">
+		<button type="button" data-type="shop-cart-sidebar-note-action" title="Thêm ghi chú">Thêm ghi chú</button>
+		<p>Phí ship & thuế được tính ở Trang Thanh Toán</p>
+		<a class="toCheckout" href="/cart" title="Thanh toán" aria-label="Thanh toán">  
+			<span>Xem giỏ hàng</span>
+			<span></span>
+			<span>{{ cart.total_price | money }}</span>
+		</a>
+		<div class="shop-cart-sidebar-note">
+			<label>Thêm ghi chú</label>
+			<textarea placeholder="Chúng tôi có thể giúp gì cho bạn?"></textarea>
+			<button type="button" data-type="shop-cart-sidebar-note-save" title="Lưu">Lưu</button>
+		</div>
+	</div>
+</div>

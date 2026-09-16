@@ -1,0 +1,47 @@
+<div class="home-store section-distance" data-sheet="https://opensheet.elk.sh/{{ settings.page_store_sheet | split: 'spreadsheets/d/' | last | split: '/' | first |  }}/1">
+	{%- if template == "index" -%}<div class="home-store-container {% unless settings.home_store_fullwidth %} container{% endunless %}">{%- else %}<div class="container">{%- endif -%}
+	{%- if template == "index" -%}
+	<h2 class="box-title">
+		<a href="{{ settings.page_store_link }}" title="{{ settings.page_store_title | escape }}">
+			{{ settings.page_store_title }}
+		</a>
+	</h2>
+	{%- else -%}
+	{%- include "index-section-header" with header: settings.page_store_title, extra_header: settings.page_store_content, link: settings. -%}
+	{%- endif -%}
+	{%- if template contains 'page' -%}
+	<div class="mt-4 mb-2">
+		{{ page.content }}
+	</div>
+	{%- endif -%}
+	<div class="home-store-loading text-center my-5">
+		<img loading="lazy" decoding="async" alt="Loading"
+			 src="https://file.hstatic.net/200000856301/file/200w_a91b047b97114165b288c2c75e41758b.gif"/>
+	</div>
+	<div class="home-store-wrap mt-5">
+		<div class="home-store-image">
+			<img width="900" height="600" loading="lazy" decoding="async"
+				 src="https://placehold.jp/9x16.png" alt="Hệ thống phân phối"/>
+		</div>
+		<div class="home-store-data">
+			<div class="home-store-data-state"></div>
+			<div class="home-store-first">Vui lòng chọn khu vực để xem các nhà phân phối..</div>
+			<div class="home-store-data-main">
+				<div class="home-store-data-main-wrap">
+					<h2>Hệ thống cửa hàng</h2>
+					<div class="home-store-data-main-left">
+						<h3></h3>
+						<label>Chọn tỉnh thành</label>
+						<select class="home-store-data-province"><option value selected disabled>-- Vui lòng chọn tỉnh thành</option></select>
+						<label>Chọn cửa hàng</label>
+						<select class="home-store-data-district"><option value selected disabled>-- Vui lòng chọn cửa hàng</option></select>
+						<div class="home-store-data-main-list"></div>
+					</div>
+					<div class="home-store-data-main-right"></div>
+				</div>
+			</div>
+			<div class="home-store-data-none"></div>
+		</div>
+	</div>
+	</div>
+	</div>
