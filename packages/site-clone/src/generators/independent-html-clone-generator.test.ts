@@ -126,6 +126,14 @@ describe('IndependentHtmlCloneGenerator - section sanitation', () => {
     assert.ok(!sanitized.includes('tawk.to'));
     assert.ok(sanitized.includes('<p>Clean content</p>'));
   });
+  it('preserves remote iframe destinations as inert data-src metadata', () => {
+    const sample = '<div class="video-frame"><iframe src="https://video.example.test/film.mp4" data-src="stale" allow="autoplay"></iframe></div>';
+    const sanitized = sanitizeSectionMarkup(sample);
+    assert.ok(sanitized.includes('data-src="https://video.example.test/film.mp4"'), 'remote iframe destination must be preserved in data-src');
+    assert.ok(sanitized.includes('src="about:blank"'), 'remote iframe must not load during offline capture');
+    assert.strictEqual((sanitized.match(/\ssrc=/gi) || []).length, 1, 'iframe must have exactly one src attribute');
+    assert.ok(!sanitized.includes('data-src="stale"'), 'stale data-src must be replaced');
+  });
 
   it('converts loading="lazy" to loading="eager" on images', () => {
     const sample = '<img loading="lazy" src="assets/image.png" alt="Test">';
@@ -335,6 +343,194 @@ describe('IndependentHtmlCloneGenerator - generateFromMaterializedHtml', () => {
       assert.doesNotThrow(() => {
         new vm.Script(mobileScriptMatch[1], { filename: 'test-antifan-interactivity-mobile.js' });
       }, 'Interactivity script in mobile mode with category navigation must be 100% valid JS syntax');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('releases the scroll lock a capture bakes into <body> and <html> while a modal was open', () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-scroll-lock-'));
+    try {
+      const sampleHtml = '<!DOCTYPE html><html lang="vi" style="overflow: hidden;">'
+        + '<head><title>Locked capture</title></head>'
+        + '<body class="antialiased" style="overflow: hidden;">'
+        + '<div class="page">Content</div>'
+        + '<div class="tail" style="overflow: hidden; background: rgb(1, 2, 3);">Nested lock must survive</div>'
+        + '</body></html>';
+      const res = generator.generateFromMaterializedHtml(sampleHtml, {
+        outputDir: tmpDir,
+        entryFilename: 'index.html',
+        device: 'web'
+      });
+
+      const bodyTag = res.html.match(/<body[^>]*>/i)?.[0] ?? '';
+      const htmlTag = res.html.match(/<html[^>]*>/i)?.[0] ?? '';
+      assert.ok(!/overflow/i.test(bodyTag), `body must not keep the capture scroll lock: ${bodyTag}`);
+      assert.ok(!/overflow/i.test(htmlTag), `html must not keep the capture scroll lock: ${htmlTag}`);
+      assert.ok(bodyTag.includes('class="antialiased"'), 'unrelated body attributes must survive the unlock');
+      assert.ok(htmlTag.includes('lang="vi"'), 'unrelated html attributes must survive the unlock');
+      assert.ok(
+        res.html.includes('style="overflow: hidden; background: rgb(1, 2, 3);"'),
+        'a scroll lock on a nested element is page content and must be left alone'
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+  it('emits a standards-mode document so percentage heights use their containing block', () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const { JSDOM } = require('jsdom');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-doctype-'));
+    try {
+      // A materialized capture is serialized from the document root and therefore carries no doctype.
+      const capturedHtml = '<html lang="vi"><head><title>Captured</title></head>'
+        + '<body><div class="page">Content</div></body></html>';
+      const res = generator.generateFromMaterializedHtml(capturedHtml, {
+        outputDir: tmpDir,
+        entryFilename: 'index.html',
+        device: 'web'
+      });
+
+      assert.match(res.html.trimStart(), /^<!DOCTYPE html>/i, 'the bundle must declare the HTML doctype');
+      assert.strictEqual(
+        new JSDOM(res.html).window.document.compatMode,
+        'CSS1Compat',
+        'the bundle must not render in quirks mode'
+      );
+
+      const alreadyDeclared = '<!DOCTYPE html>\n<html lang="vi"><head></head><body><div>Content</div></body></html>';
+      const second = generator.generateFromMaterializedHtml(alreadyDeclared, {
+        outputDir: tmpDir,
+        entryFilename: 'second.html',
+        device: 'web'
+      });
+      assert.strictEqual(
+        second.html.match(/<!DOCTYPE html>/gi)?.length,
+        1,
+        'a document that already declares the doctype must not gain a second one'
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('IndependentHtmlCloneGenerator - fullscreen capture overlay retirement', () => {
+  it('retires a capture-time fullscreen overlay with no dismiss control and keeps interactive overlays', async () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const { JSDOM } = require('jsdom');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-overlay-'));
+    const fullscreen = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 50;';
+    try {
+      const sampleHtml = '<!DOCTYPE html><html><head><title>Overlays</title></head><body>'
+        + `<div id="announcement" style="${fullscreen}"><a href="/blogs/notice"><img src="assets/notice.png" alt=""></a></div>`
+        + `<div id="dialog" style="${fullscreen}"><button class="close">Dong</button></div>`
+        + `<div id="state-popup" class="modal" style="${fullscreen}"></div>`
+        + `<aside id="cookie" style="${fullscreen}"><a href="/privacy">Chi tiet</a></aside>`
+        + '<main>Content</main></body></html>';
+      const res = generator.generateFromMaterializedHtml(sampleHtml, {
+        outputDir: tmpDir,
+        entryFilename: 'index.html',
+        device: 'web'
+      });
+
+      const dom = new JSDOM(res.html, { runScripts: 'outside-only', pretendToBeVisual: true });
+      const win = dom.window;
+      win.innerWidth = 1440;
+      win.innerHeight = 900;
+      win.Element.prototype.getBoundingClientRect = function () {
+        const id = this.getAttribute ? this.getAttribute('id') : null;
+        // Only the first fullscreen overlay laid out covers the viewport; the cookie notice is small.
+        return id === 'cookie'
+          ? { x: 0, y: 500, top: 500, left: 0, right: 320, bottom: 600, width: 320, height: 100 }
+          : { x: 0, y: 0, top: 0, left: 0, right: 1440, bottom: 900, width: 1440, height: 900 };
+      };
+      const script = res.html.match(/<script id="antifan-clone-interactivity">([\s\S]*?)<\/script>/)?.[1] ?? '';
+      assert.ok(script.length > 0, 'generated document must carry the interactivity script');
+      win.eval(script);
+      // The bundle bootstraps on DOMContentLoaded, so the retirement runs after this document settles.
+      await new Promise<void>(resolve => {
+        if (win.document.readyState === 'loading') {
+          win.document.addEventListener('DOMContentLoaded', () => resolve());
+        } else {
+          resolve();
+        }
+      });
+
+      const isRetired = (id: string) => win.document.getElementById(id)?.hasAttribute('data-antifan-unhydrated-overlay');
+      assert.strictEqual(isRetired('announcement'), true, 'a capture-time overlay with no dismiss control must be retired');
+      assert.strictEqual(isRetired('dialog'), false, 'an overlay owning a dismiss button must stay interactive');
+      assert.strictEqual(isRetired('state-popup'), false, 'a state-machine popup must stay under its own control');
+      assert.strictEqual(isRetired('cookie'), false, 'a partial-size overlay must not be treated as a fullscreen backdrop');
+      assert.strictEqual(
+        win.getComputedStyle(win.document.getElementById('announcement')).display,
+        'none',
+        'the retired overlay must not block the page'
+      );
+      assert.notStrictEqual(
+        win.getComputedStyle(win.document.querySelector('main')).display,
+        'none',
+        'page content must stay visible'
+      );
+      dom.window.close();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('retires the overlay once a surface that loaded without layout is measured', async () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const { JSDOM } = require('jsdom');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-overlay-deferred-'));
+    const fullscreen = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 50;';
+    try {
+      const sampleHtml = '<!DOCTYPE html><html><head><title>Deferred</title></head><body>'
+        + `<div id="announcement" style="${fullscreen}"><a href="/blogs/notice">Notice</a></div>`
+        + '<main>Content</main></body></html>';
+      const res = generator.generateFromMaterializedHtml(sampleHtml, {
+        outputDir: tmpDir,
+        entryFilename: 'index.html',
+        device: 'web'
+      });
+
+      const dom = new JSDOM(res.html, { runScripts: 'outside-only', pretendToBeVisual: true });
+      const win = dom.window;
+      win.Element.prototype.getBoundingClientRect = () => ({
+        x: 0, y: 0, top: 0, left: 0, right: 1440, bottom: 900, width: 1440, height: 900
+      });
+      win.innerWidth = 0;
+      win.innerHeight = 0;
+      const script = res.html.match(/<script id="antifan-clone-interactivity">([\s\S]*?)<\/script>/)?.[1] ?? '';
+      win.eval(script);
+      await new Promise<void>(resolve => {
+        if (win.document.readyState === 'loading') {
+          win.document.addEventListener('DOMContentLoaded', () => resolve());
+        } else {
+          resolve();
+        }
+      });
+
+      const overlay = win.document.getElementById('announcement');
+      assert.strictEqual(overlay?.hasAttribute('data-antifan-unhydrated-overlay'), false, 'nothing to measure without layout');
+
+      win.innerWidth = 1440;
+      win.innerHeight = 900;
+      win.dispatchEvent(new win.Event('resize'));
+      assert.strictEqual(overlay?.hasAttribute('data-antifan-unhydrated-overlay'), true, 'the overlay must retire once measured');
+      dom.window.close();
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

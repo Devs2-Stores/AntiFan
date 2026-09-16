@@ -1518,6 +1518,21 @@ export class AssetLocalizer {
           if (p.includes('&')) keysToRegister.push(p.replace(/&(?!(?:amp|quot|lt|gt|#39);)/g, '&amp;'));
           if (p.includes('&amp;')) keysToRegister.push(p.replace(/&amp;/g, '&'));
         }
+        try {
+          if (source.startsWith('http://') || source.startsWith('https://')) {
+            const parsed = new URL(source);
+            const pathAndQuery = parsed.pathname + parsed.search;
+            if (pathAndQuery.startsWith('/')) {
+              keysToRegister.push(pathAndQuery);
+              if (pathAndQuery.includes('&')) {
+                keysToRegister.push(pathAndQuery.replace(/&(?!(?:amp|quot|lt|gt|#39);)/g, '&amp;'));
+              }
+              if (pathAndQuery.includes('&amp;')) {
+                keysToRegister.push(pathAndQuery.replace(/&amp;/g, '&'));
+              }
+            }
+          }
+        } catch {}
 
         for (const k of keysToRegister) {
           if (type) {
@@ -2207,6 +2222,17 @@ export class AssetLocalizer {
         const urlMatch = rawVal.match(/(?:https?:)?\/\/[^\s"'<>]+/i);
         if (!urlMatch) continue;
         const matchedUrl = urlMatch[0].trim();
+        // An iframe with src="about:blank" and a remote data-src is an inert,
+        // user-activated embed destination preserved by the clone sanitizer.
+        // It is metadata, not a network resource loaded by the standalone page.
+        if (attrName === 'data-src') {
+          const lastOpen = lastLtBefore(match.index);
+          const tagEnd = lastOpen === -1 ? -1 : contentToScan.indexOf('>', match.index);
+          const fullTag = lastOpen === -1
+            ? ''
+            : contentToScan.slice(lastOpen, tagEnd !== -1 ? tagEnd + 1 : match.index + 200);
+          if (/^<iframe\b/i.test(fullTag) && /\bsrc\s*=\s*["']about:blank["']/i.test(fullTag)) continue;
+        }
         // Plain navigating hyperlinks (<a href="https://...">) and metadata links (<link rel="profile|dns-prefetch|preconnect|canonical|alternate">) are not loaded as page sub-resources
         if (attrName === 'href') {
           const lastOpen = lastLtBefore(match.index);

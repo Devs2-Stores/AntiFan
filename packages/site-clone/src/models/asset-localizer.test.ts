@@ -1136,6 +1136,21 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
       }
     });
+    it('accepts inert iframe data-src metadata when src is about:blank', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-audit-inert-iframe-'));
+      try {
+        const manifest: HarvestedAssetManifest = { stylesheets: [], javascripts: [], images: [], fonts: [], totalBytes: 0 };
+        const html = '<!DOCTYPE html><html><body><iframe src="about:blank" data-src="https://video.example.test/film.mp4"></iframe></body></html>';
+        const auditRes = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{ path: path.join(tempDir, 'index.html'), rewrittenContent: html, originalContent: html, replacementCount: 0 }]
+        });
+        assert.ok(!auditRes.findings.some(f => f.code === 'LINGERING_REMOTE_NETWORK_URL'), 'inert iframe metadata must not be treated as a loaded resource');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
 
     it('fails closed on Alpine/Vue bound resource attributes (:src, :data-src) containing remote URLs', () => {
       const localizer = new AssetLocalizer();
@@ -2401,6 +2416,32 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
+    });
+
+    it('6.21. rewriteFiles accurately resolves Next.js image URLs containing &amp; in HTML against harvested assets', () => {
+      const localizer = new AssetLocalizer();
+      const manifest: HarvestedAssetManifest = {
+        stylesheets: [],
+        javascripts: [],
+        images: [
+          {
+            type: 'image',
+            sourceUrl: 'https://example.com/_next/image?url=https%3A%2F%2Fcdn.example.com%2Fpic.jpg&w=640&q=75',
+            rawSourceUrl: '/_next/image?url=https%3A%2F%2Fcdn.example.com%2Fpic.jpg&amp;w=640&amp;q=75',
+            filename: 'pic-640.jpg',
+            localPath: '/tmp/pic-640.jpg'
+          }
+        ],
+        fonts: [],
+        totalBytes: 100
+      };
+
+      const htmlContent = '<img src="/_next/image?url=https%3A%2F%2Fcdn.example.com%2Fpic.jpg&amp;w=640&amp;q=75" srcset="/_next/image?url=https%3A%2F%2Fcdn.example.com%2Fpic.jpg&amp;w=640&amp;q=75 640w">';
+      const res = localizer.rewriteFiles([{ path: 'index.html', content: htmlContent }], manifest, { mode: 'relative', assetsDir: 'assets' });
+
+      assert.strictEqual(res.files.length, 1);
+      assert.ok(res.files[0].rewrittenContent.includes('src="assets/pic-640.jpg"'), 'src should be rewritten to local asset');
+      assert.ok(res.files[0].rewrittenContent.includes('srcset="assets/pic-640.jpg 640w"'), 'srcset candidate should be rewritten to local asset');
     });
   });
 });
