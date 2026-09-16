@@ -162,7 +162,8 @@ const SLICK_ARIA_DESCRIBEDBY_RE = /\s+aria-describedby=["'][^"']*slick-slide[^"'
 const BOUND_ATTR_RE = /\s+(?:(?::|x-bind:|v-bind:|@|x-on:|wire:)[a-zA-Z0-9_\-\.:]+|x-(?:data|bind|on|show|model|transition|ref|init|cloak|html|text|teleport|for|if|effect|ignore)(?::[a-zA-Z0-9_\-\.]+)?)(?:=(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s>]+))?/gi;
 
 const REMOTE_DATA_SRC_RE = /\s+data-src=["'][^"']*(?:youtube\.com|youtu\.be|google\.com\/maps)[^"']*["']/gi;
-const REMOTE_IFRAME_SRC_RE = /(<iframe\b[^>]*?)\s+src=["'][^"']*(?:youtube\.com|youtu\.be|google\.com\/maps)[^"']*["']/gi;
+const IFRAME_REMOTE_SRC_ATTR_RE = /\s+src\s*=\s*(["'])((?:https?:)?\/\/[^"']+)\1/i;
+const IFRAME_DATA_SRC_RE = /\s+data-src\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const EMPTY_IFRAME_SRC_RE = /(<iframe\b[^>]*?)\s+src=["']['"]/gi;
 const IFRAME_TAG_RE = /<iframe\b([^>]*?)>/gi;
 const IFRAME_SRC_TEST_RE = /\ssrc=/i;
@@ -405,16 +406,19 @@ export function sanitizeSectionMarkup(html: string): string {
     })
     .replace(DATA_SLICK_INDEX_RE, '')
     .replace(SLICK_ARIA_DESCRIBEDBY_RE, '');
-  // 4. Strip whole quote-aware bound attributes (:src, :data-src, x-bind:*, v-bind:*, @*, x-on:*, wire:*, x-*)
-  // Bound attributes whose expression contains string literals must be matched in their entirety
-  // so that expression bodies are never left behind as malformed text.
+  // 5. Keep remote media destinations as inert metadata. The static clone must not
+  // load third-party embeds during capture; the destination survives in data-src so a
+  // dedicated handler (e.g. the #popup-video loader below) can restore it on explicit
+  // user action. Embeds without such a handler stay inert.
   processed = processed.replace(BOUND_ATTR_RE, '');
-
-  // 5. Remove any lingering remote network URLs from data-src or src on iframe and media elements
   processed = processed.replace(REMOTE_DATA_SRC_RE, '');
-  processed = processed.replace(REMOTE_IFRAME_SRC_RE, (_m, p1) => p1);
   processed = processed.replace(EMPTY_IFRAME_SRC_RE, (_m, p1) => p1 + ' src="about:blank"');
   processed = processed.replace(IFRAME_TAG_RE, (m, attrs) => {
+    const remoteMatch = String(attrs).match(IFRAME_REMOTE_SRC_ATTR_RE);
+    if (remoteMatch) {
+      const withoutRemote = String(attrs).replace(IFRAME_REMOTE_SRC_ATTR_RE, '').replace(IFRAME_DATA_SRC_RE, '');
+      return `<iframe${withoutRemote} data-src="${remoteMatch[2]}" src="about:blank">`;
+    }
     if (!IFRAME_SRC_TEST_RE.test(attrs)) {
       return `<iframe${attrs} src="about:blank">`;
     }
@@ -422,6 +426,7 @@ export function sanitizeSectionMarkup(html: string): string {
   });
 
   // 6. Strip inert framework, tracker, and dead third-party widget shells
+
   return processed
     .replace(NOSCRIPT_RE, '')
     .replace(IF_BLOCK_COMMENT_RE, '')
@@ -1236,6 +1241,14 @@ ${extractedEffectsScripts.join('\n\n')}
       .header-site .menu-list { display: flex; flex-wrap: wrap; gap: 8px; }
       .video-content { flex: 0 0 100%; max-width: 100%; margin-left: 0; margin-top: 15px; }
     }
+    /* Fullscreen capture overlays retired by the interactivity script: an overlay that was open
+       when the capture ran has no state machine to close it, so its backdrop would block the page. */
+    [data-antifan-unhydrated-overlay] {
+      display: none !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
     ${options.customParityCss ? `\n    /* Custom User/Theme Parity CSS */\n    ${options.customParityCss}` : ''}
   </style>`;
   }
@@ -1563,6 +1576,43 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       }
     });
 
+    // 5b. Fullscreen capture overlays. An overlay that was open while the capture ran is baked
+    // into the bundle with nothing left to close it, so its backdrop covers the whole page.
+    // Overlays that expose no dismiss affordance of their own are marked for the parity
+    // stylesheet to retire.
+    var overlayExcluded = '.category-navigation__block, [data-antifan-drawer], [data-antifan-state], [data-antifan-target], .drawer, .offcanvas, .mobile-drawer, #popup-video, #popup-login, .popup, .modal';
+    var retireUnhydratedOverlays = function() {
+      var documentElement = document.documentElement || {};
+      var viewportWidth = window.innerWidth || documentElement.clientWidth || 0;
+      var viewportHeight = window.innerHeight || documentElement.clientHeight || 0;
+      if (viewportWidth <= 0 || viewportHeight <= 0) return false;
+      var overlayCandidates = document.querySelectorAll('body > *, body > * > *');
+      Array.prototype.forEach.call(overlayCandidates, function(el) {
+        if (el.hasAttribute('data-antifan-unhydrated-overlay')) return;
+        if (el.matches(overlayExcluded) || el.closest(overlayExcluded)) return;
+        var overlayStyle = window.getComputedStyle(el);
+        if (!overlayStyle || overlayStyle.position !== 'fixed') return;
+        var overlayZIndex = parseInt(overlayStyle.zIndex, 10);
+        if (!Number.isFinite(overlayZIndex) || overlayZIndex < 40) return;
+        var overlayRect = el.getBoundingClientRect();
+        if (overlayRect.width < viewportWidth * 0.9 || overlayRect.height < viewportHeight * 0.9) return;
+        // A form or a labelled dismiss control means the overlay owns real interaction.
+        if (el.querySelector('form, input, select, textarea, button, [class*="close"], [aria-label*="close"], [aria-label*="đóng"]')) return;
+        el.setAttribute('data-antifan-unhydrated-overlay', 'true');
+      });
+      return true;
+    };
+    if (!retireUnhydratedOverlays()) {
+      // A document that was loaded without a laid-out surface can only be measured once it is shown.
+      var retryOverlayRetirement = function() {
+        if (!retireUnhydratedOverlays()) return;
+        window.removeEventListener('resize', retryOverlayRetirement);
+        document.removeEventListener('visibilitychange', retryOverlayRetirement);
+      };
+      window.addEventListener('resize', retryOverlayRetirement);
+      document.addEventListener('visibilitychange', retryOverlayRetirement);
+    }
+
     // 6. Universal Touch, Drag & Swiping Engine for Sliders & Carousels
     var sliderRoots = document.querySelectorAll(
       '.slick-slider, .slick-initialized, [data-slider], [class*="carousel"], .s-wrap, [data-antifan-slider]'
@@ -1861,7 +1911,13 @@ ${options.customInteractivityJs ? `\n    /* Custom User / Theme Interactivity */
     const finalPath = path.join(outputDir, entryFilename);
     fs.mkdirSync(path.dirname(finalPath), { recursive: true });
 
-    let cleaned = sanitizeSectionMarkup(html);
+    // A materialized capture is serialized from the live document root, which leaves the doctype
+    // behind. Without it the emitted bundle renders in quirks mode, where a percentage height
+    // resolves against the viewport instead of its containing block.
+    const declaredHead = html.slice(0, html.search(/<html[\s>]/i) + 1);
+    const sourceDocument = /<!doctype/i.test(declaredHead) ? html : `<!DOCTYPE html>\n${html}`;
+
+    let cleaned = sanitizeSectionMarkup(sourceDocument);
     cleaned = localizeSameOriginReferences(cleaned, options.sourceBaseUrl);
 
     const hasCategoryNav = cleaned.includes('category-navigation');
@@ -1889,6 +1945,23 @@ ${options.customInteractivityJs ? `\n    /* Custom User / Theme Interactivity */
     } else if (/<body/i.test(cleaned)) {
       cleaned = cleaned.replace(/<body/i, `<body data-device="${targetDevice}"`);
     }
+    // A capture taken while the site's own modal was open bakes that modal's scroll lock into the
+    // document as an inline `overflow: hidden` on <body>/<html>. Nothing in a static bundle ever
+    // releases it, so the emitted page could not scroll.
+    cleaned = cleaned.replace(
+      /(<(?:body|html)\b[^>]*?)(\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'))/gi,
+      (_tag, head: string, _styleAttr: string, doubleQuoted: string | undefined, singleQuoted: string | undefined) => {
+        const declared = (doubleQuoted !== undefined ? doubleQuoted : singleQuoted) ?? '';
+        const quote = doubleQuoted !== undefined ? '"' : "'";
+        // Remove only overflow declarations. Quoted runs are consumed first so a ';' or an
+        // 'overflow:' substring inside url()/content values is never treated as a declaration.
+        const kept = declared
+          .replace(/"[^"]*"|'[^']*'|(?:^|;)\s*overflow(?:-[xy])?\s*:[^;]*/gi, m => /^["']/.test(m) ? m : '')
+          .replace(/^\s*;+/, '')
+          .trim();
+        return kept ? `${head} style=${quote}${kept}${quote}` : head;
+      }
+    );
     const entryDir = path.dirname(entryFilename);
     const relToRoot = entryDir === '.' ? '' : path.relative(entryDir, '.').replace(/\\/g, '/') + '/';
     const isMobileDevice = targetDevice === 'mobile';

@@ -196,6 +196,22 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     }
   });
 
+  it('1d2. AssetHarvester decodes numeric apostrophe entities (&#39;, &#x27;) in harvested refs', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-entity-'));
+
+    const html = '<img src="https://example.com/images/rock&#39;n&#x27;roll.jpg">';
+
+    try {
+      const manifest = harvester.harvestFromHtml(html, tempDir);
+      const img = manifest.images.find(i => i.sourceUrl === "https://example.com/images/rock'n'roll.jpg");
+      assert.ok(img, 'numeric apostrophe entities must decode to a real apostrophe in sourceUrl');
+      assert.strictEqual(img.rawSourceUrl, 'https://example.com/images/rock&#39;n&#x27;roll.jpg', 'rawSourceUrl must keep the entity-encoded form');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('1d. AssetHarvester prevents filename collisions across distinct URLs including duplicate basenames and cross-type collisions', () => {
     const harvester = new AssetHarvester();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-collision-'));

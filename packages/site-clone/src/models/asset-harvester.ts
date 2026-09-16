@@ -204,8 +204,16 @@ export class AssetHarvester {
     const normContext = typeof context === 'string' ? { baseUrl: context } : context;
     const baseUrl = normContext?.baseUrl;
     const normalizeRef = (raw: string): string => {
-      const trimmed = (raw || '').trim();
+      let trimmed = (raw || '').trim();
       if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#')) return trimmed;
+      if (trimmed.includes('&amp;')) {
+        trimmed = trimmed.replace(/&amp;/g, '&');
+      }
+      if (/&(?:quot|apos|#0?39|#x27);/i.test(trimmed)) {
+        trimmed = trimmed
+          .replace(/&quot;/gi, '"')
+          .replace(/&apos;|&#0?39;|&#x27;/gi, "'");
+      }
       if (baseUrl && trimmed.startsWith('/') && !trimmed.startsWith('//')) {
         try {
           return new URL(trimmed, baseUrl).href;
