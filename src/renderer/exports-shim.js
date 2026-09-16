@@ -1,6 +1,7 @@
 /**
  * AntiFan Browser Desktop — Renderer CommonJS Global Shim
  * Provides exports/module/global bindings for compiled TypeScript renderer scripts.
+ * Required: compiled CJS renderer scripts (nodenext + type:commonjs) need exports/module/global.
  */
 var global = typeof globalThis !== 'undefined' ? globalThis : window;
 var exports = typeof exports !== 'undefined' ? exports : {};

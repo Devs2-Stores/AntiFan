@@ -64,12 +64,6 @@ export interface SemanticElementDescriptor extends RawElementDescriptor {
   nonce: string;
   sequence: number;
 }
-
-export interface ExactTargetKey {
-  tabId: string;
-  paneId: 'desktop' | 'mobile' | 'primary' | 'secondary' | string;
-}
-
 export interface SemanticSnapshotRecord {
   targetKey: string;
   tabId: string;
@@ -84,20 +78,6 @@ export interface SemanticSnapshotRecord {
   descriptors: Map<string, SemanticElementDescriptor>;
   formattedText: string;
 }
-
-export type IsolatedCollectionEnvelope =
-  | {
-      ok: true;
-      nonce: string;
-      documentUrl: string;
-      descriptors: RawElementDescriptor[];
-    }
-  | {
-      ok: false;
-      error: string;
-      code?: CapabilityErrorCode;
-    };
-
 export interface RendererActionRequest {
   action: 'click' | 'hover' | 'type' | 'scroll' | 'highlight' | 'move' | 'focus' | 'probe';
   ref?: string;
@@ -180,7 +160,6 @@ export function validateTargetVersions(target: {
 export function generateCollectionNonce(): string {
   return crypto.randomUUID();
 }
-export type IsolatedActionEnvelope = RendererActionResponse;
 
 export function isSemanticRef(value: unknown): value is string {
   return typeof value === 'string' && /^@e[1-9]\d*$/.test(value);

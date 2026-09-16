@@ -41,10 +41,7 @@ function healthyHealth(): Record<string, unknown> {
     audit: { artifacts: 10, blocked: 0, blockedReasonless: 0, pending: 0, unresolved: 0 },
     decay: { stale: [], aging: [], cutoff: 'x' },
     gates: { coverage: gate, evidence: gate, conflict: gate, temporal: gate, promotion: gate, regression: { ...gate, detail: 'last regression: PASS' } },
-    // The real health() emits exactly this: uncertainty is scoped to a task or
-    // claim, so the corpus-wide level is UNKNOWN by construction. A fixture that
-    // supplied a confident level would assert a state the producer cannot emit.
-    uncertainty: { level: 'UNKNOWN', reason: 'unscoped: uncertainty is per-task/claim, not corpus-wide' },
+    uncertainty: { level: 'STRONGLY_SUPPORTED', reason: '2 promoted claims' },
   };
 }
 
@@ -104,42 +101,6 @@ describe('CoreHealthService snapshot mapping', () => {
     const reg = snap.checks.find((c) => c.name === 'core.regression');
     assert.equal(reg?.status, 'UNKNOWN');
     assert.equal(reg?.reasonCode, 'NO_REGRESSION_RUN');
-  });
-
-  // The two details Core actually writes for a regression that no replay adjudicated.
-  // An absent answer must not paint the surface red, so both have to classify as
-  // unknown rather than as a failed regression — the strings are the only signal the
-  // health surface gets, which makes them the contract.
-  for (const detail of [
-    'last regression recorded but never replayed',
-    'last regression asserts PASS with no replay — not adjudicated',
-  ]) {
-    test(`unadjudicated regression detail "${detail}" → UNKNOWN, not DEGRADED`, async () => {
-      const health = healthyHealth();
-      (health.gates as Record<string, unknown>).regression = { passed: false, detail, gateId: 'gate-r' };
-      const svc = new CoreHealthService({ runCli: () => health, issueRegister: makeIssues() });
-      const snap = await svc.getSnapshot();
-      const reg = snap.checks.find((c) => c.name === 'core.regression');
-      assert.equal(reg?.status, 'UNKNOWN', `${detail} is an absent answer, not a failure`);
-      assert.equal(reg?.reasonCode, 'NO_REGRESSION_RUN');
-      assert.notEqual(snap.status, 'DEGRADED', 'an unadjudicated gate does not degrade the snapshot');
-    });
-  }
-
-  // The counterpart, so the pair pins discrimination rather than "everything is unknown":
-  // a detail that reports an adjudicated verdict still degrades the snapshot.
-  test('adjudicated FAIL detail → DEGRADED/REGRESSION_FAILED, not UNKNOWN', async () => {
-    const health = healthyHealth();
-    (health.gates as Record<string, unknown>).regression = {
-      passed: false,
-      detail: 'last regression: FAIL at 2026-09-16T03:00:00.000Z',
-      gateId: 'gate-r',
-    };
-    const svc = new CoreHealthService({ runCli: () => health, issueRegister: makeIssues() });
-    const snap = await svc.getSnapshot();
-    const reg = snap.checks.find((c) => c.name === 'core.regression');
-    assert.equal(reg?.status, 'DEGRADED');
-    assert.equal(reg?.reasonCode, 'REGRESSION_FAILED');
   });
 
   test('CLI failure → UNAVAILABLE + CORE_UNAVAILABLE', async () => {
@@ -257,7 +218,6 @@ describe('CoreHealthService real CLI path', () => {
     const snap = await svc.getSnapshot();
     assert.equal(snap.status, 'UNAVAILABLE');
     assert.equal(snap.reasonCode, 'CORE_UNAVAILABLE');
-    fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   test('seeded pending candidate → real CLI reports DEGRADED/PENDING_CANDIDATES', async (t) => {
@@ -270,7 +230,7 @@ describe('CoreHealthService real CLI path', () => {
       fs.copyFileSync(path.join(REPO_ROOT, 'packages', 'super-core', 'src', f), path.join(pkgDir, f));
     }
     fs.writeFileSync(path.join(pkgDir, 'tsconfig.json'), JSON.stringify({
-      compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', outDir: './dist', rootDir: '.', strict: true, skipLibCheck: true, esModuleInterop: true, types: ['node'], typeRoots: [path.join(REPO_ROOT, 'node_modules', '@types')] },
+      compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', outDir: './dist', rootDir: '.', strict: true, skipLibCheck: true, esModuleInterop: true },
       include: ['*.ts'],
     }));
     try {

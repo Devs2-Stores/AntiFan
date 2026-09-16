@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
-import { BrowserControlPort, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS } from './browser-control-port';
+import { BrowserControlPort, BrowserWaitParams, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
 import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
@@ -424,7 +424,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'browser.wait',
-    description: 'Deterministic wait for selector, ref, document_loaded, url_match, network_idle, or dom_stable state',
+    description: 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, or legacy condition states',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'event-wait', timeoutMs: 30_000 }),
@@ -433,12 +433,27 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         condition: {
           type: 'string',
-          enum: ['selector', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable'],
-          description: 'Wait condition to evaluate',
+          enum: [
+            'selector',
+            'url',
+            'navigation',
+            'dom-stable',
+            'network',
+            'actionability',
+            'generation',
+            'ref',
+            'document_loaded',
+            'url_match',
+            'network_idle',
+            'dom_stable',
+          ],
+          description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation (or legacy aliases)',
         },
         selector: { type: 'string', description: 'CSS selector to wait for' },
         ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' },
         urlPattern: { type: 'string', description: 'URL pattern or substring to match' },
+        url: { type: 'string', description: 'Alias for urlPattern' },
+        minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' },
         state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
         timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max)' },
         idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' },
@@ -447,7 +462,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
       required: ['condition'],
     },
-    execute: (params: { condition: 'selector' | 'ref' | 'document_loaded' | 'url_match' | 'network_idle' | 'dom_stable'; selector?: string; ref?: string; urlPattern?: string; state?: 'attached' | 'visible' | 'actionable' | 'detached' | 'hidden'; timeoutMs?: number; idleWindowMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: BrowserWaitParams, context) =>
       browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal),
   });
 
@@ -822,11 +837,26 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         condition: {
           type: 'string',
-          enum: ['selector', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable'],
+          enum: [
+            'selector',
+            'url',
+            'navigation',
+            'dom-stable',
+            'network',
+            'actionability',
+            'generation',
+            'ref',
+            'document_loaded',
+            'url_match',
+            'network_idle',
+            'dom_stable',
+          ],
         },
         selector: { type: 'string' },
         ref: { type: 'string' },
         urlPattern: { type: 'string' },
+        url: { type: 'string' },
+        minGeneration: { type: 'number' },
         state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
         timeoutMs: { type: 'number' },
         idleWindowMs: { type: 'number' },
@@ -835,7 +865,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
       required: ['condition'],
     },
-    execute: (params: { condition: 'selector' | 'ref' | 'document_loaded' | 'url_match' | 'network_idle' | 'dom_stable'; selector?: string; ref?: string; urlPattern?: string; state?: 'attached' | 'visible' | 'actionable' | 'detached' | 'hidden'; timeoutMs?: number; idleWindowMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: BrowserWaitParams, context) =>
       browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal),
   });
 

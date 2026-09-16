@@ -1,10 +1,5 @@
 import { classifyNetworkUrl } from './network-policy.js';
 
-export interface ZeroNetworkTransactionResult {
-  blockedCount: number;
-  blockedUrls: string[];
-}
-
 export interface CdpDebuggerInterface {
   isAttached(): boolean;
   attach(version?: string): void;

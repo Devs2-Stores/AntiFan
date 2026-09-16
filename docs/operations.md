@@ -86,10 +86,11 @@ node scripts/run-electron.cjs scripts/smoke-media-freeze.cjs
   - `Pre-publication Downgrade`: If Sidecar is offline or unmapped before request publication, opens an explicit Draft in active panel labeled `Active tab draft`.
   - `Post-publication Boundary`: Any timeout or crash after publishing a Sidecar request marks delivery `unknown`; never creates duplicate commands or auto-resends.
 
-### Installation & Management Commands
+### Installation & Management Commands (External Extension Companion)
 
-In `E:/Work/apps/antigravity-browser`:
+The Sidecar configuration scripts are hosted in the external extension companion repository (`antigravity-browser`):
 ```bash
+# In external companion repo (e.g. E:/Work/apps/antigravity-browser):
 # Run compatibility probe
 node scripts/probe-agentapi-sidecar.mjs
 
@@ -99,7 +100,6 @@ node scripts/install-sidecar.mjs --action install
 # Remove Sidecar configuration safely
 node scripts/install-sidecar.mjs --action remove
 ```
-
 ### Diagnostics & Badges
 
 - `🎯 Exact đã nhận`: Verified delivery directly to the selected conversation via Sidecar router.

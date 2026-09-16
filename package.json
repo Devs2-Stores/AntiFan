@@ -71,7 +71,9 @@
     "certify:dual-plane": "node scripts/smoke-dual-plane-cutover-runner.cjs",
     "smoke:device": "npm run compile && node scripts/smoke-device-surface.mjs",
     "smoke:phone-ui": "npm run compile && node scripts/run-electron.cjs scripts/smoke-phone-ui.cjs",
-    "probe:device": "node scripts/probe-iphone-hardware.mjs"
+    "probe:device": "node scripts/probe-iphone-hardware.mjs",
+    "smoke:omp-closed-loop": "node scripts/smoke-omp-closed-loop.cjs",
+    "soak:omp": "node scripts/run-omp-soak.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

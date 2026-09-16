@@ -6,7 +6,8 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { DDL, MIGRATIONS, SCHEMA_VERSION, PLATFORM_BACKFILL_SQL, POST_SCHEMA_SQL } from './schema.js';
+import { DDL, MIGRATIONS, SCHEMA_VERSION, PLATFORM_BACKFILL_SQL, POST_SCHEMA_SQL, NAMESPACE_BACKFILL_SQL, CORE_NAMESPACES, CoreNamespace, KNOWN_PLATFORMS } from './schema.js';
+export { CORE_NAMESPACES, CoreNamespace };
 
 const id = (s: string) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 20);
 const uuid = () => crypto.randomUUID();
@@ -17,9 +18,9 @@ const TERMINAL_DISPOSITIONS = new Set(['ANALYZED_NO_CLAIM', 'ANALYZED_WITH_CLAIM
 const CONFLICT_CLASSIFICATIONS = new Set(['GENERAL_RULE', 'CONTEXTUAL_RULE', 'LEGACY_RULE', 'EXCEPTION', 'CONFLICTED', 'UNRESOLVED']);
 
 
-export interface QueryOpts { text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; includeGlobal?: boolean; }
-export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; }
-export interface OutcomeInput { task: string; context?: string; outcome: string; verificationRef?: string; unitId?: string; platform?: string; }
+export interface QueryOpts { text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace; }
+export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; namespace?: CoreNamespace; }
+export interface OutcomeInput { task: string; context?: string; outcome: string; verificationRef?: string; unitId?: string; platform?: string; namespace?: CoreNamespace; }
 
 // A regression check is a re-executable invariant over live store state.
 // claim-status: claimId must hold `expect` ('LIVE' = not stale/revoked/superseded).
@@ -30,7 +31,8 @@ export interface RegressionCheck { kind: 'claim-status' | 'case-present' | 'quer
 
 // Deterministic composite ranking weights (R4/R6). Positive weights sum to 1.0;
 // unresolved conflicts SUBTRACT, never add. Frozen before measurement.
-const RANK = { text: 0.30, evidence: 0.25, state: 0.20, platform: 0.15, recency: 0.10, conflictPenalty: 0.10 } as const;
+const RANK = { text: 0.25, evidence: 0.20, state: 0.15, platform: 0.15, namespace: 0.15, recency: 0.10, conflictPenalty: 0.10 } as const;
+const TOP_SCORE_MIN_THRESHOLD = 0.30;
 // SQLite FTS5 bm25() returns a score <= 0 where MORE NEGATIVE is a BETTER match
 // (`ORDER BY rank` ascending puts the best first). The text component runs the
 // magnitude through q/(q+K) so it increases with match quality and saturates at
@@ -127,15 +129,16 @@ export class Core {
       lineage: this.db.prepare('INSERT OR REPLACE INTO lineage(id,kind,subject,evidence,strength,membersJson) VALUES (?,?,?,?,?,?)'),
       // Upsert claims but never resurrect an operator-set terminal status
       // (REVOKED / SUPERSEDED / STALE_SOURCE_CHANGED) back to OBSERVED on re-import.
-      claim: this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,contextPlatform,contextVersion,createdAt,confidence,validFrom,validUntil,sourceKind,subject) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      claim: this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,contextPlatform,contextVersion,createdAt,confidence,validFrom,validUntil,sourceKind,subject,namespace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(claimId) DO UPDATE SET
           unitId=excluded.unitId, statement=excluded.statement, kind=excluded.kind,
           extractorVersion=excluded.extractorVersion, contextPlatform=excluded.contextPlatform,
           contextVersion=excluded.contextVersion, confidence=excluded.confidence,
           validFrom=excluded.validFrom, validUntil=excluded.validUntil,
           sourceKind=excluded.sourceKind, subject=excluded.subject,
+          namespace=COALESCE(excluded.namespace, claims.namespace),
           status=CASE WHEN claims.status IN ('REVOKED','SUPERSEDED','STALE_SOURCE_CHANGED','PROMOTED') THEN claims.status ELSE excluded.status END`),
-      decision: this.db.prepare('INSERT OR REPLACE INTO decisions(decisionId,unitId,statement,context,alternatives,chosen,evidenceJson,problem,tradeoffs,outcome,confidence,platform,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'),
+      decision: this.db.prepare('INSERT OR REPLACE INTO decisions(decisionId,unitId,statement,context,alternatives,chosen,evidenceJson,problem,tradeoffs,outcome,confidence,platform,createdAt,namespace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'),
       dependency: this.db.prepare('INSERT OR REPLACE INTO dependencies(id,fromUnitId,toUnitId,kind,evidenceJson) VALUES (?,?,?,?,?)'),
     };
     let skippedLines = 0;
@@ -232,7 +235,7 @@ export class Core {
           .run(l.versionId ?? `sv-${uuid()}`, l.skillId, l.version ?? null, l.failure ?? null, l.fix ?? null, l.production ?? null, l.createdAt ?? now());
       }
       for (const d of jsonl(path.join(reportsDir, 'decisions.jsonl'))) {
-        ins.decision.run(d.decisionId, d.unitId, d.statement, d.context ?? null, d.alternatives ?? null, d.chosen ?? null, JSON.stringify(d.evidence ?? []), d.problem ?? null, d.tradeoffs ?? null, d.outcome ?? null, d.confidence ?? null, d.platform ?? null, d.createdAt ?? now());
+        ins.decision.run(d.decisionId, d.unitId, d.statement, d.context ?? null, d.alternatives ?? null, d.chosen ?? null, JSON.stringify(d.evidence ?? []), d.problem ?? null, d.tradeoffs ?? null, d.outcome ?? null, d.confidence ?? null, d.platform ?? null, d.createdAt ?? now(), d.namespace ?? (d.platform ? 'PLATFORM_KNOWLEDGE' : null));
       }
       for (const d of jsonl(path.join(reportsDir, 'dependencies.jsonl'))) {
         ins.dependency.run(d.id, d.fromUnitId, d.toUnitId, d.kind ?? 'depends-on', JSON.stringify(d.evidence ?? []));
@@ -252,7 +255,13 @@ export class Core {
           }
           for (const file of ['claims.jsonl', 'deep-claims.jsonl']) {
             for (const c of jsonl(path.join(ud, file))) {
-              ins.claim.run(c.claimId, uid, c.statement, c.kind, c.status ?? 'OBSERVED', c.extractorVersion ?? null, c.context?.platform ?? null, c.context?.version ?? null, c.createdAt ?? now(), c.confidence ?? null, c.validFrom ?? null, c.validUntil ?? null, c.sourceKind ?? null, c.subject ?? null);
+              const claimNs = c.namespace ?? (
+                c.context?.platform ? 'PLATFORM_KNOWLEDGE' :
+                (c.kind === 'PRINCIPLE' || c.sourceKind === 'principle') ? 'PERSONAL_PRACTICE' :
+                this.isAntifanInternalUnit(uid) ? 'ANTIFAN_ENGINEERING' :
+                null
+              );
+              ins.claim.run(c.claimId, uid, c.statement, c.kind, c.status ?? 'OBSERVED', c.extractorVersion ?? null, c.context?.platform ?? null, c.context?.version ?? null, c.createdAt ?? now(), c.confidence ?? null, c.validFrom ?? null, c.validUntil ?? null, c.sourceKind ?? null, c.subject ?? null, claimNs);
               for (const e of c.evidenceRefs ?? []) {
                 ins.evidence.run(id(`${c.claimId}${e.entryId ?? e.anchor ?? ''}${e.anchor ?? ''}`), c.claimId, e.entryId ?? null, e.revision ?? null, e.path ?? null, e.anchor ?? null);
               }
@@ -266,6 +275,7 @@ export class Core {
       // platform from their unit's unanimous claim platform, then from a single
       // known-platform keyword in their own text. Underivable stays NULL.
       this.db.exec(PLATFORM_BACKFILL_SQL);
+      this.db.exec(NAMESPACE_BACKFILL_SQL);
       this.db.exec('COMMIT');
     } catch (e) {
       this.db.exec('ROLLBACK');
@@ -307,11 +317,21 @@ export class Core {
   }
 
   // ---- deterministic composite scoring (R4/R6) --------------------------------
-  private claimScore(c: Record<string, unknown>, opts: { platform?: string; conflictSubjects?: Set<string> }) {
+  private claimScore(c: Record<string, unknown>, opts: { platform?: string; conflictSubjects?: Set<string>; targetNamespace?: CoreNamespace | null }) {
     const ev = Array.isArray(c.evidence) ? c.evidence.length : 0;
     const evidenceScore = Math.min(ev, 3) / 3;
     const stateScore = STATE_SCORE[c.status as string] ?? 0.4;
     const platformScore = !opts.platform ? 0.5 : c.contextPlatform === opts.platform ? 1 : 0;
+    let namespaceScore: number;
+    if (!opts.targetNamespace) {
+      namespaceScore = 0.5;
+    } else if (c.namespace === opts.targetNamespace) {
+      namespaceScore = 1.0;
+    } else if (c.namespace && c.namespace !== opts.targetNamespace) {
+      namespaceScore = 0.0;
+    } else {
+      namespaceScore = 0.3;
+    }
     const created = Date.parse((c.createdAt as string) ?? '') || 0;
     const ageDays = created ? Math.max(0, (Date.now() - created) / 86400_000) : 365;
     const recencyScore = 1 / (1 + ageDays / 180);
@@ -319,12 +339,12 @@ export class Core {
     const textScore = rankMagnitude === null ? TEXT_NEUTRAL : rankMagnitude / (rankMagnitude + BM25_HALF_SATURATION);
     const conflicted = c.subject != null && opts.conflictSubjects?.has(c.subject as string) ? 1 : 0;
     const score = RANK.text * textScore + RANK.evidence * evidenceScore + RANK.state * stateScore
-      + RANK.platform * platformScore + RANK.recency * recencyScore - RANK.conflictPenalty * conflicted;
+      + RANK.platform * platformScore + RANK.namespace * namespaceScore + RANK.recency * recencyScore - RANK.conflictPenalty * conflicted;
     return Math.max(0, Math.min(1, score));
   }
 
-  private scoreClaims(claims: Array<Record<string, unknown>>, opts: { platform?: string; conflictSubjects?: Set<string> }): Array<Record<string, unknown> & { score: number }> {
-    return claims.map((c) => ({ ...c, score: this.claimScore(c, opts) }));
+  private scoreClaims(claims: Array<Record<string, unknown>>, opts: { platform?: string; conflictSubjects?: Set<string>; targetNamespace?: CoreNamespace | null }): Array<Record<string, unknown> & { score: number; namespace: CoreNamespace | null }> {
+    return claims.map((c) => ({ ...c, namespace: (c.namespace as CoreNamespace | undefined) ?? null, score: this.claimScore(c, opts) }));
   }
 
   private packScore(claims: Array<Record<string, unknown> & { score?: number }>, conflictCount: number) {
@@ -342,7 +362,53 @@ export class Core {
     return score >= CONFIDENCE.high ? 'HIGH' : score >= CONFIDENCE.medium ? 'MEDIUM' : score >= CONFIDENCE.low ? 'LOW' : 'UNKNOWN';
   }
 
-  private abstainReason(opts: { platform?: string }) {
+  inferQueryNamespace(opts: { namespace?: CoreNamespace; platform?: string; task?: string; text?: string }): CoreNamespace | null {
+    if (opts.namespace) return opts.namespace;
+    if (opts.platform) return 'PLATFORM_KNOWLEDGE';
+    const text = ((opts.task ?? '') + ' ' + (opts.text ?? '')).toLowerCase();
+    if (!text.trim()) return null;
+
+    const hasPlatform = KNOWN_PLATFORMS.some((p) => text.includes(p))
+      || /\b(storefront|liquid|theme|settings_schema|settings\.html|checkout|cart|catalog|variant|product)\b/.test(text);
+    const hasEngineering = /\b(antifan|browser|electron|cdp|tab|mcp|rpc|bridge|daemon|terminal|runner|host|socket|session|worktree)\b/.test(text);
+    const hasPractice = /\b(principle|mindset|invariant|guideline|ethic|habit|personal\s+practice)\b/.test(text);
+
+    const count = (hasPlatform ? 1 : 0) + (hasEngineering ? 1 : 0) + (hasPractice ? 1 : 0);
+    if (count !== 1) return null;
+
+    if (hasPlatform) return 'PLATFORM_KNOWLEDGE';
+    if (hasEngineering) return 'ANTIFAN_ENGINEERING';
+    if (hasPractice) return 'PERSONAL_PRACTICE';
+    return null;
+  }
+
+  private isAntifanInternalUnit(unitId?: string | null): boolean {
+    if (!unitId) return false;
+    if (unitId.includes('antifan') || unitId.startsWith('u-test') || unitId.startsWith('u-reuse') || unitId.startsWith('u-rank')) return true;
+    const row = this.db.prepare('SELECT relPath, rootId, markers FROM units WHERE unitId = ?').get(unitId) as { relPath?: string; rootId?: string; markers?: string } | undefined;
+    if (!row) return false;
+    const rel = (row.relPath ?? '').toLowerCase();
+    const root = (row.rootId ?? '').toLowerCase();
+    const markers = (row.markers ?? '').toLowerCase();
+    return rel.includes('antifan') || rel.startsWith('src') || rel.startsWith('packages') || rel.startsWith('apps')
+      || root.includes('antifan') || markers.includes('antifan');
+  }
+
+  isNamespaceMismatchDominant(
+    claims: Array<Record<string, unknown>>,
+    targetNamespace?: CoreNamespace | null,
+  ): boolean {
+    if (!targetNamespace || claims.length === 0) return false;
+    const tagged = claims.filter((c) => c.namespace != null);
+    if (tagged.length === 0) return false;
+    const matching = tagged.filter((c) => c.namespace === targetNamespace).length;
+    const mismatch = tagged.length - matching;
+    return matching === 0 || mismatch > matching;
+  }
+
+  private abstainReason(opts: { platform?: string; namespace?: string; mismatch?: boolean; lowScore?: boolean }) {
+    if (opts.mismatch) return 'NAMESPACE_MISMATCH';
+    if (opts.lowScore && !opts.platform) return 'LOW_CONFIDENCE';
     return opts.platform ? 'INSUFFICIENT_PLATFORM_EVIDENCE' : 'INSUFFICIENT_EVIDENCE';
   }
 
@@ -395,15 +461,16 @@ export class Core {
       (this.db.prepare(`SELECT subject FROM conflicts WHERE ${scope.where}`).all(...scope.args as never[]) as Array<{ subject: string | null }>)
         .map((r) => r.subject).filter((s): s is string => s != null),
     );
-    const scored = this.scoreClaims(rows, { platform: opts.platform, conflictSubjects });
+    const targetNamespace = opts.namespace ?? this.inferQueryNamespace(opts);
+    const scored = this.scoreClaims(rows, { platform: opts.platform, conflictSubjects, targetNamespace });
     // Deterministic re-rank: composite score desc, BM25 asc, claimId asc.
     scored.sort((a, b) => (b.score - a.score) || ((a.rank as number | undefined) ?? 0) - ((b.rank as number | undefined) ?? 0) || String(a.claimId).localeCompare(String(b.claimId)));
-    return scored.slice(0, limit) as Array<Record<string, unknown> & { claimId: string; contextPlatform: string | null; evidence: unknown[]; score: number }>;
+    return scored.slice(0, limit) as Array<Record<string, unknown> & { claimId: string; contextPlatform: string | null; namespace: CoreNamespace | null; evidence: unknown[]; score: number }>;
   }
 
   contextPack(opts: PackOpts) {
     const limit = Math.max(1, Math.min(opts.limit ?? 30, 200));
-    const claims = this.query({ text: opts.task, platform: opts.platform, unitIds: opts.unitIds, includeGlobal: opts.includeGlobal, limit });
+    const claims = this.query({ text: opts.task, platform: opts.platform, unitIds: opts.unitIds, includeGlobal: opts.includeGlobal, namespace: opts.namespace, limit });
     const scope = this.unresolvedConflictScope(opts);
     const conflicts = this.db.prepare(`SELECT * FROM conflicts WHERE ${scope.where} LIMIT 50`).all(...scope.args as never[]);
     // Unknowns = units with blocked/pending artifacts. Scoped to requested
@@ -476,10 +543,15 @@ export class Core {
     const caseId = `case-${uuid()}`;
     const candidateId = `cand-${uuid()}`;
     const platform = o.platform ?? this.unitPlatform(o.unitId);
+    const caseNs = o.namespace ?? (
+      platform ? 'PLATFORM_KNOWLEDGE' :
+      this.isAntifanInternalUnit(o.unitId) ? 'ANTIFAN_ENGINEERING' :
+      this.inferQueryNamespace({ task: o.task, text: o.context }) ?? 'ANTIFAN_ENGINEERING'
+    );
     this.db.exec('BEGIN');
     try {
-      this.db.prepare('INSERT INTO cases(caseId,task,context,outcome,verificationRef,unitId,platform,createdAt) VALUES (?,?,?,?,?,?,?,?)')
-        .run(caseId, o.task, o.context ?? null, o.outcome, o.verificationRef ?? null, o.unitId ?? null, platform, now());
+      this.db.prepare('INSERT INTO cases(caseId,task,context,outcome,verificationRef,unitId,platform,createdAt,namespace) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(caseId, o.task, o.context ?? null, o.outcome, o.verificationRef ?? null, o.unitId ?? null, platform, now(), caseNs);
       const { observationId } = this.writeObservation('ingestOutcome', 'TASK_OUTCOME',
         { task: o.task, outcome: o.outcome, caseId, candidateId, unitId: o.unitId ?? null, platform, verificationRef: o.verificationRef ?? null });
       const taskNode = this.writeExperienceNode('TASK', caseId, o.task, o.context ?? null);
@@ -537,14 +609,15 @@ export class Core {
       if (opts.decision === 'PROMOTE') {
         // Materialize the promoted outcome as a claim so query/contextPack/
         // recommend can see it; candidates alone are invisible to retrieval.
-        const full = this.db.prepare('SELECT c.*, s.unitId AS caseUnitId, s.platform AS casePlatform, s.verificationRef AS caseVerificationRef FROM candidates c LEFT JOIN cases s ON s.caseId = c.caseId WHERE c.candidateId = ?')
-          .get(opts.candidateId) as { statement: string; kind: string; evidenceJson: string | null; caseUnitId: string | null; casePlatform: string | null; caseVerificationRef: string | null } | undefined;
+        const full = this.db.prepare('SELECT c.*, s.unitId AS caseUnitId, s.platform AS casePlatform, s.namespace AS caseNamespace, s.verificationRef AS caseVerificationRef FROM candidates c LEFT JOIN cases s ON s.caseId = c.caseId WHERE c.candidateId = ?')
+          .get(opts.candidateId) as { statement: string; kind: string; evidenceJson: string | null; caseUnitId: string | null; casePlatform: string | null; caseNamespace: string | null; caseVerificationRef: string | null } | undefined;
         if (full) {
           const claimId = `claim-${opts.candidateId}`;
-          this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,createdAt,confidence,sourceKind,subject,contextPlatform)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(claimId) DO UPDATE SET statement=excluded.statement, status='PROMOTED'`)
-            .run(claimId, full.caseUnitId ?? 'learning-loop', full.statement, full.kind, 'PROMOTED', 'adjudication', now(), 'HIGH', 'adjudication', opts.candidateId, full.casePlatform ?? null);
+          const claimNs = full.caseNamespace ?? (full.casePlatform ? 'PLATFORM_KNOWLEDGE' : 'ANTIFAN_ENGINEERING');
+          this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,createdAt,confidence,sourceKind,subject,contextPlatform,namespace)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(claimId) DO UPDATE SET statement=excluded.statement, status='PROMOTED', namespace=COALESCE(excluded.namespace, claims.namespace)`)
+            .run(claimId, full.caseUnitId ?? 'learning-loop', full.statement, full.kind, 'PROMOTED', 'adjudication', now(), 'HIGH', 'adjudication', opts.candidateId, full.casePlatform ?? null, claimNs);
           this.db.prepare('DELETE FROM claims_fts WHERE claimId = ?').run(claimId);
           this.db.prepare('INSERT INTO claims_fts(rowid,statement,kind,unitId,claimId) VALUES ((SELECT rowid FROM claims WHERE claimId=?),?,?,?,?)')
             .run(claimId, full.statement, full.kind, full.caseUnitId ?? 'learning-loop', claimId);
@@ -647,8 +720,19 @@ export class Core {
     const pack = this.contextPack(opts);
     const top = pack.claims.slice(0, 10);
     const quality = this.qualityCount(pack.claims);
-    const abstained = quality < MIN_QUALITY_CLAIMS;
-    const reasonCode = abstained ? this.abstainReason(opts) : null;
+    const targetNs = opts.namespace ?? this.inferQueryNamespace(opts);
+    const firstClaim = pack.claims[0];
+    const topScore = firstClaim && typeof firstClaim.score === 'number' ? firstClaim.score : 0;
+    const mismatchDominates = this.isNamespaceMismatchDominant(pack.claims, targetNs);
+    const lowTopScore = pack.claims.length > 0 && topScore < TOP_SCORE_MIN_THRESHOLD;
+    const abstained = quality < MIN_QUALITY_CLAIMS || lowTopScore || mismatchDominates;
+    const reasonCode = abstained
+      ? (mismatchDominates
+          ? 'NAMESPACE_MISMATCH'
+          : (lowTopScore && !opts.platform)
+            ? 'LOW_CONFIDENCE'
+            : this.abstainReason(opts))
+      : null;
     const receipt = this.receipt({
       task: opts.task,
       packId: pack.packId,
@@ -763,7 +847,7 @@ export class Core {
   // ---- v4: Case-Based Reasoning (§16) ----------------------------------------
   // Same platform policy as query() applied to ALL six collections: when a
   // platform is requested, untagged rows are excluded unless includeGlobal.
-  findSimilar(opts: { task: string; platform?: string; limit?: number; includeGlobal?: boolean }) {
+  findSimilar(opts: { task: string; platform?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace }) {
     const limit = Math.max(1, Math.min(opts.limit ?? 10, 50));
     const terms = opts.task.split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, '""')}"`);
     const orQ = terms.join(' OR ');
@@ -771,16 +855,22 @@ export class Core {
     const claimArgs: unknown[] = [];
     const claimPred = this.platformPredicate('c.contextPlatform', opts, claimArgs);
     const policyPred = this.eligibleContentPredicate('c');
+    const claimNsPred = opts.namespace ? 'AND c.namespace = ?' : '';
+    if (opts.namespace) claimArgs.push(opts.namespace);
     const claims = terms.length
-      ? this.db.prepare(`SELECT c.*, bm25(claims_fts) AS rank FROM claims_fts f JOIN claims c ON c.claimId = f.claimId WHERE claims_fts MATCH ? AND c.status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED') AND ${policyPred} AND ${claimPred} ORDER BY rank LIMIT ?`).all(orQ, ...claimArgs as never[], limit)
+      ? this.db.prepare(`SELECT c.*, bm25(claims_fts) AS rank FROM claims_fts f JOIN claims c ON c.claimId = f.claimId WHERE claims_fts MATCH ? AND c.status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED') AND ${policyPred} AND ${claimPred} ${claimNsPred} ORDER BY rank LIMIT ?`).all(orQ, ...claimArgs as never[], limit)
       : [];
     const caseArgs: unknown[] = [];
     const casePred = this.platformPredicate('platform', opts, caseArgs);
-    const cases = this.db.prepare(`SELECT * FROM cases WHERE (task LIKE ? OR context LIKE ?) AND ${casePred} ORDER BY createdAt DESC LIMIT ?`)
+    const caseNsPred = opts.namespace ? 'AND namespace = ?' : '';
+    if (opts.namespace) caseArgs.push(opts.namespace);
+    const cases = this.db.prepare(`SELECT * FROM cases WHERE (task LIKE ? OR context LIKE ?) AND ${casePred} ${caseNsPred} ORDER BY createdAt DESC LIMIT ?`)
       .all(like, like, ...caseArgs as never[], limit);
     const decArgs: unknown[] = [];
     const decPred = this.platformPredicate('platform', opts, decArgs);
-    const decisions = this.db.prepare(`SELECT * FROM decisions WHERE (statement LIKE ? OR context LIKE ? OR chosen LIKE ?) AND ${decPred} ORDER BY createdAt DESC LIMIT ?`)
+    const decNsPred = opts.namespace ? 'AND namespace = ?' : '';
+    if (opts.namespace) decArgs.push(opts.namespace);
+    const decisions = this.db.prepare(`SELECT * FROM decisions WHERE (statement LIKE ? OR context LIKE ? OR chosen LIKE ?) AND ${decPred} ${decNsPred} ORDER BY createdAt DESC LIMIT ?`)
       .all(like, like, like, ...decArgs as never[], limit);
     const apArgs: unknown[] = [];
     const apPred = this.platformPredicate('affectedPlatform', opts, apArgs);
@@ -1018,10 +1108,10 @@ export class Core {
     const foundIds = foundRows.map((r) => r.claimId).sort();
     // "Latest" means last issued, not first created: the dedupe upsert refreshes
     // lastIssuedAt on every re-issue while createdAt stays put. COALESCE covers
-    // rows written before the column existed; rowid breaks same-millisecond
-    // ties by real insert order so the pick stays deterministic.
+    // rows written before the column existed; rowid and packId break same-millisecond
+    // ties by real insert order and stable key so the pick stays deterministic.
     const packRow = this.db
-      .prepare('SELECT packId, claimIdsJson FROM packs WHERE task = ? ORDER BY COALESCE(lastIssuedAt, createdAt) DESC, rowid DESC LIMIT 1')
+      .prepare('SELECT packId, claimIdsJson FROM packs WHERE task = ? ORDER BY COALESCE(lastIssuedAt, createdAt) DESC, rowid DESC, packId DESC LIMIT 1')
       .get(opts.task) as { packId: string; claimIdsJson: string } | undefined;
     const injectedIds = packRow ? (JSON.parse(packRow.claimIdsJson) as string[]).slice().sort() : [];
     const injectedFlag: Record<string, true> = {};
@@ -1246,16 +1336,21 @@ export class Core {
   // ---- v4: Enriched Context Pack (§39) -----------------------------------------------
   contextPackV2(opts: PackOpts) {
     const pack = this.contextPack(opts);
-    const claims = pack.claims as Array<Record<string, unknown> & { score?: number }>;
+    const claims = pack.claims;
     const rules = claims.filter((c) => c.kind === 'RULE' || c.kind === 'CONSTRAINT');
-    const similar = this.findSimilar({ task: opts.task, platform: opts.platform, includeGlobal: opts.includeGlobal, limit: 10 });
+    const targetNs = opts.namespace ?? this.inferQueryNamespace(opts);
+    const similar = this.findSimilar({ task: opts.task, platform: opts.platform, includeGlobal: opts.includeGlobal, namespace: targetNs ?? undefined, limit: 10 });
     const uncertainty = this.classifyUncertainty({ task: opts.task, platform: opts.platform });
-    // R4/R5: confidence is the deterministic composite, gated by quality-claim
-    // count. Below MIN_QUALITY_CLAIMS the pack abstains with a named reason —
-    // never a confident-looking answer, never cross-platform filler.
     const quality = this.qualityCount(claims);
     const score = this.packScore(claims, pack.conflicts.length);
-    const confidence = this.confidenceFor(score, quality);
+    const firstClaim = claims[0];
+    const topScore = firstClaim && typeof firstClaim.score === 'number' ? firstClaim.score : 0;
+    const mismatchDominates = this.isNamespaceMismatchDominant(claims, targetNs);
+    const lowTopScore = claims.length > 0 && topScore < TOP_SCORE_MIN_THRESHOLD;
+    let confidence = this.confidenceFor(score, quality);
+    if (lowTopScore || mismatchDominates) {
+      confidence = 'UNKNOWN';
+    }
     const abstained = confidence === 'UNKNOWN';
     return {
       ...pack,
@@ -1266,14 +1361,16 @@ export class Core {
       recommendedPattern: similar.fixPatterns[0] ?? null,
       uncertainty,
       confidence,
-      // An abstained pack reports no score: the raw composite next to
-      // `abstained: true` reads as a confident answer, which is exactly the
-      // signal the abstain gate exists to withhold. A missing measurement is
-      // omitted, never published beside a refusal to answer.
       confidenceScore: abstained ? null : Math.round(score * 1000) / 1000,
       qualityClaims: quality,
       abstained,
-      reasonCode: abstained ? this.abstainReason(opts) : null,
+      reasonCode: abstained
+        ? (mismatchDominates
+            ? 'NAMESPACE_MISMATCH'
+            : (lowTopScore && !opts.platform)
+              ? 'LOW_CONFIDENCE'
+              : this.abstainReason(opts))
+        : null,
     };
   }
 
@@ -1300,14 +1397,25 @@ export class Core {
         ? (this.db.prepare(`SELECT * FROM claims WHERE claimId IN (${claimIds.map(() => '?').join(',')})`).all(...claimIds as never[]) as Array<Record<string, unknown>>)
         : [];
       for (const r of rows) r.evidence = evStmt.all(r.claimId as string);
-      const scored = this.scoreClaims(rows, { platform, conflictSubjects });
-      // packScore means over the TOP claims, so the set has to be ranked first.
-      // `WHERE claimId IN (...)` returns SQLite order, not score order — scoring
-      // that would let receiptV2 and contextPackV2 disagree on the same pack.
+      const targetNs = opts.platform ? 'PLATFORM_KNOWLEDGE' : this.inferQueryNamespace({ platform, task: opts.task });
+      const scored = this.scoreClaims(rows, { platform, conflictSubjects, targetNamespace: targetNs });
       const ranked = [...scored].sort((a, b) => (b.score - a.score) || String(a.claimId).localeCompare(String(b.claimId)));
       const quality = this.qualityCount(ranked);
-      confidence = this.confidenceFor(this.packScore(ranked, conflictCount), quality);
-      reasonCode = confidence === 'UNKNOWN' ? this.abstainReason({ platform }) : null;
+      const firstClaim = ranked[0];
+      const topScore = firstClaim && typeof firstClaim.score === 'number' ? firstClaim.score : 0;
+      const mismatchDominates = this.isNamespaceMismatchDominant(ranked, targetNs);
+      const lowTopScore = ranked.length > 0 && topScore < TOP_SCORE_MIN_THRESHOLD;
+      if (lowTopScore || mismatchDominates) {
+        confidence = 'UNKNOWN';
+        reasonCode = mismatchDominates
+          ? 'NAMESPACE_MISMATCH'
+          : (lowTopScore && !platform)
+            ? 'LOW_CONFIDENCE'
+            : this.abstainReason({ platform });
+      } else {
+        confidence = this.confidenceFor(this.packScore(ranked, conflictCount), quality);
+        reasonCode = confidence === 'UNKNOWN' ? this.abstainReason({ platform }) : null;
+      }
     }
     return {
       ...receipt,

@@ -35,6 +35,8 @@ Every domain page in this directory structures its factual assertions using the 
 | [`platform-topology-and-settings.md`](platform-topology-and-settings.md) | Haravan theme directory layout (`layout/`, `templates/`, `snippets/`, `assets/`, `config/`), legacy `config/settings.html`, modern `config/settings_schema.json`, visual editor binding rules, and configuration file precedence. | Flat Liquid templates; `sections/` and OS 2.0 JSON templates absent; F1GENZ binding contract (`setting-id` + `setting-type`). |
 | [`liquid-objects-filters-tags.md`](liquid-objects-filters-tags.md) | Verified Liquid runtime: global and resource objects (`line_item`, `product`, `collection`, `blog`), variant resolution, supported vs unsupported filters and tags, and platform comparison. | Official `line_item` naming; `blog.articles_count`; unsupported `image_url`, `where`, `render`, `schema`. |
 | [`routes-and-handles.md`](routes-and-handles.md) | Storefront URL routing, canonical template dispatch, handle mechanics as platform primitives, and preview targeting query parameters. | Canonical 8 templates; handle immutability; `?themeid=` preview parameter vs inert `?preview_theme_id=`. |
+| [`base-theme-contract.md`](base-theme-contract.md) | Canonical primitives (Header, Nav, Swatch, Mini-Cart, Pagination), flat directory structure, extension points, and performance standards for Universal Haravan Base Theme. | Specification matching `specs/base-theme-contract.json`; anti-UI monster philosophy; brand-neutral foundation. |
+| [`pattern-mining.md`](pattern-mining.md) | Empirical analysis of 30 production customer themes at `E:/Work/customizes`: flat structure recurrence, include vs render, metafield tab patterns, and slider libraries. | Census of 30 commercial themes; verified 0% sections/0% render; recurrence as common practice rather than platform prohibition. |
 | [`admin-merchant-workflows.md`](admin-merchant-workflows.md) | Merchant administrative workflows: theme import/export/publish, visual editor customization, and shared catalog implications. | Shared store database; unpublished themes share live catalog; Admin theme packaging rules. |
 | [`api-capabilities-and-scopes.md`](api-capabilities-and-scopes.md) | Haraweb (`web.*`) vs Commerce (`com.*`) REST APIs, OAuth/Private Bearer auth, token lifecycles, leaky-bucket rate limits, webhooks, and documented API gaps. | Bundled scopes (`web.read_contents`, `com.read_products`); missing link_lists API (404); inventory batch conflict. |
 | [`cli-operations-and-guards.md`](cli-operations-and-guards.md) | `@f1genz/haravan-cli` command inventory, watcher synchronization, local state tracking, and fail-closed security guards. | Fail-closed `role === "main"` block; project context binding; automated backups; correct `?themeid=` preview. |
@@ -59,7 +61,7 @@ The facts compiled in this wiki are anchored in Tier-1 evidence gathered during 
    - 30 distinct commercial customer themes audited across directory structures, template families, snippet includes, slider libraries, and settings architecture.
 4. **Live Store & Execution Receipts:**
    - Store Inventory (`reports/haravan-store-inventory.json`, 2026-09-12): Store `phukienmaymoc.com`, Org `200001207485`.
-   - Adjudication & Forensics (`plans/reports/scout-union-260912-1731-haravan-base-theme.md`, `evidence-addendum-04-260912-1731-measurement-identity.md`).
+   - Adjudication & Forensics (`plans/reports/scout-union-260912-1731-haravan-base-theme.md`, `plans/reports/evidence-addendum-04-260912-1731-measurement-identity.md`).
 
 ---
 

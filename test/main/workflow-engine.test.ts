@@ -13,8 +13,13 @@ import { WorkspaceFilePort } from '../../src/main/tools/workspace-file-port';
 import { registerFileCapabilities } from '../../src/main/tools/file-capabilities';
 import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import {
+  AuthenticatedCapabilityContext,
   BrowserTarget,
   CapabilityError,
+  CapabilityRequestContext,
+  ChildDispatchSpec,
+  ClientInvocationIntent,
+  InternalChildCapabilityResponse,
   issueRuntimeLease,
   makeControlPlaneId,
 } from '../../src/shared/control-plane-contracts';
@@ -71,6 +76,43 @@ function createMockHost(overrides?: Partial<BrowserHostPort>): BrowserHostPort {
     }),
     ...overrides,
   });
+}
+function createStubDispatcher(
+  catalogue: CapabilityCatalogue,
+  context: CapabilityRequestContext | AuthenticatedCapabilityContext
+): (spec: ChildDispatchSpec) => Promise<InternalChildCapabilityResponse> {
+  return async (spec: ChildDispatchSpec): Promise<InternalChildCapabilityResponse> => {
+    try {
+      const data = await catalogue.dispatch(
+        spec.intent.name,
+        (spec.intent.params || {}) as Record<string, unknown>,
+        {
+          ...context,
+          signal: spec.signal,
+        }
+      );
+      return { ok: true, data };
+    } catch (err: unknown) {
+      if (err instanceof CapabilityError) {
+        return {
+          ok: false,
+          error: {
+            code: err.code,
+            message: err.message,
+            details: err.details,
+          },
+        };
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        error: {
+          code: 'CAPABILITY_ERROR',
+          message,
+        },
+      };
+    }
+  };
 }
 
 describe('Workflow Engine', () => {
@@ -133,6 +175,14 @@ describe('Workflow Engine', () => {
       attemptId: 'attempt-1',
       grant: 'write',
       onEvent: (ev) => events.push(ev.type),
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
     });
 
     assert.strictEqual(result.status, 'passed');
@@ -198,6 +248,14 @@ describe('Workflow Engine', () => {
       runId: 'run-1',
       attemptId: 'attempt-1',
       grant: 'write',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId: targetWrongProject.projectId,
+        workspaceId: targetWrongProject.workspaceId,
+        browserTarget: targetWrongProject,
+        grant: 'write',
+      }),
     });
     assert.strictEqual(res1.status, 'failed');
     assert.strictEqual(res1.stepResults[0]?.error?.includes('Project'), true);
@@ -220,6 +278,14 @@ describe('Workflow Engine', () => {
       runId: 'run-1',
       attemptId: 'attempt-1',
       grant: 'write',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId: targetWrongWorkspace.projectId,
+        workspaceId: targetWrongWorkspace.workspaceId,
+        browserTarget: targetWrongWorkspace,
+        grant: 'write',
+      }),
     });
     assert.strictEqual(res2.status, 'failed');
     assert.strictEqual(res2.stepResults[0]?.error?.includes('Workspace'), true);
@@ -243,6 +309,14 @@ describe('Workflow Engine', () => {
       runId: 'run-1',
       attemptId: 'attempt-1',
       grant: 'write',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease: forgedLease,
+        leaseToken: forgedLease.token,
+        projectId: validTarget.projectId,
+        workspaceId: validTarget.workspaceId,
+        browserTarget: validTarget,
+        grant: 'write',
+      }),
     });
     assert.strictEqual(res3.status, 'failed');
     assert.strictEqual(browserNavigated, false, 'No browser call must occur on forged lease');
@@ -296,6 +370,14 @@ describe('Workflow Engine', () => {
       runId: 'run-1',
       attemptId: 'attempt-1',
       grant: 'read', // READ grant executing WRITE step
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'read',
+      }),
     });
 
     assert.strictEqual(res.status, 'failed');
@@ -355,6 +437,14 @@ describe('Workflow Engine', () => {
       attemptId: 'attempt-1',
       grant: 'write',
       signal: ac.signal,
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
     });
 
     assert.strictEqual(res.status, 'interrupted');
@@ -400,6 +490,15 @@ describe('Workflow Engine', () => {
       ],
     };
 
+    const stub = createStubDispatcher(catalogue, {
+      lease,
+      leaseToken: lease.token,
+      projectId,
+      workspaceId,
+      browserTarget: target,
+      grant: 'write',
+    });
+
     const result = (await catalogue.dispatch(
       'workflow.execute',
       { workflow },
@@ -410,6 +509,7 @@ describe('Workflow Engine', () => {
         workspaceId,
         browserTarget: target,
         grant: 'write',
+        dispatchChildIntent: stub,
       }
     )) as { status: string; passedSteps: number };
 
@@ -428,6 +528,7 @@ describe('Workflow Engine', () => {
             projectId,
             workspaceId,
             grant: 'write',
+            dispatchChildIntent: stub,
           }
         ),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED'
@@ -681,7 +782,7 @@ describe('Workflow Engine', () => {
       registry,
       ledger
     );
-    const engine = new WorkflowEngine({ catalogue, artifacts, transport });
+    const engine = new WorkflowEngine({ catalogue, artifacts });
 
     const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'test-backend',
@@ -699,7 +800,7 @@ describe('Workflow Engine', () => {
         { id: 's2', name: 'Click button', type: 'browser.click', params: { selector: '#btn' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
       ],
     };
-
+    let childSeq = 0;
     const result = await engine.execute({
       workflow,
       target,
@@ -710,15 +811,19 @@ describe('Workflow Engine', () => {
       grant: 'write',
       authorityRevision: launch.authorityRevision,
       parentInvocationId: 'parent-wf-inv-1',
-      dispatchChildIntent: (stepId, attempt, intent) => {
+      dispatchChildIntent: (spec: ChildDispatchSpec) => {
+        childSeq++;
         const record = registry.getRecord(launch.attachmentId);
         const currentRev = record?.authorityRevision || launch.authorityRevision;
-        return transport.dispatchChildIntent('parent-wf-inv-1', stepId, attempt, {
-          ...intent,
+        const childIntent: ClientInvocationIntent = {
+          ...spec.intent,
+          requestId: `parent-wf-inv-1:child:${spec.stepId}:${spec.attempt}:${childSeq}`,
+          idempotencyKey: `child:parent-wf-inv-1:${spec.stepId}:${spec.attempt}:${childSeq}`,
           attachmentId: launch.attachmentId,
           attachmentSecret: launch.secret,
           authorityRevision: currentRev,
-        });
+        };
+        return transport.dispatchIntent(childIntent, { signal: spec.signal });
       },
     });
     if (result.status !== 'passed') {
@@ -771,6 +876,15 @@ describe('Workflow Engine', () => {
       ],
     };
     const startTime = Date.now();
+    let childSignal: AbortSignal | undefined;
+    const stub = createStubDispatcher(catalogue, {
+      lease,
+      leaseToken: lease.token,
+      projectId,
+      workspaceId,
+      browserTarget: target,
+      grant: 'write',
+    });
     const result = await engine.execute({
       workflow,
       target,
@@ -779,6 +893,10 @@ describe('Workflow Engine', () => {
       runId,
       attemptId,
       grant: 'write',
+      dispatchChildIntent: async (spec) => {
+        childSignal = spec.signal;
+        return stub(spec);
+      },
     });
 
     const elapsed = Date.now() - startTime;
@@ -786,6 +904,7 @@ describe('Workflow Engine', () => {
     assert.strictEqual(result.failedSteps, 1);
     assert.ok(elapsed < 2000, `Elapsed time (${elapsed}ms) must be close to timeout (50ms)`);
     assert.ok(result.stepResults[0]?.error?.includes('timed out'), `Expected timeout error, got: ${result.stepResults[0]?.error}`);
+    assert.strictEqual(childSignal?.aborted, true, 'Child dispatch signal must abort on step timeout');
   });
 
   it('propagates exact documentGeneration !== 1 into initial workflow attachment and child execution', async () => {
@@ -908,6 +1027,15 @@ describe('Workflow Engine', () => {
       runtimeId: lease.runtimeId,
     };
 
+    const stub = createStubDispatcher(catalogue, {
+      lease,
+      leaseToken: lease.token,
+      projectId,
+      workspaceId,
+      browserTarget: target,
+      grant: 'write',
+    });
+
     const result = await engine.execute({
       workflow,
       target,
@@ -917,6 +1045,23 @@ describe('Workflow Engine', () => {
       attemptId,
       grant: 'write',
       signal: controller.signal,
+      dispatchChildIntent: async (spec: ChildDispatchSpec) => {
+        if (spec.intent.name === 'browser.wait') {
+          domCalls++;
+          controller.abort(new Error('User aborted wait'));
+          if (spec.signal?.aborted) {
+            throw spec.signal.reason || new Error('Wait aborted');
+          }
+          await new Promise<void>((_, reject) => {
+            spec.signal?.addEventListener(
+              'abort',
+              () => reject(spec.signal?.reason || new Error('Wait aborted')),
+              { once: true }
+            );
+          });
+        }
+        return stub(spec);
+      },
     });
 
     assert.strictEqual(result.status, 'interrupted');
@@ -1003,13 +1148,24 @@ describe('Workflow Engine', () => {
       ],
     };
 
-    const failed = await engine.execute({ workflow: absent, target, lease, runId: 'run-wait-miss', attemptId: 'attempt-1', grant: 'write' });
+    const failed = await engine.execute({ workflow: absent, target, lease, runId: 'run-wait-miss', attemptId: 'attempt-1', grant: 'write',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
+    });
 
     assert.strictEqual(failed.status, 'failed', 'A missing selector must not false-pass');
     assert.strictEqual(failed.passedSteps, 0);
     assert.strictEqual(failed.stepResults[0]?.status, 'failed');
-    assert.match(String(failed.stepResults[0]?.error), /not found within 850ms/);
-    assert.ok(domCalls >= 2, `Expected repeated polling, saw ${domCalls} probe(s)`);
+    // Delegated to canonical browser.wait: the error names the selector and the
+    // wait, not a poll-loop deadline. The mock host's wait capability reports
+    // unsatisfied after its own timeout.
+    assert.match(String(failed.stepResults[0]?.error), /never-rendered|not found|timed out|wait/i);
 
     const present: WorkflowDefinition = {
       version: '1.0',
@@ -1019,9 +1175,20 @@ describe('Workflow Engine', () => {
       ],
     };
 
-    const passed = await engine.execute({ workflow: present, target, lease, runId: 'run-wait-hit', attemptId: 'attempt-1', grant: 'write' });
+    const passed = await engine.execute({ workflow: present, target, lease, runId: 'run-wait-hit', attemptId: 'attempt-1', grant: 'write',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
+    });
     assert.strictEqual(passed.status, 'passed');
-    assert.deepStrictEqual(passed.stepResults[0]?.data, { found: true });
+    const data = passed.stepResults[0]?.data as { found?: boolean; wait?: { satisfied?: boolean } };
+    assert.strictEqual(data?.found, true);
+    assert.strictEqual(data?.wait?.satisfied, true);
   });
 
   it('emits step:end skipped for every remaining step after an abort', async () => {
@@ -1081,6 +1248,14 @@ describe('Workflow Engine', () => {
       grant: 'write',
       signal: controller.signal,
       onEvent: (event) => events.push({ type: event.type, stepId: event.stepId, status: event.status }),
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
     });
 
     assert.strictEqual(res.status, 'interrupted');
@@ -1109,6 +1284,14 @@ describe('Workflow Engine', () => {
       grant: 'write',
       signal: preAborted.signal,
       onEvent: (event) => preEvents.push({ type: event.type, stepId: event.stepId, status: event.status }),
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
     });
 
     assert.strictEqual(preRes.status, 'interrupted');
@@ -1161,6 +1344,14 @@ describe('Workflow Engine', () => {
       runId: 'run-continue',
       attemptId: 'attempt-1',
       grant: 'write',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
     });
 
     assert.strictEqual(continued.status, 'completed_with_errors');
@@ -1179,6 +1370,14 @@ describe('Workflow Engine', () => {
       runId: 'run-halt',
       attemptId: 'attempt-1',
       grant: 'write',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
     });
 
     assert.strictEqual(halted.status, 'failed');
@@ -1213,6 +1412,8 @@ describe('Workflow Engine', () => {
       hostEpoch: 1,
     });
     registerBrowserCapabilities(catalogue, browser);
+    const files = new WorkspaceFilePort();
+    registerFileCapabilities(catalogue, files, () => root);
     const engine = new WorkflowEngine({ catalogue, artifacts });
 
     const retries: Array<{ attempt?: number; delayMs?: number }> = [];
@@ -1221,7 +1422,10 @@ describe('Workflow Engine', () => {
       version: '1.0',
       name: 'Retry Backoff',
       steps: [
-        { id: 'r1', name: 'Always fails', type: 'browser.set_device_preset', params: { presetId: 'not-a-real-device' }, timeoutMs: 5000, retryCount: 2, continueOnError: false },
+        // file.read is a read-effect capability: a missing file surfaces a
+        // retryable failure, so the settlement-aware retry gate admits the
+        // retry (a mutation-effect INVALID_ARGUMENT would correctly stop it).
+        { id: 'r1', name: 'Always fails', type: 'file.read', params: { path: 'does-not-exist.txt' }, timeoutMs: 5000, retryCount: 2, continueOnError: false },
       ],
     };
 
@@ -1236,6 +1440,14 @@ describe('Workflow Engine', () => {
       onEvent: (event) => {
         if (event.type === 'step:retry') retries.push({ attempt: event.attempt, delayMs: event.delayMs });
       },
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'write',
+      }),
     });
     const elapsed = Date.now() - startedAt;
 
@@ -1290,7 +1502,16 @@ describe('Workflow Engine', () => {
       ],
     };
 
-    const passed = await engine.execute({ workflow: clean, target, lease, runId: 'run-scan-clean', attemptId: 'attempt-1', grant: 'read' });
+    const passed = await engine.execute({ workflow: clean, target, lease, runId: 'run-scan-clean', attemptId: 'attempt-1', grant: 'read',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'read',
+      }),
+    });
     assert.strictEqual(passed.status, 'passed', `Step failed: ${passed.stepResults[0]?.error}`);
     assert.deepStrictEqual(passed.stepResults[0]?.data, { ok: true });
 
@@ -1304,7 +1525,16 @@ describe('Workflow Engine', () => {
       ],
     };
 
-    const failed = await engine.execute({ workflow: leaky, target, lease, runId: 'run-scan-leaky', attemptId: 'attempt-1', grant: 'read' });
+    const failed = await engine.execute({ workflow: leaky, target, lease, runId: 'run-scan-leaky', attemptId: 'attempt-1', grant: 'read',
+      dispatchChildIntent: createStubDispatcher(catalogue, {
+        lease,
+        leaseToken: lease.token,
+        projectId,
+        workspaceId,
+        browserTarget: target,
+        grant: 'read',
+      }),
+    });
     assert.strictEqual(failed.status, 'failed');
     assert.match(String(failed.stepResults[0]?.error), /forbidden pattern/);
   });

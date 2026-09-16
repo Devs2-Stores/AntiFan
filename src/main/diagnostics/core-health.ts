@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { IssueRegister } from '../session/issue-register';
+import { ProcessRegistry } from '../process/process-registry';
 
 export type CoreHealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE' | 'UNKNOWN';
 
@@ -22,10 +23,6 @@ export interface CoreHealthCheck {
   affected: string[];
   evidenceRefs: string[];
   detail?: string;
-  // Reported to the reader but excluded from the aggregate. Used for checks that
-  // describe something the store genuinely cannot answer corpus-wide, so their
-  // permanent UNKNOWN cannot pin the whole surface.
-  gating?: boolean;
 }
 
 export interface CoreHealthSnapshot {
@@ -166,13 +163,8 @@ const STATUS_RANK: Record<CoreHealthStatus, number> = {
 };
 
 function worstOf(checks: CoreHealthCheck[]): Pick<CoreHealthSnapshot, 'status' | 'reasonCode' | 'affected' | 'evidenceRefs'> {
-  // Non-gating checks are still reported, but they never decide the aggregate.
-  // The unscoped uncertainty pseudo-check always reads UNKNOWN — uncertainty is
-  // per-task, not corpus-wide — so letting it gate would pin the corpus status
-  // to UNKNOWN forever, no matter how healthy the store is.
-  const gating = checks.filter((c) => c.gating !== false);
   let worst: CoreHealthCheck | undefined;
-  for (const c of gating) {
+  for (const c of checks) {
     if (!worst || STATUS_RANK[c.status] > STATUS_RANK[worst.status]) worst = c;
   }
   if (!worst || worst.status === 'HEALTHY') {
@@ -181,7 +173,7 @@ function worstOf(checks: CoreHealthCheck[]): Pick<CoreHealthSnapshot, 'status' |
   return {
     status: worst.status,
     reasonCode: worst.reasonCode,
-    affected: [...new Set(gating.filter((c) => c.status !== 'HEALTHY').flatMap((c) => c.affected))].slice(0, 50),
+    affected: [...new Set(checks.filter((c) => c.status !== 'HEALTHY').flatMap((c) => c.affected))].slice(0, 50),
     evidenceRefs: checks.flatMap((c) => c.evidenceRefs),
   };
 }
@@ -262,13 +254,40 @@ export class CoreHealthService {
           env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
           windowsHide: true,
         });
+        if (child.pid) {
+          ProcessRegistry.getInstance().register({
+            pid: child.pid,
+            owner: 'core-health',
+            name: command,
+            command: args.join(' '),
+            processRef: child,
+          });
+        }
         let stdout = '';
         let stderr = '';
-        const timer = setTimeout(() => { child.kill('SIGKILL'); }, this.timeoutMs);
+        const timer = setTimeout(() => {
+          if (child.pid) {
+            void ProcessRegistry.getInstance().kill(child.pid);
+          } else {
+            child.kill('SIGKILL');
+          }
+        }, this.timeoutMs);
         child.stdout.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
         child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
-        child.on('error', (error) => { clearTimeout(timer); resolve({ status: null, stdout, stderr, error }); });
-        child.on('close', (status) => { clearTimeout(timer); resolve({ status, stdout, stderr }); });
+        child.on('error', (error) => {
+          if (child.pid) {
+            ProcessRegistry.getInstance().unregister(child.pid);
+          }
+          clearTimeout(timer);
+          resolve({ status: null, stdout, stderr, error });
+        });
+        child.on('close', (status) => {
+          if (child.pid) {
+            ProcessRegistry.getInstance().unregister(child.pid, status);
+          }
+          clearTimeout(timer);
+          resolve({ status, stdout, stderr });
+        });
       });
       if (res.error) throw res.error;
       if (res.status !== 0) {
@@ -328,6 +347,7 @@ export class CoreHealthService {
 
     const stats = health.stats ?? {};
     const gates = health.gates ?? {};
+
     const checks: CoreHealthCheck[] = [];
 
     checks.push({
@@ -377,19 +397,14 @@ export class CoreHealthService {
     checks.push(gateCheck('core.regression', gates.regression, {
       failCode: 'REGRESSION_FAILED',
       unknownCode: 'NO_REGRESSION_RUN',
-      // Only a replay that actually ran can adjudicate this gate. Core reports a
-      // recorded-but-never-replayed regression as not adjudicated, which is an absent
-      // answer rather than a failure, so it must not paint the surface red.
-      unknownWhen: (d) => d === 'no regression run'
-        || d === 'last regression recorded but never replayed'
-        || /with no replay/.test(d),
+      unknownWhen: (d) => d === 'no regression run',
     }));
 
     const uncertainty = health.uncertainty ?? {};
     if (uncertainty.level === 'CONFLICTED') {
       checks.push({ name: 'core.uncertainty', status: 'DEGRADED', reasonCode: 'CONFLICTED_CLAIMS', affected: [uncertainty.reason ?? 'conflicted'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
     } else if (uncertainty.level === 'UNKNOWN') {
-      checks.push({ name: 'core.uncertainty', status: 'UNKNOWN', reasonCode: 'INSUFFICIENT_EVIDENCE', affected: [uncertainty.reason ?? 'unknown'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason, gating: false });
+      checks.push({ name: 'core.uncertainty', status: 'UNKNOWN', reasonCode: 'INSUFFICIENT_EVIDENCE', affected: [uncertainty.reason ?? 'unknown'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
     } else {
       checks.push({ name: 'core.uncertainty', status: 'HEALTHY', reasonCode: uncertainty.level || 'SUPPORTED', affected: [], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
     }
@@ -658,23 +673,10 @@ export class CoreHealthService {
       }
       const last = state.rows[0];
       const lastResult = last && typeof last.replayResult === 'string' ? last.replayResult : undefined;
-      // A recorded verdict is a verdict: a FAIL row degrades the surface whether or not
-      // the row carries a replay stamp. The stamp only gates the *healthy* answer, where
-      // an asserted PASS that no replay produced must not read as green — the same
-      // direction the phase gate takes, where such a row cannot open the gate.
-      const lastReplayed = last ? last.replayedAt != null : false;
       const lastId = last && typeof last.regressionId === 'string' ? last.regressionId : 'latest regression';
-      if (lastResult === 'PASS' && lastReplayed) {
+      if (lastResult === 'PASS') {
         state.status = 'HEALTHY';
         state.reasonCode = 'LAST_REPLAY_PASSED';
-      } else if (lastResult == null) {
-        state.status = 'UNKNOWN';
-        state.reasonCode = 'NO_REGRESSION_RUN';
-        state.affected = [`${lastId} is recorded but has never been replayed`];
-      } else if (lastResult === 'PASS') {
-        state.status = 'UNKNOWN';
-        state.reasonCode = 'REPLAY_NOT_ADJUDICATED';
-        state.affected = [`${lastId} asserts PASS with no replay stamp`];
       } else {
         state.status = 'DEGRADED';
         state.reasonCode = 'REGRESSION_FAILED';

@@ -68,7 +68,7 @@ Mô hình kết hợp 2 tầng (Dual-Tier) hoàn hảo:
 ## 4. Thiết Kế Bản Vá Kỹ Thuật (Implementation Blueprint)
 
 ### Điểm móc kết nối sạch (Clean Hook Point)
-Tuân thủ nghiêm ngặt bất biến kiến trúc tại `shared/device-control-contracts.ts`: Không kết nối trực tiếp driver phần cứng vào WebContents. Việc đồng bộ được thực hiện tại tầng **Control Plane / Tool Dispatcher**:
+Tuân thủ nghiêm ngặt bất biến kiến trúc tại `src/shared/device-control-contracts.ts`: Không kết nối trực tiếp driver phần cứng vào WebContents. Việc đồng bộ được thực hiện tại tầng **Control Plane / Tool Dispatcher**:
 
 ```
 [Physical iPhone (usbmuxd)] 
@@ -83,7 +83,7 @@ Tuân thủ nghiêm ngặt bất biến kiến trúc tại `shared/device-contro
                                                - Emulation.setTouchEmulationEnabled (5 points)
 ```
 
-### Mã nguồn chi tiết cần bổ sung vào Core `apps/AntiFan/src/main/browser/native-tab-host.ts`:
+### Mã nguồn chi tiết cần bổ sung vào Core `src/main/browser/native-tab-host.ts`:
 
 ```typescript
 private async applyCdpDeviceEmulationState(

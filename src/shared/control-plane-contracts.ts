@@ -550,6 +550,14 @@ export interface CapabilityDispatchRuntimeOptions {
   signal?: AbortSignal;
   progressSink?: { onProgress: (event: unknown) => void };
 }
+export interface ChildDispatchSpec {
+  stepId: string;
+  attempt: number;
+  intent: ClientInvocationIntent;
+  /** Step-scoped abort signal (step timeout / caller abort union). Unioned with the parent invocation's execControl.signal inside the transport so parent deadline aborts reach in-flight children. */
+  signal?: AbortSignal;
+}
+
 
 export interface AuthenticatedCapabilityContext {
   attachmentId: string;
@@ -571,7 +579,7 @@ export interface AuthenticatedCapabilityContext {
   control?: CapabilityExecutionControl;
   progressSink?: { onProgress: (event: unknown) => void };
   authorityRevision?: string;
-  dispatchChildIntent?: (stepId: string, attempt: number, intent: ClientInvocationIntent) => Promise<InternalChildCapabilityResponse>;
+  dispatchChildIntent?: (spec: ChildDispatchSpec) => Promise<InternalChildCapabilityResponse>;
 }
 export type AttachmentState = 'issued' | 'bound' | 'active' | 'revoked' | 'expired' | 'stale';
 
@@ -749,7 +757,9 @@ export type CapabilityErrorCode =
   | 'DEVICE_SESSION_FAILED'
   | 'DEVICE_OPERATION_UNSUPPORTED'
   | 'DEVICE_TARGET_STALE'
-  | 'ATTACHMENT_REBIND_FAILED';
+  | 'ATTACHMENT_REBIND_FAILED'
+  | 'TARGET_TRANSITION_UNCOMMITTED'
+  | 'SUCCESS_WITH_REPLACEMENT_AUTHORITY_REQUIRED';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;

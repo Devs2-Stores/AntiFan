@@ -36,6 +36,9 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
       if (!context.browserTarget) {
         throw new CapabilityError('TARGET_REQUIRED', 'workflow.execute requires a bound BrowserTarget');
       }
+      if (!context.dispatchChildIntent) {
+        throw new CapabilityError('UNAUTHENTICATED', 'workflow.execute requires a transport-issued dispatchChildIntent channel');
+      }
       const p = params as {
         workflow: WorkflowDefinition;
         workspaceRoot: string;

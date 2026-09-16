@@ -2,14 +2,16 @@ import {
   ArtifactRef,
   BrowserTarget,
   CapabilityError,
+  CapabilityErrorCode,
   CapabilityRequestContext,
   ClientInvocationIntent,
+  ChildDispatchSpec,
+  InternalChildCapabilityResponse,
   RuntimeLease,
 } from '../../shared/control-plane-contracts';
 import { findDevicePreset } from '../browser/device-presets';
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { ArtifactStore } from '../tools/artifact-store';
-import { CapabilityTransportAdapter, CapabilityTransportResponse } from '../tools/capability-transport';
 import {
   WorkflowDefinition,
   WorkflowDefinitionSchema,
@@ -22,7 +24,6 @@ import {
 export interface WorkflowEnginePorts {
   catalogue: CapabilityCatalogue;
   artifacts: ArtifactStore;
-  transport?: CapabilityTransportAdapter;
 }
 
 export interface WorkflowExecutionOptions {
@@ -39,7 +40,8 @@ export interface WorkflowExecutionOptions {
   progressSink?: { onProgress: (event: unknown) => void };
   authorityRevision?: string;
   parentInvocationId?: string;
-  dispatchChildIntent?: (stepId: string, attempt: number, intent: ClientInvocationIntent) => Promise<any>;
+  /** Single child-execution channel: the transport-owned dispatchChildIntent closure. Required — there is no ledger-less fallback path. */
+  dispatchChildIntent: (spec: ChildDispatchSpec) => Promise<InternalChildCapabilityResponse>;
 }
 
 /**
@@ -137,6 +139,13 @@ export class WorkflowEngine {
       dispatchChildIntent,
     } = options;
 
+    // Single execution authority: every step capability must flow through the
+    // transport-issued child channel (ledger, authority, cancellation). There is
+    // no ledger-less fallback — fail fast when the channel is absent.
+    if (typeof dispatchChildIntent !== 'function') {
+      throw new CapabilityError('UNAUTHENTICATED', 'WorkflowEngine.execute requires dispatchChildIntent — the transport-issued child dispatch channel');
+    }
+
     const emitEvent = (ev: Parameters<WorkflowEventListener>[0]) => {
       try {
         onEvent?.(ev);
@@ -230,25 +239,20 @@ export class WorkflowEngine {
             grant: grant ?? 'write',
           };
 
-          const dispatchChild =
-            dispatchChildIntent
-              ? (intent: ClientInvocationIntent) => dispatchChildIntent(step.id, attempt, intent)
-              : this.ports.transport && parentInvocationId
-              ? (intent: ClientInvocationIntent) =>
-                  this.ports.transport!.dispatchChildIntent(
-                    parentInvocationId,
-                    step.id,
-                    attempt,
-                    intent
-                  )
-              : undefined;
+          // dispatchChild is built per attempt so it can carry the step-scoped
+          // abort signal created inside executeStepWithTimeout — the signal that
+          // makes a step timeout actually cancel the in-flight child instead of
+          // racing away while the child keeps running.
+          const makeDispatchChild = (stepSignal: AbortSignal) =>
+            (intent: ClientInvocationIntent) =>
+              dispatchChildIntent({ stepId: step.id, attempt, intent, signal: stepSignal });
 
           const stepOutput = await this.executeStepWithTimeout(
             step,
             reqContext,
             step.timeoutMs,
             signal,
-            dispatchChild
+            makeDispatchChild
           );
 
           if (stepOutput.updatedTarget) {
@@ -277,17 +281,12 @@ export class WorkflowEngine {
           break;
         } catch (err: unknown) {
           lastError = err instanceof Error ? err : new Error(String(err));
-          // If error is security or lease mismatch, abort retries immediately
-          if (
-            err instanceof CapabilityError &&
-            (err.code === 'PROJECT_MISMATCH' ||
-              err.code === 'WORKSPACE_MISMATCH' ||
-              err.code === 'RUNTIME_MISMATCH' ||
-              err.code === 'UNAUTHENTICATED' ||
-              err.code === 'POLICY_DENIED' ||
-              err.code === 'TARGET_REQUIRED' ||
-              err.code === 'AUTHENTICATION_DENIED')
-          ) {
+          // Settlement-aware retry gate: a child that timed out, aborted, or
+          // settled 'unknown' may have landed effects; minting a new attempt
+          // would double-mutate. invokeCap annotates retryable on the thrown
+          // error; anything not explicitly retryable stops the loop.
+          const retryable = (lastError as { retryable?: boolean }).retryable === true;
+          if (!retryable) {
             break;
           }
 
@@ -416,8 +415,8 @@ export class WorkflowEngine {
     step: WorkflowStep,
     context: CapabilityRequestContext,
     timeoutMs: number,
-    signal?: AbortSignal,
-    dispatchChild?: (intent: ClientInvocationIntent) => Promise<CapabilityTransportResponse>
+    signal: AbortSignal | undefined,
+    makeDispatchChild: (stepSignal: AbortSignal) => (intent: ClientInvocationIntent) => Promise<InternalChildCapabilityResponse>
   ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget; replacementRevision?: string }> {
     const stepAbortController = new AbortController();
     let timer: NodeJS.Timeout | undefined;
@@ -438,6 +437,7 @@ export class WorkflowEngine {
       if (timeoutMs > 0) {
         timer = setTimeout(() => {
           const timeoutErr = new Error(`Step '${step.name}' timed out after ${timeoutMs}ms`);
+          (timeoutErr as { retryable?: boolean }).retryable = false;
           stepAbortController.abort(timeoutErr);
           reject(timeoutErr);
         }, timeoutMs);
@@ -445,14 +445,15 @@ export class WorkflowEngine {
     });
 
     const abortPromise = new Promise<never>((_, reject) => {
+      const rejectWithReason = () => {
+        const reason = stepAbortController.signal.reason || new Error('Workflow aborted');
+        if (reason instanceof Error) (reason as { retryable?: boolean }).retryable = false;
+        reject(reason);
+      };
       if (stepAbortController.signal.aborted) {
-        reject(stepAbortController.signal.reason || new Error('Workflow aborted'));
+        rejectWithReason();
       } else {
-        stepAbortController.signal.addEventListener(
-          'abort',
-          () => reject(stepAbortController.signal.reason || new Error('Workflow aborted')),
-          { once: true }
-        );
+        stepAbortController.signal.addEventListener('abort', rejectWithReason, { once: true });
       }
     });
 
@@ -461,14 +462,13 @@ export class WorkflowEngine {
         this.dispatchStep(
           step,
           context,
-          stepAbortController.signal,
-          dispatchChild
+          makeDispatchChild(stepAbortController.signal)
         ),
         timeoutPromise,
         abortPromise,
       ]);
     } finally {
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', onCallerAbort);
     }
   }
@@ -476,8 +476,7 @@ export class WorkflowEngine {
   private async dispatchStep(
     step: WorkflowStep,
     context: CapabilityRequestContext,
-    signal: AbortSignal,
-    dispatchChild?: (intent: ClientInvocationIntent) => Promise<CapabilityTransportResponse>
+    dispatchChild: (intent: ClientInvocationIntent) => Promise<InternalChildCapabilityResponse>
   ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget; replacementRevision?: string }> {
     // Lowering pass: legacy param shapes are normalized to what each capability declares before any
     // dispatch, so a persisted workflow cannot fail on a contract that has since been tightened.
@@ -486,25 +485,38 @@ export class WorkflowEngine {
 
     const invokeCap = async (
       name: string,
-      payload: Record<string, unknown>,
-      ctx: CapabilityRequestContext = context
+      payload: Record<string, unknown>
     ): Promise<{ data?: unknown; replacementRevision?: string }> => {
-      if (dispatchChild) {
-        const minimalIntent = {
-          name,
-          params: payload,
-        } as unknown as ClientInvocationIntent;
-        const resp = await dispatchChild(minimalIntent);
-        if (!resp.ok) {
-          const code = resp.error?.code || 'CAPABILITY_ERROR';
-          const msg = resp.error?.message || 'Capability execution failed';
-          throw new CapabilityError(code as any, msg);
-        }
-        return { data: resp.data, replacementRevision: resp.replacementAuthorityRevision };
+      const minimalIntent = {
+        name,
+        params: payload,
+      } as unknown as ClientInvocationIntent;
+      const resp = await dispatchChild(minimalIntent);
+      if (!resp.ok) {
+        const code = resp.error?.code || 'CAPABILITY_ERROR';
+        const msg = resp.error?.message || 'Capability execution failed';
+        const err = new CapabilityError(code as CapabilityErrorCode, msg);
+        // Retry classification: the engine owns the retry DECISION, the
+        // catalogue owns the effect CLASSIFICATION, the transport supplies the
+        // settlement STATE. A read can never double-mutate; an idempotent-write
+        // may retry only on a provably terminal failed/interrupted receipt;
+        // everything else (mutation, unknown, in-flight, timeout, abort) is
+        // denied — the original may still hold effects.
+        const effect = this.ports.catalogue.getPolicy(name)?.effect;
+        const state = resp.state;
+        const retryable =
+          effect === 'read'
+            ? code !== 'EXECUTION_TIMEOUT_PENDING_CLEANUP'
+            : effect === 'idempotent-write' &&
+              (state === 'failed' || state === 'interrupted') &&
+              !['EXECUTION_TIMEOUT', 'EXECUTION_TIMEOUT_PENDING_CLEANUP', 'ABORTED', 'CANCELLED', 'TRANSACTION_CONFLICT', 'EXECUTION_UNKNOWN'].includes(code);
+        (err as unknown as { retryable?: boolean }).retryable = retryable;
+        throw err;
       }
-      const data = await this.ports.catalogue.dispatch(name, payload, { ...ctx, signal });
-      return { data };
+      return { data: resp.data, replacementRevision: resp.replacementAuthorityRevision };
     };
+
+
 
     switch (step.type) {
       case 'browser.navigate': {
@@ -559,13 +571,13 @@ export class WorkflowEngine {
       }
 
       case 'browser.screenshot': {
-        const res = await invokeCap('browser.screenshot', { tabId }, { ...context, grant: 'read' });
+        const res = await invokeCap('browser.screenshot', { tabId });
         const artifacts: ArtifactRef[] = (typeof res.data === 'object' && res.data !== null && 'id' in res.data) ? [res.data as ArtifactRef] : [];
         return { data: { captured: true }, artifacts, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.extract_dom': {
-        const res = await invokeCap('browser.dom', { selector: params.selector, tabId }, { ...context, grant: 'read' });
+        const res = await invokeCap('browser.dom', { selector: params.selector, tabId });
         const artifacts: ArtifactRef[] = (typeof res.data === 'object' && res.data !== null && 'id' in res.data) ? [res.data as ArtifactRef] : [];
         return { data: { extracted: true }, artifacts, replacementRevision: res.replacementRevision };
       }
@@ -597,57 +609,25 @@ export class WorkflowEngine {
 
       case 'browser.wait_for_selector': {
         const selector = params.selector;
-        if (typeof selector !== 'string' || selector.trim().length === 0) {
-          throw new CapabilityError('INVALID_ARGUMENT', 'browser.wait_for_selector requires a non-empty selector');
-        }
-        const targetSelector = selector.trim();
-        const pollIntervalMs = 100;
-        // The wrapping step timer carries the same `timeoutMs`, so the poll loop must finish first:
-        // otherwise the generic step timeout pre-empts the diagnostic that names the selector.
-        const maxWaitMs = Math.max(100, (step.timeoutMs || 5000) - 150);
-        const deadline = Date.now() + maxWaitMs;
-        let found = false;
-
-        while (Date.now() < deadline) {
-          if (signal?.aborted) {
-            throw new Error('Workflow was aborted');
-          }
-          try {
-            const probe = (await invokeCap(
-              'browser.wait',
-              { condition: 'selector', selector: targetSelector, state: 'attached', timeoutMs: pollIntervalMs, tabId },
-              { ...context, grant: 'read' }
-            )) as { data?: { satisfied?: unknown } | null };
-            // Strict boolean read. A capability that stages an ArtifactRef returns a truthy
-            // envelope for an empty match, so `satisfied` is the only admissible evidence that the
-            // element exists — an envelope being truthy is not.
-            if (probe.data && probe.data.satisfied === true) {
-              found = true;
-              break;
-            }
-          } catch (err) {
-            if (signal?.aborted) {
-              throw new Error('Workflow was aborted');
-            }
-            if (err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT') {
-              throw err;
-            }
-            // Transient poll failure: keep waiting until the deadline.
-          }
-          if (Date.now() >= deadline) break;
-          await this.delay(pollIntervalMs);
-        }
-        if (!found) {
-          throw new Error(`Selector '${targetSelector}' not found within ${maxWaitMs}ms`);
-        }
-        return { data: { found: true } };
+        if (!selector || typeof selector !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'wait_for_selector requires selector');
+        // Delegate to the canonical browser.wait capability: one ledgered child
+        // invocation, cancellable through the step-scoped signal, instead of a
+        // 100ms browser.dom poll loop that mints ~80 uncancellable children.
+        const maxWaitMs = step.timeoutMs || 5000;
+        const res = await invokeCap('browser.wait', {
+          condition: 'selector',
+          selector,
+          state: 'attached',
+          timeoutMs: maxWaitMs,
+          tabId,
+        });
+        return { data: { found: true, wait: res.data }, replacementRevision: res.replacementRevision };
       }
 
       case 'qa.check_console_errors': {
         const res = await invokeCap(
           'browser.diagnostics',
-          { tabId: tabId || context.browserTarget?.tabId, level: 3 },
-          { ...context, grant: 'read' }
+          { tabId: tabId || context.browserTarget?.tabId, level: 3 }
         );
         const diag = res.data as { console?: any[]; failures?: any[] };
         const errors = diag?.console || [];
@@ -660,8 +640,7 @@ export class WorkflowEngine {
       case 'qa.check_broken_images': {
         const res = await invokeCap(
           'browser.diagnostics',
-          { tabId: tabId || context.browserTarget?.tabId },
-          { ...context, grant: 'read' }
+          { tabId: tabId || context.browserTarget?.tabId }
         );
         const diag = res.data as { console?: any[]; failures?: any[] };
         const failures = diag?.failures || [];
@@ -675,8 +654,7 @@ export class WorkflowEngine {
       case 'qa.check_overflow': {
         const res = await invokeCap(
           'browser.responsive-check',
-          { tabId: tabId || context.browserTarget?.tabId },
-          { ...context, grant: 'read' }
+          { tabId: tabId || context.browserTarget?.tabId }
         );
         const data = res.data as { hasHorizontalScrollbar?: boolean; scrollWidth?: number; clientWidth?: number };
         if (data?.hasHorizontalScrollbar) {
@@ -688,7 +666,7 @@ export class WorkflowEngine {
       case 'file.read': {
         const path = params.path;
         if (!path || typeof path !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'file.read requires path');
-        const res = await invokeCap('file.read', { path, maxBytes: params.maxBytes }, { ...context, grant: 'read' });
+        const res = await invokeCap('file.read', { path, maxBytes: params.maxBytes });
         return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
@@ -698,7 +676,7 @@ export class WorkflowEngine {
         if (!path || typeof path !== 'string' || typeof content !== 'string') {
           throw new CapabilityError('INVALID_ARGUMENT', 'file.write requires path and content');
         }
-        const res = await invokeCap('file.write', { path, content }, context);
+        const res = await invokeCap('file.write', { path, content });
         return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
@@ -717,13 +695,11 @@ export class WorkflowEngine {
         if (alternatives.length === 0) {
           throw new CapabilityError('INVALID_ARGUMENT', 'file.assert_not_contains requires path and pattern');
         }
-
         let lastData: unknown;
         for (const alternative of alternatives) {
           const res = await invokeCap(
             'file.assert_not_contains',
-            { path, pattern: alternative },
-            { ...context, grant: 'read' }
+            { path, pattern: alternative }
           );
           lastData = res.data;
           // The capability reports a missing file as a satisfied assertion; nothing left to scan.
@@ -772,4 +748,5 @@ export class WorkflowEngine {
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+
 }

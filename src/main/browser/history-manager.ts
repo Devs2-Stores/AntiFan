@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as cp from 'child_process';
 import { EventEmitter } from 'events';
 import { StorageLocations } from '../config/storage-locations';
-export interface HistoryItem {
+interface HistoryItem {
   url: string;
   title: string;
   favicon?: string;
@@ -12,15 +12,6 @@ export interface HistoryItem {
   lastVisitTime: number; // ms timestamp
   domain?: string;
 }
-
-export interface SuggestionResult {
-  type: 'tab' | 'bookmark' | 'history' | 'search';
-  text: string;
-  url?: string;
-  tabId?: string;
-  subText?: string;
-}
-
 export class HistoryManager extends EventEmitter {
   private static instance: HistoryManager;
   private historyMap = new Map<string, HistoryItem>(); // url -> item

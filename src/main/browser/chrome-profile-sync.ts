@@ -20,17 +20,6 @@ export interface ChromeProfileInfo {
   active?: boolean;
 }
 
-export interface DecryptedCookieRecord {
-  domain: string;
-  name: string;
-  value: string;
-  path: string;
-  secure: boolean;
-  httpOnly: boolean;
-  expirationDate?: number;
-  sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict';
-}
-
 /**
  * Builds the cookies.set() payload for one decrypted Chrome cookie.
  *
@@ -110,7 +99,7 @@ export interface ExtensionCookieInput {
 
 export const DEFAULT_PERSISTENT_SESSION_COOKIE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
-export interface ExtensionCookieImportOptions {
+interface ExtensionCookieImportOptions {
   /**
    * When true, session cookies without an explicit expiration date are assigned
    * a durable expirationDate (default: 30 days) so Electron commits them to disk SQLite

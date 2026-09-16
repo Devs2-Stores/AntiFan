@@ -11,11 +11,6 @@ import { ProofObligation } from './verification-contract';
 
 export type ClaimCategory = 'INTERACTION' | 'LAYOUT' | 'RESPONSIVE' | 'VISUAL' | 'CUSTOM';
 
-export interface CanonicalProofSpec {
-  category: ClaimCategory;
-  description: string;
-  obligations: ProofObligation[];
-}
 
 export interface LayoutTemplateOptions {
   expectedHeight?: number;

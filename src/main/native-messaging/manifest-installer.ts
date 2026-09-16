@@ -6,7 +6,7 @@ import { execFileSync } from 'child_process';
 export const HOST_NAME = 'com.antifan.bridge';
 export const HOST_DESCRIPTION = 'AntiFan Browser Desktop Native Messaging Bridge';
 export const COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
-export interface NativeHostManifest {
+interface NativeHostManifest {
   name: string;
   description: string;
   path: string;
@@ -14,7 +14,7 @@ export interface NativeHostManifest {
   allowed_origins: string[];
 }
 
-export type SupportedBrowser = 'chrome' | 'edge' | 'brave';
+type SupportedBrowser = 'chrome' | 'edge' | 'brave';
 
 export const WINDOWS_REGISTRY_KEYS: Record<SupportedBrowser, string> = {
   chrome: `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`,
@@ -73,7 +73,7 @@ export function writeManifestFile(manifest: NativeHostManifest, targetPath?: str
   return manifestPath;
 }
 
-export function registerWindowsRegistryKey(registryKey: string, manifestPath: string): boolean {
+function registerWindowsRegistryKey(registryKey: string, manifestPath: string): boolean {
   try {
     execFileSync('reg.exe', ['add', registryKey, '/ve', '/t', 'REG_SZ', '/d', manifestPath, '/f'], {
       stdio: 'pipe',
@@ -85,7 +85,7 @@ export function registerWindowsRegistryKey(registryKey: string, manifestPath: st
   }
 }
 
-export function unregisterWindowsRegistryKey(registryKey: string): boolean {
+function unregisterWindowsRegistryKey(registryKey: string): boolean {
   try {
     execFileSync('reg.exe', ['delete', registryKey, '/f'], {
       stdio: 'pipe',
@@ -131,32 +131,5 @@ export async function installNativeHost(
     manifestPath,
     registeredKeys,
     failedKeys,
-  };
-}
-
-export async function uninstallNativeHost(
-  options: { manifestPath?: string; browsers?: SupportedBrowser[] } = {}
-): Promise<{ success: boolean; uninstalledKeys: string[] }> {
-  const manifestPath = options.manifestPath || getDefaultManifestPath();
-  const browsers: SupportedBrowser[] = options.browsers || ['chrome', 'edge', 'brave'];
-  const uninstalledKeys: string[] = [];
-
-  if (process.platform === 'win32') {
-    for (const browser of browsers) {
-      const regKey = WINDOWS_REGISTRY_KEYS[browser];
-      unregisterWindowsRegistryKey(regKey);
-      uninstalledKeys.push(regKey);
-    }
-  }
-
-  if (fs.existsSync(manifestPath)) {
-    try {
-      fs.unlinkSync(manifestPath);
-    } catch {}
-  }
-
-  return {
-    success: true,
-    uninstalledKeys,
   };
 }

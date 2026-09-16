@@ -25,7 +25,7 @@ for `navigate`, `reload`, `goBack` and `goForward`: those schemas describe `tabI
 "Optional Tab ID", so the default implements the contract rather than violating it. The
 distinction is the schema, not the operation.
 
-`src/main/browser/browser-capabilities.ts` still declares `rebind-target` without a
+`src/main/tools/browser-capabilities.ts` still declares `rebind-target` without a
 `required` list while the proxy advertises `anti.browser.rebind_target` as requiring
 `tabId`. Enforcing at the publishing boundary resolves the disagreement without changing the
 internal capability: an agent must name the tab, and a programmatic caller that holds the
@@ -93,17 +93,15 @@ The string `targetOperationOwners` no longer appears in any failure stack; the 1
 remain point at `native-tab-host.js` lines 370, 590, 3943, 4071, 4083 and 5095, none of
 which this work wrote.
 
-## Repository state: HEAD does not compile
+## Historical note: Prior syntax error in tab-devtools-host.ts (Resolved)
 
-The isolated check that produced these numbers is also what exposed this: `origin/main`
-carries a syntax error from `e2d6e89` in `src/main/browser/tab-devtools-host.ts`, where the
-`softBudgetMs` and `hardBudgetMs` declarations sit inside the parameter list and
-`): Promise<unknown> {` closes the signature two lines later (`TS1359: Identifier expected`).
-It is invisible in a working tree that happens to hold the uncommitted repair, which is
-exactly how a `tsc` run there reported success. At HEAD, `tsc -p ./` reports 6 errors, all
-in that file and none in the files this work touched. The repair is two lines: the two
-`const` declarations belong after `): Promise<unknown> {`.
+The isolated check that produced these numbers also exposed a transient state where `origin/main`
+carried a syntax error from `e2d6e89` in `src/main/browser/tab-devtools-host.ts`, where the
+`softBudgetMs` and `hardBudgetMs` declarations sat inside the parameter list before
+`): Promise<unknown> {` closed the signature (`TS1359: Identifier expected`).
 
+This was cleanly resolved by moving the two `const` declarations inside the method body after
+`): Promise<unknown> {`.
 ## Pre-existing gaps this work did not touch
 
 - `src/main/browser/native-tab-host.ts` reads `this.ownedReloadTokens` unguarded in

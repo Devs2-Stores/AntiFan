@@ -85,8 +85,25 @@ async function main() {
     }
     case 'resolve-conflict': out = core.resolveConflict(parse(arg)); break;
     case 'regression': out = core.recordRegression(parse(arg)); break;
-    case 'observe': out = core.recordObservation(parse(arg)); break;
-    case 'replay': out = core.replayRegression(arg); break;
+    case 'observe': {
+      const obs = parse(arg);
+      if (typeof obs.source !== 'string' || typeof obs.kind !== 'string') {
+        console.error("usage: observe '{\"source\":\"...\",\"kind\":\"...\",\"payload\":{}}'");
+        process.exit(1);
+      }
+      out = core.recordObservation(obs);
+      break;
+    }
+    case 'replay': {
+      const parsed = parse(arg);
+      const id = parsed && typeof parsed === 'object' ? parsed.regressionId : typeof parsed === 'string' ? parsed : arg;
+      if (typeof id !== 'string' || id.length === 0) {
+        console.error("usage: replay <regressionId> or '{\"regressionId\":\"...\"}'");
+        process.exit(1);
+      }
+      out = core.replayRegression(id);
+      break;
+    }
     // Read-only list surfaces for the Core Health UI. The Core class exposes no
     // list methods for these tables, so the CLI reads them through the same
     // store handle — never a second authority, never a parallel DB.

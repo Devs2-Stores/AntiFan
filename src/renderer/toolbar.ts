@@ -690,25 +690,12 @@ function coreStatusPillClass(status: string): string {
 
 interface CoreListItem { id: string; title: string; desc: string; status: string; meta: string }
 
-// How a regression row reads in the hub. A recorded verdict is a verdict, so a FAIL row
-// degrades whether or not it carries a replay stamp; the stamp only gates the healthy
-// answer, because an asserted PASS that no replay produced must not read as green. Kept in
-// step with CoreHealthService.getRegressions, which derives the same status in the main
-// process from the same CLI rows.
-function regressionRowStatus(row: Record<string, unknown>): string {
-  const result = typeof row.replayResult === 'string' ? row.replayResult : undefined;
-  if (result === 'PASS' && row.replayedAt != null) return 'HEALTHY';
-  // No verdict at all, or a PASS no replay produced: an absent answer either way.
-  if (result == null || result === 'PASS') return 'UNKNOWN';
-  return 'DEGRADED';
-}
-
 function coreListItems(): CoreListItem[] {
   const s = hubCoreState;
   if (!s) return [];
   if (hubActiveTab === 'core-health') {
     const snap = s.snapshot || {};
-    const checks = (snap.checks || []) as Array<{ name: string; status: string; reasonCode: string; detail?: string; gating?: boolean }>;
+    const checks = (snap.checks || []) as Array<{ name: string; status: string; reasonCode: string; detail?: string }>;
     const items: CoreListItem[] = [{
       id: '__snapshot__', title: 'Overall Core Health',
       desc: String(snap.reasonCode || ''), status: String(snap.status || 'UNKNOWN'),
@@ -717,10 +704,7 @@ function coreListItems(): CoreListItem[] {
     for (const c of checks) {
       items.push({
         id: c.name, title: c.name, desc: c.detail || c.reasonCode, status: c.status,
-        // A non-gating check is reported but excluded from the aggregate, so a row that
-        // reads UNKNOWN beneath an overall HEALTHY is telling the reader that dimension
-        // has no corpus-wide answer — not that something is broken.
-        meta: `reasonCode: ${c.reasonCode}${c.gating === false ? ' · not counted in overall' : ''}`,
+        meta: `reasonCode: ${c.reasonCode}`,
       });
     }
     return items;
@@ -776,8 +760,8 @@ function coreListItems(): CoreListItem[] {
     for (const row of (r.rows || []) as Array<Record<string, unknown>>) {
       items.push({
         id: String(row.regressionId), title: String(row.newKnowledge || row.regressionId),
-        desc: `replayResult: ${row.replayResult || 'n/a'}${row.replayedAt != null ? '' : ' · never replayed'}`,
-        status: regressionRowStatus(row),
+        desc: `replayResult: ${row.replayResult || 'n/a'}`,
+        status: row.replayResult === 'PASS' ? 'HEALTHY' : 'DEGRADED',
         meta: String(row.createdAt || ''),
       });
     }
@@ -911,7 +895,7 @@ async function renderCoreDetail(id: string) {
       setBody({ replayEngineAvailable: r.replayEngineAvailable, rows: r.rows });
     } else {
       const row = ((r.rows || []) as Array<Record<string, unknown>>).find((x) => x.regressionId === id);
-      setHeader(id, String(row?.newKnowledge || ''), row ? regressionRowStatus(row) : 'UNKNOWN', String(row?.replayResult || 'NO_RESULT'));
+      setHeader(id, String(row?.newKnowledge || ''), row?.replayResult === 'PASS' ? 'HEALTHY' : 'DEGRADED', String(row?.replayResult || 'NO_RESULT'));
       setBody(row || 'row not found');
     }
     return;
@@ -1823,9 +1807,7 @@ function renderChromeProfiles() {
     profileName.textContent = activeProfileInfo?.name || 'Default';
   }
   if (profileAvatar) {
-    // An SVG, not a glyph: an emoji cannot inherit the toolbar's colour and renders
-    // differently on every platform.
-    profileAvatar.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8.45a3.05 3.05 0 1 0 0-6.1 3.05 3.05 0 0 0 0 6.1zm0 1.4c-3.1 0-5.6 1.68-5.6 3.75v.25c0 .5.4.9.9.9h9.4c.5 0 .9-.4.9-.9v-.25c0-2.07-2.5-3.75-5.6-3.75z"/></svg>';
+    profileAvatar.textContent = '👤';
   }
   if (!profileDropdownList) return;
   profileDropdownList.innerHTML = '';

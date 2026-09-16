@@ -2,7 +2,10 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
+
+export const CORE_NAMESPACES = ['PLATFORM_KNOWLEDGE', 'ANTIFAN_ENGINEERING', 'PERSONAL_PRACTICE'] as const;
+export type CoreNamespace = typeof CORE_NAMESPACES[number];
 
 // Platforms recognized by the keyword-derivation backfill. A row's own text
 // (conflict subject, case task/context) may tag its platform ONLY when exactly
@@ -54,6 +57,73 @@ UPDATE decisions SET platform = (
   WHERE c.unitId = decisions.unitId AND c.contextPlatform IS NOT NULL
   HAVING COUNT(DISTINCT c.contextPlatform) = 1
 ) WHERE platform IS NULL;
+`;
+
+export const NAMESPACE_BACKFILL_SQL = `
+UPDATE claims SET namespace = 'PLATFORM_KNOWLEDGE'
+WHERE namespace IS NULL AND contextPlatform IS NOT NULL;
+
+UPDATE claims SET namespace = 'PERSONAL_PRACTICE'
+WHERE namespace IS NULL AND (
+  kind IN ('PRINCIPLE', 'PERSONAL_PRACTICE', 'PRACTICE', 'MINDSET')
+  OR sourceKind IN ('principle', 'personal-practice')
+  OR statement LIKE '%principle%'
+);
+
+UPDATE claims SET namespace = 'ANTIFAN_ENGINEERING'
+WHERE namespace IS NULL AND (
+  unitId IN (
+    SELECT unitId FROM units
+    WHERE relPath LIKE '%antifan%' OR relPath LIKE 'src%' OR relPath LIKE 'packages%' OR relPath LIKE 'apps%' OR rootId LIKE '%antifan%' OR markers LIKE '%antifan%'
+  )
+  OR unitId LIKE '%antifan%' OR unitId LIKE 'u-test%' OR unitId LIKE 'u-reuse%' OR unitId LIKE 'u-rank%'
+);
+
+UPDATE claims SET namespace = 'PLATFORM_KNOWLEDGE'
+WHERE namespace IS NULL AND (
+  statement LIKE '%haravan%' OR statement LIKE '%sapo%' OR statement LIKE '%shopify%' OR statement LIKE '%generic-liquid%'
+  OR subject LIKE '%haravan%' OR subject LIKE '%sapo%' OR subject LIKE '%shopify%'
+);
+
+UPDATE claims SET namespace = 'ANTIFAN_ENGINEERING'
+WHERE namespace IS NULL;
+
+UPDATE cases SET namespace = 'PLATFORM_KNOWLEDGE'
+WHERE namespace IS NULL AND platform IS NOT NULL;
+
+UPDATE cases SET namespace = 'PLATFORM_KNOWLEDGE'
+WHERE namespace IS NULL AND (
+  (task || ' ' || COALESCE(context,'')) LIKE '%haravan%'
+  OR (task || ' ' || COALESCE(context,'')) LIKE '%sapo%'
+  OR (task || ' ' || COALESCE(context,'')) LIKE '%shopify%'
+  OR (task || ' ' || COALESCE(context,'')) LIKE '%generic-liquid%'
+);
+
+UPDATE cases SET namespace = 'ANTIFAN_ENGINEERING'
+WHERE namespace IS NULL AND (
+  unitId IN (
+    SELECT unitId FROM units
+    WHERE relPath LIKE '%antifan%' OR relPath LIKE 'src%' OR relPath LIKE 'packages%' OR relPath LIKE 'apps%' OR markers LIKE '%antifan%'
+  )
+  OR unitId LIKE '%antifan%' OR unitId LIKE 'u-test%'
+);
+
+UPDATE cases SET namespace = 'ANTIFAN_ENGINEERING'
+WHERE namespace IS NULL;
+
+UPDATE decisions SET namespace = 'PLATFORM_KNOWLEDGE'
+WHERE namespace IS NULL AND platform IS NOT NULL;
+
+UPDATE decisions SET namespace = 'PLATFORM_KNOWLEDGE'
+WHERE namespace IS NULL AND (
+  (statement || ' ' || COALESCE(context,'')) LIKE '%haravan%'
+  OR (statement || ' ' || COALESCE(context,'')) LIKE '%sapo%'
+  OR (statement || ' ' || COALESCE(context,'')) LIKE '%shopify%'
+  OR (statement || ' ' || COALESCE(context,'')) LIKE '%generic-liquid%'
+);
+
+UPDATE decisions SET namespace = 'ANTIFAN_ENGINEERING'
+WHERE namespace IS NULL;
 `;
 
 export const DDL = `
@@ -113,7 +183,8 @@ CREATE TABLE IF NOT EXISTS claims (
   sourceKind TEXT,
   subject TEXT,
   lastSeen TEXT,
-  agingSince TEXT
+  agingSince TEXT,
+  namespace TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_claims_unit ON claims(unitId);
 CREATE INDEX IF NOT EXISTS idx_claims_kind ON claims(kind);
@@ -172,7 +243,8 @@ CREATE TABLE IF NOT EXISTS cases (
   verificationRef TEXT,
   unitId TEXT,
   platform TEXT,
-  createdAt TEXT NOT NULL
+  createdAt TEXT NOT NULL,
+  namespace TEXT
 );
 
 CREATE TABLE IF NOT EXISTS candidates (
@@ -209,7 +281,8 @@ CREATE TABLE IF NOT EXISTS decisions (
   outcome TEXT,
   confidence TEXT,
   platform TEXT,
-  createdAt TEXT NOT NULL
+  createdAt TEXT NOT NULL,
+  namespace TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_decisions_unit ON decisions(unitId);
 
@@ -478,6 +551,9 @@ CREATE INDEX IF NOT EXISTS idx_conflicts_platform ON conflicts(platform);
 CREATE INDEX IF NOT EXISTS idx_cases_platform ON cases(platform);
 CREATE INDEX IF NOT EXISTS idx_decisions_platform ON decisions(platform);
 CREATE INDEX IF NOT EXISTS idx_packs_taskhash ON packs(taskHash);
+CREATE INDEX IF NOT EXISTS idx_claims_namespace ON claims(namespace);
+CREATE INDEX IF NOT EXISTS idx_cases_namespace ON cases(namespace);
+CREATE INDEX IF NOT EXISTS idx_decisions_namespace ON decisions(namespace);
 `;
 
 export const MIGRATIONS: Array<{ from: number; to: number; sql: string }> = [
@@ -635,5 +711,15 @@ ALTER TABLE regressions ADD COLUMN replayDetailJson TEXT;`,
     from: 8, to: 9,
     sql: `ALTER TABLE packs ADD COLUMN lastIssuedAt TEXT;
 UPDATE packs SET lastIssuedAt = createdAt WHERE lastIssuedAt IS NULL;`,
+  },
+  {
+    from: 9, to: 10,
+    sql: `ALTER TABLE claims ADD COLUMN namespace TEXT;
+ALTER TABLE cases ADD COLUMN namespace TEXT;
+ALTER TABLE decisions ADD COLUMN namespace TEXT;
+CREATE INDEX IF NOT EXISTS idx_claims_namespace ON claims(namespace);
+CREATE INDEX IF NOT EXISTS idx_cases_namespace ON cases(namespace);
+CREATE INDEX IF NOT EXISTS idx_decisions_namespace ON decisions(namespace);
+${NAMESPACE_BACKFILL_SQL}`,
   },
 ];

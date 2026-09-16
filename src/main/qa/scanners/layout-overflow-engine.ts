@@ -1,4 +1,4 @@
-export interface OverflowCulprit {
+interface OverflowCulprit {
   selector: string;
   tagName: string;
   id?: string;
@@ -32,12 +32,6 @@ export interface ViewportOverflowResult {
   scrollWidth: number;
   clientWidth: number;
   culprits: OverflowCulprit[];
-}
-
-export interface LayoutOverflowScanReport {
-  hasAnyOverflow: boolean;
-  maxDeltaX: number;
-  results: ViewportOverflowResult[];
 }
 
 export class LayoutOverflowEngine {

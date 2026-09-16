@@ -13,6 +13,8 @@ import {
   ExecutionAttachmentRecord,
   CapabilityEffectPolicy,
   CapabilityRisk,
+  ChildDispatchSpec,
+  InvocationState,
 } from '../../shared/control-plane-contracts';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { AttachmentRegistry } from '../run/attachment-registry';
@@ -40,6 +42,8 @@ export interface CapabilityTransportResponse {
   };
   evidence?: Record<string, unknown>;
   replacementAuthorityRevision?: string;
+  /** Terminal ledger state when known: 'completed' on success, classified state on failure, 'in_progress' for pending-cleanup. Lets callers (workflow retry gate) distinguish failed-clean from unknown/in-flight. */
+  state?: InvocationState;
 }
 
 class ExecutionControlImpl implements CapabilityExecutionControl {
@@ -74,7 +78,7 @@ class ExecutionControlImpl implements CapabilityExecutionControl {
 
   abort(source: 'owner' | 'subscriber' | 'timeout' | 'system' = 'system'): void {
     this.cancellationSource = source;
-    this.abortController.abort();
+    this.abortController.abort(source);
   }
 
   acknowledgeCancellation(cancellationId: string, ack: EffectAcknowledgement): boolean {
@@ -99,6 +103,74 @@ class ExecutionControlImpl implements CapabilityExecutionControl {
   }
 }
 
+/**
+ * Optional trait on a capability definition to explicitly declare whether
+ * dispatch requires fresh-inspection document generation tracking.
+ */
+export interface FreshInspectionTrait {
+  freshInspection?: boolean;
+}
+
+/**
+ * Canonical capabilities and aliases that perform fresh inspection of the DOM,
+ * accessibility snapshot, or element search tree on the attached browser target.
+ *
+ * Invariant:
+ * - Policy effect: 'read'
+ * - Risk: non-eval (risk !== 'eval')
+ * - Surface: DOM / snapshot / find surface on the browser target
+ *
+ * Calls matching this invariant capture the document generation before and after
+ * execution. If generation is stable (pre === post) and strictly advances the
+ * recorded attachment generation, attachment authority safely acknowledges the drift.
+ */
+export const FRESH_INSPECTION_CAPABILITIES: ReadonlySet<string> = new Set([
+  // Canonical DOM inspection
+  'browser.dom',
+  'anti.inspect.dom',
+  'antifan_get_dom',
+  // Accessibility snapshot inspection
+  'anti.inspect.snapshot',
+  'browser.snapshot',
+  'anti.browser.snapshot',
+  'browser.agent-snapshot',
+  'antifan_agent_snapshot',
+  // Element search in snapshot / DOM
+  'browser.find',
+  'browser_find',
+  'anti.inspect.find',
+  'antifan_find',
+]);
+
+/**
+ * Pattern matching inspection capability names that operate on the DOM,
+ * accessibility snapshot, or element search surfaces.
+ */
+export const FRESH_INSPECTION_NAME_PATTERN = /^(?:browser\.(?:dom|snapshot|agent-snapshot|find)|anti\.inspect\..+|antifan_(?:get_dom|agent_snapshot|find)|anti\.browser\.snapshot|browser_find)(?:[._-].*)?$/;
+
+/**
+ * Determines whether a capability dispatch should be treated as a fresh inspection.
+ *
+ * Decision precedence:
+ * 1. Policy check: must have effect 'read' and risk other than 'eval' (fail-closed).
+ * 2. Explicit definition opt-in / opt-out (`freshInspection?: boolean`).
+ * 3. Exact match against canonical/alias set `FRESH_INSPECTION_CAPABILITIES`.
+ * 4. Structural match against `FRESH_INSPECTION_NAME_PATTERN`.
+ */
+export function isFreshInspectionCapability(
+  name: string,
+  policy?: CapabilityEffectPolicy,
+  definition?: FreshInspectionTrait
+): boolean {
+  if (policy?.effect !== 'read' || policy.risk === 'eval') return false;
+
+  if (definition && typeof definition.freshInspection === 'boolean') {
+    return definition.freshInspection;
+  }
+
+  return FRESH_INSPECTION_CAPABILITIES.has(name) || FRESH_INSPECTION_NAME_PATTERN.test(name);
+}
+
 export class CapabilityTransportAdapter {
   constructor(
     private readonly catalogue: CapabilityCatalogue,
@@ -110,21 +182,6 @@ export class CapabilityTransportAdapter {
     return this.catalogue.list(context);
   }
 
-  async dispatchChildIntent(
-    parentInvocationId: string,
-    stepId: string,
-    attemptIndex: number,
-    intent: ClientInvocationIntent,
-    invocationSeq?: number | string
-  ): Promise<CapabilityTransportResponse> {
-    const seqSuffix = invocationSeq !== undefined ? String(invocationSeq) : `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    const childIntent: ClientInvocationIntent = {
-      ...intent,
-      requestId: intent.requestId || makeControlPlaneId('request'),
-      idempotencyKey: intent.idempotencyKey || `child:${parentInvocationId}:${stepId}:${attemptIndex}:${seqSuffix}`,
-    };
-    return this.dispatchIntent(childIntent);
-  }
 
   async dispatchIntent(
     intent: ClientInvocationIntent,
@@ -252,6 +309,7 @@ export class CapabilityTransportAdapter {
                 requestId: intent.requestId,
                 invocationId: rec.id,
                 data: { state: rec.state, redacted: true },
+                state: rec.state,
                 evidence: rec.evidence,
                 replacementAuthorityRevision: rec.replacementAuthorityRevision,
               };
@@ -261,6 +319,7 @@ export class CapabilityTransportAdapter {
               requestId: intent.requestId,
               invocationId: rec.id,
               data: rec.result,
+              state: rec.state,
               error: rec.error,
               evidence: rec.evidence,
               replacementAuthorityRevision: rec.replacementAuthorityRevision,
@@ -274,6 +333,7 @@ export class CapabilityTransportAdapter {
                 requestId: intent.requestId,
                 invocationId: joinedRec.id,
                 data: { state: joinedRec.state, redacted: true },
+                state: joinedRec.state,
                 evidence: joinedRec.evidence,
                 replacementAuthorityRevision: joinedRec.replacementAuthorityRevision,
               };
@@ -283,6 +343,7 @@ export class CapabilityTransportAdapter {
               requestId: intent.requestId,
               invocationId: joinedRec.id,
               data: joinedRec.result,
+              state: joinedRec.state,
               error: joinedRec.error,
               evidence: joinedRec.evidence,
               replacementAuthorityRevision: joinedRec.replacementAuthorityRevision,
@@ -341,6 +402,7 @@ export class CapabilityTransportAdapter {
               requestId: intent.requestId,
               invocationId: rec.id,
               data: { state: rec.state, redacted: true },
+              state: rec.state,
               evidence: rec.evidence,
               replacementAuthorityRevision: rec.replacementAuthorityRevision,
             };
@@ -350,6 +412,7 @@ export class CapabilityTransportAdapter {
             requestId: intent.requestId,
             invocationId: rec.id,
             data: rec.result,
+              state: rec.state,
             error: rec.error,
             evidence: rec.evidence,
             replacementAuthorityRevision: rec.replacementAuthorityRevision,
@@ -364,6 +427,7 @@ export class CapabilityTransportAdapter {
               requestId: intent.requestId,
               invocationId: rec.id,
               data: { state: rec.state, redacted: true },
+              state: rec.state,
               evidence: rec.evidence,
               replacementAuthorityRevision: rec.replacementAuthorityRevision,
             };
@@ -373,6 +437,7 @@ export class CapabilityTransportAdapter {
             requestId: intent.requestId,
             invocationId: rec.id,
             data: rec.result,
+              state: rec.state,
             error: rec.error,
             evidence: rec.evidence,
             replacementAuthorityRevision: rec.replacementAuthorityRevision,
@@ -410,6 +475,7 @@ export class CapabilityTransportAdapter {
         ok: false,
         requestId: intent.requestId,
         invocationId,
+        state: 'interrupted',
         error: preDispatchErr,
       };
     }
@@ -449,7 +515,16 @@ export class CapabilityTransportAdapter {
     }
 
     let childSeq = 0;
-    const dispatchChildIntent = async (stepId: string, attempt: number, childIntent: ClientInvocationIntent) => {
+    const dispatchChildIntent = async (spec: ChildDispatchSpec) => {
+      // Admission gate: reject when the parent is dead (deadline fired or caller
+      // aborted) — not only when the continuation token was invalidated by
+      // pending-cleanup. A dead parent must never mint new child work.
+      if (execControl.signal.aborted) {
+        throw new CapabilityError(
+          'TRANSACTION_CONFLICT',
+          `Parent invocation ${invocationId} was aborted (${execControl.cancellationSource ?? 'system'}); refusing to dispatch child for step '${spec.stepId}'`
+        );
+      }
       if (!execControl.continuationValid) {
         throw new CapabilityError(
           'TRANSACTION_CONFLICT',
@@ -457,16 +532,26 @@ export class CapabilityTransportAdapter {
         );
       }
       childSeq++;
-      const deterministicKey = `child:${invocationId}:${stepId}:${attempt}:${childSeq}`;
+      const deterministicKey = `child:${invocationId}:${spec.stepId}:${spec.attempt}:${childSeq}`;
       const childWithLineage: ClientInvocationIntent = {
-        ...childIntent,
+        ...spec.intent,
         requestId: `${intent.requestId}:child:${childSeq}`,
         idempotencyKey: deterministicKey,
         attachmentId: liveAuthority.attachmentId,
         attachmentSecret: intent.attachmentSecret,
         authorityRevision: liveAuthority.authorityRevision,
       };
-      return await this.dispatchIntent(childWithLineage, runtimeOptions);
+      // Execution lineage: the child aborts when the caller aborts, when the
+      // parent invocation's own deadline/control fires, or when the step-scoped
+      // signal (step timeout) fires — whichever comes first.
+      const childSignals = [runtimeOptions?.signal, execControl.signal, spec.signal].filter(
+        (s): s is AbortSignal => s !== undefined
+      );
+      const childRuntimeOptions: CapabilityDispatchRuntimeOptions = {
+        ...runtimeOptions,
+        signal: childSignals.length > 1 ? AbortSignal.any(childSignals) : childSignals[0],
+      };
+      return await this.dispatchIntent(childWithLineage, childRuntimeOptions);
     };
 
     // Budget partition: policy.timeoutMs is one total response budget. The
@@ -600,11 +685,31 @@ export class CapabilityTransportAdapter {
           const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, newTabId);
           if (newRev) {
             replacementAuthorityRevision = newRev;
+          } else if (isOpenTab) {
+            throw new CapabilityError(
+              'TARGET_TRANSITION_UNCOMMITTED',
+              `Tab '${newTabId}' was created but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target with tabId '${newTabId}' to recover authority.`,
+              {
+                mutationCommitted: true,
+                intendedTabId: newTabId,
+                attachmentId: authority.attachmentId,
+                recoveryAction: 'browser.rebind-target',
+              }
+            );
           } else {
             // The tool reported a new target but authority did not rotate: reporting
             // success would leave the session bound to the old tab while the client
             // believes it moved — fail loud so the caller can rebind explicitly.
-            throw new CapabilityError('ATTACHMENT_REBIND_FAILED', `Target changed to '${newTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Retry or call browser.rebind-target.`);
+            throw new CapabilityError(
+              'ATTACHMENT_REBIND_FAILED',
+              `Target changed to '${newTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Retry or call browser.rebind-target.`,
+              {
+                mutationCommitted: false,
+                intendedTabId: newTabId,
+                attachmentId: authority.attachmentId,
+                recoveryAction: 'browser.rebind-target',
+              }
+            );
           }
         }
       } else if (isSwitchTab) {
@@ -615,17 +720,34 @@ export class CapabilityTransportAdapter {
               ? resObj.tabId.trim()
               : undefined;
             if (!switchTarget) {
-              throw new CapabilityError('ATTACHMENT_REBIND_FAILED', 'Tab switched but the response carried no canonical tabId; attachment binding was not rotated. Call browser.rebind-target with the target tabId.');
+              throw new CapabilityError(
+                'ATTACHMENT_REBIND_FAILED',
+                'Tab switched but the response carried no canonical tabId; attachment binding was not rotated. Call browser.rebind-target with the target tabId.',
+                {
+                  mutationCommitted: false,
+                  attachmentId: authority.attachmentId,
+                  recoveryAction: 'browser.rebind-target',
+                }
+              );
             }
             const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, switchTarget);
             if (newRev) {
               replacementAuthorityRevision = newRev;
             } else {
-              throw new CapabilityError('ATTACHMENT_REBIND_FAILED', `Tab switched to '${switchTarget}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target to retry.`);
+              throw new CapabilityError(
+                'ATTACHMENT_REBIND_FAILED',
+                `Tab switched to '${switchTarget}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target to retry.`,
+                {
+                  mutationCommitted: false,
+                  intendedTabId: switchTarget,
+                  attachmentId: authority.attachmentId,
+                  recoveryAction: 'browser.rebind-target',
+                }
+              );
             }
           }
         }
-      } else if (isNavigate || isReload || isRebind) {
+      } else if (isNavigate || isReload) {
         let targetTabId: string | undefined;
         let targetDocGen: number | undefined;
         if (data && typeof data === 'object') {
@@ -649,10 +771,58 @@ export class CapabilityTransportAdapter {
           );
           if (newRev) {
             replacementAuthorityRevision = newRev;
-          } else if (isRebind) {
-            throw new CapabilityError('ATTACHMENT_REBIND_FAILED', `Rebind to '${targetTabId}' failed: attachment authority did not rotate (CAS conflict or missing record).`);
           } else {
-            console.warn(`[capability-transport] ${intent.name}: attachment ${authority.attachmentId} failed to rotate to tab '${targetTabId}' (updateAttachmentTab returned null)`);
+            // navigate/reload moved the live target but authority did not rotate:
+            // the underlying mutation committed, but authority transition was uncommitted.
+            throw new CapabilityError(
+              'TARGET_TRANSITION_UNCOMMITTED',
+              `${intent.name} committed mutation at '${targetTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target with tabId '${targetTabId}' to recover authority.`,
+              {
+                mutationCommitted: true,
+                intendedTabId: targetTabId,
+                attachmentId: authority.attachmentId,
+                documentGeneration: targetDocGen,
+                recoveryAction: 'browser.rebind-target',
+              }
+            );
+          }
+        }
+      } else if (isRebind) {
+        let targetTabId: string | undefined;
+        let targetDocGen: number | undefined;
+        if (data && typeof data === 'object') {
+          if ('target' in data) {
+            const targetObj = (data as { target?: { tabId?: string; documentGeneration?: number } }).target;
+            targetTabId = targetObj?.tabId;
+            targetDocGen = targetObj?.documentGeneration;
+          } else if ('tabId' in data && typeof (data as Record<string, unknown>).tabId === 'string') {
+            const record = data as Record<string, unknown>;
+            targetTabId = record.tabId as string;
+            targetDocGen = typeof record.documentGeneration === 'number'
+              ? record.documentGeneration
+              : undefined;
+          }
+        }
+        if (targetTabId) {
+          const newRev = await this.attachmentRegistry.updateAttachmentTab(
+            authority.attachmentId,
+            targetTabId,
+            targetDocGen
+          );
+          if (newRev) {
+            replacementAuthorityRevision = newRev;
+          } else {
+            throw new CapabilityError(
+              'ATTACHMENT_REBIND_FAILED',
+              `${intent.name} reached '${targetTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target to retry.`,
+              {
+                mutationCommitted: false,
+                intendedTabId: targetTabId,
+                attachmentId: authority.attachmentId,
+                documentGeneration: targetDocGen,
+                recoveryAction: 'browser.rebind-target',
+              }
+            );
           }
         }
       } else if (isCloseTab) {
@@ -766,6 +936,7 @@ export class CapabilityTransportAdapter {
         ok: true,
         requestId: intent.requestId,
         invocationId,
+        state: 'completed',
         data,
         ...(replacementAuthorityRevision ? { replacementAuthorityRevision } : {}),
       };
@@ -790,6 +961,7 @@ export class CapabilityTransportAdapter {
         ok: false,
         requestId: intent.requestId,
         invocationId,
+        state: classified.state,
         error: errObj,
       };
     } finally {
@@ -824,6 +996,7 @@ export class CapabilityTransportAdapter {
       ok: false,
       requestId: intent.requestId,
       invocationId,
+      state: 'in_progress',
       error: {
         code: 'EXECUTION_TIMEOUT_PENDING_CLEANUP',
         message: `Execution exceeded the ${executionBudgetMs}ms response budget (${executionDeadlineMs}ms execution + ${cancellationAckMs}ms cleanup grace) and is still releasing owned resources`,
@@ -926,10 +1099,8 @@ export class CapabilityTransportAdapter {
       recordedVisibility
     );
   }
-  private isFreshInspection(name: string, policy?: CapabilityEffectPolicy): boolean {
-    if (policy?.effect !== 'read' || policy.risk === 'eval') return false;
-    return name === 'browser.dom' || name === 'anti.inspect.dom' ||
-      name === 'antifan_get_dom' || name === 'anti.inspect.snapshot' ||
-      name === 'browser.snapshot' || name === 'browser.find' || name === 'browser_find';
+  isFreshInspection(name: string, policy?: CapabilityEffectPolicy): boolean {
+    const definition = this.catalogue?.get?.(name) as (FreshInspectionTrait & { policy?: CapabilityEffectPolicy }) | undefined;
+    return isFreshInspectionCapability(name, policy, definition);
   }
 }

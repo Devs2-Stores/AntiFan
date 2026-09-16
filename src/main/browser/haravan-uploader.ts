@@ -9,15 +9,6 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 
-export interface ImageMetadata {
-  url: string;
-  width?: number;
-  height?: number;
-  sizeBytes?: number;
-  mimeType?: string;
-  format?: string;
-}
-
 export interface ImageInspectorData {
   url: string;
   width: number;

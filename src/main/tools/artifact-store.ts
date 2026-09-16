@@ -142,11 +142,13 @@ export class ArtifactStore {
               for (const item of parsed) {
                 if (item && typeof item.id === 'string' && typeof item.path === 'string') {
                   const ref = item as ArtifactRef;
-                  this.artifacts.set(ref.id, ref);
-                  runList.push(ref);
-                  if (ref.sha256 && !seenSha.has(ref.sha256)) {
-                    seenSha.add(ref.sha256);
-                    runTotalBytes += ref.byteLength || 0;
+                  if (fs.existsSync(ref.path)) {
+                    this.artifacts.set(ref.id, ref);
+                    runList.push(ref);
+                    if (ref.sha256 && !seenSha.has(ref.sha256)) {
+                      seenSha.add(ref.sha256);
+                      runTotalBytes += ref.byteLength || 0;
+                    }
                   }
                 }
               }
@@ -732,11 +734,45 @@ export class ArtifactStore {
       }
     }
     const effective = options ?? this.options.retentionOptions;
-    return ArtifactRetentionCleaner.sweep(this.options.root, {
+    const result = ArtifactRetentionCleaner.sweep(this.options.root, {
       ...(effective ?? {}),
       isProtected: (absolutePath) =>
         protectedPaths.has(path.resolve(absolutePath)) || effective?.isProtected?.(absolutePath) === true,
     });
+    if (result.deletedFiles > 0) {
+      this.reconcileAfterSweep();
+    }
+    return result;
+  }
+
+  private reconcileAfterSweep(): void {
+    const affectedRunIds = new Set<string>();
+    for (const [id, ref] of this.artifacts.entries()) {
+      if (!fs.existsSync(ref.path)) {
+        this.artifacts.delete(id);
+        this.hotDataCache.delete(id);
+        affectedRunIds.add(ref.runId);
+      }
+    }
+    for (const runId of affectedRunIds) {
+      const surviving = [...this.artifacts.values()].filter((a) => a.runId === runId);
+      const runDir = path.join(this.options.root, runId);
+      if (surviving.length === 0 || !fs.existsSync(runDir)) {
+        this.runArtifactsCache.delete(runId);
+        this.runBytes.delete(runId);
+      } else {
+        this.runArtifactsCache.set(runId, surviving);
+        this.refreshRunBytesFromDisk(runId);
+        this.persistRunIndex(runId);
+      }
+    }
+    for (const runId of Array.from(this.runBytes.keys())) {
+      const runDir = path.join(this.options.root, runId);
+      if (!fs.existsSync(runDir)) {
+        this.runBytes.delete(runId);
+        this.runArtifactsCache.delete(runId);
+      }
+    }
   }
 }
 
