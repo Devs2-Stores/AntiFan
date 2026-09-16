@@ -126,6 +126,22 @@ describe('CoreHealthService snapshot mapping', () => {
     });
   }
 
+  // The counterpart, so the pair pins discrimination rather than "everything is unknown":
+  // a detail that reports an adjudicated verdict still degrades the snapshot.
+  test('adjudicated FAIL detail → DEGRADED/REGRESSION_FAILED, not UNKNOWN', async () => {
+    const health = healthyHealth();
+    (health.gates as Record<string, unknown>).regression = {
+      passed: false,
+      detail: 'last regression: FAIL at 2026-09-16T03:00:00.000Z',
+      gateId: 'gate-r',
+    };
+    const svc = new CoreHealthService({ runCli: () => health, issueRegister: makeIssues() });
+    const snap = await svc.getSnapshot();
+    const reg = snap.checks.find((c) => c.name === 'core.regression');
+    assert.equal(reg?.status, 'DEGRADED');
+    assert.equal(reg?.reasonCode, 'REGRESSION_FAILED');
+  });
+
   test('CLI failure → UNAVAILABLE + CORE_UNAVAILABLE', async () => {
     const svc = new CoreHealthService({
       runCli: () => { throw new Error('super-core unavailable: boom'); },
