@@ -339,7 +339,12 @@ async function runMcpLiveE2ETest() {
     const inputAction = recordedActions.find((a) => a.type === 'input');
 
     assert.ok(clickAction, 'Click action must be recorded in browser');
-    assert.equal(clickAction.isTrusted, true, 'Hardware CDP click must have genuine isTrusted === true');
+    assert.equal(
+      clickAction.isTrusted,
+      true,
+      'Hardware CDP click must have genuine isTrusted === true; observed events were ' +
+        JSON.stringify(recordedActions)
+    );
 
     assert.ok(inputAction, 'Input action must be recorded in browser');
     assert.equal(inputAction.value, 'Doorbell is broken');
