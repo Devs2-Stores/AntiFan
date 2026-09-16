@@ -106,6 +106,26 @@ describe('CoreHealthService snapshot mapping', () => {
     assert.equal(reg?.reasonCode, 'NO_REGRESSION_RUN');
   });
 
+  // The two details Core actually writes for a regression that no replay adjudicated.
+  // An absent answer must not paint the surface red, so both have to classify as
+  // unknown rather than as a failed regression — the strings are the only signal the
+  // health surface gets, which makes them the contract.
+  for (const detail of [
+    'last regression recorded but never replayed',
+    'last regression asserts PASS with no replay — not adjudicated',
+  ]) {
+    test(`unadjudicated regression detail "${detail}" → UNKNOWN, not DEGRADED`, async () => {
+      const health = healthyHealth();
+      (health.gates as Record<string, unknown>).regression = { passed: false, detail, gateId: 'gate-r' };
+      const svc = new CoreHealthService({ runCli: () => health, issueRegister: makeIssues() });
+      const snap = await svc.getSnapshot();
+      const reg = snap.checks.find((c) => c.name === 'core.regression');
+      assert.equal(reg?.status, 'UNKNOWN', `${detail} is an absent answer, not a failure`);
+      assert.equal(reg?.reasonCode, 'NO_REGRESSION_RUN');
+      assert.notEqual(snap.status, 'DEGRADED', 'an unadjudicated gate does not degrade the snapshot');
+    });
+  }
+
   test('CLI failure → UNAVAILABLE + CORE_UNAVAILABLE', async () => {
     const svc = new CoreHealthService({
       runCli: () => { throw new Error('super-core unavailable: boom'); },
