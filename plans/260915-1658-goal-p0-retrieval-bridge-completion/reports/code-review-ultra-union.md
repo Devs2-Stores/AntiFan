@@ -400,7 +400,7 @@ meant to — the avatar chip, the status dots, and the lock the omnibox already 
 | goal `mjs` batch (`goal-ladder-judge`, `goal-safety`, `goal-runner`, `bridge-receipt-coverage`, `context-bridge`) | 62/62 |
 | compiled TS batch (health service, hub, tab-layout invariants, ipc-audit, vault, dev-watcher) | 87/87 |
 | acceptance ladder @ `1745e37` (HEAD) | **31/31 PASS, `finalHolds: true`**, `unboundPasses: []`, all exits 0, 31 distinct `finishedAt`, `durationMs` 36273 |
-| full pipeline | **all 7 lanes passed** — `compile` 5.6s, `test:canary` 30.4s, `test:fast` 42.7s, `test:site-clone` 13.7s, `test:integration` 1.9s, `test:main` 81.4s, `test:e2e` 13.5s |
+| full pipeline | all lanes passed on one of three post-commit runs — `compile` 5.6s, `test:canary` 28.5s, `test:fast` 56.6s, `test:site-clone` 17.0s, `test:integration` 1.8s, `test:main` 106.0s, `test:e2e` 20.0s. The other two runs had `test:e2e` fail (once with `test:fast`); see the `test:e2e` note below. |
 
 The ladder was run twice for this round. The first run, at `3aac318`, certified the same 31/31 (35.6s);
 it was superseded because the commit that followed added a case to a test file that two routes
@@ -418,4 +418,29 @@ PASS no replay produced does not read as green. The service side is covered in
 rows, is covered in the new case in `test/renderer/core-health-hub.test.ts`.
 
 **Do not run the acceptance ladder and the pipeline at the same time.** A first ladder run stalled for 18 minutes on `p1/root-cause-ui`: that route executes a file under `.compiled/`, and the pipeline's `compile` lane was rewriting `.compiled/` underneath it. Run alone, the same ladder finished in 43 seconds with the same 31/31.
+
+### `test:e2e` inside the pipeline — measured, not caused by these changes
+
+Three full pipeline runs after the final commit: one failed on `test:fast` and `test:e2e`, one passed
+every lane, one failed on `test:e2e` alone (that run's log is the one quoted below). The lane passes
+consistently on its own — five standalone runs, `7/7` each — so the failure needs the pipeline's
+sequence, not the repository state.
+
+The failing case is the live slice in `test/e2e/theme-golden-live.test.js`, and the worker exits 1
+without a diagnostic of its own; the cause is visible in the transcript around it:
+
+```
+[capability-transport] attachment attachment-db50e649-... bound tab '5e3c104f-...' is gone and no
+failover target exists; dispatching 'anti.screenshot.viewport' against the stale target
+[Live Theme Proof FAIL] AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+[Live Theme Proof Orchestrator FAIL] ... Live theme proof Electron worker exited with code 1
+```
+
+The proof's Chromium tab is gone before the slice runs, so every capability call after that lands on a
+stale target. This is the same lane the round-1 pipeline recorded as flaky (`structuralDelta: 1` vs 0,
+green on two standalone re-runs), and the code it exercises is untouched by this change set: the two
+commits that followed touch a theme checkout, two captured documents, and a report. It is left as
+recorded behaviour rather than papered over with a retry, because a retry would hide a live-tab
+lifecycle defect that is worth someone's attention.
+
 
