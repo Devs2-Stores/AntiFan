@@ -232,6 +232,7 @@ export type IssueClass =
   | 'workflow'
   | 'terminal'
   | 'theme'
+  | 'runtime'
   | 'uncategorized';
 
 const ISSUE_CLASS_BY_CODE: Record<string, IssueClass> = {
@@ -241,6 +242,8 @@ const ISSUE_CLASS_BY_CODE: Record<string, IssueClass> = {
   POLICY_DENIED: 'verification',
   STALEMATE: 'verification',
   DURABILITY_FAILED: 'core-store',
+  NATIVE_CRASH: 'runtime',
+  CRASH_DUMP_UNREADABLE: 'runtime',
 };
 
 const ISSUE_CLASS_BY_TOOL_PREFIX: Record<string, IssueClass> = {
@@ -251,6 +254,7 @@ const ISSUE_CLASS_BY_TOOL_PREFIX: Record<string, IssueClass> = {
   'terminal': 'terminal',
   'theme': 'theme',
   'verification': 'verification',
+  'runtime.': 'runtime',
 };
 
 /** Derive the effective class for a record: explicit field wins, then
