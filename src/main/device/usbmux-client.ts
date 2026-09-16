@@ -13,9 +13,9 @@ import { DEVICE_ERROR_REMEDIATION } from '../../shared/device-control-contracts'
 
 // ---------------------------------------------------------------- Framing Constants
 
-export const USBMUXD_HEADER_SIZE = 16;
-export const USBMUXD_VERSION = 1;
-export const USBMUXD_MESSAGE_PLIST = 8;
+const USBMUXD_HEADER_SIZE = 16;
+const USBMUXD_VERSION = 1;
+const USBMUXD_MESSAGE_PLIST = 8;
 
 export interface UsbmuxDevice {
   deviceNumber: number;
@@ -275,7 +275,7 @@ export function parsePlistXml(xmlStr: string): any {
 
 // ---------------------------------------------------------------- Frame Encoding & Decoding
 
-export function encodePlistFrame(obj: unknown, tag = 1): Buffer {
+function encodePlistFrame(obj: unknown, tag = 1): Buffer {
   const xml = toPlistXml(obj);
   const payload = Buffer.from(xml, 'utf8');
   const header = Buffer.alloc(USBMUXD_HEADER_SIZE);
@@ -448,21 +448,6 @@ export async function connectToUsbmux(
       probes: probeErrors,
     }
   );
-}
-
-/**
- * Probes the usbmuxd endpoints (Windows named pipe first, then TCP 127.0.0.1:27015).
- * Resolves with the active endpoint descriptor, or throws CapabilityError('DEVICE_NOT_CONNECTED', ...).
- */
-export async function openUsbmuxEndpoint(
-  probeTimeoutMs = 4000
-): Promise<{ kind: 'named-pipe' | 'tcp'; detail: string }> {
-  const conn = await connectToUsbmux(probeTimeoutMs);
-  conn.socket.destroy();
-  return {
-    kind: conn.kind,
-    detail: conn.detail,
-  };
 }
 
 // ---------------------------------------------------------------- High-Level Operations

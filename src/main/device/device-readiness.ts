@@ -275,18 +275,3 @@ export function assertDeviceAutomationReady(report: DeviceReadinessReport): void
     remediation: fallbackRemediation,
   });
 }
-
-/**
- * Formats a one-line summary naming each non-pass gate and its status.
- */
-export function describeReadiness(report: DeviceReadinessReport): string {
-  const nonPassing = ALL_GATE_NAMES
-    .filter((gateName) => report[gateName].status !== 'pass')
-    .map((gateName) => `${gateName}: ${report[gateName].status}`);
-
-  if (nonPassing.length === 0) {
-    return 'all gates passed';
-  }
-
-  return nonPassing.join(', ');
-}

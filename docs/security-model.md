@@ -1,35 +1,37 @@
-# Antigravity Browser Desktop — Security Model
+# AntiFan Browser Desktop — Security Model
 
 Threat model for remote content, the local bridge, artifacts, live MCP, and
 the declarative plugin SDK v1. This is the authoritative record the Phase 8
 review gates against; any P0/P1 finding here blocks opt-in rollout.
+(Historical note: Originally drafted as Antigravity Browser Desktop; consolidated
+for AntiFan Browser Desktop).
 
 ## Trust boundaries
 
 | Boundary | Trusted | Untrusted |
 |---|---|---|
 | Electron main | yes | — |
-| Local toolbar renderer | yes (allowlisted `agbBridge`) | — |
+| Local toolbar / sidebar renderer | yes (allowlisted `antifanToolbar`, `antifanStandalone`) | — |
 | Remote page (WebContentsView) | — | arbitrary storefront JS |
 | Extension bridge peer | paired session | same-OS hostile client |
 | Plugins (SDK v1) | isolated safe adapter | declared-but-ungranted caps |
-
 ## Project authority (Chromium-first)
 
-Since Phase 3/10 the desktop Chromium is **Project-owned**: every Project owns
-exactly one persistent partition (`persist:antigravity-project-<id>`, a
-durable identifier never derived from a folder path), one tab registry, and
-one Harness utility process. Main is the sole authority:
+In AntiFan Browser Desktop, desktop Chromium partitions are unified and profile-owned:
+each profile maps to a dedicated persistent partition (`persist:profile-${safeProfileKey}`,
+with `-native` mode for clean user agents), migrated from legacy `persist:capsule-*` partitions
+(managed via `src/main/browser/native-tab-host.ts` and `capsule-partition-migration.ts`). Main is the sole authority:
 
 - No Harness process, MCP server, plugin, or renderer can launch, own,
   restart, or silently substitute Chromium. `Main` materializes runtimes
   lazily; there is no active-Project singleton and no global default
   partition fallback.
-- Sender binding is explicit: IPC requests carry `projectId`; the router
-  rejects senders not bound to that Project (`sender-project-mismatch`,
-  `sender-not-bound-to-project`). Raw Electron objects, credentials, and
-  base64 byte payloads never cross shared contracts; artifact refs are
-  metadata only.
+- Lease binding is explicit: Capability requests carry `lease` and `leaseToken`,
+  enforcing workspace and runtime authority (`assertRuntimeLease` in
+  `src/main/tools/capability-catalogue.ts`). Requests fail closed with
+  `WORKSPACE_MISMATCH` or `RUNTIME_MISMATCH` if boundaries drift. Raw Electron
+  objects, credentials, and base64 byte payloads never cross shared contracts;
+  artifact refs are metadata only.
 - Generation equality is exact: stale AND future generations both fail
   closed; run targets are immutable (no active-tab fallback). Browser epochs
   rotate on restart and invalidate every captured ref, lease, and selection.

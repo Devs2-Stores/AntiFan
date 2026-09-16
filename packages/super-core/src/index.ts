@@ -1108,10 +1108,10 @@ export class Core {
     const foundIds = foundRows.map((r) => r.claimId).sort();
     // "Latest" means last issued, not first created: the dedupe upsert refreshes
     // lastIssuedAt on every re-issue while createdAt stays put. COALESCE covers
-    // rows written before the column existed; rowid breaks same-millisecond
-    // ties by real insert order so the pick stays deterministic.
+    // rows written before the column existed; rowid and packId break same-millisecond
+    // ties by real insert order and stable key so the pick stays deterministic.
     const packRow = this.db
-      .prepare('SELECT packId, claimIdsJson FROM packs WHERE task = ? ORDER BY COALESCE(lastIssuedAt, createdAt) DESC, rowid DESC LIMIT 1')
+      .prepare('SELECT packId, claimIdsJson FROM packs WHERE task = ? ORDER BY COALESCE(lastIssuedAt, createdAt) DESC, rowid DESC, packId DESC LIMIT 1')
       .get(opts.task) as { packId: string; claimIdsJson: string } | undefined;
     const injectedIds = packRow ? (JSON.parse(packRow.claimIdsJson) as string[]).slice().sort() : [];
     const injectedFlag: Record<string, true> = {};

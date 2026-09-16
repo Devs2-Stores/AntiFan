@@ -8,7 +8,7 @@ export function getChromeVersion(): string {
   return process.versions.chrome || '150.0.7871.224';
 }
 
-export function getChromeMajorVersion(): string {
+function getChromeMajorVersion(): string {
   return getChromeVersion().split('.')[0] || '150';
 }
 
@@ -63,7 +63,7 @@ export function googleAuthUserAgent(): string {
   return chromeSessionUserAgent();
 }
 
-export function buildChromeClientHints(ua: string): { secChUa: string; secChUaFull: string } | null {
+function buildChromeClientHints(ua: string): { secChUa: string; secChUaFull: string } | null {
   const chromeMatch = ua.match(/Chrome\/([\d.]+)/);
   if (!chromeMatch || !chromeMatch[1]) return null;
   const fullChromeVersion = chromeMatch[1];
@@ -124,13 +124,6 @@ export function setupClientHintsOverride(sess: Session, ua?: string): void {
     callback({ requestHeaders: headers });
   });
 }
-
-export const ANTI_DETECTION_SCRIPT = `(function() {
-  try {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true });
-  } catch {}
-})();`;
-
 export function applyGoogleAuthIdentity(contents: WebContents | null | undefined, _url: string, baseUserAgent?: string): void {
   if (!contents || (typeof contents.isDestroyed === 'function' && contents.isDestroyed())) return;
   const targetUa = baseUserAgent || chromeSessionUserAgent();

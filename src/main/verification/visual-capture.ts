@@ -744,11 +744,6 @@ export const RENDER_SURFACE_PROBE_EXPRESSION =
   'docH: Math.max(doc ? doc.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), ' +
   'readyState: document.readyState || "unknown", hidden: document.hidden === true }; })()';
 
-/** Bounded subset of CDP `Page.getLayoutMetrics` this probe consumes. */
-export interface CdpLayoutMetrics {
-  layoutViewport?: { clientWidth?: number; clientHeight?: number };
-  cssLayoutViewport?: { clientWidth?: number; clientHeight?: number };
-}
 
 /** Bound for the render-surface probe: small enough to fail fast, one round-trip. */
 export const RENDER_SURFACE_PROBE_BOUND_MS = 3_000;

@@ -168,9 +168,3 @@ export interface MutationAttributionBatch {
   records: AttributionRecord[];
   outOfBoundsCount: number;
 }
-
-export type InteractionOutcome =
-  | 'EFFECT_OBSERVED'
-  | 'NO_OBSERVABLE_EFFECT'
-  | 'ACTION_FAILED'
-  | 'MEASUREMENT_INCONCLUSIVE';

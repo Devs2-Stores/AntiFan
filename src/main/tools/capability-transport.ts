@@ -103,6 +103,74 @@ class ExecutionControlImpl implements CapabilityExecutionControl {
   }
 }
 
+/**
+ * Optional trait on a capability definition to explicitly declare whether
+ * dispatch requires fresh-inspection document generation tracking.
+ */
+export interface FreshInspectionTrait {
+  freshInspection?: boolean;
+}
+
+/**
+ * Canonical capabilities and aliases that perform fresh inspection of the DOM,
+ * accessibility snapshot, or element search tree on the attached browser target.
+ *
+ * Invariant:
+ * - Policy effect: 'read'
+ * - Risk: non-eval (risk !== 'eval')
+ * - Surface: DOM / snapshot / find surface on the browser target
+ *
+ * Calls matching this invariant capture the document generation before and after
+ * execution. If generation is stable (pre === post) and strictly advances the
+ * recorded attachment generation, attachment authority safely acknowledges the drift.
+ */
+export const FRESH_INSPECTION_CAPABILITIES: ReadonlySet<string> = new Set([
+  // Canonical DOM inspection
+  'browser.dom',
+  'anti.inspect.dom',
+  'antifan_get_dom',
+  // Accessibility snapshot inspection
+  'anti.inspect.snapshot',
+  'browser.snapshot',
+  'anti.browser.snapshot',
+  'browser.agent-snapshot',
+  'antifan_agent_snapshot',
+  // Element search in snapshot / DOM
+  'browser.find',
+  'browser_find',
+  'anti.inspect.find',
+  'antifan_find',
+]);
+
+/**
+ * Pattern matching inspection capability names that operate on the DOM,
+ * accessibility snapshot, or element search surfaces.
+ */
+export const FRESH_INSPECTION_NAME_PATTERN = /^(?:browser\.(?:dom|snapshot|agent-snapshot|find)|anti\.inspect\..+|antifan_(?:get_dom|agent_snapshot|find)|anti\.browser\.snapshot|browser_find)(?:[._-].*)?$/;
+
+/**
+ * Determines whether a capability dispatch should be treated as a fresh inspection.
+ *
+ * Decision precedence:
+ * 1. Policy check: must have effect 'read' and risk other than 'eval' (fail-closed).
+ * 2. Explicit definition opt-in / opt-out (`freshInspection?: boolean`).
+ * 3. Exact match against canonical/alias set `FRESH_INSPECTION_CAPABILITIES`.
+ * 4. Structural match against `FRESH_INSPECTION_NAME_PATTERN`.
+ */
+export function isFreshInspectionCapability(
+  name: string,
+  policy?: CapabilityEffectPolicy,
+  definition?: FreshInspectionTrait
+): boolean {
+  if (policy?.effect !== 'read' || policy.risk === 'eval') return false;
+
+  if (definition && typeof definition.freshInspection === 'boolean') {
+    return definition.freshInspection;
+  }
+
+  return FRESH_INSPECTION_CAPABILITIES.has(name) || FRESH_INSPECTION_NAME_PATTERN.test(name);
+}
+
 export class CapabilityTransportAdapter {
   constructor(
     private readonly catalogue: CapabilityCatalogue,
@@ -1031,10 +1099,8 @@ export class CapabilityTransportAdapter {
       recordedVisibility
     );
   }
-  private isFreshInspection(name: string, policy?: CapabilityEffectPolicy): boolean {
-    if (policy?.effect !== 'read' || policy.risk === 'eval') return false;
-    return name === 'browser.dom' || name === 'anti.inspect.dom' ||
-      name === 'antifan_get_dom' || name === 'anti.inspect.snapshot' ||
-      name === 'browser.snapshot' || name === 'browser.find' || name === 'browser_find';
+  isFreshInspection(name: string, policy?: CapabilityEffectPolicy): boolean {
+    const definition = this.catalogue?.get?.(name) as (FreshInspectionTrait & { policy?: CapabilityEffectPolicy }) | undefined;
+    return isFreshInspectionCapability(name, policy, definition);
   }
 }

@@ -1,9 +1,10 @@
-# Antigravity Browser Desktop — UI Architecture
+# AntiFan Browser Desktop — UI Architecture
 
 Authoritative visual hierarchy, layout, scope, state, and cutover decisions for
-the Chromium-first Project UI. Companion to `test/fixtures/ui-parity-ledger.json`
-(the implementation authority for feature coverage) and
-`docs/security-model.md` (trust boundaries).
+the Chromium-first Project UI. Companion to the automated verification suites
+(`test/main/`, `test/unit/`, `test/e2e/`) and `docs/security-model.md` (trust boundaries).
+(Historical note: Early prototype plans referenced `test/fixtures/ui-parity-ledger.json`,
+which was superseded by live test suites upon standalone transition).
 
 ## Product Thesis
 
@@ -33,27 +34,28 @@ browser; changing what is *visible* in Chromium never changes what a run is
 | Narrow terminal | capped at 40% content height |
 | Chromium visibility | never fully occluded at any supported size |
 
-Layout authority: the renderer reports one typed `BrowserLayoutSnapshot`
-(top/left/right/bottom reserved regions + exact browser rectangle, window
-revision, device scale, app zoom). Main validates against window content
-bounds and applies WebContentsView bounds; Main never applies renderer
-invented offsets, renderer never resizes Chromium directly.
-
+Layout authority: Main-process `NativeTabHost` (`src/main/browser/native-tab-host.ts`)
+computes exact DIP rectangles for `toolbarView`, `frameBackdropView`, `sidebarView`,
+and tab renderers (with dual-view coordinate computation via `calculateSplitLayout` in
+`src/main/browser/split-review-coordinator.ts`). Main validates against window content
+bounds and applies `WebContentsView` bounds directly; the renderer never resizes Chromium
+views directly.
 ## Surface Hierarchy
 
-1. **Project Home** (app-level window): recent Projects, create/open/focus,
-   background states, no Chromium tabs.
-2. **Project window**: one BrowserWindow per Project, one persistent Chromium
-   partition, one ProjectRuntime.
-   - Left: Project navigation (Workspaces, chats, runs, pinned, background
-     indicators). Collapses at narrow widths.
-   - Center: Chromium (tab strip, toolbar/omnibox, utilities, binding rail,
-     browser-control banner).
-   - Right: Harness dock (conversation + run/tool timeline). Overlay at narrow.
-   - Bottom: Workspace panel (terminal tabs, tracked processes, dev servers).
-   - Persistent **Project Binding Rail**: Project, Workspace, Chat/Run, active
-     tab, document generation, browser-control status, stale/recovery state.
-
+1. **Main Window** (`BrowserWindow` created in `src/main/index.ts`): hosts `NativeTabHost`
+   with a persistent profile partition (`persist:profile-${safeProfileKey}`).
+   - Top: `toolbarView` (`src/renderer/toolbar.html` with `src/preload/toolbar-preload.ts` ->
+     `antifanToolbar`), providing tab strip, omnibox, device preset selectors, phone status button,
+     split-view controls, and Haravan quick-links.
+   - Center/Canvas: Chromium `WebContentsView` instances for active tabs (single view or Desktop +
+     Mobile split panes managed by `SplitNavigationCoordinator`).
+   - Backdrop: `frameBackdropView` (`src/renderer/frame-backdrop.html` with
+     `src/preload/frame-backdrop-preload.ts` -> `antifanFrameBackdropApi`).
+   - Right/Bottom: Embedded `sidebarView` (`src/renderer/standalone.html` with
+     `src/preload/standalone-preload.ts` -> `antifanStandalone`), providing terminal tabs (`xterm.js`),
+     process tracking, and run timeline.
+   - Popout Windows: Independent `BrowserWindow` instances loading `standalone.html` for detached
+     terminal workspaces.
 ### Split Review Surface (Desktop + Mobile Review)
 - **Dual Live WebContentsViews**: Single logical tab owns two live renderers (Desktop & Mobile) side-by-side.
 - **Preserved Scope & Session**: Both panes share the logical tab identity, cookies, localStorage, and capsule subscriptions.
@@ -74,10 +76,11 @@ invented offsets, renderer never resizes Chromium directly.
 
 ## State Model
 
-Renderer holds projections + UI preferences only (`ProjectUiStore`). Durable
-truth stays Main-owned: Projects (catalog), Workspaces, chats, turns, runs,
-terminals, processes, evidence, QA runs, checkpoints.
-
+Renderer holds projections + UI preferences only. Durable truth stays Main-owned:
+Projects (`src/main/project/project-registry.ts`), Workspaces (`src/main/project/workspace-registry.ts`),
+Capsules (`src/main/project/workspace-capsule.ts`), session stores (`invocation-ledger.ts`,
+`event-store.ts`, `receipt-store.ts` in `src/main/session/`), terminals (`src/main/browser/terminal-manager.ts`),
+and verification state.
 | Window | Binding | Run |
 |---|---|---|
 | cold-launch, home, project-open, background-active, background-warm, suspended, recovering, profile-delete-pending, closed | valid, stale-generation, future-generation, missing-workspace, needs-binding, stale-tab, stale-document, run-target-differs-from-visible | queued, running, awaiting-model, awaiting-tool, awaiting-user, completed, failed, cancelled, interrupted, unknown-mutation, stale-browser, reconcile-required |
@@ -95,23 +98,29 @@ UI — never a global-focus fallback.
 - Every control reachable keyboard-only; tab order documented per surface in
   phase files.
 
-## Cutover Contract (Phase 11 shipped)
+## Cutover Contract (Shipped Architecture)
 
 Single production path; no legacy listener tree exists to conflict:
 
-- `project-active`: production loads `project-app.html` + generated
-  `project-window.js` through the sandboxed composite preload
-  (`src/preload/index.ts` — Project bridge + allowlisted app-shell bridge in
-  one self-contained module). `data-agb-path="legacy"`, legacy script,
-  singleton host, and parallel bridges are absent; the legacy renderer was
-  deleted outright.
-- The app-shell command channel is extracted to `src/main/app-shell-ipc.ts`
-  (22-command catalogue injected against live runtime deps); the register
-  site in `src/main/index.ts` only wires it.
-- Project events deliver `{ eventName, scope, payload }` to the renderer;
-  the preload forwards the payload with `scope` merged in, so per-window
-  filters (`chatSessionId`/`runId`) gate live updates without a per-name
-  allowlist at the send path.
+- Main boots via `src/main/index.ts` and initializes `NativeTabHost`.
+- Production views load their dedicated HTML and preload modules:
+  - `toolbarView` loads `src/renderer/toolbar.html` through `src/preload/toolbar-preload.ts`
+    (exposing `antifanToolbar`).
+  - `frameBackdropView` loads `src/renderer/frame-backdrop.html` through
+    `src/preload/frame-backdrop-preload.ts` (exposing `antifanFrameBackdropApi`).
+  - `sidebarView` loads `src/renderer/standalone.html` through `src/preload/standalone-preload.ts`
+    (exposing `antifanStandalone`).
+  - Storefront web tabs run with `src/preload/tab-preload.ts` in isolated worlds.
+- IPC channels are modularized:
+  - Toolbar commands wire through `NativeTabHost.setupToolbarIpc` in
+    `src/main/browser/native-tab-host.ts` using `TOOLBAR_CHANNELS` (`src/shared/contracts.ts`).
+  - Terminal stream and lifecycle channels wire through `TERMINAL_CHANNELS` in `src/shared/contracts.ts`
+    handled by `NativeTabHost`.
+  - Control plane capability invocations wire through `src/main/tools/capability-catalogue.ts` and
+    `src/main/tools/capability-transport.ts`.
+- *Historical note:* Early prototype plans drafting `project-app.html`, `project-window.js`,
+  `src/preload/index.ts`, and `src/main/app-shell-ipc.ts` were superseded by this native
+  multi-view `WebContentsView` architecture.
 
 Rollback is by previous package artifact, never by running both UI paths.
 
@@ -128,6 +137,6 @@ Captured as test artifacts (not pixel-copy targets):
 
 ## Parity
 
-`test/fixtures/ui-parity-ledger.json` maps every legacy surface to its new
-owner, scope, IPC path, phase, E2E gate, and disposition. Unowned features are
-cutover blockers; deletion stops until each row is owned.
+Feature coverage and regression prevention are enforced by the automated test pipeline
+(`npm run verify`, `npm run test:main`, `npm run smoke:split`, `npm run smoke:theme-qa`,
+`npm run smoke:device`). Unowned features or contract regressions block release verification.

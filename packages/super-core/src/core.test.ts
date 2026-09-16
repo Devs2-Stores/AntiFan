@@ -789,6 +789,58 @@ test("the task's latest pack is the last issued, not the first created", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+test('reuseMetric deterministically tiebreaks packs with identical lastIssuedAt timestamps', () => {
+  // When multiple packs for the same task tie on lastIssuedAt (or same-ms re-issue/creation),
+  // reuseMetric must deterministically select the latest pack via stable tiebreaker
+  // (rowid/packId), without ambiguity across sessions or platforms.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-tiebreak-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    core.importScout(fixtureReports());
+    const task = 'package.json declares name=demo';
+    const first = core.contextPack({ task, sessionId: 's-first', platform: 'haravan' });
+    const second = core.contextPack({ task, sessionId: 's-second', platform: 'shopify' });
+    assert.notEqual(first.packId, second.packId, 'two sessions/platforms are two packs');
+
+    // 1. Force identical lastIssuedAt across the two packs.
+    // By insertion order, 'second' has the higher rowid.
+    const pin = raw.prepare('UPDATE packs SET createdAt = ?, lastIssuedAt = ? WHERE packId = ?');
+    const tiedTimestamp = '2025-06-01T12:00:00.000Z';
+    pin.run('2025-01-01T00:00:00.000Z', tiedTimestamp, first.packId);
+    pin.run('2025-02-01T00:00:00.000Z', tiedTimestamp, second.packId);
+
+    // Repeated queries must deterministically return the same winning pack (stable tiebreak).
+    for (let i = 0; i < 5; i++) {
+      const metric = core.reuseMetric({ task });
+      assert.equal(metric.packId, second.packId, 'identical lastIssuedAt tiebreaks deterministically to the latest inserted pack');
+      assert.deepEqual(metric.injected.claimIds, second.claims.map((c) => c.claimId).sort());
+    }
+
+    // 2. Force identical createdAt AND identical lastIssuedAt (same-millisecond creation + re-issue).
+    const pinAll = raw.prepare('UPDATE packs SET createdAt = ?, lastIssuedAt = ? WHERE task = ?');
+    pinAll.run(tiedTimestamp, tiedTimestamp, task);
+
+    for (let i = 0; i < 5; i++) {
+      const metric = core.reuseMetric({ task });
+      assert.equal(metric.packId, second.packId, 'identical createdAt and lastIssuedAt tiebreaks deterministically by rowid/packId');
+    }
+
+    // 3. Prove timestamp precedence: if the older row is re-issued even 1ms later, it wins over rowid.
+    raw.prepare('UPDATE packs SET lastIssuedAt = ? WHERE packId = ?').run('2025-06-01T12:00:00.001Z', first.packId);
+    assert.equal(core.reuseMetric({ task }).packId, first.packId, 'strictly newer lastIssuedAt wins over higher rowid');
+
+    // 4. Invert: if second is re-issued later, second wins again.
+    raw.prepare('UPDATE packs SET lastIssuedAt = ? WHERE packId = ?').run('2025-06-01T12:00:00.002Z', second.packId);
+    assert.equal(core.reuseMetric({ task }).packId, second.packId, 'newer lastIssuedAt on second pack wins');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 
 test('namespace is recorded and backfilled across claims, cases, and decisions', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ns-'));
