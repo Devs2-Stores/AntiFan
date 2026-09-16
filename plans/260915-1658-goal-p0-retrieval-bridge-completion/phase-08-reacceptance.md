@@ -1,7 +1,7 @@
 ---
 phase: 8
 title: "Re-acceptance — ladder 100% revision-bound"
-status: todo
+status: done
 priority: P0
 effort: ""
 dependencies: [7]
@@ -73,3 +73,13 @@ Mục tiêu: chứng minh **100%** bằng receipt, không bằng tuyên bố. Ch
 - Phase này là nơi **dễ tự lừa nhất**: áp lực "đạt 100%" sẽ đẩy về phía nới tiêu chí. Health abort và review ở gate là hàng rào, và "nới tiêu chí" là trigger abort.
 - Nếu sau phases 2-7 vẫn còn hạng mục `NOT_IMPLEMENTED` mà contract yêu cầu, kết quả đúng là **chưa đạt Final** — phải báo đúng như vậy, không gộp nhóm để trông đủ.
 - Verdict QA/visual vẫn có thể `BLOCKED` nếu phase 7 không đóng được — khi đó ghi đúng blocker, không hạ chuẩn.
+
+## Kết quả re-acceptance
+
+- **Final: `PASS == 31`, `finalHolds: true`.** Bản ghi: `reports/ladder-run-2026-09-16T01-22-35-255Z.json`; handoff đầy đủ: `reports/phase-08-handoff.md`.
+- Mọi `PASS` revision-bound: 31/31 receipt cùng git SHA `2985471fb37f9544be7e0de9ea646f920b8fb613`, `exit` = 0, `finishedAt` phân biệt, `routeIdentity` là đường verify thật.
+- Ladder: `scripts/goal/ladder/p0-p1.mjs`, chạy bằng `npm run goal:ladder`. Tiêu chí (criteria) là chính file định nghĩa mẫu số `ladder-31-items.md`, nên sửa mẫu số sẽ làm checkpoint vô hiệu và drift detector từ chối resume.
+- Hai hạng mục phải implement thật khi re-acceptance: **#25** (`core.health`) và **#27** (`reuseMetric`) — trước đó chỉ có composition, không có surface. Cả hai có fail-before/pass-after.
+- Regression: `npm test` all lanes passed (exit 0). Gate tổng: `check-bottlenecks` OK, `check-mcp-budget-dominance` OK, `check-plans` 512/0.
+- Còn lại, blocker nêu tên: **B23** (live storefront: `.hrv-sync-state.json` + `THEME_PUSH_APPROVED=1`) và **B29** (retire 20 routing row = breaking wire-name change, cần user quyết). Không hạng mục nào bị hạ chuẩn để đạt 100%.
+

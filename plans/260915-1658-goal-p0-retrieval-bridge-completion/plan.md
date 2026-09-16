@@ -1,7 +1,7 @@
 ---
 title: "Goal P0 — Retrieval → Bridge completion to 100%"
 description: "Long-run goal: hoàn thiện 100% các hạng mục P0-A→P1 của MASTER UPGRADE trên nền plan 260914-1248 (C1-C8). Test + fix, không đồng hồ, biên = phase gate."
-status: pending
+status: done
 priority: P1
 effort: ""
 tags: []
@@ -82,14 +82,14 @@ Nguồn: `probe sống trên DB thật` + `plans/260914-1248-.../reports/{final-
 
 | # | Phase | Block | Status |
 |---|-------|-------|--------|
-| 1 | [Phase 1: Safety substrate](./phase-01-safety-substrate.md) | 1 | Pending |
-| 2 | [Phase 2: Retrieval integrity](./phase-02-retrieval-integrity.md) | 1 | Pending |
-| 3 | [Phase 3: Context Bridge](./phase-03-context-bridge.md) | 1 | Pending |
-| 4 | [Phase 4: Verified learning](./phase-04-verified-learning.md) | 2 | Pending |
-| 5 | [Phase 5: MCP reliability](./phase-05-mcp-reliability.md) | 2 | Pending |
-| 6 | [Phase 6: Core Health + 5 surface](./phase-06-core-health-surface.md) | 2 | Pending |
-| 7 | [Phase 7: Measurement layer](./phase-07-measurement-layer.md) | 3 | Pending |
-| 8 | [Phase 8: Re-acceptance](./phase-08-reacceptance.md) | 3 | Pending |
+| 1 | [Phase 1: Safety substrate](./phase-01-safety-substrate.md) | 1 | Done |
+| 2 | [Phase 2: Retrieval integrity](./phase-02-retrieval-integrity.md) | 1 | Done |
+| 3 | [Phase 3: Context Bridge](./phase-03-context-bridge.md) | 1 | Done |
+| 4 | [Phase 4: Verified learning](./phase-04-verified-learning.md) | 2 | Done |
+| 5 | [Phase 5: MCP reliability](./phase-05-mcp-reliability.md) | 2 | Done |
+| 6 | [Phase 6: Core Health + 5 surface](./phase-06-core-health-surface.md) | 2 | Done |
+| 7 | [Phase 7: Measurement layer](./phase-07-measurement-layer.md) | 3 | Done |
+| 8 | [Phase 8: Re-acceptance](./phase-08-reacceptance.md) | 3 | Done |
 
 Execution order: 1 → 2 → 3 (block 1) → 4 → **5 → 6** (block 2) → 7 → 8 (block 3). Thứ tự là dependency thật, không phải sở thích: phase 1 là điều kiện để chạy unattended; **MCP reliability (5) phải xong trước Core Health surface (6)** vì 5 surface đọc trạng thái MCP, và build UI trên các `anti.*` alias sẽ bị phase 5 retire/reconcile là tự tạo refactor bắt buộc; phase 7 là điều kiện để phase 8 phán quyết được.
 
