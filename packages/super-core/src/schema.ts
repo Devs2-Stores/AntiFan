@@ -2,12 +2,19 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 // Platforms recognized by the keyword-derivation backfill. A row's own text
 // (conflict subject, case task/context) may tag its platform ONLY when exactly
 // one known platform name appears — zero or ambiguous matches stay NULL.
 export const KNOWN_PLATFORMS = ['haravan', 'sapo', 'shopify', 'generic-liquid'] as const;
+
+// One UNION ALL branch per known platform: `SELECT '<p>' p WHERE <expr> LIKE '%<p>%'`.
+// The constant is the single source of truth — the backfill below derives its
+// keyword lists from it, so adding a platform here changes the SQL. Names are
+// compile-time literals, never request input, so interpolation is safe.
+const platformKeywordUnion = (matchExpr: string) =>
+  KNOWN_PLATFORMS.map((p, i) => `${i === 0 ? 'SELECT' : 'UNION ALL SELECT'} '${p}'${i === 0 ? ' p' : ''} WHERE ${matchExpr} LIKE '%${p}%'`).join('\n    ');
 
 // Idempotent scope backfill for conflicts/cases/decisions. Derivation order:
 //   1. conflicts.unitId  <- single unit resolvable via positionsJson skillIds
@@ -29,10 +36,7 @@ UPDATE conflicts SET platform = (
 ) WHERE platform IS NULL AND unitId IS NOT NULL;
 UPDATE conflicts SET platform = (
   SELECT MIN(p) FROM (
-    SELECT 'haravan' p WHERE conflicts.subject LIKE '%haravan%'
-    UNION ALL SELECT 'sapo' WHERE conflicts.subject LIKE '%sapo%'
-    UNION ALL SELECT 'shopify' WHERE conflicts.subject LIKE '%shopify%'
-    UNION ALL SELECT 'generic-liquid' WHERE conflicts.subject LIKE '%generic-liquid%'
+    ${platformKeywordUnion('conflicts.subject')}
   ) HAVING COUNT(*) = 1
 ) WHERE platform IS NULL AND subject IS NOT NULL;
 UPDATE cases SET platform = (
@@ -42,10 +46,7 @@ UPDATE cases SET platform = (
 ) WHERE platform IS NULL AND unitId IS NOT NULL;
 UPDATE cases SET platform = (
   SELECT MIN(p) FROM (
-    SELECT 'haravan' p WHERE (cases.task || ' ' || COALESCE(cases.context,'')) LIKE '%haravan%'
-    UNION ALL SELECT 'sapo' WHERE (cases.task || ' ' || COALESCE(cases.context,'')) LIKE '%sapo%'
-    UNION ALL SELECT 'shopify' WHERE (cases.task || ' ' || COALESCE(cases.context,'')) LIKE '%shopify%'
-    UNION ALL SELECT 'generic-liquid' WHERE (cases.task || ' ' || COALESCE(cases.context,'')) LIKE '%generic-liquid%'
+    ${platformKeywordUnion("(cases.task || ' ' || COALESCE(cases.context,''))")}
   ) HAVING COUNT(*) = 1
 ) WHERE platform IS NULL;
 UPDATE decisions SET platform = (
@@ -260,7 +261,8 @@ CREATE TABLE IF NOT EXISTS packs (
   claimIdsJson TEXT NOT NULL,
   createdAt TEXT NOT NULL,
   taskHash TEXT,
-  sessionId TEXT
+  sessionId TEXT,
+  lastIssuedAt TEXT
 );
 
 CREATE TABLE IF NOT EXISTS observations (
@@ -623,5 +625,15 @@ ALTER TABLE regressions ADD COLUMN replayDetailJson TEXT;`,
     // replay earns a verdict.
     from: 7, to: 8,
     sql: `UPDATE regressions SET replayResult = NULL WHERE replayedAt IS NULL AND replayResult IS NOT NULL;`,
+  },
+  {
+    // Track when a pack was last issued, not just created. contextPack's dedupe
+    // upsert refreshes claimIdsJson in place without touching createdAt, so a
+    // re-issued older pack looked older than a pack merely created later.
+    // lastIssuedAt is the write time the upsert maintains; the backfill seeds it
+    // from createdAt so existing rows keep their prior order.
+    from: 8, to: 9,
+    sql: `ALTER TABLE packs ADD COLUMN lastIssuedAt TEXT;
+UPDATE packs SET lastIssuedAt = createdAt WHERE lastIssuedAt IS NULL;`,
   },
 ];

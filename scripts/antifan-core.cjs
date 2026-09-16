@@ -68,7 +68,21 @@ async function main() {
     case 'uncertainty': out = core.classifyUncertainty(parse(arg)); break;
     case 'decay': out = core.decayCheck(parse(arg)); break;
     case 'audit': out = core.corpusAudit(); break;
-    case 'gate': out = core.checkPhaseGate(parse(arg).phase, parse(arg).gate); break;
+    case 'gate': {
+      // Read-only by default. This command doubles as the only way to inspect a single
+      // gate, and an inspection must not grow the store — the same rule `health` follows.
+      // An unannounced write into whatever store the working directory implies is how a
+      // probe appended rows to the live store, so the default is an evaluation and the
+      // caller is told what it did not persist. A real run opts in with {"record":true};
+      // the MCP surface keeps the recording default for its programmatic runs.
+      const gateArgs = parse(arg);
+      const record = gateArgs.record === true;
+      if (!record) {
+        console.error('note: gate evaluated read-only, nothing persisted — pass {"record":true} to record it');
+      }
+      out = core.checkPhaseGate(gateArgs.phase, gateArgs.gate, record ? {} : { record: false });
+      break;
+    }
     case 'resolve-conflict': out = core.resolveConflict(parse(arg)); break;
     case 'regression': out = core.recordRegression(parse(arg)); break;
     case 'observe': out = core.recordObservation(parse(arg)); break;
@@ -90,7 +104,9 @@ async function main() {
       out = {
         taskRunsTable: hasTaskRuns,
         taskRuns: hasTaskRuns ? core.db.prepare('SELECT * FROM task_runs LIMIT ?').all(lim) : [],
-        packs: core.db.prepare('SELECT * FROM packs ORDER BY createdAt DESC LIMIT ?').all(lim),
+        // Ordered by when a pack was last issued, not when it was created: a reused pack is
+        // the recent one, which is also the order the reuse metric selects with.
+        packs: core.db.prepare('SELECT * FROM packs ORDER BY COALESCE(lastIssuedAt, createdAt) DESC, rowid DESC LIMIT ?').all(lim),
         cases: core.db.prepare('SELECT * FROM cases ORDER BY createdAt DESC LIMIT ?').all(lim),
       };
       break;
@@ -119,8 +135,9 @@ async function main() {
       // reason-coded status) lives in the store so the CLI and the MCP surface
       // cannot report different health for the same database. Gate and audit
       // evaluation is recorded nowhere on this path — the Core Health UI re-runs
-      // it on every open, and a read path must not grow the store. A real gate
-      // run still records, via the default `record: true`.
+      // it on every open, and a read path must not grow the store. A real gate run
+      // records explicitly: the MCP surface does, and `gate` here requires
+      // {"record":true}.
       out = core.health(staleDays ? { staleDays } : {});
       break;
     }

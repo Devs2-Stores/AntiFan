@@ -339,7 +339,12 @@ export class CoreHealthService {
     checks.push(gateCheck('core.regression', gates.regression, {
       failCode: 'REGRESSION_FAILED',
       unknownCode: 'NO_REGRESSION_RUN',
-      unknownWhen: (d) => d === 'no regression run',
+      // Only a replay that actually ran can adjudicate this gate. Core reports a
+      // recorded-but-never-replayed regression as not adjudicated, which is an absent
+      // answer rather than a failure, so it must not paint the surface red.
+      unknownWhen: (d) => d === 'no regression run'
+        || d === 'last regression recorded but never replayed'
+        || /with no replay/.test(d),
     }));
 
     const uncertainty = health.uncertainty ?? {};
@@ -609,10 +614,23 @@ export class CoreHealthService {
       }
       const last = state.rows[0];
       const lastResult = last && typeof last.replayResult === 'string' ? last.replayResult : undefined;
+      // A recorded verdict is a verdict: a FAIL row degrades the surface whether or not
+      // the row carries a replay stamp. The stamp only gates the *healthy* answer, where
+      // an asserted PASS that no replay produced must not read as green — the same
+      // direction the phase gate takes, where such a row cannot open the gate.
+      const lastReplayed = last ? last.replayedAt != null : false;
       const lastId = last && typeof last.regressionId === 'string' ? last.regressionId : 'latest regression';
-      if (lastResult === 'PASS') {
+      if (lastResult === 'PASS' && lastReplayed) {
         state.status = 'HEALTHY';
         state.reasonCode = 'LAST_REPLAY_PASSED';
+      } else if (lastResult == null) {
+        state.status = 'UNKNOWN';
+        state.reasonCode = 'NO_REGRESSION_RUN';
+        state.affected = [`${lastId} is recorded but has never been replayed`];
+      } else if (lastResult === 'PASS') {
+        state.status = 'UNKNOWN';
+        state.reasonCode = 'REPLAY_NOT_ADJUDICATED';
+        state.affected = [`${lastId} asserts PASS with no replay stamp`];
       } else {
         state.status = 'DEGRADED';
         state.reasonCode = 'REGRESSION_FAILED';

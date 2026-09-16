@@ -521,6 +521,23 @@ function verifyReceiptConsistency(docId, node, jsonPath = '') {
  * Evidence loading and classification
  * ------------------------------------------------------------------ */
 
+/**
+ * A compare receipt is identified by its shape, never by a measured number: a refused
+ * compare publishes `mismatchPercentage: null` because the diff is inadmissible and no
+ * number may be fabricated, so gating on a numeric percentage drops the refusal out of
+ * the report entirely — a false clean. The shape is a capture-receipt structure plus an
+ * explicit compare outcome: a measured percentage (0 included), or an explicit status
+ * alongside a declared null percentage / boolean match flag. A standalone capture
+ * carries a receipt and a status but no compare-outcome field, so it stays out.
+ */
+function isCompareReceiptDoc(json) {
+  if (!isObj(json)) return false;
+  if (!isObj(json.captureReceipts) && !isObj(json.receipt)) return false;
+  if (isNum(num(json.mismatchPercentage))) return true;
+  if (!isStr(json.status)) return false;
+  return json.mismatchPercentage === null || typeof json.match === 'boolean';
+}
+
 function classifyDocument(file, json) {
   const name = path.basename(file);
   if (/audit/i.test(name)) return 'audit';
@@ -530,7 +547,7 @@ function classifyDocument(file, json) {
   if (isObj(json.a0) || isObj(json.bundle) || Array.isArray(json.blueprints) || isObj(json.assetIntegrity)) {
     return 'telemetry';
   }
-  if (isNum(num(json.mismatchPercentage)) && (isObj(json.captureReceipts) || isObj(json.receipt))) {
+  if (isCompareReceiptDoc(json)) {
     return 'compare-receipt';
   }
   if (isObj(json.lease) || isObj(json.preflight) || isObj(json.artifactPreflight)) return 'lease';
@@ -2260,7 +2277,7 @@ function loadHistorical() {
         entry.evidence.push(file);
         if (isObj(json.bundle) && isObj(json.a0)) entry.telemetry = json;
         if (isObj(json.viewport) && isObj(json.stages)) entry.viewports[viewportKey(num(json.viewport.width), num(json.viewport.height))] = json;
-        if (isNum(num(json.mismatchPercentage)) && isObj(json.captureReceipts)) {
+        if (isCompareReceiptDoc(json)) {
           const isSelfDrift = /ref-vs-ref|self/i.test(file);
           const isDrift = isSelfDrift || /drift/i.test(file);
           if (isSelfDrift && !entry.selfDrift) {

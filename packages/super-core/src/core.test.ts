@@ -723,3 +723,69 @@ test('replayRegression re-executes recorded checks against live state', () => {
   } finally { raw.close(); }
   core.close();
 });
+
+test('the store opens under the locked concurrent-access mode', () => {
+  // The runner, the MCP server and the app all open this one file, so the mode is the
+  // condition for them not to collide. Journal mode is a property of the file, so a
+  // second connection can observe it without reaching inside the owner.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-mode-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const writer = new DatabaseSync(dbPath);
+  const reader = new DatabaseSync(dbPath);
+  try {
+    const mode = writer.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
+    assert.equal(mode.journal_mode, 'wal', 'WAL is what lets a reader run during a write');
+
+    // The property that matters: an open write transaction does not block a second
+    // connection, and that connection sees the last committed state.
+    writer.exec('CREATE TABLE probe (v INTEGER)');
+    writer.exec('BEGIN');
+    writer.prepare('INSERT INTO probe VALUES (?)').run(1);
+    const during = reader.prepare('SELECT COUNT(*) AS n FROM probe').get() as { n: number };
+    assert.equal(during.n, 0, 'the reader sees the last committed state, not the in-flight write');
+    writer.exec('COMMIT');
+    const after = reader.prepare('SELECT COUNT(*) AS n FROM probe').get() as { n: number };
+    assert.equal(after.n, 1, 'the committed write is visible to the next read');
+  } finally {
+    writer.close();
+    reader.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the task's latest pack is the last issued, not the first created", () => {
+  // A pack keeps its identity per (task, platform, session) and refreshes in place, so a
+  // re-issued pack holds its first createdAt while lastIssuedAt moves. "Latest" has to
+  // mean the re-issue for the reuse metric to report the pack the task actually uses.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-issue-order-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    core.importScout(fixtureReports());
+    const task = 'package.json declares name=demo';
+    const first = core.contextPack({ task, sessionId: 's-first', platform: 'haravan' });
+    const second = core.contextPack({ task, sessionId: 's-second', platform: 'haravan' });
+    assert.notEqual(first.packId, second.packId, 'two sessions are two packs');
+
+    // Pin the times so the result cannot depend on clock resolution: the re-issued pack
+    // is the older row by createdAt and the newer one by lastIssuedAt.
+    const pin = raw.prepare('UPDATE packs SET createdAt = ?, lastIssuedAt = ? WHERE packId = ?');
+    pin.run('2020-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z', first.packId);
+    pin.run('2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z', second.packId);
+
+    const metric = core.reuseMetric({ task });
+    assert.equal(metric.packId, first.packId, 'the re-issued pack is the latest');
+    assert.deepEqual(metric.injected.claimIds, first.claims.map((c) => c.claimId).sort());
+
+    // Rows written before the column existed carry NULL and must fall back to createdAt.
+    raw.prepare('UPDATE packs SET lastIssuedAt = NULL WHERE packId = ?').run(first.packId);
+    assert.equal(core.reuseMetric({ task }).packId, second.packId, 'NULL lastIssuedAt falls back to createdAt');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

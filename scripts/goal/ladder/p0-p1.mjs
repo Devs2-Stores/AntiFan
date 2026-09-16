@@ -29,6 +29,19 @@ const REPO = path.resolve(import.meta.dirname, '..', '..', '..');
 
 const ROUTE_TIMEOUT_MS = Number(process.env.GOAL_ROUTE_TIMEOUT_MS || 300_000);
 
+/**
+ * Bounded capture for a route's stdout/stderr. The judge reads only the TAP
+ * verdict lines (`ok`/`not ok` names and the `# tests|pass|fail|skipped`
+ * summary) plus, for probes, the last JSON line — all of which sit at the end
+ * of the stream — so the raw capture keeps the last 512 KiB. Every judged line
+ * is additionally kept verbatim in a line-capped buffer, so a truncated head
+ * can never change what the judge sees: the names list and the summary survive
+ * even when megabytes of diagnostics precede them.
+ */
+const MAX_ROUTE_OUTPUT_CHARS = 512 * 1024;
+const MAX_JUDGED_LINES = 8192;
+const JUDGED_LINE_RE = /^\s*(?:not\s+)?ok\s+\d+\s+-|^#\s*(?:tests|pass|fail|skipped)\s+\d+\s*$/;
+
 function gitSha() {
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
@@ -177,6 +190,42 @@ function lastJson(stdout) {
   return null;
 }
 
+function routeOutputBuffer() {
+  return { tail: '', pending: '', judged: [], droppedChars: 0, droppedJudged: 0 };
+}
+
+function feedRouteOutput(buf, chunk) {
+  buf.tail += chunk;
+  if (buf.tail.length > MAX_ROUTE_OUTPUT_CHARS * 2) {
+    const cut = buf.tail.length - MAX_ROUTE_OUTPUT_CHARS;
+    buf.droppedChars += cut;
+    buf.tail = buf.tail.slice(cut);
+  }
+  const block = buf.pending + chunk;
+  const lines = block.split('\n');
+  buf.pending = lines.pop();
+  for (const line of lines) {
+    if (!JUDGED_LINE_RE.test(line)) continue;
+    if (buf.judged.length === MAX_JUDGED_LINES) {
+      buf.judged.shift();
+      buf.droppedJudged += 1;
+    }
+    buf.judged.push(line);
+  }
+}
+
+function finishRouteOutput(buf) {
+  if (buf.droppedChars === 0) return buf.tail;
+  // The retained tail begins mid-line: its first line is a fragment that was
+  // never a whole line in the stream, so it must not be parsed as one — a
+  // fragment reading `ok 1 - name` would be a phantom test name. Judged lines
+  // are recovered from `buf.judged`, which captured them before truncation.
+  const nl = buf.tail.indexOf('\n');
+  const tail = nl === -1 ? '' : buf.tail.slice(nl + 1);
+  const marker = `# [ladder] output truncated: kept last ${MAX_ROUTE_OUTPUT_CHARS} chars of ${buf.droppedChars + buf.tail.length} (${buf.droppedJudged} judged lines dropped)\n`;
+  return marker + (buf.judged.length ? `${buf.judged.join('\n')}\n` : '') + tail;
+}
+
 /**
  * Run a route without blocking the event loop.
  *
@@ -189,26 +238,30 @@ function lastJson(stdout) {
  */
 function spawnRoute(route) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, argvFor(route), { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
+    // `detached` on POSIX makes the route a process-group leader so the timeout
+    // path can signal the whole group (`killTree`); Windows keeps taskkill /T.
+    const child = spawn(process.execPath, argvFor(route), {
+      cwd: REPO,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    const stdout = routeOutputBuffer();
+    const stderr = routeOutputBuffer();
     let timedOut = false;
     let settled = false;
     const timer = setTimeout(() => {
       timedOut = true;
       killTree(child.pid);
     }, ROUTE_TIMEOUT_MS);
-    child.stdout.on('data', (d) => {
-      stdout += d;
-    });
-    child.stderr.on('data', (d) => {
-      stderr += d;
-    });
+    child.stdout.on('data', (d) => feedRouteOutput(stdout, d));
+    child.stderr.on('data', (d) => feedRouteOutput(stderr, d));
     const settle = (extra) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ stdout, stderr, timedOut, ...extra });
+      resolve({ stdout: finishRouteOutput(stdout), stderr: finishRouteOutput(stderr), timedOut, ...extra });
     };
     child.on('error', (err) => settle({ status: null, signal: null, error: err }));
     child.on('close', (code, signal) => settle({ status: code, signal, error: null }));
@@ -219,8 +272,22 @@ function spawnRoute(route) {
 function killTree(pid) {
   if (!pid) return;
   try {
-    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
-    else process.kill(pid, 'SIGKILL');
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    } else {
+      try {
+        // The route was spawned `detached`, so it leads a process group and the
+        // negative pid signals every member — including the children `node
+        // --test` fans out to. Fall back to the lone pid when the group is gone.
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+    }
   } catch {
     /* the route may have exited between the timeout and the kill */
   }

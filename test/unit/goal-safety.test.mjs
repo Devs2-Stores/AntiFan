@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { detectDrift } from '../../scripts/goal/drift.mjs';
 import { createHealthMonitor } from '../../scripts/goal/health.mjs';
 import { pruneRunArtifacts } from '../../scripts/goal/prune.mjs';
-import { openCoreDb } from '../../scripts/goal/core-db.mjs';
 import { THRESHOLDS, checkDiskHeadroom } from '../../scripts/goal/thresholds.mjs';
 import { acquireRunnerMutex, releaseRunnerMutex, isHeartbeatStale, writeHeartbeat } from '../../scripts/goal/watchdog.mjs';
 import { writeRecordAtomic, readRecord } from '../../scripts/lib/atomic-record.mjs';
@@ -308,47 +307,7 @@ describe('artifact pruning', () => {
   });
 });
 
-describe('core.db concurrent access', () => {
-  it('opens the database in WAL mode with a busy_timeout', () => {
-    const dir = makeDir('antifan-coredb-');
-    try {
-      const { db, journalMode, busyTimeoutMs } = openCoreDb(path.join(dir, 'core.db'));
-      try {
-        assert.strictEqual(journalMode, 'wal');
-        assert.strictEqual(busyTimeoutMs, 5000);
-        const { timeout: bt } = db.prepare('PRAGMA busy_timeout').get();
-        assert.strictEqual(bt, 5000);
-      } finally {
-        db.close();
-      }
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('lets a second connection read while the first holds an open write transaction', () => {
-    const dir = makeDir('antifan-coredb-');
-    try {
-      const dbPath = path.join(dir, 'core.db');
-      const a = openCoreDb(dbPath);
-      try {
-        a.db.exec('CREATE TABLE t (v INTEGER)');
-        a.db.exec('BEGIN');
-        a.db.prepare('INSERT INTO t VALUES (?)').run(1);
-        const b = openCoreDb(dbPath);
-        try {
-          // WAL: the reader sees the last committed state without blocking.
-          const { n } = b.db.prepare('SELECT COUNT(*) AS n FROM t').get();
-          assert.strictEqual(n, 0);
-        } finally {
-          b.db.close();
-        }
-        a.db.exec('COMMIT');
-      } finally {
-        a.db.close();
-      }
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
+// The concurrent-access contract for the Core DB (WAL journal + busy_timeout) is owned
+// by the code that opens the store, and asserted there in
+// packages/super-core/src/core.test.ts. A second copy of the pragmas in the runner was
+// dead and could drift from the owner, so it is gone.

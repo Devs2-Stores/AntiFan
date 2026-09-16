@@ -34,11 +34,25 @@ const PROBE_KEY = process.env.MCP_HEALTH_PROBE_KEY || EXPECTED_HEALTH_KEY;
 // Statuses that would mean "healthy". An empty temp store must NOT report one.
 const HEALTHY_STATUS_RE = /^(OK|HEALTHY|PASS|PASSED|GREEN|GOOD|FINE)$/i;
 
+// Probe-owned state; declared before emit so every exit path can clean up.
+let tmpDir;
+let core;
+
+function cleanup() {
+  try { core?.close(); } catch { /* best-effort */ }
+  try { if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+}
+
 function emit(verdict, reason, evidence) {
+  cleanup();
   process.stdout.write(JSON.stringify({ verdict, reason, evidence }) + '\n');
   const code = { PASS: 0, FAIL: 1, NOT_IMPLEMENTED: 3, BLOCKED: 4 }[verdict];
   process.exit(code);
 }
+
+// Covers the paths emit does not reach: an uncaught throw or a signal exit
+// would otherwise leave the temp store behind.
+process.on('exit', cleanup);
 
 // --- prerequisite: super-core dist must be built ---------------------------
 let openCore;
@@ -52,10 +66,9 @@ try {
 }
 
 // --- temp store (never the production db) -----------------------------------
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-health-'));
+tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-health-'));
 const tempDbPath = path.join(tmpDir, 'core.db');
 let tempStats = null;
-let core;
 try {
   core = openCore(tempDbPath);
   tempStats = core.stats();
@@ -65,6 +78,7 @@ try {
   });
 } finally {
   try { core && core.close(); } catch {}
+  core = undefined;
 }
 
 // --- child process: require the real proxy, dump dispatch + invoke ----------

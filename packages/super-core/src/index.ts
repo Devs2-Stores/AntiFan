@@ -426,13 +426,16 @@ export class Core {
     const release = this.db.prepare('SELECT releaseId, createdAt FROM releases ORDER BY createdAt DESC LIMIT 1').get() as { releaseId?: string; createdAt?: string } | undefined;
     // Pack identity (R3): deterministic packId over (taskHash, platform,
     // sessionId). Same input in the same session returns the same packId and
-    // refreshes claimIdsJson in place — no row spam.
+    // refreshes claimIdsJson in place — no row spam. lastIssuedAt tracks the
+    // write so a re-issued pack reads as the task's most recent injection;
+    // createdAt stays the first-issue time.
     const taskHash = id(opts.task);
     const sessionId = opts.sessionId ?? '';
     const packId = `pack-${id(`${taskHash}|${opts.platform ?? ''}|${sessionId}`)}`;
-    this.db.prepare(`INSERT INTO packs(packId,task,platform,claimIdsJson,createdAt,taskHash,sessionId) VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(packId) DO UPDATE SET claimIdsJson=excluded.claimIdsJson`)
-      .run(packId, opts.task, opts.platform ?? null, JSON.stringify(claims.map((c) => c.claimId)), now(), taskHash, sessionId);
+    const issuedAt = now();
+    this.db.prepare(`INSERT INTO packs(packId,task,platform,claimIdsJson,createdAt,taskHash,sessionId,lastIssuedAt) VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(packId) DO UPDATE SET claimIdsJson=excluded.claimIdsJson, lastIssuedAt=excluded.lastIssuedAt`)
+      .run(packId, opts.task, opts.platform ?? null, JSON.stringify(claims.map((c) => c.claimId)), issuedAt, taskHash, sessionId, issuedAt);
     return {
       packId,
       task: opts.task,
@@ -1013,11 +1016,12 @@ export class Core {
     if (!opts?.task) throw new Error('reuseMetric requires a task');
     const foundRows = this.query({ text: opts.task, limit: opts.limit ?? 200 }) as Array<{ claimId: string }>;
     const foundIds = foundRows.map((r) => r.claimId).sort();
-    // `createdAt` is millisecond-resolution, so two packs written in the same
-    // millisecond would tie and make "the latest pack" arbitrary. rowid breaks the
-    // tie by real insert order.
+    // "Latest" means last issued, not first created: the dedupe upsert refreshes
+    // lastIssuedAt on every re-issue while createdAt stays put. COALESCE covers
+    // rows written before the column existed; rowid breaks same-millisecond
+    // ties by real insert order so the pick stays deterministic.
     const packRow = this.db
-      .prepare('SELECT packId, claimIdsJson FROM packs WHERE task = ? ORDER BY createdAt DESC, rowid DESC LIMIT 1')
+      .prepare('SELECT packId, claimIdsJson FROM packs WHERE task = ? ORDER BY COALESCE(lastIssuedAt, createdAt) DESC, rowid DESC LIMIT 1')
       .get(opts.task) as { packId: string; claimIdsJson: string } | undefined;
     const injectedIds = packRow ? (JSON.parse(packRow.claimIdsJson) as string[]).slice().sort() : [];
     const injectedFlag: Record<string, true> = {};

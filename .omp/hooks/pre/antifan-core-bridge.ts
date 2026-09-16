@@ -119,11 +119,21 @@ const MAX_CLAIMS_IN_MESSAGE = 15;
 const MAX_OUTPUT_CHARS = 16_000_000;
 
 /**
- * Actions that bind a decision to evidence. Mirrors the mutating set in
- * scripts/antifan-omp-mcp.cjs invokeCore() plus core.receipt_v2 — these must be
- * REFUSED when Core is unavailable, never silently downgraded to advisory.
+ * Actions that bind a decision to evidence — every mutating entry in the
+ * CORE_DISPATCH table of scripts/antifan-omp-mcp.cjs (the rows whose third
+ * element is `true`; invokeCore() refuses them with CORE_UNAVAILABLE when the
+ * store is down). These must be REFUSED by the bridge when Core is
+ * unavailable, never silently downgraded to advisory.
+ *
+ * Keys are canonicalCoreName() output: the advertised name with every `_` and
+ * `.` folded to `.` (core.record_experience_node → core.record.experience.node).
+ * The set is enumerated by hand because the compiled hook cannot require()
+ * the .cjs proxy without loading its ws/MCP-server machinery;
+ * test/unit/bridge-receipt-coverage.test.mjs derives the mutating set from
+ * CORE_DISPATCH itself and fails if this table drifts from it.
  */
 const RECEIPT_REQUIRED_CANONICAL: Record<string, true> = {
+	"core.recommend": true,
 	"core.receipt": true,
 	"core.receipt.v2": true,
 	"core.adjudicate": true,
@@ -132,10 +142,36 @@ const RECEIPT_REQUIRED_CANONICAL: Record<string, true> = {
 	"core.revoke": true,
 	"core.snapshot": true,
 	"core.rollback": true,
+	"core.record.experience.node": true,
+	"core.record.experience.edge": true,
+	"core.record.anti.pattern": true,
+	"core.record.workaround": true,
+	"core.record.fix.pattern": true,
+	"core.corpus.audit": true,
+	"core.check.phase.gate": true,
+	"core.resolve.conflict": true,
+	"core.record.regression": true,
+	"core.replay.regression": true,
+	"core.record.observation": true,
+	"core.record.principle": true,
+	"core.record.hidden.requirement": true,
+	"core.record.commercial": true,
+	"core.record.tool": true,
+	"core.record.archetype": true,
+	"core.record.platform.semantic": true,
+	"core.record.practice.parity": true,
+	"core.record.skill.version": true,
 };
 
-/** CLI subcommands of scripts/antifan-core.cjs that are receipt-required. */
+/**
+ * CLI subcommands of scripts/antifan-core.cjs that are receipt-required: the
+ * CLI spelling of every mutating CORE_DISPATCH entry (same source of truth
+ * and same drift guard as the canonical table above), plus `import` — a
+ * mutating command (importScout writes claims/cases) with no CORE_DISPATCH
+ * row, so it is listed here individually.
+ */
 const RECEIPT_REQUIRED_CLI_COMMANDS: Record<string, true> = {
+	recommend: true,
 	receipt: true,
 	"receipt-v2": true,
 	adjudicate: true,
@@ -144,6 +180,26 @@ const RECEIPT_REQUIRED_CLI_COMMANDS: Record<string, true> = {
 	revoke: true,
 	snapshot: true,
 	rollback: true,
+	"exp-node": true,
+	"exp-edge": true,
+	"anti-pattern": true,
+	workaround: true,
+	"fix-pattern": true,
+	audit: true,
+	gate: true,
+	"resolve-conflict": true,
+	regression: true,
+	replay: true,
+	observe: true,
+	principle: true,
+	"hidden-req": true,
+	commercial: true,
+	tool: true,
+	archetype: true,
+	"platform-semantic": true,
+	"practice-parity": true,
+	"skill-version": true,
+	"import": true,
 };
 
 // ---------------------------------------------------------------------------
