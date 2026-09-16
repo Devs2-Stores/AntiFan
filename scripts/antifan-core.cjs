@@ -6,7 +6,7 @@
 //   pack '{"task":"..."}'   context pack
 //   recommend '{"task":"..."}'
 //   receipt '{"task":"...","recommendation":"..."}'
-//   outcome '{"task":"...","outcome":"..."}'  case + PENDING candidate + observation
+//   outcome '{"task":"...","outcome":"..."}'
 //   adjudicate '{"candidateId":"...","decision":"PROMOTE","authority":"..."}'
 //   stats
 //   domain <name>
@@ -14,14 +14,11 @@
 //   revoke '{"path":"..."}'
 //   snapshot [note]
 //   rollback <releaseId>
-//   health                 aggregated stats+audit+decay+gates+uncertainty+status (Core Health UI)
-//   reuse-metric '{"task":"..."}'  found + injected + outcome-linked reuse for a task
+//   health                 aggregated stats+audit+decay+gates+uncertainty (Core Health UI)
 //   regressions            {replayEngineAvailable, rows} from the regressions table
 //   task-runs              {taskRunsTable, taskRuns, packs, cases}
 //   pack-detail <packId>   pack + its claims + receipts
 //   case-detail <caseId>   case + its candidates
-//   observe '{"source":"...","kind":"..."}'  raw observation producer
-//   replay <regressionId>  re-execute a recorded regression's checks
 
 const path = require('node:path');
 
@@ -68,25 +65,9 @@ async function main() {
     case 'uncertainty': out = core.classifyUncertainty(parse(arg)); break;
     case 'decay': out = core.decayCheck(parse(arg)); break;
     case 'audit': out = core.corpusAudit(); break;
-    case 'gate': {
-      // Read-only by default. This command doubles as the only way to inspect a single
-      // gate, and an inspection must not grow the store — the same rule `health` follows.
-      // An unannounced write into whatever store the working directory implies is how a
-      // probe appended rows to the live store, so the default is an evaluation and the
-      // caller is told what it did not persist. A real run opts in with {"record":true};
-      // the MCP surface keeps the recording default for its programmatic runs.
-      const gateArgs = parse(arg);
-      const record = gateArgs.record === true;
-      if (!record) {
-        console.error('note: gate evaluated read-only, nothing persisted — pass {"record":true} to record it');
-      }
-      out = core.checkPhaseGate(gateArgs.phase, gateArgs.gate, record ? {} : { record: false });
-      break;
-    }
+    case 'gate': out = core.checkPhaseGate(parse(arg).phase, parse(arg).gate); break;
     case 'resolve-conflict': out = core.resolveConflict(parse(arg)); break;
     case 'regression': out = core.recordRegression(parse(arg)); break;
-    case 'observe': out = core.recordObservation(parse(arg)); break;
-    case 'replay': out = core.replayRegression(arg); break;
     // Read-only list surfaces for the Core Health UI. The Core class exposes no
     // list methods for these tables, so the CLI reads them through the same
     // store handle — never a second authority, never a parallel DB.
@@ -104,9 +85,7 @@ async function main() {
       out = {
         taskRunsTable: hasTaskRuns,
         taskRuns: hasTaskRuns ? core.db.prepare('SELECT * FROM task_runs LIMIT ?').all(lim) : [],
-        // Ordered by when a pack was last issued, not when it was created: a reused pack is
-        // the recent one, which is also the order the reuse metric selects with.
-        packs: core.db.prepare('SELECT * FROM packs ORDER BY COALESCE(lastIssuedAt, createdAt) DESC, rowid DESC LIMIT ?').all(lim),
+        packs: core.db.prepare('SELECT * FROM packs ORDER BY createdAt DESC LIMIT ?').all(lim),
         cases: core.db.prepare('SELECT * FROM cases ORDER BY createdAt DESC LIMIT ?').all(lim),
       };
       break;
@@ -131,17 +110,22 @@ async function main() {
     }
     case 'health': {
       const staleDays = parse(arg).staleDays;
-      // Read-only and shared: the composition (stats, audit, decay, gates and the
-      // reason-coded status) lives in the store so the CLI and the MCP surface
-      // cannot report different health for the same database. Gate and audit
-      // evaluation is recorded nowhere on this path — the Core Health UI re-runs
-      // it on every open, and a read path must not grow the store. A real gate run
-      // records explicitly: the MCP surface does, and `gate` here requires
-      // {"record":true}.
-      out = core.health(staleDays ? { staleDays } : {});
+      out = {
+        stats: core.stats(),
+        audit: core.corpusAudit(),
+        decay: core.decayCheck(staleDays ? { staleDays } : undefined),
+        gates: {
+          coverage: core.checkPhaseGate('health-surface', 'coverage'),
+          evidence: core.checkPhaseGate('health-surface', 'evidence'),
+          conflict: core.checkPhaseGate('health-surface', 'conflict'),
+          temporal: core.checkPhaseGate('health-surface', 'temporal'),
+          promotion: core.checkPhaseGate('health-surface', 'promotion'),
+          regression: core.checkPhaseGate('health-surface', 'regression'),
+        },
+        uncertainty: core.classifyUncertainty({}),
+      };
       break;
     }
-    case 'reuse-metric': out = core.reuseMetric(parse(arg)); break;
     case 'principle': out = core.recordPrinciple(parse(arg)); break;
     case 'principles': out = core.principles(parse(arg)); break;
     case 'hidden-req': out = core.recordHiddenRequirement(parse(arg)); break;

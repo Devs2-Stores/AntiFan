@@ -2,19 +2,12 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 6;
 
 // Platforms recognized by the keyword-derivation backfill. A row's own text
 // (conflict subject, case task/context) may tag its platform ONLY when exactly
 // one known platform name appears — zero or ambiguous matches stay NULL.
 export const KNOWN_PLATFORMS = ['haravan', 'sapo', 'shopify', 'generic-liquid'] as const;
-
-// One UNION ALL branch per known platform: `SELECT '<p>' p WHERE <expr> LIKE '%<p>%'`.
-// The constant is the single source of truth — the backfill below derives its
-// keyword lists from it, so adding a platform here changes the SQL. Names are
-// compile-time literals, never request input, so interpolation is safe.
-const platformKeywordUnion = (matchExpr: string) =>
-  KNOWN_PLATFORMS.map((p, i) => `${i === 0 ? 'SELECT' : 'UNION ALL SELECT'} '${p}'${i === 0 ? ' p' : ''} WHERE ${matchExpr} LIKE '%${p}%'`).join('\n    ');
 
 // Idempotent scope backfill for conflicts/cases/decisions. Derivation order:
 //   1. conflicts.unitId  <- single unit resolvable via positionsJson skillIds
@@ -36,7 +29,10 @@ UPDATE conflicts SET platform = (
 ) WHERE platform IS NULL AND unitId IS NOT NULL;
 UPDATE conflicts SET platform = (
   SELECT MIN(p) FROM (
-    ${platformKeywordUnion('conflicts.subject')}
+    SELECT 'haravan' p WHERE conflicts.subject LIKE '%haravan%'
+    UNION ALL SELECT 'sapo' WHERE conflicts.subject LIKE '%sapo%'
+    UNION ALL SELECT 'shopify' WHERE conflicts.subject LIKE '%shopify%'
+    UNION ALL SELECT 'generic-liquid' WHERE conflicts.subject LIKE '%generic-liquid%'
   ) HAVING COUNT(*) = 1
 ) WHERE platform IS NULL AND subject IS NOT NULL;
 UPDATE cases SET platform = (
@@ -46,7 +42,10 @@ UPDATE cases SET platform = (
 ) WHERE platform IS NULL AND unitId IS NOT NULL;
 UPDATE cases SET platform = (
   SELECT MIN(p) FROM (
-    ${platformKeywordUnion("(cases.task || ' ' || COALESCE(cases.context,''))")}
+    SELECT 'haravan' p WHERE (cases.task || ' ' || COALESCE(cases.context,'')) LIKE '%haravan%'
+    UNION ALL SELECT 'sapo' WHERE (cases.task || ' ' || COALESCE(cases.context,'')) LIKE '%sapo%'
+    UNION ALL SELECT 'shopify' WHERE (cases.task || ' ' || COALESCE(cases.context,'')) LIKE '%shopify%'
+    UNION ALL SELECT 'generic-liquid' WHERE (cases.task || ' ' || COALESCE(cases.context,'')) LIKE '%generic-liquid%'
   ) HAVING COUNT(*) = 1
 ) WHERE platform IS NULL;
 UPDATE decisions SET platform = (
@@ -163,6 +162,15 @@ CREATE TABLE IF NOT EXISTS conflicts (
   platform TEXT,
   unitId TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_conflicts_platform ON conflicts(platform);
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  subject TEXT,
+  positionsJson TEXT,
+  state TEXT NOT NULL DEFAULT 'UNRESOLVED',
+  classification TEXT,
+  note TEXT
+);
 
 CREATE TABLE IF NOT EXISTS cases (
   caseId TEXT PRIMARY KEY,
@@ -172,6 +180,15 @@ CREATE TABLE IF NOT EXISTS cases (
   verificationRef TEXT,
   unitId TEXT,
   platform TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cases_platform ON cases(platform);
+  caseId TEXT PRIMARY KEY,
+  task TEXT NOT NULL,
+  context TEXT,
+  outcome TEXT,
+  verificationRef TEXT,
+  unitId TEXT,
   createdAt TEXT NOT NULL
 );
 
@@ -209,6 +226,21 @@ CREATE TABLE IF NOT EXISTS decisions (
   outcome TEXT,
   confidence TEXT,
   platform TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_unit ON decisions(unitId);
+CREATE INDEX IF NOT EXISTS idx_decisions_platform ON decisions(platform);
+  decisionId TEXT PRIMARY KEY,
+  unitId TEXT NOT NULL,
+  statement TEXT NOT NULL,
+  context TEXT,
+  alternatives TEXT,
+  chosen TEXT,
+  evidenceJson TEXT,
+  problem TEXT,
+  tradeoffs TEXT,
+  outcome TEXT,
+  confidence TEXT,
   createdAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_decisions_unit ON decisions(unitId);
@@ -261,8 +293,14 @@ CREATE TABLE IF NOT EXISTS packs (
   claimIdsJson TEXT NOT NULL,
   createdAt TEXT NOT NULL,
   taskHash TEXT,
-  sessionId TEXT,
-  lastIssuedAt TEXT
+  sessionId TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_packs_taskhash ON packs(taskHash);
+  packId TEXT PRIMARY KEY,
+  task TEXT NOT NULL,
+  platform TEXT,
+  claimIdsJson TEXT NOT NULL,
+  createdAt TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS observations (
@@ -340,6 +378,14 @@ CREATE TABLE IF NOT EXISTS fix_patterns (
   platform TEXT,
   createdAt TEXT NOT NULL
 );
+  fixId TEXT PRIMARY KEY,
+  before TEXT,
+  after TEXT,
+  why TEXT,
+  evidence TEXT,
+  lesson TEXT,
+  createdAt TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS corpus_audit (
   auditId TEXT PRIMARY KEY,
@@ -373,10 +419,7 @@ CREATE TABLE IF NOT EXISTS regressions (
   affectedRulesJson TEXT,
   affectedCasesJson TEXT,
   affectedRecommendationsJson TEXT,
-  checksJson TEXT,
   replayResult TEXT,
-  replayedAt TEXT,
-  replayDetailJson TEXT,
   createdAt TEXT NOT NULL
 );
 
@@ -468,16 +511,6 @@ CREATE TABLE IF NOT EXISTS skill_versions (
   createdAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_skill_versions ON skill_versions(skillId);
-`;
-
-// Indexes on v6 columns. These CANNOT live in DDL: DDL runs before migrations,
-// and on a pre-v6 database the columns do not exist yet. Executed after the
-// migration loop; idempotent on fresh and migrated databases alike.
-export const POST_SCHEMA_SQL = `
-CREATE INDEX IF NOT EXISTS idx_conflicts_platform ON conflicts(platform);
-CREATE INDEX IF NOT EXISTS idx_cases_platform ON cases(platform);
-CREATE INDEX IF NOT EXISTS idx_decisions_platform ON decisions(platform);
-CREATE INDEX IF NOT EXISTS idx_packs_taskhash ON packs(taskHash);
 `;
 
 export const MIGRATIONS: Array<{ from: number; to: number; sql: string }> = [
@@ -594,6 +627,7 @@ UPDATE anti_patterns SET status = 'OBSERVED' WHERE status = 'ACTIVE';
 UPDATE principles SET status = 'OBSERVED' WHERE status = 'ACTIVE';
 UPDATE tool_intel SET status = 'OBSERVED' WHERE status = 'ACTIVE';`,
   },
+];
   {
     from: 5, to: 6,
     sql: `ALTER TABLE conflicts ADD COLUMN platform TEXT;
@@ -609,31 +643,3 @@ CREATE INDEX IF NOT EXISTS idx_decisions_platform ON decisions(platform);
 CREATE INDEX IF NOT EXISTS idx_packs_taskhash ON packs(taskHash);
 ${PLATFORM_BACKFILL_SQL}`,
   },
-  {
-    from: 6, to: 7,
-    sql: `ALTER TABLE regressions ADD COLUMN checksJson TEXT;
-ALTER TABLE regressions ADD COLUMN replayedAt TEXT;
-ALTER TABLE regressions ADD COLUMN replayDetailJson TEXT;`,
-  },
-  {
-    // Quarantine asserted replay results. Before 6->7 a caller could hand
-    // recordRegression a replayResult, so a row can claim PASS without ever
-    // having been re-executed. replayResult now belongs to replayRegression()
-    // alone, and the regression gate requires a replayedAt to pass — so an
-    // asserted value is not merely ignored, it is withdrawn here: the row keeps
-    // its definition and reads as "recorded but never replayed" until a real
-    // replay earns a verdict.
-    from: 7, to: 8,
-    sql: `UPDATE regressions SET replayResult = NULL WHERE replayedAt IS NULL AND replayResult IS NOT NULL;`,
-  },
-  {
-    // Track when a pack was last issued, not just created. contextPack's dedupe
-    // upsert refreshes claimIdsJson in place without touching createdAt, so a
-    // re-issued older pack looked older than a pack merely created later.
-    // lastIssuedAt is the write time the upsert maintains; the backfill seeds it
-    // from createdAt so existing rows keep their prior order.
-    from: 8, to: 9,
-    sql: `ALTER TABLE packs ADD COLUMN lastIssuedAt TEXT;
-UPDATE packs SET lastIssuedAt = createdAt WHERE lastIssuedAt IS NULL;`,
-  },
-];

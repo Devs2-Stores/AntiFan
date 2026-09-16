@@ -33,20 +33,6 @@ describe('IssueRegister taxonomy extension', () => {
     assert.equal(classifyIssue({ toolName: 'mystery' }), 'uncategorized');
   });
 
-  // The prefix map is order-sensitive. With only the 'anti.' catch-all, a theme
-  // or verification failure under the anti namespace is grouped as 'browser', so
-  // root-cause analysis is pointed at the wrong surface.
-  test('anti.* subdomains classify by their own surface, not the anti catch-all', () => {
-    assert.equal(classifyIssue({ toolName: 'anti.theme.export_clean' }), 'theme');
-    assert.equal(classifyIssue({ toolName: 'anti.theme.style_override' }), 'theme');
-    assert.equal(classifyIssue({ toolName: 'anti.verification.record_claim' }), 'verification');
-    assert.equal(classifyIssue({ toolName: 'anti.verification.verify_claim' }), 'verification');
-    // The catch-all still covers the browser-shaped anti tools.
-    assert.equal(classifyIssue({ toolName: 'anti.inspect.dom' }), 'browser');
-    assert.equal(classifyIssue({ toolName: 'anti.browser.navigate' }), 'browser');
-    assert.equal(classifyIssue({ toolName: 'anti.agent.cursor.click' }), 'browser');
-  });
-
   test('record accepts new taxonomy fields and list() filters by them', () => {
     const reg = IssueRegister.getInstance();
     reg.record({ toolName: 'bridge.hook', errorMessage: 'core down', errorCode: 'BRIDGE_CONTEXT_FAILED', severity: 'P1', reasonCode: 'BRIDGE_CONTEXT_FAILED', affected: ['session-1'] });

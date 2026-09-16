@@ -64,15 +64,8 @@ const ISSUE_CLASS_BY_CODE: Record<string, IssueClass> = {
   DURABILITY_FAILED: 'core-store',
 };
 
-// Order is significant: the first matching prefix wins, so a more specific
-// prefix must be declared before its parent. Without the `anti.theme.` and
-// `anti.verification.` entries ahead of the `anti.` catch-all, every one of those
-// tools' failures is grouped as 'browser' and root-cause analysis is pointed at
-// the wrong surface.
 const ISSUE_CLASS_BY_TOOL_PREFIX: Record<string, IssueClass> = {
   'core.': 'core-store',
-  'anti.theme.': 'theme',
-  'anti.verification.': 'verification',
   'anti.': 'browser',
   'browser': 'browser',
   'workflow': 'workflow',
