@@ -165,6 +165,19 @@ export class TabAutomationHost {
   private readonly ctx: TabAutomationContext;
   public agentWorkingTimers = new Map<string, NodeJS.Timeout>();
   public agentWorkingRefs = new Map<string, number>();
+  private noAutoDismissTabs = new Set<string>();
+
+  public setNoAutoDismiss(tabId: string, value: boolean): void {
+    if (value) {
+      this.noAutoDismissTabs.add(tabId);
+    } else {
+      this.noAutoDismissTabs.delete(tabId);
+    }
+  }
+
+  public isNoAutoDismiss(tabId: string): boolean {
+    return this.noAutoDismissTabs.has(tabId);
+  }
 
   constructor(ctx: TabAutomationContext) {
     this.ctx = ctx;
@@ -487,16 +500,38 @@ export class TabAutomationHost {
     }
   }
 
+  /**
+   * A gesture the caller asked to be trusted, delivered synthetically instead, is a silent
+   * trust regression: the caller sees a successful action and never learns that the event it
+   * produced is readable by the page as non-user input. Name the downgrade where the decision
+   * to fall back is made, so it is never silent.
+   *
+   * Four call sites (ref and selector dispatch, click and hover) depend on this message format.
+   */
+  private warnTrustedDowngrade(res: { reason?: string }, action: string): void {
+    console.warn(`[tab-automation-host] trusted ${action} downgraded to synthetic: ${res.reason || 'no reason reported'}`);
+  }
+
   private async executeTrustedClick(
     wc: Electron.WebContents,
     focusScript?: string,
     x?: number,
-    y?: number
+    y?: number,
+    presetId?: string
   ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     let clickX = x;
     let clickY = y;
     let rect: { x: number; y: number; width: number; height: number; centerX?: number; centerY?: number } | undefined = undefined;
     let touchCapable = false;
+    const isMobilePreset = Boolean(
+      presetId && (
+        presetId.startsWith('phone-') ||
+        presetId.startsWith('iphone') ||
+        presetId.startsWith('galaxy-') ||
+        presetId.startsWith('tablet-') ||
+        presetId.includes('mobile')
+      )
+    );
 
     if (focusScript) {
       const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
@@ -516,7 +551,7 @@ export class TabAutomationHost {
         return { success: false, reason: res.error || 'Failed to resolve element for trusted click', fallbackNeeded: true };
       }
       rect = res.rect;
-      touchCapable = res.metadata?.touchCapable === true;
+      touchCapable = res.metadata?.touchCapable === true || isMobilePreset;
       // A resolved target is clicked where the pre-flight verified it.
       // `rect.centerX/Y` is that point — the gate replaces the geometric center
       // when occlusion moved it — so honouring a caller-supplied offset instead
@@ -541,8 +576,8 @@ export class TabAutomationHost {
       try {
         wc.debugger.attach('1.3');
       } catch (attachErr) {
-        console.warn(`[tab-automation-host] wc.debugger busy, using synthetic click fallback: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}`);
-        return { success: false, fallbackNeeded: true, reason: 'Debugger busy' };
+        const detail = attachErr instanceof Error ? attachErr.message : String(attachErr);
+        return { success: false, fallbackNeeded: true, reason: `Debugger busy: ${detail}` };
       }
     }
     let focusEmulationEnabled = false;
@@ -566,6 +601,10 @@ export class TabAutomationHost {
         } catch {}
       })()`).catch(() => {});
 
+      // Touch-capable viewports are handled by the page's touch emulation: the trusted path
+      // dispatches exactly one mouseMoved -> mousePressed -> mouseReleased and reports
+      // `inputType: 'touch'`. A second press/release pair here would double-fire the click and,
+      // on a rejected mouseReleased, cross tiers after the press had already landed.
       await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
         type: 'mouseMoved',
         x: clickX,
@@ -684,8 +723,8 @@ export class TabAutomationHost {
       try {
         wc.debugger.attach('1.3');
       } catch (attachErr) {
-        console.warn(`[tab-automation-host] wc.debugger busy, using synthetic hover fallback: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}`);
-        return { success: false, fallbackNeeded: true, reason: 'Debugger busy' };
+        const detail = attachErr instanceof Error ? attachErr.message : String(attachErr);
+        return { success: false, fallbackNeeded: true, reason: `Debugger busy: ${detail}` };
       }
     }
 
@@ -751,7 +790,8 @@ export class TabAutomationHost {
       label?: string;
       tabId?: string;
       paneId?: SplitPaneId;
-      steps?: Array<Record<string, unknown>>;
+      noAutoDismiss?: boolean;
+      presetId?: string;
       speed?: 'fast' | 'natural' | 'slow';
       smoothScroll?: boolean;
     }
@@ -808,10 +848,12 @@ export class TabAutomationHost {
                 ref: refToken,
                 descriptor,
                 force: params.force,
+                noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
+                presetId: params.presetId,
                 documentUrl: curUrl,
                 nonce: descriptor.nonce,
               });
-              const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y);
+              const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y, params.presetId);
               if (trustedRes.success) {
                 if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
                   return { success: false, reason: 'Document navigated during action execution' };
@@ -821,6 +863,7 @@ export class TabAutomationHost {
               if (!trustedRes.fallbackNeeded) {
                 return trustedRes;
               }
+              this.warnTrustedDowngrade(trustedRes, action);
             }
 
             if (params.trusted !== false && action === 'hover') {
@@ -842,6 +885,7 @@ export class TabAutomationHost {
               if (!trustedRes.fallbackNeeded) {
                 return trustedRes;
               }
+              this.warnTrustedDowngrade(trustedRes, action);
             }
             if (params.trusted && action === 'type' && typeof params.text === 'string') {
               const focusScript = buildIsolatedExecutorScript({
@@ -926,7 +970,7 @@ export class TabAutomationHost {
             wc.executeJavaScript(`(() => {
               try {
                 if (typeof window.__antifanAgentScroll === 'function') {
-                  window.__antifanAgentScroll(${params.deltaY ?? 400}, ${JSON.stringify(params.selector || '')});
+                  window.__antifanAgentScroll(${params.deltaY ?? params.y ?? 400}, ${JSON.stringify(params.selector || '')});
                 }
               } catch {}
             })()`).catch(() => {});
@@ -947,11 +991,13 @@ export class TabAutomationHost {
               x: params.x,
               y: params.y,
               force: params.force,
+              noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
+              presetId: params.presetId,
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             }) : undefined;
             const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
-            const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y);
+            const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y, params.presetId);
             if (trustedRes.success) {
               if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
                 return { success: false, reason: 'Document navigated during action execution' };
@@ -961,6 +1007,7 @@ export class TabAutomationHost {
             if (!trustedRes.fallbackNeeded) {
               return trustedRes;
             }
+            this.warnTrustedDowngrade(trustedRes, action);
           }
 
           if (params.trusted !== false && action === 'hover') {
@@ -970,6 +1017,8 @@ export class TabAutomationHost {
               x: params.x,
               y: params.y,
               force: params.force,
+              noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
+              presetId: params.presetId,
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             }) : undefined;
@@ -984,6 +1033,7 @@ export class TabAutomationHost {
             if (!trustedRes.fallbackNeeded) {
               return trustedRes;
             }
+            this.warnTrustedDowngrade(trustedRes, action);
           }
           if (params.trusted && action === 'type' && typeof params.text === 'string') {
             const focusScript = buildIsolatedExecutorScript({
@@ -993,6 +1043,8 @@ export class TabAutomationHost {
               y: params.y,
               clear: params.clear,
               force: params.force,
+              noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
+              presetId: params.presetId,
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             });
@@ -1016,6 +1068,8 @@ export class TabAutomationHost {
             clear: params.clear,
             force: params.force,
             deltaY: params.deltaY,
+            noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
+            presetId: params.presetId,
             documentUrl: wc.getURL(),
             nonce: generateCollectionNonce(),
           });

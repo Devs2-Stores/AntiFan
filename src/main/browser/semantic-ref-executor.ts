@@ -510,28 +510,42 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         // moving button stable. A running infinite animation can never settle,
         // so it relaxes the tolerance to 4px (harmonic oscillation of a pulse
         // badge) instead of spending the whole budget waiting for motion that
-        // never stops. The budget is hard-bounded to 5 rAF frames (~83ms).
+        // never stops. The budget is hard-bounded to 5 rAF frames (~83ms), and the
+        // loop exits after two consecutive drift-free frames, so a static element
+        // pays two frames. Asset/font readiness is not awaited here — the composed
+        // settle barrier for visual parity lives in the capture path
+        // (verification/capture-settle.ts), where a comparison actually needs it;
+        // every agent action would otherwise pay that budget twice.
         if (!req.force) {
           const infiniteMotion = hasRunningInfiniteAnimation(targetElement);
           const tolerance = infiniteMotion ? 4 : 2;
           const firstRect = targetElement.getBoundingClientRect();
           let prevX = firstRect.x + firstRect.width / 2;
           let prevY = firstRect.y + firstRect.height / 2;
+          let consecutiveZeroDelta = 0;
           for (let frame = 0; frame < 5; frame++) {
             const frameGate = Promise.withResolvers();
-            let settled = false;
-            const step = () => {
-              if (!settled) {
-                settled = true;
-                frameGate.resolve(undefined);
-              }
-            };
+            let rafFired = false;
+            // The gate resolves on whichever comes first: the compositor's frame, or a 50ms floor
+            // that stops a throttled surface from stalling the action (a 20fps minimum frame rate).
+            // Which one won is the signal below — a timer-sourced gate means the compositor produced
+            // no frame at all, so no later frame can describe motion either.
             if (typeof requestAnimationFrame === 'function') {
-              requestAnimationFrame(step);
+              requestAnimationFrame(() => {
+                rafFired = true;
+                frameGate.resolve(undefined);
+              });
             }
-            setTimeout(step, 50);
+            const frameTimer = setTimeout(() => frameGate.resolve(undefined), 50);
             await frameGate.promise;
+            clearTimeout(frameTimer);
             if (!targetElement.isConnected) break;
+            if (!rafFired) {
+              // Surface is throttled (backgrounded or occluded): frame-based drift cannot be
+              // observed here, and paying the floor once per frame would cost more than the whole
+              // actionability budget. One timer-paced measurement is all this context can produce.
+              break;
+            }
             const currentRect = targetElement.getBoundingClientRect();
             const centerX = currentRect.x + currentRect.width / 2;
             const centerY = currentRect.y + currentRect.height / 2;
@@ -539,7 +553,12 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
             prevX = centerX;
             prevY = centerY;
             if (delta <= tolerance) {
-              break;
+              consecutiveZeroDelta++;
+              if (consecutiveZeroDelta >= 2) {
+                break;
+              }
+            } else {
+              consecutiveZeroDelta = 0;
             }
           }
         }
@@ -619,6 +638,146 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
             if (!obstruction) obstruction = { receiver: receiver, point: candidate };
           }
           if (obstruction) {
+            // 1. Containment check FIRST on TARGET_OBSCURED:
+            // If coveringNode contains targetElement (or relation === 'ancestor'),
+            // targetElement is inside the overlay/modal/dialog itself.
+            // Skip dismissal entirely and dispatch into the overlay.
+            const isContained = obstruction.receiver.relation === 'ancestor' ||
+              composedContains(obstruction.receiver.node, targetElement) ||
+              (obstruction.receiver.node.contains && obstruction.receiver.node.contains(targetElement));
+
+            if (isContained) {
+              deliveredAt.x = obstruction.point.x;
+              deliveredAt.y = obstruction.point.y;
+              obstruction = null;
+            }
+          }
+
+          if (obstruction) {
+            // 2. Raycast auto-dismiss (target NOT contained):
+            const noAutoDismiss = Boolean(req.noAutoDismiss || (typeof window !== 'undefined' && window.__antifanNoAutoDismiss));
+            if (!noAutoDismiss) {
+              const overlaySelector = '[aria-modal="true"], .modal, .popup, .cookie-banner, [class*="overlay"], [class*="backdrop"]';
+              const covering = obstruction.receiver.node;
+              let overlayEl = null;
+              if (covering && covering.nodeType === 1) {
+                if (covering.matches && covering.matches(overlaySelector)) {
+                  overlayEl = covering;
+                } else if (covering.closest) {
+                  overlayEl = covering.closest(overlaySelector);
+                }
+              }
+
+              if (overlayEl) {
+                // Cap 2 attempts
+                for (let attempt = 0; attempt < 2; attempt++) {
+                  let mutationCount = 0;
+                  let observer = null;
+                  if (typeof MutationObserver === 'function') {
+                    try {
+                      observer = new MutationObserver((mutations) => {
+                        mutationCount += mutations.length;
+                      });
+                      observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+                    } catch {}
+                  }
+
+                  let dismissControl = null;
+                  const dismissSelectors = [
+                    '[aria-label="Close" i]',
+                    '[aria-label="close" i]',
+                    '.modal-close',
+                    '.close-btn',
+                    'button:has(.fa-times)',
+                    '[data-dismiss="modal"]',
+                    '.close'
+                  ];
+                  for (const sel of dismissSelectors) {
+                    try {
+                      dismissControl = overlayEl.querySelector(sel);
+                      if (dismissControl) break;
+                    } catch {}
+                  }
+
+                  if (dismissControl) {
+                    try {
+                      dismissControl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+                      dismissControl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+                      dismissControl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                      if (typeof dismissControl.click === 'function') dismissControl.click();
+                    } catch {}
+                  } else {
+                    const activeEl = document.activeElement;
+                    const isEditableFocused = activeEl && (
+                      activeEl.tagName === 'INPUT' ||
+                      activeEl.tagName === 'TEXTAREA' ||
+                      activeEl.isContentEditable ||
+                      (activeEl.getAttribute && activeEl.getAttribute('contenteditable') === 'true')
+                    );
+                    if (!isEditableFocused) {
+                      try {
+                        const escEv = new KeyboardEvent('keydown', {
+                          key: 'Escape',
+                          code: 'Escape',
+                          keyCode: 27,
+                          which: 27,
+                          bubbles: true,
+                          cancelable: true,
+                          view: window
+                        });
+                        document.dispatchEvent(escEv);
+                        window.dispatchEvent(escEv);
+                      } catch {}
+                    }
+                  }
+
+                  await new Promise((r) => setTimeout(r, 150));
+
+                  if (observer) {
+                    try {
+                      observer.disconnect();
+                      // >5 DOM mutations/sec circuit breaker (150ms window with >= 5 mutations)
+                      if (mutationCount >= 5) {
+                        if (typeof window !== 'undefined') {
+                          window.__antifanNoAutoDismiss = true;
+                        }
+                      }
+                    } catch {}
+                  }
+
+                  let reObstructed = false;
+                  for (const candidate of samplePoints(computedRect)) {
+                    const receiver = resolveInputReceiver(candidate.x, candidate.y);
+                    if (!receiver || receiver.relation === 'ancestor' || composedContains(receiver.node, targetElement)) {
+                      deliveredAt.x = candidate.x;
+                      deliveredAt.y = candidate.y;
+                      obstruction = null;
+                      reObstructed = false;
+                      break;
+                    }
+                    reObstructed = true;
+                    obstruction = { receiver, point: candidate };
+                  }
+                  if (!reObstructed) {
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          if (obstruction) {
+            // 3. Deep-piercing dispatch for type + non-dismissible:
+            // focus() + native value setter + beforeinput/input/change
+            // Programmatic typing never required pointer traversal.
+            if (req.action === 'type') {
+              deliveredAt.x = computedRect.centerX;
+              deliveredAt.y = computedRect.centerY;
+              obstruction = null;
+            }
+          }
+
+          if (obstruction) {
             let receiverText = '';
             try {
               receiverText = String(obstruction.receiver.node.textContent || '').trim().slice(0, 80);
@@ -648,20 +807,178 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
 
       // 6. Synchronous DOM event dispatch
       if (req.action === 'click') {
-        if (targetElement) {
-          if (typeof targetElement.focus === 'function') {
-            targetElement.focus();
+        const isMobilePreset = Boolean(
+          req.presetId && (
+            req.presetId.startsWith('phone-') ||
+            req.presetId.startsWith('iphone') ||
+            req.presetId.startsWith('galaxy-') ||
+            req.presetId.startsWith('tablet-') ||
+            req.presetId.includes('mobile')
+          )
+        ) || (typeof window !== 'undefined' && window.innerWidth <= 768) ||
+        (typeof navigator === 'object' && Number(navigator.maxTouchPoints || 0) > 0);
+
+        function dispatchTouchSequence(target, cx, cy, elRect) {
+          const width = elRect && typeof elRect.width === 'number' ? elRect.width : 0;
+          const height = elRect && typeof elRect.height === 'number' ? elRect.height : 0;
+          const dilatedWidth = Math.max(width, 44);
+          const dilatedHeight = Math.max(height, 44);
+          let prevented = false;
+
+          if (typeof target.focus === 'function') {
+            try { target.focus(); } catch {}
           }
-          targetElement.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-          targetElement.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-          targetElement.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+
+          // 1. pointerover
+          try {
+            target.dispatchEvent(new PointerEvent('pointerover', {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: cx,
+              clientY: cy,
+              pointerId: 1,
+              pointerType: 'touch',
+              isPrimary: true,
+              width: dilatedWidth,
+              height: dilatedHeight,
+            }));
+          } catch {}
+
+          // 2. pointerenter
+          try {
+            target.dispatchEvent(new PointerEvent('pointerenter', {
+              bubbles: false,
+              cancelable: false,
+              view: window,
+              clientX: cx,
+              clientY: cy,
+              pointerId: 1,
+              pointerType: 'touch',
+              isPrimary: true,
+              width: dilatedWidth,
+              height: dilatedHeight,
+            }));
+          } catch {}
+
+          // 3. pointerdown(touch)
+          try {
+            const pDown = new PointerEvent('pointerdown', {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: cx,
+              clientY: cy,
+              pointerId: 1,
+              pointerType: 'touch',
+              isPrimary: true,
+              buttons: 1,
+              width: dilatedWidth,
+              height: dilatedHeight,
+            });
+            if (!target.dispatchEvent(pDown)) prevented = true;
+          } catch {}
+
+          // 4. touchstart
+          let touchObj = null;
+          if (typeof Touch === 'function') {
+            try {
+              touchObj = new Touch({
+                identifier: 1,
+                target: target,
+                clientX: cx,
+                clientY: cy,
+                pageX: cx + (window.scrollX || 0),
+                pageY: cy + (window.scrollY || 0),
+                radiusX: dilatedWidth / 2,
+                radiusY: dilatedHeight / 2,
+              });
+            } catch {}
+          }
+
+          if (typeof TouchEvent === 'function') {
+            try {
+              const tStart = new TouchEvent('touchstart', {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                touches: touchObj ? [touchObj] : [],
+                targetTouches: touchObj ? [touchObj] : [],
+                changedTouches: touchObj ? [touchObj] : [],
+              });
+              if (!target.dispatchEvent(tStart)) prevented = true;
+            } catch {}
+          }
+
+          // 5. touchend
+          if (typeof TouchEvent === 'function') {
+            try {
+              const tEnd = new TouchEvent('touchend', {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                touches: [],
+                targetTouches: [],
+                changedTouches: touchObj ? [touchObj] : [],
+              });
+              if (!target.dispatchEvent(tEnd)) prevented = true;
+            } catch {}
+          }
+
+          // 6. pointerup
+          try {
+            const pUp = new PointerEvent('pointerup', {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: cx,
+              clientY: cy,
+              pointerId: 1,
+              pointerType: 'touch',
+              isPrimary: true,
+              buttons: 0,
+              width: dilatedWidth,
+              height: dilatedHeight,
+            });
+            if (!target.dispatchEvent(pUp)) prevented = true;
+          } catch {}
+
+          // 7. click (check defaultPrevented before click)
+          if (!prevented) {
+            try {
+              target.dispatchEvent(new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: cx,
+                clientY: cy,
+              }));
+            } catch {}
+          }
+        }
+
+        if (targetElement) {
+          if (isMobilePreset) {
+            dispatchTouchSequence(targetElement, computedRect.centerX, computedRect.centerY, computedRect);
+          } else {
+            if (typeof targetElement.focus === 'function') {
+              targetElement.focus();
+            }
+            targetElement.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+            targetElement.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+            targetElement.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          }
           return { ok: true, executed: true, executionTier: 'isolated_synthetic', rect: computedRect };
         } else if (typeof req.x === 'number' && typeof req.y === 'number') {
           const elAtPoint = document.elementFromPoint ? document.elementFromPoint(req.x, req.y) : null;
           if (elAtPoint) {
-            elAtPoint.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: req.x, clientY: req.y, view: window }));
-            elAtPoint.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: req.x, clientY: req.y, view: window }));
-            elAtPoint.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: req.x, clientY: req.y, view: window }));
+            if (isMobilePreset) {
+              dispatchTouchSequence(elAtPoint, req.x, req.y, { width: 0, height: 0 });
+            } else {
+              elAtPoint.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: req.x, clientY: req.y, view: window }));
+              elAtPoint.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: req.x, clientY: req.y, view: window }));
+              elAtPoint.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: req.x, clientY: req.y, view: window }));
+            }
           }
           return { ok: true, executed: true, executionTier: 'isolated_synthetic' };
         }

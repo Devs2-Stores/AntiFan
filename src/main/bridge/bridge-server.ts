@@ -126,9 +126,11 @@ export function isAuthorizedCompanionOrigin(rawOrigin: string): boolean {
 // mark routes events through a per-client FIFO (consecutive terminal-data frames
 // coalesce losslessly: same bytes, same order) instead of unbounded ws.send buffering.
 // The heartbeat interval detects dead peers so they cannot accumulate in `clients`.
-const BRIDGE_SOFT_HIGH_WATER = 8 * 1024 * 1024; // bytes buffered per client before coalescing engages
-const BRIDGE_QUEUE_HARD_CAP = 32 * 1024 * 1024; // per-client FIFO cap; a client that cannot drain past it is terminated
-const BRIDGE_DRAIN_INTERVAL_MS = 50; // congestion pump cadence
+export const BRIDGE_SOFT_HIGH_WATER = 8 * 1024 * 1024; // bytes buffered per client before coalescing engages
+export const BRIDGE_QUEUE_HARD_CAP = 32 * 1024 * 1024; // per-client FIFO cap; a client that cannot drain past it is terminated
+export const BRIDGE_DRAIN_INTERVAL_MS = 50; // congestion pump cadence
+export const BRIDGE_COALESCE_MAX_PARTS = 64; // maximum chunks to coalesce before sealing frame
+export const BRIDGE_COALESCE_MAX_BYTES = 1024 * 1024; // 1MB maximum payload before sealing frame
 // A coalesced terminal:data frame is serialized as
 //   {"event":"antifan:terminal:data","data":{"sessionId":<sid>,"data":<chunks>,"seq":<n>}}
 // Its exact byte size is maintained incrementally instead of by re-serializing the merged payload on
@@ -151,30 +153,36 @@ function escapedJsonStringBodyBytes(value: string): number {
   return Buffer.byteLength(JSON.stringify(value), 'utf8') - 2;
 }
 
-interface PendingOutboundFrame {
-  /** serialized frame for non-coalesced events; unused for terminal:data frames (serialized lazily at flush) */
+export interface PendingOutboundFrame {
+  /** serialized frame text for non-coalesced events, or sealed JSON text */
   raw: string;
+  /** pre-serialized Buffer frame, ready for ws.send with zero serialization on drain */
+  frame: Buffer;
   /** exact serialized byte size this entry contributes to queuedBytes */
   bytes: number;
-  /** non-null => terminal:data frame; consecutive frames for the same session merge */
+  /** non-null => terminal:data frame; consecutive frames for the same session merge until sealed */
   coalesceKey: string | null;
   sessionId?: string;
-  /** unjoined data chunks; joined and serialized once at flush so merging stays O(1) per chunk */
+  /** unjoined data chunks; joined and serialized once upon sealing */
   dataParts?: string[];
   /** escaped byte length of the sessionId JSON field, precomputed once */
   sessionIdJsonBytes?: number;
   /** running sum of the escaped byte lengths of `dataParts` (excludes the surrounding quotes) */
   escapedDataBytes?: number;
   seq?: number;
+  /** whether this frame is sealed into an immutable Buffer */
+  sealed?: boolean;
   /** merged payload text; joins the pending chunks on demand so merging never concatenates */
   readonly data?: string;
 }
 
-interface BridgeCongestionState {
+export interface BridgeCongestionState {
   queue: PendingOutboundFrame[];
   /** index of the first unsent frame; replaces queue.shift() so dequeue is O(1) */
   head: number;
   queuedBytes: number;
+  droppedFrames: number;
+  droppedBytes: number;
 }
 
 type HeartbeatWebSocket = WebSocket & { isAlive?: boolean };
@@ -2809,13 +2817,54 @@ export class BridgeServer {
     );
   }
 
-  private getCongestionState(ws: WebSocket): BridgeCongestionState {
+  public getCongestionState(ws: WebSocket): BridgeCongestionState {
     let state = this.clientCongestion.get(ws);
     if (!state) {
-      state = { queue: [], head: 0, queuedBytes: 0 };
+      state = { queue: [], head: 0, queuedBytes: 0, droppedFrames: 0, droppedBytes: 0 };
       this.clientCongestion.set(ws, state);
     }
     return state;
+  }
+
+  private sealTerminalFrame(frame: PendingOutboundFrame): void {
+    if (frame.sealed) return;
+    const raw = JSON.stringify({
+      event: 'antifan:terminal:data',
+      data: {
+        sessionId: frame.sessionId,
+        data: frame.dataParts ? frame.dataParts.join('') : '',
+        ...(typeof frame.seq === 'number' ? { seq: frame.seq } : {}),
+      },
+    });
+    frame.frame = Buffer.from(raw, 'utf8');
+    frame.bytes = frame.frame.byteLength;
+    frame.raw = raw;
+    frame.sealed = true;
+    frame.coalesceKey = null;
+  }
+
+  private enforceQueueHardCap(ws: WebSocket, state: BridgeCongestionState): void {
+    if (state.queuedBytes <= BRIDGE_QUEUE_HARD_CAP) return;
+
+    // Whole-frame tail-drop: drop oldest complete frames from head of queue.
+    // Drop whole frames only — never slice across frame boundaries.
+    while (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP && state.head < state.queue.length - 1) {
+      const dropped = state.queue[state.head]!;
+      state.head += 1;
+      state.queuedBytes = Math.max(0, state.queuedBytes - dropped.bytes);
+      state.droppedFrames += 1;
+      state.droppedBytes += dropped.bytes;
+    }
+
+    if (state.head > 0 && state.head * 2 >= state.queue.length) {
+      state.queue = state.queue.slice(state.head);
+      state.head = 0;
+    }
+
+    // Keep dropSlowClient as the final escalation when a single frame or unavoidable growth exceeds cap.
+    if (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP) {
+      this.dropSlowClient(ws);
+    }
   }
 
   private ensureHeartbeat(): void {
@@ -2846,7 +2895,7 @@ export class BridgeServer {
    * past the cap is terminated — no unbounded buffering, no silent loss (the
    * renderer reconnects and re-syncs terminal state via snapshot).
    */
-  private sendEventFrame(
+  public sendEventFrame(
     ws: WebSocket,
     event: string,
     data: unknown,
@@ -2872,7 +2921,13 @@ export class BridgeServer {
     }
 
     const state = this.getCongestionState(ws);
-    if (state.queue.length === 0 && ws.bufferedAmount + bytes <= BRIDGE_SOFT_HIGH_WATER) {
+    const queueLen = state.queue.length - state.head;
+    if (queueLen === 0 && ws.bufferedAmount + bytes <= BRIDGE_SOFT_HIGH_WATER) {
+      if (state.head > 0) {
+        state.queue = [];
+        state.head = 0;
+        state.queuedBytes = 0;
+      }
       try {
         ws.send(raw);
       } catch {
@@ -2882,9 +2937,9 @@ export class BridgeServer {
     }
 
     if (terminalSessionId) {
-      const last = state.queue[state.queue.length - 1];
-      if (last && last.coalesceKey === terminalSessionId && last.dataParts) {
-        // Merge by appending the chunk. The merged text is joined once at flush and the exact frame
+      const last = state.queue.length > state.head ? state.queue[state.queue.length - 1] : undefined;
+      if (last && !last.sealed && last.coalesceKey === terminalSessionId && last.dataParts) {
+        // Merge by appending the chunk. The merged text is joined once upon sealing and the exact frame
         // size is maintained incrementally, so N chunks cost O(N) instead of O(N^2).
         last.dataParts.push(dataText);
         last.escapedDataBytes = (last.escapedDataBytes ?? 0) + escapedJsonStringBodyBytes(dataText);
@@ -2894,59 +2949,90 @@ export class BridgeServer {
         const mergedBytes = this.terminalFrameBytes(last.sessionIdJsonBytes ?? 0, last.escapedDataBytes, last.seq);
         state.queuedBytes += mergedBytes - last.bytes;
         last.bytes = mergedBytes;
-        if (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP) {
-          this.dropSlowClient(ws);
+
+        // Seal at 64 parts or 1MB, whichever comes first
+        if (last.dataParts.length >= BRIDGE_COALESCE_MAX_PARTS || (last.escapedDataBytes ?? 0) >= BRIDGE_COALESCE_MAX_BYTES) {
+          this.sealTerminalFrame(last);
+        }
+
+        this.enforceQueueHardCap(ws, state);
+        if (ws.readyState === WebSocket.OPEN && this.clientCongestion.has(ws)) {
+          this.armDrainPump();
         }
         return;
       }
+
+      // If there was an unsealed frame for another session at the tail, seal it now
+      if (last && !last.sealed) {
+        this.sealTerminalFrame(last);
+      }
+
       const sessionIdJsonBytes = Buffer.byteLength(JSON.stringify(terminalSessionId), 'utf8');
       const escapedDataBytes = escapedJsonStringBodyBytes(dataText);
       const initialBytes = this.terminalFrameBytes(sessionIdJsonBytes, escapedDataBytes, seq);
+      const dataParts: string[] = [dataText];
       const entry: PendingOutboundFrame = {
         raw: '',
+        frame: Buffer.alloc(0),
         bytes: initialBytes,
         coalesceKey: terminalSessionId,
         sessionId: terminalSessionId,
-        dataParts: [dataText],
+        dataParts,
         sessionIdJsonBytes,
         escapedDataBytes,
         seq,
+        sealed: false,
         get data(): string {
           return entry.dataParts === undefined ? '' : entry.dataParts.join('');
         },
       };
+
+      // Seal immediately if single chunk hits cap
+      if (dataParts.length >= BRIDGE_COALESCE_MAX_PARTS || escapedDataBytes >= BRIDGE_COALESCE_MAX_BYTES) {
+        this.sealTerminalFrame(entry);
+      }
+
       state.queue.push(entry);
-      state.queuedBytes += initialBytes;
+      state.queuedBytes += entry.bytes;
+      this.enforceQueueHardCap(ws, state);
     } else {
-      state.queue.push({ raw, bytes, coalesceKey: null });
-      state.queuedBytes += bytes;
+      const last = state.queue.length > state.head ? state.queue[state.queue.length - 1] : undefined;
+      if (last && !last.sealed) {
+        this.sealTerminalFrame(last);
+      }
+
+      const frameBuffer = Buffer.from(raw, 'utf8');
+      state.queue.push({
+        raw,
+        frame: frameBuffer,
+        bytes: frameBuffer.byteLength,
+        coalesceKey: null,
+        sealed: true,
+      });
+      state.queuedBytes += frameBuffer.byteLength;
+      this.enforceQueueHardCap(ws, state);
     }
-    if (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP) {
-      this.dropSlowClient(ws);
-      return;
+
+    if (ws.readyState === WebSocket.OPEN && this.clientCongestion.has(ws)) {
+      this.armDrainPump();
     }
-    this.armDrainPump();
   }
 
-  private flushCongestedClient(ws: WebSocket): void {
+  public flushCongestedClient(ws: WebSocket): void {
     const state = this.clientCongestion.get(ws);
     if (!state || state.queue.length === 0 || ws.readyState !== WebSocket.OPEN) return;
 
+    // Seal unsealed tail frame before iterating so send loop has pre-built Buffers only
+    const last = state.queue.length > state.head ? state.queue[state.queue.length - 1] : undefined;
+    if (last && !last.sealed) {
+      this.sealTerminalFrame(last);
+    }
+
     while (state.head < state.queue.length && ws.bufferedAmount < BRIDGE_SOFT_HIGH_WATER) {
       const frame = state.queue[state.head]!;
-      const raw = frame.coalesceKey
-        ? JSON.stringify({
-            event: 'antifan:terminal:data',
-            data: {
-              sessionId: frame.sessionId,
-              data: frame.dataParts!.join(''),
-              ...(typeof frame.seq === 'number' ? { seq: frame.seq } : {}),
-            },
-          })
-        : frame.raw;
       const frameBytes = frame.bytes;
       try {
-        ws.send(raw);
+        ws.send(frame.frame);
       } catch {
         this.clients.delete(ws);
         state.queue = [];
@@ -2957,9 +3043,12 @@ export class BridgeServer {
       state.head += 1;
       state.queuedBytes = Math.max(0, state.queuedBytes - frameBytes);
     }
-    // Drop the consumed prefix once it dominates the array so head cannot grow
-    // without bound across drain ticks; amortized O(1) per dequeued frame.
-    if (state.head > 0 && state.head * 2 >= state.queue.length) {
+
+    if (state.head >= state.queue.length) {
+      state.queue = [];
+      state.head = 0;
+      state.queuedBytes = 0;
+    } else if (state.head > 0 && state.head * 2 >= state.queue.length) {
       state.queue = state.queue.slice(state.head);
       state.head = 0;
     }

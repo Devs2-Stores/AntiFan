@@ -383,7 +383,7 @@ describe('AntiFan Bridge Server', () => {
     server.dispose();
   });
 
-  it('terminates a client whose congestion FIFO exceeds the hard cap', { timeout: 30000 }, async () => {
+  it('sheds whole frames for a stalled client and terminates only when no frame can be shed', { timeout: 30000 }, async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0);
     let socket: net.Socket | undefined;
@@ -407,13 +407,32 @@ describe('AntiFan Bridge Server', () => {
       socket.pause();
       socket.on('error', () => {});
       const chunk = 'x'.repeat(512 * 1024);
-      let terminated = false;
-      for (let i = 0; i < 128 && !terminated; i++) {
+      for (let i = 0; i < 128; i++) {
         server.broadcastEvent('antifan:terminal:data', { sessionId: 'stall-1', data: chunk });
-        // Enqueue, cap-crossing, and dropSlowClient are all synchronous in the same call.
-        terminated = warns.some((w) => w.includes('terminated slow client'));
       }
-      assert.ok(terminated, 'server must log the overflow termination for a stalled client');
+      // 64 MB of transcript to a client that stopped draining: the queue sheds whole oldest frames once
+      // it crosses the hard cap, so the backlog stays bounded without killing a client that can recover.
+      assert.ok(
+        !warns.some((w) => w.includes('terminated slow client')),
+        'whole-frame shedding must bound the queue without terminating the client',
+      );
+
+      // Escalation still applies where shedding cannot help: a single frame larger than the cap.
+      let terminated = false;
+      const stalledClient = {
+        readyState: WebSocket.OPEN,
+        bufferedAmount: 9 * 1024 * 1024,
+        send: () => {},
+        terminate: () => { terminated = true; },
+      } as unknown as WebSocket;
+      const oversizedChunk = 'y'.repeat(33 * 1024 * 1024);
+      server.sendEventFrame(stalledClient, 'antifan:terminal:data', { sessionId: 'stall-2', data: oversizedChunk, seq: 1 }, 'stall-2');
+      assert.ok(terminated, 'an unsheddable frame must escalate to termination');
+      assert.strictEqual(
+        server.getCongestionState(stalledClient).droppedFrames,
+        0,
+        'a terminated client leaves no congestion state behind',
+      );
     } finally {
       console.warn = origWarn;
       socket?.destroy();
@@ -424,11 +443,11 @@ describe('AntiFan Bridge Server', () => {
   it('coalesces consecutive terminal data frames for the same session and preserves highest seq', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0);
-    const sentMessages: string[] = [];
+    const sentMessages: Array<string | Buffer> = [];
     const fakeWs = {
       readyState: WebSocket.OPEN,
       bufferedAmount: 9 * 1024 * 1024, // Exceeds BRIDGE_SOFT_HIGH_WATER (8 MiB) to force congestion queueing
-      send: (msg: string) => { sentMessages.push(msg); },
+      send: (msg: string | Buffer) => { sentMessages.push(msg); },
     };
     const wsHandle = fakeWs as unknown as WebSocket;
 
@@ -466,7 +485,10 @@ describe('AntiFan Bridge Server', () => {
     assert.strictEqual(state.queue.length, 0, 'queue must be empty after flush');
     assert.strictEqual(state.queuedBytes, 0, 'queuedBytes must be 0 after flush');
     assert.strictEqual(sentMessages.length, 1, 'exactly 1 coalesced frame must be sent over the wire');
-    assert.strictEqual(sentMessages[0], expectedPayload);
+    const wireFrame = sentMessages[0];
+    assert.ok(Buffer.isBuffer(wireFrame), 'the drain must write the pre-built frame Buffer, not a re-serialized string');
+    assert.strictEqual(wireFrame.byteLength, expectedBytes);
+    assert.strictEqual(wireFrame.toString('utf8'), expectedPayload);
 
     server.dispose();
   });

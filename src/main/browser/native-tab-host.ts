@@ -2036,21 +2036,50 @@ export class NativeTabHost extends EventEmitter {
 
     ipcMain.handle('antifan:workflow:get-state', () => {
       const workflows = this.controlPlane ? this.controlPlane.workflowRegistry.getAll() : [];
-      const tools = [
-        { id: 'antifan_open_tab', name: 'antifan_open_tab', description: 'Mở tab Chromium mới trong AntiFan Desktop', category: 'browser', permissions: ['execute'] },
-        { id: 'antifan_navigate_tab', name: 'antifan_navigate_tab', description: 'Điều hướng tab hiện tại đến URL chỉ định', category: 'browser', permissions: ['execute'] },
-        { id: 'antifan_screenshot_tab', name: 'antifan_screenshot_tab', description: 'Chụp ảnh màn hình Viewport hoặc toàn trang (.PNG)', category: 'media', permissions: ['read'] },
-        { id: 'antifan_execute_javascript', name: 'antifan_execute_javascript', description: 'Thực thi mã JavaScript trong trang web đang mở', category: 'eval', permissions: ['eval'] },
-        { id: 'antifan_click_element', name: 'antifan_click_element', description: 'Click vào phần tử theo CSS selector hoặc XPath', category: 'browser', permissions: ['execute'] },
-        { id: 'antifan_input_text', name: 'antifan_input_text', description: 'Nhập văn bản vào input hoặc textarea trên trang', category: 'browser', permissions: ['execute'] },
-        { id: 'antifan_inspect_element', name: 'antifan_inspect_element', description: 'Phân tích phần tử DOM tại tọa độ (x, y)', category: 'inspect', permissions: ['read'] },
-        { id: 'antifan_find_elements', name: 'antifan_find_elements', description: 'Tìm danh sách phần tử khớp CSS selector', category: 'inspect', permissions: ['read'] },
-        { id: 'antifan_set_device_preset', name: 'antifan_set_device_preset', description: 'Chuyển đổi chuẩn thiết bị mô phỏng di động', category: 'device', permissions: ['execute'] },
-        { id: 'antifan_sync_chrome_profile', name: 'antifan_sync_chrome_profile', description: 'Đồng bộ Bookmarks, Cookies và History từ Chrome', category: 'auth', permissions: ['read', 'write'] },
-        { id: 'antifan_write_terminal', name: 'antifan_write_terminal', description: 'Gửi lệnh thực thi vào phiên Terminal', category: 'terminal', permissions: ['execute'] },
-        { id: 'antifan_switch_capsule', name: 'antifan_switch_capsule', description: 'Chuyển đổi dự án Workspace Capsule đang hoạt động', category: 'workspace', permissions: ['write'] },
-      ];
+      const tools = this.controlPlane
+        ? this.controlPlane.capabilities.listAll().map((cap) => ({
+            id: cap.name,
+            name: cap.name,
+            description: cap.description,
+            category: cap.risk,
+            permissions: [cap.risk],
+            inputSchema: cap.inputSchema,
+          }))
+        : [];
       return { workflows, tools };
+    });
+
+    ipcMain.handle('antifan:workflow:get-artifact', async (event, id: unknown) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return null;
+      }
+      if (!this.controlPlane || typeof id !== 'string') {
+        return null;
+      }
+      try {
+        const artifactStore: object = this.controlPlane.artifacts;
+        if ('resolve' in artifactStore) {
+          const resolver = artifactStore.resolve;
+          if (typeof resolver === 'function') {
+            return await resolver.call(artifactStore, id);
+          }
+        }
+        const { ref, data } = this.controlPlane.artifacts.readBytesById(id);
+        const mime = ref.mime || 'application/octet-stream';
+        const dataUrl = mime.startsWith('image/')
+          ? `data:${mime};base64,${data.toString('base64')}`
+          : data.toString('utf8');
+        return {
+          id: ref.id,
+          name: path.basename(ref.path),
+          mimeType: mime,
+          sizeBytes: ref.byteLength,
+          data: dataUrl,
+          createdAt: ref.createdAt,
+        };
+      } catch {
+        return null;
+      }
     });
 
     ipcMain.handle('antifan:workflow:save', (_event, item: unknown) => {
@@ -2067,23 +2096,39 @@ export class NativeTabHost extends EventEmitter {
       return typeof id === 'string' ? this.controlPlane.workflowRegistry.deleteCustom(id) : false;
     });
 
-    ipcMain.handle('antifan:workflow:run', async (_event, payload: unknown) => {
+    ipcMain.handle('antifan:workflow:run', async (event, payload: unknown) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { ok: false, status: 'failed', error: 'FORBIDDEN_SENDER' };
+      }
       if (!this.controlPlane) {
         return { ok: false, status: 'failed', error: 'Control plane runtime is not initialized' };
       }
       const raw = (payload && typeof payload === 'object') ? payload as { workflowDef?: unknown; workflowId?: unknown } : undefined;
       let wfDef: WorkflowDefinition | undefined;
+      let isPreRegistered = false;
       if (raw?.workflowDef && typeof raw.workflowDef === 'object') {
-        wfDef = raw.workflowDef as WorkflowDefinition;
+        // A renderer-supplied definition carries no registry id (id lives on WorkflowItem, not
+        // WorkflowDefinition): it counts as pre-registered only when it matches a registered
+        // definition structurally. Otherwise it runs under the read grant.
+        const supplied = raw.workflowDef as WorkflowDefinition;
+        const registered = this.controlPlane.workflowRegistry.getAll().find((item) => {
+          const candidate = item.definition as WorkflowDefinition;
+          return candidate?.name === supplied.name
+            && JSON.stringify(candidate) === JSON.stringify(supplied);
+        });
+        isPreRegistered = registered !== undefined;
+        wfDef = supplied;
       } else if (typeof raw?.workflowId === 'string') {
         const item = this.controlPlane.workflowRegistry.getById(raw.workflowId);
         if (item?.definition) {
-          wfDef = item.definition;
+          wfDef = item.definition as WorkflowDefinition;
+          isPreRegistered = true;
         }
       }
       if (!wfDef) {
         return { ok: false, status: 'failed', error: 'Không tìm thấy kịch bản Workflow' };
       }
+      const grant = isPreRegistered ? 'write' : 'read';
       const activeTab = this.getActiveTab();
       const activeTabId = this.getActiveTabId();
       if (!activeTab || !activeTabId) {
@@ -2114,6 +2159,7 @@ export class NativeTabHost extends EventEmitter {
         const result = await this.controlPlane.executeWorkflow({
           workflow: wfDef,
           target,
+          grant,
           signal: abortController.signal,
           onEvent: (event) => {
             try {

@@ -187,52 +187,149 @@ export class SessionDeliveryJournal {
   }
 }
 
-type Session = {
-  id: string;
-  name: string;
-  cwd: string;
-  pty: pty.IPty | null;
-  buffer: string;
-  splitOf?: string;
-  capsuleId: string;
-  disposed?: boolean;
-  lastSeq: number;
-  sessionGeneration: number;
-  state: 'running' | 'exited' | 'closed' | 'sleeping';
-  deliveryJournal: SessionDeliveryJournal;
-  exitCode?: number;
-  exitSignal?: number;
-  exitedAt?: number;
-  closedAt?: number;
-  dataSubscription?: { dispose: () => void };
-  exitSubscription?: { dispose: () => void };
-  // Geometry/affinity captured while the shell is deferred (restored background
-  // sessions record their transcript synchronously and start the PTY later).
-  pendingCols?: number;
-  pendingRows?: number;
-  pendingMinimumRows?: number;
-  pendingParentId?: string;
-  pendingParentGeneration?: number;
-  // Transcript recovered from disk at restore. Kept apart from `buffer` (the
-  // live shell's output) so it is shown once behind a separator and never
-  // re-persisted — persisting it would stack one banner per restart.
-  restoredTail?: string;
-  // Set when the user issued a clear-screen command (cls/clear/Clear-Host or
-  // Ctrl+L); consumed by appendData on the next output chunk.
-  pendingClearScreen?: boolean;
-  // True while the shell is in the alternate screen buffer (?1049h), where
-  // vim/htop/less repaint constantly and must never trigger a transcript wipe.
-  altScreen?: boolean;
-  // Rolling input line (bounded) used to detect clear-screen commands.
-  inputLineBuffer?: string;
-  // Byte length of `buffer`, maintained incrementally by appendData so
-  // listSessions never re-measures the whole transcript per call.
-  bufferBytes?: number;
-  // Sleep/category metadata consumed by the session-sleep feature; declared
-  // here so the record shape is stable, wired in a later phase.
-  category?: string;
-  sleptAt?: number;
-};
+export class SessionRecord {
+  public id: string;
+  public name: string;
+  public cwd: string;
+  public pty: pty.IPty | null = null;
+  public splitOf?: string;
+  public capsuleId: string;
+  public disposed?: boolean;
+  public lastSeq = 0;
+  public sessionGeneration: number;
+  public state: 'running' | 'exited' | 'closed' | 'sleeping' = 'running';
+  public deliveryJournal: SessionDeliveryJournal;
+  public exitCode?: number;
+  public exitSignal?: number;
+  public exitedAt?: number;
+  public closedAt?: number;
+  public dataSubscription?: { dispose: () => void };
+  public exitSubscription?: { dispose: () => void };
+  public pendingCols?: number;
+  public pendingRows?: number;
+  public pendingMinimumRows?: number;
+  public pendingParentId?: string;
+  public pendingParentGeneration?: number;
+  public restoredTail?: string;
+  public pendingClearScreen?: boolean;
+  public altScreen?: boolean;
+  public inputLineBuffer?: string;
+  public category?: string;
+  public sleptAt?: number;
+
+  public chunks: Buffer[] = [];
+  public bufferBytes = 0;
+  private _materialized: string | null = null;
+
+  constructor(fields: {
+    id: string;
+    cwd: string;
+    capsuleId: string;
+    sessionGeneration: number;
+    name?: string;
+    pty?: pty.IPty | null;
+    restoredTail?: string;
+    pendingCols?: number;
+    pendingRows?: number;
+    pendingMinimumRows?: number;
+    pendingParentId?: string;
+    pendingParentGeneration?: number;
+    splitOf?: string;
+    state?: 'running' | 'exited' | 'closed' | 'sleeping';
+    category?: string;
+    disposed?: boolean;
+  }) {
+    this.id = fields.id;
+    this.name = fields.name ?? `Terminal ${fields.id.replace('terminal-', '')}`;
+    this.cwd = fields.cwd;
+    this.capsuleId = fields.capsuleId;
+    this.sessionGeneration = fields.sessionGeneration;
+    this.pty = fields.pty ?? null;
+    this.restoredTail = fields.restoredTail;
+    this.pendingCols = fields.pendingCols;
+    this.pendingRows = fields.pendingRows;
+    this.pendingMinimumRows = fields.pendingMinimumRows;
+    this.pendingParentId = fields.pendingParentId;
+    this.pendingParentGeneration = fields.pendingParentGeneration;
+    this.splitOf = fields.splitOf;
+    this.state = fields.state ?? 'running';
+    this.category = fields.category;
+    this.disposed = fields.disposed ?? false;
+    this.deliveryJournal = new SessionDeliveryJournal();
+  }
+
+  public get buffer(): string {
+    if (this._materialized !== null) {
+      return this._materialized;
+    }
+    if (this.chunks.length === 0) {
+      this._materialized = '';
+      return '';
+    }
+    if (this.chunks.length === 1) {
+      this._materialized = this.chunks[0]!.toString('utf8');
+      return this._materialized;
+    }
+    this._materialized = Buffer.concat(this.chunks, this.bufferBytes).toString('utf8');
+    return this._materialized;
+  }
+
+  public set buffer(val: string) {
+    this._materialized = typeof val === 'string' ? val : '';
+    this.chunks = [];
+    this.bufferBytes = 0;
+    if (this._materialized.length > 0) {
+      const b = Buffer.from(this._materialized, 'utf8');
+      this.chunks.push(b);
+      this.bufferBytes = b.length;
+    }
+  }
+
+  public appendData(data: string | Buffer, dataBytes?: number): void {
+    if (!data || (typeof data === 'string' && data.length === 0)) return;
+    this._materialized = null;
+    const buf = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+    if (buf.length > 0) {
+      this.chunks.push(buf);
+      this.bufferBytes += (dataBytes !== undefined && typeof data === 'string') ? dataBytes : buf.length;
+    }
+  }
+
+  public trimTail(maxBytes: number): void {
+    if (this.bufferBytes <= maxBytes) return;
+    this._materialized = null;
+    let excess = this.bufferBytes - maxBytes;
+    while (this.chunks.length > 0 && excess > 0) {
+      const first = this.chunks[0]!;
+      if (first.length <= excess) {
+        excess -= first.length;
+        this.bufferBytes -= first.length;
+        this.chunks.shift();
+      } else {
+        let cutOffset = excess;
+        while (cutOffset < first.length && (first[cutOffset]! & 0xc0) === 0x80) {
+          cutOffset++;
+        }
+        const nlIdx = first.indexOf(0x0a, cutOffset);
+        if (nlIdx !== -1 && (nlIdx - cutOffset) < 2048) {
+          cutOffset = nlIdx + 1;
+        }
+        if (cutOffset < first.length) {
+          const remaining = Buffer.from(first.subarray(cutOffset));
+          this.bufferBytes -= cutOffset;
+          this.chunks[0] = remaining;
+        } else {
+          this.bufferBytes -= first.length;
+          this.chunks.shift();
+        }
+        excess = 0;
+        break;
+      }
+    }
+  }
+}
+
+export type Session = SessionRecord;
 type SavedSession = {
   id: string;
   name: string;
@@ -356,27 +453,61 @@ export interface TerminalDiagnosticsReport {
   subscribers?: TerminalSubscriberState[];
 }
 
-function safeSliceTail(str: string, maxBytes: number): string {
-  if (!str || str.length <= maxBytes) return str || '';
-  let raw = str.slice(-maxBytes);
-  if (raw.length > 0 && raw.charCodeAt(0) >= 0xdc00 && raw.charCodeAt(0) <= 0xdfff) {
-    raw = raw.slice(1);
-  }
-  if (raw.length > 0 && raw.charCodeAt(raw.length - 1) >= 0xd800 && raw.charCodeAt(raw.length - 1) <= 0xdbff) {
-    raw = raw.slice(0, -1);
-  }
-  const firstNl = raw.indexOf('\n');
-  if (firstNl !== -1 && firstNl < 2048) {
-    let sliced = raw.slice(firstNl + 1);
-    if (sliced.length > 0 && sliced.charCodeAt(0) >= 0xdc00 && sliced.charCodeAt(0) <= 0xdfff) {
-      sliced = sliced.slice(1);
+export function safeSliceTail(target: string | SessionRecord | Buffer[], maxBytes: number): string {
+  if (!target || maxBytes <= 0) return '';
+  if (typeof target === 'string') {
+    if (target.length <= maxBytes) return target;
+    const buf = Buffer.from(target, 'utf8');
+    if (buf.length <= maxBytes) return target;
+    let cutOffset = buf.length - maxBytes;
+    while (cutOffset < buf.length && (buf[cutOffset]! & 0xc0) === 0x80) {
+      cutOffset++;
     }
-    if (sliced.length > 0 && sliced.charCodeAt(sliced.length - 1) >= 0xd800 && sliced.charCodeAt(sliced.length - 1) <= 0xdbff) {
-      sliced = sliced.slice(0, -1);
+    const nlIdx = buf.indexOf(0x0a, cutOffset);
+    if (nlIdx !== -1 && (nlIdx - cutOffset) < 2048) {
+      cutOffset = nlIdx + 1;
     }
-    return sliced;
+    return buf.subarray(cutOffset).toString('utf8');
   }
-  return raw;
+
+  const chunks = Array.isArray(target) ? target : target.chunks;
+  if (!chunks || chunks.length === 0) return '';
+  const totalBytes = Array.isArray(target)
+    ? chunks.reduce((acc, c) => acc + c.length, 0)
+    : target.bufferBytes;
+  if (totalBytes <= maxBytes) {
+    return Buffer.concat(chunks, totalBytes).toString('utf8');
+  }
+  let excess = totalBytes - maxBytes;
+  const kept: Buffer[] = [];
+  let keptBytes = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i]!;
+    if (excess >= c.length) {
+      excess -= c.length;
+      continue;
+    }
+    if (excess > 0) {
+      let cutOffset = excess;
+      while (cutOffset < c.length && (c[cutOffset]! & 0xc0) === 0x80) {
+        cutOffset++;
+      }
+      const nlIdx = c.indexOf(0x0a, cutOffset);
+      if (nlIdx !== -1 && (nlIdx - cutOffset) < 2048) {
+        cutOffset = nlIdx + 1;
+      }
+      if (cutOffset < c.length) {
+        const sliced = c.subarray(cutOffset);
+        kept.push(sliced);
+        keptBytes += sliced.length;
+      }
+      excess = 0;
+    } else {
+      kept.push(c);
+      keptBytes += c.length;
+    }
+  }
+  return Buffer.concat(kept, keptBytes).toString('utf8');
 }
 
 export function safeSliceTailJsonBounded(str: string, maxJsonBytes: number): string {
@@ -772,7 +903,7 @@ export class TerminalManager extends EventEmitter {
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
       this.persistAsync();
-    }, 2000);
+    }, 5000);
     this.persistTimer.unref?.();
   }
 
@@ -918,28 +1049,24 @@ export class TerminalManager extends EventEmitter {
     generation: number,
     parentGeneration?: number,
   ): Session {
-    const s: Session = {
+    const s = new SessionRecord({
       id,
       name: `Terminal ${id.replace('terminal-', '')}`,
       cwd,
       pty: null,
       // The recovered transcript is display-only history: it renders once
       // behind a separator via composeTranscript and is never persisted again.
-      buffer: '',
       restoredTail: restoredBuffer ? safeSliceTail(restoredBuffer, MAX_TRANSCRIPT_BYTES) : undefined,
-      bufferBytes: 0,
       capsuleId: this.currentCapsuleId,
       disposed: false,
-      lastSeq: 0,
       sessionGeneration: generation,
       state: 'running',
-      deliveryJournal: new SessionDeliveryJournal(),
       pendingCols: initialCols || this.lastCols || 120,
       pendingRows: initialRows || this.lastRows || 30,
       pendingMinimumRows: minimumRows,
       pendingParentId: parentSessionId,
       pendingParentGeneration: parentGeneration,
-    };
+    });
     this.sessions.set(id, s);
     this.hadAnySessions = true;
     return s;
@@ -1053,7 +1180,10 @@ export class TerminalManager extends EventEmitter {
     live.capsuleId = reserved.capsuleId;
     live.category = reserved.category;
     live.lastSeq = reserved.lastSeq || 0;
-    if (reserved.buffer) {
+    if (reserved.chunks && reserved.chunks.length > 0) {
+      live.chunks = [...reserved.chunks];
+      live.bufferBytes = reserved.bufferBytes;
+    } else if (reserved.buffer) {
       live.buffer = reserved.buffer;
       live.bufferBytes = reserved.bufferBytes;
     }
@@ -1228,11 +1358,9 @@ export class TerminalManager extends EventEmitter {
     }
     s.lastSeq = (s.lastSeq || 0) + 1;
     s.deliveryJournal.append(s.sessionGeneration, s.lastSeq, data, dataBytes);
-    s.buffer += data;
-    s.bufferBytes = (s.bufferBytes ?? Buffer.byteLength(s.buffer, 'utf8')) + dataBytes;
-    if (s.buffer.length > MAX_TRANSCRIPT_BYTES + TRANSCRIPT_TRIM_OVERSHOOT_BYTES) {
-      s.buffer = safeSliceTail(s.buffer, MAX_TRANSCRIPT_BYTES);
-      s.bufferBytes = Buffer.byteLength(s.buffer, 'utf8');
+    s.appendData(data, dataBytes);
+    if (s.bufferBytes > MAX_TRANSCRIPT_BYTES + TRANSCRIPT_TRIM_OVERSHOOT_BYTES) {
+      s.trimTail(MAX_TRANSCRIPT_BYTES);
     }
     this.schedulePersist(s.id);
     if (isBenchmarkEnabled()) {
@@ -1459,6 +1587,11 @@ export class TerminalManager extends EventEmitter {
       s.exitSubscription = undefined;
     }
     const ptyInstance = s.pty;
+    // If the session was paused for backpressure, resume it unconditionally
+    // before teardown so the shell can drain and exit cleanly.
+    if (ptyInstance && typeof ptyInstance.resume === 'function') {
+      try { ptyInstance.resume(); } catch {}
+    }
     // Detach the handle synchronously: a keystroke arriving during the async kill
     // must not be written into a process that is being torn down.
     s.pty = null;
@@ -2047,6 +2180,36 @@ export class TerminalManager extends EventEmitter {
   }
   public getSession(id: string) {
     return this.sessions.get(id);
+  }
+
+  public pauseSession(id: string): boolean {
+    if (process.env.BRIDGE_PTY_BACKPRESSURE !== '1') return false;
+    const s = this.sessions.get(id);
+    if (!s || !s.pty) return false;
+    if (typeof s.pty.pause !== 'function') {
+      console.warn(`[antifan:terminal] pause() not available on this pty backend for session ${id}`);
+      return false;
+    }
+    try {
+      s.pty.pause();
+      return true;
+    } catch (err) {
+      console.warn(`[antifan:terminal] failed to pause session ${id}:`, err);
+      return false;
+    }
+  }
+
+  public resumeSession(id: string): boolean {
+    const s = this.sessions.get(id);
+    if (!s || !s.pty) return false;
+    if (typeof s.pty.resume !== 'function') return false;
+    try {
+      s.pty.resume();
+      return true;
+    } catch (err) {
+      console.warn(`[antifan:terminal] failed to resume session ${id}:`, err);
+      return false;
+    }
   }
 
   public findSessionForWorkspace(workspacePath: string): string | undefined {

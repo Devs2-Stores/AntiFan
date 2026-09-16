@@ -1006,7 +1006,16 @@ export class AttachmentRegistry {
       };
 
       const existingRevisions = Array.from(this.revisions.values()).filter((r) => r.attachmentId === attachmentId);
-      await this.appendPersistenceFrameUnlocked(candidateRecord, existingRevisions);
+      // A heartbeat renewal only slides the lease window. Persisting that on every tick costs one
+      // durable append per second per session, re-serializing every revision each time and driving
+      // the 500-frame compaction threshold — measured on a live bridge as a 2.3s first append and
+      // 200-2500ms stalls on concurrent dispatch, scaling with heartbeat frequency. The window is
+      // liveness state: validation reads the in-memory record, and a restart cannot honour a dead
+      // process's extension anyway. A change to `boundPid` is an authority-affecting binding, so
+      // that one is still written through.
+      if (candidateRecord.boundPid !== record.boundPid) {
+        await this.appendPersistenceFrameUnlocked(candidateRecord, existingRevisions);
+      }
       this.records.set(attachmentId, candidateRecord);
       return { expiresAt: candidateRecord.expiresAt };
     });

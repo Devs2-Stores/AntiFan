@@ -127,6 +127,8 @@ export interface RendererActionRequest {
   nonce: string;
   documentUrl: string;
   descriptor?: RawElementDescriptor;
+  noAutoDismiss?: boolean;
+  presetId?: string;
 }
 
 export type RendererActionResponse =
