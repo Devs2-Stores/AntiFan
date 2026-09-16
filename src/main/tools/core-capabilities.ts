@@ -22,6 +22,8 @@ export interface CoreStorePort {
   ingestOutcome(opts: Record<string, unknown>): unknown;
   adjudicate(opts: Record<string, unknown>): unknown;
   stats(): unknown;
+  health(opts?: Record<string, unknown>): unknown;
+  reuseMetric(opts: Record<string, unknown>): unknown;
   domain(name: string): unknown;
   invalidate(opts: Record<string, unknown>): unknown;
   revoke(opts: Record<string, unknown>): unknown;
@@ -96,6 +98,8 @@ export function createLazyCorePort(): CoreStorePort {
     ingestOutcome: (o) => load().ingestOutcome(o),
     adjudicate: (o) => load().adjudicate(o),
     stats: () => load().stats(),
+    health: (o) => load().health(o),
+    reuseMetric: (o) => load().reuseMetric(o),
     domain: (n) => load().domain(n),
     invalidate: (o) => load().invalidate(o),
     revoke: (o) => load().revoke(o),
@@ -184,6 +188,14 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
   reg('core.stats', 'Return Super Core store counts for verification.',
     { type: 'object', properties: {} },
     READ_POLICY, () => core.stats());
+
+  reg('core.health', 'Aggregated Core Health: status, reasonCode, stats, audit, decay and phase gates. Read-only.',
+    { type: 'object', properties: { staleDays: { type: 'number' } } },
+    READ_POLICY, (p: { staleDays?: number }) => core.health(p));
+
+  reg('core.reuse_metric', 'Historical reuse for a task: found + injected + outcome-linked counts, each witnessed by rows. Read-only.',
+    { type: 'object', properties: { task: { type: 'string' }, limit: { type: 'number' } }, required: ['task'] },
+    READ_POLICY, (p: { task: string; limit?: number }) => core.reuseMetric(p));
 
   // v4: Experience Graph
   reg('core.record_experience_node', 'Record an experience graph node.',

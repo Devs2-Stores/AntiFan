@@ -363,11 +363,14 @@
       "title": "No live-storefront gate: every claim about rendered fidelity still rests on a human reading a report",
       "severity": "P1",
       "status": "open",
-      "evidence": ".canary/15-pages/_verdicts.json reports executiveVerdict INCONCLUSIVE with tally all zero and cases empty",
+      "evidence": ".canary/15-pages/_verdicts.json reports executiveVerdict INCONCLUSIVE with tally all zero and cases empty. The gate now exists as scripts/run-theme-harness.mjs (npm run harness:theme): its offline layer emits a real verdict, and its live-published layer reports BLOCKED naming its prerequisites rather than simulating a pass. The row stays open because closing it needs a live run against a published theme: .hrv-sync-state.json absent (no hrv theme dev watcher bound) and THEME_PUSH_APPROVED=1 required for the gated push layer.",
       "predicate": {
         "kind": "campaign-verdict-ledger",
         "file": ".canary/15-pages/_verdicts.json"
-      }
+      },
+      "lastVerifiedBy": "phase-08 re-acceptance (ladder item #25 + theme harness L0/L1/L2)",
+      "reVerifyWith": "npm run harness:theme -- --layer live-published (needs .hrv-sync-state.json) ; npm run harness:theme -- --layer gated (needs THEME_PUSH_APPROVED=1)",
+      "updatedAt": "2026-09-16"
     },
     {
       "id": "R1",

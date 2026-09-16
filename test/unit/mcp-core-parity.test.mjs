@@ -84,6 +84,19 @@ test('core.record_observation is callable through MCP dispatch', async () => {
   );
 });
 
+test('core.health is callable through MCP dispatch and reports a reason code', async () => {
+  const result = await proxy.invoke('core.health', {});
+  assert.equal(typeof result.status, 'string', 'health must report a status');
+  assert.equal(typeof result.reasonCode, 'string', 'a status without a reason code is not actionable');
+  assert.ok(['HEALTHY', 'DEGRADED', 'UNKNOWN'].includes(result.status), `unexpected health status ${result.status}`);
+  // A degraded or unmeasured store must never carry the all-pass reason code;
+  // that pairing is how a health surface launders a problem into a green light.
+  if (result.status !== 'HEALTHY') {
+    assert.notEqual(result.reasonCode, 'ALL_GATES_PASS', 'a non-healthy status must not report the all-pass reason code');
+  }
+  assert.ok(result.gates && typeof result.gates === 'object', 'health must carry the gate results it summarised');
+});
+
 test('retired browser_find routing row is behaviour-preserving: registration and browser.find call the same port method', () => {
   const { CapabilityCatalogue } = require(path.join(COMPILED, 'main/tools/capability-catalogue.js'));
   const { BrowserControlPort } = require(path.join(COMPILED, 'main/tools/browser-control-port.js'));

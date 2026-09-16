@@ -1,7 +1,7 @@
 ---
 phase: 7
 title: "Measurement layer — mở khoá khả năng phán quyết (B23/B30/B32)"
-status: in_progress
+status: done
 priority: P1
 effort: ""
 dependencies: [6]
@@ -135,3 +135,16 @@ Không route nào trùng byte hay trùng title. Suy ra (`[INFERENCE]`): B32 (`ro
 - Cám dỗ lớn nhất ở đây là **nới bound 15 s** cho campaign xanh. Đó đúng là "hạ tiêu chí để đạt 100%" — health abort ở phase 1 phải bắt được.
 - Campaign cần storefront thật; nếu không truy cập được thì `BLOCKED` với blocker nêu tên, không hạ xuống mock.
 - B30 và B32 có thể phụ thuộc lẫn nhau (verdict không adjudicable → không revision-bound được). Thứ tự trong phase phải theo dependency thật, không theo số thứ tự.
+
+## Trạng thái thực thi (đo ở phase 8 re-acceptance)
+
+**Đã đóng, kiểm bằng máy chứ không bằng tuyên bố:**
+
+- **B30** — cascade hydration dùng `setTimeout(60)` bị kẹp lên ≥ 1 s trên tab nền, nên `NORMALIZATION_SCROLL_CASCADE_BUDGET_MS` (10 s) nằm trong bound 15 s. 29 phát `mismatchPercentage: 100` không có diff thật đã đổi thành `null`.
+- **B32** — `resolveCaseRouteIdentity` dùng chung; case thiếu route thành `INCOMPLETE_CASES`/`ROUTE_IDENTITY_MISSING`; `exit` không bao giờ null; `finishedAt` lùi về `completedAt`.
+
+**Còn mở, blocker nêu tên — không hạ chuẩn:**
+
+- **B23** — cần một lần chạy trên storefront thật. Gate đã tồn tại (`npm run harness:theme`): lớp L0 offline ra verdict thật, lớp L1 live-published và L2 gated báo `BLOCKED` kèm prerequisite thay vì mô phỏng. Đóng B23 cần `.hrv-sync-state.json` (chưa bind watcher `hrv theme dev`) và `THEME_PUSH_APPROVED=1` cho lớp push. Ghi trong `plans/bottlenecks.json` mục B23 (`reVerifyWith`).
+
+Phase này **không** đóng bằng cách nới bound 15 s; bound giữ nguyên.

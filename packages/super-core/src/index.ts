@@ -953,6 +953,97 @@ export class Core {
     return { gateId: recorded ? gateId : null, phase, gate, passed: Boolean(passed), detail };
   }
 
+  // ---- Core Health -------------------------------------------------------------
+  // One composition of the health signal, shared by the CLI and the MCP surface
+  // so neither can drift into reporting a different status for the same store.
+  // Read-only by construction: gate and audit evaluation is recorded nowhere
+  // here, because a UI refresh or a client poll would otherwise write rows on
+  // every open and grow the database from a read path.
+  //
+  // `status` is three-valued rather than a percentage. An empty store cannot
+  // support a judgement, so it reports UNKNOWN instead of a flattering score,
+  // and DEGRADED names the first failing gate in a stable order so the reason is
+  // reproducible rather than the last gate that happened to run.
+  health(opts: { staleDays?: number } = {}) {
+    const gate = (name: string) => this.checkPhaseGate('health-surface', name, { record: false });
+    const stats = this.stats();
+    const audit = this.corpusAudit({ record: false });
+    const gates: Record<string, { passed: boolean; detail: string }> = {
+      coverage: gate('coverage'),
+      evidence: gate('evidence'),
+      conflict: gate('conflict'),
+      temporal: gate('temporal'),
+      promotion: gate('promotion'),
+      regression: gate('regression'),
+    };
+    const empty = stats.artifacts === 0 && stats.claims === 0;
+    const failed = Object.entries(gates).find(([, g]) => !g.passed);
+    const status = empty ? 'UNKNOWN' : failed ? 'DEGRADED' : 'HEALTHY';
+    const reasonCode = empty ? 'EMPTY_STORE' : failed ? `GATE_${failed[0].toUpperCase()}_FAILED` : 'ALL_GATES_PASS';
+    return {
+      status,
+      reasonCode,
+      stats,
+      audit,
+      decay: this.decayCheck(opts.staleDays ? { staleDays: opts.staleDays } : undefined),
+      gates,
+      // Uncertainty is scoped to a task or claim by construction. Classifying the
+      // corpus-wide newest rows and presenting that as a health signal answers a
+      // question nobody asked, so the missing scope is named instead.
+      uncertainty: { level: 'UNKNOWN', reason: 'unscoped: uncertainty is per-task/claim, not corpus-wide' },
+    };
+  }
+
+  // ---- Historical reuse --------------------------------------------------------
+  // The reuse metric fixed by the plan: `found + injected + outcome-linked` — how
+  // many prior claims a task could reuse, how many actually reached its context
+  // pack, and how many of those were later tied to a recorded outcome.
+  //
+  // Read-only by construction. It measures the packs that were really written for
+  // the task, rather than building a pack to measure: a metric that grows the
+  // store on every call is the same defect as a health read that appends rows,
+  // and it would also report a synthetic answer instead of what the task reused.
+  reuseMetric(opts: { task: string; limit?: number }) {
+    if (!opts?.task) throw new Error('reuseMetric requires a task');
+    const foundRows = this.query({ text: opts.task, limit: opts.limit ?? 200 }) as Array<{ claimId: string }>;
+    const foundIds = foundRows.map((r) => r.claimId).sort();
+    // `createdAt` is millisecond-resolution, so two packs written in the same
+    // millisecond would tie and make "the latest pack" arbitrary. rowid breaks the
+    // tie by real insert order.
+    const packRow = this.db
+      .prepare('SELECT packId, claimIdsJson FROM packs WHERE task = ? ORDER BY createdAt DESC, rowid DESC LIMIT 1')
+      .get(opts.task) as { packId: string; claimIdsJson: string } | undefined;
+    const injectedIds = packRow ? (JSON.parse(packRow.claimIdsJson) as string[]).slice().sort() : [];
+    const injectedFlag: Record<string, true> = {};
+    for (const id of injectedIds) injectedFlag[id] = true;
+    const linkedFlag: Record<string, true> = {};
+    if (packRow) {
+      const linkRows = this.db
+        .prepare(
+          `SELECT p.claimIdsJson AS ids FROM cases c
+           JOIN receipts r ON r.receiptId = c.verificationRef
+           JOIN packs p ON p.packId = r.packId
+           WHERE c.task = ? AND p.packId = ?`,
+        )
+        .all(opts.task, packRow.packId) as Array<{ ids: string }>;
+      for (const row of linkRows) {
+        for (const id of JSON.parse(row.ids) as string[]) if (injectedFlag[id]) linkedFlag[id] = true;
+      }
+    }
+    return {
+      metric: 'found + injected + outcome-linked',
+      task: opts.task,
+      packId: packRow?.packId ?? null,
+      found: { value: foundIds.length, claimIds: foundIds, witness: 'claims returned by the task query' },
+      injected: { value: injectedIds.length, claimIds: injectedIds, witness: 'packs.claimIdsJson for the task\'s latest pack' },
+      outcomeLinked: {
+        value: Object.keys(linkedFlag).length,
+        claimIds: Object.keys(linkedFlag).sort(),
+        witness: 'cases.verificationRef -> receipts.receiptId -> receipts.packId -> packs.claimIdsJson',
+      },
+    };
+  }
+
   // ---- conflict resolution ----------------------------------------------------
   resolveConflict(opts: { id: string; classification: string; note?: string; resolved?: boolean }) {
     if (!CONFLICT_CLASSIFICATIONS.has(opts.classification)) {

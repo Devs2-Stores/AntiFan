@@ -14,7 +14,8 @@
 //   revoke '{"path":"..."}'
 //   snapshot [note]
 //   rollback <releaseId>
-//   health                 aggregated stats+audit+decay+gates+uncertainty (Core Health UI)
+//   health                 aggregated stats+audit+decay+gates+uncertainty+status (Core Health UI)
+//   reuse-metric '{"task":"..."}'  found + injected + outcome-linked reuse for a task
 //   regressions            {replayEngineAvailable, rows} from the regressions table
 //   task-runs              {taskRunsTable, taskRuns, packs, cases}
 //   pack-detail <packId>   pack + its claims + receipts
@@ -114,30 +115,16 @@ async function main() {
     }
     case 'health': {
       const staleDays = parse(arg).staleDays;
-      // Read-only: the Core Health UI re-runs this on every open and refresh, so
-      // gate and audit evaluation must not persist rows here. Only a real gate
-      // run records, via the default `record: true`.
-      const gate = (name) => core.checkPhaseGate('health-surface', name, { record: false });
-      out = {
-        stats: core.stats(),
-        audit: core.corpusAudit({ record: false }),
-        decay: core.decayCheck(staleDays ? { staleDays } : undefined),
-        gates: {
-          coverage: gate('coverage'),
-          evidence: gate('evidence'),
-          conflict: gate('conflict'),
-          temporal: gate('temporal'),
-          promotion: gate('promotion'),
-          regression: gate('regression'),
-        },
-        // Uncertainty is scoped to a task or claim by construction. Reporting it
-        // unscoped would classify whichever claims happen to sort first and
-        // present that as a corpus health signal, so it is reported UNKNOWN with
-        // the missing scope named instead.
-        uncertainty: { level: 'UNKNOWN', reason: 'unscoped: uncertainty is per-task/claim, not corpus-wide' },
-      };
+      // Read-only and shared: the composition (stats, audit, decay, gates and the
+      // reason-coded status) lives in the store so the CLI and the MCP surface
+      // cannot report different health for the same database. Gate and audit
+      // evaluation is recorded nowhere on this path — the Core Health UI re-runs
+      // it on every open, and a read path must not grow the store. A real gate
+      // run still records, via the default `record: true`.
+      out = core.health(staleDays ? { staleDays } : {});
       break;
     }
+    case 'reuse-metric': out = core.reuseMetric(parse(arg)); break;
     case 'principle': out = core.recordPrinciple(parse(arg)); break;
     case 'principles': out = core.principles(parse(arg)); break;
     case 'hidden-req': out = core.recordHiddenRequirement(parse(arg)); break;

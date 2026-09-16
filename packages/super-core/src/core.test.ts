@@ -355,6 +355,118 @@ test('health-surface evaluation records nothing; a real gate run still records',
   core.close();
 });
 
+test('health() reports a reason-coded status from real gate outcomes and records nothing', () => {
+  // An empty store cannot support a judgement. Reporting HEALTHY here would
+  // launder "no evidence" into "no problems", which is the one reading a health
+  // surface exists to prevent.
+  const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-health-empty-'));
+  const empty = openCore(path.join(emptyDir, 'core.db'));
+  const emptyHealth = empty.health() as { status: string; reasonCode: string };
+  assert.equal(emptyHealth.status, 'UNKNOWN');
+  assert.equal(emptyHealth.reasonCode, 'EMPTY_STORE');
+  empty.close();
+  fs.rmSync(emptyDir, { recursive: true, force: true });
+
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+
+  const countRows = () => {
+    const handle = new DatabaseSync(dbPath);
+    try {
+      const n = (sql: string) => (handle.prepare(sql).get() as { n: number }).n;
+      return { gates: n('SELECT COUNT(*) AS n FROM phase_gates'), audits: n('SELECT COUNT(*) AS n FROM corpus_audit') };
+    } finally {
+      handle.close();
+    }
+  };
+
+  // The fixture carries one unresolved conflict, so the degraded branch must name
+  // that gate — and name the same one on every run, not whichever ran last.
+  const before = countRows();
+  const degraded = core.health() as { status: string; reasonCode: string; gates: Record<string, { passed: boolean; detail: string }> };
+  assert.equal(degraded.status, 'DEGRADED');
+  assert.equal(degraded.reasonCode, 'GATE_CONFLICT_FAILED');
+  assert.equal(degraded.gates.conflict.passed, false);
+  assert.match(degraded.gates.conflict.detail, /unresolved conflict/);
+  assert.deepEqual(countRows(), before, 'reading health leaves the store unchanged');
+
+  const second = core.health() as { status: string; reasonCode: string };
+  assert.equal(second.reasonCode, degraded.reasonCode, 'the named gate is stable across reads');
+
+  // Drive every gate green through real state changes rather than by stubbing a
+  // gate result, then confirm the status follows the state.
+  core.resolveConflict({ id: 'cf-1', classification: 'GENERAL_RULE' });
+  const regression = core.recordRegression({ checks: [{ kind: 'claim-status', claimId: 'c1', expect: 'LIVE' }] }) as { regressionId: string };
+  const replay = core.replayRegression(regression.regressionId) as { replayResult: string };
+  assert.equal(replay.replayResult, 'PASS', 'the recorded check re-executes against live state and passes');
+
+  const healthy = core.health() as { status: string; reasonCode: string; gates: Record<string, { passed: boolean }> };
+  const failing = Object.entries(healthy.gates).filter(([, g]) => !g.passed).map(([name]) => name);
+  assert.deepEqual(failing, [], `expected every gate to pass, still failing: ${failing.join(',')}`);
+  assert.equal(healthy.status, 'HEALTHY');
+  assert.equal(healthy.reasonCode, 'ALL_GATES_PASS');
+  core.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('reuseMetric separates found from injected from outcome-linked on real rows', () => {
+  // A reuse number is only meaningful if it can tell "the store had material" from
+  // "the material reached the agent" from "the outcome was tied back to it". A
+  // metric that echoes one count into the other three measures nothing, so each
+  // transition below is asserted separately.
+  type ReuseReport = {
+    packId: string | null;
+    found: { value: number; claimIds: string[] };
+    injected: { value: number; claimIds: string[] };
+    outcomeLinked: { value: number; claimIds: string[] };
+  };
+
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const task = 'settings schema';
+
+  // No pack exists yet: injected and outcome-linked are honestly zero rather than
+  // back-filled from `found`.
+  const bare = core.reuseMetric({ task }) as ReuseReport;
+  assert.ok(bare.found.value > 0, `expected the task query to match the seeded claims, got ${bare.found.value}`);
+  assert.equal(bare.packId, null, 'no pack has been written for this task yet');
+  assert.equal(bare.injected.value, 0, 'nothing has been injected yet');
+  assert.equal(bare.outcomeLinked.value, 0, 'nothing can be linked to an outcome yet');
+
+  const pack = core.contextPack({ task, platform: 'haravan', includeGlobal: true, sessionId: 's-reuse', limit: 2 }) as { packId: string };
+  const injectedReport = core.reuseMetric({ task }) as ReuseReport;
+  assert.equal(injectedReport.packId, pack.packId, 'the metric follows the pack actually written for the task');
+  assert.ok(injectedReport.injected.value > 0, 'the pack wrote claims into context');
+  assert.deepEqual(
+    injectedReport.injected.claimIds.filter((id) => !injectedReport.found.claimIds.includes(id)),
+    [],
+    'injected claims must be a subset of what the task query found',
+  );
+  assert.equal(injectedReport.outcomeLinked.value, 0, 'a receipt-less pack links no outcome yet');
+
+  const receipt = core.receipt({ task, packId: pack.packId, recommendation: 'apply the seeded reuse rules' }) as { receiptId: string };
+  core.ingestOutcome({ task, outcome: 'reuse verified', verificationRef: receipt.receiptId, unitId: 'u-har' });
+
+  const linked = core.reuseMetric({ task }) as ReuseReport;
+  assert.equal(linked.outcomeLinked.value, linked.injected.value, 'every injected claim is reachable from the recorded outcome');
+  assert.deepEqual(linked.outcomeLinked.claimIds, linked.injected.claimIds);
+
+  // A later pack for the same task that is never receipted must not inherit the
+  // linkage: otherwise the join is echoing `injected` instead of measuring it.
+  const control = core.contextPack({ task, platform: 'haravan', includeGlobal: true, sessionId: 's-control', limit: 2 }) as { packId: string };
+  assert.notEqual(control.packId, pack.packId, 'a different session produces a distinct pack');
+  const afterControl = core.reuseMetric({ task }) as ReuseReport;
+  assert.equal(afterControl.packId, control.packId, 'the metric follows the latest pack for the task');
+  assert.ok(afterControl.injected.value > 0, 'the control pack injected claims');
+  assert.equal(afterControl.outcomeLinked.value, 0, 'an unreceipted pack must not report outcome linkage');
+
+  core.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('knowledgeGaps distinguishes never/stale/conflicted per platform', () => {
   const dir = fixturePlatforms();
   const core = openCore(path.join(dir, 'core.db'));

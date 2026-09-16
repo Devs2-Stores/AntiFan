@@ -60,6 +60,7 @@
     "smoke:soak": "npm run compile && node scripts/run-electron.cjs scripts/smoke-real-soak.cjs",
     "smoke:theme-golden-live": "npm run compile && node scripts/run-theme-golden-live-proof.cjs",
     "harness:theme": "node scripts/run-theme-harness.mjs",
+    "goal:ladder": "node scripts/run-goal-ladder.mjs",
     "certify:core-freeze": "node scripts/certify-core-freeze.cjs",
     "smoke:multitasking": "npm run compile && node scripts/run-electron.cjs scripts/smoke-background-multitasking.cjs",
     "smoke:parity": "npm run compile && node scripts/run-electron.cjs scripts/smoke-playwright-parity.cjs",
