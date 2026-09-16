@@ -8,6 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { openCore, type Core } from './index.js';
+import { SCHEMA_VERSION } from './schema.js';
 
 function fixtureReports() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-fixture-'));
@@ -402,11 +403,18 @@ test('health() reports a reason-coded status from real gate outcomes and records
   const replay = core.replayRegression(regression.regressionId) as { replayResult: string };
   assert.equal(replay.replayResult, 'PASS', 'the recorded check re-executes against live state and passes');
 
-  const healthy = core.health() as { status: string; reasonCode: string; gates: Record<string, { passed: boolean }> };
+  const healthy = core.health() as { status: string; reasonCode: string; gates: Record<string, { passed: boolean }>; uncertainty: { level: string; reason: string } };
   const failing = Object.entries(healthy.gates).filter(([, g]) => !g.passed).map(([name]) => name);
   assert.deepEqual(failing, [], `expected every gate to pass, still failing: ${failing.join(',')}`);
   assert.equal(healthy.status, 'HEALTHY');
   assert.equal(healthy.reasonCode, 'ALL_GATES_PASS');
+  // The consumer that renders this payload branches on uncertainty.level, so the
+  // shape it maps has to be the shape emitted here. Uncertainty is scoped to a
+  // task or claim, so the corpus-wide level is UNKNOWN by construction — a
+  // consumer test that supplied a confident level would be asserting a state
+  // this method cannot reach. Pin it here so the two cannot drift apart.
+  assert.equal(healthy.uncertainty.level, 'UNKNOWN');
+  assert.match(healthy.uncertainty.reason, /unscoped/);
   core.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -502,7 +510,14 @@ test('populated core.db: baseline non-empty, migration v7, isolation, perf bound
     const haravanCount = (raw.prepare("SELECT COUNT(*) AS n FROM claims WHERE contextPlatform = 'haravan'").get() as { n: number }).n;
     assert.ok(haravanCount >= 13000, `baseline: haravan claims ${haravanCount} >= 13000`);
     const version = (raw.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value;
-    assert.equal(version, '7', 'migration to schema v7 ran on populated DB');
+    // Compared against the constant rather than a literal, so a version bump cannot
+    // leave this asserting the previous chain.
+    assert.equal(version, String(SCHEMA_VERSION), 'the migration chain ran to the current schema version on a populated DB');
+    // The quarantine migration runs here too, against the real populated store: no row
+    // may still assert a replay result that no replay produced. This is the invariant
+    // the regression gate depends on, and it holds for any row set.
+    const asserted = (raw.prepare('SELECT COUNT(*) AS n FROM regressions WHERE replayResult IS NOT NULL AND replayedAt IS NULL').get() as { n: number }).n;
+    assert.equal(asserted, 0, 'no regression row asserts a result without a replay timestamp');
     const conflictCols = raw.prepare('PRAGMA table_info(conflicts)').all().map((c) => (c as { name: string }).name);
     assert.ok(conflictCols.includes('platform') && conflictCols.includes('unitId'), 'conflicts gained scope columns');
     const regressionCols = raw.prepare('PRAGMA table_info(regressions)').all().map((c) => (c as { name: string }).name);

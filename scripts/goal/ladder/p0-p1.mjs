@@ -88,34 +88,54 @@ function commandFor(route) {
     .join(' ');
 }
 
-function parseTap(stdout) {
+export function parseTap(stdout) {
   const names = [];
   let tests_n = null;
   let pass = null;
   let fail = null;
+  let skipped = 0;
   for (const line of stdout.split(/\r?\n/)) {
     const ok = /^\s*ok\s+\d+\s+-\s+(.*)$/.exec(line);
-    if (ok) names.push(ok[1].trim());
-    const m = /^#\s*(tests|pass|fail)\s+(\d+)\s*$/.exec(line);
+    if (ok) {
+      // `ok N - name # SKIP reason` is a test that did not run. Counting its name
+      // as a passing test lets a route whose matches are all skipped pass with
+      // zero assertions executed — the scaffolding-PASS this harness exists to
+      // stop. The directive is stripped so the name cannot masquerade as a check.
+      const raw = ok[1].trim();
+      const directive = /\s+#\s*(SKIP|TODO)\b/i.exec(raw);
+      if (directive) skipped += 1;
+      names.push(raw.replace(/\s+#\s*(SKIP|TODO)\b.*$/i, '').trim());
+    }
+    const m = /^#\s*(tests|pass|fail|skipped)\s+(\d+)\s*$/.exec(line);
     if (m) {
       if (m[1] === 'tests') tests_n = Number(m[2]);
       if (m[1] === 'pass') pass = Number(m[2]);
       if (m[1] === 'fail') fail = Number(m[2]);
+      if (m[1] === 'skipped') skipped = Number(m[2]);
     }
   }
-  return { names, tests: tests_n, pass, fail };
+  return { names, tests: tests_n, pass, fail, skipped };
 }
 
 /**
- * Decide a test route's verdict from its TAP output. Returns null when the route
- * passes, otherwise a `{ verdict, reason }` pair.
+ * Decide a test route's verdict from its TAP output and exit status. Returns null
+ * when the route passes, otherwise a `{ verdict, reason }` pair.
  */
-function judgeTestRoute(route, out) {
+export function judgeTestRoute(route, out, status) {
   const actualNames = out.names.filter((n) => !namesTheFileItself(n, route));
   if (out.fail === null || out.pass === null) {
     return { verdict: 'FAIL', reason: 'ROUTE_PRODUCED_NO_TAP_SUMMARY' };
   }
+  // A clean summary says the assertions that RAN passed; it says nothing about
+  // whether the process itself survived. A non-zero exit alongside `# fail 0`
+  // means something outside the assertions failed, so it cannot carry a PASS —
+  // the receipt promises a PASS is bound to a zero exit.
+  if (status !== 0) return { verdict: 'FAIL', reason: 'ROUTE_NONZERO_EXIT' };
   if (out.fail > 0) return { verdict: 'FAIL', reason: 'ROUTE_ASSERTION_FAILED' };
+  if (out.pass === 0) {
+    // Nothing was asserted: every matched test was skipped, or the file is empty.
+    return { verdict: 'FAIL', reason: 'ROUTE_EXECUTED_NO_ASSERTIONS' };
+  }
   if (actualNames.length === 0) {
     // Every passing name was the file placeholder: the pattern matched nothing.
     return { verdict: 'FAIL', reason: 'ROUTE_PATTERN_MATCHED_NOTHING' };
@@ -221,13 +241,32 @@ function writeEvidence(artifactDir, route, result, stdout, stderr) {
  * Items are declared as data; `run` is attached here so every item records the
  * same revision-bound receipt shape.
  */
-function item({ itemId, label, group, ownerPhase, routes, absentWhen = [] }) {
+export function item({ itemId, label, group, ownerPhase, routes, absentWhen = [] }) {
   return {
     itemId,
     label: `${group} ${label}`,
     group,
     ownerPhase,
+    // The declaration stays inspectable: an item is declared as data, so what it
+    // asserts can be read back without running it.
+    routes,
+    absentWhen,
     async run({ artifactDir }) {
+      if (routes.length === 0) {
+        // An item that declares no route asserts nothing. Left to the loop below,
+        // an empty result set would satisfy `worst === undefined` and mint a
+        // bound-looking PASS with an empty routeIdentity — a receipt for a check
+        // that never happened.
+        return {
+          verdict: 'NOT_IMPLEMENTED',
+          routeIdentity: '',
+          exit: null,
+          finishedAt: new Date().toISOString(),
+          gitSha: gitSha(),
+          reason: 'NO_ROUTES_DECLARED',
+          evidence: { routes: [] },
+        };
+      }
       const missing = absentWhen.filter((rel) => !fs.existsSync(path.join(REPO, rel)));
       if (missing.length) {
         return {
@@ -265,7 +304,7 @@ function item({ itemId, label, group, ownerPhase, routes, absentWhen = [] }) {
         const judged =
           route.kind === 'probe'
             ? judgeProbeRoute(route, { status: res.status, tap: probeJson })
-            : judgeTestRoute(route, tap);
+            : judgeTestRoute(route, tap, res.status);
         const record = {
           command: commandFor(route),
           verdict: judged ? judged.verdict : 'PASS',
@@ -276,6 +315,7 @@ function item({ itemId, label, group, ownerPhase, routes, absentWhen = [] }) {
           tests: tap.tests,
           pass: tap.pass,
           fail: tap.fail,
+          skipped: tap.skipped,
           probe: probeJson,
         };
         results.push(record);

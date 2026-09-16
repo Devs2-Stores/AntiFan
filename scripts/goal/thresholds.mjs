@@ -75,12 +75,18 @@ export const THRESHOLDS = Object.freeze({
 });
 
 /**
- * The bounds a run may not change while it is running. Kept as an explicit list so a
- * field added to THRESHOLDS without being listed here fails the digest test below
- * rather than silently escaping the freeze.
+ * Bounds a run may not change while it is running, and which therefore decide the
+ * digest written into every checkpoint. Kept explicit so a field added to THRESHOLDS
+ * without being listed here fails at import rather than escaping the freeze: every
+ * timing bound is a bound, not just the long ones, because loosening the heartbeat or
+ * the supervisor poll changes how a run behaves exactly as much as loosening a ceiling.
  */
 export const FROZEN_KEYS = Object.freeze([
+  'heartbeatIntervalMs',
   'heartbeatStaleMs',
+  'supervisorPollIntervalMs',
+  'supervisorTermGraceMs',
+  'mutexLeaseMs',
   'bootstrapCeilingMs',
   'rssDriftMbPerHour',
   'heapCeilingMb',
@@ -96,14 +102,25 @@ export function thresholdDigest(thresholds = THRESHOLDS) {
 
 export const THRESHOLD_DIGEST = thresholdDigest();
 
-/** Strip the derived digest from a digest input so adding a key cannot change the digest. */
+/**
+ * Assert the freeze covers the whole bound set, in both directions: every entry in
+ * `thresholds` must be frozen, and every frozen key must hold a finite number. Called
+ * at module load, so an unfrozen bound fails the run at import instead of quietly
+ * changing behaviour without changing the digest a resumed run compares against.
+ */
 export function assertThresholdsComplete(thresholds = THRESHOLDS) {
+  const unfrozen = Object.keys(thresholds).filter((k) => !FROZEN_KEYS.includes(k));
+  if (unfrozen.length) {
+    throw new Error(`thresholds outside the freeze: ${unfrozen.join(', ')} — add them to FROZEN_KEYS so the digest covers them`);
+  }
   const missing = FROZEN_KEYS.filter((k) => typeof thresholds[k] !== 'number' || !Number.isFinite(thresholds[k]));
   if (missing.length) {
     throw new Error(`threshold set is incomplete: ${missing.join(', ')}`);
   }
   return true;
 }
+
+assertThresholdsComplete();
 
 /**
  * Disk headroom is a two-part bound, so the decision lives here rather than at a call

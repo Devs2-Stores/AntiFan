@@ -22,6 +22,10 @@ export interface CoreHealthCheck {
   affected: string[];
   evidenceRefs: string[];
   detail?: string;
+  // Reported to the reader but excluded from the aggregate. Used for checks that
+  // describe something the store genuinely cannot answer corpus-wide, so their
+  // permanent UNKNOWN cannot pin the whole surface.
+  gating?: boolean;
 }
 
 export interface CoreHealthSnapshot {
@@ -153,8 +157,13 @@ const STATUS_RANK: Record<CoreHealthStatus, number> = {
 };
 
 function worstOf(checks: CoreHealthCheck[]): Pick<CoreHealthSnapshot, 'status' | 'reasonCode' | 'affected' | 'evidenceRefs'> {
+  // Non-gating checks are still reported, but they never decide the aggregate.
+  // The unscoped uncertainty pseudo-check always reads UNKNOWN — uncertainty is
+  // per-task, not corpus-wide — so letting it gate would pin the corpus status
+  // to UNKNOWN forever, no matter how healthy the store is.
+  const gating = checks.filter((c) => c.gating !== false);
   let worst: CoreHealthCheck | undefined;
-  for (const c of checks) {
+  for (const c of gating) {
     if (!worst || STATUS_RANK[c.status] > STATUS_RANK[worst.status]) worst = c;
   }
   if (!worst || worst.status === 'HEALTHY') {
@@ -163,7 +172,7 @@ function worstOf(checks: CoreHealthCheck[]): Pick<CoreHealthSnapshot, 'status' |
   return {
     status: worst.status,
     reasonCode: worst.reasonCode,
-    affected: [...new Set(checks.filter((c) => c.status !== 'HEALTHY').flatMap((c) => c.affected))].slice(0, 50),
+    affected: [...new Set(gating.filter((c) => c.status !== 'HEALTHY').flatMap((c) => c.affected))].slice(0, 50),
     evidenceRefs: checks.flatMap((c) => c.evidenceRefs),
   };
 }
@@ -337,7 +346,7 @@ export class CoreHealthService {
     if (uncertainty.level === 'CONFLICTED') {
       checks.push({ name: 'core.uncertainty', status: 'DEGRADED', reasonCode: 'CONFLICTED_CLAIMS', affected: [uncertainty.reason ?? 'conflicted'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
     } else if (uncertainty.level === 'UNKNOWN') {
-      checks.push({ name: 'core.uncertainty', status: 'UNKNOWN', reasonCode: 'INSUFFICIENT_EVIDENCE', affected: [uncertainty.reason ?? 'unknown'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
+      checks.push({ name: 'core.uncertainty', status: 'UNKNOWN', reasonCode: 'INSUFFICIENT_EVIDENCE', affected: [uncertainty.reason ?? 'unknown'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason, gating: false });
     } else {
       checks.push({ name: 'core.uncertainty', status: 'HEALTHY', reasonCode: uncertainty.level || 'SUPPORTED', affected: [], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
     }

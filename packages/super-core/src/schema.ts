@@ -2,7 +2,7 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 // Platforms recognized by the keyword-derivation backfill. A row's own text
 // (conflict subject, case task/context) may tag its platform ONLY when exactly
@@ -612,5 +612,16 @@ ${PLATFORM_BACKFILL_SQL}`,
     sql: `ALTER TABLE regressions ADD COLUMN checksJson TEXT;
 ALTER TABLE regressions ADD COLUMN replayedAt TEXT;
 ALTER TABLE regressions ADD COLUMN replayDetailJson TEXT;`,
+  },
+  {
+    // Quarantine asserted replay results. Before 6->7 a caller could hand
+    // recordRegression a replayResult, so a row can claim PASS without ever
+    // having been re-executed. replayResult now belongs to replayRegression()
+    // alone, and the regression gate requires a replayedAt to pass — so an
+    // asserted value is not merely ignored, it is withdrawn here: the row keeps
+    // its definition and reads as "recorded but never replayed" until a real
+    // replay earns a verdict.
+    from: 7, to: 8,
+    sql: `UPDATE regressions SET replayResult = NULL WHERE replayedAt IS NULL AND replayResult IS NOT NULL;`,
   },
 ];

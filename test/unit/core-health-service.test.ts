@@ -41,7 +41,10 @@ function healthyHealth(): Record<string, unknown> {
     audit: { artifacts: 10, blocked: 0, blockedReasonless: 0, pending: 0, unresolved: 0 },
     decay: { stale: [], aging: [], cutoff: 'x' },
     gates: { coverage: gate, evidence: gate, conflict: gate, temporal: gate, promotion: gate, regression: { ...gate, detail: 'last regression: PASS' } },
-    uncertainty: { level: 'STRONGLY_SUPPORTED', reason: '2 promoted claims' },
+    // The real health() emits exactly this: uncertainty is scoped to a task or
+    // claim, so the corpus-wide level is UNKNOWN by construction. A fixture that
+    // supplied a confident level would assert a state the producer cannot emit.
+    uncertainty: { level: 'UNKNOWN', reason: 'unscoped: uncertainty is per-task/claim, not corpus-wide' },
   };
 }
 

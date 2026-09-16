@@ -7,16 +7,19 @@
  * not compiled would otherwise be indistinguishable from an unimplemented item)
  * and the Final evaluation.
  *
- * Final is `PASS == 31 AND NOT_IMPLEMENTED == 0 AND BLOCKED == 0`. There is no
- * clock in this model, so elapsing time cannot produce a pass. The criteria text
- * is the ladder definition file itself: editing the denominator invalidates the
- * checkpoint and the drift detector aborts the resume.
+ * Final is `PASS == 31 AND FAIL == 0 AND NOT_IMPLEMENTED == 0 AND BLOCKED == 0`
+ * with every PASS carrying a revision-bound receipt, and it is evaluated by
+ * `finalHoldsFor` so the condition can be tested without running a ladder. There
+ * is no clock in this model, so elapsing time cannot produce a pass. The criteria
+ * text is the ladder definition file itself: editing the denominator invalidates
+ * the checkpoint and the drift detector aborts the resume.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { runGoal } from './goal/runner.mjs';
 import { spec, ITEM_COUNT } from './goal/ladder/p0-p1.mjs';
+import { finalHoldsFor } from './goal/ladder/final.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..');
 const DEFAULT_CRITERIA = path.join(REPO, 'plans', '260915-1658-goal-p0-retrieval-bridge-completion', 'reports', 'ladder-31-items.md');
@@ -127,7 +130,11 @@ const missingReceiptFields = units
   })
   .map((u) => u.itemId);
 
-const finalHolds = (tally.PASS ?? 0) === 31 && (tally.NOT_IMPLEMENTED ?? 0) === 0 && (tally.BLOCKED ?? 0) === 0 && missingReceiptFields.length === 0;
+// Final holds only when every item was judged, none failed, and every PASS carries a
+// revision-bound receipt. The FAIL term is not redundant with PASS == 31: mergeLadder
+// retains a judged unit whose spec item vanished, so a FAIL can outlive the item it
+// belonged to and still be counted while 31 fresh items pass.
+const finalHolds = finalHoldsFor(tally, missingReceiptFields);
 
 const summary = {
   runId,

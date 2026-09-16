@@ -937,9 +937,15 @@ export class Core {
       detail = `${pending} pending candidates`;
     } else if (gate === 'regression') {
       const lastReg = this.db.prepare('SELECT replayResult, replayedAt FROM regressions ORDER BY createdAt DESC LIMIT 1').get() as { replayResult?: string; replayedAt?: string } | undefined;
-      passed = lastReg?.replayResult === 'PASS' ? 1 : 0;
+      // A verdict only counts when a replay produced it. replayResult without a
+      // replayedAt is an asserted value, not an observed one, so it cannot open
+      // the gate — the migration that withdrew legacy assertions makes this
+      // branch unreachable for stored rows, and it stays as the guard for
+      // anything that reaches the table another way.
+      passed = lastReg?.replayResult === 'PASS' && lastReg.replayedAt != null ? 1 : 0;
       detail = !lastReg ? 'no regression run'
         : lastReg.replayResult == null ? 'last regression recorded but never replayed'
+        : lastReg.replayedAt == null ? `last regression asserts ${lastReg.replayResult} with no replay — not adjudicated`
         : `last regression: ${lastReg.replayResult} at ${lastReg.replayedAt}`;
     } else {
       passed = 0;
