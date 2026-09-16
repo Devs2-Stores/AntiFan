@@ -353,10 +353,16 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.strictEqual((telRes as any).recorded, true);
   });
 
-  it('6. CDP screenshot fallback issues Page.captureScreenshot with fromSurface: false and captureBeyondViewport: true', async () => {
+  it('6. CDP screenshot fallback rasterizes from the compositor surface and never requests the native-window snapshot', async () => {
     const { cdpCalls } = createParityHarness();
 
-    const mockWc: any = {
+    // CDP command params arrive as unvalidated `unknown`; narrow the shape before reading flags.
+    const paramsOf = (call: { params: unknown }): Record<string, unknown> =>
+      call.params !== null && typeof call.params === 'object' ? (call.params as Record<string, unknown>) : {};
+
+    // Offscreen agent tab (Dual-Plane OSR): no native view, no compositor surface.
+    // Structural CDP mock: there is no runtime Electron host to check a shape against.
+    const mockWc = {
       id: 202,
       isDestroyed: () => false,
       capturePage: async () => ({ isEmpty: () => true }),
@@ -364,32 +370,34 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
         isAttached: () => false,
         attach: () => {},
         once: () => {},
-        sendCommand: async (method: string, params: any) => {
+        sendCommand: async (method: string, params: unknown) => {
           cdpCalls.push({ method, params });
-          if (method === 'Page.captureScreenshot') {
-            if (params.fromSurface === true) {
-              // Simulate surface inactive on background view
-              return { data: '' };
-            }
-            return { data: 'b2NjbHVkZWQtc2NyZWVuc2hvdA==' };
-          }
-          return {};
+          return { data: 'b2NjbHVkZWQtc2NyZWVuc2hvdA==' };
         },
       },
-    };
+    } as unknown as Electron.WebContents;
     const devToolsHost = new (require('../../src/main/browser/tab-devtools-host').TabDevToolsHost)({
-      getTabRecord: () => ({ state: { id: 'tab-p1' } }),
-      getActiveTabId: () => 'tab-p1',
+      getTabRecord: () => ({ state: { id: 'tab-p1', offscreen: true } }),
+      getActiveTabId: () => 'tab-user',
       getTabWebContents: () => mockWc,
-      withTabAgentWorking: async (_tabId: string, fn: any) => fn(),
+      withTabAgentWorking: async (_tabId: string, fn: () => Promise<string>) => fn(),
     });
 
-    const shotBase64 = await devToolsHost.captureScreenshot();
+    const shotBase64 = await devToolsHost.captureScreenshot(undefined, 'tab-p1');
     assert.strictEqual(shotBase64, 'b2NjbHVkZWQtc2NyZWVuc2hvdA==');
-    const fallbackShotCmd = cdpCalls.find((c) => c.method === 'Page.captureScreenshot' && (c.params as any)?.fromSurface === false);
-    assert.ok(fallbackShotCmd, 'Must send fallback Page.captureScreenshot with fromSurface: false');
-    assert.strictEqual((fallbackShotCmd.params as any).fromSurface, false, 'fromSurface must be false for background capture');
-    assert.strictEqual((fallbackShotCmd.params as any).captureBeyondViewport, true, 'captureBeyondViewport must be true for full occlusion-proof capture');
+    const shotCmds = cdpCalls.filter((c) => c.method === 'Page.captureScreenshot');
+    assert.ok(shotCmds.length >= 1, 'An empty capturePage must fall back to a CDP screenshot');
+    // fromSurface:false is Chromium's native-window snapshot path. An offscreen (OSR)
+    // agent tab has no native view, so that path dereferences null and kills the browser
+    // process (measured: access violation 0xC0000005 at address 0x0), which is why every
+    // CDP screenshot must rasterize from the compositor surface.
+    assert.ok(
+      shotCmds.every((c) => paramsOf(c).fromSurface === true),
+      'Every CDP screenshot must rasterize from the compositor surface'
+    );
+    const firstShot = shotCmds[0];
+    assert.ok(firstShot, 'A CDP screenshot command must have been issued');
+    assert.strictEqual(paramsOf(firstShot).captureBeyondViewport, true, 'A background/offscreen capture must keep document-tall geometry');
   });
 
   it('7. CDP low-level command queue serializes execution and cleans up isolatedContext on detach', async () => {

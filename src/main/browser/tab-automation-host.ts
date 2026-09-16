@@ -487,6 +487,18 @@ export class TabAutomationHost {
     }
   }
 
+  /**
+   * A gesture the caller asked to be trusted, delivered synthetically instead, is a silent
+   * trust regression: the caller sees a successful action and never learns that the event it
+   * produced is readable by the page as non-user input. Name the downgrade where the decision
+   * to fall back is made, so it is never silent.
+   *
+   * Four call sites (ref and selector dispatch, click and hover) depend on this message format.
+   */
+  private warnTrustedDowngrade(res: { reason?: string }, action: string): void {
+    console.warn(`[tab-automation-host] trusted ${action} downgraded to synthetic: ${res.reason || 'no reason reported'}`);
+  }
+
   private async executeTrustedClick(
     wc: Electron.WebContents,
     focusScript?: string,
@@ -541,8 +553,8 @@ export class TabAutomationHost {
       try {
         wc.debugger.attach('1.3');
       } catch (attachErr) {
-        console.warn(`[tab-automation-host] wc.debugger busy, using synthetic click fallback: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}`);
-        return { success: false, fallbackNeeded: true, reason: 'Debugger busy' };
+        const detail = attachErr instanceof Error ? attachErr.message : String(attachErr);
+        return { success: false, fallbackNeeded: true, reason: `Debugger busy: ${detail}` };
       }
     }
     let focusEmulationEnabled = false;
@@ -684,8 +696,8 @@ export class TabAutomationHost {
       try {
         wc.debugger.attach('1.3');
       } catch (attachErr) {
-        console.warn(`[tab-automation-host] wc.debugger busy, using synthetic hover fallback: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}`);
-        return { success: false, fallbackNeeded: true, reason: 'Debugger busy' };
+        const detail = attachErr instanceof Error ? attachErr.message : String(attachErr);
+        return { success: false, fallbackNeeded: true, reason: `Debugger busy: ${detail}` };
       }
     }
 
@@ -821,6 +833,7 @@ export class TabAutomationHost {
               if (!trustedRes.fallbackNeeded) {
                 return trustedRes;
               }
+              this.warnTrustedDowngrade(trustedRes, action);
             }
 
             if (params.trusted !== false && action === 'hover') {
@@ -842,6 +855,7 @@ export class TabAutomationHost {
               if (!trustedRes.fallbackNeeded) {
                 return trustedRes;
               }
+              this.warnTrustedDowngrade(trustedRes, action);
             }
             if (params.trusted && action === 'type' && typeof params.text === 'string') {
               const focusScript = buildIsolatedExecutorScript({
@@ -961,6 +975,7 @@ export class TabAutomationHost {
             if (!trustedRes.fallbackNeeded) {
               return trustedRes;
             }
+            this.warnTrustedDowngrade(trustedRes, action);
           }
 
           if (params.trusted !== false && action === 'hover') {
@@ -984,6 +999,7 @@ export class TabAutomationHost {
             if (!trustedRes.fallbackNeeded) {
               return trustedRes;
             }
+            this.warnTrustedDowngrade(trustedRes, action);
           }
           if (params.trusted && action === 'type' && typeof params.text === 'string') {
             const focusScript = buildIsolatedExecutorScript({

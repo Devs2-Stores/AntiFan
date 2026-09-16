@@ -33,7 +33,7 @@ import {
 } from '../verification/visual-capture';
 import { buildStaircasePrewarmScript, normalizeScrollPrewarmResult } from '../verification/scroll-prewarm';
 import type { ScrollPrewarmReceipt } from '../verification/scroll-prewarm';
-import { evaluatePreCaptureQuiescence } from '../verification/capture-settle';
+import { evaluatePreCaptureQuiescence, type PreCaptureQuiescenceResult } from '../verification/capture-settle';
 import { buildTrackerStubScript, buildTrackerStubTeardownScript, TRACKER_BLOCK_PATTERNS } from './tracker-isolation';
 import type { TrackerIsolationReceipt } from './tracker-isolation';
 
@@ -76,6 +76,8 @@ export interface TabDevToolsContext {
   updateLayout?: () => void;
   applyTabDeviceEmulation?: (tabId: string) => void;
   isTabViewAttached?: (view: Electron.WebContentsView | null | undefined) => boolean;
+  /** True while the host window is on screen (visible, not minimized, not destroyed). */
+  isWindowRenderable?: () => boolean;
 }
 export interface TabDevToolsStats {
   attachedWebContentsCount: number;
@@ -681,11 +683,16 @@ export class TabDevToolsHost {
       };
 
       const onNavigate = () => {
+        // Liveness gate only: CDP events carry their own target, so `wc` is not a
+        // precondition here (a frame-less or pre-commit WebContents still needs its
+        // per-tab provenance cleared on navigation).
+        if (!wc || wc.isDestroyed()) return;
         this.isolatedContextIds.delete(wcId);
         this.stylesheetUrls.delete(wcId);
       };
 
       const onMessage = (_event: Electron.Event, method: string, params: Record<string, unknown>) => {
+        if (!wc || wc.isDestroyed()) return;
         if (method !== 'CSS.styleSheetAdded') return;
         const header = params?.header;
         if (!header || typeof header !== 'object') return;
@@ -1635,7 +1642,12 @@ export class TabDevToolsHost {
           }
         }
 
-        // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (4000ms race)
+        // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (4000ms race).
+        // `fromSurface` is always true here, and must stay that way: Chromium's native-window
+        // snapshot path (fromSurface:false) dereferences the target's native window, which an
+        // offscreen (OSR) agent tab does not have, and that dereference kills the browser
+        // process (measured: exception 0xC0000005 at address 0x0, dumps stop in
+        // WindowSnapshotReachedScreen -> GrabNativeWindowSnapshot) instead of failing the call.
         try {
           const cdpTask = async (): Promise<string | null> => {
             await this.sendCdpCommand(wc, 'Page.enable');
@@ -1644,7 +1656,7 @@ export class TabDevToolsHost {
             const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
               format,
               quality: format === 'jpeg' ? quality : undefined,
-              fromSurface: isForeground,
+              fromSurface: true,
               captureBeyondViewport: !isForeground,
               clip: rect
                 ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
@@ -1658,25 +1670,12 @@ export class TabDevToolsHost {
           }
         } catch {}
 
-        // Tier 3: Offscreen Native View Paint Fallback (5000ms race)
-        try {
-          const offscreenTask = async (): Promise<string | null> => {
-            const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
-              format,
-              quality: format === 'jpeg' ? quality : undefined,
-              fromSurface: false,
-              captureBeyondViewport: true,
-              clip: rect
-                ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
-                : undefined,
-            });
-            return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
-          };
-          const tier3Result = await withTimeout(offscreenTask(), 5000, null);
-          if (tier3Result && tier3Result.length > 0) {
-            return tier3Result;
-          }
-        } catch {}
+        // There is deliberately no native-view fallback tier here. Chromium's
+        // `fromSurface:false` snapshot dereferences the target's native window, and an
+        // offscreen (OSR) agent tab has none, so the browser process dies with an access
+        // violation (measured: exception 0xC0000005 at address 0x0; production dumps stop
+        // at WindowSnapshotReachedScreen -> GrabNativeWindowSnapshot). A target without a
+        // compositor surface must fail as an empty capture, never as a process crash.
         // If all tiers yielded empty string, do a fast retry after 150ms
         try {
           await new Promise((r) => setTimeout(r, 150));
@@ -1802,6 +1801,7 @@ export class TabDevToolsHost {
     let captureError: Error | undefined;
     let lastPrewarmReceipt: ScrollPrewarmReceipt | undefined;
     let prewarmFailure: string | undefined;
+    let lastQuiescence: PreCaptureQuiescenceResult | undefined;
     try {
       captureEnvelope = await this.ctx.withTabAgentWorking(targetId, async () => {
         // Screenshot Guard: Temporarily suppress agent overlay & visual cursor during capture
@@ -1837,8 +1837,50 @@ export class TabDevToolsHost {
               `Tab '${targetId}' pane '${effectivePane}' has no renderable surface: it reports ${surface.vw}x${surface.vh} CSS px (readyState '${surface.readyState}', hidden ${surface.hidden}, cause ${classifyRenderSurfaceCause(surface)}). Size the tab with anti.browser.set_viewport or navigate it to a real page before capturing.`
             );
           }
+          // A window that is not on screen keeps a measurable layout viewport but
+          // its compositor never produces a beyond-viewport raster:
+          // Page.captureScreenshot with captureBeyondViewport then waits out the
+          // whole bound instead of failing (measured: 60s CAPTURE_TIMEOUT after
+          // win.hide(), both GPU modes). document.hidden does NOT observe
+          // win.hide() here — the renderer still reports visible — so the owning
+          // window's presented state is the authoritative signal, with the
+          // renderer's own hidden flag kept as a second witness. Viewport capture
+          // still rasterizes the existing surface, so the refusal is scoped to
+          // clip/full-page. Offscreen targets keep their own path — they
+          // rasterize an offscreen surface regardless of window visibility, and
+          // full-page on them is already refused above.
+          if (mode !== 'viewport' && !isOffscreenTarget) {
+            const windowPresented = this.ctx.isWindowRenderable ? this.ctx.isWindowRenderable() : true;
+            if (!windowPresented || surface.hidden === true) {
+              const cause = surface.hidden === true ? classifyRenderSurfaceCause(surface) : 'window-not-presented';
+              throw new CaptureError(
+                'NO_RENDER_SURFACE',
+                `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause ${cause}). Show the window or use a viewport capture.`
+              );
+            }
+          }
           const dpr = surface.dpr;
           const cssViewport = { width: surface.vw, height: surface.vh };
+          // Refuse an impossible full-page request before spending the walk and the
+          // settle gate on it. The document is measured again after the walk — lazily
+          // mounted content can push a legal page past the ceiling, and that later
+          // check stays authoritative — but a page that is already over the ceiling
+          // cannot become legal by walking it, so the walk would only add ~2 s of
+          // staircase scrolling before the same refusal.
+          if (mode === 'full-page') {
+            const preflightHeight = await this.readDocumentScrollHeight(wc);
+            if (
+              !Number.isFinite(preflightHeight) ||
+              preflightHeight < 1 ||
+              preflightHeight > CAPTURE_MAX_DIMENSION ||
+              cssViewport.width > CAPTURE_MAX_DIMENSION
+            ) {
+              throw new CaptureError(
+                'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY',
+                `Requested ${mode} capture region ${cssViewport.width}x${preflightHeight} CSS px is outside the supported 1..${CAPTURE_MAX_DIMENSION} range on tab '${targetId}'`
+              );
+            }
+          }
           // A full-page raster is one compositor snapshot, so lazily mounted
           // content must already be in the document. Walk the page once before
           // the quiescence gate measures it, otherwise the gate certifies a
@@ -1870,6 +1912,7 @@ export class TabDevToolsHost {
               effectivePane,
               { fullPage: mode === 'full-page' }
             );
+            lastQuiescence = quiescence;
             if (!quiescence.ready) {
               // `evaluatePreCaptureQuiescence` reports the failing predicate as one of
               // 'documentGenerationSettled' | 'viewportStable' | 'fontsSettled' | 'imagesSettled' |
@@ -1937,6 +1980,24 @@ export class TabDevToolsHost {
           // requested CSS size. The target is activated (or attached via
           // runWithAttachedTabView) before this call, so the surface belongs to
           // the requested tab.
+          //
+          // `fromSurface` is true for every mode, not only clip/full-page. It is the
+          // compositor-surface flag, so it is the same flag that keeps an offscreen
+          // (OSR) agent tab from being snapshot through a native window it does not
+          // have — the renderer-view path dereferences that window and kills the
+          // browser process (measured: exception 0xC0000005 at address 0x0) instead of
+          // returning an error. A target without a surface yields a typed capture
+          // error rather than a crash.
+          // Re-check right before the dispatch: the refusal above runs before the
+          // walk + settle gate (seconds of work), so a window hidden mid-capture
+          // would otherwise still reach captureBeyondViewport and wait out the
+          // bound — the same 60s hang this guard exists to prevent.
+          if (mode !== 'viewport' && !isOffscreenTarget && this.ctx.isWindowRenderable && !this.ctx.isWindowRenderable()) {
+            throw new CaptureError(
+              'NO_RENDER_SURFACE',
+              `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window was hidden or minimized during capture setup, so the compositor produces no beyond-viewport surface. Show the window or use a viewport capture.`
+            );
+          }
           let captureRes: { data?: string } | undefined;
           try {
             captureRes = await this.sendCdpCommand<{ data?: string }>(
@@ -1945,7 +2006,7 @@ export class TabDevToolsHost {
               {
                 format: imageFormat,
                 quality: imageFormat === 'jpeg' ? Math.max(1, Math.min(100, Math.round(options?.quality ?? 85))) : undefined,
-                fromSurface: mode !== 'viewport',
+                fromSurface: true,
                 captureBeyondViewport: mode !== 'viewport',
                 clip,
               },
@@ -1990,6 +2051,10 @@ export class TabDevToolsHost {
             // materialized or whether a growth ceiling stopped the walk early.
             prewarm: lastPrewarmReceipt,
             prewarmError: prewarmFailure,
+            // What the settle gate had to tolerate: a page with a rotating banner, a
+            // permanently broken ad image, or a late-settling layout is capturable, but
+            // the receipt has to say so rather than report a clean document.
+            settle: lastQuiescence?.warnings,
           };
         };
 
