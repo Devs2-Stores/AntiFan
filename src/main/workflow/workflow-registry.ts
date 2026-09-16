@@ -1,6 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { WorkflowDefinition, WorkflowDefinitionSchema } from './workflow-schema';
+import {
+  WorkflowDefinition,
+  WorkflowDefinitionSchema,
+  LegacyWorkflowDefinition,
+  LegacyWorkflowDefinitionSchema,
+} from './workflow-schema';
 
 export interface WorkflowItem {
   id: string;
@@ -9,7 +14,8 @@ export interface WorkflowItem {
   version: '1.0';
   category: 'qa' | 'ecommerce' | 'security' | 'custom';
   isBuiltIn: boolean;
-  definition: WorkflowDefinition;
+  definition: WorkflowDefinition | LegacyWorkflowDefinition;
+  legacy?: boolean;
 }
 
 export const BUILTIN_WORKFLOWS: WorkflowItem[] = [
@@ -98,7 +104,7 @@ export const BUILTIN_WORKFLOWS: WorkflowItem[] = [
           id: 'step-mobile-preset',
           name: 'Chuyển sang chuẩn thiết bị di động (iPhone 14 Pro / 393x852)',
           type: 'browser.set_device_preset',
-          params: { presetId: 'mobile-iphone-14-pro' },
+          params: { presetId: 'phone-iphone14pro' },
           timeoutMs: 5000,
           retryCount: 0,
           continueOnError: false,
@@ -221,25 +227,84 @@ export class WorkflowRegistry {
       const files = fs.readdirSync(this.storageDir);
       for (const file of files) {
         if (!file.endsWith('.json')) continue;
+        const filePath = path.join(this.storageDir, file);
         try {
-          const content = fs.readFileSync(path.join(this.storageDir, file), 'utf-8');
-          const json = JSON.parse(content);
-          const parsed = WorkflowDefinitionSchema.safeParse(json.definition || json);
-          if (parsed.success) {
-            const id = json.id || `wf-custom-${file.replace(/\.json$/, '')}`;
+          const content = fs.readFileSync(filePath, 'utf-8');
+          let json: Record<string, unknown>;
+          try {
+            const parsedJson = JSON.parse(content);
+            if (!parsedJson || typeof parsedJson !== 'object') {
+              throw new Error('Workflow file content must be a JSON object');
+            }
+            json = parsedJson as Record<string, unknown>;
+          } catch (parseErr) {
+            console.warn(`[workflow-registry] Corrupt JSON in workflow file ${file}, quarantining to .invalid:`, parseErr);
+            this.quarantineFile(filePath);
+            continue;
+          }
+
+          const rawDef = json.definition || json;
+          const fileCustomId = typeof json.id === 'string' ? json.id : `wf-custom-${file.replace(/\.json$/, '')}`;
+          const unionParsed = WorkflowDefinitionSchema.safeParse(rawDef);
+          if (unionParsed.success) {
+            const id = fileCustomId;
             this.customWorkflows.set(id, {
               id,
-              name: parsed.data.name,
-              description: parsed.data.description || '',
-              version: parsed.data.version,
+              name: unionParsed.data.name,
+              description: unionParsed.data.description || '',
+              version: unionParsed.data.version,
               category: 'custom',
               isBuiltIn: false,
-              definition: parsed.data,
+              definition: unionParsed.data,
             });
+            continue;
           }
+
+          // Fall back to legacy schema with unvalidated params
+          const legacyParsed = LegacyWorkflowDefinitionSchema.safeParse(rawDef);
+          if (legacyParsed.success) {
+            console.warn(`[workflow-registry] Workflow ${file} loaded using legacy schema with unvalidated params`);
+            const id = fileCustomId;
+            this.customWorkflows.set(id, {
+              id,
+              name: legacyParsed.data.name,
+              description: legacyParsed.data.description || '',
+              version: legacyParsed.data.version,
+              category: 'custom',
+              isBuiltIn: false,
+              definition: legacyParsed.data,
+              legacy: true,
+            });
+            continue;
+          }
+
+          // Double-fail: neither unionSchema nor legacySchema validated; quarantine file
+          console.warn(
+            `[workflow-registry] Workflow ${file} failed both union and legacy schema validation; quarantining to .invalid`
+          );
+          this.quarantineFile(filePath);
+        } catch (err) {
+          console.warn(`[workflow-registry] Unexpected error processing ${file}, quarantining to .invalid:`, err);
+          this.quarantineFile(filePath);
+        }
+      }
+    } catch (err) {
+      console.error('[workflow-registry] Failed to read workflows storage dir:', err);
+    }
+  }
+
+  private quarantineFile(filePath: string): void {
+    try {
+      const invalidPath = filePath.endsWith('.json') ? filePath.replace(/\.json$/, '.invalid') : `${filePath}.invalid`;
+      if (fs.existsSync(invalidPath)) {
+        try {
+          fs.unlinkSync(invalidPath);
         } catch {}
       }
-    } catch {}
+      fs.renameSync(filePath, invalidPath);
+    } catch (err) {
+      console.error(`[workflow-registry] Failed to quarantine file ${filePath}:`, err);
+    }
   }
 
   public getAll(): WorkflowItem[] {
@@ -262,15 +327,33 @@ export class WorkflowRegistry {
       description: item.description,
       steps: item.steps,
     };
-    const validated = WorkflowDefinitionSchema.parse(rawDef);
+
+    let definition: WorkflowDefinition | LegacyWorkflowDefinition;
+    let isLegacy = false;
+
+    const unionParsed = WorkflowDefinitionSchema.safeParse(rawDef);
+    if (unionParsed.success) {
+      definition = unionParsed.data;
+    } else {
+      const legacyParsed = LegacyWorkflowDefinitionSchema.safeParse(rawDef);
+      if (legacyParsed.success) {
+        console.warn(`[workflow-registry] Custom workflow ${id} saved using legacy schema with unvalidated params`);
+        definition = legacyParsed.data;
+        isLegacy = true;
+      } else {
+        throw unionParsed.error;
+      }
+    }
+
     const workflowItem: WorkflowItem = {
       id,
-      name: validated.name,
-      description: validated.description || '',
+      name: definition.name,
+      description: definition.description || '',
       version: '1.0',
       category: 'custom',
       isBuiltIn: false,
-      definition: validated,
+      definition,
+      ...(isLegacy ? { legacy: true } : {}),
     };
     this.customWorkflows.set(id, workflowItem);
 

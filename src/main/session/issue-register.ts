@@ -31,6 +31,9 @@ export interface IssueRecord {
   workaroundApplied?: string;
   status: 'OPEN' | 'RESOLVED' | 'BYPASSED';
   notes?: string;
+  evidenceRef?: string;
+  evidenceRefs?: string[];
+  resolvedAt?: number;
   /**
    * Phase 6 taxonomy extension (all optional, additive — existing consumers
    * keep working unchanged):
@@ -164,8 +167,41 @@ export class IssueRegister {
   }
 
 
-  public record(issue: Omit<IssueRecord, 'id' | 'timestamp' | 'timeFormatted' | 'severity' | 'status'> & { id?: string; severity?: 'P0' | 'P1' | 'P2' | 'P3'; status?: IssueRecord['status'] }): IssueRecord {
+  public record(issue: Omit<IssueRecord, 'id' | 'timestamp' | 'timeFormatted' | 'severity' | 'status'> & { id?: string; severity?: 'P0' | 'P1' | 'P2' | 'P3'; status?: IssueRecord['status']; evidenceRef?: string; evidenceRefs?: string[] }): IssueRecord {
     const now = Date.now();
+
+    // Deduplicate identical toolName + errorMessage on record
+    const targetStatus = issue.status || 'OPEN';
+    const existing = this.issues.find(
+      (i) => i.toolName === issue.toolName && i.errorMessage === issue.errorMessage && i.status === targetStatus
+    ) || (targetStatus === 'OPEN' ? this.issues.find(
+      (i) => i.toolName === issue.toolName && i.errorMessage === issue.errorMessage && i.status === 'OPEN'
+    ) : undefined);
+
+    if (existing) {
+      existing.timestamp = now;
+      existing.timeFormatted = new Date(now).toISOString();
+      if (issue.severity) existing.severity = issue.severity;
+      if (issue.errorCode) existing.errorCode = issue.errorCode;
+      if (issue.targetUrl) existing.targetUrl = issue.targetUrl;
+      if (issue.tabId) existing.tabId = issue.tabId;
+      if (issue.workaroundApplied) existing.workaroundApplied = issue.workaroundApplied;
+      if (issue.reasonCode) existing.reasonCode = issue.reasonCode;
+      if (issue.notes) existing.notes = existing.notes ? `${existing.notes}; ${issue.notes}` : issue.notes;
+      if (issue.evidenceRef) {
+        existing.evidenceRef = issue.evidenceRef;
+        existing.evidenceRefs = [...new Set([...(existing.evidenceRefs || []), issue.evidenceRef])];
+      }
+      if (issue.evidenceRefs) {
+        existing.evidenceRefs = [...new Set([...(existing.evidenceRefs || []), ...issue.evidenceRefs])];
+      }
+      if (issue.affected) {
+        existing.affected = [...new Set([...(existing.affected || []), ...issue.affected])];
+      }
+      this.rewriteFile();
+      return existing;
+    }
+
     const id = issue.id || `ISS-${now}-${Math.random().toString(36).substring(2, 7)}`;
     const fullRecord: IssueRecord = {
       ...issue,
@@ -186,7 +222,6 @@ export class IssueRegister {
 
     return fullRecord;
   }
-
   public list(options?: { status?: string; severity?: string; issueClass?: string; errorCode?: string; limit?: number }): IssueRecord[] {
     let result = [...this.issues];
     if (options?.status) {
@@ -257,15 +292,82 @@ export class IssueRegister {
     return [...groups.values()].sort((a, b) => severityRank[b.worstSeverity] - severityRank[a.worstSeverity] || b.count - a.count);
   }
 
-  public resolve(id: string, resolutionNotes?: string): boolean {
+  public resolve(id: string, resolutionNotes?: string, evidenceRef?: string): boolean {
+    return this.markResolved(id, evidenceRef, resolutionNotes);
+  }
+
+  public markResolved(id: string, evidenceRef?: string | string[], notes?: string): boolean {
     const item = this.issues.find((i) => i.id === id);
     if (!item) return false;
     item.status = 'RESOLVED';
-    if (resolutionNotes) {
-      item.notes = item.notes ? `${item.notes}; ${resolutionNotes}` : resolutionNotes;
+    item.resolvedAt = Date.now();
+    if (evidenceRef) {
+      if (Array.isArray(evidenceRef)) {
+        item.evidenceRefs = [...new Set([...(item.evidenceRefs || []), ...evidenceRef])];
+        if (evidenceRef.length > 0 && !item.evidenceRef) {
+          item.evidenceRef = evidenceRef[0];
+        }
+      } else {
+        item.evidenceRef = evidenceRef;
+        item.evidenceRefs = [...new Set([...(item.evidenceRefs || []), evidenceRef])];
+      }
+    }
+    if (notes) {
+      item.notes = item.notes ? `${item.notes}; ${notes}` : notes;
     }
     this.rewriteFile();
     return true;
+  }
+
+  public reconcile(
+    target: string | string[] | { ids?: string[]; toolName?: string; errorCode?: string; predicate?: (issue: IssueRecord) => boolean },
+    evidenceRef?: string | string[],
+    notes?: string
+  ): { resolvedCount: number; resolvedIds: string[] } {
+    const resolvedIds: string[] = [];
+    let toResolve: IssueRecord[] = [];
+
+    if (typeof target === 'string') {
+      const item = this.issues.find((i) => i.id === target);
+      if (item) toResolve.push(item);
+    } else if (Array.isArray(target)) {
+      const idSet = new Set(target);
+      toResolve = this.issues.filter((i) => idSet.has(i.id));
+    } else if (target && typeof target === 'object') {
+      toResolve = this.issues.filter((i) => {
+        if (target.ids && !target.ids.includes(i.id)) return false;
+        if (target.toolName && i.toolName !== target.toolName) return false;
+        if (target.errorCode && i.errorCode !== target.errorCode && i.reasonCode !== target.errorCode) return false;
+        if (target.predicate && !target.predicate(i)) return false;
+        return true;
+      });
+    }
+
+    for (const item of toResolve) {
+      if (item.status !== 'RESOLVED') {
+        item.status = 'RESOLVED';
+        item.resolvedAt = Date.now();
+      }
+      if (evidenceRef) {
+        if (Array.isArray(evidenceRef)) {
+          item.evidenceRefs = [...new Set([...(item.evidenceRefs || []), ...evidenceRef])];
+          if (evidenceRef.length > 0 && !item.evidenceRef) item.evidenceRef = evidenceRef[0];
+        } else {
+          item.evidenceRef = evidenceRef;
+          item.evidenceRefs = [...new Set([...(item.evidenceRefs || []), evidenceRef])];
+        }
+      }
+      if (notes) {
+        item.notes = item.notes ? `${item.notes}; ${notes}` : notes;
+      }
+      resolvedIds.push(item.id);
+    }
+
+    if (resolvedIds.length > 0) {
+      this.rewriteFile();
+    }
+
+    return { resolvedCount: resolvedIds.length, resolvedIds };
   }
   public getIssue(id: string): IssueRecord | undefined {
     return this.issues.find((i) => i.id === id);

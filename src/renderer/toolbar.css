@@ -2468,6 +2468,7 @@ body, html {
 .pill-passed { background: rgba(16, 185, 129, 0.25); color: #34d399; }
 .pill-failed { background: rgba(239, 68, 68, 0.25); color: #f87171; }
 .pill-interrupted { background: rgba(245, 158, 11, 0.25); color: #fbbf24; }
+.hub-status-pill.step-blocked { background: rgba(245, 158, 11, 0.25); color: #fbbf24; }
 
 @keyframes hubPulse {
   0%, 100% { opacity: 1; }
@@ -2559,6 +2560,15 @@ body, html {
 .hub-step-card.step-failed {
   border-left: 3px solid #ef4444;
 }
+.hub-step-card.step-skipped {
+  border-left: 3px solid #64748b;
+  opacity: 0.75;
+}
+
+.hub-step-card.step-blocked {
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
 
 .hub-step-idx {
   width: 24px;
@@ -2624,6 +2634,8 @@ body, html {
 .step-status-running { color: #38bdf8; animation: hubPulse 1.2s infinite; }
 .step-status-passed { color: #10b981; }
 .step-status-failed { color: #ef4444; }
+.step-status-skipped { color: #94a3b8; }
+.step-status-blocked { color: #fbbf24; }
 
 /* Artifacts Grid */
 .hub-artifacts-section {

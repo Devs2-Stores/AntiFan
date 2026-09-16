@@ -6,6 +6,7 @@ import {
   ClientInvocationIntent,
   RuntimeLease,
 } from '../../shared/control-plane-contracts';
+import { findDevicePreset } from '../browser/device-presets';
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { ArtifactStore } from '../tools/artifact-store';
 import { CapabilityTransportAdapter, CapabilityTransportResponse } from '../tools/capability-transport';
@@ -39,6 +40,82 @@ export interface WorkflowExecutionOptions {
   authorityRevision?: string;
   parentInvocationId?: string;
   dispatchChildIntent?: (stepId: string, attempt: number, intent: ClientInvocationIntent) => Promise<any>;
+}
+
+/**
+ * Device-preset ids that older persisted workflow definitions still carry. They are lowered to
+ * the current preset id before validation, so a stored workflow keeps emulating the device it
+ * was written for instead of silently degrading to a desktop viewport.
+ */
+const DEVICE_PRESET_ALIASES: Readonly<Record<string, string>> = {
+  'mobile-iphone-14-pro': 'phone-iphone14pro',
+  'mobile-iphone-15': 'phone-iphone15pro',
+  'mobile-iphone15': 'phone-iphone15pro',
+  'mobile-iphone-se': 'phone-iphonese',
+  'mobile-pixel': 'phone-pixel7',
+  'desktop-laptop': 'laptop-1440',
+  'tablet-portrait': 'tablet-768',
+  'tablet-desktop': 'tablet-landscape-1024',
+};
+
+/**
+ * Lowering pass that normalizes a step's params into the shape its capability actually declares,
+ * before capability dispatch. Two legacy shapes are accepted:
+ *
+ * - `browser.set_device_preset`: a legacy `presetId` alias is resolved first, then the id is
+ *   validated against the device-preset table. An id that resolves to nothing is a hard
+ *   `INVALID_ARGUMENT` — a workflow must never silently measure a desktop layout while claiming
+ *   it emulated a phone.
+ * - `file.assert_not_contains`: `forbiddenPatterns: string[]` is kept as an enumerated list of
+ *   literal substrings. The capability matches `pattern` with a literal `String.includes`, so an
+ *   alternation string would never match; dispatch issues one assertion per alternative instead.
+ */
+export function normalizeStepParams(step: { type: string; params?: Record<string, unknown> }): Record<string, unknown> {
+  const params: Record<string, unknown> = { ...(step.params ?? {}) };
+
+  if (step.type === 'browser.set_device_preset') {
+    const raw = params.presetId;
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      const trimmed = raw.trim();
+      const aliased = DEVICE_PRESET_ALIASES[trimmed.toLowerCase()] ?? trimmed;
+      if (!findDevicePreset(aliased)) {
+        throw new CapabilityError(
+          'INVALID_ARGUMENT',
+          `Unknown device preset '${raw}'. Valid presets are listed by the browser.list-device-presets capability.`
+        );
+      }
+      params.presetId = aliased;
+    }
+  }
+
+  if (step.type === 'file.assert_not_contains') {
+    const forbidden = params.forbiddenPatterns;
+    const hasPattern = typeof params.pattern === 'string' && params.pattern.length > 0;
+    if (!hasPattern && Array.isArray(forbidden)) {
+      const lowered = forbidden.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+      if (lowered.length === 0) {
+        throw new CapabilityError(
+          'INVALID_ARGUMENT',
+          'file.assert_not_contains requires a non-empty pattern or forbiddenPatterns'
+        );
+      }
+      // The capability matches `pattern` as a literal substring, so it cannot evaluate alternation.
+      // The enumerated list IS the contract: dispatch asserts each alternative literally, one
+      // capability call per entry. No synthetic regex is fabricated here.
+      params.forbiddenPatterns = lowered;
+    }
+  }
+
+  return params;
+}
+
+/**
+ * Bounded jittered exponential backoff: `200 * 2^attempt + jitter`, capped at 2s. The cap keeps a
+ * retried step inside the workflow's own timeout envelope while still de-correlating concurrent runs.
+ */
+function retryBackoffMs(attempt: number): number {
+  const jitter = Math.floor(Math.random() * 200);
+  return Math.min(2000, 200 * Math.pow(2, attempt) + jitter);
 }
 export class WorkflowEngine {
   constructor(private readonly ports: WorkflowEnginePorts) {}
@@ -87,7 +164,35 @@ export class WorkflowEngine {
 
     emitEvent({ type: 'workflow:start' });
 
-    let status: 'passed' | 'failed' | 'interrupted' = 'passed';
+    let aborted = false;
+    let fatalFailure = false;
+    let continueOnErrorFailure = false;
+
+    /**
+     * Closes out every step from `fromIndex` onward as `skipped`. A step that never ran must still
+     * publish a terminal `step:end`, otherwise the Hub keeps rendering it as pending forever.
+     */
+    const skipRemaining = (fromIndex: number, errorMessage: string) => {
+      for (let j = fromIndex; j < def.steps.length; j++) {
+        const remaining = def.steps[j];
+        if (!remaining) continue;
+        stepResults.push({
+          stepId: remaining.id,
+          stepName: remaining.name,
+          type: remaining.type,
+          status: 'skipped',
+          durationMs: 0,
+          error: errorMessage,
+        });
+        emitEvent({
+          type: 'step:end',
+          stepId: remaining.id,
+          stepName: remaining.name,
+          status: 'skipped',
+          error: errorMessage,
+        });
+      }
+    };
 
     for (let i = 0; i < def.steps.length; i++) {
       const step = def.steps[i];
@@ -95,18 +200,8 @@ export class WorkflowEngine {
 
       // Check abort signal before starting step
       if (signal?.aborted) {
-        status = 'interrupted';
-        emitEvent({ type: 'step:start', stepId: step.id, stepName: step.name });
-        const stepResult: WorkflowStepResult = {
-          stepId: step.id,
-          stepName: step.name,
-          type: step.type,
-          status: 'skipped',
-          durationMs: 0,
-          error: 'Workflow was aborted by caller',
-        };
-        stepResults.push(stepResult);
-        emitEvent({ type: 'step:end', stepId: step.id, stepName: step.name, status: 'skipped', error: stepResult.error });
+        aborted = true;
+        skipRemaining(i, 'Workflow was aborted by caller');
         break;
       }
 
@@ -195,8 +290,23 @@ export class WorkflowEngine {
           ) {
             break;
           }
+
+          const isLastAttempt = attempt + 1 >= maxAttempts;
+          if (isLastAttempt || signal?.aborted) continue;
+
+          const delayMs = retryBackoffMs(attempt);
+          emitEvent({
+            type: 'step:retry',
+            stepId: step.id,
+            stepName: step.name,
+            attempt: attempt + 1,
+            delayMs,
+            error: lastError.message,
+          });
+          await this.delay(delayMs);
         }
       }
+
       let isAborted = Boolean(signal?.aborted);
       if (!stepResult) {
         const errorMsg = lastError?.message || 'Unknown step execution failure';
@@ -211,12 +321,6 @@ export class WorkflowEngine {
           durationMs: Date.now() - stepStartTime,
           error: errorMsg,
         };
-
-        if (isAborted) {
-          status = 'interrupted';
-        } else if (!step.continueOnError) {
-          status = 'failed';
-        }
       }
 
       stepResults.push(stepResult);
@@ -229,25 +333,31 @@ export class WorkflowEngine {
       });
 
       if (stepResult.status === 'failed') {
-        if (!isAborted) {
-          status = 'failed';
-        }
-        if (!step.continueOnError || isAborted) {
-          for (let j = i + 1; j < def.steps.length; j++) {
-            const remainingStep = def.steps[j];
-            if (!remainingStep) continue;
-            stepResults.push({
-              stepId: remainingStep.id,
-              stepName: remainingStep.name,
-              type: remainingStep.type,
-              status: 'skipped',
-              durationMs: 0,
-            });
-          }
+        if (isAborted) {
+          // Abort always terminates the run, even for a step that opted into continueOnError.
+          aborted = true;
+          skipRemaining(i + 1, 'Workflow was aborted by caller');
           break;
         }
+        if (step.continueOnError) {
+          // Handled catch: the failure is recorded but the run keeps going, so the run is not
+          // reported as failed — it completed with errors.
+          continueOnErrorFailure = true;
+          continue;
+        }
+        fatalFailure = true;
+        skipRemaining(i + 1, `Skipped because step '${step.id}' failed`);
+        break;
       }
     }
+
+    const status: WorkflowExecutionResult['status'] = aborted
+      ? 'interrupted'
+      : fatalFailure
+      ? 'failed'
+      : continueOnErrorFailure
+      ? 'completed_with_errors'
+      : 'passed';
 
     const totalDurationMs = Date.now() - startTime;
     const passedSteps = stepResults.filter((s) => s.status === 'passed').length;
@@ -307,8 +417,7 @@ export class WorkflowEngine {
     context: CapabilityRequestContext,
     timeoutMs: number,
     signal?: AbortSignal,
-    dispatchChild?: (intent: ClientInvocationIntent) => Promise<CapabilityTransportResponse>,
-    attachmentContext?: { attachmentId: string; attachmentSecret: string; authorityRevision: string }
+    dispatchChild?: (intent: ClientInvocationIntent) => Promise<CapabilityTransportResponse>
   ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget; replacementRevision?: string }> {
     const stepAbortController = new AbortController();
     let timer: NodeJS.Timeout | undefined;
@@ -353,8 +462,7 @@ export class WorkflowEngine {
           step,
           context,
           stepAbortController.signal,
-          dispatchChild,
-          attachmentContext
+          dispatchChild
         ),
         timeoutPromise,
         abortPromise,
@@ -369,10 +477,11 @@ export class WorkflowEngine {
     step: WorkflowStep,
     context: CapabilityRequestContext,
     signal: AbortSignal,
-    dispatchChild?: (intent: ClientInvocationIntent) => Promise<CapabilityTransportResponse>,
-    attachmentContext?: { attachmentId: string; attachmentSecret: string; authorityRevision: string }
+    dispatchChild?: (intent: ClientInvocationIntent) => Promise<CapabilityTransportResponse>
   ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget; replacementRevision?: string }> {
-    const params = (step.params || {}) as Record<string, unknown>;
+    // Lowering pass: legacy param shapes are normalized to what each capability declares before any
+    // dispatch, so a persisted workflow cannot fail on a contract that has since been tightened.
+    const params = normalizeStepParams(step);
     const tabId = typeof params.tabId === 'string' ? params.tabId : undefined;
 
     const invokeCap = async (
@@ -488,19 +597,31 @@ export class WorkflowEngine {
 
       case 'browser.wait_for_selector': {
         const selector = params.selector;
-        if (!selector || typeof selector !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'wait_for_selector requires selector');
+        if (typeof selector !== 'string' || selector.trim().length === 0) {
+          throw new CapabilityError('INVALID_ARGUMENT', 'browser.wait_for_selector requires a non-empty selector');
+        }
+        const targetSelector = selector.trim();
         const pollIntervalMs = 100;
-        const maxWaitMs = step.timeoutMs || 5000;
-        const startPoll = Date.now();
+        // The wrapping step timer carries the same `timeoutMs`, so the poll loop must finish first:
+        // otherwise the generic step timeout pre-empts the diagnostic that names the selector.
+        const maxWaitMs = Math.max(100, (step.timeoutMs || 5000) - 150);
+        const deadline = Date.now() + maxWaitMs;
         let found = false;
 
-        while (Date.now() - startPoll < maxWaitMs) {
+        while (Date.now() < deadline) {
           if (signal?.aborted) {
             throw new Error('Workflow was aborted');
           }
           try {
-            const domRes = await invokeCap('browser.dom', { selector, tabId }, { ...context, grant: 'read' });
-            if (domRes.data) {
+            const probe = (await invokeCap(
+              'browser.wait',
+              { condition: 'selector', selector: targetSelector, state: 'attached', timeoutMs: pollIntervalMs, tabId },
+              { ...context, grant: 'read' }
+            )) as { data?: { satisfied?: unknown } | null };
+            // Strict boolean read. A capability that stages an ArtifactRef returns a truthy
+            // envelope for an empty match, so `satisfied` is the only admissible evidence that the
+            // element exists — an envelope being truthy is not.
+            if (probe.data && probe.data.satisfied === true) {
               found = true;
               break;
             }
@@ -508,12 +629,16 @@ export class WorkflowEngine {
             if (signal?.aborted) {
               throw new Error('Workflow was aborted');
             }
-            // keep polling
+            if (err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT') {
+              throw err;
+            }
+            // Transient poll failure: keep waiting until the deadline.
           }
+          if (Date.now() >= deadline) break;
           await this.delay(pollIntervalMs);
         }
         if (!found) {
-          throw new Error(`Selector '${selector}' not found within ${maxWaitMs}ms`);
+          throw new Error(`Selector '${targetSelector}' not found within ${maxWaitMs}ms`);
         }
         return { data: { found: true } };
       }
@@ -579,12 +704,34 @@ export class WorkflowEngine {
 
       case 'file.assert_not_contains': {
         const path = params.path;
+        // `forbiddenPatterns` was already lowered to `pattern` by normalizeStepParams; the
+        // capability's inputSchema only knows `{ path, pattern }`.
         const pattern = params.pattern;
-        if (!path || typeof path !== 'string' || !pattern || typeof pattern !== 'string') {
+        if (!path || typeof path !== 'string') {
+          throw new CapabilityError('INVALID_ARGUMENT', 'file.assert_not_contains requires path');
+        }
+        const enumerated = Array.isArray(params.forbiddenPatterns)
+          ? params.forbiddenPatterns.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+          : [];
+        const alternatives = enumerated.length > 0 ? enumerated : typeof pattern === 'string' && pattern.length > 0 ? [pattern] : [];
+        if (alternatives.length === 0) {
           throw new CapabilityError('INVALID_ARGUMENT', 'file.assert_not_contains requires path and pattern');
         }
-        const res = await invokeCap('file.assert_not_contains', { path, pattern }, { ...context, grant: 'read' });
-        return { data: res.data, replacementRevision: res.replacementRevision };
+
+        let lastData: unknown;
+        for (const alternative of alternatives) {
+          const res = await invokeCap(
+            'file.assert_not_contains',
+            { path, pattern: alternative },
+            { ...context, grant: 'read' }
+          );
+          lastData = res.data;
+          // The capability reports a missing file as a satisfied assertion; nothing left to scan.
+          if ((res.data as { missing?: boolean } | null)?.missing === true) {
+            return { data: res.data, replacementRevision: res.replacementRevision };
+          }
+        }
+        return { data: lastData };
       }
 
       case 'report.generate': {
@@ -607,8 +754,12 @@ export class WorkflowEngine {
         return { data: { generated: true }, artifacts: [art] };
       }
 
-      default:
-        throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unsupported workflow step type: ${step.type}`);
+      default: {
+        // The discriminated union covers every step type; this branch only runs for an
+        // unregistered type surviving legacy load. Cast restores the runtime value for the message.
+        const unsupported = step as { type?: unknown };
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unsupported workflow step type: ${String(unsupported.type)}`);
+      }
     }
   }
 

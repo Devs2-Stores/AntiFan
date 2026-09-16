@@ -1000,14 +1000,39 @@ async function runActiveWorkflow() {
     const res = await getApi()?.runWorkflow({ workflowId: hubSelectedWorkflow.id, workflowDef: hubSelectedWorkflow.definition });
     if (res) {
       const isPassed = res.status === 'passed';
+      // `completed_with_errors` means every step ran and the failures were handled by
+      // `continueOnError`; it is not a failed run. A precondition refusal is a blocked run, not a
+      // failed one — the main process reports it as FORBIDDEN_SENDER or an explicit `blocked`.
+      const isCompletedWithErrors = res.status === 'completed_with_errors';
+      const isBlocked = res.status === 'blocked' || (res.ok === false && res.error === 'FORBIDDEN_SENDER');
       if (runStatusPill) {
-        runStatusPill.className = `hub-status-pill ${isPassed ? 'pill-passed' : 'pill-failed'}`;
-        runStatusPill.textContent = isPassed ? 'PASSED (100%)' : (res.status || 'FAILED').toUpperCase();
+        if (isPassed) {
+          runStatusPill.className = 'hub-status-pill pill-passed';
+          runStatusPill.textContent = 'PASSED (100%)';
+        } else if (isCompletedWithErrors) {
+          runStatusPill.className = 'hub-status-pill pill-interrupted';
+          runStatusPill.textContent = 'COMPLETED WITH ERRORS';
+        } else if (isBlocked) {
+          runStatusPill.className = 'hub-status-pill step-blocked';
+          runStatusPill.textContent = 'BLOCKED';
+        } else {
+          runStatusPill.className = 'hub-status-pill pill-failed';
+          runStatusPill.textContent = (res.status || 'FAILED').toUpperCase();
+        }
       }
       if (runCurrentStepText) {
-        runCurrentStepText.textContent = `Hoàn thành: ${res.passedSteps || 0}/${steps.length} bước thành công (${((res.totalDurationMs || 0) / 1000).toFixed(2)}s)`;
+        if (isBlocked) {
+          runCurrentStepText.textContent = `Bị chặn: ${res.error || 'Precondition refused'}`;
+        } else {
+          runCurrentStepText.textContent = `Hoàn thành: ${res.passedSteps || 0}/${steps.length} bước thành công (${((res.totalDurationMs || 0) / 1000).toFixed(2)}s)`;
+        }
       }
-      if (hubProgressBar) hubProgressBar.style.width = '100%';
+      if (hubProgressBar) {
+        hubProgressBar.style.width = '100%';
+        if (isBlocked) {
+          hubProgressBar.style.backgroundColor = '#f59e0b';
+        }
+      }
 
       if (res.artifacts && res.artifacts.length > 0 && wfArtifactsSection && wfArtifactsGrid) {
         wfArtifactsSection.style.display = 'flex';
@@ -1032,7 +1057,7 @@ async function runActiveWorkflow() {
                   preview.innerHTML = `<img src="${fullArt.data}" alt="${escapeHtml(art.name || '')}" />`;
                 }
               }
-            });
+            }).catch(() => null);
           } catch {}
           wfArtifactsGrid.appendChild(card);
         }
@@ -2865,11 +2890,15 @@ async function initToolbar() {
         }
       } else if (event.type === 'step:end' && event.stepId) {
         const isPassed = event.status === 'passed';
+        // `skipped` (abort rollback) and `blocked` (precondition refusal) are distinct from a
+        // failure: an aborted run must not paint its remaining steps red.
+        const isSkipped = event.status === 'skipped';
+        const isBlocked = event.status === 'blocked';
         const card = document.getElementById(`step-card-${event.stepId}`);
-        if (card) card.className = `hub-step-card ${isPassed ? 'step-passed' : 'step-failed'}`;
+        if (card) card.className = `hub-step-card ${isPassed ? 'step-passed' : isSkipped ? 'step-skipped' : isBlocked ? 'step-blocked' : 'step-failed'}`;
         const pill = document.getElementById(`step-status-${event.stepId}`);
         if (pill) {
-          pill.className = `hub-step-status ${isPassed ? 'step-status-passed' : 'step-status-failed'}`;
+          pill.className = `hub-step-status ${isPassed ? 'step-status-passed' : isSkipped ? 'step-status-skipped' : isBlocked ? 'step-status-blocked' : 'step-status-failed'}`;
           pill.textContent = (event.status || 'DONE').toUpperCase();
         }
       }

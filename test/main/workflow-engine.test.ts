@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { WorkflowEngine } from '../../src/main/workflow/workflow-engine';
+import { WorkflowEngine, normalizeStepParams } from '../../src/main/workflow/workflow-engine';
 import { WorkflowDefinition } from '../../src/main/workflow/workflow-schema';
 import { registerWorkflowCapabilities } from '../../src/main/workflow/workflow-capabilities';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
@@ -921,5 +921,391 @@ describe('Workflow Engine', () => {
 
     assert.strictEqual(result.status, 'interrupted');
     assert.ok(domCalls >= 1, 'Mock DOM must have been called before abort');
+  });
+
+  it('lowers legacy step params before dispatch: forbiddenPatterns, preset aliases, unknown presets', () => {
+    // The capability matches `pattern` with a literal String.includes, so alternation is never
+    // fabricated: the enumerated list is preserved and dispatch asserts each entry literally.
+    const lowered = normalizeStepParams({
+      type: 'file.assert_not_contains',
+      params: { path: 'package.json', forbiddenPatterns: ['PRIVATE_KEY', 'AWS_SECRET'] },
+    });
+    assert.strictEqual(lowered.pattern, undefined);
+    assert.strictEqual(lowered.path, 'package.json');
+    assert.deepStrictEqual(lowered.forbiddenPatterns, ['PRIVATE_KEY', 'AWS_SECRET']);
+
+    // An explicit `pattern` wins over a legacy array.
+    const explicit = normalizeStepParams({
+      type: 'file.assert_not_contains',
+      params: { path: 'a.ts', pattern: 'SECRET' },
+    });
+    assert.strictEqual(explicit.pattern, 'SECRET');
+
+    // Legacy device-preset aliases resolve before validation.
+    const aliased = normalizeStepParams({ type: 'browser.set_device_preset', params: { presetId: 'mobile-iphone-14-pro' } });
+    assert.strictEqual(aliased.presetId, 'phone-iphone14pro');
+
+    const canonical = normalizeStepParams({ type: 'browser.set_device_preset', params: { presetId: 'phone-iphone14pro' } });
+    assert.strictEqual(canonical.presetId, 'phone-iphone14pro');
+
+    // A genuinely unknown preset is refused instead of silently emulating a desktop viewport.
+    assert.throws(
+      () => normalizeStepParams({ type: 'browser.set_device_preset', params: { presetId: 'not-a-real-device' } }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+
+    // Other step types pass through untouched.
+    const untouched = normalizeStepParams({ type: 'browser.navigate', params: { url: 'https://example.com' } });
+    assert.deepStrictEqual(untouched, { url: 'https://example.com' });
+  });
+
+  it('fails browser.wait_for_selector with a timeout for a selector that does not exist', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-wait-miss-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    let domCalls = 0;
+    const host = createMockHost({
+      // The real host returns '' (never throws) when a selector matches nothing.
+      getDom: async (selector?: string) => {
+        domCalls++;
+        return selector === '#present' ? '<button id="present"></button>' : '';
+      },
+    });
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+
+    const absent: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Wait For Absent Selector',
+      steps: [
+        { id: 'wait-absent', name: 'Wait for absent', type: 'browser.wait_for_selector', params: { selector: '#never-rendered' }, timeoutMs: 1000, retryCount: 0, continueOnError: false },
+      ],
+    };
+
+    const failed = await engine.execute({ workflow: absent, target, lease, runId: 'run-wait-miss', attemptId: 'attempt-1', grant: 'write' });
+
+    assert.strictEqual(failed.status, 'failed', 'A missing selector must not false-pass');
+    assert.strictEqual(failed.passedSteps, 0);
+    assert.strictEqual(failed.stepResults[0]?.status, 'failed');
+    assert.match(String(failed.stepResults[0]?.error), /not found within 850ms/);
+    assert.ok(domCalls >= 2, `Expected repeated polling, saw ${domCalls} probe(s)`);
+
+    const present: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Wait For Present Selector',
+      steps: [
+        { id: 'wait-present', name: 'Wait for present', type: 'browser.wait_for_selector', params: { selector: '#present' }, timeoutMs: 1000, retryCount: 0, continueOnError: false },
+      ],
+    };
+
+    const passed = await engine.execute({ workflow: present, target, lease, runId: 'run-wait-hit', attemptId: 'attempt-1', grant: 'write' });
+    assert.strictEqual(passed.status, 'passed');
+    assert.deepStrictEqual(passed.stepResults[0]?.data, { found: true });
+  });
+
+  it('emits step:end skipped for every remaining step after an abort', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-abort-skip-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const controller = new AbortController();
+    const host = createMockHost({
+      // Abort mid-run: step-1 completes, so the remaining steps are the ones DEF-06 stranded.
+      navigate: () => {
+        controller.abort(new Error('User aborted run'));
+        return true;
+      },
+    });
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+
+    const events: Array<{ type: string; stepId?: string; status?: string }> = [];
+
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Abort Skip Propagation',
+      steps: [
+        { id: 's1', name: 'Navigate', type: 'browser.navigate', params: { url: 'https://example.com' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+        { id: 's2', name: 'Second', type: 'browser.navigate', params: { url: 'https://example.com/2' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+        { id: 's3', name: 'Third', type: 'browser.navigate', params: { url: 'https://example.com/3' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+      ],
+    };
+
+    const res = await engine.execute({
+      workflow,
+      target,
+      lease,
+      runId: 'run-abort-skip',
+      attemptId: 'attempt-1',
+      grant: 'write',
+      signal: controller.signal,
+      onEvent: (event) => events.push({ type: event.type, stepId: event.stepId, status: event.status }),
+    });
+
+    assert.strictEqual(res.status, 'interrupted');
+    // Step-1 was in flight when the caller aborted, so it is recorded as failed, not passed.
+    assert.strictEqual(res.failedSteps, 1);
+    assert.strictEqual(res.passedSteps, 0);
+    assert.strictEqual(res.skippedSteps, 2);
+
+    const skippedEnds = events.filter((e) => e.type === 'step:end' && e.status === 'skipped').map((e) => e.stepId);
+    assert.deepStrictEqual(skippedEnds, ['s2', 's3'], 'Every remaining step must publish a terminal skipped event');
+    for (const step of res.stepResults) {
+      assert.ok(events.some((e) => e.type === 'step:end' && e.stepId === step.stepId), `step ${step.stepId} hung without a step:end`);
+    }
+
+    // An abort observed before the first step must close out EVERY step, not just the next one.
+    const preAborted = new AbortController();
+    preAborted.abort(new Error('User aborted run'));
+    const preEvents: Array<{ type: string; stepId?: string; status?: string }> = [];
+
+    const preRes = await engine.execute({
+      workflow,
+      target,
+      lease,
+      runId: 'run-preabort-skip',
+      attemptId: 'attempt-1',
+      grant: 'write',
+      signal: preAborted.signal,
+      onEvent: (event) => preEvents.push({ type: event.type, stepId: event.stepId, status: event.status }),
+    });
+
+    assert.strictEqual(preRes.status, 'interrupted');
+    assert.strictEqual(preRes.skippedSteps, 3, 'Every step must be closed out as skipped');
+    assert.strictEqual(preRes.passedSteps, 0);
+    assert.deepStrictEqual(
+      preEvents.filter((e) => e.type === 'step:end' && e.status === 'skipped').map((e) => e.stepId),
+      ['s1', 's2', 's3']
+    );
+  });
+
+  it('completes with errors when a failing step opts into continueOnError', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-continue-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const host = createMockHost();
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+
+    const steps = [
+      { id: 'bad', name: 'Unknown preset', type: 'browser.set_device_preset', params: { presetId: 'not-a-real-device' }, timeoutMs: 5000, retryCount: 0, continueOnError: true },
+      { id: 'good', name: 'Navigate', type: 'browser.navigate', params: { url: 'https://example.com' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+    ] as const;
+
+    const continued = await engine.execute({
+      workflow: { version: '1.0', name: 'Continue On Error', steps: steps as unknown as WorkflowDefinition['steps'] },
+      target,
+      lease,
+      runId: 'run-continue',
+      attemptId: 'attempt-1',
+      grant: 'write',
+    });
+
+    assert.strictEqual(continued.status, 'completed_with_errors');
+    assert.strictEqual(continued.failedSteps, 1);
+    assert.strictEqual(continued.passedSteps, 1, 'The step after the handled failure must still run');
+    assert.strictEqual(continued.skippedSteps, 0);
+
+    const halted = await engine.execute({
+      workflow: {
+        version: '1.0',
+        name: 'Halt On Error',
+        steps: steps.map((s) => ({ ...s, continueOnError: false })) as unknown as WorkflowDefinition['steps'],
+      },
+      target,
+      lease,
+      runId: 'run-halt',
+      attemptId: 'attempt-1',
+      grant: 'write',
+    });
+
+    assert.strictEqual(halted.status, 'failed');
+    assert.strictEqual(halted.passedSteps, 0);
+    assert.strictEqual(halted.skippedSteps, 1, 'A fatal failure must skip the remaining chain');
+  });
+
+  it('retries a failed step with bounded jittered backoff and emits step:retry telemetry', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-retry-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const host = createMockHost();
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+
+    const retries: Array<{ attempt?: number; delayMs?: number }> = [];
+
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Retry Backoff',
+      steps: [
+        { id: 'r1', name: 'Always fails', type: 'browser.set_device_preset', params: { presetId: 'not-a-real-device' }, timeoutMs: 5000, retryCount: 2, continueOnError: false },
+      ],
+    };
+
+    const startedAt = Date.now();
+    const res = await engine.execute({
+      workflow,
+      target,
+      lease,
+      runId: 'run-retry',
+      attemptId: 'attempt-1',
+      grant: 'write',
+      onEvent: (event) => {
+        if (event.type === 'step:retry') retries.push({ attempt: event.attempt, delayMs: event.delayMs });
+      },
+    });
+    const elapsed = Date.now() - startedAt;
+
+    assert.strictEqual(res.status, 'failed');
+    assert.deepStrictEqual(retries.map((r) => r.attempt), [1, 2], 'Each retry must announce the upcoming attempt');
+    for (const retry of retries) {
+      assert.ok(typeof retry.delayMs === 'number' && retry.delayMs > 0, 'Retry must carry an explicit delay');
+      assert.ok((retry.delayMs as number) <= 2000, `Backoff must stay bounded, saw ${retry.delayMs}ms`);
+    }
+    assert.ok(elapsed < 2000, `Backoff must stay inside the step envelope, saw ${elapsed}ms`);
+  });
+
+  it('dispatches a legacy forbiddenPatterns step to file.assert_not_contains with the lowered pattern', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-assert-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'clean', version: '1.0.0' }), 'utf8');
+
+    const host = createMockHost();
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+    const files = new WorkspaceFilePort();
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+    registerFileCapabilities(catalogue, files, () => root);
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+
+    // Mirrors the built-in wf-theme-security-scan step shape, which the capability used to reject.
+    const clean: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Security Scan Clean',
+      steps: [
+        { id: 'scan', name: 'No secrets', type: 'file.assert_not_contains', params: { path: 'package.json', forbiddenPatterns: ['PRIVATE_KEY', 'AWS_SECRET'] }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+      ],
+    };
+
+    const passed = await engine.execute({ workflow: clean, target, lease, runId: 'run-scan-clean', attemptId: 'attempt-1', grant: 'read' });
+    assert.strictEqual(passed.status, 'passed', `Step failed: ${passed.stepResults[0]?.error}`);
+    assert.deepStrictEqual(passed.stepResults[0]?.data, { ok: true });
+
+    // A file that genuinely carries a forbidden pattern must still fail the assertion.
+    fs.writeFileSync(path.join(root, 'leaky.json'), JSON.stringify({ AWS_SECRET: 'shhh' }), 'utf8');
+    const leaky: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Security Scan Leaky',
+      steps: [
+        { id: 'scan', name: 'No secrets', type: 'file.assert_not_contains', params: { path: 'leaky.json', forbiddenPatterns: ['PRIVATE_KEY', 'AWS_SECRET'] }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+      ],
+    };
+
+    const failed = await engine.execute({ workflow: leaky, target, lease, runId: 'run-scan-leaky', attemptId: 'attempt-1', grant: 'read' });
+    assert.strictEqual(failed.status, 'failed');
+    assert.match(String(failed.stepResults[0]?.error), /forbidden pattern/);
   });
 });

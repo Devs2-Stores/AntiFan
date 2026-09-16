@@ -139,6 +139,15 @@ export interface CoreHealthServiceOptions {
   issueRegister?: Pick<IssueRegister, 'list' | 'summarizeOpen'>;
   /** Per-spawn timeout in ms. */
   timeoutMs?: number;
+  /** CLI result cache TTL in ms. */
+  cacheTtlMs?: number;
+}
+
+interface TaskRunsCliResult {
+  taskRunsTable?: boolean;
+  taskRuns?: Array<Record<string, unknown>>;
+  packs?: Array<Record<string, unknown>>;
+  cases?: Array<Record<string, unknown>>;
 }
 
 interface HealthCliResult {
@@ -214,52 +223,81 @@ export class CoreHealthService {
   private readonly repoRoot: string;
   private readonly projectRoots: string[];
   private readonly timeoutMs: number;
+  private readonly cacheTtlMs: number;
   private readonly runner?: (command: string, arg?: string) => unknown;
   private readonly issues: Pick<IssueRegister, 'list' | 'summarizeOpen'>;
+  private readonly cliCache = new Map<string, { value: unknown; expiresAt: number }>();
+  private readonly cliInFlight = new Map<string, Promise<unknown>>();
 
   constructor(options: CoreHealthServiceOptions = {}) {
     this.repoRoot = options.repoRoot ?? resolveRepoRoot(__dirname);
     this.scriptPath = options.scriptPath ?? path.join(this.repoRoot, 'scripts', 'antifan-core.cjs');
     this.projectRoots = options.projectRoots ?? [this.repoRoot];
     this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.cacheTtlMs = options.cacheTtlMs ?? 5_000;
     this.runner = options.runCli;
     this.issues = options.issueRegister ?? IssueRegister.getInstance();
   }
 
   /** Run one CLI command; rejects on any failure (caller maps to UNAVAILABLE).
-   * Async spawn — never blocks the main-process event loop. */
+   * Async spawn — never blocks the main-process event loop.
+   * Results are cached for cacheTtlMs and in-flight requests are deduplicated. */
   private async cli<T = unknown>(command: string, arg?: string): Promise<T> {
-    if (this.runner) return this.runner(command, arg) as T;
-    const args = [this.scriptPath, command];
-    if (arg !== undefined) args.push(arg);
-    const res = await new Promise<{ status: number | null; stdout: string; stderr: string; error?: Error }>((resolve) => {
-      const child = spawn(process.execPath, args, {
-        cwd: this.repoRoot,
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-        windowsHide: true,
-      });
-      let stdout = '';
-      let stderr = '';
-      const timer = setTimeout(() => { child.kill('SIGKILL'); }, this.timeoutMs);
-      child.stdout.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
-      child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
-      child.on('error', (error) => { clearTimeout(timer); resolve({ status: null, stdout, stderr, error }); });
-      child.on('close', (status) => { clearTimeout(timer); resolve({ status, stdout, stderr }); });
-    });
-    if (res.error) throw res.error;
-    if (res.status !== 0) {
-      const stderr = res.stderr.trim();
-      // The CLI reports a missing store as JSON on stderr with exit 2.
-      let reason: string | undefined;
-      try {
-        const parsed: unknown = JSON.parse(stderr);
-        if (parsed && typeof parsed === 'object' && 'reason' in parsed && typeof parsed.reason === 'string') {
-          reason = parsed.reason;
-        }
-      } catch { /* not JSON — fall through to raw stderr */ }
-      throw new Error(reason || stderr || `antifan-core ${command} exited ${res.status}`);
+    const key = `${command}:${arg ?? ''}`;
+    const cached = this.cliCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value as T;
     }
-    return JSON.parse(res.stdout) as T;
+    const inFlight = this.cliInFlight.get(key);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
+    const promise = (async () => {
+      if (this.runner) return this.runner(command, arg) as T;
+      const args = [this.scriptPath, command];
+      if (arg !== undefined) args.push(arg);
+      const res = await new Promise<{ status: number | null; stdout: string; stderr: string; error?: Error }>((resolve) => {
+        const child = spawn(process.execPath, args, {
+          cwd: this.repoRoot,
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+          windowsHide: true,
+        });
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => { child.kill('SIGKILL'); }, this.timeoutMs);
+        child.stdout.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
+        child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+        child.on('error', (error) => { clearTimeout(timer); resolve({ status: null, stdout, stderr, error }); });
+        child.on('close', (status) => { clearTimeout(timer); resolve({ status, stdout, stderr }); });
+      });
+      if (res.error) throw res.error;
+      if (res.status !== 0) {
+        const stderr = res.stderr.trim();
+        // The CLI reports a missing store as JSON on stderr with exit 2.
+        let reason: string | undefined;
+        try {
+          const parsed: unknown = JSON.parse(stderr);
+          if (parsed && typeof parsed === 'object' && 'reason' in parsed && typeof parsed.reason === 'string') {
+            reason = parsed.reason;
+          }
+        } catch { /* not JSON — fall through to raw stderr */ }
+        throw new Error(reason || stderr || `antifan-core ${command} exited ${res.status}`);
+      }
+      return JSON.parse(res.stdout) as T;
+    })();
+    this.cliInFlight.set(key, promise);
+    try {
+      const value = await promise;
+      this.cliCache.set(key, { value, expiresAt: Date.now() + this.cacheTtlMs });
+      return value;
+    } finally {
+      this.cliInFlight.delete(key);
+    }
+  }
+
+  /** Invalidate all cached CLI results (e.g. on manual refresh). */
+  public clearCache(): void {
+    this.cliCache.clear();
   }
 
   private unavailable<T extends { status: CoreHealthStatus; reasonCode: string; affected: string[]; evidenceRefs: string[] }>(
@@ -368,14 +406,23 @@ export class CoreHealthService {
         evidenceRefs: ['issue-register:open'],
         detail: `${p0.length} P0 + ${p1.length} P1 open issues`,
       });
+    } else if (open.length > 0) {
+      checks.push({
+        name: 'issues.open',
+        status: 'UNKNOWN',
+        reasonCode: 'OPEN_ISSUES',
+        affected: open.slice(0, 10).map((i) => `${i.id}:${i.errorCode || i.toolName}`),
+        evidenceRefs: ['issue-register:open'],
+        detail: `${open.length} open issue(s), none above P1`,
+      });
     } else {
       checks.push({
         name: 'issues.open',
         status: 'HEALTHY',
-        reasonCode: 'NO_HIGH_SEVERITY_ISSUES',
+        reasonCode: 'NO_OPEN_ISSUES',
         affected: [],
         evidenceRefs: ['issue-register:open'],
-        detail: `${open.length} open issue(s), none above P1`,
+        detail: 'No open issues',
       });
     }
 
@@ -398,7 +445,7 @@ export class CoreHealthService {
   // hook runs inside the OMP agent process and cannot reach IssueRegister, so
   // this surface reads the JSONL directly and reports honestly when absent.
 
-  async getBridgeState(): Promise<BridgeState> {
+  async getBridgeState(sharedTaskRuns?: Promise<TaskRunsCliResult>): Promise<BridgeState> {
     const state: BridgeState = {
       status: 'UNKNOWN',
       reasonCode: 'BRIDGE_TELEMETRY_MISSING',
@@ -427,8 +474,8 @@ export class CoreHealthService {
     }
 
     try {
-      const runs = await this.cli<{ packs?: Array<Record<string, unknown>> }>('task-runs', JSON.stringify({ limit: 10 }));
-      state.recentPacks = runs.packs ?? [];
+      const runs = await (sharedTaskRuns ?? this.fetchTaskRuns());
+      state.recentPacks = (runs.packs ?? []).slice(0, 10);
       state.evidenceRefs.push('cli:task-runs');
     } catch {
       state.unknowns.push('recent pack list unavailable (task-runs command failed)');
@@ -436,28 +483,27 @@ export class CoreHealthService {
 
     const events: BridgeEvent[] = [];
     for (const root of this.projectRoots) {
-      const file = path.join(root, '.canary', 'core-bridge', 'events.jsonl');
-      if (!fs.existsSync(file)) continue;
+      const eventsPath = path.join(root, '.canary', 'core-bridge', 'events.jsonl');
+      if (!fs.existsSync(eventsPath)) continue;
       state.telemetryFound = true;
-      state.telemetryPaths.push(file);
+      state.telemetryPaths.push(eventsPath);
       try {
-        for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-          if (!line.trim()) continue;
+        const raw = fs.readFileSync(eventsPath, 'utf8');
+        for (const line of raw.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
           try {
-            const parsed: unknown = JSON.parse(line);
-            if (parsed && typeof parsed === 'object') events.push(parsed as BridgeEvent);
+            events.push(JSON.parse(trimmed) as BridgeEvent);
           } catch {
-            state.unknowns.push(`unparseable bridge event line in ${file}`);
+            // ignore malformed lines
           }
         }
-      } catch (err) {
-        state.unknowns.push(`cannot read ${file}: ${String(err instanceof Error ? err.message : err)}`);
+      } catch {
+        // ignore read errors
       }
     }
 
     state.failures = events.filter((e) => e.event === 'BRIDGE_CONTEXT_FAILED');
-    state.evidenceRefs.push(...state.telemetryPaths);
-
     if (state.failures.length > 0) {
       state.status = 'DEGRADED';
       state.reasonCode = 'BRIDGE_CONTEXT_FAILED';
@@ -465,7 +511,7 @@ export class CoreHealthService {
     } else if (!state.telemetryFound) {
       state.status = 'UNKNOWN';
       state.reasonCode = 'BRIDGE_TELEMETRY_MISSING';
-      state.affected = this.projectRoots.map((r) => path.join(r, '.canary', 'core-bridge', 'events.jsonl'));
+      state.affected = [];
     } else {
       state.status = 'HEALTHY';
       state.reasonCode = 'NO_BRIDGE_FAILURES';
@@ -476,7 +522,11 @@ export class CoreHealthService {
 
   // ---- item 15: Task Run trace ------------------------------------------------
 
-  async listTaskRuns(): Promise<TaskRunListState> {
+  private async fetchTaskRuns(): Promise<TaskRunsCliResult> {
+    return this.cli<TaskRunsCliResult>('task-runs', JSON.stringify({ limit: 50 }));
+  }
+
+  async listTaskRuns(sharedTaskRuns?: Promise<TaskRunsCliResult>): Promise<TaskRunListState> {
     const state: TaskRunListState = {
       status: 'UNKNOWN',
       reasonCode: 'NO_TASK_RUNS',
@@ -488,24 +538,18 @@ export class CoreHealthService {
       cases: [],
     };
     try {
-      const out = await this.cli<{
-        taskRunsTable?: boolean;
-        taskRuns?: Array<Record<string, unknown>>;
-        packs?: Array<Record<string, unknown>>;
-        cases?: Array<Record<string, unknown>>;
-      }>('task-runs', JSON.stringify({ limit: 50 }));
+      const out = await (sharedTaskRuns ?? this.fetchTaskRuns());
       state.taskRunsTable = Boolean(out.taskRunsTable);
       state.taskRuns = out.taskRuns ?? [];
       state.packs = out.packs ?? [];
       state.cases = out.cases ?? [];
-      const total = state.taskRuns.length + state.packs.length + state.cases.length;
-      if (total > 0) {
+      if (state.taskRuns.length > 0) {
         state.status = 'HEALTHY';
         state.reasonCode = 'TASK_RUNS_PRESENT';
       } else {
         state.status = 'UNKNOWN';
         state.reasonCode = 'NO_TASK_RUNS';
-        state.affected = ['no packs, cases, or task_runs rows in the Core store'];
+        state.affected = ['no task_runs rows in the Core store'];
       }
       return state;
     } catch (err) {
@@ -645,10 +689,11 @@ export class CoreHealthService {
   // ---- aggregate ------------------------------------------------------------
 
   async getState(): Promise<CoreHealthState> {
+    const sharedTaskRunsPromise = this.fetchTaskRuns();
     const [snapshot, bridge, taskRuns, regressions] = await Promise.all([
       this.getSnapshot(),
-      this.getBridgeState(),
-      this.listTaskRuns(),
+      this.getBridgeState(sharedTaskRunsPromise),
+      this.listTaskRuns(sharedTaskRunsPromise),
       this.getRegressions(),
     ]);
     return { snapshot, bridge, taskRuns, rootCauses: this.getRootCauses(), regressions };
