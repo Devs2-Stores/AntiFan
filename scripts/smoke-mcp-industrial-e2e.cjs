@@ -338,8 +338,13 @@ async function runMcpLiveE2ETest() {
     const clickAction = recordedActions.find((a) => a.type === 'click');
     const inputAction = recordedActions.find((a) => a.type === 'input');
 
-    assert.ok(clickAction, 'Click action must be recorded in browser');
-    assert.equal(clickAction.isTrusted, true, 'Hardware CDP click must have genuine isTrusted === true');
+ assert.ok(clickAction, 'Click action must be recorded in browser');
+ assert.equal(
+ clickAction.isTrusted,
+ true,
+ 'Hardware CDP click must have genuine isTrusted === true; observed events were ' +
+ JSON.stringify(recordedActions)
+ );
 
     assert.ok(inputAction, 'Input action must be recorded in browser');
     assert.equal(inputAction.value, 'Doorbell is broken');
@@ -354,6 +359,8 @@ async function runMcpLiveE2ETest() {
       const elapsed = performance.now() - t0;
       latencies.push(elapsed);
     }
+    const samplesMs = latencies.map((value) => Number(value.toFixed(1)));
+    console.log(`[Storefront Benchmark Samples] ${samplesMs.join(', ')}`);
     latencies.sort((a, b) => a - b);
     const p50 = latencies[Math.floor(latencies.length * 0.5)];
     const p95 = latencies[Math.floor(latencies.length * 0.95)];
