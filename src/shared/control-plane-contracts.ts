@@ -757,7 +757,9 @@ export type CapabilityErrorCode =
   | 'DEVICE_SESSION_FAILED'
   | 'DEVICE_OPERATION_UNSUPPORTED'
   | 'DEVICE_TARGET_STALE'
-  | 'ATTACHMENT_REBIND_FAILED';
+  | 'ATTACHMENT_REBIND_FAILED'
+  | 'TARGET_TRANSITION_UNCOMMITTED'
+  | 'SUCCESS_WITH_REPLACEMENT_AUTHORITY_REQUIRED';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;

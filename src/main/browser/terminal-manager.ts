@@ -439,7 +439,7 @@ export function safeSliceTailJsonBounded(str: string, maxJsonBytes: number): str
   return result;
 }
 export class TerminalManager extends EventEmitter {
-  private static instance: TerminalManager;
+  private static instance: TerminalManager | undefined;
   private static constructionCount = 0;
   private sessions = new Map<string, Session>();
   private sessionGenerations = new Map<string, number>();
@@ -1531,6 +1531,13 @@ export class TerminalManager extends EventEmitter {
     this.dirtySessionIds.delete(s.id);
     await this.teardownSessionPty(s);
   }
+  private pruneSubscribersForSession(sessionId: string): void {
+    for (const [key, sub] of this.subscribers.entries()) {
+      if (sub.sessionId === sessionId) {
+        this.subscribers.delete(key);
+      }
+    }
+  }
   public async kill(): Promise<void> {
     const s = this.sessions.get(this.activeSessionId);
     if (s) {
@@ -1538,11 +1545,16 @@ export class TerminalManager extends EventEmitter {
       if (split) {
         await this.safelyKillSession(split);
         this.sessions.delete(split.id);
+        this.sessionGenerations.delete(split.id);
+        this.dirtySessionIds.delete(split.id);
+        this.pruneSubscribersForSession(split.id);
         this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
       }
       await this.safelyKillSession(s);
       this.sessions.delete(s.id);
-      this.emit('session-closed', { id: s.id, generation: s.sessionGeneration });
+      this.sessionGenerations.delete(s.id);
+      this.dirtySessionIds.delete(s.id);
+      this.pruneSubscribersForSession(s.id);
       if (this.activeSessionId === s.id) {
         this.activeSessionId = this.listSessions()[0]?.id || '';
       }
@@ -1628,6 +1640,9 @@ export class TerminalManager extends EventEmitter {
     if (!split) return false;
     await this.safelyKillSession(split);
     this.sessions.delete(split.id);
+    this.sessionGenerations.delete(split.id);
+    this.dirtySessionIds.delete(split.id);
+    this.pruneSubscribersForSession(split.id);
     this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
     this.persist();
     this.emitSession();
@@ -2029,10 +2044,16 @@ export class TerminalManager extends EventEmitter {
     if (split) {
       await this.safelyKillSession(split);
       this.sessions.delete(split.id);
+      this.sessionGenerations.delete(split.id);
+      this.dirtySessionIds.delete(split.id);
+      this.pruneSubscribersForSession(split.id);
       this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
     }
     await this.safelyKillSession(s);
     this.sessions.delete(id);
+    this.sessionGenerations.delete(id);
+    this.dirtySessionIds.delete(id);
+    this.pruneSubscribersForSession(id);
     if (this.activeSessionId === id) {
       this.activeSessionId = this.listSessions()[0]?.id || '';
     }
@@ -2113,8 +2134,12 @@ export class TerminalManager extends EventEmitter {
     }
     await Promise.allSettled(killPromises);
     this.sessions.clear();
+    this.sessionGenerations.clear();
+    this.persistedFragments.clear();
+    this.subscribers.clear();
     this.emitTimeMs.clear();
     this.dirtySessionIds.clear();
+    TerminalManager.instance = undefined;
   }
 
   public async waitTerminal(input: TerminalWaitInput, signal?: AbortSignal): Promise<TerminalWaitResult> {

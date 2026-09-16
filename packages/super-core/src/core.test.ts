@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { openCore, type Core } from './index.js';
-import { SCHEMA_VERSION } from './schema.js';
+import { openCore, type Core, CORE_NAMESPACES } from './index.js';
+import { SCHEMA_VERSION, NAMESPACE_BACKFILL_SQL } from './schema.js';
 
 function fixtureReports() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-fixture-'));
@@ -783,6 +783,144 @@ test("the task's latest pack is the last issued, not the first created", () => {
     // Rows written before the column existed carry NULL and must fall back to createdAt.
     raw.prepare('UPDATE packs SET lastIssuedAt = NULL WHERE packId = ?').run(first.packId);
     assert.equal(core.reuseMetric({ task }).packId, second.packId, 'NULL lastIssuedAt falls back to createdAt');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('namespace is recorded and backfilled across claims, cases, and decisions', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ns-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    // 1. Verify schemaVersion is bumped to 10
+    const version = (raw.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value;
+    assert.equal(version, '10', 'SCHEMA_VERSION is 10');
+
+    // 2. Import scout fixtures
+    core.importScout(fixtureReports());
+    
+    // Claims with contextPlatform='haravan' should have namespace='PLATFORM_KNOWLEDGE'
+    const c1 = raw.prepare("SELECT namespace FROM claims WHERE claimId = 'c1'").get() as { namespace: string };
+    assert.equal(c1.namespace, 'PLATFORM_KNOWLEDGE', 'platform-linked claim gets PLATFORM_KNOWLEDGE');
+
+    // 3. Ingest outcome with learning loop
+    const out = core.ingestOutcome({
+      task: 'AntiFan desktop agent cursor stabilization',
+      outcome: 'cursor click verified without focus loss',
+      unitId: 'u-antifan-core',
+    });
+    const cCase = raw.prepare('SELECT namespace FROM cases WHERE caseId = ?').get(out.caseId) as { namespace: string };
+    assert.equal(cCase.namespace, 'ANTIFAN_ENGINEERING', 'antifan engineering task gets ANTIFAN_ENGINEERING');
+
+    // 4. Adjudicate candidate -> promoted claim inherits namespace
+    core.adjudicate({ candidateId: out.candidateId, decision: 'PROMOTE', authority: 'test-qa' });
+    const pClaim = raw.prepare('SELECT namespace FROM claims WHERE claimId = ?').get(`claim-${out.candidateId}`) as { namespace: string };
+    assert.equal(pClaim.namespace, 'ANTIFAN_ENGINEERING', 'promoted claim inherits ANTIFAN_ENGINEERING');
+
+    // 5. Personal principles get PERSONAL_PRACTICE
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt)
+      VALUES ('c-prin-1', 'u-test', 'Never guess elided lines without reading fresh source', 'PRINCIPLE', 'ACTIVE', 'v1', ?)`).run(new Date().toISOString());
+    raw.exec(NAMESPACE_BACKFILL_SQL);
+    const prin = raw.prepare("SELECT namespace FROM claims WHERE claimId = 'c-prin-1'").get() as { namespace: string };
+    assert.equal(prin.namespace, 'PERSONAL_PRACTICE', 'principles get PERSONAL_PRACTICE namespace');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('same-namespace matches are ranked above cross-namespace at equal similarity', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ns-rank-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    // Seed two claims with identical text match and status, but different namespaces
+    const nowStr = new Date().toISOString();
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt, namespace)
+      VALUES ('claim-plat', 'u-test', 'DOM tree snapshot serialization algorithm', 'RULE', 'ACTIVE', 'v1', ?, 'PLATFORM_KNOWLEDGE')`).run(nowStr);
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt, namespace)
+      VALUES ('claim-eng', 'u-test', 'DOM tree snapshot serialization algorithm', 'RULE', 'ACTIVE', 'v1', ?, 'ANTIFAN_ENGINEERING')`).run(nowStr);
+    
+    // Add identical dummy evidence for both so evidenceScore matches
+    raw.prepare("INSERT INTO evidence(id, claimId, revision) VALUES ('ev-1', 'claim-plat', 'rev1')").run();
+    raw.prepare("INSERT INTO evidence(id, claimId, revision) VALUES ('ev-2', 'claim-eng', 'rev1')").run();
+
+    // Index in FTS
+    raw.prepare("INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (1, 'DOM tree snapshot serialization algorithm', 'RULE', 'u-test', 'claim-plat')").run();
+    raw.prepare("INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (2, 'DOM tree snapshot serialization algorithm', 'RULE', 'u-test', 'claim-eng')").run();
+
+    // Query targeting ANTIFAN_ENGINEERING
+    const hitsEng = core.query({ text: 'DOM tree snapshot', namespace: 'ANTIFAN_ENGINEERING' });
+    assert.equal(hitsEng.length, 2, 'both claims match text');
+    assert.equal(hitsEng[0].claimId, 'claim-eng', 'same-namespace (ANTIFAN_ENGINEERING) ranked first');
+    assert.equal(hitsEng[1].claimId, 'claim-plat', 'cross-namespace (PLATFORM_KNOWLEDGE) ranked second');
+    assert.ok(hitsEng[0].score > hitsEng[1].score, 'same-namespace has higher score than cross-namespace');
+
+    // Query targeting PLATFORM_KNOWLEDGE
+    const hitsPlat = core.query({ text: 'DOM tree snapshot', namespace: 'PLATFORM_KNOWLEDGE' });
+    assert.equal(hitsPlat.length, 2, 'both claims match text');
+    assert.equal(hitsPlat[0].claimId, 'claim-plat', 'same-namespace (PLATFORM_KNOWLEDGE) ranked first');
+    assert.equal(hitsPlat[1].claimId, 'claim-eng', 'cross-namespace (ANTIFAN_ENGINEERING) ranked second');
+    assert.ok(hitsPlat[0].score > hitsPlat[1].score, 'same-namespace has higher score than cross-namespace');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('low confidence or namespace mismatch triggers explicit abstention', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ns-abstain-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const nowStr = new Date().toISOString();
+    // Seed two claims in PLATFORM_KNOWLEDGE with platform 'haravan'
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt, contextPlatform, namespace)
+      VALUES ('c-har-1', 'u-har', 'Liquid template rendering engine in Haravan', 'RULE', 'ACTIVE', 'v1', ?, 'haravan', 'PLATFORM_KNOWLEDGE')`).run(nowStr);
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt, contextPlatform, namespace)
+      VALUES ('c-har-2', 'u-har', 'Liquid template rendering filters in Haravan', 'RULE', 'ACTIVE', 'v1', ?, 'haravan', 'PLATFORM_KNOWLEDGE')`).run(nowStr);
+
+    raw.prepare("INSERT INTO evidence(id, claimId, revision) VALUES ('ev-h1', 'c-har-1', 'rev1')").run();
+    raw.prepare("INSERT INTO evidence(id, claimId, revision) VALUES ('ev-h2', 'c-har-2', 'rev1')").run();
+
+    raw.prepare("INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (1, 'Liquid template rendering engine in Haravan', 'RULE', 'u-har', 'c-har-1')").run();
+    raw.prepare("INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (2, 'Liquid template rendering filters in Haravan', 'RULE', 'u-har', 'c-har-2')").run();
+
+    // 1. Query for the matching platform knowledge task -> does NOT abstain
+    const matchedPack = core.contextPackV2({ task: 'Liquid template rendering', platform: 'haravan', namespace: 'PLATFORM_KNOWLEDGE' });
+    assert.equal(matchedPack.abstained, false, 'matching platform and namespace does not abstain');
+    assert.ok(['HIGH', 'MEDIUM'].includes(matchedPack.confidence), 'confidence is high or medium for matched knowledge');
+
+    // 2. Query targeting PERSONAL_PRACTICE when only PLATFORM_KNOWLEDGE exists -> NAMESPACE_MISMATCH abstention
+    const mismatchPack = core.contextPackV2({ task: 'Liquid template rendering', namespace: 'PERSONAL_PRACTICE' });
+    assert.equal(mismatchPack.abstained, true, 'namespace mismatch forces abstention');
+    assert.equal(mismatchPack.reasonCode, 'NAMESPACE_MISMATCH', 'reasonCode is NAMESPACE_MISMATCH');
+    assert.equal(mismatchPack.confidence, 'UNKNOWN', 'confidence is UNKNOWN on abstention');
+    assert.equal(mismatchPack.confidenceScore, null, 'confidenceScore is null when abstaining');
+
+    // 3. Recommend also triggers abstention on namespace mismatch
+    const mismatchRec = core.recommend({ task: 'Liquid template rendering', namespace: 'PERSONAL_PRACTICE' });
+    assert.equal(mismatchRec.abstained, true, 'recommend abstains on namespace mismatch');
+    assert.equal(mismatchRec.reasonCode, 'NAMESPACE_MISMATCH');
+    assert.ok(mismatchRec.recommendation.startsWith('ABSTAIN: NAMESPACE_MISMATCH'));
+
+    // 4. Low scoring match triggers LOW_CONFIDENCE abstention
+    // Seed a weak claim with OBSERVED status, no evidence, older date
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt, namespace)
+      VALUES ('c-weak', 'u-weak', 'quantum entanglement in electron tunneling', 'OBSERVED', 'OBSERVED', 'v1', '2020-01-01T00:00:00.000Z', 'ANTIFAN_ENGINEERING')`).run();
+    raw.prepare("INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (3, 'quantum entanglement in electron tunneling', 'OBSERVED', 'u-weak', 'c-weak')").run();
+
+    const weakPack = core.contextPackV2({ task: 'quantum entanglement', namespace: 'ANTIFAN_ENGINEERING' });
+    assert.equal(weakPack.abstained, true, 'weak low-scoring match abstains');
+    assert.ok(['LOW_CONFIDENCE', 'INSUFFICIENT_EVIDENCE'].includes(weakPack.reasonCode as string), 'abstain reason is LOW_CONFIDENCE or INSUFFICIENT_EVIDENCE');
   } finally {
     raw.close();
     core.close();

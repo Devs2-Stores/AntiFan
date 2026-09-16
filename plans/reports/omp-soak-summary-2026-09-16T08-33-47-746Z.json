@@ -1,0 +1,64 @@
+{
+  "verdict": "PASS",
+  "timestamp": "2026-09-16T08:35:49.878Z",
+  "configuration": {
+    "requestedMinutes": 2,
+    "actualDurationSeconds": 122.1,
+    "samplesRecorded": 43,
+    "thresholds": {
+      "maxHeapGrowthMb": 80,
+      "maxRssGrowthMb": 250,
+      "maxHeapSlopeMbPerMin": 5
+    }
+  },
+  "metrics": {
+    "iterationsCompleted": 43,
+    "meanIterationDurationMs": 2840,
+    "memory": {
+      "initialHeapMb": 22.27,
+      "finalHeapMb": 26.53,
+      "peakHeapMb": 35.88,
+      "netHeapGrowthMb": 4.26,
+      "heapSlopeMbPerMin": 2.611,
+      "initialRssMb": 192.09,
+      "finalRssMb": 248.14,
+      "peakRssMb": 274.27,
+      "netRssGrowthMb": 56.05,
+      "rssSlopeMbPerMin": 34.667
+    },
+    "resources": {
+      "totalArtifactsStored": 43,
+      "finalLedgerFrameCount": 129,
+      "leakedInFlightCount": 0
+    },
+    "health": {
+      "finalStatus": "UNAVAILABLE"
+    }
+  },
+  "gates": {
+    "childExitCodeZero": {
+      "passed": true,
+      "detail": "Exit code: 0"
+    },
+    "zeroFailedIterations": {
+      "passed": true,
+      "detail": "Failed: 0 / 43"
+    },
+    "zeroLeakedFlights": {
+      "passed": true,
+      "detail": "Leaked flights observed: 0"
+    },
+    "heapGrowthWithinLimit": {
+      "passed": true,
+      "detail": "Net heap growth: 4.26 MB (limit: 80 MB)"
+    },
+    "rssGrowthWithinLimit": {
+      "passed": true,
+      "detail": "Net RSS growth: 56.05 MB (limit: 250 MB)"
+    },
+    "heapSlopeWithinLimit": {
+      "passed": true,
+      "detail": "Heap slope: 2.611 MB/min (limit: 5 MB/min)"
+    }
+  }
+}

@@ -617,11 +617,31 @@ export class CapabilityTransportAdapter {
           const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, newTabId);
           if (newRev) {
             replacementAuthorityRevision = newRev;
+          } else if (isOpenTab) {
+            throw new CapabilityError(
+              'TARGET_TRANSITION_UNCOMMITTED',
+              `Tab '${newTabId}' was created but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target with tabId '${newTabId}' to recover authority.`,
+              {
+                mutationCommitted: true,
+                intendedTabId: newTabId,
+                attachmentId: authority.attachmentId,
+                recoveryAction: 'browser.rebind-target',
+              }
+            );
           } else {
             // The tool reported a new target but authority did not rotate: reporting
             // success would leave the session bound to the old tab while the client
             // believes it moved — fail loud so the caller can rebind explicitly.
-            throw new CapabilityError('ATTACHMENT_REBIND_FAILED', `Target changed to '${newTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Retry or call browser.rebind-target.`);
+            throw new CapabilityError(
+              'ATTACHMENT_REBIND_FAILED',
+              `Target changed to '${newTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Retry or call browser.rebind-target.`,
+              {
+                mutationCommitted: false,
+                intendedTabId: newTabId,
+                attachmentId: authority.attachmentId,
+                recoveryAction: 'browser.rebind-target',
+              }
+            );
           }
         }
       } else if (isSwitchTab) {
@@ -632,17 +652,34 @@ export class CapabilityTransportAdapter {
               ? resObj.tabId.trim()
               : undefined;
             if (!switchTarget) {
-              throw new CapabilityError('ATTACHMENT_REBIND_FAILED', 'Tab switched but the response carried no canonical tabId; attachment binding was not rotated. Call browser.rebind-target with the target tabId.');
+              throw new CapabilityError(
+                'ATTACHMENT_REBIND_FAILED',
+                'Tab switched but the response carried no canonical tabId; attachment binding was not rotated. Call browser.rebind-target with the target tabId.',
+                {
+                  mutationCommitted: false,
+                  attachmentId: authority.attachmentId,
+                  recoveryAction: 'browser.rebind-target',
+                }
+              );
             }
             const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, switchTarget);
             if (newRev) {
               replacementAuthorityRevision = newRev;
             } else {
-              throw new CapabilityError('ATTACHMENT_REBIND_FAILED', `Tab switched to '${switchTarget}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target to retry.`);
+              throw new CapabilityError(
+                'ATTACHMENT_REBIND_FAILED',
+                `Tab switched to '${switchTarget}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target to retry.`,
+                {
+                  mutationCommitted: false,
+                  intendedTabId: switchTarget,
+                  attachmentId: authority.attachmentId,
+                  recoveryAction: 'browser.rebind-target',
+                }
+              );
             }
           }
         }
-      } else if (isNavigate || isReload || isRebind) {
+      } else if (isNavigate || isReload) {
         let targetTabId: string | undefined;
         let targetDocGen: number | undefined;
         if (data && typeof data === 'object') {
@@ -668,9 +705,56 @@ export class CapabilityTransportAdapter {
             replacementAuthorityRevision = newRev;
           } else {
             // navigate/reload moved the live target but authority did not rotate:
-            // reporting success would leave the session bound to the old tab while
-            // the client believes it moved — fail loud, same contract as rebind.
-            throw new CapabilityError('ATTACHMENT_REBIND_FAILED', `${intent.name} reached '${targetTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target to retry.`);
+            // the underlying mutation committed, but authority transition was uncommitted.
+            throw new CapabilityError(
+              'TARGET_TRANSITION_UNCOMMITTED',
+              `${intent.name} committed mutation at '${targetTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target with tabId '${targetTabId}' to recover authority.`,
+              {
+                mutationCommitted: true,
+                intendedTabId: targetTabId,
+                attachmentId: authority.attachmentId,
+                documentGeneration: targetDocGen,
+                recoveryAction: 'browser.rebind-target',
+              }
+            );
+          }
+        }
+      } else if (isRebind) {
+        let targetTabId: string | undefined;
+        let targetDocGen: number | undefined;
+        if (data && typeof data === 'object') {
+          if ('target' in data) {
+            const targetObj = (data as { target?: { tabId?: string; documentGeneration?: number } }).target;
+            targetTabId = targetObj?.tabId;
+            targetDocGen = targetObj?.documentGeneration;
+          } else if ('tabId' in data && typeof (data as Record<string, unknown>).tabId === 'string') {
+            const record = data as Record<string, unknown>;
+            targetTabId = record.tabId as string;
+            targetDocGen = typeof record.documentGeneration === 'number'
+              ? record.documentGeneration
+              : undefined;
+          }
+        }
+        if (targetTabId) {
+          const newRev = await this.attachmentRegistry.updateAttachmentTab(
+            authority.attachmentId,
+            targetTabId,
+            targetDocGen
+          );
+          if (newRev) {
+            replacementAuthorityRevision = newRev;
+          } else {
+            throw new CapabilityError(
+              'ATTACHMENT_REBIND_FAILED',
+              `${intent.name} reached '${targetTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target to retry.`,
+              {
+                mutationCommitted: false,
+                intendedTabId: targetTabId,
+                attachmentId: authority.attachmentId,
+                documentGeneration: targetDocGen,
+                recoveryAction: 'browser.rebind-target',
+              }
+            );
           }
         }
       } else if (isCloseTab) {

@@ -238,16 +238,127 @@ export interface BrowserObserveResult {
   };
 }
 
+export type BrowserWaitCondition =
+  | 'selector'
+  | 'url'
+  | 'navigation'
+  | 'dom-stable'
+  | 'network'
+  | 'actionability'
+  | 'generation'
+  | 'ref'
+  | 'document_loaded'
+  | 'url_match'
+  | 'network_idle'
+  | 'dom_stable';
+
 export interface BrowserWaitParams {
-  condition: 'selector' | 'ref' | 'document_loaded' | 'url_match' | 'network_idle' | 'dom_stable';
+  condition: BrowserWaitCondition;
   selector?: string;
   ref?: string;
   urlPattern?: string;
+  url?: string;
+  minGeneration?: number;
   state?: 'attached' | 'visible' | 'actionable' | 'detached' | 'hidden';
   timeoutMs?: number;
   idleWindowMs?: number;
   tabId?: string;
   paneId?: 'desktop' | 'mobile';
+}
+
+function matchesUrlPattern(currentUrl: string, pattern: string): boolean {
+  if (!pattern || pattern === '*') return true;
+  if (currentUrl === pattern) return true;
+  if (currentUrl.includes(pattern)) return true;
+  try {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    const rx = new RegExp(`^${escaped}$`, 'i');
+    if (rx.test(currentUrl)) return true;
+  } catch {}
+  return false;
+}
+
+function delayWithSignal(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    throw (signal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+  }
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const timer = setTimeout(() => {
+    signal.removeEventListener('abort', onAbort);
+    resolve();
+  }, ms);
+  const onAbort = () => {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
+    reject(signal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+  };
+  signal.addEventListener('abort', onAbort, { once: true });
+  return promise;
+}
+
+function buildActionabilityCheckScript(selector?: string, ref?: string): string {
+  const selJson = JSON.stringify(selector || '');
+  const refJson = JSON.stringify(ref || '');
+  return `(() => {
+    try {
+      const sel = ${selJson};
+      const ref = ${refJson};
+      let el = null;
+      if (ref) {
+        const norm = ref.startsWith('@') ? ref : '@' + ref;
+        el = document.querySelector('[data-antifan-ref="' + ref + '"]') ||
+             document.querySelector('[data-antifan-ref="' + norm + '"]');
+      }
+      if (!el && sel) {
+        try { el = document.querySelector(sel); } catch {}
+      }
+      if (!el || !el.isConnected) return { actionable: false, reason: 'NOT_CONNECTED' };
+
+      const style = window.getComputedStyle ? window.getComputedStyle(el) : el.style || {};
+      let visible = !(style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0);
+      if (!visible && el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox')) {
+        let label = el.closest ? el.closest('label') : null;
+        if (!label && el.id && typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+          try { label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); } catch {}
+        }
+        if (label && label.isConnected) {
+          const lStyle = window.getComputedStyle ? window.getComputedStyle(label) : label.style || {};
+          if (lStyle.display !== 'none' && lStyle.visibility !== 'hidden' && parseFloat(lStyle.opacity || '1') > 0) {
+            visible = true;
+          }
+        }
+      }
+      if (!visible) return { actionable: false, reason: 'NOT_VISIBLE' };
+
+      const disabled = el.disabled === true || (typeof el.getAttribute === 'function' && el.getAttribute('aria-disabled') === 'true');
+      if (disabled) return { actionable: false, reason: 'DISABLED' };
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return { actionable: false, reason: 'ZERO_SIZE' };
+
+      if (typeof el.getAnimations === 'function') {
+        const anims = el.getAnimations({ subtree: false });
+        for (let i = 0; i < anims.length; i++) {
+          const a = anims[i];
+          if (a && a.playState === 'running') {
+            const timing = a.effect && typeof a.effect.getComputedTiming === 'function' ? a.effect.getComputedTiming() : null;
+            if (timing && (timing.iterations === Infinity || timing.duration === Infinity)) {
+              // Infinite loop like spinner/pulse - allow
+            } else {
+              return { actionable: false, reason: 'ANIMATING' };
+            }
+          }
+        }
+      }
+
+      return {
+        actionable: true,
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      };
+    } catch (e) {
+      return { actionable: false, reason: String(e) };
+    }
+  })()`;
 }
 
 export interface BrowserWaitResult {
@@ -2610,7 +2721,7 @@ export class BrowserControlPort {
       }
       const startTime = Date.now();
 
-      if (params.condition === 'network_idle') {
+      if (params.condition === 'network_idle' || params.condition === 'network') {
         if (this.host.getNetworkTracker) {
           const tracker = this.host.getNetworkTracker();
           if (tracker && typeof tracker.isAttached === 'function' && !tracker.isAttached(tabId, effectivePane)) {
@@ -2625,7 +2736,7 @@ export class BrowserControlPort {
             );
             return {
               satisfied: res.settled && !res.timedOut,
-              condition: 'network_idle',
+              condition: params.condition,
               durationMs: res.durationMs,
               details: { timedOut: res.timedOut },
             };
@@ -2646,15 +2757,223 @@ export class BrowserControlPort {
         };
       }
 
+      if (params.condition === 'generation') {
+        const baselineGen = this.host.getDocumentGeneration
+          ? this.host.getDocumentGeneration(tabId)
+          : (target.documentGeneration || 1);
+        while (!waitSignal.aborted) {
+          const currentGen = this.host.getDocumentGeneration
+            ? this.host.getDocumentGeneration(tabId)
+            : (target.documentGeneration || 1);
+          const satisfied = typeof params.minGeneration === 'number'
+            ? currentGen >= params.minGeneration
+            : currentGen > baselineGen;
+          if (satisfied) {
+            return {
+              satisfied: true,
+              condition: params.condition,
+              durationMs: Date.now() - startTime,
+              details: {
+                baselineGeneration: baselineGen,
+                currentGeneration: currentGen,
+                minGeneration: params.minGeneration,
+              },
+            };
+          }
+          await delayWithSignal(50, waitSignal);
+        }
+        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+      }
+
+      if (params.condition === 'navigation') {
+        const startGen = typeof this.host.getSemanticDocumentGeneration === 'function'
+          ? this.host.getSemanticDocumentGeneration(tabId, effectivePane)
+          : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1));
+        const expectedPattern = params.urlPattern || params.url;
+
+        while (!waitSignal.aborted) {
+          if (typeof this.host.getLastNavigationFailure === 'function') {
+            const failure = this.host.getLastNavigationFailure(tabId);
+            if (failure) {
+              const failureCause = failure.cause || (failure.timedOut ? 'NAVIGATION_TIMEOUT' : 'TARGET_STALE');
+              const message = failure.message || 'Navigation failed or timed out before a load-complete document was available';
+              throw new CapabilityError('TARGET_STALE', `[${failureCause}] ${message}`);
+            }
+          }
+
+          const currentGen = typeof this.host.getSemanticDocumentGeneration === 'function'
+            ? this.host.getSemanticDocumentGeneration(tabId, effectivePane)
+            : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1));
+
+          const currentUrl = await this.getLiveTabUrl(tabId).catch(() => '');
+
+          const genSatisfied = typeof params.minGeneration === 'number'
+            ? currentGen >= params.minGeneration
+            : currentGen > startGen;
+
+          const urlSatisfied = expectedPattern ? matchesUrlPattern(currentUrl, expectedPattern) : true;
+
+          if (genSatisfied && urlSatisfied) {
+            return {
+              satisfied: true,
+              condition: params.condition,
+              durationMs: Date.now() - startTime,
+              details: {
+                startGeneration: startGen,
+                documentGeneration: currentGen,
+                url: currentUrl,
+              },
+            };
+          }
+
+          await delayWithSignal(50, waitSignal);
+        }
+        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+      }
+
+      if (
+        params.condition === 'actionability' ||
+        ((params.condition === 'selector' || params.condition === 'ref') && params.state === 'actionable')
+      ) {
+        const targetSelector = params.selector;
+        const targetRef = params.ref;
+        if (!targetSelector && !targetRef) {
+          throw new CapabilityError('INVALID_ARGUMENT', 'actionability condition requires selector or ref');
+        }
+
+        while (!waitSignal.aborted) {
+          let checkResult: { actionable: boolean; reason?: string; rect?: { x: number; y: number; width: number; height: number } } | null = null;
+          if (typeof this.host.evalJs === 'function') {
+            try {
+              const raw = await this.host.evalJs(
+                buildActionabilityCheckScript(targetSelector, targetRef),
+                tabId,
+                effectivePane
+              );
+              if (raw === true) {
+                checkResult = { actionable: true };
+              } else if (raw && typeof raw === 'object' && 'actionable' in raw) {
+                checkResult = raw as { actionable: boolean; reason?: string; rect?: { x: number; y: number; width: number; height: number } };
+              }
+            } catch {
+              // Ignore eval error and retry
+            }
+          }
+
+          if (checkResult === null && typeof this.host.getDom === 'function') {
+            try {
+              const dom = await this.host.getDom(targetSelector, tabId, effectivePane);
+              if (dom && dom.length > 0) {
+                checkResult = { actionable: true };
+              }
+            } catch {}
+          }
+
+          if (checkResult?.actionable === true) {
+            return {
+              satisfied: true,
+              condition: params.condition,
+              durationMs: Date.now() - startTime,
+              details: {
+                selector: targetSelector,
+                ref: targetRef,
+                rect: checkResult.rect,
+              },
+            };
+          }
+
+          await delayWithSignal(50, waitSignal);
+        }
+        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+      }
+
+      if (params.condition === 'url' || params.condition === 'url_match') {
+        const pattern = params.urlPattern || params.url || '';
+        while (!waitSignal.aborted) {
+          const currentUrl = await this.getLiveTabUrl(tabId).catch(() => '');
+          if (matchesUrlPattern(currentUrl, pattern)) {
+            return {
+              satisfied: true,
+              condition: params.condition,
+              durationMs: Date.now() - startTime,
+              details: { url: currentUrl, pattern },
+            };
+          }
+          await delayWithSignal(50, waitSignal);
+        }
+        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+      }
+
+      if (params.condition === 'dom-stable' || params.condition === 'dom_stable') {
+        const idleWindowMs = params.idleWindowMs ?? 500;
+        let initialRevision = typeof this.host.getMutationRevision === 'function' ? this.host.getMutationRevision(tabId) : 1;
+        const quiescenceStart = Date.now();
+        while (!waitSignal.aborted) {
+          await delayWithSignal(Math.min(100, idleWindowMs), waitSignal);
+          const currentRevision = typeof this.host.getMutationRevision === 'function' ? this.host.getMutationRevision(tabId) : 1;
+          if (currentRevision !== initialRevision) {
+            initialRevision = currentRevision;
+            continue;
+          }
+          if (Date.now() - quiescenceStart >= idleWindowMs) {
+            return {
+              satisfied: true,
+              condition: params.condition,
+              durationMs: Date.now() - startTime,
+              details: { mutationRevision: currentRevision, idleWindowMs },
+            };
+          }
+        }
+        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+      }
+
       if (params.condition === 'selector' && params.selector) {
         const sel = params.selector;
-        const dom = await this.host.getDom(sel, tabId, effectivePane);
-        return {
-          satisfied: Boolean(dom && dom.length > 0),
-          condition: 'selector',
-          durationMs: Date.now() - startTime,
-          details: { selector: sel },
-        };
+        const expectedState = params.state || 'attached';
+
+        while (!waitSignal.aborted) {
+          let found = false;
+          if (typeof this.host.getDom === 'function') {
+            const dom = await this.host.getDom(sel, tabId, effectivePane).catch(() => '');
+            found = Boolean(dom && dom.length > 0);
+          } else if (typeof this.host.evalJs === 'function') {
+            const evalFound = await this.host.evalJs(`Boolean(document.querySelector(${JSON.stringify(sel)}))`, tabId, effectivePane).catch(() => false);
+            found = Boolean(evalFound);
+          }
+
+          let stateMatches = false;
+          if (expectedState === 'attached') {
+            stateMatches = found;
+          } else if (expectedState === 'detached') {
+            stateMatches = !found;
+          } else if (expectedState === 'visible' || expectedState === 'hidden') {
+            if (!found) {
+              stateMatches = expectedState === 'hidden';
+            } else if (typeof this.host.evalJs === 'function') {
+              const visible = await this.host.evalJs(`(() => {
+                const el = document.querySelector(${JSON.stringify(sel)});
+                if (!el) return false;
+                const s = window.getComputedStyle ? window.getComputedStyle(el) : el.style || {};
+                return s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity || '1') > 0;
+              })()`, tabId, effectivePane).catch(() => false);
+              stateMatches = expectedState === 'visible' ? Boolean(visible) : !visible;
+            } else {
+              stateMatches = expectedState === 'visible' ? found : !found;
+            }
+          }
+
+          if (stateMatches) {
+            return {
+              satisfied: true,
+              condition: 'selector',
+              durationMs: Date.now() - startTime,
+              details: { selector: sel, state: expectedState },
+            };
+          }
+
+          await delayWithSignal(50, waitSignal);
+        }
+        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
       }
 
       return {

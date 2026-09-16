@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { IssueRegister } from '../session/issue-register';
+import { ProcessRegistry } from '../process/process-registry';
 
 export type CoreHealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE' | 'UNKNOWN';
 
@@ -229,13 +230,40 @@ export class CoreHealthService {
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
         windowsHide: true,
       });
+      if (child.pid) {
+        ProcessRegistry.getInstance().register({
+          pid: child.pid,
+          owner: 'core-health',
+          name: command,
+          command: args.join(' '),
+          processRef: child,
+        });
+      }
       let stdout = '';
       let stderr = '';
-      const timer = setTimeout(() => { child.kill('SIGKILL'); }, this.timeoutMs);
+      const timer = setTimeout(() => {
+        if (child.pid) {
+          void ProcessRegistry.getInstance().kill(child.pid);
+        } else {
+          child.kill('SIGKILL');
+        }
+      }, this.timeoutMs);
       child.stdout.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
       child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
-      child.on('error', (error) => { clearTimeout(timer); resolve({ status: null, stdout, stderr, error }); });
-      child.on('close', (status) => { clearTimeout(timer); resolve({ status, stdout, stderr }); });
+      child.on('error', (error) => {
+        if (child.pid) {
+          ProcessRegistry.getInstance().unregister(child.pid);
+        }
+        clearTimeout(timer);
+        resolve({ status: null, stdout, stderr, error });
+      });
+      child.on('close', (status) => {
+        if (child.pid) {
+          ProcessRegistry.getInstance().unregister(child.pid, status);
+        }
+        clearTimeout(timer);
+        resolve({ status, stdout, stderr });
+      });
     });
     if (res.error) throw res.error;
     if (res.status !== 0) {
