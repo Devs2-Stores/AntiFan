@@ -322,7 +322,7 @@ All 31 receipts now name the commit that contains the code they exercised.
 
 ## Round 2 — the remaining nine entries
 
-Committed as `1e77fbc`, `e4cb667`, `3aac318`, `1745e37`.
+Committed as `1e77fbc`, `e4cb667`, `3aac318`, `1745e37`, `b93dadf`.
 
 | Entry | Fix | Evidence |
 |---|---|---|
@@ -399,12 +399,13 @@ meant to — the avatar chip, the status dots, and the lock the omnibox already 
 | super-core package (migration, gate, reuse ordering, concurrent access) | 26/26 |
 | goal `mjs` batch (`goal-ladder-judge`, `goal-safety`, `goal-runner`, `bridge-receipt-coverage`, `context-bridge`) | 62/62 |
 | compiled TS batch (health service, hub, tab-layout invariants, ipc-audit, vault, dev-watcher) | 87/87 |
-| acceptance ladder @ `1745e37` (HEAD) | **31/31 PASS, `finalHolds: true`**, `unboundPasses: []`, all exits 0, 31 distinct `finishedAt`, `durationMs` 36273 |
+| acceptance ladder @ `b93dadf` (HEAD) | **31/31 PASS, `finalHolds: true`**, `unboundPasses: []`, all exits 0, `durationMs` 53988 |
 | full pipeline | all lanes passed on one of three post-commit runs — `compile` 5.6s, `test:canary` 28.5s, `test:fast` 56.6s, `test:site-clone` 17.0s, `test:integration` 1.8s, `test:main` 106.0s, `test:e2e` 20.0s. The other two runs had `test:e2e` fail (once with `test:fast`); see the `test:e2e` note below. |
 
-The ladder was run twice for this round. The first run, at `3aac318`, certified the same 31/31 (35.6s);
-it was superseded because the commit that followed added a case to a test file that two routes
-execute, so the receipts were re-issued against `1745e37`, the revision that also contains that file.
+The ladder ran three times in this round — `3aac318` (35.6s), `1745e37` (36.3s) and `b93dadf` (54.0s) —
+each 31/31. A run is superseded whenever a commit touches a file a route executes, because a receipt
+names the revision it exercised: the second run followed a new case in the hub test that two routes
+run, and the third followed two cases in the health-service test that three routes run.
 The summary of the final run is committed next to this report as `ladder-run-union-fixes.json`.
 
 Both lanes that failed in the round-1 pipeline (`test:main`'s pairing-queue file and `test:e2e`'s
