@@ -363,6 +363,35 @@ The harness renders the real `toolbar.html` + `toolbar.css` in Electron and meas
 
 Two measurement defects were found and fixed in the harness itself, because a wrong measurement is worse than none: zoom is persisted per origin, so a zoom left by an earlier probe silently shrank the layout viewport (1440 content px at 3x = 480 CSS px) and invalidated a whole round of numbers; and a media-query override declared above the rule it overrides loses on source order even with `!important`, which is why the first width ladder had no effect. The ladder now sits after every base rule.
 
+### The split-mode numbers, reproduced
+
+An earlier round of split-mode numbers (152px at 1200, 282px at 1024, 406px at 900) is **superseded**: that
+run left the global preset select visible, and the app hides it while split is on, so those figures
+carried a control the app never renders — 175px of it at 1200 and 112px at 900, which is the whole
+difference. The state is now forced exactly as `toolbar.ts` applies it (`splitControlsContainer` flex,
+`deviceSelect` none, `mode-active` on the toggle), plus the phone-status pill visible as the worst case,
+and the harness prints the state it applied so a run cannot silently measure the wrong one:
+
+```
+node scripts/run-electron.cjs .canary/tools/toolbar-measure.cjs           # resting
+TOOLBAR_MEASURE_SPLIT=1 node scripts/run-electron.cjs .canary/tools/toolbar-measure.cjs
+```
+
+```
+resting  w=1440 n=17 heights=[16,24,28] overflow=0 unnamed=0 fonts=["12px"]   console errors []
+resting  w=1200 n=17 heights=[16,24,28] overflow=0 unnamed=0 fonts=["12px"]
+resting  w=1024 n=17 heights=[16,24,28] overflow=0 unnamed=0 fonts=["12px"]
+resting  w=900  n=17 heights=[16,24,28] overflow=0 unnamed=0 fonts=["12px"]
+split    w=1440 n=21 heights=[16,24,28] overflow=0 unnamed=0 fonts=["12px"]   splitState {"split":"flex","device":"none","toggleActive":true,"phone":""}
+split    w=1200 n=20 heights=[24,28]    overflow=0 unnamed=0 fonts=["12px"]
+split    w=1024 n=21 heights=[16,24,28] overflow=0 unnamed=0 fonts=["12px"]
+split    w=900  n=20 heights=[24,28]    overflow=0 unnamed=0 fonts=["12px"]
+```
+
+The icon work is closed on the in-context reading rather than the isolated sheet: at 1x the row's
+utility marks read as one thin-outline family, and the marks that still carry mass are the ones that are
+meant to — the avatar chip, the status dots, and the lock the omnibox already had.
+
 ## Verification (round 2)
 
 | Check | Result |
