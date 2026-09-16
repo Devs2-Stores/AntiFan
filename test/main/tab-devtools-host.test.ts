@@ -784,11 +784,13 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const params = capCmd.params;
     assert.ok(params && typeof params === 'object');
     // Background desktop tab is wrapped in runWithAttachedTabView: the tab view is
-    // attached at viewport bounds, so this is a viewport capture — fromSurface:false
-    // (composite the attached view surface) and captureBeyondViewport:false (do not
-    // capture pixels beyond the sized viewport). fullPage captures set
-    // captureBeyondViewport:true separately.
-    assert.strictEqual('fromSurface' in params && params.fromSurface, false);
+    // attached at viewport bounds, so this is a viewport capture — fromSurface:true
+    // (rasterize the attached view's compositor surface) and captureBeyondViewport:false
+    // (do not capture pixels beyond the sized viewport). fullPage captures set
+    // captureBeyondViewport:true separately. fromSurface is never false: that is
+    // Chromium's native-window snapshot path, and an offscreen (OSR) agent tab has no
+    // native view, so the path kills the browser process (access violation 0xC0000005).
+    assert.strictEqual('fromSurface' in params && params.fromSurface, true);
     assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, false);
   });
 
@@ -865,9 +867,12 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(capCmd);
     const params = capCmd.params;
     assert.ok(params && typeof params === 'object');
-    // Viewport mode reads the renderer view directly (no beyond-viewport raster):
-    // fromSurface:false. Only document/clip captures need the compositor surface.
-    assert.strictEqual('fromSurface' in params && params.fromSurface, false);
+    // Viewport mode takes the same surface path as document/clip modes: fromSurface:true
+    // captures the foreground view's own compositor surface (no beyond-viewport raster).
+    // fromSurface:false is never requested — that native-window snapshot path
+    // dereferences a null native window for offscreen (OSR) agent tabs and kills the
+    // browser process.
+    assert.strictEqual('fromSurface' in params && params.fromSurface, true);
     assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, false);
   });
 

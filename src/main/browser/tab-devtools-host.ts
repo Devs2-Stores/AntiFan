@@ -681,11 +681,16 @@ export class TabDevToolsHost {
       };
 
       const onNavigate = () => {
+        // Liveness gate only: CDP events carry their own target, so `mainFrame` is not a
+        // precondition here (a frame-less or pre-commit WebContents still needs its
+        // per-tab provenance cleared on navigation).
+        if (!wc || wc.isDestroyed()) return;
         this.isolatedContextIds.delete(wcId);
         this.stylesheetUrls.delete(wcId);
       };
 
       const onMessage = (_event: Electron.Event, method: string, params: Record<string, unknown>) => {
+        if (!wc || wc.isDestroyed()) return;
         if (method !== 'CSS.styleSheetAdded') return;
         const header = params?.header;
         if (!header || typeof header !== 'object') return;
@@ -1635,7 +1640,10 @@ export class TabDevToolsHost {
           }
         }
 
-        // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (4000ms race)
+        // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (4000ms race).
+        // `fromSurface` is always true here, and must stay that way: Chromium's native-window
+        // snapshot path (fromSurface:false) dereferences the target's native window, which an
+        // offscreen (OSR) agent tab does not have.
         try {
           const cdpTask = async (): Promise<string | null> => {
             await this.sendCdpCommand(wc, 'Page.enable');
@@ -1644,7 +1652,7 @@ export class TabDevToolsHost {
             const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
               format,
               quality: format === 'jpeg' ? quality : undefined,
-              fromSurface: isForeground,
+              fromSurface: true,
               captureBeyondViewport: !isForeground,
               clip: rect
                 ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
@@ -1658,25 +1666,13 @@ export class TabDevToolsHost {
           }
         } catch {}
 
-        // Tier 3: Offscreen Native View Paint Fallback (5000ms race)
-        try {
-          const offscreenTask = async (): Promise<string | null> => {
-            const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
-              format,
-              quality: format === 'jpeg' ? quality : undefined,
-              fromSurface: false,
-              captureBeyondViewport: true,
-              clip: rect
-                ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
-                : undefined,
-            });
-            return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
-          };
-          const tier3Result = await withTimeout(offscreenTask(), 5000, null);
-          if (tier3Result && tier3Result.length > 0) {
-            return tier3Result;
-          }
-        } catch {}
+        // There is deliberately no native-view fallback tier here. Chromium's
+        // `fromSurface:false` snapshot dereferences the target's native window, and an
+        // offscreen (OSR) agent tab has none, so the browser process dies with an access
+        // violation (measured: exception 0xC0000005 at address 0x0; production dumps stop
+        // at WindowSnapshotReachedScreen -> GrabNativeWindowSnapshot). A target without a
+        // compositor surface must fail as an empty capture, never as a process crash.
+
         // If all tiers yielded empty string, do a fast retry after 150ms
         try {
           await new Promise((r) => setTimeout(r, 150));
@@ -1929,14 +1925,17 @@ export class TabDevToolsHost {
           // fallback: a second attempt on a poisoned CDP queue is what wedged the
           // target before, and capturePage can only ever return viewport bytes.
           //
-          // clip/full-page must rasterize from the compositor surface: with
-          // fromSurface:false Chromium captures the renderer view, which is
-          // bounded by the widget height, so a clip taller than the viewport
-          // comes back silently truncated to the viewport (measured: clip
-          // 1440x2200 -> raster 1440x900) while the receipt still declares the
-          // requested CSS size. The target is activated (or attached via
-          // runWithAttachedTabView) before this call, so the surface belongs to
-          // the requested tab.
+          // Every mode rasterizes from the compositor surface (`fromSurface:true`).
+          // The native-window snapshot path (`fromSurface:false`) dereferences the
+          // target's native window; an offscreen (OSR) agent tab has none, so that
+          // path kills the browser process (measured: exception 0xC0000005 at 0x0)
+          // and is therefore never requested. The same flag also prevents a clip
+          // taller than the widget from being silently truncated: the renderer view
+          // is bounded by the widget height (measured: clip 1440x2200 -> raster
+          // 1440x900) while the receipt still declares the requested CSS size.
+          // The target is activated (or attached via runWithAttachedTabView) before
+          // this call, so the surface belongs to the requested tab; a target without
+          // a surface yields a typed capture error rather than a crash.
           let captureRes: { data?: string } | undefined;
           try {
             captureRes = await this.sendCdpCommand<{ data?: string }>(
@@ -1945,7 +1944,7 @@ export class TabDevToolsHost {
               {
                 format: imageFormat,
                 quality: imageFormat === 'jpeg' ? Math.max(1, Math.min(100, Math.round(options?.quality ?? 85))) : undefined,
-                fromSurface: mode !== 'viewport',
+                fromSurface: true,
                 captureBeyondViewport: mode !== 'viewport',
                 clip,
               },

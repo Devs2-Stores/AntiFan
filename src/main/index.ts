@@ -100,6 +100,44 @@ installExitRecorder(process);
 // because the exception left through a native callback before any handler above could run.
 // For that class of death the dump is the only surviving artifact, and this is what makes
 // it findable on the next launch. The dump path must be set before the reporter starts.
+export function pruneOldCrashDumps(dir: string, maxRetained = 3): string[] {
+  const unlinked: string[] = [];
+  try {
+    if (!fs.existsSync(dir)) return unlinked;
+    const findDmpFiles = (currentDir: string): Array<{ path: string; mtime: number }> => {
+      const results: Array<{ path: string; mtime: number }> = [];
+      try {
+        const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(currentDir, entry.name);
+          if (entry.isDirectory()) {
+            results.push(...findDmpFiles(fullPath));
+          } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.dmp')) {
+            try {
+              const stat = fs.statSync(fullPath);
+              results.push({ path: fullPath, mtime: stat.mtimeMs });
+            } catch {}
+          }
+        }
+      } catch {}
+      return results;
+    };
+
+    const dmpFiles = findDmpFiles(dir);
+    if (dmpFiles.length <= maxRetained) return unlinked;
+
+    dmpFiles.sort((a, b) => b.mtime - a.mtime);
+    const toUnlink = dmpFiles.slice(maxRetained);
+    for (const item of toUnlink) {
+      try {
+        fs.unlinkSync(item.path);
+        unlinked.push(item.path);
+      } catch {}
+    }
+  } catch {}
+  return unlinked;
+}
+
 try {
   const crashDumpsDir = path.join(StorageLocations.getRuntimeDir(), 'crashDumps');
   fs.mkdirSync(crashDumpsDir, { recursive: true });
@@ -111,7 +149,8 @@ try {
     uploadToServer: false,
     compress: false,
   });
-  recordLifecycleEvent('crashReporter.enabled', { crashDumps: crashDumpsDir });
+  const prunedDumps = pruneOldCrashDumps(crashDumpsDir, 3);
+  recordLifecycleEvent('crashReporter.enabled', { crashDumps: crashDumpsDir, prunedDumps: prunedDumps.length });
 } catch (err) {
   // Never fatal: failing to arm the crash reporter must not stop the app from starting.
   recordLifecycleEvent('crashReporter.failed', { detail: redactCredentials(String(err)) });
