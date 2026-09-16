@@ -33,15 +33,17 @@
     <!-- TOOLBAR & OMNIBOX WRAPPER -->
     <div class="toolbar">
 
-      <button class="nav-btn" id="btnBack" title="Back (Alt+Left)" disabled>
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.707 12.707a1 1 0 0 1-1.414 0l-4-4a1 1 0 0 1 0-1.414l4-4a1 1 0 0 1 1.414 1.414L6.414 8l3.293 3.293a1 1 0 0 1 0 1.414z"/></svg>
-      </button>
-      <button class="nav-btn" id="btnForward" title="Forward (Alt+Right)" disabled>
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.293 3.293a1 1 0 0 1 1.414 0l4 4a1 1 0 0 1 0 1.414l-4 4a1 1 0 0 1-1.414-1.414L9.586 8 6.293 4.707a1 1 0 0 1 0-1.414z"/></svg>
-      </button>
-      <button class="nav-btn" id="btnReload" title="Reload (Ctrl+R / F5)">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.65 2.35C12.2 0.9 10.2 0 8 0 3.58 0 0 3.58 0 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L9 7h7V0l-2.35 2.35z"/></svg>
-      </button>
+      <div class="toolbar-group toolbar-group-nav">
+        <button class="nav-btn" id="btnBack" title="Back (Alt+Left)" aria-label="Back" disabled>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.707 12.707a1 1 0 0 1-1.414 0l-4-4a1 1 0 0 1 0-1.414l4-4a1 1 0 0 1 1.414 1.414L6.414 8l3.293 3.293a1 1 0 0 1 0 1.414z"/></svg>
+        </button>
+        <button class="nav-btn" id="btnForward" title="Forward (Alt+Right)" aria-label="Forward" disabled>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.293 3.293a1 1 0 0 1 1.414 0l4 4a1 1 0 0 1 0 1.414l-4 4a1 1 0 0 1-1.414-1.414L9.586 8 6.293 4.707a1 1 0 0 1 0-1.414z"/></svg>
+        </button>
+        <button class="nav-btn" id="btnReload" title="Reload (Ctrl+R / F5)" aria-label="Reload">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.65 2.35C12.2 0.9 10.2 0 8 0 3.58 0 0 3.58 0 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L9 7h7V0l-2.35 2.35z"/></svg>
+        </button>
+      </div>
 
       <div class="omnibox-wrapper">
         <div class="omnibox">
@@ -50,14 +52,14 @@
           </span>
           <span id="agentActiveBadge" class="agent-active-badge" style="display:none;" title="AI Agent đang trực tiếp điều phối tab này">
             <span class="agent-badge-pulse"></span>
-            <span class="agent-badge-icon">🤖</span>
+            <span class="agent-badge-icon"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.6l1.5 3.8 3.8 1.5-3.8 1.5L8 12.2 6.5 8.4 2.7 6.9l3.8-1.5L8 1.6z"/><path d="M12.8 11l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6.6-1.5z"/></svg></span>
             <span class="agent-badge-text">AI AGENT</span>
           </span>
-          <input type="text" id="urlInput" class="omnibox-input" value="" placeholder="Search with Google or enter URL" spellcheck="false" autocomplete="off" />
+          <input type="text" id="urlInput" class="omnibox-input" value="" placeholder="Search with Google or enter URL" aria-label="Address and search bar" spellcheck="false" autocomplete="off" />
           <button type="button" id="btnStarBookmark" class="btn-star-bookmark" title="Bookmark this tab (Ctrl+D)">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.866 14.85c-.078.444.36.791.746.593l4.39-2.256 4.389 2.256c.386.198.824-.149.746-.592l-.83-4.73 3.522-3.356c.33-.314.16-.888-.282-.95l-4.898-.696L8.465.792a.513.513 0 0 0-.927 0L5.354 5.12l-4.898.696c-.441.062-.612.636-.283.95l3.523 3.356-.83 4.73zm4.905-2.767-3.686 1.894.694-3.957a.565.565 0 0 0-.163-.505L1.71 6.745l4.052-.576a.525.525 0 0 0 .393-.288L8 2.223l1.847 3.658a.525.525 0 0 0 .393.288l4.052.575-2.906 2.77a.565.565 0 0 0-.163.506l.694 3.957-3.686-1.895a.5.5 0 0 0-.461 0z"/></svg>
           </button>
-          <button type="button" id="btnClearOmnibox" class="btn-clear-omnibox" style="display:none;">&times;</button>
+          <button type="button" id="btnClearOmnibox" class="btn-clear-omnibox" aria-label="Clear address bar" style="display:none;">&times;</button>
         </div>
 
         <!-- Google Chrome Style Omnibox Suggest Dropdown -->
@@ -78,9 +80,9 @@
 
           <div class="split-controls-container" id="splitControlsContainer" style="display:none;">
             <div class="split-preset-group">
-              <button class="split-pane-pill active" id="btnSplitFocusDesktop" title="Focus Desktop Pane">
+              <button class="split-pane-pill active" id="btnSplitFocusDesktop" title="Focus Desktop Pane" aria-label="Focus desktop pane">
                 <span class="split-pane-dot"></span>
-                <span>💻</span>
+                <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M2.4 1.6h11.2a1.8 1.8 0 0 1 1.8 1.8v6.2a1.8 1.8 0 0 1-1.8 1.8H9.9v2.1h1.35a.7.7 0 0 1 0 1.4h-6.5a.7.7 0 0 1 0-1.4H6.1v-2.1H2.4a1.8 1.8 0 0 1-1.8-1.8V3.4a1.8 1.8 0 0 1 1.8-1.8zm0 1.4a.4.4 0 0 0-.4.4v6.2a.4.4 0 0 0 .4.4h11.2a.4.4 0 0 0 .4-.4V3.4a.4.4 0 0 0-.4-.4H2.4z"/></svg>
               </button>
               <select class="device-select split-device-select" id="splitDesktopSelect" title="Split Desktop Preset">
                 <option value="desktop-fhd">FHD (1920×1080)</option>
@@ -94,9 +96,9 @@
               </select>
             </div>
             <div class="split-preset-group">
-              <button class="split-pane-pill" id="btnSplitFocusMobile" title="Focus Mobile Pane">
+              <button class="split-pane-pill" id="btnSplitFocusMobile" title="Focus Mobile Pane" aria-label="Focus mobile pane">
                 <span class="split-pane-dot"></span>
-                <span>📱</span>
+                <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.4 1h3.2a1.7 1.7 0 0 1 1.7 1.7v10.6A1.7 1.7 0 0 1 9.6 15H6.4a1.7 1.7 0 0 1-1.7-1.7V2.7A1.7 1.7 0 0 1 6.4 1zm0 1.4a.3.3 0 0 0-.3.3v10.6a.3.3 0 0 0 .3.3h3.2a.3.3 0 0 0 .3-.3V2.7a.3.3 0 0 0-.3-.3H6.4z"/><path d="M7 12.3h2a.7.7 0 0 1 0 1.4H7a.7.7 0 0 1 0-1.4z"/></svg>
               </button>
               <select class="device-select split-device-select" id="splitMobileSelect" title="Split Mobile Preset">
                 <option value="phone-iphone16promax">iPhone 16 Pro Max (440×956)</option>
@@ -120,8 +122,8 @@
           </div>
 
           <select class="device-select" id="deviceSelect" title="Device Viewport Breakpoints">
-            <option value="responsive">🖥️ Responsive (Fluid)</option>
-            <optgroup label="💻 Desktops & Laptops">
+            <option value="responsive">Responsive (Fluid)</option>
+            <optgroup label="Desktops &amp; Laptops">
               <option value="desktop-4k">4K UHD (3840×2160)</option>
               <option value="desktop-2k">2K QHD (2560×1440)</option>
               <option value="desktop-fhd">Full HD (1920×1080)</option>
@@ -132,7 +134,7 @@
               <option value="laptop-hd">Laptop Standard (1366×768)</option>
               <option value="desktop-1280">Desktop 5:4 (1280×1024)</option>
             </optgroup>
-            <optgroup label="📟 Tablets">
+            <optgroup label="Tablets">
               <option value="tablet-ipad-pro-13">iPad Pro 13" M4 (1032×1376)</option>
               <option value="tablet-ipad-pro">iPad Pro 12.9" (1024×1366)</option>
               <option value="tablet-ipad-pro-11">iPad Pro 11" M4 (834×1210)</option>
@@ -147,7 +149,7 @@
               <option value="tablet-landscape-1024">Tablet Landscape (1024×768)</option>
               <option value="tablet-landscape-1280">Tablet Landscape (1280×800)</option>
             </optgroup>
-            <optgroup label="📱 Mobile Phones">
+            <optgroup label="Mobile Phones">
               <option value="phone-iphone16promax">iPhone 16 Pro Max (440×956)</option>
               <option value="phone-iphone16plus">iPhone 16 Plus / 15 Plus (430×932)</option>
               <option value="phone-iphone15pro">iPhone 16 / 15 Pro (393×852)</option>
@@ -183,12 +185,12 @@
         <div class="toolbar-group toolbar-group-tools">
           <button class="nav-btn btn-phone-status" id="btnPhoneStatus" style="display:none;" title="iPhone Connected">
             <span class="phone-status-dot" id="phoneStatusDot"></span>
-            <span class="phone-status-icon">📱</span>
+            <span class="phone-status-icon"><svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.4 1h3.2a1.7 1.7 0 0 1 1.7 1.7v10.6A1.7 1.7 0 0 1 9.6 15H6.4a1.7 1.7 0 0 1-1.7-1.7V2.7A1.7 1.7 0 0 1 6.4 1zm0 1.4a.3.3 0 0 0-.3.3v10.6a.3.3 0 0 0 .3.3h3.2a.3.3 0 0 0 .3-.3V2.7a.3.3 0 0 0-.3-.3H6.4z"/><path d="M7 12.3h2a.7.7 0 0 1 0 1.4H7a.7.7 0 0 1 0-1.4z"/></svg></span>
             <span class="phone-status-text" id="phoneStatusText">iPhone Connected</span>
           </button>
 
           <button class="nav-btn btn-theme-qa" id="btnThemeQa" title="Run Theme QA Validation (Zero-Liquid & Responsive Overflow)">
-            <span class="theme-qa-badge-icon">🛡️</span>
+            <span class="theme-qa-badge-icon"><svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.6 1.1a1 1 0 0 1 .8 0l4.6 1.75a1 1 0 0 1 .65.94v3.5c0 3.3-2.3 6.3-5.4 7.3a1 1 0 0 1-.7 0C4.5 13.6 2.2 10.6 2.2 7.3v-3.5a1 1 0 0 1 .65-.94L7.6 1.1zm.4 1.45L3.6 4.2v3.1c0 2.5 1.7 4.9 4.1 5.7 2.4-.8 4.1-3.2 4.1-5.7V4.2L8 2.55z"/><path d="M10.45 5.75a.8.8 0 0 1 0 1.13L7.6 9.73a.8.8 0 0 1-1.13 0L5.34 8.6A.8.8 0 1 1 6.47 7.47l.6.6 2.25-2.32a.8.8 0 0 1 1.13 0z"/></svg></span>
             <span class="theme-qa-badge-text" id="themeQaText">QA</span>
           </button>
 
@@ -229,7 +231,7 @@
           <!-- Chrome Profile Chip -->
           <div class="chrome-profile-wrap">
             <button class="chrome-profile-btn" id="btnChromeProfile" title="Chrome Profile Sync (Click to switch)">
-              <span class="profile-avatar" id="profileAvatar">👤</span>
+              <span class="profile-avatar" id="profileAvatar"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8.45a3.05 3.05 0 1 0 0-6.1 3.05 3.05 0 0 0 0 6.1zm0 1.4c-3.1 0-5.6 1.68-5.6 3.75v.25c0 .5.4.9.9.9h9.4c.5 0 .9-.4.9-.9v-.25c0-2.07-2.5-3.75-5.6-3.75z"/></svg></span>
               <span class="profile-name" id="profileName">Default</span>
             </button>
             <div class="profile-dropdown-menu" id="profileDropdownMenu" style="display:none;">

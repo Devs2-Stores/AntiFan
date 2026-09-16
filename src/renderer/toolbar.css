@@ -633,53 +633,120 @@ body, html {
   box-shadow: 0 0 6px #10b981;
 }
 
-/* TOOLBAR & OMNIBOX WRAPPER */
+/* TOOLBAR & OMNIBOX WRAPPER
+   One row, one control height. Every control below derives its size from these
+   tokens, so a control added later inherits the rhythm instead of inventing
+   20/22/24/26px variants that no longer line up. */
 .toolbar {
+  --tb-h: 28px;              /* every top-level control */
+  --tb-h-inner: 24px;        /* segments and affordances inside a control */
+  --tb-gap: 4px;             /* related controls */
+  --tb-gap-tight: 2px;       /* segments of one control */
+  --tb-cluster: 8px;         /* between clusters, doubled around the divider */
+  --tb-r: 6px;               /* buttons */
+  --tb-r-field: 8px;         /* selects, chips, segmented containers */
+  --tb-r-pill: 14px;         /* the omnibox */
+  --tb-fg: #94a3b8;
+  --tb-fg-strong: #e2e8f0;
+  --tb-fg-disabled: #6b7280;
+  --tb-hover-bg: rgba(255, 255, 255, 0.08);
+  --tb-line: rgba(255, 255, 255, 0.10);
+  --tb-track: rgba(255, 255, 255, 0.05);
+  --tb-accent: #38bdf8;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px;
+  gap: var(--tb-cluster);
+  padding: 0 8px;
   background: #121316;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   height: 38px;
   flex-shrink: 0;
   position: relative;
   z-index: 10;
+  font-size: 12px;
+}
+
+/* The row's icons share one rendered size. The artwork keeps its own viewBox and
+   only the copy that renders in the row is normalised, so the dropdown menus keep
+   their own icon scale. */
+.nav-btn > svg,
+.btn-star-bookmark > svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* Glyph slots that hold an icon rather than a character. They used to hold emoji,
+   which cannot inherit the toolbar's colour; the spans now size an SVG, so the box
+   needs saying explicitly. */
+.phone-status-icon,
+.theme-qa-badge-icon,
+.agent-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phone-status-icon svg,
+.theme-qa-badge-icon svg,
+.agent-badge-icon svg,
+.split-pane-pill > svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.profile-avatar svg {
+  width: 11px;
+  height: 11px;
 }
 
 /* TOOLBAR ACTIONS CONTAINER & GROUPS */
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--tb-cluster);
   margin-left: auto;
   flex-shrink: 0;
 }
 
+/* A cluster is a group, not a box. Five bordered panels inside a 38px row read as
+   nested boxes; the divider and the cluster gap carry the grouping instead. */
 .toolbar-group {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 7px;
-  padding: 2px 3px;
-  height: 30px;
+  gap: var(--tb-gap);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  height: var(--tb-h);
   box-sizing: border-box;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.toolbar-group:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.11);
 }
 
 .toolbar-divider {
   width: 1px;
-  height: 16px;
-  background: rgba(255, 255, 255, 0.1);
-  margin: 0 1px;
+  height: 18px;
+  background: var(--tb-line);
+  margin: 0;
   flex-shrink: 0;
+}
+
+/* A keyboard user must be able to see where focus is. Focus is drawn on the ring,
+   never by moving the control, so nothing reflows as focus moves. */
+.toolbar :is(button, select, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, var(--tb-accent));
+  outline-offset: 1px;
+}
+
+/* Narrow widths: the row must never overflow. The omnibox is the only element that
+   flexes, so it gives up space first; past that the two widest fields shorten, and
+   nothing is hidden that has no other way to be reached (the profile entries and
+   the device presets both remain operable). */
+.omnibox-wrapper,
+.omnibox,
+.omnibox-input {
+  min-width: 0;
 }
 
 /* Chrome Profile Chip */
@@ -693,17 +760,17 @@ body, html {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
+  background: var(--tb-track);
+  border: 1px solid var(--tb-line);
+  border-radius: var(--tb-r-field);
   padding: 0 10px 0 5px;
-  color: #e2e8f0;
-  font-size: 11.5px;
+  color: var(--tb-fg-strong);
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  max-width: 130px;
-  height: 24px;
-  transition: all 0.15s ease;
+  max-width: 150px;
+  height: var(--tb-h);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   user-select: none;
 }
 
@@ -953,23 +1020,24 @@ body, html {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 5px;
-  color: #94a3b8;
+  width: var(--tb-h);
+  height: var(--tb-h);
+  border-radius: var(--tb-r);
+  color: var(--tb-fg);
   background: transparent;
   border: 1px solid transparent;
   cursor: pointer;
-  font-size: 13px;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  font-size: 12px;
+  /* Only the properties that actually change are animated: `all` also animates
+     layout-affecting values and would silently animate any property added later. */
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   flex-shrink: 0;
 }
 
 .nav-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tb-hover-bg);
   border-color: rgba(255, 255, 255, 0.12);
   color: #f8fafc;
-  transform: translateY(-0.5px);
 }
 
 .nav-btn:active:not(:disabled) {
@@ -977,9 +1045,11 @@ body, html {
 }
 
 .nav-btn:disabled {
-  color: var(--vscode-disabledForeground);
+  /* Muted, but still visible: the previous colour measured 2.49:1 against the row and
+     read as a missing control. Disabled controls are exempt from the contrast minimum,
+     yet a user still has to see that the control is there and unavailable. */
+  color: var(--tb-fg-disabled);
   cursor: default;
-  opacity: 0.35;
 }
 
 .nav-btn.mode-active, .nav-btn.active {
@@ -1002,10 +1072,10 @@ body, html {
   align-items: center;
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border);
-  border-radius: 14px;
+  border-radius: var(--tb-r-pill);
   padding: 0 10px;
-  height: 28px;
-  gap: 6px;
+  height: var(--tb-h);
+  gap: var(--tb-gap);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -1115,8 +1185,15 @@ body, html {
   border: none;
   color: #999999;
   cursor: pointer;
-  font-size: 14px;
-  padding: 0 2px;
+  font-size: 12px;
+  padding: 0 4px;
+  border-radius: var(--tb-r);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-clear-omnibox:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
 }
 
 /* DEVICE SELECTOR & ZOOM CONTROLS */
@@ -1127,15 +1204,15 @@ body, html {
   background: rgba(255, 255, 255, 0.05) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat right 7px center;
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #e2e8f0;
-  border-radius: 6px;
+  border-radius: var(--tb-r-field);
   padding: 0 22px 0 8px;
-  height: 24px;
-  font-size: 11px;
+  height: var(--tb-h);
+  font-size: 12px;
   font-weight: 500;
   outline: none;
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
   max-width: 175px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1172,18 +1249,20 @@ body, html {
 .split-controls-container {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--tb-gap);
 }
 
 .split-preset-group {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  padding: 1px 2px 1px 2px;
-  transition: all 0.15s ease;
+  gap: var(--tb-gap-tight);
+  background: var(--tb-track);
+  border: 1px solid var(--tb-line);
+  border-radius: var(--tb-r-field);
+  padding: 1px;
+  height: var(--tb-h);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .split-preset-group:focus-within {
@@ -1198,13 +1277,13 @@ body, html {
   gap: 3px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 2px 4px;
-  font-size: 11px;
-  color: #94a3b8;
+  border-radius: 5px;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--tb-fg);
   cursor: pointer;
-  transition: all 0.15s ease;
-  height: 20px;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  height: var(--tb-h-inner);
 }
 
 .split-pane-pill:hover {
@@ -1234,9 +1313,10 @@ body, html {
 .split-device-select {
   -webkit-appearance: none !important;
   appearance: none !important;
-  height: 22px !important;
+  /* A segment inside the 28px track, not a standalone field. */
+  height: var(--tb-h-inner) !important;
   padding: 0 18px 0 6px !important;
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 500 !important;
   border: none !important;
   background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat right 5px center !important;
@@ -1257,30 +1337,31 @@ body, html {
 .zoom-stepper {
   display: inline-flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  height: 24px;
-  padding: 1px 2px;
-  gap: 1px;
+  background: var(--tb-track);
+  border: 1px solid var(--tb-line);
+  border-radius: var(--tb-r-field);
+  height: var(--tb-h);
+  padding: 1px;
+  gap: var(--tb-gap-tight);
   user-select: none;
+  box-sizing: border-box;
 }
 
 .zoom-step-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: var(--tb-h-inner);
+  height: var(--tb-h-inner);
+  border-radius: 5px;
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--tb-fg);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   line-height: 1;
-  transition: all 0.1s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .zoom-step-btn:hover {
@@ -1289,14 +1370,14 @@ body, html {
 }
 
 .zoom-val {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #cbd5e1;
-  padding: 0 3px;
-  min-width: 30px;
+  padding: 0 2px;
+  min-width: 34px;
   text-align: center;
   cursor: pointer;
-  transition: color 0.1s ease;
+  transition: color 0.15s ease;
 }
 
 .zoom-val:hover {
@@ -1656,12 +1737,17 @@ body, html {
   border: none;
   color: #9aa0a6;
   cursor: pointer;
-  padding: 4px;
+  padding: 0;
+  /* A button does not inherit the row's font: without this it renders at the 13.33px
+     UA default, which is how one control in the row ended up off the type scale. */
+  font: inherit;
+  width: var(--tb-h-inner);
+  height: var(--tb-h-inner);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.12s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .btn-star-bookmark:hover {
@@ -2638,18 +2724,23 @@ body, html {
 .btn-theme-qa {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
+  padding: 0 8px;
+  /* Both fallbacks exist because this class is also the QA modal's Re-run button,
+     which lives outside .toolbar and would otherwise resolve the tokens to nothing. */
+  border-radius: var(--tb-r, 6px);
+  font-size: 12px;
   font-weight: 600;
   background: rgba(14, 99, 156, 0.15);
   border: 1px solid rgba(14, 99, 156, 0.4);
   color: #38bdf8;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   width: auto !important;
-  height: 24px;
+  /* Fallback, because this class is also the QA modal's Re-run button, which lives
+     outside .toolbar and would otherwise resolve the token to nothing. */
+  height: var(--tb-h, 28px);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -2718,18 +2809,19 @@ body, html {
 .btn-phone-status {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  font-size: 11px;
+  padding: 0 8px;
+  border-radius: var(--tb-r);
+  font-size: 12px;
   font-weight: 600;
   background: rgba(34, 197, 94, 0.12);
   border: 1px solid rgba(34, 197, 94, 0.35);
   color: #4ade80;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   width: auto !important;
-  height: 24px;
+  height: var(--tb-h);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -2843,4 +2935,43 @@ body, html {
   color: #f1f5f9;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+   Narrow-width ladder
+
+   The row's only shrinkable element is the omnibox, so below the widths where the
+   controls fit, the widest tracks give up space first and a label drops only after
+   that. Split mode adds two preset tracks, which is why it needs its own rungs.
+
+   Declared last: a media query adds no specificity, so these overrides would lose on
+   source order to the base rules above if they sat with the rest of the layout.
+   --------------------------------------------------------------------------- */
+@media (max-width: 1180px) {
+  .device-select {
+    max-width: 132px;
+  }
+  .split-device-select {
+    max-width: 108px !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .device-select {
+    max-width: 112px;
+  }
+  .split-device-select {
+    max-width: 76px !important;
+  }
+  .chrome-profile-btn {
+    padding: 0 6px;
+  }
+  .chrome-profile-btn .profile-name {
+    display: none;
+  }
+  /* The icon and its dot still carry the state; the title carries the words. */
+  .btn-phone-status .phone-status-text,
+  .btn-theme-qa .theme-qa-badge-text {
+    display: none;
+  }
 }
