@@ -13,6 +13,8 @@ import {
   ExecutionAttachmentRecord,
   CapabilityEffectPolicy,
   CapabilityRisk,
+  ChildDispatchSpec,
+  InvocationState,
 } from '../../shared/control-plane-contracts';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { AttachmentRegistry } from '../run/attachment-registry';
@@ -40,6 +42,8 @@ export interface CapabilityTransportResponse {
   };
   evidence?: Record<string, unknown>;
   replacementAuthorityRevision?: string;
+  /** Terminal ledger state when known: 'completed' on success, classified state on failure, 'in_progress' for pending-cleanup. Lets callers (workflow retry gate) distinguish failed-clean from unknown/in-flight. */
+  state?: InvocationState;
 }
 
 class ExecutionControlImpl implements CapabilityExecutionControl {
@@ -74,7 +78,7 @@ class ExecutionControlImpl implements CapabilityExecutionControl {
 
   abort(source: 'owner' | 'subscriber' | 'timeout' | 'system' = 'system'): void {
     this.cancellationSource = source;
-    this.abortController.abort();
+    this.abortController.abort(source);
   }
 
   acknowledgeCancellation(cancellationId: string, ack: EffectAcknowledgement): boolean {
@@ -110,21 +114,6 @@ export class CapabilityTransportAdapter {
     return this.catalogue.list(context);
   }
 
-  async dispatchChildIntent(
-    parentInvocationId: string,
-    stepId: string,
-    attemptIndex: number,
-    intent: ClientInvocationIntent,
-    invocationSeq?: number | string
-  ): Promise<CapabilityTransportResponse> {
-    const seqSuffix = invocationSeq !== undefined ? String(invocationSeq) : `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    const childIntent: ClientInvocationIntent = {
-      ...intent,
-      requestId: intent.requestId || makeControlPlaneId('request'),
-      idempotencyKey: intent.idempotencyKey || `child:${parentInvocationId}:${stepId}:${attemptIndex}:${seqSuffix}`,
-    };
-    return this.dispatchIntent(childIntent);
-  }
 
   async dispatchIntent(
     intent: ClientInvocationIntent,
@@ -252,6 +241,7 @@ export class CapabilityTransportAdapter {
                 requestId: intent.requestId,
                 invocationId: rec.id,
                 data: { state: rec.state, redacted: true },
+                state: rec.state,
                 evidence: rec.evidence,
                 replacementAuthorityRevision: rec.replacementAuthorityRevision,
               };
@@ -261,6 +251,7 @@ export class CapabilityTransportAdapter {
               requestId: intent.requestId,
               invocationId: rec.id,
               data: rec.result,
+              state: rec.state,
               error: rec.error,
               evidence: rec.evidence,
               replacementAuthorityRevision: rec.replacementAuthorityRevision,
@@ -274,6 +265,7 @@ export class CapabilityTransportAdapter {
                 requestId: intent.requestId,
                 invocationId: joinedRec.id,
                 data: { state: joinedRec.state, redacted: true },
+                state: joinedRec.state,
                 evidence: joinedRec.evidence,
                 replacementAuthorityRevision: joinedRec.replacementAuthorityRevision,
               };
@@ -283,6 +275,7 @@ export class CapabilityTransportAdapter {
               requestId: intent.requestId,
               invocationId: joinedRec.id,
               data: joinedRec.result,
+              state: joinedRec.state,
               error: joinedRec.error,
               evidence: joinedRec.evidence,
               replacementAuthorityRevision: joinedRec.replacementAuthorityRevision,
@@ -341,6 +334,7 @@ export class CapabilityTransportAdapter {
               requestId: intent.requestId,
               invocationId: rec.id,
               data: { state: rec.state, redacted: true },
+              state: rec.state,
               evidence: rec.evidence,
               replacementAuthorityRevision: rec.replacementAuthorityRevision,
             };
@@ -350,6 +344,7 @@ export class CapabilityTransportAdapter {
             requestId: intent.requestId,
             invocationId: rec.id,
             data: rec.result,
+              state: rec.state,
             error: rec.error,
             evidence: rec.evidence,
             replacementAuthorityRevision: rec.replacementAuthorityRevision,
@@ -364,6 +359,7 @@ export class CapabilityTransportAdapter {
               requestId: intent.requestId,
               invocationId: rec.id,
               data: { state: rec.state, redacted: true },
+              state: rec.state,
               evidence: rec.evidence,
               replacementAuthorityRevision: rec.replacementAuthorityRevision,
             };
@@ -373,6 +369,7 @@ export class CapabilityTransportAdapter {
             requestId: intent.requestId,
             invocationId: rec.id,
             data: rec.result,
+              state: rec.state,
             error: rec.error,
             evidence: rec.evidence,
             replacementAuthorityRevision: rec.replacementAuthorityRevision,
@@ -410,6 +407,7 @@ export class CapabilityTransportAdapter {
         ok: false,
         requestId: intent.requestId,
         invocationId,
+        state: 'interrupted',
         error: preDispatchErr,
       };
     }
@@ -449,7 +447,16 @@ export class CapabilityTransportAdapter {
     }
 
     let childSeq = 0;
-    const dispatchChildIntent = async (stepId: string, attempt: number, childIntent: ClientInvocationIntent) => {
+    const dispatchChildIntent = async (spec: ChildDispatchSpec) => {
+      // Admission gate: reject when the parent is dead (deadline fired or caller
+      // aborted) — not only when the continuation token was invalidated by
+      // pending-cleanup. A dead parent must never mint new child work.
+      if (execControl.signal.aborted) {
+        throw new CapabilityError(
+          'TRANSACTION_CONFLICT',
+          `Parent invocation ${invocationId} was aborted (${execControl.cancellationSource ?? 'system'}); refusing to dispatch child for step '${spec.stepId}'`
+        );
+      }
       if (!execControl.continuationValid) {
         throw new CapabilityError(
           'TRANSACTION_CONFLICT',
@@ -457,16 +464,26 @@ export class CapabilityTransportAdapter {
         );
       }
       childSeq++;
-      const deterministicKey = `child:${invocationId}:${stepId}:${attempt}:${childSeq}`;
+      const deterministicKey = `child:${invocationId}:${spec.stepId}:${spec.attempt}:${childSeq}`;
       const childWithLineage: ClientInvocationIntent = {
-        ...childIntent,
+        ...spec.intent,
         requestId: `${intent.requestId}:child:${childSeq}`,
         idempotencyKey: deterministicKey,
         attachmentId: liveAuthority.attachmentId,
         attachmentSecret: intent.attachmentSecret,
         authorityRevision: liveAuthority.authorityRevision,
       };
-      return await this.dispatchIntent(childWithLineage, runtimeOptions);
+      // Execution lineage: the child aborts when the caller aborts, when the
+      // parent invocation's own deadline/control fires, or when the step-scoped
+      // signal (step timeout) fires — whichever comes first.
+      const childSignals = [runtimeOptions?.signal, execControl.signal, spec.signal].filter(
+        (s): s is AbortSignal => s !== undefined
+      );
+      const childRuntimeOptions: CapabilityDispatchRuntimeOptions = {
+        ...runtimeOptions,
+        signal: childSignals.length > 1 ? AbortSignal.any(childSignals) : childSignals[0],
+      };
+      return await this.dispatchIntent(childWithLineage, childRuntimeOptions);
     };
 
     // Budget partition: policy.timeoutMs is one total response budget. The
@@ -649,10 +666,11 @@ export class CapabilityTransportAdapter {
           );
           if (newRev) {
             replacementAuthorityRevision = newRev;
-          } else if (isRebind) {
-            throw new CapabilityError('ATTACHMENT_REBIND_FAILED', `Rebind to '${targetTabId}' failed: attachment authority did not rotate (CAS conflict or missing record).`);
           } else {
-            console.warn(`[capability-transport] ${intent.name}: attachment ${authority.attachmentId} failed to rotate to tab '${targetTabId}' (updateAttachmentTab returned null)`);
+            // navigate/reload moved the live target but authority did not rotate:
+            // reporting success would leave the session bound to the old tab while
+            // the client believes it moved — fail loud, same contract as rebind.
+            throw new CapabilityError('ATTACHMENT_REBIND_FAILED', `${intent.name} reached '${targetTabId}' but attachment authority failed to rotate (CAS conflict or missing record). Call browser.rebind-target to retry.`);
           }
         }
       } else if (isCloseTab) {
@@ -766,6 +784,7 @@ export class CapabilityTransportAdapter {
         ok: true,
         requestId: intent.requestId,
         invocationId,
+        state: 'completed',
         data,
         ...(replacementAuthorityRevision ? { replacementAuthorityRevision } : {}),
       };
@@ -790,6 +809,7 @@ export class CapabilityTransportAdapter {
         ok: false,
         requestId: intent.requestId,
         invocationId,
+        state: classified.state,
         error: errObj,
       };
     } finally {
@@ -824,6 +844,7 @@ export class CapabilityTransportAdapter {
       ok: false,
       requestId: intent.requestId,
       invocationId,
+      state: 'in_progress',
       error: {
         code: 'EXECUTION_TIMEOUT_PENDING_CLEANUP',
         message: `Execution exceeded the ${executionBudgetMs}ms response budget (${executionDeadlineMs}ms execution + ${cancellationAckMs}ms cleanup grace) and is still releasing owned resources`,

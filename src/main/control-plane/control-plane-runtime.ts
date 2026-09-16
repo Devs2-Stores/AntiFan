@@ -216,7 +216,6 @@ export class ControlPlaneRuntime {
     registerCoreCapabilities(this.capabilities, createLazyCorePort());
     this.workflowRegistry = new WorkflowRegistry(path.join(options.dataRoot, 'workflows'));
     this.workflowEngine = new WorkflowEngine({
-      transport: this.transport,
       catalogue: this.capabilities,
       artifacts: this.artifacts,
     });
