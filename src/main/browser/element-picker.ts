@@ -628,10 +628,17 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             if (h.id === OVERLAY_ID || h.id === BADGE_ID || h.id === MULTI_BAR_ID || h.closest?.('#' + MODAL_ID) || h.closest?.('#' + MULTI_BAR_ID)) continue;
             const cls = (typeof h.className === 'string' ? h.className : '').toLowerCase();
             const r = h.getBoundingClientRect();
-            const isMicroTarget = (
+            // Class-name matches are heuristics only. A large layout wrapper whose class
+            // merely CONTAINS a pattern token (e.g. div.mn-home__nav-area, 1588x3140) must
+            // not count as a micro target: it sits in every descendant's hit stack, so it
+            // would hijack every hover inside it and its children could never be picked.
+            const isMicroClassHit = (
               cls.includes('dot') || cls.includes('bullet') || cls.includes('pagination') ||
               cls.includes('arrow') || cls.includes('nav-') || cls.includes('swiper-button') ||
-              cls.includes('slick-arrow') || cls.includes('owl-dot') || cls.includes('owl-prev') || cls.includes('owl-next') ||
+              cls.includes('slick-arrow') || cls.includes('owl-dot') || cls.includes('owl-prev') || cls.includes('owl-next')
+            );
+            const isMicroTarget = (
+              (isMicroClassHit && r.width > 0 && r.width <= 64 && r.height > 0 && r.height <= 64) ||
               (r.width > 0 && r.width <= 48 && r.height > 0 && r.height <= 48 && (h.tagName === 'BUTTON' || h.tagName === 'A' || h.getAttribute('role') === 'button'))
             );
             if (isMicroTarget && r.width > 0 && r.height > 0) {

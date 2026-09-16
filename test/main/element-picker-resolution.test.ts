@@ -4,6 +4,7 @@ import * as vm from 'node:vm';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { createRequire } from 'node:module';
 import {
   ELEMENT_PICKER_SCRIPT,
   computeRelativeSubselectorTS,
@@ -11,6 +12,32 @@ import {
   extractSourceHintsTS,
 } from '../../src/main/browser/element-picker';
 import { AnnotationManager } from '../../src/main/bridge/annotation-manager';
+
+interface JsdomLike {
+  window: Window & typeof globalThis & { eval: (src: string) => unknown; __antifanPickerCleanup?: () => void };
+}
+
+type JsdomCtor = new (html: string, options?: Record<string, unknown>) => JsdomLike;
+
+/**
+ * jsdom is a transitive dep; when the shared node_modules copy is broken the
+ * test honors ANTIFAN_JSDOM (a dir containing node_modules/jsdom) and skips
+ * with the resolution error as the named blocker.
+ */
+function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
+  const req = createRequire(__filename);
+  const searchPaths = process.env.ANTIFAN_JSDOM
+    ? [process.env.ANTIFAN_JSDOM, path.dirname(__filename)]
+    : [path.dirname(__filename)];
+  try {
+    const resolved = req.resolve('jsdom', { paths: searchPaths });
+    // jsdom ships no bundled types; the parsed module is asserted to its documented export shape.
+    const jsdomModule = req(resolved) as unknown as { JSDOM: JsdomCtor };
+    return { JSDOM: jsdomModule.JSDOM };
+  } catch (err) {
+    return { error: String(err instanceof Error ? err.message : err) };
+  }
+}
 
 class MockDOMElement {
   public tagName: string;
@@ -539,5 +566,88 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('selectorName'));
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('repositionModal'));
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('max-height:calc(100vh - 20px)'));
+  });
+
+  it('an oversized class-matched wrapper cannot swallow picking of its children', async (t) => {
+    const { JSDOM, error } = loadJsdom();
+    if (!JSDOM) {
+      t.skip(`jsdom unavailable: ${error}`);
+      return;
+    }
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+      runScripts: 'outside-only',
+      url: 'https://m-n-bakery.myharavan.com/collections/original-collection',
+    });
+    const win = dom.window;
+    const doc = win.document;
+
+    // jsdom has no layout engine: every element needs an explicit client rect and
+    // the z-order stack returned by point hit-testing is configured per case.
+    const stubRect = (el: Element, left: number, top: number, width: number, height: number): void => {
+      el.getBoundingClientRect = () => ({ x: left, y: top, width, height, top, right: left + width, bottom: top + height, left, toJSON: () => ({}) });
+    };
+
+    // Live m-n-bakery shape: div.mn-home__nav-area spans the page and its class
+    // merely contains the `nav-` token, which used to classify it as a micro target.
+    const wrapper = doc.createElement('div');
+    wrapper.className = 'mn-home__nav-area';
+    doc.body.appendChild(wrapper);
+    stubRect(wrapper, 0, 0, 1588, 3140);
+
+    const child = doc.createElement('a');
+    child.className = 'product-card__title';
+    child.textContent = 'Bánh mì';
+    wrapper.appendChild(child);
+    stubRect(child, 40, 80, 120, 36);
+
+    const overlayShell = doc.createElement('div');
+    overlayShell.className = 'mn-grid-overlay';
+    const dot = doc.createElement('span');
+    dot.className = 'swiper-pagination-bullet';
+    overlayShell.appendChild(dot);
+    stubRect(overlayShell, 0, 0, 1440, 900);
+    stubRect(dot, 190, 190, 10, 10);
+
+    let stack: Element[] = [];
+    doc.elementsFromPoint = () => stack;
+    doc.elementFromPoint = () => stack[0] ?? null;
+
+    // Resolution is scheduled on requestAnimationFrame; capture frames so the test
+    // drives them deterministically instead of waiting on wall-clock time.
+    const pendingFrames: FrameRequestCallback[] = [];
+    win.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      pendingFrames.push(cb);
+      return pendingFrames.length;
+    };
+    win.cancelAnimationFrame = () => {};
+
+    win.eval(ELEMENT_PICKER_SCRIPT);
+
+    const hover = (x: number, y: number): string => {
+      const ev = new win.Event('pointermove', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clientX', { value: x });
+      Object.defineProperty(ev, 'clientY', { value: y });
+      win.dispatchEvent(ev);
+      const frame = pendingFrames.shift();
+      if (frame) frame(0);
+      const badge = doc.getElementById('antifan-inspect-badge');
+      return badge ? badge.textContent ?? '' : '';
+    };
+
+    // 1. Hovering a child: the giant wrapper sits in the hit stack, but only physical
+    //    size may classify a micro target, so the child must win.
+    stack = [child, wrapper];
+    assert.strictEqual(hover(100, 100), 'a.product-card__title (120×36)');
+
+    // 2. The dilation ring must still find a genuinely micro control under a large overlay.
+    stack = [overlayShell, dot];
+    assert.strictEqual(hover(200, 200), 'span.swiper-pagination-bullet (10×10)');
+
+    // 3. The wrapper itself stays pickable when nothing smaller is under the cursor.
+    stack = [wrapper];
+    assert.strictEqual(hover(300, 300), 'div.mn-home__nav-area (1588×3140)');
+
+    win.__antifanPickerCleanup?.();
+    win.close();
   });
 });
