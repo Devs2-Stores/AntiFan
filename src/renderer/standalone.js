@@ -4006,10 +4006,14 @@ api?.onTerminalData(({ sessionId, data, seq, generation, fromSeq, throughSeq }) 
   const chunkGen = typeof generation === 'number' ? generation : 0;
   const chunk = { seq: chunkSeq, generation: chunkGen, data, fromSeq, throughSeq };
 
+  // Tab activity is tab-strip state, independent of which pane is mounted;
+  // a background tab running an AI turn is exactly the tab the user cannot see;
+  // updateTabActivityUi keeps the 💤 presentation for sleeping sessions.
+  notifySessionActivity(sessionId, data);
+
   if (sessionId === splitId && splitTerm) {
     // The split pane mounts outside the tab pool and carries no .active class —
     // it is always visible while mounted, so it must keep receiving writes.
-    notifySessionActivity(sessionId, data);
     processIncomingChunk(splitSessionState, chunk, true);
     // Its pooled pane (if any) is hidden while the split is mounted: keep its
     // rendered cursor in step so a later activation rehydrates instead of
@@ -4070,7 +4074,6 @@ api?.onTerminalData(({ sessionId, data, seq, generation, fromSeq, throughSeq }) 
     return;
   }
 
-  notifySessionActivity(sessionId, data);
   processIncomingChunk(item, chunk, false);
 });
 async function bootstrapTerminalState() {
