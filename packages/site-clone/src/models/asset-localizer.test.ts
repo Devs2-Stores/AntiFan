@@ -1954,6 +1954,46 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
       }, /AMBIGUOUS_ASSET_VARIANT/);
     });
 
+    it('6.16b. rewriteFiles never registers a bare path+query key that collides across origins', () => {
+      const localizer = new AssetLocalizer();
+      const manifest: HarvestedAssetManifest = {
+        stylesheets: [],
+        javascripts: [],
+        images: [
+          {
+            type: 'image',
+            sourceUrl: 'https://cdn-a.example.com/logo.png',
+            filename: 'logo-a.png',
+            localPath: '/tmp/logo-a.png'
+          },
+          {
+            type: 'image',
+            sourceUrl: 'https://cdn-b.example.com/logo.png',
+            filename: 'logo-b.png',
+            localPath: '/tmp/logo-b.png'
+          }
+        ],
+        fonts: [],
+        totalBytes: 0
+      };
+
+      const html = '<img src="https://cdn-a.example.com/logo.png"><img src="https://cdn-b.example.com/logo.png"><img src="/logo.png">';
+      const res = localizer.rewriteFiles([{ path: 'index.html', content: html }], manifest, { mode: 'relative' });
+
+      assert.ok(
+        res.files[0].rewrittenContent.includes('src="assets/logo-a.png"'),
+        'origin A reference must resolve to origin A file'
+      );
+      assert.ok(
+        res.files[0].rewrittenContent.includes('src="assets/logo-b.png"'),
+        'origin B reference must resolve to origin B file'
+      );
+      assert.ok(
+        res.files[0].rewrittenContent.includes('src="/logo.png"'),
+        'an ambiguous bare path must not be rewritten to either origin\'s file'
+      );
+    });
+
     it('6.17. consolidateIdenticalContent collapses byte-identical items across contexts to surface-neutral file and preserves distinct-byte variants', () => {
       const localizer = new AssetLocalizer();
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-consolidate-test-'));

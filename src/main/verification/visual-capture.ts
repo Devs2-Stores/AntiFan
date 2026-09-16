@@ -21,6 +21,7 @@ import type { MetricSample, VisualEvidenceReceipt } from './verification-contrac
 import type { RouteRefusalCode as SharedRouteRefusalCode } from '../../shared/control-plane-contracts';
 import type { GroupStructuralMetrics } from './visual-region';
 import type { ScrollPrewarmReceipt } from './scroll-prewarm';
+import type { CaptureSettleWarnings } from './capture-settle';
 
 export interface RasterBox {
   x: number;
@@ -885,6 +886,13 @@ export interface VerificationCaptureEnvelope {
   prewarm?: ScrollPrewarmReceipt;
   /** Set when the pre-warm walk could not complete; the capture itself still ran. */
   prewarmError?: string;
+  /**
+   * What the pre-capture settle gate had to tolerate before rasterizing. A page with
+   * a rotating banner, a permanently broken ad image, or a layout that settled a row
+   * late is capturable, and the receipt has to say so: without this field the caller
+   * cannot distinguish a clean document from one the gate admitted by tolerance.
+   */
+  settle?: CaptureSettleWarnings;
 }
 
 /**
@@ -913,6 +921,12 @@ export interface VerificationCaptureReceipt {
    */
   prewarm?: ScrollPrewarmReceipt;
   prewarmError?: string;
+  /**
+   * Settle-gate tolerances carried with the receipt, so a caller reading the evidence
+   * metadata knows the raster was admitted despite a broken image, a rotating banner,
+   * or late layout movement instead of assuming a quiet document.
+   */
+  settle?: CaptureSettleWarnings;
 }
 
 export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): VerificationCaptureReceipt {
@@ -932,6 +946,7 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     ...(env.routeAssertion ? { routeAssertion: env.routeAssertion } : {}),
     ...(env.prewarm ? { prewarm: env.prewarm } : {}),
     ...(env.prewarmError ? { prewarmError: env.prewarmError } : {}),
+    ...(env.settle ? { settle: env.settle } : {}),
   };
 }
 

@@ -372,10 +372,7 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
         once: () => {},
         sendCommand: async (method: string, params: unknown) => {
           cdpCalls.push({ method, params });
-          if (method === 'Page.captureScreenshot') {
-            return { data: 'b2NjbHVkZWQtc2NyZWVuc2hvdA==' };
-          }
-          return {};
+          return { data: 'b2NjbHVkZWQtc2NyZWVuc2hvdA==' };
         },
       },
     } as unknown as Electron.WebContents;

@@ -407,8 +407,9 @@ export function sanitizeSectionMarkup(html: string): string {
     .replace(DATA_SLICK_INDEX_RE, '')
     .replace(SLICK_ARIA_DESCRIBEDBY_RE, '');
   // 5. Keep remote media destinations as inert metadata. The static clone must not
-  // load third-party embeds during capture, but its interaction layer needs the
-  // authentic destination to restore a video/map on explicit user action.
+  // load third-party embeds during capture; the destination survives in data-src so a
+  // dedicated handler (e.g. the #popup-video loader below) can restore it on explicit
+  // user action. Embeds without such a handler stay inert.
   processed = processed.replace(BOUND_ATTR_RE, '');
   processed = processed.replace(REMOTE_DATA_SRC_RE, '');
   processed = processed.replace(EMPTY_IFRAME_SRC_RE, (_m, p1) => p1 + ' src="about:blank"');
@@ -1243,10 +1244,10 @@ ${extractedEffectsScripts.join('\n\n')}
     /* Fullscreen capture overlays retired by the interactivity script: an overlay that was open
        when the capture ran has no state machine to close it, so its backdrop would block the page. */
     [data-antifan-unhydrated-overlay] {
-      display: none;
-      opacity: 0;
-      visibility: hidden;
-      pointer-events: none;
+      display: none !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
     }
     ${options.customParityCss ? `\n    /* Custom User/Theme Parity CSS */\n    ${options.customParityCss}` : ''}
   </style>`;
@@ -1585,14 +1586,14 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       var viewportWidth = window.innerWidth || documentElement.clientWidth || 0;
       var viewportHeight = window.innerHeight || documentElement.clientHeight || 0;
       if (viewportWidth <= 0 || viewportHeight <= 0) return false;
-      var overlayCandidates = document.querySelectorAll('body > div, body > div > div, body > aside, body > section');
+      var overlayCandidates = document.querySelectorAll('body > *, body > * > *');
       Array.prototype.forEach.call(overlayCandidates, function(el) {
         if (el.hasAttribute('data-antifan-unhydrated-overlay')) return;
         if (el.matches(overlayExcluded) || el.closest(overlayExcluded)) return;
         var overlayStyle = window.getComputedStyle(el);
         if (!overlayStyle || overlayStyle.position !== 'fixed') return;
-        if (overlayStyle.display === 'none' || overlayStyle.visibility === 'hidden') return;
-        if (parseInt(overlayStyle.zIndex, 10) < 40) return;
+        var overlayZIndex = parseInt(overlayStyle.zIndex, 10);
+        if (!Number.isFinite(overlayZIndex) || overlayZIndex < 40) return;
         var overlayRect = el.getBoundingClientRect();
         if (overlayRect.width < viewportWidth * 0.9 || overlayRect.height < viewportHeight * 0.9) return;
         // A form or a labelled dismiss control means the overlay owns real interaction.
@@ -1951,12 +1952,14 @@ ${options.customInteractivityJs ? `\n    /* Custom User / Theme Interactivity */
       /(<(?:body|html)\b[^>]*?)(\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'))/gi,
       (_tag, head: string, _styleAttr: string, doubleQuoted: string | undefined, singleQuoted: string | undefined) => {
         const declared = (doubleQuoted !== undefined ? doubleQuoted : singleQuoted) ?? '';
+        const quote = doubleQuoted !== undefined ? '"' : "'";
+        // Remove only overflow declarations. Quoted runs are consumed first so a ';' or an
+        // 'overflow:' substring inside url()/content values is never treated as a declaration.
         const kept = declared
-          .split(';')
-          .map(declaration => declaration.trim())
-          .filter(declaration => declaration.length > 0 && !/^overflow(?:-[xy])?\s*:/i.test(declaration))
-          .join('; ');
-        return kept ? `${head} style="${kept}"` : head;
+          .replace(/"[^"]*"|'[^']*'|(?:^|;)\s*overflow(?:-[xy])?\s*:[^;]*/gi, m => /^["']/.test(m) ? m : '')
+          .replace(/^\s*;+/, '')
+          .trim();
+        return kept ? `${head} style=${quote}${kept}${quote}` : head;
       }
     );
     const entryDir = path.dirname(entryFilename);

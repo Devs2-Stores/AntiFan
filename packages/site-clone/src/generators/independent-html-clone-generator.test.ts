@@ -381,6 +381,33 @@ describe('IndependentHtmlCloneGenerator - generateFromMaterializedHtml', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+  it('strips only the overflow declaration and preserves the original quote style', () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-scroll-lock-quotes-'));
+    try {
+      const sampleHtml = '<!DOCTYPE html><html><head><title>Locked</title></head>'
+        + `<body class="antialiased" style='overflow: hidden; background: url("semi;colon.png"); text-overflow: ellipsis;'>`
+        + '<div class="page">Content</div></body></html>';
+      const res = generator.generateFromMaterializedHtml(sampleHtml, {
+        outputDir: tmpDir,
+        entryFilename: 'index.html',
+        device: 'web'
+      });
+
+      const bodyTag = res.html.match(/<body[^>]*>/i)?.[0] ?? '';
+      assert.ok(!/(?:^|;|\s)overflow\s*:/i.test(bodyTag), `the baked scroll lock must be removed: ${bodyTag}`);
+      assert.ok(
+        bodyTag.includes(`style='background: url("semi;colon.png"); text-overflow: ellipsis;'`),
+        `single-quoted style must keep its quote char and quoted values intact: ${bodyTag}`
+      );
+      assert.ok(bodyTag.includes('text-overflow: ellipsis'), 'text-overflow must not be mistaken for overflow');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
   it('emits a standards-mode document so percentage heights use their containing block', () => {
     const generator = new IndependentHtmlCloneGenerator();
     const os = require('node:os');
@@ -434,6 +461,8 @@ describe('IndependentHtmlCloneGenerator - fullscreen capture overlay retirement'
     try {
       const sampleHtml = '<!DOCTYPE html><html><head><title>Overlays</title></head><body>'
         + `<div id="announcement" style="${fullscreen}"><a href="/blogs/notice"><img src="assets/notice.png" alt=""></a></div>`
+        + `<nav id="nav-overlay" style="${fullscreen}"><a href="/blogs/notice">Notice</a></nav>`
+        + `<div id="auto-layer" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: auto;"><a href="/x">Layer</a></div>`
         + `<div id="dialog" style="${fullscreen}"><button class="close">Dong</button></div>`
         + `<div id="state-popup" class="modal" style="${fullscreen}"></div>`
         + `<aside id="cookie" style="${fullscreen}"><a href="/privacy">Chi tiet</a></aside>`
@@ -469,6 +498,8 @@ describe('IndependentHtmlCloneGenerator - fullscreen capture overlay retirement'
 
       const isRetired = (id: string) => win.document.getElementById(id)?.hasAttribute('data-antifan-unhydrated-overlay');
       assert.strictEqual(isRetired('announcement'), true, 'a capture-time overlay with no dismiss control must be retired');
+      assert.strictEqual(isRetired('nav-overlay'), true, 'a fullscreen overlay is retired regardless of element tag');
+      assert.strictEqual(isRetired('auto-layer'), false, 'z-index: auto parses to NaN and must not qualify as a high-z overlay');
       assert.strictEqual(isRetired('dialog'), false, 'an overlay owning a dismiss button must stay interactive');
       assert.strictEqual(isRetired('state-popup'), false, 'a state-machine popup must stay under its own control');
       assert.strictEqual(isRetired('cookie'), false, 'a partial-size overlay must not be treated as a fullscreen backdrop');
@@ -482,6 +513,15 @@ describe('IndependentHtmlCloneGenerator - fullscreen capture overlay retirement'
         'none',
         'page content must stay visible'
       );
+      // A retired overlay can carry a baked-open inline display/visibility; the parity rule
+      // must outrank it, which requires !important on every declaration.
+      const parityCss = res.html.match(/\[data-antifan-unhydrated-overlay\]\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+      for (const declaration of ['display: none', 'opacity: 0', 'visibility: hidden', 'pointer-events: none']) {
+        assert.ok(
+          parityCss.includes(`${declaration} !important`),
+          `parity rule must declare ${declaration} !important so a baked-open inline style cannot keep the overlay rendered`
+        );
+      }
       dom.window.close();
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -594,7 +634,10 @@ describe('IndependentHtmlCloneGenerator - Parity Styles & State Overrides', () =
       // Must NOT contain invented aspect ratio 775/385 or layout !important
       assert.ok(!parityCss.includes('775'), 'must not contain invented 775 aspect ratio');
       assert.ok(!parityCss.includes('385'), 'must not contain invented 385 aspect ratio');
-      assert.ok(!parityCss.includes('!important'), 'must not contain unnecessary !important on layout or state');
+      assert.ok(
+        !parityCss.replace(/\[data-antifan-unhydrated-overlay\]\s*\{[\s\S]*?\}/, '').includes('!important'),
+        'must not contain unnecessary !important on layout or state (the retired-overlay rule is exempt: it must outrank baked-open inline styles)'
+      );
 
       // Drawer scoping must not match all inner elements
       assert.ok(!parityCss.includes('[class*="drawer"]:not(.active):not(.show)'), 'must not broadly hide any element with drawer in class');
@@ -647,7 +690,10 @@ describe('IndependentHtmlCloneGenerator - Parity Styles & State Overrides', () =
       assert.ok(!parityCss.includes('::-webkit-scrollbar'), 'bundle must not contain ::-webkit-scrollbar');
       assert.ok(!parityCss.includes('775'), 'bundle must not contain invented 775 aspect ratio');
       assert.ok(!parityCss.includes('385'), 'bundle must not contain invented 385 aspect ratio');
-      assert.ok(!parityCss.includes('!important'), 'bundle must not contain layout !important');
+      assert.ok(
+        !parityCss.replace(/\[data-antifan-unhydrated-overlay\]\s*\{[\s\S]*?\}/, '').includes('!important'),
+        'bundle must not contain layout !important (the retired-overlay rule is exempt: it must outrank baked-open inline styles)'
+      );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

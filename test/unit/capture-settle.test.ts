@@ -9,6 +9,8 @@ import {
   createBrowserSettlePredicates,
   buildPreCaptureSampleExpr,
   PRE_CAPTURE_SAMPLE_EXPR,
+  evaluatePreCaptureQuiescence,
+  LAYOUT_OBSERVATION_ATTEMPTS,
   type VisualSettleReceipt,
   type CaptureSettlePredicates,
 } from '../../src/main/verification/capture-settle';
@@ -522,4 +524,285 @@ describe('buildPreCaptureSampleExpr (quiescence sample expressions)', () => {
     assert.strictEqual(sample.imageParts.length, 2, 'Visible and offscreen lazy image must be tracked in full-page identity hash');
   });
 });
+});
+
+describe('evaluatePreCaptureQuiescence (capture-admissibility verdicts)', () => {
+  interface FakeSample {
+    readyState: string;
+    fontsSettled: boolean;
+    fontsStatus: string;
+    imageCount: number;
+    pendingImages: number;
+    brokenImages: string[];
+    imageSetHash: string;
+    imageStructureHash: string;
+    imageStructureCount: number;
+    imageParts: string[];
+    imageContentParts: string[];
+    imageStructureParts: string[];
+    docHeight: number;
+    scrollWidth: number;
+  }
+
+  const sampleOf = (over: Partial<FakeSample> = {}): FakeSample => ({
+    readyState: 'complete',
+    fontsSettled: true,
+    fontsStatus: 'loaded',
+    imageCount: 1,
+    pendingImages: 0,
+    brokenImages: [],
+    imageSetHash: 'aaaa0000',
+    imageStructureHash: 'bbbb1111',
+    imageStructureCount: 1,
+    imageParts: ['https://ex.com/hero.png|1200x600|0,0,1200,600|c'],
+    imageContentParts: ['https://ex.com/hero.png|1200x600'],
+    imageStructureParts: ['1200x600'],
+    docHeight: 1000,
+    scrollWidth: 1000,
+    ...over,
+  });
+
+  /** Host that replays `next(callIndex)` for every sample read, recording each call. */
+  const hostOf = (next: (callIndex: number) => FakeSample) => {
+    const calls: number[] = [];
+    return {
+      calls,
+      host: {
+        evalJs: async (): Promise<FakeSample> => {
+          const index = calls.length;
+          calls.push(index);
+          return next(index);
+        },
+      },
+    };
+  };
+
+  const evaluate = async (next: (callIndex: number) => FakeSample) => {
+    const { host, calls } = hostOf(next);
+    const result = await evaluatePreCaptureQuiescence(host, 'tab-1', 'desktop', { dwellMs: 0 });
+    return { result, calls };
+  };
+
+  it('admits a capture on a page with a permanently broken ad image and records it as a warning', async () => {
+    const broken = 'https://ads.ex.com/404-banner.png';
+    const { result } = await evaluate(() => sampleOf({ brokenImages: [broken], imageCount: 3 }));
+
+    assert.strictEqual(result.ready, true, 'A broken image never becomes loadable by waiting, so it must not refuse the raster');
+    assert.strictEqual(result.predicates.imagesSettled, true);
+    assert.deepStrictEqual(result.warnings.brokenImages, [broken]);
+    assert.ok(result.warnings.toleratedPredicates.includes('imagesSettled'));
+  });
+
+  it('still refuses while an image is loading', async () => {
+    const { result } = await evaluate(() => sampleOf({ pendingImages: 2, imageCount: 3 }));
+
+    assert.strictEqual(result.ready, false);
+    assert.strictEqual(result.failingPredicate, 'imagesSettled');
+    assert.strictEqual(result.predicates.imagesSettled, false);
+  });
+
+  it('admits a capture on a page whose banner rotates in place, counting the churn', async () => {
+    // Both creatives occupy the same 728x92 slot: a swap inside an unmoved element.
+    const rotating = (index: number) =>
+      sampleOf({
+        imageSetHash: `full-${index}`,
+        imageParts: [
+          index === 0
+            ? 'https://cdn.ex.com/banner-red.png|728x92|0,0,728,92|c'
+            : 'https://cdn.ex.com/banner-blue.png|728x92|0,0,728,92|c',
+        ],
+        imageContentParts: [
+          index === 0 ? 'https://cdn.ex.com/banner-red.png|728x92' : 'https://cdn.ex.com/banner-blue.png|728x92',
+        ],
+        imageStructureParts: ['728x92'],
+        imageStructureHash: 'stable-structure',
+      });
+
+    const { result } = await evaluate(rotating);
+
+    assert.strictEqual(result.ready, true, 'A source swap inside an unmoved element is churn, not document assembly');
+    assert.strictEqual(result.predicates.imageIdentityStable, true);
+    assert.strictEqual(result.warnings.rotatedImages, 1);
+    assert.ok(result.warnings.toleratedPredicates.includes('imageIdentityStable'));
+  });
+
+  it('admits a capture when an ad slot swaps a 1x1 beacon for a sized creative in the same box', async () => {
+    // Measured on vnexpress.net: a 1x1 gif laid out at 460x276 was replaced by a real
+    // creative inside the same box. Keying the structural reading on natural size made
+    // that swap read as an added element and refused the full-page capture.
+    const swap = (index: number) =>
+      sampleOf({
+        imageParts: [
+          index === 0
+            ? 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==|1x1|156,9920,460,276|c'
+            : 'https://ads.ex.com/creative.png|300x250|156,9920,460,276|c',
+        ],
+        imageContentParts: [
+          index === 0
+            ? 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==|1x1'
+            : 'https://ads.ex.com/creative.png|300x250',
+        ],
+        imageStructureParts: ['460x276'],
+      });
+
+    const { result } = await evaluate(swap);
+
+    assert.strictEqual(result.ready, true, 'The slot kept its box; only the creative inside it changed');
+    assert.strictEqual(result.predicates.imageIdentityStable, true);
+    assert.strictEqual(result.warnings.rotatedImages, 1);
+  });
+
+  it('admits a capture while a transform carousel moves images without reshaping them', async () => {
+    // Measured on tiki.vn: boxes moved (witness box 1000,4680,156,156) while docHeight
+    // held at 7576. A snapshot of a moving carousel is a legitimate capture; growth is
+    // what the layout predicate is for.
+    const carousel = (index: number) =>
+      sampleOf({
+        imageParts: [
+          index === 0
+            ? 'https://cdn.ex.com/a.png|156x156|1000,4680,156,156|c'
+            : 'https://cdn.ex.com/a.png|156x156|1004,4680,156,156|c',
+        ],
+        imageContentParts: ['https://cdn.ex.com/a.png|156x156'],
+        imageStructureParts: ['156x156'],
+      });
+
+    const { result } = await evaluate(carousel);
+    assert.strictEqual(result.ready, true, 'A moved image box is not an assembling document');
+    assert.strictEqual(result.predicates.imageIdentityStable, true);
+    assert.strictEqual(result.warnings.rotatedImages, 0, 'A pure position move is not content churn');
+  });
+
+  it('refuses when a tracked image is added while document geometry holds constant', async () => {
+    const arriving = (index: number) =>
+      index === 0
+        ? sampleOf()
+        : sampleOf({
+            imageParts: ['https://ex.com/hero.png|1200x600|0,0,1200,600|c', 'https://ex.com/late.png|300x248|0,700,300,248|c'],
+            imageContentParts: ['https://ex.com/hero.png|1200x600', 'https://ex.com/late.png|300x248'],
+            imageStructureParts: ['1200x600', '300x248'],
+            imageStructureHash: 'bbbb2222',
+          });
+
+    const { result } = await evaluate(arriving);
+
+    assert.strictEqual(result.ready, false);
+    assert.strictEqual(result.failingPredicate, 'imageIdentityStable');
+    assert.ok(
+      result.measurements.movingWitness?.includes('300x248') === true ||
+        result.measurements.movingWitness?.includes('1200x600') === true,
+      'The witness must name a box size from the changed inventory'
+    );
+    assert.strictEqual(result.warnings.rotatedImages, 0);
+  });
+
+  it('admits a 7px late layout settle on a tall document', async () => {
+    const lateSettle = (index: number) => sampleOf({ docHeight: index === 0 ? 7583 : 7576 });
+
+    const { result } = await evaluate(lateSettle);
+
+    assert.strictEqual(result.ready, true, 'A document that finished settling one row late is capturable');
+    assert.strictEqual(result.predicates.layoutStable, true);
+    assert.strictEqual(result.measurements.layoutDriftPx, 7);
+    assert.ok(result.warnings.toleratedPredicates.includes('layoutStable'));
+  });
+
+  it('refuses a document that keeps growing across the whole observation window', async () => {
+    const growing = (index: number) => sampleOf({ docHeight: 3000 + index * 100 });
+
+    const { result, calls } = await evaluate(growing);
+
+    assert.strictEqual(result.ready, false);
+    assert.strictEqual(result.failingPredicate, 'layoutStable');
+    assert.strictEqual(result.predicates.layoutStable, false);
+    assert.deepStrictEqual(
+      result.warnings.toleratedPredicates,
+      [],
+      'A refusal must not name the predicate that caused it as tolerated'
+    );
+    assert.ok(typeof result.reason === 'string' && result.reason.length > 0);
+    assert.strictEqual(calls.length, LAYOUT_OBSERVATION_ATTEMPTS + 1, 'The window must be bounded, not an open-ended wait');
+  });
+
+  it('refuses a document whose settled tail disagrees with its first reading beyond tolerance', async () => {
+    // 1000 -> 1100 -> 1100 -> 1100: the tail holds, but the document ends 100 px from
+    // where the window began — a 10% reshape, not drift within the allowance.
+    const settles = (index: number) => sampleOf({ docHeight: index === 0 ? 1000 : 1100 });
+
+    const { result, calls } = await evaluate(settles);
+
+    assert.strictEqual(result.ready, false);
+    assert.strictEqual(result.failingPredicate, 'layoutStable');
+    assert.strictEqual(result.predicates.layoutStable, false);
+    assert.strictEqual(result.measurements.layoutDriftPx, 100);
+    assert.strictEqual(calls.length, LAYOUT_OBSERVATION_ATTEMPTS + 1, 'A moved document is observed for the full window');
+  });
+
+  it('refuses a large document growing monotonically within the per-pair tolerance', async () => {
+    // 30 px per dwell on a 40000 px document: every consecutive pair is inside the
+    // 40 px allowance, yet the window ends 90 px from where it began. Only the
+    // cumulative check catches growth this slow.
+    const creeping = (index: number) => sampleOf({ docHeight: 40000 + index * 30 });
+
+    const { result, calls } = await evaluate(creeping);
+
+    assert.strictEqual(result.ready, false, 'Cumulative growth across the window must refuse even when every pair agrees');
+    assert.strictEqual(result.failingPredicate, 'layoutStable');
+    assert.strictEqual(result.predicates.layoutStable, false);
+    assert.strictEqual(result.measurements.layoutDriftPx, 90);
+    assert.strictEqual(calls.length, LAYOUT_OBSERVATION_ATTEMPTS + 1);
+  });
+
+  it('admits a document that settles within tolerance and holds for the rest of the window', async () => {
+    // 7583 -> 7576 -> 7576 -> 7576: the tail agrees AND the window ends within the
+    // 8 px allowance of where it began — the "settled one row late" case.
+    const lateSettle = (index: number) => sampleOf({ docHeight: index === 0 ? 7583 : 7576 });
+
+    const { result, calls } = await evaluate(lateSettle);
+
+    assert.strictEqual(result.ready, true);
+    assert.strictEqual(result.predicates.layoutStable, true);
+    assert.strictEqual(result.measurements.layoutDriftPx, 7);
+    assert.strictEqual(calls.length, LAYOUT_OBSERVATION_ATTEMPTS + 1, 'A moved document is observed for the full window');
+  });
+
+  it('treats a failed mid-window read as inconclusive and judges the last good pair', async () => {
+    // Readings 1000 -> 1100 disagree, then the third evaluation fails. The refusal must
+    // report the movement actually observed and the truncated window — not claim the
+    // document kept moving through readings that never happened.
+    let callIndex = 0;
+    const host = {
+      evalJs: async (): Promise<FakeSample | null> => {
+        callIndex += 1;
+        if (callIndex === 3) return null;
+        return sampleOf({ docHeight: callIndex === 1 ? 1000 : 1100 });
+      },
+    };
+
+    const result = await evaluatePreCaptureQuiescence(host, 'tab-1', 'desktop', { dwellMs: 0 });
+
+    assert.strictEqual(result.ready, false);
+    assert.strictEqual(result.failingPredicate, 'layoutStable');
+    assert.ok(result.reason?.includes('2 observation'), 'The reason must count the readings that actually happened');
+    assert.ok(result.reason?.includes('window ended early'), 'The reason must say the window was truncated, not that movement was observed');
+  });
+
+  it('admits on the last good pair when a mid-window read fails after the document held', async () => {
+    // 7583 -> 7576 agree within tolerance, then the confirmation read fails. The last
+    // good pair is the best available evidence, matching the tolerated first-read failure.
+    let callIndex = 0;
+    const host = {
+      evalJs: async (): Promise<FakeSample | null> => {
+        callIndex += 1;
+        if (callIndex === 3) return null;
+        return sampleOf({ docHeight: callIndex === 1 ? 7583 : 7576 });
+      },
+    };
+
+    const result = await evaluatePreCaptureQuiescence(host, 'tab-1', 'desktop', { dwellMs: 0 });
+
+    assert.strictEqual(result.ready, true, 'A failed read is inconclusive; the last good pair stands');
+    assert.strictEqual(result.predicates.layoutStable, true);
+    assert.strictEqual(result.measurements.layoutDriftPx, 7);
+  });
 });

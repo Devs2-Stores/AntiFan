@@ -203,21 +203,26 @@ describe('CoreHealthService task runs (item 15)', () => {
 
 describe('CoreHealthService real CLI path', () => {
   test('missing super-core dist → UNAVAILABLE via real spawn', async () => {
-    // Point scriptPath at a copy of the CLI inside a temp root that has NO
-    // packages/super-core/dist, so the CLI's dist lookup genuinely misses and
-    // exits non-zero regardless of the host repo's build state.
+    // antifan-core.cjs resolves ../packages/super-core/dist relative to its own
+    // path, so run a copy from a temp tree that has no dist — the outcome never
+    // depends on whether the worktree's own dist exists.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-noroot-'));
     const scriptsDir = path.join(tmp, 'scripts');
     fs.mkdirSync(scriptsDir, { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, 'scripts', 'antifan-core.cjs'), path.join(scriptsDir, 'antifan-core.cjs'));
-    const svc = new CoreHealthService({
-      scriptPath: path.join(scriptsDir, 'antifan-core.cjs'),
-      repoRoot: tmp,
-      issueRegister: makeIssues(),
-    });
-    const snap = await svc.getSnapshot();
-    assert.equal(snap.status, 'UNAVAILABLE');
-    assert.equal(snap.reasonCode, 'CORE_UNAVAILABLE');
+    try {
+      const svc = new CoreHealthService({
+        scriptPath: path.join(scriptsDir, 'antifan-core.cjs'),
+        repoRoot: tmp,
+        issueRegister: makeIssues(),
+      });
+      const snap = await svc.getSnapshot();
+      assert.equal(snap.status, 'UNAVAILABLE');
+      assert.equal(snap.reasonCode, 'CORE_UNAVAILABLE');
+      assert.ok(snap.affected[0]?.includes('super-core unavailable'), 'must surface the real CLI exit-2 reason');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   test('seeded pending candidate → real CLI reports DEGRADED/PENDING_CANDIDATES', async (t) => {
@@ -227,10 +232,18 @@ describe('CoreHealthService real CLI path', () => {
     const pkgDir = path.join(tmp, 'packages', 'super-core');
     fs.mkdirSync(pkgDir, { recursive: true });
     for (const f of ['index.ts', 'schema.ts']) {
-      fs.copyFileSync(path.join(REPO_ROOT, 'packages', 'super-core', 'src', f), path.join(pkgDir, f));
+      const src = path.join(REPO_ROOT, 'packages', 'super-core', 'src', f);
+      if (!fs.existsSync(src)) {
+        t.skip(`super-core source ${f} is absent from this checkout`);
+        fs.rmSync(tmp, { recursive: true, force: true });
+        return;
+      }
+      fs.copyFileSync(src, path.join(pkgDir, f));
     }
+    // The temp package sits outside the repo, so @types/node is not reachable by
+    // default typeRoots walking — point it at the repo's copy explicitly.
     fs.writeFileSync(path.join(pkgDir, 'tsconfig.json'), JSON.stringify({
-      compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', outDir: './dist', rootDir: '.', strict: true, skipLibCheck: true, esModuleInterop: true },
+      compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', lib: ['ES2022'], outDir: './dist', rootDir: '.', strict: true, skipLibCheck: true, esModuleInterop: true, types: ['node'], typeRoots: [path.join(REPO_ROOT, 'node_modules', '@types')] },
       include: ['*.ts'],
     }));
     try {

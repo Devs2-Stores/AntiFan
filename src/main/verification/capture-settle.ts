@@ -474,10 +474,21 @@ export function createBrowserSettlePredicates(
  * - documentGenerationSettled (readyState === 'complete')
  * - viewportStable (dimensions finite, positive, and unchanged)
  * - fontsSettled (document.fonts.status === 'loaded')
- * - imagesSettled (no pending images)
- * - imageIdentityStable (imageSetHash must not move while geometry holds constant;
- *   refuse with moving witness named if it changes)
- * - layoutStable (geometry stable across observation window)
+ * - imagesSettled (no image still loading; a broken image is a warning, not a refusal)
+ * - imageIdentityStable (the tracked image SET and the layout each image occupies must hold
+ *   while geometry holds constant; a source swap inside one unchanged element — a rotating
+ *   banner or an ad creative — is recorded as churn and never refuses the raster)
+ * - layoutStable (geometry converged across the observation window within a small drift
+ *   allowance; a document that keeps growing still refuses)
+ *
+ * Every predicate here must be decidable by *waiting*, because the caller cannot repair it:
+ * a page whose ad rotator swaps a banner every 110 ms, whose ad frame permanently 404s, or
+ * whose document height settles 7 px late is capturable — its pixels are stable enough to
+ * rasterize — and refusing it made evidence capture impossible on real ad-bearing pages
+ * (measured: `anti.screenshot.full_page` refused on tiki.vn and vnexpress.net while the
+ * cheap viewport path captured both). Conditions that no wait can clear belong in
+ * `warnings`, so the receipt can say what the capture tolerated instead of pretending the
+ * page was clean.
  */
 export interface PreCaptureQuiescenceResult {
   ready: boolean;
@@ -491,6 +502,12 @@ export interface PreCaptureQuiescenceResult {
     imageIdentityStable: boolean;
     layoutStable: boolean;
   };
+  /**
+   * Non-fatal observations that the capture ran despite. Present on success as well as
+   * failure, because `ready: true` with warnings is a materially different claim from a
+   * quiet page, and the receipt has to be able to say which one it is.
+   */
+  warnings: CaptureSettleWarnings;
   measurements: {
     readyState: string;
     docHeight: number;
@@ -501,7 +518,59 @@ export interface PreCaptureQuiescenceResult {
     imageSetHash?: string;
     movingWitness?: string;
     durationMs: number;
+    /** Largest document-geometry movement seen across the observation window, in CSS px. */
+    layoutDriftPx: number;
+    /** Tracked images whose source changed while their layout held constant. */
+    rotatedImages: number;
+    /** Predicates satisfied by tolerance rather than by an exact reading. */
+    toleratedPredicates: string[];
   };
+}
+
+/** Non-fatal settle observations recorded on a capture that ran anyway. */
+export interface CaptureSettleWarnings {
+  /** Images that failed to load at capture time. A broken resource never becomes loadable by waiting. */
+  brokenImages: string[];
+  /** Tracked images whose source changed during the window (rotators, ad creatives, beacons). */
+  rotatedImages: number;
+  /** Document-geometry movement tolerated across the window, in CSS px. */
+  layoutDriftPx: number;
+  /** Predicates admitted by tolerance instead of by an exact reading. */
+  toleratedPredicates: string[];
+}
+
+/**
+ * Drift allowance for the layout predicate, as a fraction of the observed document height.
+ * Real pages settle late: a collapsing ad container moved docHeight 7583 -> 7576 on tiki.vn
+ * and 7597 -> 7596 on tiki's full-page walk, and both documents were capturable. 0.1% keeps
+ * the allowance under a single text row on a typical page (7 px at 7583, 35 px at 35472) so
+ * a document that is genuinely still growing keeps refusing, while a page that finished
+ * settling one row late no longer blocks the raster.
+ */
+export const LAYOUT_DRIFT_TOLERANCE_RATIO = 0.001;
+
+/** Floor for {@link LAYOUT_DRIFT_TOLERANCE_RATIO}: rounding must never produce a zero allowance. */
+export const LAYOUT_DRIFT_TOLERANCE_MIN_PX = 2;
+/**
+ * Per-dimension allowance when matching a tracked image's box across readings, in CSS
+ * px. Sub-pixel reflow jitters a box by a fraction of a pixel; 4 px absorbs that and
+ * the rounding of fractional layouts without admitting a genuinely reshaped slot.
+ */
+export const IMAGE_BOX_TOLERANCE_PX = 4;
+
+/**
+ * Observation window for the layout predicate. A single dwell sees a movement but cannot
+ * tell "settled 7 px late" from "still growing", which is the distinction the predicate
+ * exists to make, so the sampler takes up to this many readings and requires the document
+ * to hold within tolerance across the whole window — last pair agreeing AND last reading
+ * still matching the first.
+ */
+export const LAYOUT_OBSERVATION_ATTEMPTS = 3;
+
+/** Layout drift allowance for an observed document height, in CSS px. */
+export function layoutDriftTolerancePx(docHeight: number): number {
+  const scaled = Number.isFinite(docHeight) && docHeight > 0 ? docHeight * LAYOUT_DRIFT_TOLERANCE_RATIO : 0;
+  return Math.max(LAYOUT_DRIFT_TOLERANCE_MIN_PX, Math.ceil(scaled));
 }
 
 export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}): string {
@@ -524,6 +593,16 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     }
     return false;
   };
+  // A 1-2 px image is a tracking beacon, not page content: it is re-issued by ad
+  // scripts on its own schedule and its state says nothing about whether the
+  // raster is stable. Measured witnesses on real pages were a 1x1 data:gif on
+  // vnexpress.net and a rotating banner on tiki.vn, neither of which made the
+  // captured pixels unstable. The exemption covers every reading of the image —
+  // identity, pending, and broken — not just the identity set.
+  const isTrackingBeacon = (img) => {
+    const r = img.getBoundingClientRect();
+    return r.width <= 2 && r.height <= 2;
+  };
   const isIgnorableIdentityImage = (img) => {
     if (!img) return true;
     if (img.offsetParent === null && img.offsetWidth === 0 && img.offsetHeight === 0) {
@@ -531,12 +610,13 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     }
     const r = img.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) return true;
+    if (isTrackingBeacon(img)) return true;
     ${fullPage ? '' : `const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 0) || 0;
     if (img.loading === 'lazy' && (r.top > vh * 2 || r.bottom < -vh)) return true;`}
     return false;
   };
-  const pendingImages = imgs.filter(i => !i.complete && !isCannotLoad(i)).length;
-  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0 && !isCannotLoad(i)).map(i => (i.currentSrc || i.src || '').slice(0, 150));
+  const pendingImages = imgs.filter(i => !i.complete && !isCannotLoad(i) && !isTrackingBeacon(i)).length;
+  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0 && !isCannotLoad(i) && !isTrackingBeacon(i)).map(i => (i.currentSrc || i.src || '').slice(0, 150));
 
   const hash32 = (s) => {
     let h = 0x811c9dc5;
@@ -547,12 +627,40 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     return h.toString(16).padStart(8, '0');
   };
 
-  const imageParts = imgs.filter(i => !isIgnorableIdentityImage(i)).map(i => {
+  const trackedImages = imgs.filter(i => !isIgnorableIdentityImage(i));
+  // Two readings per image: the full identity (which a rotator moves) and the
+  // structural identity alone (the size of the box the image occupies). A source swap
+  // inside an unmoved element is content churn; an image that appears, disappears, or
+  // changes size means the document is still assembling, which is what this predicate
+  // refuses.
+  //
+  // The structural reading is deliberately size-only, not position:
+  //  - It excludes naturalWidth/naturalHeight, because an ad slot that loads a 300x250
+  //    creative into a box that held a 1x1 beacon has not changed the document's shape.
+  //    Keying on natural size read that swap as an added element (measured:
+  //    vnexpress.net refused full-page capture, witness the swapped 1x1 gif).
+  //  - It excludes position, because transform-driven carousels and sticky elements
+  //    move boxes without mounting content (measured: tiki.vn refused full-page capture
+  //    with witness box 1000,4680,156,156 while docHeight held at 7576). A snapshot of
+  //    a moving carousel is a legitimate capture; a document that is growing is not,
+  //    and growth is already refused by the layout predicate.
+  // Sizes are emitted raw; the host compares them pairwise with a small allowance so
+  // sub-pixel reflow of a 150-image grid does not read as a reshaped document.
+  const imageParts = trackedImages.map(i => {
     const r = i.getBoundingClientRect();
     return (i.currentSrc || i.src || '').slice(0, 200) + '|' + i.naturalWidth + 'x' + i.naturalHeight + '|' +
       Math.round(r.x) + ',' + Math.round(r.y + (window.scrollY || 0)) + ',' + Math.round(r.width) + ',' + Math.round(r.height) + '|' + (i.complete ? 'c' : 'p');
   });
+  // Position-free content identity: the same creative riding a carousel is not churn.
+  const imageContentParts = trackedImages.map(i =>
+    (i.currentSrc || i.src || '').slice(0, 200) + '|' + i.naturalWidth + 'x' + i.naturalHeight
+  );
+  const imageStructureParts = trackedImages.map(i => {
+    const r = i.getBoundingClientRect();
+    return r.width + 'x' + r.height;
+  });
   const imageSetHash = hash32(imageParts.join('\\n'));
+  const imageStructureHash = hash32(imageStructureParts.join('\\n'));
   const docHeight = Math.max(
     document.documentElement ? document.documentElement.scrollHeight : 0,
     document.body ? document.body.scrollHeight : 0
@@ -567,7 +675,11 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     pendingImages,
     brokenImages,
     imageSetHash,
+    imageStructureHash,
+    imageStructureCount: imageStructureParts.length,
     imageParts,
+    imageContentParts,
+    imageStructureParts,
     docHeight,
     scrollWidth,
   };
@@ -594,10 +706,21 @@ export async function evaluatePreCaptureQuiescence(
     pendingImages: number;
     brokenImages: string[];
     imageSetHash: string;
+    imageStructureHash?: string;
+    imageStructureCount?: number;
     imageParts: string[];
+    imageContentParts?: string[];
+    imageStructureParts?: string[];
     docHeight: number;
     scrollWidth: number;
   };
+
+  const emptyWarnings = (): CaptureSettleWarnings => ({
+    brokenImages: [],
+    rotatedImages: 0,
+    layoutDriftPx: 0,
+    toleratedPredicates: [],
+  });
 
   let sample1: InPageSample | null = null;
   try {
@@ -616,6 +739,7 @@ export async function evaluatePreCaptureQuiescence(
         imageIdentityStable: true,
         layoutStable: true,
       },
+      warnings: emptyWarnings(),
       measurements: {
         readyState: 'unknown',
         docHeight: 0,
@@ -624,54 +748,175 @@ export async function evaluatePreCaptureQuiescence(
         pendingImages: 0,
         brokenImages: [],
         durationMs: Date.now() - t0,
+        layoutDriftPx: 0,
+        rotatedImages: 0,
+        toleratedPredicates: [],
       },
     };
   }
 
-  // Dwell to observe potential image swaps or layout drift
-  if (dwellMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, dwellMs));
-  }
+  const readSample = async (): Promise<InPageSample | null> => {
+    if (dwellMs > 0) {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, dwellMs);
+      await promise;
+    }
+    try {
+      const next = (await evalHost.evalJs(sampleExpr, tabId, paneId)) as InPageSample | null;
+      return next && typeof next === 'object' ? next : null;
+    } catch {
+      return null;
+    }
+  };
 
-  let sample2: InPageSample | null = null;
-  try {
-    sample2 = (await evalHost.evalJs(sampleExpr, tabId, paneId)) as InPageSample | null;
-  } catch {}
-
-  if (!sample2 || typeof sample2 !== 'object') {
+  // Layout convergence: take up to LAYOUT_OBSERVATION_ATTEMPTS readings and require the
+  // document to hold within the drift allowance across the whole window — the last pair
+  // must agree (the document stopped moving) AND the last reading must still match the
+  // first (it did not keep growing in steps too small for any single pair to catch).
+  // A single dwell reports *that* the document moved but cannot separate "settled one
+  // row late" from "still growing" — and that distinction is the entire job of this
+  // predicate. A perfectly still document is the only early exit: once any movement is
+  // observed, the full window is spent confirming it stopped, because a document that
+  // keeps growing by less than the per-pair tolerance is still growing.
+  let sample2 = await readSample();
+  let layoutObservations = 2;
+  if (!sample2) {
     sample2 = sample1;
+    layoutObservations = 1;
+  }
+  let layoutDriftPx = 0;
+  let layoutStable = false;
+  let layoutWindowTruncated = false;
+  let lastLayoutTolerance = layoutDriftTolerancePx(Math.max(sample1.docHeight, sample2.docHeight));
+  const layoutWindow = {
+    firstHeight: sample1.docHeight,
+    firstWidth: sample1.scrollWidth,
+    lastHeight: sample2.docHeight,
+    lastWidth: sample2.scrollWidth,
+  };
+  for (let attempt = 0; attempt < LAYOUT_OBSERVATION_ATTEMPTS; attempt++) {
+    const drift = Math.max(
+      Math.abs(sample1.docHeight - sample2.docHeight),
+      Math.abs(sample1.scrollWidth - sample2.scrollWidth)
+    );
+    const tolerance = layoutDriftTolerancePx(Math.max(sample1.docHeight, sample2.docHeight));
+    lastLayoutTolerance = tolerance;
+    const cumulativeDrift = Math.max(
+      Math.abs(layoutWindow.firstHeight - sample2.docHeight),
+      Math.abs(layoutWindow.firstWidth - sample2.scrollWidth)
+    );
+    layoutDriftPx = Math.max(layoutDriftPx, drift, cumulativeDrift);
+    layoutStable = drift <= tolerance && cumulativeDrift <= tolerance;
+    if (drift === 0 && cumulativeDrift === 0) break;
+    if (attempt === LAYOUT_OBSERVATION_ATTEMPTS - 1) break;
+    sample1 = sample2;
+    const next = await readSample();
+    if (!next) {
+      // A failed mid-window read is inconclusive, not observed movement: judge the last
+      // good pair and say the window ended early instead of reporting drift never seen.
+      layoutWindowTruncated = true;
+      break;
+    }
+    sample2 = next;
+    layoutObservations += 1;
+    layoutWindow.lastHeight = sample2.docHeight;
+    layoutWindow.lastWidth = sample2.scrollWidth;
   }
 
   const documentGenerationSettled = sample2.readyState === 'complete';
   const viewportStable = sample2.docHeight > 0 && sample2.scrollWidth > 0;
   const fontsSettled = sample2.fontsSettled === true;
-  const imagesSettled = sample2.pendingImages === 0 && sample2.brokenImages.length === 0;
+  // Only a still-loading image is worth waiting for. A broken image never becomes
+  // loadable by waiting, so refusing the capture on one made every ad-bearing page
+  // uncapturable (measured: 2 broken ad images refused vnexpress.net outright).
+  const imagesSettled = sample2.pendingImages === 0;
 
-  // Layout stability across the observation window
-  const layoutStable =
-    sample1.docHeight === sample2.docHeight &&
-    sample1.scrollWidth === sample2.scrollWidth;
-
-  // Image set identity: hash must not move while geometry holds constant
+  // Structural identity: the tracked image set and each image's layout must hold.
+  // A source swap inside an unmoved element is churn to report, not a reason to refuse.
   let imageIdentityStable = true;
   let movingWitness: string | undefined;
+  let rotatedImages = 0;
 
-  if (layoutStable && sample1.imageSetHash !== sample2.imageSetHash) {
-    imageIdentityStable = false;
-    // Identify the specific moving witness
-    const parts1 = sample1.imageParts || [];
-    const parts2 = sample2.imageParts || [];
-    const maxLen = Math.max(parts1.length, parts2.length);
-    for (let i = 0; i < maxLen; i++) {
-      if (parts1[i] !== parts2[i]) {
-        movingWitness = parts2[i] || parts1[i] || `index_${i}`;
-        break;
+  const structure1 = sample1.imageStructureParts || [];
+  const structure2 = sample2.imageStructureParts || [];
+  // Churn is counted on the position-free content identity: a creative riding a
+  // carousel or a beacon re-issued at a new offset is the same image, not a rotation.
+  const contentParts1 = sample1.imageContentParts || sample1.imageParts || [];
+  const contentParts2 = sample2.imageContentParts || sample2.imageParts || [];
+
+  // Box sizes are compared raw with a per-dimension allowance, not snapped to a grid:
+  // quantizing aliases sub-pixel drift across a grid boundary (101.9 -> 100 while
+  // 102.1 -> 104 reads as a 4 px move that never happened).
+  type TrackedBox = { w: number; h: number; raw: string };
+  const parseBox = (raw: string): TrackedBox => {
+    const [w, h] = raw.split('x').map(Number);
+    return { w: w ?? NaN, h: h ?? NaN, raw };
+  };
+  const boxesMatch = (a: TrackedBox, b: TrackedBox): boolean =>
+    Number.isFinite(a.w) && Number.isFinite(b.w) &&
+    Math.abs(a.w - b.w) <= IMAGE_BOX_TOLERANCE_PX &&
+    Math.abs(a.h - b.h) <= IMAGE_BOX_TOLERANCE_PX;
+  const boxOrder = (b: TrackedBox): number => b.w - b.h / 1000000;
+  // Multiset diff on the two sorted box lists: the witness is a size present in one
+  // reading but not the other — the box that was added, removed, or reshaped — never
+  // a surviving box that merely slid into a vacated slot.
+  const firstUnmatchedBox = (before: TrackedBox[], after: TrackedBox[]): string | undefined => {
+    let i = 0;
+    let j = 0;
+    while (i < before.length && j < after.length) {
+      const a = before[i]!;
+      const b = after[j]!;
+      if (boxesMatch(a, b)) {
+        i += 1;
+        j += 1;
+      } else if (!Number.isFinite(boxOrder(a)) || boxOrder(a) < boxOrder(b)) {
+        return a.raw;
+      } else {
+        return b.raw;
       }
     }
-    if (!movingWitness) {
-      movingWitness = `hash_${sample1.imageSetHash}_to_${sample2.imageSetHash}`;
+    if (i < before.length) return before[i]!.raw;
+    if (j < after.length) return after[j]!.raw;
+    return undefined;
+  };
+
+  if (layoutStable) {
+    const boxes1 = structure1.map(parseBox).sort((a, b) => boxOrder(a) - boxOrder(b));
+    const boxes2 = structure2.map(parseBox).sort((a, b) => boxOrder(a) - boxOrder(b));
+    const unmatched = firstUnmatchedBox(boxes1, boxes2);
+    if (unmatched !== undefined) {
+      imageIdentityStable = false;
+      movingWitness = unmatched;
+    } else if (
+      (sample1.imageStructureCount ?? structure1.length) !== (sample2.imageStructureCount ?? structure2.length)
+    ) {
+      // The emitted count disagrees with the box list itself: the sample is internally
+      // inconsistent, which is movement the diff cannot name.
+      imageIdentityStable = false;
+      movingWitness = `count_${sample1.imageStructureCount}_to_${sample2.imageStructureCount}`;
+    } else {
+      // Same set, same layout: count the source churn for the receipt.
+      const maxLen = Math.max(contentParts1.length, contentParts2.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (contentParts1[i] !== contentParts2[i]) rotatedImages += 1;
+      }
     }
   }
+
+  // Named only when the predicate passed and something was actually tolerated. This list is
+  // read on the refusal path too, so listing a predicate that caused the refusal would send
+  // the reader after the wrong gate: layout drift above tolerance must not appear as tolerated.
+  const toleratedPredicates: string[] = [];
+  if (layoutStable && layoutDriftPx > 0) toleratedPredicates.push('layoutStable');
+  if (imageIdentityStable && rotatedImages > 0) toleratedPredicates.push('imageIdentityStable');
+  if (imagesSettled && sample2.brokenImages.length > 0) toleratedPredicates.push('imagesSettled');
+
+  const warnings: CaptureSettleWarnings = {
+    brokenImages: sample2.brokenImages,
+    rotatedImages,
+    layoutDriftPx,
+    toleratedPredicates,
+  };
 
   const predicates = {
     documentGenerationSettled,
@@ -692,6 +937,9 @@ export async function evaluatePreCaptureQuiescence(
     imageSetHash: sample2.imageSetHash,
     movingWitness,
     durationMs: Date.now() - t0,
+    layoutDriftPx,
+    rotatedImages,
+    toleratedPredicates,
   };
 
   let ready = true;
@@ -713,20 +961,18 @@ export async function evaluatePreCaptureQuiescence(
   } else if (!imagesSettled) {
     ready = false;
     failingPredicate = 'imagesSettled';
-    reason = sample2.brokenImages.length > 0
-      ? `Detected ${sample2.brokenImages.length} broken image(s): ${sample2.brokenImages.slice(0, 3).join(', ')}`
-      : `Detected ${sample2.pendingImages} pending image(s) still loading`;
+    reason = `Detected ${sample2.pendingImages} pending image(s) still loading`;
   } else if (!imageIdentityStable) {
     ready = false;
     failingPredicate = 'imageIdentityStable';
-    // The only facts measured here are the image identity that moved, the witness
-    // element, and the geometry that held constant: a page-specific class name in the
+    // The only facts measured here are the image sizes that changed, the witness box,
+    // and the document geometry that held constant: a page-specific class name in the
     // reason would assert an observation this gate never made for any other page.
-    reason = `imageSetHash moved while geometry held constant: docHeight ${sample2.docHeight} / scrollWidth ${sample2.scrollWidth} constant, moving witness: ${movingWitness}`;
+    reason = `Tracked image inventory moved while document geometry held constant: docHeight ${sample2.docHeight} / scrollWidth ${sample2.scrollWidth} constant (${sample2.imageStructureCount ?? structure2.length} tracked image(s)), first differing box size: ${movingWitness}`;
   } else if (!layoutStable) {
     ready = false;
     failingPredicate = 'layoutStable';
-    reason = `Document layout moved across observation window: docHeight ${sample1.docHeight} -> ${sample2.docHeight}, scrollWidth ${sample1.scrollWidth} -> ${sample2.scrollWidth}`;
+    reason = `Document layout did not hold within tolerance across ${layoutObservations} observation(s): docHeight ${layoutWindow.firstHeight} -> ${layoutWindow.lastHeight}, scrollWidth ${layoutWindow.firstWidth} -> ${layoutWindow.lastWidth}, drift ${layoutDriftPx}px exceeds tolerance ${lastLayoutTolerance}px${layoutWindowTruncated ? ' (window ended early: a sample evaluation failed)' : ''}`;
   }
 
   return {
@@ -734,6 +980,7 @@ export async function evaluatePreCaptureQuiescence(
     failingPredicate,
     reason,
     predicates,
+    warnings,
     measurements,
   };
 }

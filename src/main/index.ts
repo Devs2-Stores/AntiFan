@@ -49,6 +49,8 @@ import {
   installExitRecorder,
   getLifecycleLogPath,
 } from './diagnostics/main-lifecycle-log';
+import { pruneOldCrashDumps } from './diagnostics/crash-dump-retention';
+import { intakeCrashReports } from './diagnostics/crash-report-intake';
 
 // Fail-closed boot guard (`AP-DEADLINE-001`): the request deadline chain must strictly
 // increase from the innermost callee bound to the outermost caller bound. A flattened or
@@ -100,46 +102,9 @@ installExitRecorder(process);
 // because the exception left through a native callback before any handler above could run.
 // For that class of death the dump is the only surviving artifact, and this is what makes
 // it findable on the next launch. The dump path must be set before the reporter starts.
-export function pruneOldCrashDumps(dir: string, maxRetained = 3): string[] {
-  const unlinked: string[] = [];
-  try {
-    if (!fs.existsSync(dir)) return unlinked;
-    const findDmpFiles = (currentDir: string): Array<{ path: string; mtime: number }> => {
-      const results: Array<{ path: string; mtime: number }> = [];
-      try {
-        const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(currentDir, entry.name);
-          if (entry.isDirectory()) {
-            results.push(...findDmpFiles(fullPath));
-          } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.dmp')) {
-            try {
-              const stat = fs.statSync(fullPath);
-              results.push({ path: fullPath, mtime: stat.mtimeMs });
-            } catch {}
-          }
-        }
-      } catch {}
-      return results;
-    };
-
-    const dmpFiles = findDmpFiles(dir);
-    if (dmpFiles.length <= maxRetained) return unlinked;
-
-    dmpFiles.sort((a, b) => b.mtime - a.mtime);
-    const toUnlink = dmpFiles.slice(maxRetained);
-    for (const item of toUnlink) {
-      try {
-        fs.unlinkSync(item.path);
-        unlinked.push(item.path);
-      } catch {}
-    }
-  } catch {}
-  return unlinked;
-}
-
+let crashDumpsDir: string | null = null;
 try {
-  const crashDumpsDir = path.join(StorageLocations.getRuntimeDir(), 'crashDumps');
+  crashDumpsDir = path.join(StorageLocations.getRuntimeDir(), 'crashDumps');
   fs.mkdirSync(crashDumpsDir, { recursive: true });
   app.setPath('crashDumps', crashDumpsDir);
   crashReporter.start({
@@ -154,6 +119,30 @@ try {
 } catch (err) {
   // Never fatal: failing to arm the crash reporter must not stop the app from starting.
   recordLifecycleEvent('crashReporter.failed', { detail: redactCredentials(String(err)) });
+}
+
+// Read what earlier deaths left behind BEFORE retention can delete it. The dump is written by a
+// native fault that runs no JS handler, so this launch is the first moment the death can be
+// named; pruneOldCrashDumps keeps only the newest few, so pruning first would delete an
+// unrecorded dump and turn a named death back into silence. The same is true when intake
+// itself fails: pruning then would delete dumps that were never read, so retention runs only
+// when intake reports it completed. Intake never throws and never blocks startup: it is
+// awaited by nothing, and its failures are its own.
+try {
+  if (crashDumpsDir) {
+    const dumpsDir = crashDumpsDir;
+    void intakeCrashReports({ crashDumpsDir: dumpsDir })
+      .then((intake) => {
+        if (!intake.completed) return;
+        const prunedDumps = pruneOldCrashDumps(dumpsDir, 3);
+        if (prunedDumps.length > 0) {
+          recordLifecycleEvent('crashReporter.pruned', { prunedDumps: prunedDumps.length });
+        }
+      })
+      .catch(() => undefined);
+  }
+} catch (err) {
+  recordLifecycleEvent('crashReporter.intakeFailed', { detail: redactCredentials(String(err)) });
 }
 
 const IS_PROD = process.argv.includes('--production') || process.env.NODE_ENV === 'production';

@@ -209,8 +209,10 @@ export class AssetHarvester {
       if (trimmed.includes('&amp;')) {
         trimmed = trimmed.replace(/&amp;/g, '&');
       }
-      if (trimmed.includes('&quot;') || trimmed.includes('&apos;') || trimmed.includes('&#039;')) {
-        trimmed = trimmed.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#039;/g, "'");
+      if (/&(?:quot|apos|#0?39|#x27);/i.test(trimmed)) {
+        trimmed = trimmed
+          .replace(/&quot;/gi, '"')
+          .replace(/&apos;|&#0?39;|&#x27;/gi, "'");
       }
       if (baseUrl && trimmed.startsWith('/') && !trimmed.startsWith('//')) {
         try {

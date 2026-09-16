@@ -20,8 +20,8 @@
 //   task-runs              {taskRunsTable, taskRuns, packs, cases}
 //   pack-detail <packId>   pack + its claims + receipts
 //   case-detail <caseId>   case + its candidates
-//   observe '{"source":"...","kind":"..."}'  raw observation producer
-//   replay <regressionId>  re-execute a recorded regression's checks
+//   replay <regressionId>  re-execute a recorded regression's checks against live state
+//   observe '{"source":"...","kind":"...","payload":{}}'  raw observation into the learning loop
 
 const path = require('node:path');
 
@@ -104,6 +104,7 @@ async function main() {
       out = core.replayRegression(id);
       break;
     }
+
     // Read-only list surfaces for the Core Health UI. The Core class exposes no
     // list methods for these tables, so the CLI reads them through the same
     // store handle — never a second authority, never a parallel DB.

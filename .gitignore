@@ -28,6 +28,7 @@ plans/**/reports/baseline/*.log
 
 .playwright-mcp/
 clone/*
+clones/
 **/__pycache__/
 .canary/
 .super-core/

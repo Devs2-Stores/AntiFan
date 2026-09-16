@@ -1498,6 +1498,33 @@ export class AssetLocalizer {
         }
       }
 
+      // A bare path+query key ("/logo.png") is only safe when it resolves to exactly one
+      // target per type across the selected items. Two origins sharing a path
+      // (cdn-a/logo.png vs cdn-b/logo.png) would otherwise collide on last-write-wins,
+      // rewriting origin A's references to origin B's file.
+      const pathKeyTargets = new Map<string, Set<string>>();
+      const notePathKeyTarget = (source: string | undefined, type: string, target: string) => {
+        if (!source || !(source.startsWith('http://') || source.startsWith('https://'))) return;
+        try {
+          const parsed = new URL(source);
+          const pathAndQuery = parsed.pathname + parsed.search;
+          if (!pathAndQuery.startsWith('/')) return;
+          const key = `${type}::${pathAndQuery}`;
+          const targets = pathKeyTargets.get(key) || new Set<string>();
+          targets.add(target);
+          pathKeyTargets.set(key, targets);
+        } catch {}
+      };
+      for (const item of selectedItems) {
+        const itemTarget = mode === 'liquid'
+          ? `{{ '${item.filename}' | asset_url }}`
+          : `${relAssetsDir}/${item.filename}`;
+        notePathKeyTarget(item.sourceUrl, item.type, itemTarget);
+        if (item.rawSourceUrl && item.rawSourceUrl !== item.sourceUrl) {
+          notePathKeyTarget(item.rawSourceUrl, item.type, itemTarget);
+        }
+      }
+
       const registerMapping = (source: string, target: string, type?: string) => {
         if (!source) return;
         const keysToRegister = [source];
@@ -1522,7 +1549,10 @@ export class AssetLocalizer {
           if (source.startsWith('http://') || source.startsWith('https://')) {
             const parsed = new URL(source);
             const pathAndQuery = parsed.pathname + parsed.search;
-            if (pathAndQuery.startsWith('/')) {
+            // Skip the bare path key when another selected item maps the same path+query
+            // to a different target: registering it would rewrite one origin's references
+            // to the other origin's file.
+            if (pathAndQuery.startsWith('/') && (pathKeyTargets.get(`${type ?? ''}::${pathAndQuery}`)?.size ?? 0) <= 1) {
               keysToRegister.push(pathAndQuery);
               if (pathAndQuery.includes('&')) {
                 keysToRegister.push(pathAndQuery.replace(/&(?!(?:amp|quot|lt|gt|#39);)/g, '&amp;'));
@@ -2206,6 +2236,22 @@ export class AssetLocalizer {
         }
         return ans;
       };
+      // The '>' that closes a tag must be found outside quoted attribute values; a bare
+      // indexOf('>') truncates the tag slice at a '>' inside a later attribute value.
+      const findTagEnd = (from: number): number => {
+        let quote: string | null = null;
+        for (let i = from; i < contentToScan.length; i++) {
+          const ch = contentToScan[i];
+          if (quote) {
+            if (ch === quote) quote = null;
+          } else if (ch === '"' || ch === "'") {
+            quote = ch;
+          } else if (ch === '>') {
+            return i;
+          }
+        }
+        return -1;
+      };
 
       // Check all explicit HTML sub-resource attributes (src, href for stylesheets/favicons, poster, data-src)
       let match: RegExpExecArray | null;
@@ -2227,7 +2273,7 @@ export class AssetLocalizer {
         // It is metadata, not a network resource loaded by the standalone page.
         if (attrName === 'data-src') {
           const lastOpen = lastLtBefore(match.index);
-          const tagEnd = lastOpen === -1 ? -1 : contentToScan.indexOf('>', match.index);
+          const tagEnd = lastOpen === -1 ? -1 : findTagEnd(lastOpen);
           const fullTag = lastOpen === -1
             ? ''
             : contentToScan.slice(lastOpen, tagEnd !== -1 ? tagEnd + 1 : match.index + 200);
@@ -2237,7 +2283,7 @@ export class AssetLocalizer {
         if (attrName === 'href') {
           const lastOpen = lastLtBefore(match.index);
           if (lastOpen === -1) continue;
-          const tagEnd = contentToScan.indexOf('>', match.index);
+          const tagEnd = findTagEnd(lastOpen);
           const fullTag = contentToScan.slice(lastOpen, tagEnd !== -1 ? tagEnd + 1 : match.index + 200);
           if (!/^<link\b/i.test(fullTag)) continue;
           const relMatch = fullTag.match(/\brel=["']?([^"'\s>]+)/i);
