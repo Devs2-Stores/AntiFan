@@ -251,4 +251,34 @@ describe('Core Health surfaces inside the existing Hub', () => {
     const items = doc.querySelectorAll('#hubItemsList .hub-list-item');
     assert.ok(items.length >= 2, 'engine status + recorded row listed');
   });
+
+  test('Regression row: a recorded FAIL degrades even without a replay stamp', async (t) => {
+    // A verdict that a replay produced is a verdict. The stamp only gates the healthy
+    // answer, so a FAIL row must not read as UNKNOWN just because replayedAt is absent.
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const state = {
+      ...DEGRADED_STATE,
+      regressions: {
+        status: 'DEGRADED',
+        reasonCode: 'REGRESSION_FAILED',
+        affected: ['reg-2'],
+        evidenceRefs: ['cli:regressions'],
+        replayEngineAvailable: true,
+        rows: [{ regressionId: 'reg-2', newKnowledge: 'failed batch', replayResult: 'FAIL', createdAt: '2026-09-15T02:00:00Z' }],
+      },
+    };
+    const ctx = await loadToolbar(state);
+    dom = ctx.dom;
+    const doc = ctx.doc;
+    (doc.getElementById('btnWorkflowHub') as HTMLElement).click();
+    await flush();
+    (doc.getElementById('tabNavRegressions') as HTMLElement).click();
+    await flush();
+    assert.equal(doc.getElementById('coreStatusPill')?.textContent, 'DEGRADED');
+    assert.equal(doc.getElementById('coreDetailCategory')?.textContent, 'REGRESSION_FAILED');
+    const rowPills: string[] = [];
+    doc.querySelectorAll('#hubItemsList .hub-list-item .hub-item-pill').forEach((el) => rowPills.push(el.textContent ?? ''));
+    assert.ok(rowPills.includes('DEGRADED'), `row reads degraded, got ${JSON.stringify(rowPills)}`);
+    assert.ok(!rowPills.includes('UNKNOWN'), 'a recorded FAIL is not an absent answer');
+  });
 });

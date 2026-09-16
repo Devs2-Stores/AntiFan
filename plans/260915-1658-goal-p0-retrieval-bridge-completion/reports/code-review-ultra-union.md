@@ -319,3 +319,69 @@ receipt exits: 0 | 31 distinct finishedAt | durationMs 48103
 ```
 
 All 31 receipts now name the commit that contains the code they exercised.
+
+## Round 2 — the remaining nine entries
+
+Committed as `1e77fbc`, `e4cb667`, `3aac318`.
+
+| Entry | Fix | Evidence |
+|---|---|---|
+| **5. Refused compare receipts unclassified** | `scripts/lib/build-report.mjs` gains an `isCompareReceiptDoc` shape predicate, applied at both gates (`classifyDocument`, `loadHistorical`) | `ref-vs-ref-1440.json` classified `other` → `compare-receipt`; a standalone capture and a garbage percentage still do not classify |
+| **6. Bridge receipt set covered 8 of 28 mutating ops** | the required-receipt maps now cover 28 canonical ops and 29 CLI commands, and `test/unit/bridge-receipt-coverage.test.mjs` derives the mutating set from `CORE_DISPATCH` (51 entries, 28 mutating) and the CLI switch (55 arms), so a new mutating op without a receipt fails the test | fail-before `core.recommend must be refused (advertised name)`; pass-after 1/1, `context-bridge` 15/15 |
+| **7. Supervisor stale-kill on pid recycling** | `scripts/goal/supervisor.mjs` re-proves pid identity (OS start time bound to the newest heartbeat/lock evidence, plus the adoption-time start token) before any kill; a recycled or unverifiable pid is refused as `gone` | fail-before: a stale attributed heartbeat naming a live innocent pid force-killed it; pass-after: verdict `gone` / `RUNNER_PID_RECYCLED`, target alive; positive control: a genuine stale tree still killed, runner and grandchild dead |
+| **POSIX tree-kill leader-only** | both kill paths now signal the group (`kill(-pid)`) with a pid fallback, next to a detached spawn, matching contract and comments | with `GOAL_ROUTE_TIMEOUT_MS=3000` on a route spawning a heartbeat grandchild: `FAIL/ROUTE_TIMEOUT` and the grandchild's heartbeat froze, i.e. the signal reached it |
+| **11. `reuseMetric` picked a stale pack** | v9 adds `packs.lastIssuedAt`; the upsert sets it in both the INSERT and the `DO UPDATE`, and the pick orders `COALESCE(lastIssuedAt, createdAt) DESC, rowid DESC`; the CLI pack list uses the same order | new test pins the timestamps through raw `DatabaseSync`: the re-issued pack wins, and a NULL `lastIssuedAt` row still falls back to `createdAt`. Package suite 26/26 |
+| **12. `core-db.mjs` had no production caller** | deleted; the locked concurrent-access mode it duplicated is covered against the public surface in `packages/super-core/src/core.test.ts` | zero importers across `scripts/ src/ test/ packages/ .omp/`; the three goal test files 46/46 |
+| **13. `spawnRoute` buffered output unbounded** | `MAX_ROUTE_OUTPUT_CHARS = 512 * 1024` tail, judged lines captured verbatim, a marker naming the dropped bytes | 1,191,306 → 667,012 bytes with the marker present, the verdict unchanged; a verbose PASS route stays PASS |
+| **14. `mcp-health-metrics` leaked a temp store** | removed on every exit path | temp count 16 → 16 on the PASS and NOT_IMPLEMENTED paths; was 15 → 16 |
+| **15. `KNOWN_PLATFORMS` was a dead export** | `PLATFORM_BACKFILL_SQL` is derived from it, so the backfill and the known set cannot drift | the generated SQL is byte-identical to the hardcoded text it replaces |
+
+### Advisory batch — dispositions
+
+- **CLI `gate` recording.** Kept read-only by default, because the observed harm was an inspection probe appending gate rows to a live store and no repo caller records through the CLI. It is no longer silent: the command prints a note on stderr and `{"record":true}` records exactly as before. The MCP surface keeps recording.
+- **`core-db.mjs`.** Deleted, per the entry above.
+- **StoreOrdering wiring.** Verified rather than trusted: the INSERT column list, the `DO UPDATE` clause and the pick order are all present.
+- **Icon weight.** The six emoji were replaced with authored SVG, and the advisory was right that they must match the row's dominant weight — measured, the first filled set read as solid blocks next to the row's thin chevrons, and an isolated icon sheet (rendered from the live markup, at size) showed the filled phone reading like a flash drive. The monitor, phone and shield are now thin silhouettes; the avatar and the sparkle stay solid because they sit inside filled badge chips.
+- **`.btn-theme-qa` leaks outside the row.** It is the only tokenised class used outside `.toolbar` (the QA modal's Re-run button), so it carries `var(--tb-h, 28px)` and `var(--tb-r, 6px)` fallbacks. `device-select`, `zoom-step-btn` and `split-pane-pill` are row-only.
+- **Split mode was never measured.** Forcing the *real* split state (split tracks and phone pill visible, global preset select hidden as `toolbar.ts` hides it) exposed a 406px overflow at 900px that the resting-state audit could not see. The row now compresses instead: preset tracks cap at 108px/76px, and two labels drop at ≤1024px. See the table below.
+
+## Toolbar row — measured before and after
+
+The harness renders the real `toolbar.html` + `toolbar.css` in Electron and measures geometry at four widths, in both the resting and split states.
+
+| Metric | Before | After |
+|---|---|---|
+| Control heights | `[16,18,22,24,26]` | `[16,24,28]` (16 = the text field inside a 28px track) |
+| Radii | `[0,4,5,6,14,50%]` | `[0,5,6,8,50%]` |
+| Font sizes | `[11,11.5,12,13,13.3333]` | `[12]` |
+| Gap rhythm | `[1,2,5,6,8,23,26,33.89,37]` | 4px within a cluster, 8px between clusters, 2px tight |
+| Bordered panels in the row | 5 | 0 (clusters are transparent; only real tracks draw a box) |
+| Overflow at 900px, split mode | 406px | **0** |
+| Overflow, resting, 900–1440px | 0 | 0 |
+| Unlabelled controls | 1 (`urlInput`) | 0 |
+| Disabled contrast | 2.49:1 | 3.84:1 |
+
+Two measurement defects were found and fixed in the harness itself, because a wrong measurement is worse than none: zoom is persisted per origin, so a zoom left by an earlier probe silently shrank the layout viewport (1440 content px at 3x = 480 CSS px) and invalidated a whole round of numbers; and a media-query override declared above the rule it overrides loses on source order even with `!important`, which is why the first width ladder had no effect. The ladder now sits after every base rule.
+
+## Verification (round 2)
+
+| Check | Result |
+|---|---|
+| super-core package (migration, gate, reuse ordering, concurrent access) | 26/26 |
+| goal `mjs` batch (`goal-ladder-judge`, `goal-safety`, `goal-runner`, `bridge-receipt-coverage`, `context-bridge`) | 62/62 |
+| compiled TS batch (health service, hub, tab-layout invariants, ipc-audit, vault, dev-watcher) | 87/87 |
+| acceptance ladder @ `3aac318` | **31/31 PASS, `finalHolds: true`**, `unboundPasses: []`, all exits 0, 31 distinct `finishedAt`, `durationMs` 35573 |
+| full pipeline | **all 7 lanes passed** — `compile` 5.6s, `test:canary` 30.4s, `test:fast` 42.7s, `test:site-clone` 13.7s, `test:integration` 1.9s, `test:main` 81.4s, `test:e2e` 13.5s |
+
+Both lanes that failed in the round-1 pipeline (`test:main`'s pairing-queue file and `test:e2e`'s
+theme-golden-live) passed here, which is consistent with the round-1 attribution: they fail under
+lane-level contention, not because of these changes.
+
+A test was added for the branch the health surface and the hub both got wrong: a regression row whose
+recorded verdict is FAIL reads as `DEGRADED` even when it carries no replay stamp, while an asserted
+PASS no replay produced does not read as green. The service side is covered in
+`test/unit/core-health-service.test.ts`; the hub side, which derives the same status from the same CLI
+rows, is covered in the new case in `test/renderer/core-health-hub.test.ts`.
+
+**Do not run the acceptance ladder and the pipeline at the same time.** A first ladder run stalled for 18 minutes on `p1/root-cause-ui`: that route executes a file under `.compiled/`, and the pipeline's `compile` lane was rewriting `.compiled/` underneath it. Run alone, the same ladder finished in 43 seconds with the same 31/31.
+
