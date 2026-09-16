@@ -322,7 +322,7 @@ All 31 receipts now name the commit that contains the code they exercised.
 
 ## Round 2 — the remaining nine entries
 
-Committed as `1e77fbc`, `e4cb667`, `3aac318`.
+Committed as `1e77fbc`, `e4cb667`, `3aac318`, `1745e37`.
 
 | Entry | Fix | Evidence |
 |---|---|---|
@@ -370,8 +370,13 @@ Two measurement defects were found and fixed in the harness itself, because a wr
 | super-core package (migration, gate, reuse ordering, concurrent access) | 26/26 |
 | goal `mjs` batch (`goal-ladder-judge`, `goal-safety`, `goal-runner`, `bridge-receipt-coverage`, `context-bridge`) | 62/62 |
 | compiled TS batch (health service, hub, tab-layout invariants, ipc-audit, vault, dev-watcher) | 87/87 |
-| acceptance ladder @ `3aac318` | **31/31 PASS, `finalHolds: true`**, `unboundPasses: []`, all exits 0, 31 distinct `finishedAt`, `durationMs` 35573 |
+| acceptance ladder @ `1745e37` (HEAD) | **31/31 PASS, `finalHolds: true`**, `unboundPasses: []`, all exits 0, 31 distinct `finishedAt`, `durationMs` 36273 |
 | full pipeline | **all 7 lanes passed** — `compile` 5.6s, `test:canary` 30.4s, `test:fast` 42.7s, `test:site-clone` 13.7s, `test:integration` 1.9s, `test:main` 81.4s, `test:e2e` 13.5s |
+
+The ladder was run twice for this round. The first run, at `3aac318`, certified the same 31/31 (35.6s);
+it was superseded because the commit that followed added a case to a test file that two routes
+execute, so the receipts were re-issued against `1745e37`, the revision that also contains that file.
+The summary of the final run is committed next to this report as `ladder-run-union-fixes.json`.
 
 Both lanes that failed in the round-1 pipeline (`test:main`'s pairing-queue file and `test:e2e`'s
 theme-golden-live) passed here, which is consistent with the round-1 attribution: they fail under
