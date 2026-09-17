@@ -73,7 +73,7 @@ The loop is not allowed to report progress from prose. Each iteration records, i
 | Metric | Source | Direction |
 |---|---|---|
 | Instrument green | `npm run test:e2e` exit code (+ the covering lane for the unit) | must be 0 |
-| Instrument wall clock | `node scripts/loop-e2e-metric.cjs` (prints lane seconds, excludes compile; exits non-zero on red so a failed run never reports a fast number) | down |
+| Instrument wall clock | `node scripts/loop-e2e-metric.cjs` (stdout is exactly one number - lane seconds, compile excluded; the lane's log and any receipt restoration go to stderr; exits non-zero on red so a failed run never reports a fast number; restores the tracked receipts the lane rewrites, so a verify leaves the tree as it found it) | down |
 | Register integrity | on-disk byte length and record count of `issues/verification-register.jsonl` vs `anti.verification.list().totalCount` | equal, never shrinking |
 | Live error classes | `TARGET_MISMATCH`, `TARGET_STALE`, `RUNTIME_MISMATCH`, args-parse failures, `[object Object]`, doubled-prefix errors in the session logs and invocation ledger | down to 0 |
 | Core Health | `core.health` status/gate/candidate counts | whole (no `GATE_*_FAILED`), candidates resolved through the writer |
@@ -84,9 +84,13 @@ success criterion names - a correctness unit is graded by its criterion (e.g.
 phase 1: register `totalCount` ≥ 1000; phase 11: lane green), never by the wall
 clock, so watchdogs, extra assertions and canaries cannot be reverted for taking
 time. The wall clock grades only a unit whose stated goal is speed, and then as
-the **median of ≥ 3 runs** of `node scripts/loop-e2e-metric.cjs`: on this host a
-single lane run varies by seconds (measured 2026-09-18: 38.4 s and 40.1 s on
-identical code), which is wider than the wins these units are chasing.
+the **median of ≥ 3 runs** of `node scripts/loop-e2e-metric.cjs`: a single lane
+run varies by seconds, and the spread widens as the files contend (measured
+2026-09-18: 38.4/40.1 s at `--test-concurrency=1`, 13.5/14.9/19.0 s at 5), which
+is wider than the wins these units are chasing. Each measured iteration is
+recorded in `loop-results.tsv` beside this file: iteration 0 baseline 40.1 s,
+then 22.0 -> 17.9 -> 14.9 s (files run concurrently, then in one wave), each with
+`npm run test:main` green at 1315 pass / 0 fail.
 
 A candidate improvement that raises the instrument's wall clock for no product
 metric gain is still a valid iteration only if it removes a confirmed defect; an
@@ -94,9 +98,15 @@ iteration that improves neither is reverted.
 
 **Baseline (iteration 0).** e2e lane wall clock 40.1 s, green, 5 files at
 `--test-concurrency=1` (per-file 3.8-8.6 s); the lane is the gate, so a cheaper
-metric never replaces it. The first speed units are the ones with measured waste
-(per-subagent rotation IO) and the isolation work that makes concurrency safe -
-not weaker assertions.
+metric never replaces it. The first speed units were the ones with measured waste
+(per-subagent rotation IO) and the isolation that made concurrency safe (each
+live smoke pins its register and data root to a run-scoped temp root) - not
+weaker assertions. What is left is inside the lane bodies: at concurrency 5 the
+wall clock tracks the slowest file (~11 s under the wave) plus runner startup, so
+the remaining units are per-file waits that can become condition waits without
+weakening what the lane proves. Hard-coding 5 buys nothing on a host with fewer
+cores, so an adaptive bound (`min(file count, available parallelism)`) is a
+recorded follow-up rather than part of the win.
 
 ## Safety
 

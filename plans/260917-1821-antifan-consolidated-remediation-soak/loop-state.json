@@ -71,7 +71,8 @@
       "U17",
       "U24",
       "U18",
-      "U23"
+      "U23",
+      "U32"
     ],
     "status": "lane-green after integration: test:e2e 5/5 (40.1s - both live smokes assert zero stale-target warnings; industrial Milestone 7 now proves the close-tab failover incl. authority rotation), test:main 1315 pass/0 fail, test:fast 1261 pass/0 fail on rerun (run 1 red on the goal-runner kill/resume wait budget, recorded as U31). U3 and U30 proven (see units).",
     "integrationFindings": {
@@ -82,5 +83,21 @@
       "U29": "test:e2e:strict stays opt-in: the default lane still needs --test-force-exit for leaked handles"
     }
   },
-  "notes": "loop-protocol.md is the loop contract. Falsification pass required before any commit: a green must be shown to fail without the change."
+  "notes": "loop-protocol.md is the loop contract. Falsification pass required before any commit: a green must be shown to fail without the change. U32 (accumulating attachment renewal deadline) is recorded in phase-11 and deferred pending the accumulate-vs-slide product call. Suite-speed iterations live in loop-results.tsv; they change the instrument and the lane config only, not product behavior, so they do not consume remediation unit numbers.",
+  "instrument": {
+    "harness": "scripts/loop-e2e-metric.cjs",
+    "line": "test:e2e",
+    "concurrency": 5,
+    "wallClock": {
+      "iteration0": "40.1s (5 files, --test-concurrency=1)",
+      "iterations": "22.0 -> 17.9 -> 14.9 (median) - files run concurrently at 2, then 3, then one wave at 5",
+      "ledger": "loop-results.tsv (beside this file) records every measured iteration with its guard result"
+    },
+    "guard": "npm run test:main - green at 1315 pass / 0 fail after each kept iteration",
+    "contract": "stdout is exactly one number; the lane log and receipt restorations go to stderr; tracked receipts the lane rewrites are restored so a verify leaves the tree as it found it",
+    "unresolved": [
+      "5 is tuned to this 4-core host - an adaptive min(file count, available parallelism) is a recorded follow-up",
+      "the remaining wall clock lives inside the lane bodies (slowest file ~11s under the wave); the next speed units are fixed waits converted to condition waits"
+    ]
+  }
 }
