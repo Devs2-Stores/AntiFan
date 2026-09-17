@@ -76,7 +76,7 @@
     "ambiguousSourceVerdict": "REJECTED",
     "staleAuthorityDenied": true
   },
-  "coreTeardownCompletedAt": "2026-09-17T22:28:18.981Z",
+  "coreTeardownCompletedAt": "2026-09-17T22:46:14.159Z",
   "teardown": {
     "passed": true,
     "processBoundTempCleanup": "completed",
@@ -104,6 +104,6 @@
       "terminalExitSubscriptions": 0
     }
   },
-  "proofChecksum": "30ee5c3997c4adf9c73661b659b85e93a8470cb6d858c24049fd625203099318",
-  "completedAt": "2026-09-17T22:28:22.573Z"
+  "proofChecksum": "2856dbf6643f8025e2661b4f96d679db632685e5c24af8566567cf8d548b9b63",
+  "completedAt": "2026-09-17T22:46:17.675Z"
 }
