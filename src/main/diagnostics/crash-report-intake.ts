@@ -138,7 +138,11 @@ export async function intakeCrashReports(options?: {
         errorCode: 'NATIVE_CRASH',
         severity: 'P0',
         status: 'OPEN',
-        errorMessage: summary.headline,
+        // The register dedupes on (toolName, errorMessage), so two deaths that fault at the
+        // same offset would collapse into a single row sharing one `affected` list — a crash
+        // loop would then read as one death. Naming the dump keeps one row per death, which
+        // is the contract this intake promises, while `affected` still carries the witness.
+        errorMessage: `${summary.headline} (dump ${filename})`,
         reasonCode: summary.exceptionName,
         affected: [filename],
         notes: JSON.stringify({
