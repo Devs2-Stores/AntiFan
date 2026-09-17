@@ -53,6 +53,8 @@ import { TerminalManager, type TerminalManagerStats } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
+import { getMcpDispatchService, mcpDispatchStoreLabel, unmeasuredBoundaryEnvelope } from '../diagnostics/mcp-dispatch-service';
+import { UnmeasuredReason } from '../diagnostics/mcp-dispatch-accounting';
 import { WindowStateManager, WindowState } from './window-state';
 import { BridgeServer } from '../bridge/bridge-server';
 import { ViewportGate } from '../tools/browser-control-port';
@@ -2248,6 +2250,31 @@ export class NativeTabHost extends EventEmitter {
         return { status: 'UNKNOWN', reasonCode: 'TASK_RUN_NOT_FOUND', affected: [], evidenceRefs: [] };
       }
       return getCoreHealthService().getTaskRunTrace(id);
+    });
+    // MCP Dispatch accounting surface (Phase 4): per-recorded-dispatch-name volume, terminal-state
+    // mix, error-code histogram and latency, read-only from the control-plane invocation ledger
+    // through a worker-thread pass. Unlike the four ungated read-only precedents — the workflow
+    // registry + capability catalogue (`antifan:workflow:get-state` below), the core-health counters
+    // (`antifan:core-health:get-state` above) and the capsule directory listing
+    // (`antifan:capsule:list` below) — this channel returns cross-session operational history:
+    // per-tool volumes, terminal-state mixes, error-code histograms and latency, the first artefact
+    // of its class in this codebase. The toolbar document is the exact origin
+    // `isTrustedSessionVaultSender` whitelists (`local-session-vault.ts:78-80`), so an injected
+    // script in this document must not be able to read the operator's dispatch history. Gated; the
+    // four precedents are not an equivalence.
+    ipcMain.handle('antifan:mcp-dispatch:get-state', async (event) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        // A refusal is a well-formed UNMEASURED envelope, never null: the renderer must not have to
+        // distinguish null from a payload, and an absent value would render as a blank pane.
+        //
+        // The label is resolved lazily here, not at import time: a module-level constant would make
+        // importing this host create the data directories (`StorageLocations.getDataRoot()` probes
+        // and caches a process-wide root). It names the app's canonical store because a refusal
+        // happens before any service instance exists and so has no injected directory to name.
+        return unmeasuredBoundaryEnvelope(UnmeasuredReason.SERVICE_FAILED, ['ipc-sender-not-trusted'], mcpDispatchStoreLabel());
+      }
+      try { return await getMcpDispatchService().getState(); }
+      catch { return unmeasuredBoundaryEnvelope(UnmeasuredReason.SERVICE_FAILED, ['service-failed'], mcpDispatchStoreLabel()); }
     });
     ipcMain.handle('antifan:capsule:list', () => {
       return {

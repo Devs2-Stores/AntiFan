@@ -1,16 +1,25 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 import {
   CapabilityError,
   ClientInvocationIntent,
   InvocationDispatchStage,
   MainResolvedAuthority,
   canonicalDigest,
-  canonicalJsonStringify,
   makeControlPlaneId,
 } from '../../shared/control-plane-contracts';
-export const DEFAULT_MAX_INVOCATION_FRAME_BYTES = 64 * 1024 * 1024;
+import {
+  DEFAULT_MAX_INVOCATION_FRAME_BYTES,
+  computeFrameChecksum,
+  splitFrameLines,
+} from './invocation-frame-checksum';
+// The persisted-format contract (hash, byte ceiling, line boundary) lives in the seam module
+// so the read-only accounting reader can share it without linking this class. The ceiling is
+// re-exported from its historical path on purpose: two scripts destructure it from the
+// COMPILED ledger (scripts/certify-core-freeze.cjs:60, scripts/smoke-real-soak.cjs:25), and
+// the constructor also uses it as the `maxFrameBytes` default — a pure `export ... from`
+// binds the name for consumers but not for this module's own body.
+export { DEFAULT_MAX_INVOCATION_FRAME_BYTES };
 
 
 export type InvocationState = 'claiming' | 'in_progress' | 'completed' | 'failed' | 'interrupted' | 'unknown';
@@ -85,11 +94,6 @@ export interface InvocationLedgerShutdownSettlement {
   skipped: number;
   /** Frames whose partition refused the write (poisoned or quarantined). */
   failed: number;
-}
-
-function computeFrameChecksum(frame: Omit<InvocationRecord, 'checksum'>): string {
-  const serialized = canonicalJsonStringify(frame);
-  return crypto.createHash('sha256').update(serialized, 'utf8').digest('hex');
 }
 
 export class InvocationLedger {
@@ -174,7 +178,7 @@ export class InvocationLedger {
 
     const partitionMap = new Map<string, InvocationRecord>();
     const raw = fs.readFileSync(filePath, 'utf8');
-    const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const lines = splitFrameLines(raw);
     if (lines.some((line) => Buffer.byteLength(line, 'utf8') + 1 > this.maxFrameBytes)) {
       this.quarantinePartition(attachmentId, filePath);
       return;
@@ -415,7 +419,7 @@ export class InvocationLedger {
             isProvenAbsent = true;
           } else {
             const content = await fs.promises.readFile(filePath, 'utf8');
-            const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+            const lines = splitFrameLines(content);
             let foundOnDisk = false;
             let hasInvalidFrame = false;
             for (const line of lines) {

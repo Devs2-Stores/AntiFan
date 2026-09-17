@@ -2171,6 +2171,16 @@ export class BridgeServer {
               expiresAt: res.launch.expiresAt,
               allowedCapabilityNames: effectiveAllowed,
               forbiddenCapabilityNames: effectiveForbidden,
+              // Where the stdio proxy's own bounded core.* attempt store lives
+              // (provenance `omp-proxy`, unit `proxy-attempt`). This bridge is
+              // the only producer: the launcher forwards the value to the agent
+              // child as ANTIFAN_PROXY_TELEMETRY_DIR, and a proxy started any
+              // other way (bin `antifan-mcp`, `npm run mcp`, Codex) receives no
+              // directory and writes nothing — there is no fallback path. The
+              // Electron main process is the documented-safe caller of
+              // getDataRoot() (directories are initialized before the bridge is
+              // wired), so no probe happens on a CLI path here.
+              proxyTelemetryDir: path.join(StorageLocations.getDataRoot(), 'telemetry', 'core-attempts'),
               // Which Electron instance answered. The launcher compares this with
               // its own pinned pid to detect a foreign attach (non-secret).
               runtimePid: process.pid,

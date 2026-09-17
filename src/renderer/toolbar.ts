@@ -87,6 +87,7 @@ interface AntiFanToolbarApi {
   getWorkflowArtifact: (artifactId: string) => Promise<any>;
   onWorkflowEvent: (callback: (event: any) => void) => () => void;
   getCoreHealthState?: () => Promise<any>;
+  getMcpDispatchState?: () => Promise<any>;
   getCoreTaskRunTrace?: (id: string) => Promise<any>;
   clearStorage: () => Promise<{ success: boolean; cleared: boolean; reason?: string; origin?: string }>;
   getChromeProfiles: () => Promise<any>;
@@ -432,11 +433,13 @@ const tabNavBridge = document.getElementById('tabNavBridge') as HTMLButtonElemen
 const tabNavTaskRuns = document.getElementById('tabNavTaskRuns') as HTMLButtonElement | null;
 const tabNavRootCauses = document.getElementById('tabNavRootCauses') as HTMLButtonElement | null;
 const tabNavRegressions = document.getElementById('tabNavRegressions') as HTMLButtonElement | null;
+const tabNavMcpDispatch = document.getElementById('tabNavMcpDispatch') as HTMLButtonElement | null;
 const badgeCoreHealth = document.getElementById('badgeCoreHealth') as HTMLElement | null;
 const badgeBridge = document.getElementById('badgeBridge') as HTMLElement | null;
 const badgeTaskRuns = document.getElementById('badgeTaskRuns') as HTMLElement | null;
 const badgeRootCauses = document.getElementById('badgeRootCauses') as HTMLElement | null;
 const badgeRegressions = document.getElementById('badgeRegressions') as HTMLElement | null;
+const badgeMcpDispatch = document.getElementById('badgeMcpDispatch') as HTMLElement | null;
 const hubCoreDetail = document.getElementById('hubCoreDetail') as HTMLElement | null;
 const coreDetailCategory = document.getElementById('coreDetailCategory') as HTMLElement | null;
 const coreDetailName = document.getElementById('coreDetailName') as HTMLElement | null;
@@ -445,7 +448,7 @@ const coreStatusPill = document.getElementById('coreStatusPill') as HTMLElement 
 const coreDetailCode = document.getElementById('coreDetailCode') as HTMLElement | null;
 const btnCoreRefresh = document.getElementById('btnCoreRefresh') as HTMLButtonElement | null;
 
-type HubTab = 'workflows' | 'mcp' | 'core-health' | 'bridge' | 'task-runs' | 'root-causes' | 'regressions';
+type HubTab = 'workflows' | 'mcp' | 'core-health' | 'bridge' | 'task-runs' | 'root-causes' | 'regressions' | 'mcp-dispatch';
 const HUB_CORE_TABS: HubTab[] = ['core-health', 'bridge', 'task-runs', 'root-causes', 'regressions'];
 const HUB_NAV_BUTTONS: Record<HubTab, HTMLButtonElement | null> = {
   'workflows': tabNavWorkflows,
@@ -455,6 +458,7 @@ const HUB_NAV_BUTTONS: Record<HubTab, HTMLButtonElement | null> = {
   'task-runs': tabNavTaskRuns,
   'root-causes': tabNavRootCauses,
   'regressions': tabNavRegressions,
+  'mcp-dispatch': tabNavMcpDispatch,
 };
 let hubCoreState: any = null;
 let hubCoreSelected: { tab: HubTab; id: string } | null = null;
@@ -464,6 +468,8 @@ let hubWorkflows: any[] = [];
 let hubMcpTools: any[] = [];
 let hubSelectedWorkflow: any = null;
 let hubSelectedMcpTool: any = null;
+let hubMcpDispatch: any = null;
+let hubMcpDispatchSelected: { id: string } | null = null;
 let isWorkflowRunning = false;
 let runStartTime = 0;
 let runTimerInterval: any = null;
@@ -503,12 +509,15 @@ async function openWorkflowHub() {
   }
 
   await refreshCoreHealthState();
+  await refreshMcpDispatchState();
 
   renderHubList();
   if (hubActiveTab === 'workflows' && hubWorkflows.length > 0 && !hubSelectedWorkflow) {
     selectWorkflow(hubWorkflows[0]);
   } else if (hubActiveTab === 'mcp' && hubMcpTools.length > 0 && !hubSelectedMcpTool) {
     selectMcpTool(hubMcpTools[0]);
+  } else if (hubActiveTab === 'mcp-dispatch') {
+    renderMcpDispatchSelection();
   } else if (HUB_CORE_TABS.includes(hubActiveTab)) {
     renderCoreListSelection();
   }
@@ -598,6 +607,9 @@ function renderHubList() {
       item.onclick = () => selectWorkflow(wf);
       hubItemsList.appendChild(item);
     });
+  } else if (hubActiveTab === 'mcp-dispatch') {
+    renderMcpDispatchList(search);
+    return;
   } else if (HUB_CORE_TABS.includes(hubActiveTab)) {
     renderCoreHubList(search);
     return;
@@ -820,6 +832,454 @@ function showCoreDetailEmpty() {
   if (hubDetailEmpty) hubDetailEmpty.style.display = 'flex';
 }
 
+// ---- MCP Dispatch accounting (ledger population, not the capability catalogue) ----
+// This tab renders `antifan:mcp-dispatch:get-state`, whose rows come from the
+// control-plane invocation ledger. Every string it shows is either persisted
+// (`frame.name`, the `frame.error.code` histogram keys) or injected (`reasonCode`,
+// `affected[]`, `storePath`), so each interpolation passes escapeHtml (:1542) and
+// every non-template assignment uses textContent (plan.md constraint E). Nothing
+// here re-derives a payload value: the covered window is read from Phase 1's
+// `census.limits.windowNewestMtimeMs`/`windowOldestMtimeMs` and the margin label is
+// printed verbatim.
+
+interface McpDispatchListItem {
+  id: string;
+  kind: 'notice' | 'overview' | 'name' | 'margin' | 'truncation' | 'core-hole';
+  title: string;
+  desc: string;
+  status: string;
+  meta: string;
+  category: string;
+  row: any;
+}
+
+// The two GENERAL reconciliation forms are printed verbatim (plan.md Success
+// Criteria). Phase 3's `reconciliation.lines` carry the same two forms with the
+// numbers filled in and are printed beside them, so the invariant cannot be
+// restated as the `keylessFrames === 0` special case that is false by construction
+// whenever a frame reaches admission without a validated composite.
+const MCP_DISPATCH_KEYS_INVARIANT = 'classifiedKeys + unattributedKeys == compositeKeys';
+const MCP_DISPATCH_FRAMES_INVARIANT = 'frames == compositeKeys + superseded + keylessFrames';
+
+// The launch paths that cannot carry the proxy store's environment variable
+// (phase-05-core-proxy-emitter.md "Coverage is disclosed per launch path"). The
+// two package.json anchors and the Codex child-env anchor were re-read live; the
+// "no AntiFan MCP server in ~/.codex/config.toml" half is phase-05's measurement,
+// cited rather than re-asserted here.
+const MCP_DISPATCH_CORE_HOLE_LAUNCH_PATHS = [
+  'bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR',
+  'npm run mcp (package.json:17) — same proxy, same missing variable',
+  'Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path',
+];
+
+/**
+ * The renderer-local UNMEASURED envelope. Used when the bridge method is absent or
+ * its promise rejects: the tab must render a well-formed UNMEASURED notice rather
+ * than a blank pane, and `IPC_FAILED`/`NO_DATA` are renderer-local codes, not
+ * members of the service's UnmeasuredReason enum.
+ */
+function unmeasuredRendererFallback(reasonCode: string, affected: string[] = []): any {
+  return {
+    status: 'UNMEASURED',
+    reasonCode,
+    affected,
+    evidenceRefs: [],
+    asOf: new Date().toISOString(),
+    storePath: '—',
+    census: null,
+    fileRollups: [],
+    rows: [],
+    totals: null,
+    reconciliation: null,
+  };
+}
+
+/**
+ * `storePath` is a display label or null. Null is the NO_DATA_ROOT_RESOLVED case —
+ * a first-class state with its own copy — so it renders the reasonCode, never the
+ * text "null" and never an invented placeholder path (constraint D).
+ */
+function mcpDispatchStoreLabel(payload: any): string {
+  if (payload && typeof payload.storePath === 'string' && payload.storePath.length > 0) return payload.storePath;
+  return String(payload?.reasonCode ?? 'NO_DATA');
+}
+
+/** A count is only a count when the payload carries a number; otherwise UNMEASURED. */
+function mcpDispatchCount(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : 'UNMEASURED';
+}
+
+function mcpDispatchHistogram(map: unknown, limit: number): string {
+  if (!map || typeof map !== 'object') return 'UNMEASURED';
+  const entries = Object.entries(map as Record<string, unknown>);
+  if (entries.length === 0) return 'UNMEASURED';
+  const sorted = entries.slice().sort((a, b) => {
+    const an = typeof a[1] === 'number' ? a[1] : -1;
+    const bn = typeof b[1] === 'number' ? b[1] : -1;
+    if (an !== bn) return bn - an;
+    return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+  });
+  return sorted.slice(0, limit).map(([key, value]) => `${key}×${mcpDispatchCount(value)}`).join(' · ');
+}
+
+function mcpDispatchMs(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value}ms` : 'UNMEASURED';
+}
+
+/** `count === 0` is not a measurement: an empty latency sample renders UNMEASURED. */
+function mcpDispatchLatency(latency: unknown): string {
+  if (!latency || typeof latency !== 'object') return 'UNMEASURED';
+  const sample = latency as { count?: unknown; p50Ms?: unknown; p95Ms?: unknown };
+  if (typeof sample.count !== 'number' || !Number.isFinite(sample.count) || sample.count === 0) return 'UNMEASURED';
+  return `p50 ${mcpDispatchMs(sample.p50Ms)} · p95 ${mcpDispatchMs(sample.p95Ms)} (n=${sample.count})`;
+}
+
+/**
+ * The covered window of a truncated read. Phase 1 owns these two fields; deriving
+ * the window from `census.files` or from row timestamps would be a second source
+ * of truth for the same fact.
+ */
+function mcpDispatchWindow(census: any): string {
+  const limits = census?.limits;
+  const stamp = (value: unknown) => (typeof value === 'number' && Number.isFinite(value)
+    ? `${new Date(value).toISOString()} (${value})`
+    : 'UNMEASURED');
+  return `newest ${stamp(limits?.windowNewestMtimeMs)} → oldest ${stamp(limits?.windowOldestMtimeMs)}`;
+}
+
+/**
+ * The read facts an UNMEASURED payload may still carry. An UNMEASURED status with a
+ * non-null `census` means the store WAS read and yielded nothing admissible (census
+ * drift, a degenerate ceiling with `filesRead === 0`, or a partition that vanished
+ * between census and read) — which must not read as "nothing was read at all".
+ * Every value is read verbatim from `census.limits`; a field the payload does not
+ * carry renders nothing rather than a fabricated count, and `census === null` yields
+ * '' so that case keeps the reasonCode-only copy.
+ */
+function mcpDispatchReadFacts(payload: any): string {
+  const limits = payload?.census?.limits;
+  if (!limits || typeof limits !== 'object') return '';
+  const facts: string[] = [];
+  // Both counts print when the payload carries both: the degenerate-ceiling case is
+  // exactly `observedFiles` large with `filesRead` 0, and printing only the first
+  // would hide the state this line exists to disclose.
+  if (typeof limits.observedFiles === 'number' && Number.isFinite(limits.observedFiles)) {
+    facts.push(`census.limits.observedFiles: ${limits.observedFiles}`);
+  }
+  if (typeof limits.filesRead === 'number' && Number.isFinite(limits.filesRead)) {
+    facts.push(`census.limits.filesRead: ${limits.filesRead}`);
+  }
+  facts.push(`census.limits.outcome: ${typeof limits.outcome === 'string' && limits.outcome.length > 0 ? limits.outcome : 'UNMEASURED'}`);
+  if (limits.ceiling !== null && limits.ceiling !== undefined) {
+    facts.push(`census.limits.ceiling: ${String(limits.ceiling)}`);
+  }
+  return facts.join(' · ');
+}
+
+function mcpDispatchListItems(): McpDispatchListItem[] {
+  const payload = hubMcpDispatch;
+  if (!payload) return [];
+  const rows: any[] = Array.isArray(payload.rows) ? payload.rows : [];
+
+  if (payload.status !== 'MEASURED' && rows.length === 0) {
+    const status = String(payload.status ?? 'UNMEASURED');
+    const reasonCode = String(payload.reasonCode ?? 'NO_DATA');
+    const affected = Array.isArray(payload.affected) ? payload.affected.map((a: unknown) => String(a)).join(' · ') : '';
+    const readFacts = mcpDispatchReadFacts(payload);
+    return [{
+      id: 'mcpDispatchNotice', kind: 'notice', title: status,
+      // The read facts are repeated here so the auto-selected detail pane cannot
+      // contradict the notice beside it (both print the same helper's output).
+      desc: `${reasonCode} · ${mcpDispatchStoreLabel(payload)}${readFacts ? ` · read: ${readFacts}` : ''}`,
+      status, meta: affected, category: reasonCode, row: null,
+    }];
+  }
+
+  const items: McpDispatchListItem[] = [];
+  const reconciliation = payload.reconciliation || null;
+  const invariantLines: string[] = Array.isArray(reconciliation?.lines)
+    ? (reconciliation.lines as unknown[]).map((line) => String(line))
+    : [];
+  items.push({
+    id: 'mcpDispatchReconciliation',
+    kind: 'overview',
+    title: 'Đối soát (Reconciliation)',
+    desc: [MCP_DISPATCH_KEYS_INVARIANT, MCP_DISPATCH_FRAMES_INVARIANT, ...invariantLines].join('\n'),
+    status: String(payload.status ?? 'UNMEASURED'),
+    meta: `asOf ${String(payload.asOf ?? 'UNMEASURED')} · ${mcpDispatchStoreLabel(payload)}`,
+    category: 'RECONCILIATION',
+    row: null,
+  });
+
+  rows.forEach((row, index) => {
+    // Rows describe RETAINED frames only, and a short read or an input ceiling
+    // makes every count a floor: the marker is rendered, never rounded away.
+    const lowerBound = row?.lowerBound === true;
+    items.push({
+      id: `mcpDispatchRow:${index}`,
+      kind: 'name',
+      title: String(row?.name ?? ''),
+      desc: `states: ${mcpDispatchHistogram(row?.states, 8)} · errors: ${mcpDispatchHistogram(row?.errors, 6)}`
+        + ` · latency: ${mcpDispatchLatency(row?.latency)} · excluded: ${mcpDispatchLatency(row?.excludedLatency)}`
+        + (lowerBound ? ' · sàn (lowerBound): đây là sàn, không phải tổng lịch sử' : ''),
+      status: lowerBound ? '≥ LOWER BOUND' : 'RETAINED',
+      meta: `${lowerBound ? '≥ ' : ''}calls ${mcpDispatchCount(row?.calls)} · frames ${mcpDispatchCount(row?.frames)}`
+        + ` · superseded ${mcpDispatchCount(row?.superseded)}`
+        + ` · window ${String(row?.firstSeen ?? 'UNMEASURED')} → ${String(row?.lastSeen ?? 'UNMEASURED')}`,
+      category: 'DISPATCH NAME',
+      row,
+    });
+  });
+
+  const totals = payload.totals || null;
+  const margin = totals?.quarantineMargin || null;
+  if (margin) {
+    items.push({
+      id: 'mcpDispatchQuarantineMargin', kind: 'margin',
+      title: 'Chuẩn cách ly (quarantine margin)',
+      desc: String(margin.label ?? 'UNMEASURED'),
+      status: 'MARGIN', meta: '', category: 'QUARANTINE_MARGIN', row: null,
+    });
+  }
+
+  const truncation = totals?.truncation || null;
+  if (truncation) {
+    const filesRead = truncation.filesRead;
+    const filesSkipped = truncation.filesSkipped;
+    // The label is built from the payload's own integers; a missing field renders
+    // UNMEASURED rather than a fabricated 0.
+    const partial = (typeof filesRead === 'number' && typeof filesSkipped === 'number')
+      ? `partial: ${filesRead} of ${filesRead + filesSkipped} files`
+      : 'partial: UNMEASURED of UNMEASURED files';
+    items.push({
+      id: 'mcpDispatchTruncation', kind: 'truncation',
+      title: 'Đọc một phần (truncation)',
+      desc: partial,
+      status: 'PARTIAL', meta: '', category: 'POPULATION_TRUNCATED', row: null,
+    });
+  }
+
+  // Unconditional in this phase: Phase 5 either fills this hole with measured
+  // proxy attempts or leaves it named. A store nothing reads is not telemetry.
+  items.push({
+    id: 'mcpDispatchCoreHole', kind: 'core-hole',
+    title: 'Lỗ core.* (chưa đo được)',
+    desc: 'core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp'
+      + ' (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy.'
+      + ' 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải "không dùng".',
+    status: 'UNMEASURED',
+    meta: MCP_DISPATCH_CORE_HOLE_LAUNCH_PATHS.join(' · '),
+    category: 'CORE_HOLE',
+    row: null,
+  });
+
+  return items;
+}
+
+/** The one non-metric notice: UNMEASURED + reasonCode + storePath label, no rows. */
+function renderMcpDispatchNotice() {
+  if (!hubItemsList) return;
+  const payload = hubMcpDispatch;
+  const status = String(payload?.status ?? 'UNMEASURED');
+  const reasonCode = String(payload?.reasonCode ?? 'NO_DATA');
+  const affected = Array.isArray(payload?.affected)
+    ? (payload.affected as unknown[]).map((entry) => String(entry)).join(' · ')
+    : '';
+  const readFacts = mcpDispatchReadFacts(payload);
+  const notice = document.createElement('div');
+  notice.id = 'mcpDispatchNotice';
+  notice.setAttribute('style', 'color:#64748b;font-size:12px;padding:20px;text-align:center;white-space:pre-line;');
+  // textContent, not a template: reasonCode / storePath / affected and every
+  // census-derived read fact are injected or persisted strings.
+  notice.textContent = `${status}\n${reasonCode} · ${mcpDispatchStoreLabel(payload)}`
+    + `${readFacts ? `\nread: ${readFacts}` : ''}`
+    + `${affected ? `\naffected: ${affected}` : ''}`;
+  hubItemsList.innerHTML = '';
+  hubItemsList.appendChild(notice);
+}
+
+function renderMcpDispatchList(search: string) {
+  if (!hubItemsList) return;
+  if (!hubMcpDispatch) {
+    hubItemsList.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center;">Đang tải dữ liệu MCP Dispatch…</div>';
+    return;
+  }
+  const rows: any[] = Array.isArray(hubMcpDispatch.rows) ? hubMcpDispatch.rows : [];
+  if (hubMcpDispatch.status !== 'MEASURED' && rows.length === 0) {
+    renderMcpDispatchNotice();
+    return;
+  }
+
+  const needle = (search || '').toLowerCase().trim();
+  const items = mcpDispatchListItems().filter((it) => {
+    // The search box filters per-name rows ONLY: an UNMEASURED notice, the
+    // quarantine margin, the truncation label and the core.* hole are disclosures
+    // and must never be hideable by a search box.
+    if (it.kind !== 'name') return true;
+    if (!needle) return true;
+    return it.title.toLowerCase().includes(needle);
+  });
+
+  hubItemsList.innerHTML = '';
+  for (const it of items) {
+    const item = document.createElement('div');
+    item.className = `hub-list-item ${hubMcpDispatchSelected?.id === it.id ? 'selected' : ''}`;
+    // Assigned as a DOM property, so a row value can never be parsed as markup.
+    item.id = it.id;
+    if (it.kind === 'margin' || it.kind === 'truncation') {
+      // These two rows carry their labelled line and nothing else, so the element's
+      // text is exactly the label the envelope published.
+      item.innerHTML = `<div class="hub-item-desc">${escapeHtml(it.desc)}</div>`;
+    } else {
+      item.innerHTML = `
+        <div class="hub-item-top">
+          <span class="hub-item-title">${escapeHtml(it.title)}</span>
+          <span class="hub-item-pill">${escapeHtml(it.status)}</span>
+        </div>
+        <div class="hub-item-desc">${escapeHtml(it.desc)}</div>
+        <div class="hub-item-meta"><span>${escapeHtml(it.meta)}</span></div>`;
+    }
+    item.onclick = () => { void selectMcpDispatchRow(it.id); };
+    hubItemsList.appendChild(item);
+  }
+}
+
+function renderMcpDispatchSelection() {
+  const items = mcpDispatchListItems();
+  const first = items[0];
+  if (first) {
+    void selectMcpDispatchRow(first.id);
+  } else {
+    showCoreDetailEmpty();
+  }
+}
+
+function mcpDispatchDetailBody(item: McpDispatchListItem | null): unknown {
+  const payload = hubMcpDispatch;
+  if (!item) {
+    return {
+      status: String(payload?.status ?? 'UNMEASURED'),
+      reasonCode: String(payload?.reasonCode ?? 'NO_DATA'),
+      storePath: payload?.storePath ?? null,
+      storeLabel: mcpDispatchStoreLabel(payload),
+      affected: Array.isArray(payload?.affected) ? payload.affected : [],
+      asOf: payload?.asOf ?? null,
+      evidenceRefs: Array.isArray(payload?.evidenceRefs) ? payload.evidenceRefs : [],
+    };
+  }
+  if (item.kind === 'name') {
+    const row = item.row;
+    return {
+      name: row?.name, calls: row?.calls, frames: row?.frames, superseded: row?.superseded,
+      lowerBound: row?.lowerBound === true,
+      firstSeen: row?.firstSeen ?? null, lastSeen: row?.lastSeen ?? null,
+      states: row?.states ?? null, errors: row?.errors ?? null,
+      latency: row?.latency ?? null, excludedLatency: row?.excludedLatency ?? null,
+    };
+  }
+  if (item.kind === 'overview') {
+    const reconciliation = payload?.reconciliation || null;
+    return {
+      status: payload?.status ?? null,
+      reasonCode: payload?.reasonCode ?? null,
+      asOf: payload?.asOf ?? null,
+      storeLabel: mcpDispatchStoreLabel(payload),
+      invariants: [MCP_DISPATCH_KEYS_INVARIANT, MCP_DISPATCH_FRAMES_INVARIANT],
+      reconciliation,
+      reconciliationLines: Array.isArray(reconciliation?.lines) ? reconciliation.lines : [],
+    };
+  }
+  if (item.kind === 'margin') {
+    const margin = payload?.totals?.quarantineMargin || null;
+    return {
+      label: margin?.label ?? 'UNMEASURED',
+      files: margin?.files ?? null,
+      framesPresent: margin?.framesPresent ?? null,
+      framesAdmitted: margin?.framesAdmitted ?? null,
+      framesNamedInvalid: margin?.framesNamedInvalid ?? null,
+      reasons: margin?.reasons ?? [],
+    };
+  }
+  if (item.kind === 'truncation') {
+    const truncation = payload?.totals?.truncation || null;
+    return {
+      label: item.desc,
+      ceiling: truncation?.ceiling ?? null,
+      filesRead: truncation?.filesRead ?? null,
+      filesSkipped: truncation?.filesSkipped ?? null,
+      order: truncation?.order ?? null,
+      // Phase 1's own fields — never re-derived from census.files or row timestamps.
+      coveredWindow: mcpDispatchWindow(payload?.census),
+      windowNewestMtimeMs: payload?.census?.limits?.windowNewestMtimeMs ?? null,
+      windowOldestMtimeMs: payload?.census?.limits?.windowOldestMtimeMs ?? null,
+    };
+  }
+  if (item.kind === 'core-hole') {
+    return {
+      unit: 'proxy-attempt',
+      provenance: 'omp-proxy',
+      launchPathsThatCannotCarryTheEnvironmentVariable: MCP_DISPATCH_CORE_HOLE_LAUNCH_PATHS,
+      zeroAttemptsMeans: 'not yet instrumented — never "unused"',
+    };
+  }
+  return {
+    status: String(payload?.status ?? 'UNMEASURED'),
+    reasonCode: String(payload?.reasonCode ?? 'NO_DATA'),
+    storePath: payload?.storePath ?? null,
+    storeLabel: mcpDispatchStoreLabel(payload),
+    affected: Array.isArray(payload?.affected) ? payload.affected : [],
+    // Present only when the payload carries a census: an UNMEASURED payload that was
+    // read and admitted nothing still publishes what the read observed.
+    censusReadFacts: mcpDispatchReadFacts(payload),
+    asOf: payload?.asOf ?? null,
+    evidenceRefs: Array.isArray(payload?.evidenceRefs) ? payload.evidenceRefs : [],
+  };
+}
+
+async function selectMcpDispatchRow(id: string) {
+  hubMcpDispatchSelected = { id };
+  hubSelectedWorkflow = null;
+  hubSelectedMcpTool = null;
+  renderHubList();
+
+  if (hubDetailEmpty) hubDetailEmpty.style.display = 'none';
+  if (hubWfDetail) hubWfDetail.style.display = 'none';
+  if (hubMcpDetail) hubMcpDetail.style.display = 'none';
+  if (hubCoreDetail) hubCoreDetail.style.display = 'flex';
+
+  const item = mcpDispatchListItems().find((it) => it.id === id) || null;
+  const status = item ? item.status : 'UNMEASURED';
+  // textContent only: these values are persisted or injected strings.
+  if (coreDetailName) coreDetailName.textContent = item ? item.title : 'MCP Dispatch';
+  if (coreDetailDesc) coreDetailDesc.textContent = item ? item.desc : '';
+  if (coreStatusPill) {
+    coreStatusPill.textContent = status;
+    coreStatusPill.className = `hub-status-pill ${coreStatusPillClass(status)}`;
+  }
+  if (coreDetailCategory) coreDetailCategory.textContent = item ? item.category : 'NO_DATA';
+  if (coreDetailCode) coreDetailCode.textContent = JSON.stringify(mcpDispatchDetailBody(item), null, 2);
+}
+
+/**
+ * Failure-tolerant refresh, mirroring refreshCoreHealthState (:526-540): a host
+ * that loads the real preload without the new handler makes `ipcRenderer.invoke`
+ * reject, and the tab must degrade to a well-formed UNMEASURED notice.
+ */
+async function refreshMcpDispatchState() {
+  try {
+    const res = await getApi()?.getMcpDispatchState?.();
+    hubMcpDispatch = res ?? unmeasuredRendererFallback('NO_DATA');
+  } catch (err) {
+    hubMcpDispatch = unmeasuredRendererFallback('IPC_FAILED', [String(err)]);
+  }
+  if (badgeMcpDispatch) {
+    const rows: any[] = Array.isArray(hubMcpDispatch?.rows) ? hubMcpDispatch.rows : [];
+    // `–` while the truth is unknown: a `0` badge would claim "never dispatched".
+    badgeMcpDispatch.textContent = hubMcpDispatch?.status === 'MEASURED' ? String(rows.length) : '–';
+  }
+  renderMcpDispatchList(hubSearchInput?.value || '');
+}
+
 async function selectCoreItem(id: string) {
   hubCoreSelected = { tab: hubActiveTab, id };
   hubSelectedWorkflow = null;
@@ -950,6 +1410,8 @@ function setHubTab(tab: HubTab) {
     if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);
   } else if (tab === 'mcp') {
     if (hubMcpTools.length > 0) selectMcpTool(hubMcpTools[0]);
+  } else if (tab === 'mcp-dispatch') {
+    renderMcpDispatchSelection();
   } else {
     renderCoreListSelection();
   }
@@ -2817,6 +3279,7 @@ async function initToolbar() {
   tabNavTaskRuns?.addEventListener('click', () => setHubTab('task-runs'));
   tabNavRootCauses?.addEventListener('click', () => setHubTab('root-causes'));
   tabNavRegressions?.addEventListener('click', () => setHubTab('regressions'));
+  tabNavMcpDispatch?.addEventListener('click', () => { setHubTab('mcp-dispatch'); void refreshMcpDispatchState(); });
   btnCoreRefresh?.addEventListener('click', async () => {
     await refreshCoreHealthState();
     renderHubList();

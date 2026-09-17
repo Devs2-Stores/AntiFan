@@ -1,0 +1,15 @@
+{
+  "status": "UNMEASURED",
+  "reasonCode": "NO_DATA",
+  "affected": [
+    "invocations"
+  ],
+  "evidenceRefs": [],
+  "asOf": "2026-09-17T03:41:00.000Z",
+  "storePath": "invocations",
+  "census": null,
+  "fileRollups": [],
+  "rows": [],
+  "totals": null,
+  "reconciliation": null
+}

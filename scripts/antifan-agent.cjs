@@ -791,6 +791,19 @@ async function main() {
       ANTIFAN_ALLOWED_CAPABILITY_NAMES: allowedCaps ? allowedCaps.join(',') : undefined,
       ANTIFAN_FORBIDDEN_CAPABILITY_NAMES: forbiddenCaps ? forbiddenCaps.join(',') : undefined,
     };
+    // The proxy's core.* attempt store directory, minted by the bridge for this
+    // session. Forwarded, never scrubbed: the value is what makes the proxy's
+    // core.* population visible, and `undefined` would silently delete a value a
+    // caller had already set in the parent environment (Node drops undefined env
+    // entries), which is why this is a conditional assignment rather than a key
+    // in the literal above. childEnv spreads the sanitized parent environment,
+    // so this key is NOT confined to the proxy: a caller that pre-sets
+    // ANTIFAN_PROXY_TELEMETRY_DIR sends it into the agent's whole subtree — a
+    // documented limitation of this phase, not a guarantee that only the proxy
+    // sees it.
+    if (typeof session.proxyTelemetryDir === 'string' && session.proxyTelemetryDir.trim()) {
+      childEnv.ANTIFAN_PROXY_TELEMETRY_DIR = session.proxyTelemetryDir;
+    }
     const { command, commandArgs } = resolveAgentCommand(args, __dirname);
 
     console.error(`\x1b[36m[antifan-agent] Attached session ${session.attachmentId.slice(0, 16)}... to ${args[0]}\x1b[0m`);

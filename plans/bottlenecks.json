@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-16",
+  "updatedAt": "2026-09-17",
   "note": "Machine-checkable closure ledger. Every row carries a predicate that returns true when the defect is PRESENT at HEAD. `node scripts/check-bottlenecks.mjs` fails when a row marked `closed` still fires (REOPENED), when a row marked `open` no longer fires (FIXED_UNRECORDED), or when a row marked `refuted` fires (REFUTED_BUT_PRESENT). Rows here replace the prose findings list: a claim that cannot be machine-checked is a row with `kind: \"manual\"`, which is re-verified rather than trusted. Never delete a `refuted` row — it is what stops a dead finding from being re-derived.",
   "rows": [
     {
@@ -536,6 +536,21 @@
         ]
       },
       "closedBy": "the writer never emits a null exit (EXIT_UNRECORDED refusal instead), finishedAt falls back to completedAt and runComplete marks mid-run snapshots, the aggregate path stamps finishedAt/exit before indexing, and the routeIdentity gate is shared by the index, the case scanner and the exit tally (scripts/lib/campaign-verdicts.mjs, .canary/tools/fifteen-pages-run.mjs)"
+    },
+    {
+      "id": "B33",
+      "group": "mcp",
+      "title": "`canonicalJsonStringify`'s array branch renders an `undefined`/`null` element as an empty slot, so a frame persisted with `null` inside an array never re-hashes to its recorded checksum",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "src/shared/control-plane-contracts.ts:506-517 — the array branch is `[${val.map(canonicalJsonStringify).join(',')}]` (:510-511), and Array.prototype.join renders an undefined/null element as an empty slot, while the ledger's append path persists the frame through JSON.stringify so a null array element is written as `null` (src/main/session/invocation-ledger.ts:802). Re-deriving the checksum therefore fails strict `sha256(canonicalJsonStringify(frame minus checksum)) === checksum` for any such frame, and because the ledger quarantines a whole partition on its first bad frame (invocation-ledger.ts:190-202 → :260-271) the remaining frames of that partition are stranded rather than read: a dated read-only pass on 2026-09-17 measured 7 strict-invalid frames and 247 strict-valid frames carried by the same quarantined files, and no number here is a constant (every reader run re-derives its own). The MCP dispatch accounting reader reports this as the frozen diagnostic reason `writer-canonicalization-array-slot`, a sub-reason of a line that already failed strict, never an admission. Registered as the follow-up recorded by plans/260917-0341-mcp-dispatch-accounting/plan.md:40 and :213, where the repair is out of scope because the same helper backs canonicalDigest (:518-520) and therefore policy and param digests, so the blast radius is repo-wide.",
+      "predicate": {
+        "kind": "file-regex",
+        "file": "src/shared/control-plane-contracts.ts",
+        "pattern": "val\\.map\\(\\(item\\) => canonicalJsonStringify\\(item\\)\\)\\.join\\(','\\)"
+      },
+      "reVerifyWith": "assert the array branch distinguishes an absent element from a null one (a slot marker, or one rendering shared by the writer and the reader) and that strict sha256(canonicalJsonStringify(frame minus checksum)) still equals the recorded checksum for a frame carrying null inside an array; the behavioural half belongs in a unit test, not in this registry",
+      "updatedAt": "2026-09-17"
     }
   ]
 }

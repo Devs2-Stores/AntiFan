@@ -1,0 +1,238 @@
+{
+  "status": "MEASURED",
+  "reasonCode": "OK",
+  "affected": [],
+  "evidenceRefs": [
+    "census:1a2b3c4d#L7"
+  ],
+  "asOf": "2026-09-17T03:41:00.000Z",
+  "storePath": "invocations",
+  "census": {
+    "asOf": "2026-09-17T03:41:00.000Z",
+    "files": [
+      {
+        "name": "aa-partition-newest.jsonl.quarantine-1758000500000",
+        "bucket": "quarantine",
+        "size": 180,
+        "mtimeMs": 1758000500000,
+        "lineCount": 3,
+        "sha256": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "consistency": "clean"
+      },
+      {
+        "name": "bb-partition-0002.jsonl",
+        "bucket": "jsonl",
+        "size": 120,
+        "mtimeMs": 1758000400000,
+        "lineCount": 2,
+        "sha256": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+        "consistency": "clean"
+      },
+      {
+        "name": "cc-partition-0003.jsonl",
+        "bucket": "jsonl",
+        "size": 90,
+        "mtimeMs": 1758000300000,
+        "lineCount": 1,
+        "sha256": "2b3c4d5e6f708192a3b4c5d6e7f80912b3c4d5e6f708192a3b4c5d6e7f8091a",
+        "consistency": "clean"
+      },
+      {
+        "name": "dd-partition-0004.jsonl",
+        "bucket": "jsonl",
+        "size": 70,
+        "mtimeMs": 1758000200000,
+        "lineCount": 1,
+        "sha256": "3c4d5e6f708192a3b4c5d6e7f8091a3c4d5e6f708192a3b4c5d6e7f8091a",
+        "consistency": "clean"
+      },
+      {
+        "name": "ee-partition-0005.jsonl",
+        "bucket": "jsonl",
+        "size": 40,
+        "mtimeMs": 1758000100000,
+        "lineCount": 1,
+        "sha256": "4d5e6f708192a3b4c5d6e7f8091a2b4d5e6f708192a3b4c5d6e7f8091a2b",
+        "consistency": "clean"
+      }
+    ],
+    "fileCount": 6,
+    "jsonlCount": 5,
+    "quarantineCount": 1,
+    "tempCount": 0,
+    "otherCount": 0,
+    "totalBytes": 700,
+    "censusHash": "5e6f708192a3b4c5d6e7f8091a2b3c5e6f708192a3b4c5d6e7f8091a2b3c",
+    "limits": {
+      "budgetMs": 20000,
+      "maxBytes": 512,
+      "maxFiles": 4096,
+      "observedBytes": 700,
+      "observedFiles": 6,
+      "filesRead": 5,
+      "filesSkipped": 1,
+      "ceiling": "MAX_CENSUS_BYTES",
+      "windowNewestMtimeMs": 1758000500000,
+      "windowOldestMtimeMs": 1758000100000,
+      "elapsedMs": 6,
+      "outcome": "POPULATION_TRUNCATED"
+    }
+  },
+  "fileRollups": [
+    {
+      "file": "aa-partition-newest.jsonl.quarantine-1758000500000",
+      "quarantineLike": true,
+      "tempLike": false,
+      "frames": 3,
+      "admitted": 2,
+      "namedInvalid": 1
+    },
+    {
+      "file": "bb-partition-0002.jsonl",
+      "quarantineLike": false,
+      "tempLike": false,
+      "frames": 2,
+      "admitted": 2,
+      "namedInvalid": 0
+    },
+    {
+      "file": "cc-partition-0003.jsonl",
+      "quarantineLike": false,
+      "tempLike": false,
+      "frames": 1,
+      "admitted": 1,
+      "namedInvalid": 0
+    },
+    {
+      "file": "dd-partition-0004.jsonl",
+      "quarantineLike": false,
+      "tempLike": false,
+      "frames": 1,
+      "admitted": 1,
+      "namedInvalid": 0
+    },
+    {
+      "file": "ee-partition-0005.jsonl",
+      "quarantineLike": false,
+      "tempLike": false,
+      "frames": 1,
+      "admitted": 1,
+      "namedInvalid": 0
+    }
+  ],
+  "rows": [
+    {
+      "name": "anti.browser.evaluate",
+      "calls": 3,
+      "frames": 4,
+      "superseded": 1,
+      "states": {
+        "settled": 3,
+        "failed": 1
+      },
+      "errors": {
+        "TARGET_STALE": 1
+      },
+      "latency": {
+        "count": 3,
+        "p50Ms": 14,
+        "p95Ms": 61
+      },
+      "excludedLatency": null,
+      "firstSeen": "2026-09-15T04:00:00.000Z",
+      "lastSeen": "2026-09-16T22:10:00.000Z",
+      "lowerBound": true
+    },
+    {
+      "name": "browser.dom",
+      "calls": 3,
+      "frames": 3,
+      "superseded": 0,
+      "states": {
+        "settled": 2,
+        "unknown": 1
+      },
+      "errors": {},
+      "latency": {
+        "count": 2,
+        "p50Ms": 38,
+        "p95Ms": 88
+      },
+      "excludedLatency": {
+        "count": 1,
+        "p50Ms": 262957,
+        "p95Ms": 262957
+      },
+      "firstSeen": "2026-09-15T04:05:00.000Z",
+      "lastSeen": "2026-09-16T21:00:00.000Z",
+      "lowerBound": true
+    }
+  ],
+  "totals": {
+    "residue": {
+      "STRUCTURAL_INVALID": 0,
+      "CHECKSUM_MISMATCH": 1,
+      "TORN_TAIL": 0,
+      "UNPARSEABLE": 0,
+      "RESIDUE_NO_CHECKSUM": 0,
+      "POST_CENSUS_APPEND": 0,
+      "POST_CENSUS_TRUNCATE": 0,
+      "VANISHED": 0
+    },
+    "quarantineMargin": {
+      "label": "quarantine margin: present 3 = admitted 2 + named-invalid 1 (CHECKSUM_MISMATCH 1) — a margin, not a recovery promise",
+      "files": 1,
+      "framesPresent": 3,
+      "framesAdmitted": 2,
+      "framesNamedInvalid": 1,
+      "reasons": [
+        {
+          "class": "CHECKSUM_MISMATCH",
+          "reason": "writer-canonicalization-array-slot",
+          "count": 1
+        }
+      ]
+    },
+    "retention": {
+      "firstSeen": "2026-09-15T04:00:00.000Z",
+      "lastSeen": "2026-09-16T22:10:00.000Z",
+      "note": "rows describe retained frames only; a name absent from this set means no frame is retained in this store, never that the tool was never dispatched"
+    },
+    "excludedLatency": {
+      "count": 1,
+      "p50Ms": 262957,
+      "p95Ms": 262957
+    },
+    "unattributedByReason": {
+      "MISSING_IDENTITY_FIELD": 0,
+      "MISSING_ROW_KEY": 0
+    },
+    "truncation": {
+      "ceiling": "MAX_CENSUS_BYTES",
+      "filesRead": 5,
+      "filesSkipped": 1,
+      "order": "mtimeMs-desc,name-asc",
+      "label": "partial: 5 of 6 files"
+    }
+  },
+  "reconciliation": {
+    "classifiedKeys": 6,
+    "unattributedKeys": 0,
+    "unattributedFrames": 0,
+    "unattributedByReason": {
+      "MISSING_IDENTITY_FIELD": 0,
+      "MISSING_ROW_KEY": 0
+    },
+    "keylessFrames": 0,
+    "compositeKeys": 6,
+    "frames": 7,
+    "superseded": 1,
+    "holdsKeys": true,
+    "holdsFrames": true,
+    "holdsMargin": true,
+    "lines": [
+      "classifiedKeys + unattributedKeys == compositeKeys  (6 + 0 == 6)",
+      "frames == compositeKeys + superseded + keylessFrames  (7 == 6 + 1 + 0)"
+    ]
+  }
+}

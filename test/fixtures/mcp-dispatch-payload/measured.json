@@ -1,0 +1,181 @@
+{
+  "status": "MEASURED",
+  "reasonCode": "OK",
+  "affected": [],
+  "evidenceRefs": [
+    "census:0f1e2d3c#L12",
+    "census:0f1e2d3c#L98"
+  ],
+  "asOf": "2026-09-17T03:41:00.000Z",
+  "storePath": "invocations",
+  "census": {
+    "asOf": "2026-09-17T03:41:00.000Z",
+    "files": [
+      {
+        "name": "1a2b3c4d-partition-0001.jsonl",
+        "bucket": "jsonl",
+        "size": 1024,
+        "mtimeMs": 1758000600000,
+        "lineCount": 3,
+        "sha256": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "consistency": "clean"
+      },
+      {
+        "name": "5e6f7a8b-partition-0002.jsonl.quarantine-1757990000000",
+        "bucket": "quarantine",
+        "size": 512,
+        "mtimeMs": 1757990000000,
+        "lineCount": 2,
+        "sha256": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+        "consistency": "clean"
+      }
+    ],
+    "fileCount": 2,
+    "jsonlCount": 1,
+    "quarantineCount": 1,
+    "tempCount": 0,
+    "otherCount": 0,
+    "totalBytes": 1536,
+    "censusHash": "3c4d5e6f708192a3b4c5d6e7f8091a3c4d5e6f708192a3b4c5d6e7f8091a",
+    "limits": {
+      "budgetMs": 20000,
+      "maxBytes": 536870912,
+      "maxFiles": 4096,
+      "observedBytes": 1536,
+      "observedFiles": 2,
+      "filesRead": 2,
+      "filesSkipped": 0,
+      "ceiling": null,
+      "windowNewestMtimeMs": 1758000600000,
+      "windowOldestMtimeMs": 1757990000000,
+      "elapsedMs": 412,
+      "outcome": "COMPLETE"
+    }
+  },
+  "fileRollups": [
+    {
+      "file": "1a2b3c4d-partition-0001.jsonl",
+      "quarantineLike": false,
+      "tempLike": false,
+      "frames": 2,
+      "admitted": 2,
+      "namedInvalid": 0
+    },
+    {
+      "file": "5e6f7a8b-partition-0002.jsonl.quarantine-1757990000000",
+      "quarantineLike": true,
+      "tempLike": false,
+      "frames": 2,
+      "admitted": 1,
+      "namedInvalid": 1
+    }
+  ],
+  "rows": [
+    {
+      "name": "anti.browser.evaluate",
+      "calls": 2,
+      "frames": 3,
+      "superseded": 1,
+      "states": {
+        "settled": 2,
+        "unknown": 1
+      },
+      "errors": {},
+      "latency": {
+        "count": 2,
+        "p50Ms": 13,
+        "p95Ms": 41
+      },
+      "excludedLatency": {
+        "count": 1,
+        "p50Ms": 262957,
+        "p95Ms": 262957
+      },
+      "firstSeen": "2026-09-10T01:00:00.000Z",
+      "lastSeen": "2026-09-16T22:10:00.000Z",
+      "lowerBound": false
+    },
+    {
+      "name": "browser.dom",
+      "calls": 1,
+      "frames": 1,
+      "superseded": 0,
+      "states": {
+        "interrupted": 1
+      },
+      "errors": {
+        "EXECUTION_TIMEOUT": 1
+      },
+      "latency": {
+        "count": 1,
+        "p50Ms": 72,
+        "p95Ms": 72
+      },
+      "excludedLatency": null,
+      "firstSeen": "2026-09-11T09:00:00.000Z",
+      "lastSeen": "2026-09-11T09:00:00.000Z",
+      "lowerBound": false
+    }
+  ],
+  "totals": {
+    "residue": {
+      "STRUCTURAL_INVALID": 0,
+      "CHECKSUM_MISMATCH": 1,
+      "TORN_TAIL": 0,
+      "UNPARSEABLE": 0,
+      "RESIDUE_NO_CHECKSUM": 0,
+      "POST_CENSUS_APPEND": 0,
+      "POST_CENSUS_TRUNCATE": 0,
+      "VANISHED": 0
+    },
+    "quarantineMargin": {
+      "label": "quarantine margin: present 2 = admitted 1 + named-invalid 1 (CHECKSUM_MISMATCH 1) — a margin, not a recovery promise",
+      "files": 1,
+      "framesPresent": 2,
+      "framesAdmitted": 1,
+      "framesNamedInvalid": 1,
+      "reasons": [
+        {
+          "class": "CHECKSUM_MISMATCH",
+          "reason": "writer-canonicalization-array-slot",
+          "count": 1
+        }
+      ]
+    },
+    "retention": {
+      "firstSeen": "2026-09-10T01:00:00.000Z",
+      "lastSeen": "2026-09-16T22:10:00.000Z",
+      "note": "rows describe retained frames only; a name absent from this set means no frame is retained in this store, never that the tool was never dispatched"
+    },
+    "excludedLatency": {
+      "count": 1,
+      "p50Ms": 262957,
+      "p95Ms": 262957
+    },
+    "unattributedByReason": {
+      "MISSING_IDENTITY_FIELD": 0,
+      "MISSING_ROW_KEY": 0
+    },
+    "truncation": null
+  },
+  "reconciliation": {
+    "classifiedKeys": 3,
+    "unattributedKeys": 0,
+    "unattributedFrames": 0,
+    "unattributedByReason": {
+      "MISSING_IDENTITY_FIELD": 0,
+      "MISSING_ROW_KEY": 0
+    },
+    "keylessFrames": 0,
+    "compositeKeys": 3,
+    "frames": 4,
+    "superseded": 1,
+    "holdsKeys": true,
+    "holdsFrames": true,
+    "holdsMargin": true,
+    "lines": [
+      "classifiedKeys + unattributedKeys == compositeKeys  (3 + 0 == 3)",
+      "frames == compositeKeys + superseded + keylessFrames  (4 == 3 + 1 + 0)"
+    ]
+  }
+}

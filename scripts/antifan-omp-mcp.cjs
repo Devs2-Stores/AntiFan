@@ -541,6 +541,581 @@ async function invokeCore(method, params) {
   return core[storeMethod](...adapt(params || {}));
 }
 
+// ─── Phase 5: core.* proxy attempt store — emitter ──────────────────────────
+// The control-plane invocation ledger has ZERO core.* frames: a local core.*
+// call returns in-process at the wrap point inside invoke() below, BEFORE
+// invocation identity is minted, so no ledger frame is ever written for it.
+// This section is that missing population's own store — provenance 'omp-proxy',
+// unit 'proxy-attempt' — and it stays separate on purpose: nothing may sum it
+// into ledger rates, or mix it into a success-rate percentage.
+//
+// Two properties this section must never lose:
+//   1. The outcome is observed from the SETTLED promise. invokeCore is async, so
+//      a `finally` around the un-awaited call fires at promise-return time and
+//      would record every failure as 'ok'; a bare `.catch` on the un-awaited
+//      promise is dead code. The wrap below uses .then(onOk, onErr).
+//   2. The target directory comes ONLY from ANTIFAN_PROXY_TELEMETRY_DIR, which
+//      the app injects when it spawns scripts/antifan-agent.cjs. Absent ⇒ write
+//      nothing and say so once. There is no default and no plausible-path
+//      fallback; the anti-pattern this refuses to copy is SUPER_CORE_DB above,
+//      which defaults to a repo-relative location.
+//
+// Module scope stays free of I/O: the compile-time budget gate
+// scripts/check-mcp-budget-dominance.mjs require()s this module before it does
+// anything else, so an import-time probe or write would put a store on the
+// build path. The directory is re-read per emit; nothing is probed at import.
+const coreAttemptFs = require('node:fs');
+const coreAttemptPath = require('node:path');
+const CORE_ATTEMPT_DIR_ENV = 'ANTIFAN_PROXY_TELEMETRY_DIR';
+const CORE_ATTEMPT_PROVENANCE = 'omp-proxy';
+const CORE_ATTEMPT_UNIT = 'proxy-attempt';
+const CORE_ATTEMPT_SCHEMA = 1;
+const CORE_ATTEMPT_FILE_PREFIX = 'core-attempts-';
+// One data file per pid, so two proxies can never interleave partial lines in
+// one file: active is `core-attempts-<pid>.jsonl`, a rotated one carries a
+// timestamp before the extension.
+const CORE_ATTEMPT_ACTIVE_FILE = /^core-attempts-\d+\.jsonl$/;
+const CORE_ATTEMPT_ROTATED_FILE = /^core-attempts-\d+\..+\.jsonl$/;
+// method / requestedAs are caller-derived. They are admitted only in tool-name
+// form (at most 128 chars); a value that does not fit is REFUSED and counted in
+// the store, never truncated-and-written. That refusal is the deliberate
+// contrast with the house pattern (fallback-recorder bounds every string,
+// invocation-ledger rejects an oversized frame): a truncated tool name would
+// silently attribute an attempt to a capability that does not exist.
+const CORE_ATTEMPT_TOOL_NAME = /^[A-Za-z0-9._:-]{1,128}$/;
+const CORE_ATTEMPT_MAX_ERROR_CODE = 64;
+const CORE_ATTEMPT_MAX_RECORD_BYTES = 4096;
+const CORE_ATTEMPT_MAX_QUEUE = 256;
+// Launch paths that can and cannot carry ANTIFAN_PROXY_TELEMETRY_DIR, verified
+// by reading the tree (declarations, not bare line numbers, because this plan's
+// edits shift them):
+//   CAN    — scripts/antifan-agent.cjs: the bridge mints the directory in its
+//            `antifan.cli.startSession` response (src/main/bridge/
+//            bridge-server.ts, the `respond(true, {...})` payload), and the
+//            launcher forwards it in `childEnv` → `spawnAgentChild`. childEnv
+//            spreads the sanitized parent environment and this key is NOT
+//            scrubbed like the bridge token, so a caller that pre-sets it sends
+//            the value into the agent's whole subtree — documented as a
+//            limitation of this phase, not relied on as a guarantee.
+//   CANNOT — package.json bin "antifan-mcp" (`./scripts/antifan-omp-mcp.cjs`):
+//            no injector at this entry point. It inherits a value only when its
+//            own parent process tree was launched by scripts/antifan-agent.cjs
+//            (that is the subtree limitation above, not an injection here).
+//   CANNOT — package.json script "mcp" (`node scripts/antifan-omp-mcp.cjs`):
+//            same, no injector at this entry point.
+//   CANNOT — Codex: ~/.codex/config.toml registers no AntiFan MCP server, and
+//            src/main/agent/codex-execution-backend.ts builds its child env
+//            from the Electron main process environment, which never holds this
+//            key (the app mints it only into the launcher's childEnv).
+//   CANNOT — scripts/generate-mcp-capability-map.mjs spawns the proxy directly
+//            with `{...process.env}`; no injector at this entry point.
+// 0 attempts means "not yet instrumented", never "unused"; and because
+// unknown-capability and abandoned calls are attempts too, any rate derived
+// from this store is a pessimistic bound.
+const CORE_ATTEMPT_LAUNCH_PATHS = Object.freeze([
+  Object.freeze({
+    path: 'scripts/antifan-agent.cjs',
+    canCarry: true,
+    evidence: 'startSession response field proxyTelemetryDir -> childEnv -> spawnAgentChild (the only injector; the value then reaches the agent subtree)',
+  }),
+  Object.freeze({
+    path: 'package.json bin "antifan-mcp"',
+    canCarry: false,
+    evidence: 'no injector at this entry point; inherits a value only from a parent tree launched by scripts/antifan-agent.cjs',
+  }),
+  Object.freeze({
+    path: 'package.json script "mcp"',
+    canCarry: false,
+    evidence: 'no injector at this entry point; inherits a value only from a parent tree launched by scripts/antifan-agent.cjs',
+  }),
+  Object.freeze({
+    path: 'Codex (~/.codex/config.toml)',
+    canCarry: false,
+    evidence: 'no AntiFan MCP server registered; the codex child env mirrors the Electron main process env, which never holds this key',
+  }),
+  Object.freeze({
+    path: 'scripts/generate-mcp-capability-map.mjs',
+    canCarry: false,
+    evidence: 'spawns the proxy with {...process.env}; inherits a value only from an injected parent tree',
+  }),
+]);
+
+let coreAttemptQueue = [];
+let coreAttemptDrainRunning = false;
+let coreAttemptDrops = 0;
+let coreAttemptUnavailableNotified = false;
+let coreAttemptInstrumentedSince = null;
+let coreAttemptLimitsCache = null;
+let coreAttemptRotationSeq = 0;
+
+// Rotation names carry the pid (two proxies share one directory) plus a
+// timestamp and a monotonic per-process sequence, so two rotations in the same
+// millisecond cannot rename onto each other and silently drop a file.
+function coreAttemptRotationSuffix() {
+  coreAttemptRotationSeq += 1;
+  return `${new Date().toISOString().replace(/[:.]/g, '-')}-${coreAttemptRotationSeq}`;
+}
+
+// Bounds are per process and lazily read: the phase fixes the shape (a byte cap
+// per file plus a retained-file ring) but no number, so the numbers are
+// declared here and overridable, clamped, by the two env keys. A byte cap alone
+// mints files without limit, which is the exact uncapped pattern the ring
+// exists to stop.
+function coreAttemptLimits() {
+  if (coreAttemptLimitsCache) return coreAttemptLimitsCache;
+  const bounded = (raw, fallback, min, max) => {
+    const parsed = Number.parseInt(String(raw === undefined || raw === null ? '' : raw), 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(Math.max(parsed, min), max);
+  };
+  coreAttemptLimitsCache = Object.freeze({
+    maxFileBytes: bounded(process.env.ANTIFAN_PROXY_TELEMETRY_MAX_BYTES, 262144, 4096, 67108864),
+    retainedFiles: bounded(process.env.ANTIFAN_PROXY_TELEMETRY_RETAINED_FILES, 5, 1, 64),
+  });
+  return coreAttemptLimitsCache;
+}
+
+function coreAttemptResolveDir() {
+  const raw = process.env[CORE_ATTEMPT_DIR_ENV];
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : null;
+}
+
+function coreAttemptHeaderLine() {
+  return {
+    kind: 'header',
+    schema: CORE_ATTEMPT_SCHEMA,
+    provenance: CORE_ATTEMPT_PROVENANCE,
+    unit: CORE_ATTEMPT_UNIT,
+    pid: process.pid,
+    instrumentedSince: coreAttemptInstrumentedSince || new Date().toISOString(),
+  };
+}
+
+function coreAttemptBoundToolName(value) {
+  const text = typeof value === 'string'
+    ? value
+    : (value === undefined || value === null ? '' : String(value));
+  return CORE_ATTEMPT_TOOL_NAME.test(text) ? text : null;
+}
+
+// errorCode is store/Error-derived, not caller-typed, so the phase caps it
+// rather than refusing the record for it: the attempt itself stays visible.
+function coreAttemptBoundErrorCode(value) {
+  if (typeof value !== 'string' || value === '') return null;
+  return value.slice(0, CORE_ATTEMPT_MAX_ERROR_CODE);
+}
+
+// The code is derived from the settled rejection, defensively, in this order:
+//   a. an attached `Error.code` (what the phase's rule assumed, and what a
+//      future invokeCore change would provide);
+//   b. the code the refuser already put in its JSON message body — invokeCore
+//      builds every store refusal as `new Error(JSON.stringify({ code, … }))`
+//      (see invokeCore above) and attaches no `.code`, so without this step the
+//      histogram collapses CORE_UNAVAILABLE, CAPABILITY_NOT_FOUND and
+//      unknown-capability into a single content-free 'ERROR' bucket;
+//   c. the literal fallback 'ERROR', meaning "no code derivable" — a weaker
+//      claim than "the call failed generically".
+// Reading the message is reading data the thrower already serialized; the
+// caller's error object is never touched, and a non-JSON or code-less message
+// degrades to (c) instead of guessing. The result goes through the same 64-char
+// cap as any other error code.
+function coreAttemptDeriveErrorCode(err) {
+  if (err && typeof err.code === 'string' && err.code) return coreAttemptBoundErrorCode(err.code);
+  if (err && typeof err.message === 'string') {
+    try {
+      const parsed = JSON.parse(err.message);
+      if (parsed && typeof parsed.code === 'string' && parsed.code) {
+        return coreAttemptBoundErrorCode(parsed.code);
+      }
+    } catch {
+      // Not a JSON message: fall through to the literal fallback.
+    }
+  }
+  return coreAttemptBoundErrorCode('ERROR');
+}
+
+function coreAttemptRefusalLine(reason, attempt, bytes) {
+  return `${JSON.stringify({
+    kind: 'refusal',
+    timestamp: new Date().toISOString(),
+    reason,
+    bytes: Number.isFinite(bytes) ? bytes : null,
+    requestedAs: coreAttemptBoundToolName(attempt && attempt.requestedAs),
+    provenance: CORE_ATTEMPT_PROVENANCE,
+    unit: CORE_ATTEMPT_UNIT,
+    pid: process.pid,
+  })}\n`;
+}
+
+function enqueueCoreAttemptLine(dir, line) {
+  if (coreAttemptQueue.length >= CORE_ATTEMPT_MAX_QUEUE) {
+    // Bounded queue: drop with a counter instead of growing without limit. The
+    // counter is persisted by the writer, so a flood is visible, not silent.
+    coreAttemptDrops += 1;
+    return;
+  }
+  coreAttemptQueue.push({ dir, line, bytes: Buffer.byteLength(line, 'utf8'), inFlight: false });
+  void drainCoreAttemptQueue();
+}
+
+async function coreAttemptPrepareFile(dir, incomingBytes) {
+  await coreAttemptFs.promises.mkdir(dir, { recursive: true });
+  const file = coreAttemptPath.join(dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.jsonl`);
+  let stats = await coreAttemptFs.promises.stat(file).catch(() => null);
+  if (stats && stats.size > 0 && stats.size + incomingBytes > coreAttemptLimits().maxFileBytes) {
+    await coreAttemptRotate(dir, file);
+    stats = null;
+  }
+  if (!stats || stats.size === 0) {
+    if (!coreAttemptInstrumentedSince) coreAttemptInstrumentedSince = new Date().toISOString();
+    await coreAttemptFs.promises.appendFile(file, `${JSON.stringify(coreAttemptHeaderLine())}\n`, 'utf8');
+  }
+  return file;
+}
+
+async function coreAttemptRotate(dir, activeFile) {
+  const limits = coreAttemptLimits();
+  const rotated = coreAttemptPath.join(dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.${coreAttemptRotationSuffix()}.jsonl`);
+  await coreAttemptFs.promises.rename(activeFile, rotated);
+  const entries = await coreAttemptFs.promises.readdir(dir).catch(() => []);
+  const rotatedFiles = [];
+  for (const name of entries) {
+    // Another pid's ACTIVE file is never a rotation candidate: pruning it would
+    // delete a live proxy's data file (the per-pid name is what keeps two
+    // proxies apart, it is not a rotation slot).
+    if (CORE_ATTEMPT_ACTIVE_FILE.test(name) || !CORE_ATTEMPT_ROTATED_FILE.test(name)) continue;
+    const full = coreAttemptPath.join(dir, name);
+    const stats = await coreAttemptFs.promises.stat(full).catch(() => null);
+    if (!stats || !stats.isFile()) continue;
+    rotatedFiles.push({ name, full, mtimeMs: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : 0 });
+  }
+  rotatedFiles.sort((a, b) => (a.mtimeMs - b.mtimeMs) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  while (rotatedFiles.length > limits.retainedFiles) {
+    const oldest = rotatedFiles.shift();
+    await coreAttemptFs.promises.unlink(oldest.full).catch(() => {});
+  }
+}
+
+async function drainCoreAttemptQueue() {
+  if (coreAttemptDrainRunning) return;
+  coreAttemptDrainRunning = true;
+  try {
+    while (coreAttemptQueue.length > 0) {
+      const item = coreAttemptQueue[0];
+      const file = await coreAttemptPrepareFile(item.dir, item.bytes).catch(() => null);
+      if (file) {
+        // `inFlight` is raised only for the append itself, so the process-end
+        // flush below can still write a record whose rotation/prepare step was
+        // interrupted without risking a duplicate line.
+        item.inFlight = true;
+        try {
+          await coreAttemptFs.promises.appendFile(file, item.line, 'utf8');
+        } catch {
+          // A telemetry write that fails is dropped, never rethrown at a caller.
+        } finally {
+          item.inFlight = false;
+        }
+      }
+      coreAttemptQueue.shift();
+    }
+    if (coreAttemptDrops > 0) {
+      const dropped = coreAttemptDrops;
+      coreAttemptDrops = 0;
+      const dir = coreAttemptResolveDir();
+      if (dir) {
+        const line = `${JSON.stringify({
+          kind: 'drop',
+          timestamp: new Date().toISOString(),
+          reason: 'QUEUE_BOUND_EXCEEDED',
+          count: dropped,
+          provenance: CORE_ATTEMPT_PROVENANCE,
+          unit: CORE_ATTEMPT_UNIT,
+          pid: process.pid,
+        })}\n`;
+        const file = await coreAttemptPrepareFile(dir, Buffer.byteLength(line, 'utf8')).catch(() => null);
+        if (file) await coreAttemptFs.promises.appendFile(file, line, 'utf8').catch(() => {});
+      }
+    }
+  } finally {
+    coreAttemptDrainRunning = false;
+  }
+}
+
+// Process-end flush. `beforeExit` drains asynchronously (awaiting keeps the loop
+// alive until the writes land); `exit` cannot await, so it writes the records
+// that were never handed to the async writer synchronously. A record already
+// in flight at `exit` is not rewritten: a duplicate line would corrupt counts,
+// and the async append is a single syscall issued microseconds earlier.
+// The exit path is NOT the dispatch path, so a synchronous call here does not
+// violate the no-sync-fs rule; it may push the active file slightly past its
+// byte cap, which is bounded by the 4 KiB record budget and the file ring.
+function flushCoreAttemptsSync() {
+  try {
+    const pending = coreAttemptQueue.filter((item) => !item.inFlight);
+    if (pending.length > 0) {
+      const limits = coreAttemptLimits();
+      for (const item of pending) {
+        try {
+          coreAttemptFs.mkdirSync(item.dir, { recursive: true });
+          const file = coreAttemptPath.join(item.dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.jsonl`);
+          let stats = coreAttemptFs.statSync(file, { throwIfNoEntry: false }) || null;
+          if (stats && stats.size > 0 && stats.size + item.bytes > limits.maxFileBytes) {
+            try {
+              coreAttemptFs.renameSync(file, coreAttemptPath.join(item.dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.${coreAttemptRotationSuffix()}.jsonl`));
+              stats = null;
+            } catch {}
+          }
+          if (!stats || stats.size === 0) {
+            if (!coreAttemptInstrumentedSince) coreAttemptInstrumentedSince = new Date().toISOString();
+            coreAttemptFs.appendFileSync(file, `${JSON.stringify(coreAttemptHeaderLine())}\n`, 'utf8');
+          }
+          coreAttemptFs.appendFileSync(file, item.line, 'utf8');
+        } catch {}
+      }
+      coreAttemptQueue = coreAttemptQueue.filter((item) => item.inFlight);
+    }
+    if (coreAttemptDrops > 0) {
+      const dropped = coreAttemptDrops;
+      coreAttemptDrops = 0;
+      const dir = coreAttemptResolveDir();
+      if (dir) {
+        try {
+          coreAttemptFs.mkdirSync(dir, { recursive: true });
+          const file = coreAttemptPath.join(dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.jsonl`);
+          coreAttemptFs.appendFileSync(file, `${JSON.stringify({
+            kind: 'drop',
+            timestamp: new Date().toISOString(),
+            reason: 'QUEUE_BOUND_EXCEEDED',
+            count: dropped,
+            provenance: CORE_ATTEMPT_PROVENANCE,
+            unit: CORE_ATTEMPT_UNIT,
+            pid: process.pid,
+          })}\n`, 'utf8');
+        } catch {}
+      }
+    }
+  } catch {
+    // Process end must not throw.
+  }
+}
+
+/**
+ * One bounded attempt record per core.* dispatch. Never throws into the
+ * dispatch path and never awaits: the record is queued and written by the async
+ * writer, so the caller's result and timing are untouched.
+ *
+ * @param {{ method?: string, requestedAs?: string, attemptKind?: string,
+ *           outcome?: string, errorCode?: string, durationMs?: number }} attempt
+ */
+function emitCoreAttempt(attempt) {
+  try {
+    const dir = coreAttemptResolveDir();
+    if (!dir) {
+      if (!coreAttemptUnavailableNotified) {
+        coreAttemptUnavailableNotified = true;
+        const unavailable = {
+          code: 'proxyTelemetryUnavailable',
+          message: `${CORE_ATTEMPT_DIR_ENV} is not set for this process, so core.* proxy attempts are not recorded. ` +
+            'This proxy was not launched by scripts/antifan-agent.cjs (the bin "antifan-mcp" and "npm run mcp" spawn it directly), ' +
+            'and there is no fallback directory by design.',
+        };
+        process.stderr.write(`${JSON.stringify(unavailable)}\n`);
+      }
+      return;
+    }
+    const record = attempt && typeof attempt === 'object' ? attempt : {};
+    // instrumentedSince is the moment this process first had somewhere to write,
+    // so it precedes every record timestamp in the store rather than the header
+    // write that happens a few milliseconds later.
+    if (!coreAttemptInstrumentedSince) coreAttemptInstrumentedSince = new Date().toISOString();
+    const method = coreAttemptBoundToolName(record.method);
+    const requestedAs = coreAttemptBoundToolName(record.requestedAs);
+    if (!method || !requestedAs) {
+      // Refusals are counted as first-class refusal records in the store, not as
+      // a header field: the header is the first line of an append-only file and
+      // cannot be rewritten without a compaction this store does not do.
+      enqueueCoreAttemptLine(dir, coreAttemptRefusalLine(
+        method ? 'REQUESTED_AS_NOT_BOUNDABLE' : 'METHOD_NOT_BOUNDABLE',
+        record,
+        null,
+      ));
+      return;
+    }
+    const line = `${JSON.stringify({
+      kind: 'attempt',
+      timestamp: new Date().toISOString(),
+      method,
+      requestedAs,
+      attemptKind: record.attemptKind === 'unknown-capability' ? 'unknown-capability' : 'dispatched',
+      outcome: record.outcome === 'ok' ? 'ok' : 'error',
+      errorCode: coreAttemptBoundErrorCode(record.errorCode) || undefined,
+      durationMs: Number.isFinite(record.durationMs) && record.durationMs >= 0 ? Math.round(record.durationMs) : 0,
+      provenance: CORE_ATTEMPT_PROVENANCE,
+      unit: CORE_ATTEMPT_UNIT,
+      pid: process.pid,
+    })}\n`;
+    const bytes = Buffer.byteLength(line, 'utf8');
+    if (bytes > CORE_ATTEMPT_MAX_RECORD_BYTES) {
+      enqueueCoreAttemptLine(dir, coreAttemptRefusalLine('RECORD_OVER_BUDGET', record, bytes));
+      return;
+    }
+    enqueueCoreAttemptLine(dir, line);
+  } catch {
+    // Telemetry never throws into the dispatch path.
+  }
+}
+
+process.on('beforeExit', () => { void drainCoreAttemptQueue(); });
+process.on('exit', () => { flushCoreAttemptsSync(); });
+
+// ─── Phase 5: core.* proxy attempt store — reader (--core-attempts) ─────────
+// Read-only, synchronous, CLI-only: this never runs on the dispatch path and
+// never writes (it does not create the directory it is asked to read). It is
+// the consumer that makes the emitter telemetry rather than a write-only
+// artifact; scripts/antifan-mcp-dispatch-account.cjs reaches it with
+//   node scripts/antifan-omp-mcp.cjs --core-attempts --json [--dir <store>]
+// and the envelope below is the shared contract for that section.
+function coreAttemptPercentile(sorted, quantile) {
+  if (sorted.length === 0) return null;
+  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil(quantile * sorted.length) - 1));
+  return sorted[rank];
+}
+
+function readCoreAttemptStore(dirInput) {
+  const asked = typeof dirInput === 'string' && dirInput.trim() ? dirInput.trim() : null;
+  const report = {
+    unit: CORE_ATTEMPT_UNIT,
+    provenance: CORE_ATTEMPT_PROVENANCE,
+    status: 'UNMEASURED',
+    reasonCode: 'NO_STORE_DIR',
+    // Absolute store path: this is a CLI/stdout affordance only. The Hub
+    // payload carries a display label, never an absolute path.
+    storePath: null,
+    files: 0,
+    perFile: [],
+    attempts: 0,
+    ok: 0,
+    error: 0,
+    dispatched: 0,
+    unknownCapability: 0,
+    errorCodes: {},
+    durationMs: { p50: null, p95: null, samples: 0 },
+    refusals: 0,
+    drops: 0,
+    unparseableLines: 0,
+    instrumentedSince: null,
+    launchPaths: CORE_ATTEMPT_LAUNCH_PATHS,
+    note: '0 attempts means "not yet instrumented", never "unused"; unknown-capability and abandoned calls are attempts too, so any rate derived from this store is a pessimistic bound. In the errorCode histogram, ERROR means "no code derivable from the rejection" (no Error.code and no code in a JSON message), which is a weaker claim than "the call failed generically".',
+  };
+  if (!asked) return report;
+  report.storePath = coreAttemptPath.resolve(asked);
+  let entries;
+  try {
+    entries = coreAttemptFs.readdirSync(asked);
+  } catch {
+    report.reasonCode = 'STORE_ABSENT';
+    return report;
+  }
+  const durations = [];
+  for (const name of entries.slice().sort()) {
+    // Active and rotated files are one store: a rotation must not hide history.
+    if (!CORE_ATTEMPT_ACTIVE_FILE.test(name) && !CORE_ATTEMPT_ROTATED_FILE.test(name)) continue;
+    const full = coreAttemptPath.join(asked, name);
+    let text;
+    try {
+      if (!coreAttemptFs.statSync(full, { throwIfNoEntry: false })?.isFile()) continue;
+      text = coreAttemptFs.readFileSync(full, 'utf8');
+    } catch {
+      report.unparseableLines += 1;
+      continue;
+    }
+    report.files += 1;
+    let fileAttempts = 0;
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let record;
+      try {
+        record = JSON.parse(line);
+      } catch {
+        report.unparseableLines += 1;
+        continue;
+      }
+      if (!record || typeof record !== 'object') {
+        report.unparseableLines += 1;
+        continue;
+      }
+      if (record.kind === 'header') {
+        if (typeof record.instrumentedSince === 'string' &&
+          (report.instrumentedSince === null || record.instrumentedSince < report.instrumentedSince)) {
+          report.instrumentedSince = record.instrumentedSince;
+        }
+        continue;
+      }
+      if (record.kind === 'refusal') {
+        report.refusals += 1;
+        continue;
+      }
+      if (record.kind === 'drop') {
+        report.drops += Number.isFinite(record.count) ? record.count : 1;
+        continue;
+      }
+      if (record.kind !== 'attempt') {
+        report.unparseableLines += 1;
+        continue;
+      }
+      report.attempts += 1;
+      fileAttempts += 1;
+      if (record.attemptKind === 'unknown-capability') report.unknownCapability += 1;
+      else report.dispatched += 1;
+      if (record.outcome === 'error') {
+        report.error += 1;
+        const code = typeof record.errorCode === 'string' && record.errorCode ? record.errorCode : '(none)';
+        report.errorCodes[code] = (report.errorCodes[code] || 0) + 1;
+      } else {
+        report.ok += 1;
+      }
+      if (Number.isFinite(record.durationMs)) durations.push(record.durationMs);
+    }
+    report.perFile.push({ file: name, attempts: fileAttempts });
+  }
+  durations.sort((a, b) => a - b);
+  report.durationMs = {
+    // Nearest-rank on the sorted samples: ceil(q * n) - 1.
+    p50: coreAttemptPercentile(durations, 0.5),
+    p95: coreAttemptPercentile(durations, 0.95),
+    samples: durations.length,
+  };
+  if (report.attempts > 0) {
+    report.status = 'MEASURED';
+    report.reasonCode = null;
+  } else if (report.files > 0) {
+    report.reasonCode = 'NO_ATTEMPTS';
+  }
+  return report;
+}
+
+function formatCoreAttemptReport(report) {
+  const lines = [];
+  lines.push(`core-attempts: ${report.status}${report.reasonCode ? ` (${report.reasonCode})` : ''}`);
+  lines.push(`store: ${report.storePath || '(none provided — pass --dir or set ANTIFAN_PROXY_TELEMETRY_DIR)'}`);
+  lines.push(`instrumentedSince: ${report.instrumentedSince || '(none)'}`);
+  lines.push(`files: ${report.files}  attempts: ${report.attempts}  ok: ${report.ok}  error: ${report.error}`);
+  lines.push(`dispatched: ${report.dispatched}  unknown-capability: ${report.unknownCapability}`);
+  lines.push(`durationMs p50: ${report.durationMs.p50 === null ? 'UNMEASURED' : report.durationMs.p50}  p95: ${report.durationMs.p95 === null ? 'UNMEASURED' : report.durationMs.p95}  samples: ${report.durationMs.samples}`);
+  const codes = Object.keys(report.errorCodes).sort();
+  lines.push(`errorCode histogram: ${codes.length === 0 ? '(none)' : codes.map((code) => `${code}=${report.errorCodes[code]}`).join(' ')}`);
+  lines.push(`refusals: ${report.refusals}  drops: ${report.drops}  unparseable lines: ${report.unparseableLines}`);
+  for (const entry of report.perFile) lines.push(`  ${entry.file}: ${entry.attempts}`);
+  lines.push(`note: ${report.note}`);
+  lines.push('launch paths:');
+  for (const entry of report.launchPaths) {
+    lines.push(`  ${entry.canCarry ? 'CAN   ' : 'CANNOT'} ${entry.path} — ${entry.evidence}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 const isFixerSession = process.env.ANTIFAN_FIXER_SESSION === 'true' ||
   process.env.ANTIFAN_FIXER_SESSION === '1' ||
   process.argv.includes('--fixer');
@@ -1532,7 +2107,39 @@ async function invoke(method, params = {}, callerRequestId) {
   // gate — a local store must not depend on the desktop bridge being live.
   const mappedEarly = CAPABILITY_MAP[method] || method;
   if (mappedEarly.startsWith('core.')) {
-    return invokeCore(mappedEarly, params);
+    // One bounded proxy-attempt record per core.* dispatch, emitted from the
+    // SETTLED promise. invokeCore is async, so a `finally` here would fire at
+    // promise-return time and record every failure as 'ok', and a `.catch` on
+    // the un-awaited promise would be dead code. The same promise is returned,
+    // so the caller's result value, error object and timing are untouched; the
+    // emitter is synchronous, bounded, queue-backed, and nothing waits on its
+    // append. The raw caller name and the post-CAPABILITY_MAP name are both in
+    // scope only here, which is why the emitter is not inside invokeCore.
+    const coreAttemptStartedAt = Date.now();
+    const coreAttemptPromise = invokeCore(mappedEarly, params);
+    const coreAttemptContext = {
+      method: mappedEarly,
+      requestedAs: typeof method === 'string' ? method : String(method),
+      attemptKind: CORE_DISPATCH[mappedEarly] ? 'dispatched' : 'unknown-capability',
+    };
+    coreAttemptPromise.then(
+      () => emitCoreAttempt({
+        ...coreAttemptContext,
+        outcome: 'ok',
+        durationMs: Date.now() - coreAttemptStartedAt,
+      }),
+      (err) => emitCoreAttempt({
+        ...coreAttemptContext,
+        outcome: 'error',
+        // Derived from the settled rejection: `.code` if present, else the code
+        // the refuser serialized into its JSON message (invokeCore attaches
+        // none), else 'ERROR' = "no code derivable". invokeCore and the caller's
+        // error object are untouched.
+        errorCode: coreAttemptDeriveErrorCode(err),
+        durationMs: Date.now() - coreAttemptStartedAt,
+      }),
+    ).catch(() => {});
+    return coreAttemptPromise;
   }
   let bootstrap = getBootstrap();
   if (!bootstrap || !bootstrap.secret) {
@@ -1960,6 +2567,24 @@ function resolveImageArtifactResponse(data, artifactPayload) {
 }
 
 if (require.main === module) {
+  // Reader entry for the core.* proxy attempt store (Phase 5). It is a plain
+  // CLI surface on this file — never an advertised MCP tool — so the stdio
+  // server is not started for it:
+  //   node scripts/antifan-omp-mcp.cjs --core-attempts [--json] [--dir <store>]
+  // The store directory comes from --dir or ANTIFAN_PROXY_TELEMETRY_DIR only:
+  // there is no repo-relative fallback, and an unavailable directory renders
+  // UNMEASURED naming the mechanism instead of probing a guess.
+  if (process.argv.includes('--core-attempts')) {
+    const dirIndex = process.argv.indexOf('--dir');
+    const dirArg = dirIndex !== -1 && process.argv[dirIndex + 1] ? process.argv[dirIndex + 1] : null;
+    const storeReport = readCoreAttemptStore(dirArg || process.env[CORE_ATTEMPT_DIR_ENV]);
+    if (process.argv.includes('--json')) {
+      process.stdout.write(`${JSON.stringify(storeReport, null, 2)}\n`);
+    } else {
+      process.stdout.write(formatCoreAttemptReport(storeReport));
+    }
+    process.exit(0);
+  }
   if (process.stdin.isTTY && !process.env.ANTIFAN_MCP_BOOTSTRAP) {
     const candidates = resolveBridgeCandidates();
     if (candidates.length === 0) {

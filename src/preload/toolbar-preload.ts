@@ -129,6 +129,7 @@ const toolbarApi = {
   getWorkflowArtifact: (artifactId: string) => ipcRenderer.invoke('antifan:workflow:get-artifact', artifactId),
   getCoreHealthState: () => ipcRenderer.invoke('antifan:core-health:get-state'),
   getCoreTaskRunTrace: (id: string) => ipcRenderer.invoke('antifan:core-health:get-task-run-trace', id),
+  getMcpDispatchState: () => ipcRenderer.invoke('antifan:mcp-dispatch:get-state'),
   onWorkflowEvent: (callback: (event: unknown) => void) => {
     const handler = (_event: unknown, data: unknown) => callback(data);
     ipcRenderer.on('antifan:workflow:event', handler);

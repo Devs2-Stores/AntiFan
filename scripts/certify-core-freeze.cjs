@@ -41,6 +41,12 @@ function computeBuildIdentity() {
     '.compiled/src/main/tools/browser-capabilities.js',
     '.compiled/src/main/tools/capability-transport.js',
     '.compiled/src/main/session/invocation-ledger.js',
+    // The frame-checksum seam lives in its own module since the MCP dispatch accounting
+    // extraction moved it out of the ledger. Without this entry the build identity does not
+    // move when the checksum implementation changes, so it would be blind to the one part of
+    // the ledger this extraction actually altered — and the re-certification that is supposed
+    // to cover that change would be green only nominally.
+    '.compiled/src/main/session/invocation-frame-checksum.js',
     '.compiled/src/main/session/receipt-store.js',
     '.compiled/src/main/tools/artifact-store.js',
     'scripts/freeze-certification-core.cjs',
