@@ -95,7 +95,12 @@ export class AttachmentRegistry {
   private mutationLock: Promise<void> = Promise.resolve();
   private disposeListener?: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void;
   private uncompactedFramesCount = 0;
-  private readonly lastPersistedExpiresAt = new Map<string, number>();
+  /**
+   * Wall-clock stamp of the last durable frame per attachment. Renewals extend `expiresAt` by
+   * `extensionMs`, so comparing expiries can only ever measure the extension itself; throttling
+   * a heartbeat needs the elapsed time since the last write.
+   */
+  private readonly lastPersistedAtMs = new Map<string, number>();
   constructor(
     private readonly delegate?: AttachmentValidatorDelegate,
     private readonly dataRoot?: string,
@@ -197,7 +202,7 @@ export class AttachmentRegistry {
         }
 
         this.records.set(rec.id, rec);
-        this.lastPersistedExpiresAt.set(rec.id, rec.expiresAt);
+        this.lastPersistedAtMs.set(rec.id, Date.now());
         this.activeRevisionByAttachment.set(rec.id, rec.authorityRevision);
         if (!this.attemptIndex.has(rec.attemptId)) {
           this.attemptIndex.set(rec.attemptId, new Set());
@@ -229,7 +234,7 @@ export class AttachmentRegistry {
     this.revisionHistoryByAttachment.clear();
     this.attemptIndex.clear();
     this.invocationNonces.clear();
-    this.lastPersistedExpiresAt.clear();
+    this.lastPersistedAtMs.clear();
     const quarantinePath = `${filePath}.quarantine-${Date.now()}`;
     try {
       await fs.promises.rename(filePath, quarantinePath);
@@ -244,7 +249,7 @@ export class AttachmentRegistry {
     const MAX_EXPIRED_RETENTION_MS = 24 * 60 * 60 * 1000;
 
     const linesToWrite: string[] = [];
-    const persistedExpiresAt = new Map<string, number>();
+    const persistedIds = new Set<string>();
     for (const record of this.records.values()) {
       if (record.state !== 'active' && record.expiresAt && now > record.expiresAt + MAX_EXPIRED_RETENTION_MS) {
         continue;
@@ -263,7 +268,7 @@ export class AttachmentRegistry {
       const serialized = JSON.stringify(frameData);
       const checksum = crypto.createHash('sha256').update(serialized, 'utf8').digest('hex');
       linesToWrite.push(JSON.stringify({ ...frameData, checksum }) + '\n');
-      persistedExpiresAt.set(record.id, record.expiresAt);
+      persistedIds.add(record.id);
     }
 
     try {
@@ -271,9 +276,9 @@ export class AttachmentRegistry {
       await fs.promises.writeFile(tempFile, linesToWrite.join(''), 'utf8');
       await fs.promises.rename(tempFile, filePath);
       this.uncompactedFramesCount = 0;
-      this.lastPersistedExpiresAt.clear();
-      for (const [id, expiresAt] of persistedExpiresAt) {
-        this.lastPersistedExpiresAt.set(id, expiresAt);
+      this.lastPersistedAtMs.clear();
+      for (const id of persistedIds) {
+        this.lastPersistedAtMs.set(id, now);
       }
     } catch (err) {
       try {
@@ -305,7 +310,7 @@ export class AttachmentRegistry {
 
     await fs.promises.mkdir(dir, { recursive: true });
     await fs.promises.appendFile(filePath, line, 'utf8');
-    this.lastPersistedExpiresAt.set(record.id, record.expiresAt);
+    this.lastPersistedAtMs.set(record.id, Date.now());
     this.uncompactedFramesCount++;
     if (this.uncompactedFramesCount >= 500) {
       this.compactAttachmentsUnlocked().catch(() => {});
@@ -1053,17 +1058,20 @@ export class AttachmentRegistry {
       // durable append per second per session, re-serializing every revision each time and driving
       // the 500-frame compaction threshold — measured on a live bridge as a 2.3s first append and
       // 200-2500ms stalls on concurrent dispatch, scaling with heartbeat frequency. Renewals are
-      // therefore written through on a throttle: once the in-memory expiry has drifted
-      // RENEWAL_PERSIST_THRESHOLD_MS past the last persisted frame, and immediately whenever
-      // `boundPid` changes (an authority-affecting binding). The invariant this preserves: after a
-      // restart, initialize() replays the last persisted frame, so a reloaded record's expiresAt
-      // lags the live in-memory value by at most the threshold — a still-live owner's next
-      // heartbeat renews from that floor instead of hitting ATTACHMENT_STALE, while a dead
-      // process's extension is moot either way.
-      const lastPersisted = this.lastPersistedExpiresAt.get(attachmentId) ?? record.expiresAt;
+      // therefore written through on a throttle: once the last durable frame is
+      // RENEWAL_PERSIST_THRESHOLD_MS old, and immediately whenever `boundPid` changes (an
+      // authority-affecting binding). Elapsed wall-clock is the criterion because each renewal
+      // adds `extensionMs` to the previous expiry, so comparing expiries measures the extension
+      // (hours) rather than the interval between writes, and never throttles anything. The
+      // invariant this preserves: after a restart, initialize() replays the last persisted frame,
+      // so a reloaded record's expiresAt lags the live in-memory value by at most the threshold —
+      // a still-live owner's next heartbeat renews from that floor instead of hitting
+      // ATTACHMENT_STALE, while a dead process's extension is moot either way.
+      const lastPersistedAt = this.lastPersistedAtMs.get(attachmentId);
       if (
         candidateRecord.boundPid !== record.boundPid ||
-        newExpiresAt - lastPersisted >= RENEWAL_PERSIST_THRESHOLD_MS
+        lastPersistedAt === undefined ||
+        now - lastPersistedAt >= RENEWAL_PERSIST_THRESHOLD_MS
       ) {
         await this.appendPersistenceFrameUnlocked(candidateRecord, existingRevisions);
       }

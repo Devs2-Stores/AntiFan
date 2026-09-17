@@ -118,4 +118,40 @@ describe('Attachment runtime scoping', () => {
       'a reported backend mismatch is still a lineage violation'
     );
   });
+
+  it('throttles heartbeat renewals instead of appending a durable frame per tick', async () => {
+    // The frames measured live (2,585 in one file) come from heartbeats renewing once a
+    // second. Each renewal extends the expiry by extensionMs, so a throttle that compares
+    // expiries measures the extension rather than the interval and writes every tick.
+    const registry = new AttachmentRegistry(undefined, tmpDir);
+    await registry.initialize();
+    const { launch } = await mint(registry, 'mcp');
+
+    const framesPath = path.join(tmpDir, 'attachments-v1.jsonl');
+    const countFrames = () =>
+      fs.readFileSync(framesPath, 'utf8').split('\n').filter((line) => line.trim().length > 0).length;
+    const afterIssue = countFrames();
+    assert.ok(afterIssue > 0, 'minting an attachment writes its first durable frame');
+
+    for (let tick = 0; tick < 5; tick++) {
+      const renewed = await registry.renewAttachment(launch.attachmentId, launch.secret, { extensionMs: 7_200_000 });
+      assert.ok(renewed.expiresAt > 0, 'the heartbeat still renews the lease');
+    }
+    assert.strictEqual(
+      countFrames(),
+      afterIssue,
+      'a renewal burst inside the throttle window must not append one durable frame per tick'
+    );
+
+    const rebound = await registry.renewAttachment(launch.attachmentId, launch.secret, {
+      extensionMs: 7_200_000,
+      ownerPid: process.pid,
+    });
+    assert.ok(rebound.expiresAt > 0);
+    assert.strictEqual(
+      countFrames(),
+      afterIssue + 1,
+      'a pid rebind is authority-affecting and must write through immediately'
+    );
+  });
 });
