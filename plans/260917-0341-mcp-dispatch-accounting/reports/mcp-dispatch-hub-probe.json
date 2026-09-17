@@ -1,7 +1,7 @@
 {
   "probe": "test/e2e/mcp-dispatch-hub-probe.cjs",
-  "startedAt": "2026-09-17T22:13:58.509Z",
-  "finishedAt": "2026-09-17T22:14:00.316Z",
+  "startedAt": "2026-09-17T22:28:47.659Z",
+  "finishedAt": "2026-09-17T22:28:49.487Z",
   "electron": "43.4.0",
   "node": "24.18.1",
   "cwd": "E:\\Work\\apps\\AntiFan",
@@ -187,7 +187,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 84
+          "waitedMs": 107
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -753,7 +753,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel UNRECOGNIZED",
-          "waitedMs": 52
+          "waitedMs": 55
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -1048,7 +1048,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel secrets",
-          "waitedMs": 63
+          "waitedMs": 53
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -1761,67 +1761,67 @@
     {
       "channel": "antifan:toolbar:get-initial-state",
       "scenario": null,
-      "at": "2026-09-17T22:13:58.788Z",
+      "at": "2026-09-17T22:28:47.932Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:get-phone-status",
       "scenario": null,
-      "at": "2026-09-17T22:13:58.791Z",
+      "at": "2026-09-17T22:28:47.935Z",
       "argSummary": "undefined"
     },
     {
       "channel": "antifan:workflow:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:13:58.838Z",
+      "at": "2026-09-17T22:28:47.997Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:set-overlay",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:13:58.839Z",
+      "at": "2026-09-17T22:28:47.997Z",
       "argSummary": "true"
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:13:58.839Z",
+      "at": "2026-09-17T22:28:47.998Z",
       "argSummary": null
     },
     {
       "channel": "antifan:core-health:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:13:58.840Z",
+      "at": "2026-09-17T22:28:48.082Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:13:58.921Z",
+      "at": "2026-09-17T22:28:48.106Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "B-unmeasured-no-census",
-      "at": "2026-09-17T22:13:59.223Z",
+      "at": "2026-09-17T22:28:48.424Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "C-unmeasured-with-census",
-      "at": "2026-09-17T22:13:59.412Z",
+      "at": "2026-09-17T22:28:48.613Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D1-hostile-projected",
-      "at": "2026-09-17T22:13:59.602Z",
+      "at": "2026-09-17T22:28:48.798Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D2-hostile-raw",
-      "at": "2026-09-17T22:13:59.965Z",
+      "at": "2026-09-17T22:28:49.144Z",
       "argSummary": null
     }
   ],
@@ -1971,7 +1971,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 84
+          "waitedMs": 107
         },
         "listItemCount": 6,
         "listIds": [
