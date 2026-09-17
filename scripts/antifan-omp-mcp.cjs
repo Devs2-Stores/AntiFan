@@ -155,6 +155,23 @@ const definitions = [
 let currentAuthorityRevision = null;
 let dynamicBootstrap = null;
 
+// Bound-tab default for calls that omit tabId. It mirrors the authority rather than
+// standing on its own: the proxy records every rotation it observes (switch/rebind/
+// open/close-with-replacement) here and in the env, and an explicit clear sticks so a
+// bootstrap file that still names a closed tab cannot resurrect it on the next call.
+let boundTabOverride = null;
+function resolveBoundTabId(fallbackTabId) {
+  if (boundTabOverride) return boundTabOverride.tabId;
+  if (process.env.ANTIFAN_BOUND_TAB_ID) return process.env.ANTIFAN_BOUND_TAB_ID;
+  return typeof fallbackTabId === 'string' && fallbackTabId ? fallbackTabId : undefined;
+}
+function recordBoundTab(tabId) {
+  const clean = typeof tabId === 'string' && tabId.length > 0 ? tabId : undefined;
+  boundTabOverride = { tabId: clean };
+  if (clean) process.env.ANTIFAN_BOUND_TAB_ID = clean;
+  else delete process.env.ANTIFAN_BOUND_TAB_ID;
+}
+
 function resolveBridgeCandidates() {
   // Fail-closed, bootstrap-only authority: the OMP proxy connects exclusively to
   // the explicit bridge endpoint supplied via environment. It MUST NOT discover
@@ -2173,7 +2190,7 @@ async function invoke(method, params = {}, callerRequestId) {
   delete effectiveParams.idempotencyKey;
   delete effectiveParams.requestId;
   delete effectiveParams.callerRequestId;
-  const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
+  const boundTabId = resolveBoundTabId(bootstrap.tabId);
   // The advertised schema is a promise published by THIS surface, enforced at
   // invoke head (before bridge or local dispatch). `0`, `false` and non-empty
   // strings are real values; only absent, null and blank count as omitted.
@@ -2212,11 +2229,22 @@ async function invoke(method, params = {}, callerRequestId) {
             (mapped === 'browser.switch-tab' || mapped === 'browser.rebind-target' || mapped === 'browser.set-automation-target') &&
             typeof targetTabId === 'string' && targetTabId.length > 0
           ) {
-            currentBoot.tabId = targetTabId;
-            process.env.ANTIFAN_BOUND_TAB_ID = targetTabId;
+            recordBoundTab(targetTabId);
           } else if (mapped === 'browser.open-tab' && data && typeof data === 'object' && typeof data.tabId === 'string') {
-            currentBoot.tabId = data.tabId;
-            process.env.ANTIFAN_BOUND_TAB_ID = data.tabId;
+            // The session adopts the tab it opens, so the new tab becomes the target an
+            // omitted-tabId call rides - the same rotation the authority performs.
+            recordBoundTab(data.tabId);
+          } else if (mapped === 'browser.close-tab' && data && typeof data === 'object' && data.closed === true) {
+            // Closing a tab moves the session when the closed tab was the one the client
+            // was defaulting to: the port hands back the replacement it adopted
+            // (`failoverTabId`) and the authority has already rotated to it. Without this
+            // the default keeps naming a dead tab, and every later call that omits tabId
+            // is refused as an unknown target. A close with no replacement clears the
+            // default instead of fabricating one, so the next call rides the authority.
+            const closedTabId = typeof data.tabId === 'string' ? data.tabId : '';
+            if (closedTabId && closedTabId === boundTabId) {
+              recordBoundTab(data.failoverTabId);
+            }
           }
           resolve(data);
         },
