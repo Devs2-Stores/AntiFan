@@ -10,7 +10,7 @@ import { checkpointPath } from '../../scripts/goal/checkpoint.mjs';
 import { runGoal, runSummaryPath, worklogPath } from '../../scripts/goal/runner.mjs';
 import { pruneRunArtifacts } from '../../scripts/goal/prune.mjs';
 import { supervisorVerdictPath } from '../../scripts/goal/supervisor.mjs';
-import { heartbeatPath } from '../../scripts/goal/watchdog.mjs';
+import { heartbeatAgeMs, heartbeatPath, readRunnerMutex } from '../../scripts/goal/watchdog.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
@@ -38,13 +38,15 @@ function isAlive(pid) {
   }
 }
 
-// Budget: this file spawns real runners and supervises real children, so its
-// waits time how fast the host schedules child processes, not how fast the
-// runner works. On an idle host the kill/resume case reaches its first two
-// units in ~3.4s, but inside the lane the same wait exceeded 15s twice while
-// four files ran in parallel - a default that made the lane's scheduling the
-// judge. 60s keeps every stall assertion meaningful (a runner that stops
-// progressing still fails) without failing on contention.
+// Two kinds of wait, because they time different things. `waitFor` bounds an
+// OS-level state change (a process dying, a record appearing) that the host's
+// scheduling decides, so it takes a calendar budget. `waitForProgress` bounds a
+// runner's *stall*: it watches the worklog, so a loaded host only moves the wall
+// clock while a runner that stops advancing still fails - and the failure names
+// the last event instead of the elapsed time. The kill/resume case used to
+// measure the machine: a 15s budget timed out twice (15.03s, 15.08s) against an
+// idle 3.4s run, 60s timed out again at 60.08s with one unit verdicted, and the
+// case passes in 3.7-4.2s in between. The budget was never the invariant.
 async function waitFor(cond, { timeoutMs = 60_000, stepMs = 50 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -52,6 +54,43 @@ async function waitFor(cond, { timeoutMs = 60_000, stepMs = 50 } = {}) {
     await sleep(stepMs);
   }
   return false;
+}
+
+// The stall budget is 40x the fixture's 400ms unit, so it cannot fire on a
+// loaded host; the hard budget backstops a runner that keeps logging progress
+// without ever satisfying the condition.
+async function waitForProgress(dir, cond, { stallMs = 16_000, hardMs = 120_000, stepMs = 50 } = {}) {
+  const deadline = Date.now() + hardMs;
+  let entries = readWorklog(dir).length;
+  let advancedAt = Date.now();
+  while (Date.now() < deadline) {
+    if (cond()) return { ok: true };
+    const now = readWorklog(dir).length;
+    if (now !== entries) {
+      entries = now;
+      advancedAt = Date.now();
+    } else if (Date.now() - advancedAt > stallMs) {
+      return { ok: false, stalled: true, stalledMs: Date.now() - advancedAt };
+    }
+    await sleep(stepMs);
+  }
+  return { ok: false, stalled: false };
+}
+
+// What a failed wait needs to explain itself: where the run stopped, whether its
+// pulse was still landing, and whether the process was even alive.
+function describeRun(dir) {
+  const log = readWorklog(dir);
+  const last = log
+    .slice(-3)
+    .map(
+      (e) =>
+        `${e.type}${e.itemId ? `:${e.itemId}` : ''}${e.verdict ? `=${e.verdict}` : ''}${e.reason ? `(${e.reason})` : ''}@${e.at}`,
+    )
+    .join(' ');
+  const lock = readRunnerMutex(dir);
+  const verdicts = readRecord(checkpointPath(dir))?.ladder?.map((u) => u.verdict ?? 'pending') ?? null;
+  return `entries=${log.length} verdicts=${JSON.stringify(verdicts)} heartbeatAgeMs=${heartbeatAgeMs(dir) ?? 'none'} runnerAlive=${lock?.pid ? isAlive(lock.pid) : 'no-lock'} last=[${last}]`;
 }
 
 function spawnNode(args, env = {}) {
@@ -109,15 +148,15 @@ describe('goal runner kill/resume', () => {
       child.stderr.on('data', () => {});
 
       // Wait until two units have actually completed, then hard-kill mid-run.
-      const twoDone = await waitFor(() => {
+      const twoDone = await waitForProgress(dir, () => {
         const cp = readRecord(checkpointPath(dir));
         return cp && cp.ladder.filter((u) => u.verdict === 'PASS').length >= 2;
       });
       assert.ok(
-        twoDone,
-        `runner never completed two units (starts logged: ${readWorklog(dir).length}, verdicts: ${JSON.stringify(
-          readRecord(checkpointPath(dir))?.ladder?.map((u) => u.verdict ?? 'pending') ?? null,
-        )})`,
+        twoDone.ok,
+        `runner never completed two units (${
+          twoDone.stalled ? `no worklog entry for ${twoDone.stalledMs}ms` : 'hard budget exhausted'
+        }): ${describeRun(dir)}`,
       );
 
       // Hard-kill the whole tree — the same thing the supervisor does, so the
@@ -135,8 +174,15 @@ describe('goal runner kill/resume', () => {
         GOAL_FIXTURE_UNIT_MS: '400',
       });
       child2.stderr.on('data', () => {});
-      const exit2 = await new Promise((r) => child2.on('exit', r));
-      assert.strictEqual(exit2, 0, 'resumed runner did not exit cleanly');
+      // Bounded: an unbounded `once('exit')` would hang the whole lane if the
+      // resumed runner wedged, and a hang names nothing.
+      const exited = await waitFor(() => child2.exitCode !== null || child2.signalCode !== null, { timeoutMs: 120_000 });
+      assert.ok(exited, `resumed runner never exited: ${describeRun(dir)}`);
+      assert.strictEqual(
+        child2.exitCode,
+        0,
+        `resumed runner did not exit cleanly (code=${child2.exitCode} signal=${child2.signalCode})`,
+      );
 
       const worklog = readWorklog(dir);
       const starts = worklog.filter((e) => e.type === 'unit-start');
