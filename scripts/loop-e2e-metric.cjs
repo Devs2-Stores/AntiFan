@@ -36,5 +36,13 @@ const startedAt = Date.now();
 const laneStatus = run('test:e2e');
 const seconds = (Date.now() - startedAt) / 1000;
 
+if (laneStatus !== 0) {
+  // A red lane is still fast: printing its wall clock would let a caller that
+  // ignores the exit status - or pipes the output through another command -
+  // record a regression as an improvement.
+  console.error(`loop-e2e-metric: e2e lane failed (exit ${laneStatus})`);
+  process.exit(laneStatus);
+}
+
 process.stdout.write(`${seconds.toFixed(1)}\n`);
-process.exit(laneStatus);
+process.exit(0);
