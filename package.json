@@ -42,7 +42,7 @@
     "test:integration": "node --test --test-force-exit \".compiled/test/integration/**/*.test.js\"",
     "test:unit": "node --test --test-force-exit \"test/unit/*.test.mjs\" \".compiled/test/*.test.js\" \".compiled/test/unit/**/*.test.js\" \".compiled/test/integration/**/*.test.js\" \".compiled/test/benchmark/**/*.test.js\"",
     "test:main": "node --test --test-force-exit \".compiled/test/main/**/*.test.js\"",
-    "test:e2e": "node --test --test-force-exit --test-concurrency=3 \".compiled/test/e2e/**/*.test.js\"",
+    "test:e2e": "node --test --test-force-exit --test-concurrency=5 \".compiled/test/e2e/**/*.test.js\"",
     "test:e2e:strict": "node --test --test-concurrency=1 \".compiled/test/e2e/**/*.test.js\"",
     "test": "node scripts/run-test-pipeline.mjs",
     "verify": "node scripts/run-test-pipeline.mjs --verify",
