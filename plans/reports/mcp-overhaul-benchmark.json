@@ -1,63 +1,63 @@
 {
-  "timestamp": "2026-09-17T21:30:35.596Z",
+  "timestamp": "2026-09-17T21:49:52.713Z",
   "target": "local-synthetic-storefront (Node.js HTTP server with dynamic DOM hydration)",
   "platform": "win32",
   "arch": "x64",
   "benchmark": {
     "totalCalls": 20,
-    "meanMs": 12.75,
-    "p50Ms": 12.29,
-    "p95Ms": 15.59,
-    "maxMs": 15.96,
+    "meanMs": 15.48,
+    "p50Ms": 13.39,
+    "p95Ms": 29.35,
+    "maxMs": 39.66,
     "tailSamplesOver500ms": 0,
     "heartbeatMs": 1000,
     "samplesMs": [
-      16,
-      15.6,
-      13.1,
-      12.7,
-      14.9,
-      13.8,
-      13.3,
-      12.3,
+      14.8,
+      13.4,
+      12.5,
+      13.6,
+      29.3,
+      14.5,
+      12.8,
+      39.7,
+      13.5,
+      13.4,
       11.9,
       12.1,
-      11.5,
       11.7,
-      13.9,
-      13.1,
-      13.7,
-      11.9,
-      11.3,
-      11.1,
-      10.8,
-      10.4
+      11.5,
+      12.7,
+      14.4,
+      14.1,
+      14.8,
+      15.5,
+      13.4
     ]
   },
   "actionabilityTest": {
     "hydrationDelayMs": 120,
-    "actionWaitMs": 208.22,
+    "actionWaitMs": 214.06,
     "waitedSuccessfully": true
   },
   "stability": {
     "cycles": 50,
-    "burstMs": 800.02,
+    "burstMs": 1887.31,
     "failedDispatches": 0,
     "proxyRssSamplesMb": [
       {
         "at": "pre-burst",
-        "mb": 105.82
+        "mb": 102.01
       },
       {
         "at": "mid-burst",
-        "mb": 105.97
+        "mb": 102.28
       },
       {
         "at": "post-burst",
-        "mb": 106.09
+        "mb": 102.62
       }
     ],
-    "proxyRssSlopeBytesPerCycle": 5488.6,
+    "proxyRssSlopeBytesPerCycle": 12697.6,
     "proxyRssNote": "informational only: GC cannot be forced inside the proxy child, so RSS slope is not a leak verdict"
   },
   "verifications": {
