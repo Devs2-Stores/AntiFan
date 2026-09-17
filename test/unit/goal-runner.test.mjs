@@ -38,7 +38,14 @@ function isAlive(pid) {
   }
 }
 
-async function waitFor(cond, { timeoutMs = 15_000, stepMs = 50 } = {}) {
+// Budget: this file spawns real runners and supervises real children, so its
+// waits time how fast the host schedules child processes, not how fast the
+// runner works. On an idle host the kill/resume case reaches its first two
+// units in ~3.4s, but inside the lane the same wait exceeded 15s twice while
+// four files ran in parallel - a default that made the lane's scheduling the
+// judge. 60s keeps every stall assertion meaningful (a runner that stops
+// progressing still fails) without failing on contention.
+async function waitFor(cond, { timeoutMs = 60_000, stepMs = 50 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (cond()) return true;
@@ -106,7 +113,12 @@ describe('goal runner kill/resume', () => {
         const cp = readRecord(checkpointPath(dir));
         return cp && cp.ladder.filter((u) => u.verdict === 'PASS').length >= 2;
       });
-      assert.ok(twoDone, 'runner never completed two units');
+      assert.ok(
+        twoDone,
+        `runner never completed two units (starts logged: ${readWorklog(dir).length}, verdicts: ${JSON.stringify(
+          readRecord(checkpointPath(dir))?.ladder?.map((u) => u.verdict ?? 'pending') ?? null,
+        )})`,
+      );
 
       // Hard-kill the whole tree — the same thing the supervisor does, so the
       // keep-awake child is not orphaned by the test.
