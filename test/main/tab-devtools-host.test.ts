@@ -1044,6 +1044,13 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     } as unknown as Electron.WebContents;
     ctx.getTabWebContents = () => mockWc;
     const devTools = new TabDevToolsHost(ctx);
+    // The native tier has to ANSWER here, or the capture path never reaches the CDP
+    // timeout mapping: a viewport capture whose native raster did not answer is given a
+    // short probe bound and any CDP failure in that state is reported as a missing
+    // render surface (NO_RENDER_SURFACE), which is correct for that case and would mask
+    // the mapping this test pins. An answer whose dimensions do not match the measured
+    // 4x4 CSS surface keeps the native result unused, so the CDP tier is the failing one.
+    (devTools as unknown as { captureNativeViewportRaster: () => Promise<Buffer | undefined> }).captureNativeViewportRaster = async () => makePng(8, 8);
 
     await assert.rejects(
       () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 10 }),

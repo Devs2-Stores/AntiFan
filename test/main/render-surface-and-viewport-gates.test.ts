@@ -142,6 +142,21 @@ describe('Render-surface precondition (no laid-out surface)', () => {
       (err: unknown) => (err instanceof CapabilityError ? err.code === 'NO_RENDER_SURFACE' : false)
     );
   });
+
+  it('names the probe failure on get_viewport instead of reporting an unattributable no-surface reading', async () => {
+    const { host } = buildHost({
+      surfaceThrows: Object.assign(new Error('CDP command Runtime.evaluate timed out after 3000ms'), { code: 'CDP_TIMEOUT' }),
+    });
+    const port = new BrowserControlPort(host);
+    const reading = await port.getViewport({}, TARGET);
+    assert.strictEqual(reading.width, 0);
+    assert.strictEqual(reading.cause, 'probe-unavailable');
+    assert.deepStrictEqual(
+      reading.probeError,
+      { code: 'CDP_TIMEOUT', message: 'CDP command Runtime.evaluate timed out after 3000ms' },
+      'a probe that threw must be reported by name: a caller cannot tell a busy target from a tab that cannot render otherwise'
+    );
+  });
 });
 
 describe('Viewport write verification', () => {

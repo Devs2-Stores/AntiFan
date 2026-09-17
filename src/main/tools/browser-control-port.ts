@@ -3627,6 +3627,7 @@ export class BrowserControlPort {
     attached: boolean;
     active: boolean;
     cause?: string;
+    probeError?: { code: string; message: string };
     detached?: boolean;
   }> {
     const effectiveTabId = this.resolveTargetTab(target, options.tabId);
@@ -3640,10 +3641,19 @@ export class BrowserControlPort {
     const customViewport = tab?.customViewport ?? null;
 
     let surface: RenderSurfaceSnapshot | undefined;
+    // A probe that threw is not the same finding as a tab with no surface: the
+    // discriminator (busy pool, CDP timeout, missing target) decides whether a
+    // caller should wait or stop, so it is reported instead of discarded.
+    let probeError: { code: string; message: string } | undefined;
     if (typeof this.host.readRenderSurface === 'function') {
       try {
         surface = await this.host.readRenderSurface(effectiveTabId, undefined, RENDER_SURFACE_PROBE_BOUND_MS);
-      } catch {}
+      } catch (err) {
+        probeError = {
+          code: err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : 'PROBE_FAILED',
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
     }
 
     if (surface && Number.isFinite(surface.vw) && Number.isFinite(surface.vh) && surface.vw >= 1 && surface.vh >= 1) {
@@ -3670,6 +3680,7 @@ export class BrowserControlPort {
       attached: isAttached,
       active: isActive,
       cause: cause || 'The tab has no attached laid-out surface',
+      ...(probeError ? { probeError } : {}),
       detached: !isAttached,
     };
   }
