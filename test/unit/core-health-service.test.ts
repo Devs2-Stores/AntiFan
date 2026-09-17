@@ -115,6 +115,79 @@ describe('CoreHealthService snapshot mapping', () => {
   });
 });
 
+describe('CoreHealthService runtime crash surface', () => {
+  const CRASH_NOTES = JSON.stringify({
+    dump: 'c2bbb433-925f-403a-adf2-9a1ae635509e.dmp',
+    occurredAt: '2026-09-17T02:28:05.535Z',
+    processType: 'browser',
+    pid: 32284,
+    exceptionCode: '0xc0000005',
+    faultingAccess: 'read',
+    faultingAddress: '0x0000000000000000',
+  });
+
+  test('an open browser-process crash is reported first-class with its evidence', async () => {
+    const svc = new CoreHealthService({
+      runCli: () => healthyHealth(),
+      issueRegister: makeIssues([{
+        severity: 'P0',
+        errorCode: 'NATIVE_CRASH',
+        reasonCode: 'STATUS_ACCESS_VIOLATION',
+        toolName: 'runtime.process',
+        timeFormatted: '2026-09-17T02:28:10.295Z',
+        affected: ['reports/c2bbb433-925f-403a-adf2-9a1ae635509e.dmp'],
+        notes: CRASH_NOTES,
+      }]),
+    });
+    const snap = await svc.getSnapshot();
+    const check = snap.checks.find((c) => c.name === 'runtime.crash');
+    assert.equal(check?.status, 'DEGRADED');
+    assert.equal(check?.reasonCode, 'BROWSER_PROCESS_CRASHED');
+    assert.equal(snap.crashes?.total, 1);
+    assert.equal(snap.crashes?.latestId, 'ISS-T0');
+
+    const record = snap.crashes?.records[0];
+    assert.equal(record?.reasonCode, 'STATUS_ACCESS_VIOLATION');
+    assert.equal(record?.time, '2026-09-17T02:28:10.295Z');
+    // Which process died and which dump proves it is what makes the crash actionable.
+    assert.equal(record?.processType, 'browser');
+    assert.equal(record?.pid, 32284);
+    assert.equal(record?.dump, 'c2bbb433-925f-403a-adf2-9a1ae635509e.dmp');
+  });
+
+  test('a crash whose notes are unreadable still reports id, time and reasonCode', async () => {
+    const svc = new CoreHealthService({
+      runCli: () => healthyHealth(),
+      issueRegister: makeIssues([{
+        severity: 'P0',
+        errorCode: 'NATIVE_CRASH',
+        reasonCode: 'STATUS_ACCESS_VIOLATION',
+        toolName: 'runtime.process',
+        timeFormatted: '2026-09-16T09:38:46.844Z',
+        notes: 'crashpad wrote a dump; the metadata line was truncated',
+      }]),
+    });
+    const snap = await svc.getSnapshot();
+    assert.equal(snap.crashes?.total, 1);
+    const record = snap.crashes?.records[0];
+    assert.equal(record?.id, 'ISS-T0');
+    assert.equal(record?.time, '2026-09-16T09:38:46.844Z');
+    assert.equal(record?.reasonCode, 'STATUS_ACCESS_VIOLATION');
+    assert.equal(record?.dump, undefined);
+  });
+
+  test('a clean session stays HEALTHY — the crash check never degrades by itself', async () => {
+    const svc = new CoreHealthService({ runCli: () => healthyHealth(), issueRegister: makeIssues() });
+    const snap = await svc.getSnapshot();
+    const check = snap.checks.find((c) => c.name === 'runtime.crash');
+    assert.equal(check?.status, 'HEALTHY');
+    assert.equal(check?.reasonCode, 'NO_CRASH_RECORDED');
+    assert.equal(snap.crashes?.total, 0);
+    assert.equal(snap.status, 'HEALTHY');
+    assert.equal(snap.reasonCode, 'ALL_GATES_PASSED');
+  });
+});
+
 describe('CoreHealthService bridge surface', () => {
   test('missing telemetry file → UNKNOWN/BRIDGE_TELEMETRY_MISSING with unknowns listed', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-bridge-'));

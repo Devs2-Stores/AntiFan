@@ -532,7 +532,18 @@ async function refreshCoreHealthState() {
 
 function updateCoreBadges() {
   const snap = hubCoreState?.snapshot;
-  if (badgeCoreHealth) badgeCoreHealth.textContent = snap?.status ?? '–';
+  if (badgeCoreHealth) {
+    // The badge carries the crash count instead of the status when there is one: a
+    // browser-process death outranks every other condition this tab reports, and the
+    // count is what decides whether the session is still safe to work in.
+    const crashes = Number(snap?.crashes?.total || 0);
+    const latest = snap?.crashes?.records?.[0];
+    badgeCoreHealth.textContent = crashes > 0 ? `CRASH ×${crashes}` : (snap?.status ?? '–');
+    badgeCoreHealth.classList.toggle('crash', crashes > 0);
+    badgeCoreHealth.title = crashes > 0
+      ? `${crashes} browser-process crash(es); latest ${String(latest?.time || '')}${latest?.reasonCode ? ` (${String(latest.reasonCode)})` : ''}${latest?.dump ? ` · ${String(latest.dump)}` : ''}`
+      : `Core Health: ${String(snap?.status ?? 'UNKNOWN')}`;
+  }
   const bridge = hubCoreState?.bridge;
   if (badgeBridge) badgeBridge.textContent = bridge?.status ?? '–';
   const tr = hubCoreState?.taskRuns;
@@ -846,6 +857,31 @@ async function renderCoreDetail(id: string) {
     const checks = (s.snapshot?.checks || []) as Array<{ name: string; status: string; reasonCode: string; detail?: string; affected?: string[]; evidenceRefs?: string[] }>;
     const check = checks.find((c) => c.name === id);
     const snap = s.snapshot || {};
+    // The crash check answers a different question from the gate checks: not "is the Core
+    // healthy" but "has this runtime died, and against what evidence". Its body therefore
+    // leads with the crash records — process, dump, pid — so the next action is obvious.
+    if (id === 'runtime.crash') {
+      const crash = (snap.crashes || { total: 0, latestAt: '', latestId: '', records: [] }) as {
+        total: number; latestAt: string; latestId: string; records: unknown[];
+      };
+      setHeader(
+        'runtime.crash',
+        String(check?.detail || `${crash.total} browser-process crash(es)`),
+        String(check?.status || (crash.total > 0 ? 'DEGRADED' : 'UNKNOWN')),
+        String(check?.reasonCode || 'NO_CRASH_RECORDED'),
+      );
+      setBody({
+        total: crash.total,
+        latestAt: crash.latestAt,
+        latestId: crash.latestId,
+        records: crash.records,
+        affected: check?.affected || [],
+        evidenceRefs: check?.evidenceRefs || [],
+        snapshotStats: snap.stats,
+        openIssues: snap.openIssues,
+      });
+      return;
+    }
     if (check) {
       setHeader(check.name, check.detail || '', check.status, check.reasonCode);
       setBody({ ...check, snapshotStats: snap.stats, audit: snap.audit, decay: snap.decay, uncertainty: snap.uncertainty, openIssues: snap.openIssues });

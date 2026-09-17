@@ -11,7 +11,7 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { IssueRegister } from '../session/issue-register';
+import { IssueRegister, type IssueRecord } from '../session/issue-register';
 import { ProcessRegistry } from '../process/process-registry';
 
 export type CoreHealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE' | 'UNKNOWN';
@@ -23,6 +23,22 @@ export interface CoreHealthCheck {
   affected: string[];
   evidenceRefs: string[];
   detail?: string;
+}
+
+/**
+ * A recorded browser-process death, read from the issue register. Unlike every other
+ * issue class this one means the session is already gone, so the surface carries the
+ * crash evidence (which process, which dump, when) rather than only a severity count.
+ */
+export interface CoreCrashRecord {
+  id: string;
+  severity: string;
+  time: string;
+  reasonCode: string;
+  /** Dump the crash reporter wrote, when it recorded one. */
+  dump?: string;
+  processType?: string;
+  pid?: number;
 }
 
 export interface CoreHealthSnapshot {
@@ -37,6 +53,13 @@ export interface CoreHealthSnapshot {
   decay?: { stale: number; aging: number; cutoff?: string };
   uncertainty?: { level: string; reason: string };
   openIssues?: { total: number; p0: number; p1: number };
+  /**
+   * Browser-process crashes, reported apart from `openIssues`: a crash is a different
+   * failure class from a QA finding — it ends the session instead of failing one action —
+   * and it is the failure the user actually experiences, so it must be readable on its
+   * own rather than as one P0 inside a bucket of unrelated issues.
+   */
+  crashes?: { total: number; latestAt: string; latestId: string; records: CoreCrashRecord[] };
 }
 
 export interface BridgeEvent {
@@ -195,6 +218,35 @@ function gateCheck(name: string, gate: { passed?: boolean; detail?: string; gate
     return { name, status: 'UNKNOWN', reasonCode: opts.unknownCode ?? 'GATE_INCONCLUSIVE', affected: [detail], evidenceRefs, detail };
   }
   return { name, status: 'DEGRADED', reasonCode: opts.failCode, affected: [detail], evidenceRefs, detail };
+}
+
+/**
+ * Reads the crash reporter's evidence off an issue record. The reporter serialises its
+ * dump metadata into `notes` as JSON; that column also holds free-form text for other
+ * issue classes, so it is parsed defensively and every field is optional — a record with
+ * unreadable notes still contributes its id, time and reasonCode rather than vanishing.
+ */
+function toCrashRecord(issue: IssueRecord): CoreCrashRecord {
+  let notes: Record<string, unknown> = {};
+  if (issue.notes) {
+    try {
+      const parsed: unknown = JSON.parse(issue.notes);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) notes = parsed as Record<string, unknown>;
+    } catch { /* free-form notes — the register's own fields still describe the crash */ }
+  }
+  const dumpFromAffected = (issue.affected ?? [])
+    .map((entry) => path.basename(entry))
+    .find((entry) => entry.endsWith('.dmp'));
+  const dump = typeof notes.dump === 'string' ? notes.dump : dumpFromAffected;
+  return {
+    id: issue.id,
+    severity: issue.severity,
+    time: issue.timeFormatted,
+    reasonCode: issue.reasonCode || issue.errorCode || 'NATIVE_CRASH',
+    ...(dump ? { dump } : {}),
+    ...(typeof notes.processType === 'string' ? { processType: notes.processType } : {}),
+    ...(typeof notes.pid === 'number' ? { pid: notes.pid } : {}),
+  };
 }
 
 /** Walk up from a starting dir until scripts/antifan-core.cjs is found. */
@@ -441,6 +493,39 @@ export class CoreHealthService {
       });
     }
 
+    // A browser-process death is reported as its own check, and always — including when
+    // clean. It ends the session instead of failing one action, so it must not be buried
+    // as one P0 among unrelated issues; and reporting the clean case explicitly is what
+    // makes "no crash since the last launch" a readable state rather than an absence.
+    const crashRecords = open
+      .filter((i) => i.errorCode === 'NATIVE_CRASH')
+      .sort((a, b) => b.timestamp - a.timestamp);
+    const crashes: CoreCrashRecord[] = crashRecords.map(toCrashRecord);
+    // `crashes` mirrors `crashRecords` element for element, so the latest record decides
+    // which branch runs and the two never drift apart.
+    const latest = crashes[0];
+    if (latest) {
+      checks.push({
+        name: 'runtime.crash',
+        status: 'DEGRADED',
+        reasonCode: 'BROWSER_PROCESS_CRASHED',
+        affected: crashRecords.slice(0, 10).map((i) => `${i.id}:${i.reasonCode || i.errorCode}`),
+        evidenceRefs: ['issue-register:native-crash'],
+        detail: `${crashRecords.length} browser-process crash(es) recorded; latest ${latest.time}`
+          + `${latest.processType ? ` in the ${latest.processType} process` : ''}`
+          + `${latest.dump ? ` · ${latest.dump}` : ''}`,
+      });
+    } else {
+      checks.push({
+        name: 'runtime.crash',
+        status: 'HEALTHY',
+        reasonCode: 'NO_CRASH_RECORDED',
+        affected: [],
+        evidenceRefs: ['issue-register:native-crash'],
+        detail: 'No browser-process crash recorded',
+      });
+    }
+
     const overall = worstOf(checks);
     return {
       ...overall,
@@ -451,6 +536,7 @@ export class CoreHealthService {
       decay: { stale: health.decay?.stale?.length ?? 0, aging: health.decay?.aging?.length ?? 0, cutoff: health.decay?.cutoff },
       uncertainty: { level: uncertainty.level ?? 'UNKNOWN', reason: uncertainty.reason ?? 'no result' },
       openIssues: { total: open.length, p0: p0.length, p1: p1.length },
+      crashes: { total: crashRecords.length, latestAt: crashes[0]?.time ?? '', latestId: crashes[0]?.id ?? '', records: crashes.slice(0, 10) },
     };
   }
 

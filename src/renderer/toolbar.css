@@ -2135,6 +2135,27 @@ body, html {
   padding: 0 16px;
   gap: 8px;
   flex-shrink: 0;
+  /* Seven labelled tabs plus their counters do not fit a narrow Hub window. Without a
+     scroll surface the flex row shrinks every tab below its content width and the labels
+     wrap mid-word while badges drop onto their own row. Scrolling keeps each label whole
+     at any width, including when a badge grows ("CRASH ×12"). */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+.hub-nav-strip::-webkit-scrollbar {
+  height: 6px;
+}
+
+.hub-nav-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hub-nav-strip::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
 }
 
 .hub-nav-tab {
@@ -2150,6 +2171,13 @@ body, html {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
+  /* The tab keeps its natural width; the strip scrolls instead of squeezing it. */
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.hub-tab-icon {
+  flex-shrink: 0;
 }
 
 .hub-nav-tab:hover {
@@ -2168,11 +2196,21 @@ body, html {
   border-radius: 10px;
   font-size: 11px;
   font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .hub-nav-tab.active .hub-tab-badge {
   background: rgba(56, 189, 248, 0.2);
   color: #38bdf8;
+}
+
+/* A recorded browser-process crash outranks the tab's own active/inactive colouring —
+   it has to stay legible whichever tab the user is looking at. */
+.hub-nav-tab .hub-tab-badge.crash,
+.hub-nav-tab.active .hub-tab-badge.crash {
+  background: rgba(239, 68, 68, 0.22);
+  color: #f87171;
 }
 
 /* Main Body Two Panes */
