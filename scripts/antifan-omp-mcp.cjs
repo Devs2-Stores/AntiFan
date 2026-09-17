@@ -1974,7 +1974,11 @@ async function autohealSession() {
       if (pinnedPid !== null && answeredPid !== pinnedPid) {
         process.stderr.write(`[AntiFan Autoheal] FOREIGN_INSTANCE_ATTACH: pinned pid ${pinnedPid} did not answer; attached to ${candidate.host}:${candidate.port} (pid ${answeredPid === null ? 'unknown' : answeredPid})\n`);
       }
-      process.env.ANTIFAN_BOUND_TAB_ID = session.tabId;
+      // Through the owner, not the env alone: `resolveBoundTabId` reads the
+      // observed override first, so writing only the env would leave an override
+      // recorded by an earlier switch/rebind/open naming a tab on the instance we
+      // just failed over from, and every omitted-tabId call would ride it.
+      recordBoundTab(session.tabId);
 
       // Wire the dispatch socket before the heartbeat so no recovery path can
       // observe an unbound dispatcher while the binding is being rebound.
