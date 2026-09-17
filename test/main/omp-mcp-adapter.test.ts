@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
@@ -34,21 +35,66 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     assert.ok(content.includes('stopHeartbeat'), 'Proxy must be able to stop the heartbeat');
     assert.ok(content.includes('server.connect('), 'Proxy must still connect the stdio server');
   });
-  it('does not itself touch the filesystem or bridge discovery files; disk discovery is delegated to the launcher candidate authority', () => {
+  it('reads no bridge credentials or instance state from disk; the env-named attempt store is its only filesystem use', () => {
     const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
       ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
       : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
     const content = fs.readFileSync(scriptPath, 'utf8');
 
-    // Asserts no filesystem access or bridge credential discovery
+    // Credential and instance discovery stay delegated to the launcher.
     assert.strictEqual(content.includes('readBridge'), false, 'Must not define or call readBridge');
     assert.strictEqual(content.includes('bridge-dev.json'), false, 'Must not inspect bridge-dev.json');
     assert.strictEqual(content.includes('bridge.json'), false, 'Must not inspect bridge.json');
     assert.strictEqual(content.includes('.antifan'), false, 'Must not inspect ~/.antifan');
     assert.strictEqual(content.includes('getRuntimeBinding'), false, 'Must not call getRuntimeBinding');
     assert.strictEqual(content.includes('openTab'), false, 'Must not call openTab');
-    assert.strictEqual(content.includes("require('node:fs')"), false, 'Must not require node:fs');
     assert.ok(content.includes("require('./antifan-agent.cjs')"), 'Must delegate candidate discovery to the launcher module instead of duplicating it');
+
+    // The dispatch-attempt store is the one sanctioned filesystem use. It was added
+    // after this contract was written, so the blanket "no node:fs" ban is replaced by
+    // the invariant it protected: the store's directory is named by environment (or by
+    // the operator's --dir), never derived from a plausible path, and nothing else on
+    // disk is read. The store's own frames are read back only by that operator CLI.
+    assert.strictEqual(
+      (content.match(/require\('node:fs'\)/g) ?? []).length,
+      1,
+      'Exactly one node:fs require: the attempt store'
+    );
+    assert.ok(content.includes("'ANTIFAN_PROXY_TELEMETRY_DIR'"), 'The attempt store directory is named by environment');
+    for (const fallback of ['homedir', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
+      assert.strictEqual(content.includes(fallback), false, `Must not derive a store path from ${fallback}`);
+    }
+  });
+
+  it('writes nothing to the attempt store at require time', async () => {
+    // The compile path require()s this module before it does anything else, so an
+    // import-time write would put a store on the build path. A directory named by
+    // environment but never written is the observable form of that guarantee.
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+    const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-proxy-import-'));
+
+    try {
+      const child = spawn(
+        process.execPath,
+        [
+          '-e',
+          `process.env.ANTIFAN_PROXY_TELEMETRY_DIR = ${JSON.stringify(storeDir)};` +
+            `require(${JSON.stringify(scriptPath)});` +
+            'setImmediate(() => process.exit(0));',
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+      const code = await withDeadline(
+        new Promise<number | null>((resolve) => child.once('exit', resolve)),
+        'proxy module require'
+      );
+      assert.strictEqual(code, 0, 'requiring the proxy module must not fail');
+      assert.deepStrictEqual(fs.readdirSync(storeDir), [], 'an import-time write must not create a store');
+    } finally {
+      fs.rmSync(storeDir, { recursive: true, force: true });
+    }
   });
 
   it('fails closed with MCP_CONTEXT_REQUIRED when no bootstrap is in environment', async () => {

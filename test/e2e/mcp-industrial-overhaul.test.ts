@@ -29,9 +29,38 @@ describe('Live Chromium E2E: MCP Industrial Overhaul & Storefront Benchmark', ()
       stderr += d.toString('utf8');
     });
 
-    const exitCode = await new Promise<number | null>((resolve) => {
-      proc.on('exit', (code) => resolve(code));
+    // Real wall-clock watchdog: it bounds a hung Electron child, which fake timers cannot kill.
+    // SIGTERM first so run-electron.cjs can taskkill the tree, SIGKILL as the hard bound.
+    let timeoutTimer: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutTimer = setTimeout(() => {
+        try { proc.kill('SIGTERM'); } catch {}
+        killTimer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);
+        console.error('STDOUT (on timeout):\n', stdout);
+        console.error('STDERR (on timeout):\n', stderr);
+        reject(new Error('Live Electron industrial overhaul E2E timed out after 90s'));
+      }, 90_000);
     });
+
+    const exitPromise = new Promise<number | null>((resolve, reject) => {
+      proc.on('error', (err) => {
+        clearTimeout(killTimer);
+        reject(err);
+      });
+      proc.on('exit', (code) => {
+        clearTimeout(killTimer);
+        resolve(code);
+      });
+    });
+
+    let exitCode: number | null;
+    try {
+      exitCode = await Promise.race([exitPromise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutTimer);
+      clearTimeout(killTimer);
+    }
 
     if (exitCode !== 0) {
       console.error('STDOUT:\n', stdout);

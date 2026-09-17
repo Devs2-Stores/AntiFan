@@ -71,16 +71,21 @@ async function main() {
   });
 
   let timedOut = false;
+  // Inner bound must fire before the e2e watchdog's outer 300s so this path owns
+  // the failure report. Raised from 180s: 15x cold-start variance measured on
+  // identical code (180s fail vs 11.5s pass).
   const timeout = setTimeout(() => {
     timedOut = true;
     killOwnedTree(child);
-  }, 180_000);
-  const exitCode = await new Promise((resolve, reject) => {
+  }, 240_000);
+  const exit = await new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('exit', (code) => resolve(code));
+    child.once('exit', (code, signal) => resolve({ code, signal }));
   }).finally(() => clearTimeout(timeout));
-  assert.equal(timedOut, false, 'Live theme proof exceeded 180 seconds');
-  assert.equal(exitCode, 0, `Live theme proof Electron worker exited with code ${exitCode}`);
+  // The worker's stdio is inherited, so its output is already interleaved above;
+  // the exit state is what a timeout failure must add.
+  assert.equal(timedOut, false, `Live theme proof exceeded 240 seconds; killed worker exited with code ${exit.code}, signal ${exit.signal}`);
+  assert.equal(exit.code, 0, `Live theme proof Electron worker exited with code ${exit.code}`);
 
   const staged = JSON.parse(fs.readFileSync(stagingPath, 'utf8'));
   assert.equal(staged.type, 'antifan-live-theme-proof');

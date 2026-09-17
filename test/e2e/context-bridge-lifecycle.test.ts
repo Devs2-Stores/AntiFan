@@ -102,6 +102,17 @@ interface ClaimQueryResult {
   unitId: string;
 }
 
+class McpRequestTimeoutError extends Error {
+  constructor(
+    public readonly requestId: number | string,
+    public readonly method: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(`MCP request ${requestId} (${method}) timed out after ${timeoutMs}ms`);
+    this.name = 'McpRequestTimeoutError';
+  }
+}
+
 class McpBridgeClient {
   private proc: ChildProcess;
   private nextId = 1;
@@ -144,12 +155,25 @@ class McpBridgeClient {
     });
   }
 
-  sendRequest<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  sendRequest<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 20_000): Promise<T> {
     const id = this.nextId++;
     const { promise, resolve, reject } = Promise.withResolvers<JsonRpcResponse<T>>();
+    // A pending request must bound itself: without this timer the promise only ever
+    // rejected on child exit, so a hung dispatch stalled the suite forever. The timer
+    // stays referenced on purpose — it is the only thing that can unblock the awaiter.
+    const timer = setTimeout(() => {
+      if (!this.pending.delete(id)) return;
+      reject(new McpRequestTimeoutError(id, method, timeoutMs));
+    }, timeoutMs);
     this.pending.set(id, {
-      resolve: (res) => resolve(res as JsonRpcResponse<T>),
-      reject,
+      resolve: (res) => {
+        clearTimeout(timer);
+        resolve(res as JsonRpcResponse<T>);
+      },
+      reject: (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
     });
 
     const payload = JSON.stringify({

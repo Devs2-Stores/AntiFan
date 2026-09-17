@@ -82,6 +82,31 @@ function parseTextResult(response, name) {
   return JSON.parse(text);
 }
 
+/**
+ * Captures this process's own warnings for the dispatch window. The transport runs
+ * in-process here, so a stale-target warning lands on this console: every dispatch in
+ * this lane is built from a live bound tab, and a warning means a target was resolved
+ * that the authority does not have. Warnings are recorded while the window is open and
+ * asserted at its close - never swallowed, because the text is what a human reads when
+ * the assertion fires.
+ */
+function captureTransportWarnings() {
+  const lines = [];
+  const realWarn = console.warn;
+  console.warn = (...args) => {
+    lines.push(args.map((value) => (typeof value === 'string' ? value : JSON.stringify(value))).join(' '));
+    return realWarn.apply(console, args);
+  };
+  return {
+    lines,
+    restore: () => { console.warn = realWarn; },
+    assertNoneContaining: (needle, label) => {
+      const hits = lines.filter((line) => line.includes(needle));
+      assert.equal(hits.length, 0, `${label}: ${JSON.stringify(hits)}`);
+    },
+  };
+}
+
 async function waitForLoad(webContents, timeoutMs = 10_000) {
   if (!webContents || webContents.isDestroyed()) throw new Error('Target WebContents is unavailable');
   if (!webContents.isLoading()) return;
@@ -184,6 +209,7 @@ async function run() {
   let session;
   let sessionOutcome = 'failed';
   let proofSummary;
+  let transportWarnings = null;
   try { fs.unlinkSync(proofPath); } catch {}
 
   try {
@@ -250,6 +276,12 @@ async function run() {
       hostEpoch: tabHost.getBrowserEpoch(),
       getAutomationTabId: () => tabHost.getAutomationTabId(),
       getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
+      // Mirrors the composition root (src/main/index.ts). Without these three the
+      // catalogue resolves every bound tab to `undefined`, so the transport reads a
+      // live tab as gone, warns on every dispatch, and can never reach its heal path.
+      isTabAllowed: (primaryTabId, requestedTabId) => tabHost.isTabAllowedForPrimary(primaryTabId, requestedTabId),
+      resolveTabId: (id) => tabHost.resolveTargetTabId(id),
+      resolveFailoverTabId: (staleTabId) => tabHost.getFailoverTargetTab(staleTabId),
     });
     await runtime.initialize();
     tabHost.setControlPlane(runtime);
@@ -295,6 +327,12 @@ async function run() {
       setDevicePreset: (id, presetId) => tabHost.setDevicePreset(id, presetId),
       getDevicePresets: () => tabHost.getDevicePresets(),
       getTabViewportMetrics: (id, paneId) => tabHost.getTabViewportMetrics(id, paneId),
+      // Mirrors the composition root (src/main/index.ts:410,416,430): the capture lane
+      // reads these to decide whether a tab has a laid-out surface, so omitting them
+      // would let this harness prove a capture on a surface it never measured.
+      getSessionTabList: (boundTabId) => tabHost.getSessionTabRecords(boundTabId),
+      isTabOffscreen: (tabId) => tabHost.isTabOffscreen(tabId),
+      readRenderSurface: (tabId, paneId, timeoutMs) => tabHost.readRenderSurface(tabId, paneId, timeoutMs),
     }, runtime.artifacts);
     tabHost.setViewportGate(browser.viewportGate);
     runtime.registerBrowser(browser);
@@ -384,6 +422,7 @@ async function run() {
     assert.equal(screenshot.result?.content?.[0]?.type, 'image');
     const png = Buffer.from(screenshot.result.content[0].data, 'base64');
     assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    transportWarnings = captureTransportWarnings();
 
     const preGeneration = tabHost.getDocumentGeneration(tabId);
     const preStyles = parseTextResult(await tool('anti.inspect.styles', {
@@ -823,7 +862,13 @@ async function run() {
     assert.ok(ambiguousVerification.proofProfile.violations.some((item) => item.metric === 'theme.source_mapping.file_identified'));
 
     const staleAuthorityRevision = session.launch.authorityRevision;
-    for (let index = 0; index < 101; index += 1) {
+    // The canary needs the launch revision evicted from the registry's retained
+    // history. Narrowing the retention bound on the live registry to 1 makes two
+    // rotations evict it; the previous 101 rotations appended O(n) full-revision
+    // frames each. The runtime constructs the registry internally and exposes no
+    // option for the bound, so the canary narrows it on the live instance.
+    runtime.runs.attachments.maxHistoricalRevisions = 1;
+    for (let index = 0; index < 2; index += 1) {
       await runtime.runs.attachments.rotateAuthorityRevision(session.launch.attachmentId);
     }
     const staleAuthorityResponse = await dispatchBridgeCapability(
@@ -880,9 +925,15 @@ async function run() {
     console.log('[OK] Negative canaries: no-op claim REJECTED, ambiguous source REJECTED, pruned authority denied.');
     console.log('[OK] Drawer: mobile viewport, trusted CDP click, sparse attributed delta, visible state, five widths, VERIFIED receipt.');
     console.log('[OK] Product Card: real PNG, CDP provenance, source candidacy, file.write SHA, reload generation, five widths, VERIFIED receipt.');
+    transportWarnings.assertNoneContaining(
+      'is gone and no failover target exists',
+      'No dispatch in this lane may ride a stale bound target'
+    );
+    transportWarnings.restore();
     sessionOutcome = 'completed';
   } finally {
     let cleanupError;
+    if (transportWarnings) transportWarnings.restore();
     const cleanup = async (operation) => {
       try {
         await operation();

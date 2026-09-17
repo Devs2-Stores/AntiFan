@@ -20,8 +20,22 @@ import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 
 const STATIC_LANES = ['audit', 'plans:check'];
-const TEST_LANES = ['compile', 'test:canary', 'test:fast', 'test:site-clone', 'test:integration', 'test:main', 'test:e2e'];
-const KNOWN_LANES = new Set([...STATIC_LANES, ...TEST_LANES, 'test:unit']);
+const TEST_LANES = [
+  'compile',
+  'test:canary',
+  'test:fast',
+  'test:site-clone',
+  'test:integration',
+  'test:main',
+  'test:e2e',
+  'test:terminal-transport',
+  'test:terminal-rename',
+  'test:mcp-dispatch-hub',
+  'test:toolbar-qa-hub',
+];
+// `test:e2e:strict` is the same glob without --test-force-exit: it is the truth lane
+// for leaked handles, but it stays opt-in until the suite watchdogs are proven.
+const KNOWN_LANES = new Set([...STATIC_LANES, ...TEST_LANES, 'test:unit', 'test:e2e:strict']);
 const COMPILE_DEPENDENT = new Set(TEST_LANES.filter((lane) => lane !== 'compile'));
 
 function parseArgs(argv) {

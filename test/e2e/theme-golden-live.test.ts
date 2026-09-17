@@ -45,27 +45,29 @@ describe('Live Chromium E2E: Theme Golden Product Card and Drawer', () => {
     proc.stderr?.on('data', (data) => { stderr += data.toString('utf8'); });
 
     // Real OS-child watchdog: fake timers cannot terminate a hung Electron process tree.
-    let timeoutTimer: NodeJS.Timeout | undefined;
-    const exitPromise = new Promise<number | null>((resolve, reject) => {
-      proc.once('error', reject);
-      proc.once('exit', (code) => resolve(code));
-    });
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutTimer = setTimeout(() => {
-        killProcessTree(proc);
-        reject(new Error('Live theme proof timed out after 180 seconds'));
-      }, 180_000);
-    });
-
-    let exitCode: number | null;
+    // Must outlive the orchestrator's inner 240s worker timeout so that path reports
+    // the worker's exit and output first. Raised from 180s: 15x cold-start variance
+    // measured on identical code (180s fail vs 11.5s pass).
+    let timedOut = false;
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      killProcessTree(proc);
+    }, 300_000);
+    let exit: { code: number | null; signal: NodeJS.Signals | null };
     try {
-      exitCode = await Promise.race([exitPromise, timeoutPromise]);
+      exit = await new Promise((resolve, reject) => {
+        proc.once('error', reject);
+        proc.once('exit', (code, signal) => resolve({ code, signal }));
+      });
     } finally {
       clearTimeout(timeoutTimer);
       killProcessTree(proc);
     }
 
-    assert.equal(exitCode, 0, `Live theme proof must exit cleanly; stdout:\n${stdout}\nstderr:\n${stderr}`);
+    // A timeout is only debuggable when the failure carries what the child printed
+    // plus the exit state observed after the kill.
+    assert.equal(timedOut, false, `Live theme proof timed out after 300 seconds; killed orchestrator exited with code ${exit.code}, signal ${exit.signal}; stdout:\n${stdout}\nstderr:\n${stderr}`);
+    assert.equal(exit.code, 0, `Live theme proof must exit cleanly; stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.match(stdout, /\[OK\] Product Card: real PNG, CDP provenance, source candidacy, file\.write SHA, reload generation, five widths, VERIFIED receipt\./);
     assert.match(stdout, /\[OK\] Drawer: mobile viewport, trusted CDP click, sparse attributed delta, visible state, five widths, VERIFIED receipt\./);
     assert.match(stdout, /\[OK\] Negative canaries: no-op claim REJECTED, ambiguous source REJECTED, pruned authority denied\./);

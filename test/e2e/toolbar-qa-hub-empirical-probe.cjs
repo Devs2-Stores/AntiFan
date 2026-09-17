@@ -29,12 +29,28 @@ const telemetry = {
   workflowHub: {},
   ipcCalls: [],
   rendererLogs: [],
+  assertions: [],
 };
 
 let win = null;
 let themeQaInvocations = 0;
 let getWorkflowStateInvocations = 0;
 let runWorkflowInvocations = 0;
+let failedCount = 0;
+
+function assert(name, condition, expected, observed) {
+  const verdict = condition ? 'PASS' : 'FAIL';
+  if (!condition) failedCount += 1;
+  telemetry.assertions.push({ id: name, verdict, expected, observed });
+  console.log(`[${verdict}] ${name}  expected=${JSON.stringify(expected)}  observed=${JSON.stringify(observed)}`);
+}
+
+// A hung load or IPC must fail the probe, not stall the lane.
+const watchdog = setTimeout(() => {
+  console.error('[PROBE] WATCHDOG: exceeded 120s; exiting 1');
+  telemetry.watchdog = 'exceeded 120000ms';
+  app.exit(1);
+}, 120000);
 
 app.whenReady().then(async () => {
   // 1. Initial state handler
@@ -55,7 +71,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('antifan:toolbar:theme-qa-run', async (_event, options) => {
     themeQaInvocations++;
     telemetry.ipcCalls.push({ channel: 'antifan:toolbar:theme-qa-run', options, time: Date.now() });
-    
+
     // Simulate real ThemeQaWorkflow output for a non-storefront page (platform: unknown)
     const report = {
       summary: { passed: true, totalIssues: 0, criticalCount: 0 },
@@ -69,6 +85,19 @@ app.whenReady().then(async () => {
         diagnosticWarnings: []
       }
     };
+
+    // Mirror production: NativeTabHost.runThemeQa commits tabThemeQaStates then
+    // broadcastState() pushes 'antifan:toolbar:state-updated' with themeQa
+    // (native-tab-host.ts:7506-7509). Without this push the renderer's status stays
+    // 'idle' and a second click re-runs the QA — a harness artifact, not app behavior.
+    win?.webContents.send('antifan:toolbar:state-updated', {
+      tabs: [{ id: 'tab-1', url: 'https://example.com', title: 'Example Page', state: { url: 'https://example.com' } }],
+      activeTabId: 'tab-1',
+      bookmarks: [],
+      chromeProfiles: [],
+      themeQa: { status: 'pass', issueCount: 0, report, updatedAt: Date.now() }
+    });
+
     return { ok: true, report };
   });
 
@@ -289,14 +318,73 @@ app.whenReady().then(async () => {
   `);
   telemetry.workflowHub = { ...t2, getWorkflowStateInvocations, runWorkflowInvocations };
 
+  // -------------------------------------------------------------
+  // VERDICT: every expectation the traces above print is asserted here.
+  // -------------------------------------------------------------
+  const qa = telemetry.themeQa;
+  assert('themeqa-initial-idle', qa.beforeClick?.btnText === 'QA' && qa.beforeClick?.btnDisabled === false && qa.beforeClick?.overlayDisplay === 'none',
+    { btnText: 'QA', btnDisabled: false, overlayDisplay: 'none' }, qa.beforeClick);
+  assert('themeqa-click-opens-summary', qa.afterClick1?.overlayDisplay === 'flex',
+    'flex', qa.afterClick1?.overlayDisplay);
+  assert('themeqa-run-invoked-once', themeQaInvocations === 1,
+    1, themeQaInvocations);
+  assert('themeqa-status-reflects-passed-state', qa.afterClick1?.btnText === 'QA Clean',
+    'QA Clean', qa.afterClick1?.btnText);
+  assert('themeqa-summary-renders-report', typeof qa.afterClick1?.summaryText === 'string' && qa.afterClick1.summaryText.includes('Result: PASSED'),
+    'summary containing "Result: PASSED"', qa.afterClick1?.summaryText);
+  assert('themeqa-close-hides-overlay', qa.afterClose?.overlayDisplay === 'none',
+    'none', qa.afterClose?.overlayDisplay);
+  // With the production state push mirrored, the second click must open the stored
+  // summary without re-running the QA (toolbar.ts:2124-2128).
+  assert('themeqa-second-click-reopens-without-rerun', qa.afterClick2?.overlayDisplay === 'flex' && themeQaInvocations === 1,
+    { overlayDisplay: 'flex', invocations: 1 }, { overlayDisplay: qa.afterClick2?.overlayDisplay, invocations: themeQaInvocations });
+
+  const hub = telemetry.workflowHub;
+  assert('hub-open-shows-overlay', hub.afterOpen?.overlayDisplay === 'flex',
+    'flex', hub.afterOpen?.overlayDisplay);
+  assert('hub-badges-match-seeded-counts', hub.afterOpen?.badgeWfCount === '1' && hub.afterOpen?.badgeMcpCount === '12',
+    { workflows: '1', mcp: '12' }, { workflows: hub.afterOpen?.badgeWfCount, mcp: hub.afterOpen?.badgeMcpCount });
+  assert('hub-workflows-list-renders-seeded-item', hub.afterOpen?.itemsCount === 1
+    && hub.afterOpen?.firstItemTitle === 'Haravan / Sapo Theme Storefront QA & Audit'
+    && hub.afterOpen?.firstItemPill === 'qa',
+    { itemsCount: 1, title: 'Haravan / Sapo Theme Storefront QA & Audit', pill: 'qa' },
+    { itemsCount: hub.afterOpen?.itemsCount, title: hub.afterOpen?.firstItemTitle, pill: hub.afterOpen?.firstItemPill });
+  assert('hub-workflow-detail-and-run-visible', hub.afterOpen?.wfDetailVisible === true && hub.afterOpen?.btnRunVisible === true,
+    { wfDetailVisible: true, btnRunVisible: true }, { wfDetailVisible: hub.afterOpen?.wfDetailVisible, btnRunVisible: hub.afterOpen?.btnRunVisible });
+  assert('hub-mcp-tab-lists-seeded-tools', hub.afterMcpTab?.itemsCount === 12,
+    12, hub.afterMcpTab?.itemsCount);
+  // The detail card must render the seeded tool, not a hardcoded mock.
+  assert('hub-mcp-detail-renders-seeded-tool', hub.afterMcpTab?.selectedMcpName === 'antifan_open_tab'
+    && hub.afterMcpTab?.selectedMcpDesc === 'Mở tab Chromium mới trong AntiFan Desktop'
+    && hub.afterMcpTab?.selectedMcpPerm === 'Quyền Yêu Cầu: execute'
+    && hub.afterMcpTab?.selectedMcpSchema === '{}',
+    { name: 'antifan_open_tab', perm: 'Quyền Yêu Cầu: execute', schema: '{}' },
+    { name: hub.afterMcpTab?.selectedMcpName, desc: hub.afterMcpTab?.selectedMcpDesc, perm: hub.afterMcpTab?.selectedMcpPerm, schema: hub.afterMcpTab?.selectedMcpSchema });
+  assert('hub-mcp-detail-has-no-run-button', hub.afterMcpTab?.hasRunButton === false,
+    false, hub.afterMcpTab?.hasRunButton);
+  assert('hub-run-reports-passed', hub.afterRunWorkflow?.runStatusPill === 'PASSED (100%)',
+    'PASSED (100%)', hub.afterRunWorkflow?.runStatusPill);
+  assert('hub-run-reports-step-tally', hub.afterRunWorkflow?.runCurrentStepText === 'Hoàn thành: 6/6 bước thành công (1.20s)',
+    'Hoàn thành: 6/6 bước thành công (1.20s)', hub.afterRunWorkflow?.runCurrentStepText);
+  assert('hub-ipc-invocations', getWorkflowStateInvocations === 1 && runWorkflowInvocations === 1,
+    { getState: 1, run: 1 }, { getState: getWorkflowStateInvocations, run: runWorkflowInvocations });
+
   console.log('[PROBE RESULTS]');
   console.log(JSON.stringify(telemetry, null, 2));
 
+  const reportDir = path.resolve(__dirname, '../../plans/reports');
+  fs.mkdirSync(reportDir, { recursive: true });
   fs.writeFileSync(
-    path.resolve(__dirname, '../../plans/reports/toolbar-qa-hub-empirical-telemetry.json'),
+    path.join(reportDir, 'toolbar-qa-hub-empirical-telemetry.json'),
     JSON.stringify(telemetry, null, 2),
     'utf8'
   );
 
-  app.quit();
+  console.log(`[PROBE] assertions=${telemetry.assertions.length} failed=${failedCount}`);
+  clearTimeout(watchdog);
+  app.exit(failedCount === 0 ? 0 : 1);
+}).catch((err) => {
+  console.error('[PROBE] FATAL:', err && err.stack ? err.stack : err);
+  clearTimeout(watchdog);
+  app.exit(1);
 });
