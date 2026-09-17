@@ -91,7 +91,7 @@
     "wallClock": {
       "iteration0": "40.1s (5 files, --test-concurrency=1)",
       "iterations": "22.0 -> 17.9 -> 14.9 (median) - files run concurrently at 2, then 3, then one wave at 5",
-      "ledger": "loop-results.tsv (beside this file) records every measured iteration with its guard result"
+      "ledger": "loop-results.tsv (repository root) records every measured iteration with its guard result"
     },
     "guard": "npm run test:main - green at 1315 pass / 0 fail after each kept iteration",
     "contract": "stdout is exactly one number; the lane log and receipt restorations go to stderr; tracked receipts the lane rewrites are restored so a verify leaves the tree as it found it",

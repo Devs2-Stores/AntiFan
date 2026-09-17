@@ -88,7 +88,7 @@ the **median of ≥ 3 runs** of `node scripts/loop-e2e-metric.cjs`: a single lan
 run varies by seconds, and the spread widens as the files contend (measured
 2026-09-18: 38.4/40.1 s at `--test-concurrency=1`, 13.5/14.9/19.0 s at 5), which
 is wider than the wins these units are chasing. Each measured iteration is
-recorded in `loop-results.tsv` beside this file: iteration 0 baseline 40.1 s,
+recorded in `loop-results.tsv` at the repository root: iteration 0 baseline 40.1 s,
 then 22.0 -> 17.9 -> 14.9 s (files run concurrently, then in one wave), each with
 `npm run test:main` green at 1315 pass / 0 fail.
 
