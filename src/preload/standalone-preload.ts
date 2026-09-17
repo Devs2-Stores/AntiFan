@@ -54,6 +54,7 @@ const api = {
   toggleFullScreen: () => ipcRenderer.invoke('antifan:window:toggle-fullscreen'),
   createTab: (url?: string) => ipcRenderer.invoke('antifan:toolbar:create-tab', url),
   openExternal: (url?: string) => ipcRenderer.invoke('antifan:toolbar:open-external', url),
+  focusTab: (tabId: string) => ipcRenderer.invoke('antifan:toolbar:switch-tab', tabId),
   onTerminalPopoutChanged: (cb: (isPopout: boolean) => void) => {
     const h = (_e: unknown, v: boolean) => cb(v);
     ipcRenderer.on('antifan:terminal:popout-state-changed', h);

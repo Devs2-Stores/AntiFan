@@ -537,7 +537,9 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
       assert.strictEqual(host.getTerminalAgentAffinity('terminal-split', 1)?.status, 'alive');
       assert.strictEqual(host.getTerminalAgentAffinity('terminal-split-direct', 1)?.status, 'alive');
       assert.strictEqual(host.tabs.get('tab-main')?.state.terminalSessionId, 'terminal-parent');
-      assert.strictEqual(host.tabs.get('tab-split-target')?.state.terminalSessionId, 'terminal-split');
+      // Split sessions are not claimable picks: listSessions() filters them out,
+      // so the field would be cleared as dead anyway. Affinity still owns the tab.
+      assert.strictEqual(host.tabs.get('tab-split-target')?.state.terminalSessionId, undefined);
       assert.ok(host.getManagedTabIds('terminal-parent').has('tab-parent-child'));
       assert.ok(host.getManagedTabIds('terminal-split-direct').has('tab-split-child'));
 

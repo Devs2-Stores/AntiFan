@@ -2508,6 +2508,10 @@ async function updateAffinityBadges() {
     for (const badge of badges) {
       const sid = badge.getAttribute('data-session-id');
       if (!sid) continue;
+      if (isSessionSleeping(sid)) {
+        setBadgeState(badge, 'terminal-tab-affinity-badge sleeping', '💤 Ngủ', 'Terminal đang ngủ — click để đánh thức');
+        continue;
+      }
       const affinity = affinityMap[sid];
       if (!affinity || !affinity.tabId) {
         setBadgeState(badge, 'terminal-tab-affinity-badge unbound', '🎯 Chưa gán', 'Terminal này chưa gán tab nào (Click để chọn tab)');
@@ -2546,10 +2550,13 @@ async function showAffinityPicker(sessionId, anchorEl) {
   const popover = document.getElementById('affinityPickerPopover');
   if (!popover || !api?.getTabs) return;
   // A sleeping session has no PTY, so a browser tab bound to it has nowhere to send
-  // input. Writing that mapping would plant an affinity that cannot be honoured, so
-  // the picker refuses outright rather than collecting a binding that is already
-  // wrong. Wake the tab first (its first keystroke does it), then bind.
-  if (isSessionSleeping(sessionId)) return;
+  // input. Instead of refusing silently, the click becomes the wake gesture: the
+  // session broadcast repaints the badge, and the user re-opens the picker once
+  // the terminal is awake.
+  if (isSessionSleeping(sessionId)) {
+    wakeSleepingSession(sessionId, '');
+    return;
+  }
 
   const tabs = await api.getTabs();
   const currentAffinity = api.getTerminalAffinity ? await api.getTerminalAffinity(sessionId) : undefined;
@@ -2557,13 +2564,17 @@ async function showAffinityPicker(sessionId, anchorEl) {
   popover.setAttribute('data-active-session-id', sessionId);
   const managedSet = new Set(Array.isArray(currentAffinity?.managedTabIds) ? currentAffinity.managedTabIds : (currentAffinity?.tabId ? [currentAffinity.tabId] : []));
   const primaryId = currentAffinity?.primaryTabId || currentAffinity?.tabId;
+  // Rebuild signature: onTabsUpdated re-invokes this picker only when the set of
+  // managed tabs, the primary, or the visible tab count actually changed — title
+  // churn alone must not tear the DOM out from under a click.
+  popover.setAttribute('data-managed-sig', `${Array.from(managedSet).sort().join(',')}|${primaryId || ''}|${(tabs || []).length}`);
+  let renderedManagedCount = 0;
 
   // Section 1: Tab thuộc Terminal này
   if (managedSet.size > 0) {
     const secHeader = document.createElement('div');
     secHeader.className = 'terminal-affinity-picker-header';
     popover.appendChild(secHeader);
-    let renderedManagedCount = 0;
     (tabs || []).filter((t) => managedSet.has(t.id)).forEach((t) => {
       const item = document.createElement('div');
       const isPrimary = t.id === primaryId;
@@ -2631,6 +2642,9 @@ async function showAffinityPicker(sessionId, anchorEl) {
           await api.rebindTerminalAffinity(t.id, sessionId);
           updateAffinityBadges();
         }
+        // Rebind alone is invisible: bring the chosen tab to the front so the
+        // user sees the tab they just made primary.
+        api?.focusTab?.(t.id);
       };
       popover.appendChild(item);
       renderedManagedCount++;
@@ -2712,7 +2726,7 @@ async function showAffinityPicker(sessionId, anchorEl) {
   const otherTabs = (tabs || []).filter((t) => !managedSet.has(t.id));
   const addHeader = document.createElement('div');
   addHeader.className = 'terminal-affinity-picker-header';
-  const hasManaged = (typeof renderedManagedCount === 'number' ? renderedManagedCount : managedSet.size) > 0;
+  const hasManaged = renderedManagedCount > 0;
   addHeader.style.marginTop = hasManaged ? '6px' : '0';
   addHeader.textContent = hasManaged ? 'Gán thêm Tab khác vào Terminal' : 'Gán Tab Trình Duyệt cho Terminal';
   popover.appendChild(addHeader);
@@ -2747,6 +2761,9 @@ async function showAffinityPicker(sessionId, anchorEl) {
           await api.rebindTerminalAffinity(t.id, sessionId);
         }
         updateAffinityBadges();
+        // Same as the managed rows: the newly bound tab should come to the front
+        // so the assignment is visible, not just recorded.
+        api?.focusTab?.(t.id);
       };
       popover.appendChild(item);
     });
@@ -3333,6 +3350,11 @@ function ensureTerminalTabWrap(s, currentWraps) {
     affinityBadge.setAttribute('data-session-id', s.id);
     affinityBadge.textContent = '🎯 Gán Tab';
     affinityBadge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
+    if (isSessionSleeping(s.id)) {
+      affinityBadge.className = 'terminal-tab-affinity-badge sleeping';
+      affinityBadge.textContent = '💤 Ngủ';
+      affinityBadge.title = 'Terminal đang ngủ — click để đánh thức';
+    }
     affinityBadge.onclick = (e) => {
       e.stopPropagation();
       showAffinityPicker(s.id, affinityBadge);
@@ -3405,6 +3427,11 @@ function ensureTerminalTabWrap(s, currentWraps) {
       affinityBadge.setAttribute('data-session-id', s.id);
       affinityBadge.textContent = '🎯 Gán Tab';
       affinityBadge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
+      if (isSessionSleeping(s.id)) {
+        affinityBadge.className = 'terminal-tab-affinity-badge sleeping';
+        affinityBadge.textContent = '💤 Ngủ';
+        affinityBadge.title = 'Terminal đang ngủ — click để đánh thức';
+      }
       affinityBadge.onclick = (e) => {
         e.stopPropagation();
         showAffinityPicker(s.id, affinityBadge);
@@ -3989,11 +4016,22 @@ api?.onTerminalSession((state) => {
   // keystroke that caused the wake is delivered here.
   flushDeferredWakeInput();
 });
-api?.onTabsUpdated?.(() => {
+api?.onTabsUpdated?.(async (tabs) => {
   updateAffinityBadges();
   const popover = document.getElementById('affinityPickerPopover');
   if (popover && popover.style.display === 'block') {
     const currentSid = popover.getAttribute('data-active-session-id') || activeId;
+    // Rebuild only when the picker's content actually changed. Tabs broadcasts
+    // fire on every title/loading update, and rebuilding mid-click eats the
+    // click by replacing the element under the cursor.
+    const currentAffinity = api.getTerminalAffinity ? await api.getTerminalAffinity(currentSid) : undefined;
+    const managed = Array.isArray(currentAffinity?.managedTabIds) ? currentAffinity.managedTabIds : (currentAffinity?.tabId ? [currentAffinity.tabId] : []);
+    const primaryId = currentAffinity?.primaryTabId || currentAffinity?.tabId;
+    const sig = `${managed.slice().sort().join(',')}|${primaryId || ''}|${(Array.isArray(tabs) ? tabs : []).length}`;
+    if (sig === popover.getAttribute('data-managed-sig')) return;
+    // The IPC round-trip above gave the user time to click-outside-dismiss;
+    // re-check before rebuilding so a dismissed popover never re-opens.
+    if (popover.style.display !== 'block') return;
     const anchor = document.querySelector(`.terminal-tab-affinity-badge[data-session-id="${currentSid}"]`);
     if (anchor) {
       showAffinityPicker(currentSid, anchor);

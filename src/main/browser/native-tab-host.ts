@@ -1690,10 +1690,11 @@ export class NativeTabHost extends EventEmitter {
       const senderInfo = this.findTabByWebContents(_event?.sender);
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
       if (isAgent) {
-        const ownedTerminalId = this.getTabTerminalSession(senderInfo.tabId);
+        const ownedTerminalId = this.getOwnedTerminalSession(senderInfo.tabId);
         if (!ownedTerminalId) {
           throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot kill active terminal`);
         }
+        this.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
         TerminalManager.getInstance().closeSession(ownedTerminalId);
         return true;
       }
@@ -1704,10 +1705,11 @@ export class NativeTabHost extends EventEmitter {
       const senderInfo = this.findTabByWebContents(_event?.sender);
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
       if (isAgent) {
-        const ownedTerminalId = this.getTabTerminalSession(senderInfo.tabId);
+        const ownedTerminalId = this.getOwnedTerminalSession(senderInfo.tabId);
         if (!ownedTerminalId) {
           throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot restart active terminal`);
         }
+        this.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
         const tm = TerminalManager.getInstance();
         const prevActiveId = tm.getActiveSessionId();
         tm.switchSession(ownedTerminalId);
@@ -1732,10 +1734,11 @@ export class NativeTabHost extends EventEmitter {
       const senderInfo = this.findTabByWebContents(_event?.sender);
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
       if (isAgent) {
-        const ownedTerminalId = this.getTabTerminalSession(senderInfo.tabId);
+        const ownedTerminalId = this.getOwnedTerminalSession(senderInfo.tabId);
         if (!ownedTerminalId) {
           throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot resize active terminal`);
         }
+        this.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
         TerminalManager.getInstance().resizeTo(ownedTerminalId, cols, rows);
         return true;
       }
@@ -1777,10 +1780,11 @@ export class NativeTabHost extends EventEmitter {
         if (parentId) {
           this.assertTerminalAccess(senderInfo.tabId, parentId);
         } else {
-          const ownedTerminalId = this.getTabTerminalSession(senderInfo.tabId);
+          const ownedTerminalId = this.getOwnedTerminalSession(senderInfo.tabId);
           if (!ownedTerminalId) {
             throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session to split`);
           }
+          this.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
           targetParentId = ownedTerminalId;
         }
       }
@@ -5796,24 +5800,58 @@ export class NativeTabHost extends EventEmitter {
     return '';
   }
 
-  private resolveTerminalAffinityEntry(terminalId: string, generation?: number | string) {
+  private resolveTerminalAffinityKey(terminalId: string, generation?: number | string): string | undefined {
     const normGen = generation !== undefined && generation !== '' ? String(generation).trim() : undefined;
     if (normGen) {
-      return this.terminalAgentAffinity.get(`${terminalId}@${normGen}`);
+      const key = `${terminalId}@${normGen}`;
+      return this.terminalAgentAffinity.has(key) ? key : undefined;
     }
     const prefix = `${terminalId}@`;
-    let latestEntry: any = undefined;
+    let latestKey: string | undefined;
     let maxGen = -1;
-    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+    for (const key of this.terminalAgentAffinity.keys()) {
       if (key.startsWith(prefix)) {
         const genNum = parseInt(key.slice(prefix.length), 10);
         if (!isNaN(genNum) && genNum > maxGen) {
           maxGen = genNum;
-          latestEntry = entry;
+          latestKey = key;
         }
       }
     }
-    return latestEntry;
+    return latestKey;
+  }
+
+  private resolveTerminalAffinityEntry(terminalId: string, generation?: number | string) {
+    const key = this.resolveTerminalAffinityKey(terminalId, generation);
+    return key ? this.terminalAgentAffinity.get(key) : undefined;
+  }
+
+  /**
+   * tab.state.terminalSessionId is the USER's per-tab terminal choice. Agent-side
+   * ownership lives in the affinity map, so agent code may only claim the field
+   * when it is unset or names a session that no longer exists — never overwrite a
+   * live different choice (including an explicit 'auto'). A terminalId that does
+   * not name a live session is never written.
+   */
+  private claimTabTerminalSession(tab: NativeTabRecord | undefined, terminalId: string): void {
+    if (!tab || !terminalId) return;
+    const tm = TerminalManager.getInstance();
+    // getSession is the liveness oracle: listSessions() composes per-session
+    // transcripts and dereferences s.buffer — far too heavy for a membership
+    // check. Split panes are not claimable targets, matching the base-session
+    // filter listSessions applied.
+    const target = tm.getSession(terminalId);
+    if (!target || target.splitOf) return;
+    const current = tab.state.terminalSessionId;
+    if (!current) {
+      tab.state.terminalSessionId = terminalId;
+      return;
+    }
+    if (current === 'auto') return;
+    const currentSession = tm.getSession(current);
+    if (!currentSession || currentSession.splitOf) {
+      tab.state.terminalSessionId = terminalId;
+    }
   }
 
   public bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean {
@@ -5831,7 +5869,7 @@ export class NativeTabHost extends EventEmitter {
       : new Set<string>();
     const carryLastUrls = prior?.lastUrls ? new Map<string, string>(prior.lastUrls) : new Map<string, string>();
     const carryLineage = prior?.lineage ? new Map<string, { tabId: string; parentTabId?: string; source: 'agent_spawned' | 'native_window_open' | 'user_attached'; createdAt: number }>(prior.lineage) : new Map();
-    this.clearTerminalAgentAffinity(terminalId);
+    this.dropTerminalAffinityEntries(terminalId);
     const managedTabIds = new Set<string>([tabId, ...carryManaged]);
     const lastUrls = new Map<string, string>(carryLastUrls);
     lastUrls.set(tabId, tab.state.url || '');
@@ -5846,13 +5884,10 @@ export class NativeTabHost extends EventEmitter {
       lastUrl: tab.state.url,
       closedAt: undefined,
     });
-    tab.state.terminalSessionId = terminalId;
+    this.claimTabTerminalSession(tab, terminalId);
     this.sessionTabPools.set(terminalId, new Set(managedTabIds));
     for (const mId of managedTabIds) {
-      const mTab = this.tabs?.get(mId);
-      if (mTab) {
-        mTab.state.terminalSessionId = terminalId;
-      }
+      this.claimTabTerminalSession(this.tabs?.get(mId), terminalId);
     }
     return true;
   }
@@ -5875,7 +5910,13 @@ export class NativeTabHost extends EventEmitter {
     pool.add(childTabId);
     const tab = this.tabs.get(childTabId);
     if (tab) {
-      tab.state.terminalSessionId = sessionId;
+      // Ad-hoc pools are keyed by a tabId, not a terminal session — writing that
+      // into terminalSessionId would poison the user's per-tab choice field.
+      const candidate = TerminalManager.getInstance().getSession(sessionId);
+      const isLiveSession = !!candidate && !candidate.splitOf;
+      if (isLiveSession) {
+        this.claimTabTerminalSession(tab, sessionId);
+      }
       this.broadcastState();
     }
     return true;
@@ -5914,17 +5955,26 @@ export class NativeTabHost extends EventEmitter {
       } catch {}
     }
 
-    if (!targetSessionId) {
-      const parentTab = this.tabs.get(identifier);
-      if (parentTab?.state.terminalSessionId) {
-        const termSessId = parentTab.state.terminalSessionId;
-        if (this.sessionTabPools.has(termSessId)) {
-          targetSessionId = termSessId;
-        } else {
+    if (!targetSessionId && this.tabs.has(identifier)) {
+      // Resolve the parent tab's owning terminal from the affinity map — the
+      // authoritative ownership record. tab.state.terminalSessionId is the user's
+      // pick and can diverge from what the tab actually owns.
+      for (const [key, ent] of this.terminalAgentAffinity.entries()) {
+        if (ent.closedAt) continue;
+        if (ent.primaryTabId === identifier || ent.managedTabIds?.has(identifier)) {
+          targetSessionId = key.split('@')[0] || undefined;
+          break;
+        }
+      }
+      if (!targetSessionId) {
+        // No affinity entry claims the tab: the field is usable only when it
+        // names a live session.
+        const fieldSessionId = this.tabs.get(identifier)?.state.terminalSessionId;
+        if (fieldSessionId && fieldSessionId !== 'auto') {
           try {
             const tm = TerminalManager.getInstance();
-            if (tm.getSession(termSessId) || tm.getActiveSessionId() === termSessId) {
-              targetSessionId = termSessId;
+            if (tm.getSession(fieldSessionId) || tm.getActiveSessionId() === fieldSessionId) {
+              targetSessionId = fieldSessionId;
             }
           } catch {}
         }
@@ -5965,7 +6015,12 @@ export class NativeTabHost extends EventEmitter {
     if (!targetSessionId && entry && entry.primaryTabId && this.tabs.has(entry.primaryTabId)) {
       targetSessionId = entry.primaryTabId;
     }
-    if (targetSessionId) {
+    // A pool write only means something when an affinity entry exists to surface
+    // it, or when the identifier is a live tab anchoring an ad-hoc pool. For a
+    // bare terminalId with no entry, skip the write entirely so the honest
+    // failure below leaves no phantom membership behind.
+    const canAnchorPool = Boolean(entry) || this.tabs.has(identifier);
+    if (targetSessionId && canAnchorPool) {
       if (this.tabs.has(identifier)) {
         this.adoptChildTabForSession(targetSessionId, identifier);
       }
@@ -5975,10 +6030,15 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    if (!entry) return adoptedIntoPool;
+    // No affinity entry: a pool-only write is invisible to getTerminalIdsWithAffinity
+    // (the badge never shows it), so report success only for the tab-anchored
+    // ad-hoc pool case where the identifier is itself a live tab.
+    if (!entry) return this.tabs.has(identifier) ? adoptedIntoPool : false;
 
     if (!entry.managedTabIds) entry.managedTabIds = new Set<string>([entry.tabId]);
     entry.managedTabIds.add(childTabId);
+    // Adopting a live tab revives a tombstoned entry — the terminal owns a tab again.
+    if (entry.closedAt) delete entry.closedAt;
     if (!entry.lastUrls) entry.lastUrls = new Map();
     entry.lastUrls.set(childTabId, childTab.state.url || '');
     if (!entry.lineage) entry.lineage = new Map();
@@ -5989,7 +6049,7 @@ export class NativeTabHost extends EventEmitter {
       createdAt: Date.now(),
     });
 
-    childTab.state.terminalSessionId = resolvedTerminalId;
+    this.claimTabTerminalSession(childTab, resolvedTerminalId);
     this.broadcastState();
     return true;
   }
@@ -6103,7 +6163,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public terminalWrite(tabId: string, input: string, terminalId?: string): boolean {
-    const targetTerminalId = terminalId || this.getTabTerminalSession(tabId);
+    const targetTerminalId = terminalId || this.getOwnedTerminalSession(tabId);
     if (!targetTerminalId) {
       throw new CapabilityError(
         'TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode,
@@ -6250,11 +6310,13 @@ export class NativeTabHost extends EventEmitter {
   }
   public removeManagedTab(terminalId: string, tabId: string, generation?: number | string): boolean {
     if (!this.terminalAgentAffinity || !terminalId || !tabId) return false;
-    const entry = this.resolveTerminalAffinityEntry(terminalId, generation);
+    const entryKey = this.resolveTerminalAffinityKey(terminalId, generation);
+    const entry = entryKey ? this.terminalAgentAffinity.get(entryKey) : undefined;
     if (!entry) return false;
 
     entry.managedTabIds.delete(tabId);
     if (entry.lastUrls) entry.lastUrls.delete(tabId);
+    if (entry.lineage) entry.lineage.delete(tabId);
     const tab = this.tabs?.get(tabId);
     if (tab && tab.state.terminalSessionId === terminalId) {
       tab.state.terminalSessionId = undefined;
@@ -6268,7 +6330,13 @@ export class NativeTabHost extends EventEmitter {
         }
       }
     }
-    if (entry.primaryTabId === tabId) {
+    if (entry.managedTabIds.size === 0) {
+      // User-initiated unbind emptied the managed set: the terminal owns nothing,
+      // so the entry is deleted outright. The 'closed' tombstone is reserved for
+      // tab-close (tombstoneTerminalAgentAffinity), not for unbinding.
+      // `entry` came from `entryKey`, so a resolved entry always has a key.
+      if (entryKey) this.terminalAgentAffinity.delete(entryKey);
+    } else if (entry.primaryTabId === tabId) {
       let nextPrimary: string | undefined;
       for (const id of entry.managedTabIds) {
         if (this.hasTab(id)) {
@@ -6288,7 +6356,13 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
-  public clearTerminalAgentAffinity(terminalId: string): void {
+  /**
+   * Drops a terminal's affinity map keys and session pool without touching
+   * tab.state.terminalSessionId. Used by bindTerminalAgentAffinity on rebind:
+   * the field is the user's per-tab pick, and wiping it would erase explicit
+   * choices on tabs the terminal never managed.
+   */
+  private dropTerminalAffinityEntries(terminalId: string): void {
     if (!this.terminalAgentAffinity || !terminalId) return;
     const prefix = `${terminalId}@`;
     for (const key of Array.from(this.terminalAgentAffinity.keys())) {
@@ -6296,13 +6370,20 @@ export class NativeTabHost extends EventEmitter {
         this.terminalAgentAffinity.delete(key);
       }
     }
+    if (this.sessionTabPools) {
+      this.sessionTabPools.delete(terminalId);
+    }
+  }
+
+  public clearTerminalAgentAffinity(terminalId: string): void {
+    if (!this.terminalAgentAffinity || !terminalId) return;
+    this.dropTerminalAffinityEntries(terminalId);
+    // Session-closed path only: the terminal is dead, so any remembered pick
+    // naming it is stale and must be cleared.
     for (const tab of this.tabs.values()) {
       if (tab.state.terminalSessionId === terminalId) {
         tab.state.terminalSessionId = undefined;
       }
-    }
-    if (this.sessionTabPools) {
-      this.sessionTabPools.delete(terminalId);
     }
   }
 
@@ -6525,7 +6606,19 @@ export class NativeTabHost extends EventEmitter {
     const tm = TerminalManager.getInstance();
     const liveSessions = tm.listSessions();
 
-    // 1. Check if the active terminal session has affinity to this tab (primary or managed)
+    // 1. The user's explicit per-tab choice wins over agent affinity. 'auto' is a
+    // real choice (follow the active terminal), not "unset". A remembered id that
+    // no longer names a live session is stale: clear it and fall through.
+    if (tab.state.terminalSessionId) {
+      const sessionId = tab.state.terminalSessionId;
+      if (sessionId === 'auto') return 'auto';
+      if (liveSessions.some((s) => s.id === sessionId)) {
+        return sessionId;
+      }
+      tab.state.terminalSessionId = undefined;
+    }
+
+    // 2. Check if the active terminal session has affinity to this tab (primary or managed)
     const activeSessionId = tm.getActiveSessionId();
     if (activeSessionId) {
       const activeGen = liveSessions.find((s) => s.id === activeSessionId)?.sessionGeneration;
@@ -6537,7 +6630,7 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    // 2. Check if any other live terminal session has affinity to this tab
+    // 3. Check if any other live terminal session has affinity to this tab
     for (const session of liveSessions) {
       const affinity = this.getTerminalAgentAffinity(session.id, session.sessionGeneration);
       if (affinity && affinity.status === 'alive') {
@@ -6547,16 +6640,40 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    // 3. Fallback to remembered tab.state.terminalSessionId
-    if (!tab.state.terminalSessionId) return undefined;
-    const sessionId = tab.state.terminalSessionId;
-    if (sessionId === 'auto') return 'auto';
-    const valid = liveSessions.some((s) => s.id === sessionId);
-    if (!valid) {
-      tab.state.terminalSessionId = undefined;
-      return undefined;
+    return undefined;
+  }
+
+  /**
+   * Ownership oracle for agent operations: resolves the terminal session this tab
+   * OWNS via the affinity map only — never the user's per-tab preference
+   * (tab.state.terminalSessionId), and never sessionTabPools membership, which
+   * isTerminalAllowedForTab (the gate every caller passes through) does not honor
+   * without a live affinity entry. getTabTerminalSession answers "which terminal
+   * did the user pick for this tab"; this answers "which terminal is this tab
+   * allowed to operate". Active session is checked first, matching the old
+   * affinity ordering.
+   */
+  public getOwnedTerminalSession(tabId: string): string | undefined {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return undefined;
+
+    const tm = TerminalManager.getInstance();
+    const liveSessions = tm.listSessions();
+    const activeSessionId = tm.getActiveSessionId();
+    const ordered = activeSessionId
+      ? [activeSessionId, ...liveSessions.filter((s) => s.id !== activeSessionId).map((s) => s.id)]
+      : liveSessions.map((s) => s.id);
+
+    for (const sessionId of ordered) {
+      const gen = liveSessions.find((s) => s.id === sessionId)?.sessionGeneration;
+      const affinity = this.getTerminalAgentAffinity(sessionId, gen);
+      if (affinity && affinity.status === 'alive') {
+        if (affinity.tabId === tabId || (affinity.managedTabIds && affinity.managedTabIds.includes(tabId))) {
+          return sessionId;
+        }
+      }
     }
-    return sessionId;
+    return undefined;
   }
 
   public setTabTerminalSession(tabId: string, terminalSessionId?: string): boolean {

@@ -22,12 +22,16 @@ interface TestHost {
   getManagedTabIds(boundTabIdOrTerminalId: string): Set<string>;
   getManagedTabIdsForBoundTab(boundTabId: string): Set<string>;
   isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean;
+  isTerminalAllowedForTab(tabId: string, terminalId: string): boolean;
   removeManagedTab(terminalId: string, tabId: string, generation?: number | string): boolean;
   clearTerminalAgentAffinity(terminalId: string): void;
   migrateTerminalAgentAffinityGeneration(terminalId: string, newGeneration: number): void;
   tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void;
   getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; primaryTabId?: string; status: 'alive' | 'closed'; lastUrl?: string; managedTabIds?: string[] } | undefined;
   getTabTerminalSession(tabId: string): string | undefined;
+  getOwnedTerminalSession(tabId: string): string | undefined;
+  terminalWrite(tabId: string, input: string, terminalId?: string): boolean;
+  getTabLineage(tabId: string): { tabId: string; parentTabId?: string; source: string; createdAt: number } | undefined;
   setTabTerminalSession(tabId: string, sessionId?: string): boolean;
   closeTab(tabId: string): boolean;
   broadcastState(): void;
@@ -696,6 +700,150 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
 
     // Terminal rebind clears all generations for the session to maintain single active generation authority
     assert.strictEqual(host.getTerminalAgentAffinity('terminal-1', 2), undefined);
+  });
+
+  it('24. getTabTerminalSession honors the user explicit choice over agent affinity', () => {
+    const host = createTestHost(['tab-user', 'tab-fresh', 'tab-child']);
+
+    // terminal-1 manages tab-user via affinity, but the user pinned terminal-2
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-user');
+    host.setTabTerminalSession('tab-user', 'terminal-2');
+    assert.strictEqual(host.getTabTerminalSession('tab-user'), 'terminal-2', 'User choice must beat affinity');
+
+    // Explicit 'auto' is a real choice, not "unset" — affinity must not swallow it
+    host.setTabTerminalSession('tab-user', 'auto');
+    assert.strictEqual(host.getTabTerminalSession('tab-user'), 'auto');
+
+    // Clearing the choice falls back to affinity
+    host.setTabTerminalSession('tab-user', undefined);
+    assert.strictEqual(host.getTabTerminalSession('tab-user'), 'terminal-1');
+
+    // Agent bind must not clobber a live different user choice
+    host.setTabTerminalSession('tab-user', 'terminal-2');
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-user');
+    assert.strictEqual(host.tabs.get('tab-user')?.state.terminalSessionId, 'terminal-2');
+    assert.strictEqual(host.getTabTerminalSession('tab-user'), 'terminal-2');
+
+    // Fresh tabs are still claimed by the bind
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-fresh');
+    assert.strictEqual(host.tabs.get('tab-fresh')?.state.terminalSessionId, 'terminal-1');
+
+    // Agent adoption must not clobber a live different user choice either
+    host.setTabTerminalSession('tab-child', 'terminal-2');
+    host.adoptChildTab('terminal-1', 'tab-child', 1);
+    assert.strictEqual(host.tabs.get('tab-child')?.state.terminalSessionId, 'terminal-2');
+  });
+
+  it('25. removeManagedTab deletes the affinity entry when the managed set empties', () => {
+    const host = createTestHost(['tab-only']);
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-only');
+
+    assert.strictEqual(host.removeManagedTab('terminal-1', 'tab-only', 1), true);
+
+    // Entry is gone entirely — the badge reads "unassigned", not "tab closed"
+    assert.strictEqual(host.getTerminalAgentAffinity('terminal-1', 1), undefined);
+    assert.strictEqual(host.getTerminalAgentAffinity('terminal-1'), undefined);
+    // No lineage residue: the removed tab can no longer match isTabAllowedForPrimary
+    assert.strictEqual(host.getTabLineage('tab-only'), undefined);
+    assert.strictEqual(host.tabs.get('tab-only')?.state.terminalSessionId, undefined);
+  });
+
+  it('26. adoptChildTab revives a tombstoned affinity entry', () => {
+    const host = createTestHost(['tab-dead', 'tab-revive']);
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-dead');
+
+    // Simulate the bound tab closing: entry tombstones
+    host.tabs.delete('tab-dead');
+    host.tombstoneTerminalAgentAffinity('tab-dead', 'https://example.test/tab-dead');
+    assert.strictEqual(host.getTerminalAgentAffinity('terminal-1', 1)?.status, 'closed');
+
+    // Adopting a live tab must clear the tombstone
+    assert.strictEqual(host.adoptChildTab('terminal-1', 'tab-revive', 1), true);
+    const aff = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.ok(aff);
+    assert.strictEqual(aff.status, 'alive', 'Adopting a live tab must revive the entry');
+    assert.ok(aff.managedTabIds?.includes('tab-revive'));
+  });
+
+  it('27. adoptChildTab reports honest failure for a terminalId with no affinity entry', () => {
+    const host = createTestHost(['tab-orphan']);
+
+    // terminal-1 is a live session but has no affinity entry: a pool-only write
+    // would be invisible to the badge, so the call must fail honestly and leave
+    // no phantom pool membership behind.
+    assert.strictEqual(host.adoptChildTab('terminal-1', 'tab-orphan', 1), false);
+    assert.strictEqual(host.getManagedTabIds('terminal-1').has('tab-orphan'), false);
+    assert.strictEqual(host.getManagedTabIds('tab-orphan').has('tab-orphan'), true, 'unmanaged tab still resolves to itself');
+  });
+
+  it('28. Ownership oracle ignores the user pick: agent ops target the OWNED terminal', () => {
+    const host = createTestHost(['tab-agent', 'tab-rogue']);
+
+    // terminal-1 owns tab-agent via affinity; the user pick on the same tab
+    // points at terminal-2 — agent ops must resolve the owned terminal anyway.
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-agent');
+    host.setTabTerminalSession('tab-agent', 'terminal-2');
+
+    assert.strictEqual(host.getTabTerminalSession('tab-agent'), 'terminal-2', 'user pick stays user-facing');
+    assert.strictEqual(host.getOwnedTerminalSession('tab-agent'), 'terminal-1', 'ownership oracle resolves affinity, not the user pick');
+
+    // terminalWrite with no explicit terminalId must write to the owned terminal
+    const writes: Array<{ id: string; input: string }> = [];
+    const originalWriteTo = tm.writeTo;
+    tm.writeTo = (id: string, input: string) => { writes.push({ id, input }); return true; };
+    try {
+      assert.strictEqual(host.terminalWrite('tab-agent', 'ls\n'), true);
+      assert.deepStrictEqual(writes, [{ id: 'terminal-1', input: 'ls\n' }], 'write must land on the owned terminal, never the user-picked one');
+    } finally {
+      tm.writeTo = originalWriteTo;
+    }
+
+    // A tab that owns nothing is forbidden even when its user pick names a live session
+    host.setTabTerminalSession('tab-rogue', 'terminal-2');
+    assert.throws(
+      () => host.terminalWrite('tab-rogue', 'whoami\n'),
+      (err: unknown) => err instanceof Error && 'code' in err && err.code === 'TERMINAL_FORBIDDEN'
+    );
+  });
+
+  it('29. Oracle and gate agree: unbinding every managed tab revokes ownership completely', () => {
+    const host = createTestHost(['tab-A', 'tab-B']);
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-A');
+    host.adoptChildTabForBoundTab('tab-A', 'tab-B');
+
+    assert.strictEqual(host.getOwnedTerminalSession('tab-A'), 'terminal-1');
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-A', 'tab-B'), true);
+
+    // Unbind both tabs: the entry deletes itself when the managed set empties
+    assert.strictEqual(host.removeManagedTab('terminal-1', 'tab-A', 1), true);
+    assert.strictEqual(host.removeManagedTab('terminal-1', 'tab-B', 1), true);
+
+    // Oracle and gate must agree: no residual pool or lineage can resurrect access
+    assert.strictEqual(host.getOwnedTerminalSession('tab-A'), undefined);
+    assert.strictEqual(host.getOwnedTerminalSession('tab-B'), undefined);
+    assert.strictEqual(host.isTerminalAllowedForTab('tab-A', 'terminal-1'), false);
+    assert.strictEqual(host.isTerminalAllowedForTab('tab-B', 'terminal-1'), false);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-A', 'tab-B'), false);
+  });
+
+  it('30. Rebinding a terminal preserves user picks on unmanaged tabs', () => {
+    const host = createTestHost(['tab-bound', 'tab-bystander']);
+
+    // The user pinned terminal-1 on a tab the terminal does not manage
+    host.setTabTerminalSession('tab-bystander', 'terminal-1');
+
+    // Binding terminal-1 to another tab must not wipe the bystander's pick
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-bound');
+    assert.strictEqual(host.tabs.get('tab-bystander')?.state.terminalSessionId, 'terminal-1');
+
+    // Rebinding to yet another primary must still preserve it
+    host.tabs.set('tab-other', { state: { id: 'tab-other', url: 'https://example.test/tab-other', title: 'T', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1 } });
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-other');
+    assert.strictEqual(host.tabs.get('tab-bystander')?.state.terminalSessionId, 'terminal-1');
+
+    // But the session-closed path DOES clear stale picks
+    host.clearTerminalAgentAffinity('terminal-1');
+    assert.strictEqual(host.tabs.get('tab-bystander')?.state.terminalSessionId, undefined);
   });
 });
 

@@ -561,6 +561,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     getTerminalAffinities: async () => ({} as Record<string, unknown>),
     sleepTerminal: async () => true,
     wakeTerminal: async () => true,
+    focusTab: async () => undefined,
     setCategory: async () => true,
     // Boot payload for the sidebar/tab-layout prefs, as GET_INITIAL_STATE returns it.
     getInitialState: async () => options.initialState,

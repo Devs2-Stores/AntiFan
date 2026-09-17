@@ -1701,10 +1701,14 @@ export class BridgeServer {
           } as AntiFanTab];
           if (typeof this.tabHost.isTerminalAllowedForTab === 'function') {
             initTerminalSessions = tm.listSessions().filter(s => this.tabHost.isTerminalAllowedForTab(boundTabId, s.id));
-            const ownedSessionId = typeof this.tabHost.getTabTerminalSession === 'function'
-              ? this.tabHost.getTabTerminalSession(boundTabId)
-              : undefined;
-            initActiveTerminalSessionId = ownedSessionId || initTerminalSessions[0]?.id;
+            // Prefer the ownership oracle; the user's per-tab pick may name a
+            // terminal outside the advertised allowed list.
+            const ownedSessionId = typeof this.tabHost.getOwnedTerminalSession === 'function'
+              ? this.tabHost.getOwnedTerminalSession(boundTabId)
+              : (typeof this.tabHost.getTabTerminalSession === 'function' ? this.tabHost.getTabTerminalSession(boundTabId) : undefined);
+            initActiveTerminalSessionId = ownedSessionId && initTerminalSessions.some(s => s.id === ownedSessionId)
+              ? ownedSessionId
+              : initTerminalSessions[0]?.id;
           }
         }
       } else if (verifiedMobileGrant) {
@@ -2756,8 +2760,15 @@ export class BridgeServer {
     const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
     const attachmentRecord = registry ? registry.getRecord(targetAttachmentId) : undefined;
     const ownedTabId = attachmentRecord?.tabId || attachmentRecord?.browserTarget?.tabId;
-    if (!ownedTabId || typeof this.tabHost.getTabTerminalSession !== 'function') return false;
-    const ownedTerminalIds = this.tabHost.getTabTerminalSession(ownedTabId);
+    if (!ownedTabId) return false;
+    // The gate IS the membership check: isTerminalAllowedForTab honors only live
+    // affinity entries, so a pool-only or unbound tab can never write here.
+    if (typeof this.tabHost.isTerminalAllowedForTab === 'function') {
+      return this.tabHost.isTerminalAllowedForTab(ownedTabId, sessionId);
+    }
+    const ownedTerminalIds = typeof this.tabHost.getOwnedTerminalSession === 'function'
+      ? this.tabHost.getOwnedTerminalSession(ownedTabId)
+      : (typeof this.tabHost.getTabTerminalSession === 'function' ? this.tabHost.getTabTerminalSession(ownedTabId) : undefined);
     const ownedList = (Array.isArray(ownedTerminalIds) ? ownedTerminalIds : [ownedTerminalIds]).filter(Boolean);
     return ownedList.includes(sessionId);
   }
