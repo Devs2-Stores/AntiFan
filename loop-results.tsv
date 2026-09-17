@@ -2,3 +2,4 @@ iter	timestamp	metric	delta	kept	description
 0	2026-09-18T04:42:51	40.1	+0.00	yes	baseline: 5 e2e files at --test-concurrency=1 (node:test lane wall clock)
 1	2026-09-18T04:42:51	22.0	-18.10	yes	run e2e lane files concurrently (--test-concurrency=2); guard test:main pass 1315/0
 2	2026-09-18T04:48:42	17.9	-3.60	yes	raise e2e file concurrency to 3 (median of 6: 17.2/17.6/17.8/18.9/19.2/19.5); guard test:main pass 1315/0
+3	2026-09-18T04:51:31	14.9	-3.00	yes	run all five e2e lanes in one wave (--test-concurrency=5; median of 3: 13.5/14.9/19.0)
