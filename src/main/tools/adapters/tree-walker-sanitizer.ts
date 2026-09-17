@@ -510,6 +510,44 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
         }
       }
 
+      // Serialized markup is re-parsed by every consumer, and the HTML tree builder
+      // auto-closes an open <p> at the next block-level start tag, while a client-built
+      // DOM may nest one paragraph inside another. Demoting only the hazardous
+      // paragraph preserves the nesting and the typography its items inherit.
+      // Canonical rule table: packages/site-clone/src/generators/html-parse-fidelity.ts
+      var normalizeHtmlAutoclose = function (root) {
+        if (!root || !root.querySelectorAll) return 0;
+        var P_CLOSING = {ADDRESS:1,ARTICLE:1,ASIDE:1,BLOCKQUOTE:1,CENTER:1,DETAILS:1,DIALOG:1,DIR:1,DIV:1,DL:1,DT:1,DD:1,FIELDSET:1,FIGCAPTION:1,FIGURE:1,FOOTER:1,FORM:1,H1:1,H2:1,H3:1,H4:1,H5:1,H6:1,HEADER:1,HGROUP:1,HR:1,LI:1,LISTING:1,MAIN:1,MENU:1,NAV:1,OL:1,P:1,PLAINTEXT:1,PRE:1,SEARCH:1,SECTION:1,SUMMARY:1,TABLE:1,UL:1,XMP:1};
+        var FOREIGN = {SVG:1,MATH:1,TEMPLATE:1};
+        var hasHazard = function (node) {
+          var children = node.children;
+          for (var i = 0; i < children.length; i++) {
+            var child = children[i];
+            if (FOREIGN[child.tagName]) continue;
+            if (P_CLOSING[child.tagName]) return true;
+            if (hasHazard(child)) return true;
+          }
+          return false;
+        };
+        var owner = root.ownerDocument || document;
+        var paragraphs = root.querySelectorAll('p');
+        var renamed = 0;
+        for (var p = 0; p < paragraphs.length; p++) {
+          var paragraph = paragraphs[p];
+          if (!hasHazard(paragraph)) continue;
+          var replacement = owner.createElement('div');
+          for (var a = 0; a < paragraph.attributes.length; a++) {
+            var attr = paragraph.attributes[a];
+            replacement.setAttribute(attr.name, attr.value);
+          }
+          while (paragraph.firstChild) replacement.appendChild(paragraph.firstChild);
+          if (paragraph.parentNode) paragraph.parentNode.replaceChild(replacement, paragraph);
+          renamed++;
+        }
+        return renamed;
+      };
+      normalizeHtmlAutoclose(clone);
+
       return (isFullDoc ? '<!DOCTYPE html>\\n' : '') + clone.outerHTML;
     })()
   `;

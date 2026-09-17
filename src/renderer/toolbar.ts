@@ -401,6 +401,12 @@ const hubSearchInput = document.getElementById('hubSearchInput') as HTMLInputEle
 const hubSearchClear = document.getElementById('hubSearchClear') as HTMLButtonElement | null;
 const btnHubNewWorkflow = document.getElementById('btnHubNewWorkflow') as HTMLButtonElement | null;
 const hubItemsList = document.getElementById('hubItemsList') as HTMLElement | null;
+// Static provenance disclosure, declared in toolbar.html and only ever shown or
+// hidden here. It is deliberately NOT built from the payload: the panel reports
+// dispatches the ledger recorded, which is a proxy for effectiveness rather than
+// a measurement of it, so the sentence must stay identical for every payload
+// (including no payload at all) instead of tracking the data it qualifies.
+const hubMcpDispatchProvenance = document.getElementById('mcpDispatchProvenance') as HTMLElement | null;
 const hubDetailEmpty = document.getElementById('hubDetailEmpty') as HTMLElement | null;
 const hubWfDetail = document.getElementById('hubWfDetail') as HTMLElement | null;
 const hubMcpDetail = document.getElementById('hubMcpDetail') as HTMLElement | null;
@@ -1405,6 +1411,11 @@ function setHubTab(tab: HubTab) {
     if (btn) btn.classList.toggle('active', t === tab);
   }
   hubCoreSelected = null;
+  // The provenance line belongs to the MCP Dispatch tab's counts, so it is shown
+  // exactly with that tab. Visibility only — its text never depends on the data.
+  if (hubMcpDispatchProvenance) {
+    hubMcpDispatchProvenance.style.display = tab === 'mcp-dispatch' ? 'block' : 'none';
+  }
   renderHubList();
   if (tab === 'workflows') {
     if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);

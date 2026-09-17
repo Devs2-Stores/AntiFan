@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T04:53:18.057Z",
+  "liveOrigin": "https://comnieuthienly.com",
+  "cloneOrigin": "http://127.0.0.1:3311",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 8573,
+        "device": null,
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": []
+      },
+      "clone": {
+        "width": 1440,
+        "height": 8573,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 7.87,
+      "diffPixels": 947694,
+      "totalPixels": 12039176,
+      "maskedAreaPercent": 2.675,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 982
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 975
+        },
+        {
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 991
+        },
+        {
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 992
+        }
+      ],
+      "verdict": "FAIL",
+      "elapsedMs": 29384
+    },
+    {
+      "route": "/",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 10566,
+        "device": null,
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": []
+      },
+      "clone": {
+        "width": 390,
+        "height": 10566,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.08,
+      "diffPixels": 3333,
+      "totalPixels": 4048782,
+      "maskedAreaPercent": 1.858,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 128,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        },
+        {
+          "x": 160,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 192,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 15
+        },
+        {
+          "x": 224,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        },
+        {
+          "x": 32,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 224,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 43621
+    }
+  ],
+  "verdict": "HARD_FAILED",
+  "executed": 2,
+  "passed": 1,
+  "blocked": 0,
+  "errored": 0,
+  "worstMismatchPercent": 7.87,
+  "finishedAt": "2026-09-17T04:54:31.080Z"
+}

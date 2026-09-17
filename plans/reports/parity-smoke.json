@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T04:31:56.448Z",
+  "liveOrigin": "https://comnieuthienly.com",
+  "cloneOrigin": "http://127.0.0.1:3311",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/reservations",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/reservations",
+      "cloneUrl": "http://127.0.0.1:3311/reservations",
+      "verdict": "BLOCKED",
+      "error": "TIMEOUT(90000ms): load https://comnieuthienly.com/reservations"
+    }
+  ],
+  "verdict": "BLOCKED",
+  "executed": 0,
+  "passed": 0,
+  "blocked": 1,
+  "worstMismatchPercent": null,
+  "finishedAt": "2026-09-17T04:33:28.236Z"
+}

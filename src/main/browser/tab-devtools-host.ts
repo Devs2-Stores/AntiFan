@@ -50,6 +50,27 @@ const delay = (ms: number): Promise<void> => {
  */
 const PREWARM_EXEC_BUDGET_MS = 15_000;
 
+/**
+ * Bound for the native viewport raster. A view whose surface can answer at all
+ * answers in tens of milliseconds (measured 27-47ms on an attached
+ * viewport-sized view), so this ceiling only has to absorb a surface that has
+ * to be rebuilt first (measured 1.1-2.4s for the first raster of a hidden
+ * window). A view that never answers falls through to the CDP path instead of
+ * stalling the capture at the caller's bound.
+ */
+const NATIVE_VIEWPORT_RASTER_BOUND_MS = 4_000;
+
+/**
+ * A viewport capture whose native tier handed back no frame has no compositor
+ * surface to copy: the viewport raster is the view's own composited image, so an
+ * empty native answer means the window is not presenting the view. The CDP tier
+ * then has nothing to rasterize and waits out its whole bound instead of failing,
+ * which also leaves the target's CDP transport draining for every later command.
+ * The fallback therefore gets this short probe bound and reports the missing
+ * surface by name when it cannot answer.
+ */
+const NO_SURFACE_CAPTURE_PROBE_BOUND_MS = 8_000;
+
 export interface TabDevToolsContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
   getTabRecord: (tabId: string) => NativeTabRecord | undefined;
@@ -1732,6 +1753,48 @@ export class TabDevToolsHost {
   });
   }
 
+  /**
+   * Raster of the view's own composited surface, bounded so a view that cannot
+   * produce one falls through to the CDP path instead of stalling the capture at
+   * the caller's bound. Returns encoded bytes, or null when the surface is
+   * absent, empty, or did not answer within the bound.
+   *
+   * Only ever used for a viewport raster: the native surface holds nothing
+   * beyond the visible region, so a clip or a document snapshot has to come from
+   * the CDP path that can rasterize past the viewport.
+   */
+  private async captureNativeViewportRaster(
+    wc: Electron.WebContents,
+    format: 'png' | 'jpeg',
+    quality?: number,
+    boundMs: number = NATIVE_VIEWPORT_RASTER_BOUND_MS
+  ): Promise<Buffer | null> {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return null;
+    if (typeof wc.capturePage !== 'function') return null;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      // The capture starts before the race, so the bound never cancels the
+      // raster itself — only this call's wait for it.
+      const pending = wc.capturePage().catch(() => null);
+      const bound = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), Math.max(1, Math.round(boundMs)));
+      });
+      const image = await Promise.race([pending, bound]);
+      if (!image) return null;
+      if (typeof image.isEmpty === 'function' && image.isEmpty()) return null;
+      if (format === 'jpeg' && typeof image.toJPEG === 'function') {
+        const jpeg = image.toJPEG(Math.max(1, Math.min(100, Math.round(quality ?? 85))));
+        if (jpeg.length > 0) return jpeg;
+      }
+      const png = typeof image.toPNG === 'function' ? image.toPNG() : Buffer.alloc(0);
+      return png.length > 0 ? png : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   public async captureVerificationScreenshot(
     rect?: Rectangle,
     tabId?: string,
@@ -1969,9 +2032,19 @@ export class TabDevToolsHost {
             }
           }
 
-          // ONE bounded Page.captureScreenshot. No retry tier and no capturePage
-          // fallback: a second attempt on a poisoned CDP queue is what wedged the
-          // target before, and capturePage can only ever return viewport bytes.
+          // A viewport raster is exactly what the native view already composites,
+          // so ask the view for it before reaching for a fresh copy of the
+          // compositor surface. A background target is attached in place for the
+          // raster — the window is not presenting it — and Page.captureScreenshot
+          // on a surface nobody presents can wait out the whole bound instead of
+          // failing; that same hang leaves the target's CDP transport draining,
+          // which blocks every later command on it. The native raster is
+          // geometry-checked against the measured render surface, so a view that
+          // answers with a different size (emulated viewport, scaled pane) falls
+          // through to CDP instead of returning mislabeled evidence.
+          //
+          // ONE bounded Page.captureScreenshot below. No retry tier: a second
+          // attempt on a poisoned CDP queue is what wedged the target before.
           //
           // clip/full-page must rasterize from the compositor surface: with
           // fromSurface:false Chromium captures the renderer view, which is
@@ -1993,12 +2066,56 @@ export class TabDevToolsHost {
           // walk + settle gate (seconds of work), so a window hidden mid-capture
           // would otherwise still reach captureBeyondViewport and wait out the
           // bound — the same 60s hang this guard exists to prevent.
+          let nativeRasterAnswered = false;
+          if (mode === 'viewport' && !isOffscreenTarget) {
+            const nativeBytes = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality);
+            if (nativeBytes) {
+              const nativeImage = imageFormat === 'jpeg' ? validateJpegBuffer(nativeBytes) : validatePngBuffer(nativeBytes);
+              const nativeSize = nativeImage.ok ? { width: nativeImage.width, height: nativeImage.height } : null;
+              if (nativeImage.ok && nativeSize) nativeRasterAnswered = true;
+              if (nativeImage.ok && nativeSize && rasterMatchesCss(nativeSize, cssCaptureSize, dpr, zoom)) {
+                return {
+                  data: nativeBytes.toString('base64'),
+                  backend: 'capturePage',
+                  dpr,
+                  zoom,
+                  cssViewport,
+                  cssCaptureSize,
+                  rasterSize: nativeSize,
+                  captureMode: mode,
+                  timestamp: Date.now(),
+                  settle: lastQuiescence?.warnings,
+                };
+              }
+            }
+          }
+
+          // A surface that no window presents never answers the capture: measured
+          // against a detached WebContentsView (never added to a window's contentView),
+          // Page.captureScreenshot times out for viewport and beyond-viewport alike and
+          // capturePage() never settles, while the same view attached to the window
+          // answers in ~130ms. Occlusion is irrelevant (a covered view captures in
+          // ~150ms). Failing closed keeps a missing surface a typed error instead of a
+          // bound-long hang that also poisons the target's CDP queue.
+          if (!isForeground && !isOffscreenTarget && this.ctx.isTabViewAttached && targetPaneView && !this.ctx.isTabViewAttached(targetPaneView)) {
+            throw new CaptureError(
+              'NO_RENDER_SURFACE',
+              `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: its view is not attached to a window, so the compositor produces no surface. Present the view (attach-for-capture) before capturing.`
+            );
+          }
+
           if (mode !== 'viewport' && !isOffscreenTarget && this.ctx.isWindowRenderable && !this.ctx.isWindowRenderable()) {
             throw new CaptureError(
               'NO_RENDER_SURFACE',
               `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window was hidden or minimized during capture setup, so the compositor produces no beyond-viewport surface. Show the window or use a viewport capture.`
             );
           }
+          // A viewport raster that the native tier could not answer has no compositor
+          // frame to copy: the fallback would wait out its whole bound and leave the
+          // target's CDP transport draining. Give it a short probe bound instead, and
+          // name the missing surface when it cannot answer (below).
+          const captureHasNoSurface = mode === 'viewport' && !isOffscreenTarget && !nativeRasterAnswered;
+          const cdpBoundMs = captureHasNoSurface ? Math.min(boundMs, NO_SURFACE_CAPTURE_PROBE_BOUND_MS) : boundMs;
           let captureRes: { data?: string } | undefined;
           try {
             captureRes = await this.sendCdpCommand<{ data?: string }>(
@@ -2011,9 +2128,15 @@ export class TabDevToolsHost {
                 captureBeyondViewport: mode !== 'viewport',
                 clip,
               },
-              boundMs
+              cdpBoundMs
             );
           } catch (err) {
+            if (captureHasNoSurface) {
+              throw new CaptureError(
+                'NO_RENDER_SURFACE',
+                `Tab '${targetId}' pane '${effectivePane}' produced no ${mode} raster: the native view handed back no frame and the CDP fallback found no compositor surface to copy, so the window is not presenting this view (a hidden, minimised or Chromium-occluded window, or a tab the window is not showing). Bring the AntiFan window to the foreground, or capture an offscreen agent-plane tab.`
+              );
+            }
             throw this.toCaptureError(err, `Page.captureScreenshot (${mode}) on tab '${targetId}'`);
           }
 

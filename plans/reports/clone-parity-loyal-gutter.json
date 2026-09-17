@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T11:44:00.825Z",
+  "liveOrigin": "https://comnieuthienly.com",
+  "cloneOrigin": "http://127.0.0.1:3311",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/loyal-customers",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/loyal-customers",
+      "cloneUrl": "http://127.0.0.1:3311/loyal-customers",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 4006,
+        "device": null,
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.overflow-hidden rounded-xl md:mx-auto md:w-1/2 md:max-w-[50v",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 22.5
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 1,
+        "slideStatesNeutralized": 2,
+        "slideOrdersCanonicalized": 0
+      },
+      "clone": {
+        "width": 1440,
+        "height": 4006,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 1,
+        "slideStatesNeutralized": 2,
+        "slideOrdersCanonicalized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.15,
+      "diffPixels": 8421,
+      "totalPixels": 5768640,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 928,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 960,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 64,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 12
+        },
+        {
+          "x": 96,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 80
+        },
+        {
+          "x": 128,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 160,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 15048
+    }
+  ],
+  "verdict": "VERIFIED",
+  "executed": 1,
+  "passed": 1,
+  "blocked": 0,
+  "errored": 0,
+  "worstMismatchPercent": 0.15,
+  "finishedAt": "2026-09-17T11:44:15.880Z"
+}

@@ -8,6 +8,14 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { StringDecoder } = require('node:string_decoder');
 const WebSocket = require('ws');
+
+// The worker records verification claims through the live IssueRegister
+// singleton; isolate the register inside the orchestrator-owned temp root so
+// residue never lands in the real register.
+process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = path.join(
+  process.env.ANTIFAN_LIVE_PROOF_TEMP_ROOT || os.tmpdir(),
+  'verification-register'
+);
 function redactCreds(val) {
   const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
   return str

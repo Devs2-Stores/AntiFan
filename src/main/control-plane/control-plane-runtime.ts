@@ -224,7 +224,7 @@ export class ControlPlaneRuntime {
 
   public async initialize(): Promise<void> {
     const t0 = performance.now();
-    await this.runs.attachments.initialize();
+    await this.runs.attachments.initialize(this.leaseState.runtimeId);
     const t1 = performance.now();
     await this.ledger.initialize();
     const t2 = performance.now();

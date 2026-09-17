@@ -19,7 +19,7 @@
  * Usage:
  *   node scripts/run-omp-soak.cjs --minutes 2      # Fast 2-minute proof of harness
  *   node scripts/run-omp-soak.cjs --minutes 30     # Full 30-minute soak certification
- *   node scripts/run-omp-soak.cjs --minutes 60     # Extended 60-minute soak certification
+ *   node scripts/run-omp-soak.cjs --minutes 120    # Certification soak (260917-1821 phase 10)
  */
 
 const { spawn } = require('node:child_process');
@@ -301,8 +301,8 @@ Options:
 
   console.log('To run the full 30-minute soak certification, execute:');
   console.log('  node scripts/run-omp-soak.cjs --minutes 30\n');
-  console.log('To run an extended 60-minute soak certification, execute:');
-  console.log('  node scripts/run-omp-soak.cjs --minutes 60\n');
+  console.log('To run the plan certification soak (120 minutes), execute:');
+  console.log('  node scripts/run-omp-soak.cjs --minutes 120\n');
 
   if (!allPassed) {
     console.error(`[Soak-Runner] Soak certification failed one or more stability gates.`);

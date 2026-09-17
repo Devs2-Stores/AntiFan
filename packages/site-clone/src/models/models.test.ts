@@ -120,6 +120,32 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     }
   });
 
+  it('1a-4. AssetHarvester ignores url() tokens outside a CSS context (arbitrary-value classes, framework payloads)', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-inert-url-test-'));
+
+    const html = `
+      <div class="relative w-screen bg-[url('../assets/images/bg.jpeg')] bg-cover bg-center"></div>
+      <div data-bg="url('https://example.com/images/data-attr.png')"></div>
+      <div style="background-image:url('https://example.com/images/inline-style.png')"></div>
+      <style>.hero{background-image:url('https://example.com/images/style-block.png')}</style>
+      <script id="__payload">self.__next_f.push([1,"{\\"className\\":\\"bg-[url('../assets/new-images/banner.jpg')]\\"}"])</script>
+    `;
+
+    try {
+      const manifest = harvester.harvestFromHtml(html, tempDir, { baseUrl: 'https://comnieuthienly.com/' });
+      const urls = manifest.images.map(img => img.sourceUrl).sort();
+
+      assert.deepStrictEqual(
+        urls,
+        ['https://example.com/images/inline-style.png', 'https://example.com/images/style-block.png'],
+        'Only a style attribute or a <style> block may yield a background image'
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('1b. AssetHarvester extracts srcset, picture sources, and background-images with deduplication', () => {
     const harvester = new AssetHarvester();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-srcset-test-'));

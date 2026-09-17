@@ -437,6 +437,78 @@ test('foreign project cwd resolves no project root and fails open', async () => 
 	});
 });
 
+// ---------------------------------------------------------------------------
+// R7 (lifecycle) — turn_end / agent_end / session_shutdown bindings
+// ---------------------------------------------------------------------------
+
+test('turn_end records exactly one row per completed turn, zero duplicates on re-entry', async () => {
+	const dir = tmpDir('core-bridge-turn-');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, SUPER_CORE_DB: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const message = { role: 'assistant', id: 'msg-1', timestamp: 1 };
+
+		await h.emit('turn_end', { message, toolResults: [] });
+		await h.emit('turn_end', { message, toolResults: [] }); // re-entered same turn
+		const rows = () => readJsonl(log).filter((r) => r.event === 'BRIDGE_TURN_END');
+		assert.equal(rows().length, 1, 'a re-entered turn must not add a duplicate row');
+		assert.equal(rows()[0].turn, 1);
+		assert.equal(h.entries.filter((e) => e.data?.event === 'BRIDGE_TURN_END').length, 1);
+
+		await h.emit('turn_end', { message: { role: 'assistant', id: 'msg-2', timestamp: 2 }, toolResults: [] });
+		assert.equal(rows().length, 2, 'a new turn records a second row');
+		assert.equal(rows()[1].turn, 2, 'the turn counter is monotonic');
+	});
+});
+
+test('agent_end records one row for the settling event and skips mid-run events', async () => {
+	const dir = tmpDir('core-bridge-agent-end-');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, SUPER_CORE_DB: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const rows = () => readJsonl(log).filter((r) => r.event === 'BRIDGE_AGENT_END');
+
+		await h.emit('agent_end', { messages: [{ role: 'assistant', id: 'm1' }], willContinue: true });
+		assert.equal(rows().length, 0, 'a mid-run agent_end (willContinue) is not a completion');
+
+		await h.emit('agent_end', { messages: [{ role: 'assistant', id: 'm1' }] });
+		assert.equal(rows().length, 1, 'the settling event records one row');
+
+		await h.emit('agent_end', { messages: [{ role: 'assistant', id: 'm1' }] }); // re-entered
+		assert.equal(rows().length, 1, 'a re-entered settle event adds no duplicate');
+	});
+});
+
+test('session_shutdown records one row and releases the pack identity', async () => {
+	const dir = tmpDir('core-bridge-shutdown-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+		const messages = await h.emitBeforeAgentStart('shutdown task', ctx);
+		assert.equal(messages.length, 1, 'pack seeded');
+		assert.match(messages[0].details.packId, /^pack-/);
+
+		await h.emit('session_shutdown', {});
+		await h.emit('session_shutdown', {});
+		const rows = () => readJsonl(log).filter((r) => r.event === 'BRIDGE_SESSION_SHUTDOWN');
+		assert.equal(rows().length, 1, 'shutdown is recorded once per session');
+		assert.equal(rows()[0].packId, messages[0].details.packId, 'the row names the pack that was live');
+
+		// Released identity is observable through compaction, which reports the
+		// pack line only while a pack is live.
+		const [compaction] = await h.emit('session.compacting', {});
+		assert.ok(
+			compaction.context[0].includes('AntiFan Core unavailable'),
+			`shutdown must release the pack identity, got: ${compaction.context[0]}`,
+		);
+	});
+});
+
 test('a transient outage does not refuse receipt actions after Core recovers', async () => {
 	const dir = tmpDir('core-bridge-recovery-');
 	// Distinct files: writeStubCli() reuses one filename, so a second call would

@@ -6,6 +6,7 @@ priority: P1
 effort: "3-5d"
 tags: [crash, workflow-hub, memory-churn, dom-automation, issue-register]
 created: 2026-09-16
+blockedBy: ["plans/260917-1821-antifan-consolidated-remediation-soak"]
 ---
 
 # AntiFan Comprehensive Defect Remediation

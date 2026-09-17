@@ -425,34 +425,35 @@ async function openPrerequisiteContainer(
   browser: InteractionBrowser,
   desc: ElementDescriptor,
   isReference: boolean
-): Promise<boolean> {
-  return (await browser.evaluate(`(() => {
+): Promise<{ opened: boolean; branch: string }> {
+  const outcome = (await browser.evaluate(`(() => {
     ${RESOLVER_HELPER_JS}
     const target = resolveControl(${literal(desc)}, ${literal(isReference)});
+
+    const visibleClickable = (el) => {
+      if (!el || typeof el.click !== 'function') return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      const cs = window.getComputedStyle(el);
+      if (!cs || cs.display === 'none' || cs.visibility === 'hidden') return false;
+      return true;
+    };
 
     let inCategorySub = false;
     let inDrawer = false;
     let inPopupOrModal = false;
 
-    // Derive live ancestor roles, classes, and tags from resolved DOM element
-    let curr = target ? target.parentElement : null;
-    while (curr && curr !== document.body) {
-      const cls = (curr.className && typeof curr.className === 'string') ? curr.className.toLowerCase() : '';
-      const role = (curr.getAttribute('role') || '').toLowerCase();
-      const id = (curr.id || '').toLowerCase();
-      const tag = curr.tagName.toLowerCase();
+    const closestSafe = (el, selector) => {
+      try {
+        return el && typeof el.closest === 'function' ? el.closest(selector) : null;
+      } catch (e) {
+        return null;
+      }
+    };
 
-      if (id.includes('category-navigation__sub') || cls.includes('category-navigation__sub') || cls.includes('sub-menu')) {
-        inCategorySub = true;
-      }
-      if (cls.includes('category-navigation__block') || cls.includes('drawer') || (role === 'navigation' && cls.includes('mobile'))) {
-        inDrawer = true;
-      }
-      if (id.includes('popup') || cls.includes('popup') || cls.includes('modal') || role === 'dialog' || tag === 'dialog') {
-        inPopupOrModal = true;
-      }
-      curr = curr.parentElement;
-    }
+    inCategorySub = !!closestSafe(target, '.category-navigation__sub, .sub-menu, [class*="sub-menu"]');
+    inDrawer = !!closestSafe(target, '.category-navigation__block, .drawer, [class*="drawer"], [role="navigation"][class*="mobile"]');
+    inPopupOrModal = !!closestSafe(target, '[id*="popup"], [class*="popup"], [class*="modal"], [role="dialog"], dialog');
 
     // Fallback if element itself not rendered: inspect desc hints
     if (!inCategorySub && !inDrawer && !inPopupOrModal) {
@@ -465,31 +466,46 @@ async function openPrerequisiteContainer(
     // Native user actions ONLY (no inline style or class mutations)
     if (inCategorySub) {
       const parent = document.querySelector('.category-navigation__list > ul > li, .category-navigation__main > li');
-      if (parent) {
+      if (parent && visibleClickable(parent)) {
         parent.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
         parent.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
-        return true;
+        return { opened: true, branch: 'category-sub' };
       }
+      return { opened: false, branch: 'category-sub-absent' };
     }
 
     if (inDrawer) {
       const btn = document.querySelector('.menu-mobile, [data-toggle="menu-mobile"], .header-mobile__menu');
-      if (btn && typeof btn.click === 'function') {
+      if (visibleClickable(btn)) {
         btn.click();
-        return true;
+        return { opened: true, branch: 'drawer' };
       }
+      return { opened: false, branch: 'drawer-hidden' };
     }
 
     if (inPopupOrModal) {
-      const btn = document.querySelector('.video-content__button, [data-fancybox="video"], [data-toggle="modal"], [data-target*="modal"]');
-      if (btn && typeof btn.click === 'function') {
-        btn.click();
-        return true;
+      // Scope the opener to the control's own ancestry. A document-wide query picks the first
+      // global trigger in the page, which fires an unrelated heavyweight action that has
+      // nothing to do with this control.
+      let node = target;
+      let opener = null;
+      while (node && node !== document.body) {
+        if (node.matches && node.matches('.video-content__button, [data-fancybox="video"], [data-toggle="modal"], [data-target*="modal"]')) {
+          opener = node;
+          break;
+        }
+        node = node.parentElement;
       }
+      if (visibleClickable(opener)) {
+        opener.click();
+        return { opened: true, branch: 'popup' };
+      }
+      return { opened: false, branch: 'popup-hidden' };
     }
 
-    return false;
-  })()`)) as boolean;
+    return { opened: false, branch: 'none' };
+  })()`)) as { opened: boolean; branch: string } | null;
+  return outcome || { opened: false, branch: 'unresolved' };
 }
 
 async function closePrerequisiteContainer(browser: InteractionBrowser): Promise<void> {
@@ -644,17 +660,28 @@ export async function runControlStateJourneys(options: {
   });
 
   // FULL DISCOVERED DENOMINATOR: Every item in options.inventory is processed without sampling cap
+  // A crashed pass leaves no receipts behind, so an opted-in trace names the control that
+  // was in flight when the browser went down.
+  const trace = process.env.CLONE_E2E_TRACE
+    ? (message: string) => { console.log(`[journey] ${message}`); }
+    : () => {};
+
   for (let i = 0; i < options.inventory.length; i++) {
     const item = options.inventory[i] as InventoryControlItem;
+    trace(`${i}/${options.inventory.length} ${item.id} ${item.tag} ${item.name.slice(0, 40)} visible=${item.visible}`);
     const desc = descriptors[i];
     const states = item.states && item.states.length ? item.states : ['initial', 'hover', 'focus', 'activate', 'exit', 'reopen'];
 
     // 1. Hidden controls: attempt prerequisite opening (dropdown links, mobile drawer, modals)
     let openedPrereq = false;
     if (!item.visible && (item.parentSelector || item.classes?.length)) {
-      const refOpened = await openPrerequisiteContainer(options.reference, desc, true);
-      const cloneOpened = await openPrerequisiteContainer(options.clone, desc, false);
-      openedPrereq = refOpened || cloneOpened;
+      trace(`  prereq-open ${item.id}`);
+      trace(`  prereq-desc ${item.id} ${JSON.stringify(desc).slice(0, 400)}`);
+      const refState = await openPrerequisiteContainer(options.reference, desc, true);
+      trace(`  prereq-ref ${item.id} ${JSON.stringify(refState)}`);
+      const cloneState = await openPrerequisiteContainer(options.clone, desc, false);
+      trace(`  prereq-branch ${item.id} ref=${refState.branch} clone=${cloneState.branch}`);
+      openedPrereq = refState.opened || cloneState.opened;
       if (openedPrereq) await pause(150);
     }
 
@@ -681,6 +708,7 @@ export async function runControlStateJourneys(options: {
     // NOTE: Initial, hover, and focus are purely read-only observational states and run safely
     // for ALL controls. Only activate triggers live actions.
     try {
+      trace(`  scroll-into-view ${item.id}`);
       await scrollIntoView(options.reference, desc, true);
       await scrollIntoView(options.clone, desc, false);
       await pause(80);
@@ -754,6 +782,7 @@ export async function runControlStateJourneys(options: {
 
       const refInitShot = `${options.viewport}/${item.id}-initial-reference.png`;
       const cloneInitShot = `${options.viewport}/${item.id}-initial-clone.png`;
+      trace(`  initial-screenshot ${item.id}`);
       await options.save(refInitShot, await options.reference.screenshot());
       await options.save(cloneInitShot, await options.clone.screenshot());
       initialReceipt.evidence.push(refInitShot, cloneInitShot);
@@ -784,6 +813,7 @@ export async function runControlStateJourneys(options: {
           hoverReceipt.reason = 'Hover state not applicable on mobile touch viewport';
         } else {
           try {
+            trace(`  hover-move ${item.id}`);
             await options.reference.move(refInitial.center.x, refInitial.center.y);
             await options.clone.move(cloneInitial.center.x, cloneInitial.center.y);
             await pause(100);

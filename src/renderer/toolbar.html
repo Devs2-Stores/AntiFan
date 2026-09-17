@@ -512,6 +512,12 @@
         <div class="hub-body">
           <!-- Left Pane: Item List -->
           <div class="hub-list-pane" id="hubListPane">
+            <!-- Static provenance disclosure for the MCP Dispatch tab. This is MARKUP, never a
+                 payload field and never a second data source: the counts beside it describe
+                 dispatches the invocation ledger already recorded, which is a proxy for
+                 effectiveness rather than a measurement of it. Agent-side fallback lives in
+                 another plan's gaps.jsonl and is deliberately never joined here. -->
+            <div class="hub-provenance" id="mcpDispatchProvenance" style="display:none;">Nguồn số liệu: các dispatch đã được ghi vào invocation ledger — đây là chỉ báo thay thế (proxy) cho mức độ hiệu quả, <strong>không phải phép đo hiệu quả</strong>. Fallback phía agent (gaps.jsonl, thuộc plan khác) không được join vào bảng này.</div>
             <div class="hub-items-list" id="hubItemsList"></div>
           </div>
 

@@ -20,6 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
+const { HTML_AUTOCLOSE_NORMALIZER_SOURCE } = require('../packages/site-clone/dist/index.js');
 
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-gpu');
@@ -273,6 +274,45 @@ app.whenReady().then(async () => {
 
       const totalHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
       const productCards = document.querySelectorAll('.product-list__item, .product-item, .card-item, .product-card');
+
+      // The markup is re-parsed by every downstream consumer, so the serialized tree
+      // must survive the HTML tree builder's auto-closing rules (see Core
+      // html-parse-fidelity). Runs immediately before serialization.
+      ${HTML_AUTOCLOSE_NORMALIZER_SOURCE}
+      const autocloseRewrites = normalizeHtmlAutoclose(document.documentElement);
+
+      // Slider libraries (Swiper, Slick, Splide) write the geometry they measured for
+      // this viewport into inline styles on the track and its slides. The sanitizer
+      // must drop those numbers -- they freeze one viewport -- and can only re-express
+      // them relative to the track if it knows the captured ratio. Layout exists only
+      // here, so measure it now: per-view slot count plus the design gap between slots.
+      let slidersAnnotated = 0;
+      try {
+        const TRACK_CLASS_TOKENS = ['swiper-wrapper', 'slick-track', 'splide__list', 's-content'];
+        // Token match without regex: this block is an escaped template literal, where
+        // \s inside a pattern literal is silently collapsed to s.
+        const hasTrackToken = (value) => TRACK_CLASS_TOKENS.some((token) => (' ' + value + ' ').includes(' ' + token + ' '));
+        for (const track of document.querySelectorAll('*')) {
+          const className = typeof track.className === 'string' ? track.className : '';
+          if (!className || !hasTrackToken(className)) continue;
+          const slides = Array.from(track.children).filter((child) => child.offsetWidth > 0);
+          if (slides.length < 2) continue;
+          const slideWidth = slides[0].offsetWidth;
+          const gap = Math.max(0, slides[1].offsetLeft - slides[0].offsetLeft - slideWidth);
+          const trackWidth = track.clientWidth || track.offsetWidth;
+          if (!slideWidth || !trackWidth) continue;
+          const ratio = (trackWidth + gap) / (slideWidth + gap);
+          track.setAttribute('data-antifan-slider', JSON.stringify({
+            perView: Math.max(1, Math.round(ratio)),
+            fractional: Math.abs(ratio - Math.round(ratio)) > 0.15,
+            gap: Math.round(gap),
+            slide: slideWidth,
+            track: trackWidth,
+          }));
+          slidersAnnotated++;
+        }
+      } catch {}
+
       const html = document.documentElement.outerHTML;
       const htmlBytes = (new TextEncoder().encode(html)).length;
 
@@ -309,6 +349,8 @@ app.whenReady().then(async () => {
         htmlBytes,
         mutationsCount: mutationCount,
         passesCount,
+        autocloseRewrites,
+        slidersAnnotated,
         settlement: {
           passed,
           reason
@@ -327,6 +369,8 @@ app.whenReady().then(async () => {
       imagesLoaded: result.imagesLoaded,
       htmlBytes: result.htmlBytes,
       mutationsCount: result.mutationsCount,
+      autocloseRewrites: result.autocloseRewrites,
+      slidersAnnotated: result.slidersAnnotated,
       settlement: result.settlement
     });
 
@@ -365,6 +409,7 @@ app.whenReady().then(async () => {
         htmlBytes: result.htmlBytes,
         mutationsCount: result.mutationsCount,
         passesCount: result.passesCount,
+        slidersAnnotated: result.slidersAnnotated,
         durationMs: Date.now() - startTime
       }
     };

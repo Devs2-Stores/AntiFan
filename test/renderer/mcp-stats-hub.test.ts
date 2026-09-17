@@ -773,3 +773,79 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
     assert.ok(navButtons[1]!.includes("'mcp-dispatch': tabNavMcpDispatch"), 'HUB_NAV_BUTTONS must carry the new key');
   });
 });
+
+// ---------------------------------------------------------------------------
+// The provenance disclosure: what this panel does and does not measure.
+//
+// The request behind this plan was to see how effective each MCP is. What the
+// panel can actually observe is what the ledger recorded, which is a PROXY for
+// effectiveness rather than a measurement of it, because agent-side fallback and
+// escape live in another plan's gaps.jsonl and are deliberately never joined.
+// Nothing on the surface said so, which let a reader take the counts for an
+// effectiveness score. The sentence that fixes that is static markup, and these
+// tests hold it static: the literal is pinned, and the same text must come out
+// for a measured payload, an unmeasured payload, and no payload at all.
+// ---------------------------------------------------------------------------
+const PROVENANCE_TEXT = 'Nguồn số liệu: các dispatch đã được ghi vào invocation ledger — đây là chỉ báo thay thế (proxy) cho mức độ hiệu quả, không phải phép đo hiệu quả. Fallback phía agent (gaps.jsonl, thuộc plan khác) không được join vào bảng này.';
+
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+describe('MCP Dispatch provenance disclosure (the framing of the honest hole)', () => {
+  test('R10 — the line renders beside the rows and is declared exactly once, in markup', async (t) => {
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const ctx = await loadToolbar(measuredPayload());
+    await openMcpDispatchTab(ctx);
+    const el = ctx.doc.getElementById('mcpDispatchProvenance');
+    assert.ok(el, '#mcpDispatchProvenance must exist in the Hub markup');
+    assert.equal(normalizeText(el!.textContent), PROVENANCE_TEXT, 'the line renders verbatim');
+    // It belongs where the counts are read, not buried in the detail pane.
+    assert.ok(ctx.doc.getElementById('hubListPane')!.contains(el), 'the line sits in the list pane beside the rows');
+    // It is MARKUP: one declaration, in the HTML, not assembled by the renderer.
+    const html = fs.readFileSync(path.join(RENDERER_DIR, 'toolbar.html'), 'utf8');
+    assert.equal(html.split('id="mcpDispatchProvenance"').length - 1, 1, 'declared exactly once in toolbar.html');
+    assert.ok(html.includes('chỉ báo thay thế (proxy)'), 'the proxy wording lives in the markup');
+    const rendererSource = fs.readFileSync(SOURCE_TOOLBAR_TS, 'utf8');
+    assert.ok(!rendererSource.includes('chỉ báo thay thế (proxy)'), 'the sentence is NOT built in toolbar.ts');
+  });
+
+  test('R10b — the text is identical for a measured payload, an unmeasured one and none at all', async (t) => {
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const measured = await loadToolbar(measuredPayload());
+    await openMcpDispatchTab(measured);
+    const withRows = normalizeText(measured.doc.getElementById('mcpDispatchProvenance')?.textContent);
+    // An UNMEASURED store is exactly the state in which a reader is most tempted to
+    // read the panel as an effectiveness score, so the qualifier must not disappear.
+    const nothing = await loadToolbar(unmeasuredPayload(null, 'NO_DATA_ROOT_RESOLVED', []));
+    await openMcpDispatchTab(nothing);
+    const withoutRows = normalizeText(nothing.doc.getElementById('mcpDispatchProvenance')?.textContent);
+    // A bridge that never answers leaves the tab with no payload object at all.
+    const absent = await loadToolbar(undefined, 'absent');
+    await openMcpDispatchTab(absent);
+    const withNoPayload = normalizeText(absent.doc.getElementById('mcpDispatchProvenance')?.textContent);
+    measured.dom.window.close();
+    nothing.dom.window.close();
+    absent.dom.window.close();
+    assert.equal(withRows, PROVENANCE_TEXT);
+    assert.equal(withoutRows, withRows, 'a measured→unmeasured change must not alter the sentence');
+    assert.equal(withNoPayload, withRows, 'a missing payload must not alter the sentence');
+  });
+
+  test('R10c — the line follows the tab: shown on mcp-dispatch, hidden on every other tab', async (t) => {
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const ctx = await loadToolbar(measuredPayload());
+    const doc = ctx.doc;
+    const el = doc.getElementById('mcpDispatchProvenance') as HTMLElement;
+    (doc.getElementById('btnWorkflowHub') as HTMLElement).click();
+    await flush();
+    assert.notEqual(el.style.display, 'block', 'hidden on the tab the Hub opens with');
+    (doc.getElementById('tabNavMcpDispatch') as HTMLElement).click();
+    await flush();
+    assert.equal(el.style.display, 'block', 'shown with the counts it qualifies');
+    (doc.getElementById('tabNavMcp') as HTMLElement).click();
+    await flush();
+    assert.notEqual(el.style.display, 'block', 'hidden again when another tab takes over');
+    ctx.dom.window.close();
+  });
+});

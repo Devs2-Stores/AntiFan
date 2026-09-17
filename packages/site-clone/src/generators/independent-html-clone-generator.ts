@@ -147,8 +147,6 @@ const STYLE_ATTR_INNER_RE = /(\sstyle\s*=\s*(["']))([\s\S]*?)\2/i;
 const DISPLAY_NONE_DECL_RE = /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/gi;
 const EDGE_SEMICOLONS_RE = /^;+|;+$/g;
 
-const TRANSLATE_X_RE = /(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translateX\(-?[0-9]+(?:\.[0-9]+)?px\)\s*;?/gi;
-const TRANSLATE_3D_RE = /(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translate3d\(-?[0-9]+(?:\.[0-9]+)?px,\s*0(?:px)?,\s*0(?:px)?\)\s*;?/gi;
 
 const SLICK_DOTS_RE = /<ul\b[^>]*\bclass=["'][^"']*\bslick-dots\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/gi;
 const SLICK_ARROWS_RE = /<button\b[^>]*\bclass=["'][^"']*\bslick-(?:prev|next|arrow)\b[^"']*["'][^>]*>[\s\S]*?<\/button>/gi;
@@ -301,6 +299,168 @@ export function stripCaptureTimeSliderGeometry(html: string): string {
   return result;
 }
 
+const SLIDER_ANNOTATION_RE = /\sdata-antifan-slider\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+const VOID_ELEMENTS: Record<string, true> = {
+  area: true, base: true, br: true, col: true, embed: true, hr: true, img: true,
+  input: true, link: true, meta: true, param: true, source: true, track: true, wbr: true
+};
+const RAWTEXT_ELEMENTS: Record<string, true> = { script: true, style: true, textarea: true, title: true };
+
+interface MeasuredSliderGeometry {
+  perView: number;
+  fractional: boolean;
+  gap: number;
+  slide: number;
+  track: number;
+}
+
+function parseMeasuredSlider(annotation: string): MeasuredSliderGeometry | null {
+  try {
+    // The capture serializes through outerHTML, so the JSON arrives entity-encoded
+    // (&quot; for every quote). Decode before parsing or every real capture is dropped.
+    const decoded = annotation
+      .replace(/&quot;|&#34;|&#x22;/gi, '"')
+      .replace(/&#39;|&apos;|&#x27;/gi, "'")
+      .replace(/&amp;|&#38;/gi, '&');
+    const parsed = JSON.parse(decoded) as Partial<MeasuredSliderGeometry>;
+    if (!parsed || !Number.isFinite(parsed.slide) || !Number.isFinite(parsed.track)) return null;
+    if (!parsed.slide || !parsed.track) return null;
+    return {
+      perView: Number.isFinite(parsed.perView) && parsed.perView! > 0 ? Math.round(parsed.perView!) : 1,
+      fractional: parsed.fractional === true,
+      gap: Number.isFinite(parsed.gap) ? Math.max(0, Math.round(parsed.gap!)) : 0,
+      slide: parsed.slide!,
+      track: parsed.track!
+    };
+  } catch {
+    return null;
+  }
+}
+
+function hasPixelGeometryDeclaration(styleValue: string): boolean {
+  return styleValue.split(';').some((declaration) => {
+    const separator = declaration.indexOf(':');
+    if (separator === -1) return false;
+    const property = declaration.slice(0, separator).trim().toLowerCase();
+    const value = declaration.slice(separator + 1).trim();
+    return CAPTURE_GEOMETRY_PROPERTIES.test(property) && value.includes('px');
+  });
+}
+
+// Only real slides carry the measured geometry. A track can also hold inline scripts
+// or control markup, and those must never receive a slide width.
+function isMeasuredSlideTag(tag: string, name: string): boolean {
+  if (VOID_ELEMENTS[name] === true || RAWTEXT_ELEMENTS[name] === true) return false;
+  const classMatch = CLASS_ATTR_RE.exec(tag);
+  if (classMatch && (hasClassToken(classMatch[2], SLIDER_SLIDE_CLASSES) || hasClassToken(classMatch[2], ['item']))) {
+    return true;
+  }
+  const styleMatch = STYLE_ATTR_RE.exec(tag);
+  return Boolean(styleMatch && hasPixelGeometryDeclaration(styleMatch[3]));
+}
+
+function applyMeasuredSlideGeometry(tag: string, geometry: MeasuredSliderGeometry): string {
+  // The library sizes a whole-per-view slide as (track - (perView - 1) * gap) / perView.
+  // Expressing that law instead of one measured fraction keeps the capture exact at the
+  // capture width AND at every other width, because the live instance recomputes the same
+  // law on resize. The measured numbers gate it: a whole-per-view slider whose recorded
+  // slide does not satisfy the law (nested boxes, an inner margin the library wrote) falls
+  // back to the ratio, so no track can be resized by a figure the capture never showed.
+  const lawSlide = (geometry.track - (geometry.perView - 1) * geometry.gap) / geometry.perView;
+  const lawHolds = !geometry.fractional && Math.abs(lawSlide - geometry.slide) <= 1.5;
+  // The capture measured the slide against the track that rendered it. Keeping that
+  // ratio (instead of the pixels) preserves the captured slide count at every track
+  // width, which is what the live library does when the container resizes.
+  const percent = Number(((geometry.slide / geometry.track) * 100).toFixed(4));
+  const declarations = [
+    lawHolds
+      ? `width: calc((100% - ${(geometry.perView - 1) * geometry.gap}px) / ${geometry.perView}) !important`
+      : `width: calc(${percent}%) !important`
+  ];
+  if (geometry.gap > 0) {
+    declarations.push(`margin-right: ${geometry.gap}px !important`);
+  }
+  const styleMatch = STYLE_ATTR_RE.exec(tag);
+  if (!styleMatch) {
+    return tag.replace(/>$/, ` style="${declarations.join('; ')}">`);
+  }
+  const kept = styleMatch[3]
+    .split(';')
+    .map((declaration) => declaration.trim())
+    .filter((declaration) => {
+      if (!declaration) return false;
+      const separator = declaration.indexOf(':');
+      if (separator === -1) return true;
+      return !CAPTURE_GEOMETRY_PROPERTIES.test(declaration.slice(0, separator).trim().toLowerCase());
+    });
+  const merged = [...kept, ...declarations].join('; ');
+  return tag.replace(styleMatch[0], `${styleMatch[1]}${styleMatch[2]}${merged}${styleMatch[2]}`);
+}
+
+/**
+ * Slider libraries write the geometry they measured for the capture viewport into
+ * inline styles, which `stripCaptureTimeSliderGeometry` removes so a single snapshot
+ * cannot freeze every screen at the capture width. Dropping the numbers only works
+ * when the stylesheet alone resolves a usable width: a track whose slides are sized
+ * by the library's own runtime (Swiper's `.swiper-slide`, Splide's `.splide__slide`)
+ * collapses to one slide per view once the runtime is gone.
+ *
+ * The capture records the measured slide-to-track ratio on the track
+ * (`data-antifan-slider`). This pass re-expresses that ratio as a relative width on
+ * the track's direct children, so the clone renders the captured slide count at any
+ * viewport, and drops the capture-only annotation from the emitted markup.
+ */
+export function restoreMeasuredSliderGeometry(html: string): string {
+  if (!html.includes('data-antifan-slider')) return html;
+  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
+  let out = '';
+  let cursor = 0;
+  let depth = 0;
+  let scoped: { depth: number; geometry: MeasuredSliderGeometry } | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html)) !== null) {
+    out += html.slice(cursor, match.index);
+    cursor = tagRe.lastIndex;
+    const isClosing = match[1] === '/';
+    const name = match[2].toLowerCase();
+    const selfClosing = /\/>$/.test(match[0]);
+    let tag = match[0];
+    if (isClosing) {
+      if (VOID_ELEMENTS[name] !== true && !selfClosing) {
+        depth--;
+        if (scoped && depth < scoped.depth) scoped = null;
+      }
+      out += tag;
+      continue;
+    }
+    const annotation = SLIDER_ANNOTATION_RE.exec(tag);
+    if (VOID_ELEMENTS[name] !== true && !selfClosing) {
+      depth++;
+    }
+    if (annotation) {
+      tag = tag.replace(SLIDER_ANNOTATION_RE, '');
+      const geometry = parseMeasuredSlider(annotation[1] ?? annotation[2]);
+      scoped = geometry ? { depth, geometry } : null;
+      out += tag;
+      continue;
+    }
+    if (scoped && depth === scoped.depth + 1 && !selfClosing && isMeasuredSlideTag(tag, name)) {
+      tag = applyMeasuredSlideGeometry(tag, scoped.geometry);
+    }
+    out += tag;
+    if (RAWTEXT_ELEMENTS[name] === true && !selfClosing) {
+      const closingIndex = html.toLowerCase().indexOf(`</${name}`, cursor);
+      if (closingIndex !== -1) {
+        out += html.slice(cursor, closingIndex);
+        cursor = closingIndex;
+        tagRe.lastIndex = closingIndex;
+      }
+    }
+  }
+  out += html.slice(cursor);
+  return out;
+}
+
 export function sanitizeSectionMarkup(html: string): string {
   // 1. Synthesize declarative state/open/close toggle bindings BEFORE stripping reactive framework attributes
   let processed = html
@@ -348,13 +508,12 @@ export function sanitizeSectionMarkup(html: string): string {
       });
     });
 
-  // 2. Reset transient in-flight slider/carousel transforms to neutral origin
-  processed = processed
-    .replace(TRANSLATE_X_RE, '$1transform: translateX(0px);')
-    .replace(TRANSLATE_3D_RE, '$1transform: translate3d(0px, 0px, 0px);');
 
-  // 3. Strip proven capture-time slider geometry and unwrap capture-time slick DOM
+  // 2. Strip proven capture-time slider geometry and unwrap capture-time slick DOM
   processed = stripCaptureTimeSliderGeometry(processed);
+
+  // 3. Re-express the captured slider ratios the strip pass removed as relative widths
+  processed = restoreMeasuredSliderGeometry(processed);
 
   // Unwrap injected capture-time .slick-list and .slick-track, strip runtime classes/dots/clones
   // so static markup holds original slide children that client scripts (home.js) cleanly initialize
@@ -1259,9 +1418,43 @@ ${extractedEffectsScripts.join('\n\n')}
 ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
 
     // 1b. Mobile Drawer Navigation & Drilldown (Universal & Theme)
+    // A drawer captured in its closed state keeps the slide-out offset that the site's own
+    // runtime applied to it. Swapping the display token reveals the panel but leaves the
+    // surface parked outside the viewport, so the open state must also release that offset.
+    var releaseSlideOffset = function(drawer) {
+      var surfaces = [drawer].concat(Array.prototype.slice.call(drawer.children));
+      surfaces.forEach(function(node) {
+        if (!node || node.nodeType !== 1) return;
+        var style = window.getComputedStyle(node);
+        var transform = style.transform || style.webkitTransform;
+        if (!transform || transform === 'none') return;
+        var rect = node.getBoundingClientRect();
+        if (!rect.width) return;
+        var offset = 0;
+        try {
+          offset = new WebKitCSSMatrix(transform).m41 || 0;
+        } catch (err) {
+          var match = /matrix(?:3d)?\((.+)\)/.exec(transform);
+          if (match) {
+            var parts = match[1].split(',');
+            offset = parseFloat(parts[parts.length === 6 ? 4 : 12]) || 0;
+          }
+        }
+        if (Math.abs(offset) >= rect.width * 0.9) node.style.transform = 'translateX(0px)';
+      });
+    };
     var openDrawer = function(drawer) {
       if (!drawer) return;
       var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
+      // A panel whose closed state is the utility token 'hidden' (rather than a state class)
+      // must have that token swapped, not have a class added beside it: 'hidden' keeps
+      // 'display: none' however many state classes are present.
+      if (drawer.classList.contains('hidden')) {
+        drawer.classList.remove('hidden');
+        drawer.classList.add('block');
+        drawer.setAttribute('data-antifan-utility-swap', 'true');
+        if (targetClass === 'hidden') targetClass = 'block';
+      }
       drawer.classList.add(targetClass, 'show', 'active');
       drawer.setAttribute('data-antifan-opened', 'true');
       if (drawer.hasAttribute('data-antifan-target') && drawer.style) {
@@ -1272,7 +1465,12 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
         }
         drawer.style.display = 'block';
       }
-      if (document && document.body && document.body.style) {
+      releaseSlideOffset(drawer);
+      // An inferred overlay has no site contract to follow: the surface it was captured from
+      // decided whether the page scrolls behind the panel, so only an explicitly marked
+      // drawer owns a scroll lock here.
+      var inferredOverlay = Boolean(drawer.id && drawer.id.indexOf('antifan-inferred-overlay-') === 0);
+      if (!inferredOverlay && document && document.body && document.body.style) {
         document.body.style.overflow = 'hidden';
       }
     };
@@ -1280,6 +1478,11 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       if (!drawer) return;
       var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
       drawer.classList.remove(targetClass, 'show', 'active');
+      if (drawer.hasAttribute('data-antifan-utility-swap')) {
+        drawer.classList.remove('block');
+        drawer.classList.add('hidden');
+        drawer.removeAttribute('data-antifan-utility-swap');
+      }
       drawer.removeAttribute('data-antifan-opened');
       if (drawer.hasAttribute('data-antifan-target')) {
         drawer.style.display = 'none';
@@ -1379,6 +1582,102 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       });
     });
 
+    // 1c. Icon-control / hidden-overlay inference. A drawer or offcanvas is sometimes driven by
+    // a control that carries no marker at all: a bare icon button whose panel is a hidden
+    // overlay the site reveals by swapping the utility token 'hidden' for 'block'. That swap is
+    // the site's entire interaction contract, so inferring the pair reproduces it.
+    var iconControlMaxSize = 72;
+    var isIconOnlyControl = function(el) {
+      if (!el || el.nodeType !== 1) return false;
+      if (el.hasAttribute('data-antifan-toggle') || el.hasAttribute('data-antifan-open') || el.hasAttribute('data-antifan-close') || el.hasAttribute('data-antifan-target')) return false;
+      if ((el.textContent || '').trim() !== '') return false;
+      if (!el.querySelector('svg')) return false;
+      if (typeof el.getBoundingClientRect !== 'function') return false;
+      var rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      return rect.width <= iconControlMaxSize && rect.height <= iconControlMaxSize;
+    };
+    var isHiddenOverlayPanel = function(el) {
+      if (!el || el.nodeType !== 1) return false;
+      if (!el.classList.contains('hidden')) return false;
+      if (el.hasAttribute('data-antifan-unhydrated-overlay') || el.hasAttribute('data-antifan-drawer')) return false;
+      if (typeof el.matches === 'function' && el.matches(overlayExcluded)) return false;
+      var raw = el.getAttribute('class') || '';
+      if (!/(^|\\s)(absolute|fixed)(\\s|$)/.test(raw)) return false;
+      if (!/(^|\\s)z-(\\d+|\\[[^\\]]+\\])(\\s|$)/.test(raw)) return false;
+      if (!/(^|\\s)(w-screen|inset-0|w-full|w-1\\/2|w-2\\/3|w-3\\/4|w-\\[[^\\]]+\\])(\\s|$)/.test(raw)) return false;
+      return el.querySelectorAll('a[href]').length > 0;
+    };
+    var inferredOverlayIndex = 0;
+    Array.prototype.filter.call(document.querySelectorAll('.hidden'), isHiddenOverlayPanel).forEach(function(panel) {
+      var trigger = null;
+      var scope = panel.parentElement;
+      for (var depth = 0; scope && depth < 5 && !trigger; depth += 1) {
+        var walk = Array.prototype.slice.call(scope.querySelectorAll('*'));
+        var panelIndex = walk.indexOf(panel);
+        // Only a control that can act as a toggle competes for the pairing: an icon-only
+        // element that merely looks like a button (a decorative span) or an anchor that
+        // navigates away is not the drawer's control.
+        var actionable = Array.prototype.filter.call(
+          scope.querySelectorAll('button, [role="button"], a'),
+          function(candidate) {
+            var tag = candidate.tagName ? candidate.tagName.toLowerCase() : '';
+            if (tag === 'a') {
+              var href = candidate.getAttribute('href');
+              if (href && href !== '#') return false;
+            }
+            return isIconOnlyControl(candidate);
+          }
+        );
+        var preceding = actionable.filter(function(candidate) {
+          return panelIndex === -1 || walk.indexOf(candidate) < panelIndex;
+        });
+        var toggles = preceding.filter(function(candidate) {
+          var tag = candidate.tagName ? candidate.tagName.toLowerCase() : '';
+          return tag === 'button' || candidate.getAttribute('role') === 'button';
+        });
+        trigger = toggles.length ? toggles[toggles.length - 1] : (preceding.length ? preceding[preceding.length - 1] : null);
+        scope = scope.parentElement;
+      }
+      if (!trigger) return;
+      inferredOverlayIndex += 1;
+      if (!panel.id) panel.id = 'antifan-inferred-overlay-' + inferredOverlayIndex;
+      panel.setAttribute('data-antifan-drawer', 'true');
+      if (!panel.getAttribute('data-antifan-class')) panel.setAttribute('data-antifan-class', 'block');
+      trigger.setAttribute('data-antifan-drawer-trigger', 'true');
+      trigger.setAttribute('data-antifan-drawer-for', panel.id);
+    });
+    // The toggle is delegated in the capture phase: a hydrated framework bundle that is
+    // still present in the clone can stop propagation inside its own subtree, and a handler
+    // bound on the control itself would never be reached.
+    var inferredPanelFrom = function(node) {
+      if (!node || typeof node.closest !== 'function') return null;
+      var trigger = node.closest('[data-antifan-drawer-trigger][data-antifan-drawer-for]');
+      if (trigger) {
+        var triggerFor = trigger.getAttribute('data-antifan-drawer-for');
+        return triggerFor ? document.getElementById(triggerFor) : null;
+      }
+      var panel = node.closest('[data-antifan-drawer]');
+      if (!panel || !panel.id || panel.id.indexOf('antifan-inferred-overlay-') !== 0) return null;
+      if (node === panel) return panel;
+      var control = node.closest('button, a, [role="button"]');
+      if (!control || control === panel || !isIconOnlyControl(control)) return null;
+      var href = control.getAttribute('href');
+      var samePage = !href || href === '#' || href === location.pathname || href === location.href;
+      return samePage ? panel : null;
+    };
+    document.addEventListener('click', function(e) {
+      var panel = inferredPanelFrom(e.target);
+      if (!panel) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (panel.classList.contains('hidden')) {
+        openDrawer(panel);
+      } else {
+        closeDrawer(panel);
+      }
+    }, true);
+
     var drawerCloseBtns = document.querySelectorAll('.category-navigation__header .close, .category-navigation__block .close, [data-antifan-drawer] .close, .drawer .close, .offcanvas .close, [data-dismiss="drawer"]');
     drawerCloseBtns.forEach(function(btn) {
       btn.addEventListener('click', function(e) {
@@ -1438,6 +1737,56 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
       });
     });
 
+    // Captured framework modals keep their markup but lose the state handler; bind their icon-only header dismiss control.
+    var closeCaptureModal = function(overlay) {
+      if (!overlay) return;
+      overlay.classList.remove('active', 'show');
+      overlay.setAttribute('data-antifan-closed-overlay', 'true');
+      if (overlay.style && typeof overlay.style.setProperty === 'function') {
+        overlay.style.setProperty('display', 'none', 'important');
+        overlay.style.setProperty('visibility', 'hidden', 'important');
+        overlay.style.setProperty('pointer-events', 'none', 'important');
+      } else if (overlay.style) {
+        overlay.style.display = 'none';
+        overlay.style.visibility = 'hidden';
+        overlay.style.pointerEvents = 'none';
+      }
+      var openCaptureOverlays = document.querySelectorAll('[data-antifan-capture-modal]:not([data-antifan-closed-overlay])');
+      if (!openCaptureOverlays.length) document.body.style.overflow = '';
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('body *'), function(node) {
+      if (!node || node.hasAttribute('data-antifan-capture-modal')) return;
+      if (typeof window.getComputedStyle !== 'function' || typeof node.getBoundingClientRect !== 'function') return;
+      var nodeStyle = window.getComputedStyle(node);
+      if (!nodeStyle || nodeStyle.position !== 'fixed') return;
+      var documentElement = document.documentElement || {};
+      var viewportWidth = window.innerWidth || documentElement.clientWidth || 0;
+      var viewportHeight = window.innerHeight || documentElement.clientHeight || 0;
+      var nodeRect = node.getBoundingClientRect();
+      if (nodeRect.width < viewportWidth * 0.9 || nodeRect.height < viewportHeight * 0.9) return;
+      if (node.matches('.modal, .popup, #popup-video, #popup-login') || node.closest('.modal, .popup, #popup-video, #popup-login')) return;
+      var content = node.querySelector('.modal-content');
+      if (!content) return;
+      var contentRect = content.getBoundingClientRect();
+      var closeButton = Array.prototype.filter.call(content.querySelectorAll('button'), function(button) {
+        var rect = button.getBoundingClientRect();
+        var label = (button.innerText || button.getAttribute('aria-label') || '').trim();
+        var namedDismiss = /close|dismiss|cancel|back|quay|đóng|trở lại/i.test(label);
+        var iconOnly = !label && rect.top <= contentRect.top + Math.min(120, contentRect.height * 0.25);
+        return rect.top <= contentRect.top + Math.min(120, contentRect.height * 0.25) && (namedDismiss || iconOnly);
+      })[0];
+      if (!closeButton) return;
+      node.setAttribute('data-antifan-capture-modal', 'true');
+      closeButton.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeCaptureModal(node);
+      });
+      node.addEventListener('click', function(e) {
+        if (e.target === node) closeCaptureModal(node);
+      });
+    });
+
     // Universal Escape key listener for modals and drawers
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' || e.keyCode === 27) {
@@ -1450,6 +1799,9 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
           m.classList.remove('active', 'show');
           var iframe = m.querySelector('iframe');
           if (iframe) iframe.src = 'about:blank';
+        });
+        document.querySelectorAll('[data-antifan-capture-modal]:not([data-antifan-closed-overlay])').forEach(function(m) {
+          closeCaptureModal(m);
         });
         document.body.style.overflow = '';
       }
@@ -1579,14 +1931,47 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
     // 5b. Fullscreen capture overlays. An overlay that was open while the capture ran is baked
     // into the bundle with nothing left to close it, so its backdrop covers the whole page.
     // Overlays that expose no dismiss affordance of their own are marked for the parity
-    // stylesheet to retire.
+    // stylesheet to retire. The scan covers every depth: a modal wrapper is usually nested
+    // inside the page layout, not a direct child of <body>.
     var overlayExcluded = '.category-navigation__block, [data-antifan-drawer], [data-antifan-state], [data-antifan-target], .drawer, .offcanvas, .mobile-drawer, #popup-video, #popup-login, .popup, .modal';
+    var dialogSelector = '[class*="modal"], [class*="popup"], [role="dialog"], [aria-modal="true"]';
+    var coversViewport = function(el, width, height) {
+      var rect = el.getBoundingClientRect();
+      return rect.width >= width * 0.9 && rect.height >= height * 0.9;
+    };
+    // An overlay that owns controls is a page surface the visitor drives, not a splash the
+    // capture left open: retiring it would delete the baseline the reference page shows.
+    var interactionSelector = 'form, input, select, textarea, button, [class*="close"], [aria-label*="close"], [aria-label*="đóng"]';
+    // A dialog captured in its open state keeps its backdrop over the page: a static bundle
+    // has no controller left to close it, and hiding the dialog alone would trade a visible
+    // modal for a permanently dimmed page. Retire the full-viewport layer that carries it.
+    var retireOpenDialogBackdrops = function() {
+      var viewportWidth = window.innerWidth || 0;
+      var viewportHeight = window.innerHeight || 0;
+      if (viewportWidth <= 0 || viewportHeight <= 0) return;
+      Array.prototype.forEach.call(document.querySelectorAll(dialogSelector), function(dialog) {
+        if (dialog.hasAttribute('data-antifan-unhydrated-overlay')) return;
+        if (dialog.matches(overlayExcluded) || dialog.closest(overlayExcluded)) return;
+        if (dialog.querySelector(interactionSelector)) return;
+        var node = dialog.parentElement;
+        while (node && node !== document.documentElement) {
+          var nodeStyle = window.getComputedStyle(node);
+          if ((nodeStyle.position === 'fixed' || nodeStyle.position === 'absolute') && coversViewport(node, viewportWidth, viewportHeight)) {
+            if (node.querySelector(interactionSelector)) return;
+            node.setAttribute('data-antifan-unhydrated-overlay', 'true');
+            return;
+          }
+          node = node.parentElement;
+        }
+      });
+    };
     var retireUnhydratedOverlays = function() {
       var documentElement = document.documentElement || {};
       var viewportWidth = window.innerWidth || documentElement.clientWidth || 0;
       var viewportHeight = window.innerHeight || documentElement.clientHeight || 0;
       if (viewportWidth <= 0 || viewportHeight <= 0) return false;
-      var overlayCandidates = document.querySelectorAll('body > *, body > * > *');
+      retireOpenDialogBackdrops();
+      var overlayCandidates = document.querySelectorAll('body *');
       Array.prototype.forEach.call(overlayCandidates, function(el) {
         if (el.hasAttribute('data-antifan-unhydrated-overlay')) return;
         if (el.matches(overlayExcluded) || el.closest(overlayExcluded)) return;
@@ -1597,7 +1982,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
         var overlayRect = el.getBoundingClientRect();
         if (overlayRect.width < viewportWidth * 0.9 || overlayRect.height < viewportHeight * 0.9) return;
         // A form or a labelled dismiss control means the overlay owns real interaction.
-        if (el.querySelector('form, input, select, textarea, button, [class*="close"], [aria-label*="close"], [aria-label*="đóng"]')) return;
+        if (el.querySelector(interactionSelector)) return;
         el.setAttribute('data-antifan-unhydrated-overlay', 'true');
       });
       return true;

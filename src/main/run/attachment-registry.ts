@@ -109,7 +109,7 @@ export class AttachmentRegistry {
     this.mutationLock = next.then(() => {}, () => {});
     return next;
   }
-  public async initialize(): Promise<void> {
+  public async initialize(currentRuntimeId?: string): Promise<void> {
     if (!this.dataRoot) return;
     const filePath = path.join(this.dataRoot, 'attachments-v1.jsonl');
     try {
@@ -121,6 +121,7 @@ export class AttachmentRegistry {
     const raw = await fs.promises.readFile(filePath, 'utf8');
     const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
     let processed = 0;
+    let foreignRuntimeRecords = 0;
     for (const line of lines) {
       if (++processed % 200 === 0) {
         const { promise, resolve } = Promise.withResolvers<void>();
@@ -146,6 +147,18 @@ export class AttachmentRegistry {
           return;
         }
         const rec = frame.record;
+        // An attachment's authority is scoped to the runtime that minted it, and
+        // the runtime id is minted per process (`binding-<uuid>`). A frame
+        // replayed from a previous process can therefore never dispatch again —
+        // the catalogue refuses it with RUNTIME_MISMATCH — yet without this check
+        // it is restored as `active` and renewed forever, so the client never
+        // learns it must re-pair. Dropping it is also what lets the compaction
+        // below physically remove the frame.
+        const leaseRuntimeId = rec.lease?.runtimeId;
+        if (currentRuntimeId && leaseRuntimeId && leaseRuntimeId !== currentRuntimeId) {
+          foreignRuntimeRecords++;
+          continue;
+        }
         if (Array.isArray(frame.revisions)) {
           const sortedRevs = [...frame.revisions].sort((a, b) => (a.revisionNumber || 0) - (b.revisionNumber || 0));
           const revHandles: AuthorityRevisionHandle[] = [];
@@ -197,6 +210,12 @@ export class AttachmentRegistry {
       }
     }
     this.uncompactedFramesCount = Math.max(0, lines.length - this.records.size);
+    if (foreignRuntimeRecords > 0) {
+      console.warn(
+        `[AttachmentRegistry] Dropped ${foreignRuntimeRecords} attachment record(s) bound to a previous runtime ` +
+          `(current ${currentRuntimeId}); their owners re-pair through the bridge's 4001 path.`
+      );
+    }
     if (lines.length > Math.max(100, this.records.size * 1.5)) {
       await this.compactAttachmentsUnlocked();
     }
@@ -989,7 +1008,14 @@ export class AttachmentRegistry {
         }
         if (this.delegate.getBackendId) {
           const backendId = this.delegate.getBackendId(record.attemptId);
-          if (!backendId || backendId !== record.backendId) {
+          // `undefined` here means the same thing it means one block above: this
+          // registry does not track that attempt. Pairing-exchange attachments are
+          // minted straight into the registry with a run/attempt pair RunService
+          // never registers, so reading `undefined` as a lineage violation made
+          // renewSession fail for every one of them — which is the client's only
+          // liveness proof for reusing a live attachment, so each recovery spent a
+          // fresh pairing code. A backend that is *reported* and differs still fails.
+          if (backendId !== undefined && backendId !== record.backendId) {
             throw new CapabilityError('LINEAGE_MISMATCH', `Backend mismatch: expected ${record.backendId}, got ${backendId ?? 'none'}`);
           }
         }

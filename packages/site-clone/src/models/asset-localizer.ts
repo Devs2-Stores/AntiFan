@@ -547,6 +547,37 @@ const WINDOWS_RESERVED_NAMES = new Set([
   'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
 ]);
 
+const IMAGE_MAGIC_EXTENSIONS: Array<{ extension: string; matches: (head: Buffer) => boolean }> = [
+  { extension: '.jpg', matches: (h) => h.length >= 3 && h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff },
+  { extension: '.png', matches: (h) => h.length >= 8 && h.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { extension: '.gif', matches: (h) => h.length >= 4 && h.subarray(0, 4).toString('latin1') === 'GIF8' },
+  { extension: '.webp', matches: (h) => h.length >= 12 && h.subarray(0, 4).toString('latin1') === 'RIFF' && h.subarray(8, 12).toString('latin1') === 'WEBP' },
+  { extension: '.avif', matches: (h) => h.length >= 12 && h.subarray(4, 8).toString('latin1') === 'ftyp' && ['avif', 'avis'].includes(h.subarray(8, 12).toString('latin1')) },
+  { extension: '.ico', matches: (h) => h.length >= 4 && h[0] === 0x00 && h[1] === 0x00 && h[2] === 0x01 && h[3] === 0x00 },
+  { extension: '.bmp', matches: (h) => h.length >= 2 && h[0] === 0x42 && h[1] === 0x4d },
+  {
+    extension: '.svg',
+    matches: (h) => {
+      const text = h.subarray(0, 256).toString('utf8').trimStart().toLowerCase();
+      return text.startsWith('<svg') || (text.startsWith('<?xml') && text.includes('<svg'));
+    }
+  }
+];
+
+/**
+ * A CDN may serve JPEG, WebP or AVIF bytes from a URL ending in `.png`. Writing those bytes
+ * under the URL-derived name makes the browser fetch an image whose declared type disagrees
+ * with its content, and the decoder refuses it, so the payload wins over the URL hint.
+ */
+export function sniffImageExtensionFromBuffer(head: Buffer): string | null {
+  for (const candidate of IMAGE_MAGIC_EXTENSIONS) {
+    if (candidate.matches(head)) {
+      return candidate.extension;
+    }
+  }
+  return null;
+}
+
 export function lookupUrlInMap(
   urlMap: Map<string, string>,
   ref: string,
@@ -883,6 +914,35 @@ export class AssetLocalizer {
     } catch {}
   }
 
+  /**
+   * Renames a downloaded image whose bytes disagree with its URL-derived extension so the
+   * browser decodes it under the type it actually is. Returns the path holding the bytes:
+   * the renamed path when a correction happened, otherwise the original.
+   */
+  private correctImageExtension(item: HarvestedAssetItem, localPath: string): string {
+    try {
+      const fd = fs.openSync(localPath, 'r');
+      const head = Buffer.alloc(256);
+      const read = fs.readSync(fd, head, 0, head.length, 0);
+      fs.closeSync(fd);
+
+      const sniffed = sniffImageExtensionFromBuffer(head.subarray(0, read));
+      if (!sniffed) return localPath;
+
+      const currentExt = path.extname(localPath).toLowerCase();
+      if (currentExt === sniffed) return localPath;
+      if (currentExt === '.jpeg' && sniffed === '.jpg') return localPath;
+
+      const correctedPath = `${localPath.slice(0, localPath.length - currentExt.length)}${sniffed}`;
+      if (fs.existsSync(correctedPath)) return localPath;
+
+      fs.renameSync(localPath, correctedPath);
+      return correctedPath;
+    } catch {
+      return localPath;
+    }
+  }
+
   private hashFileOnDisk(resolvedPath: string): string | undefined {
     try {
       const st = fs.statSync(resolvedPath);
@@ -928,7 +988,7 @@ export class AssetLocalizer {
         const item = queue[queueHead++];
         if (!item) break;
 
-        const targetLocalPath = path.resolve(assetsDir, item.filename);
+        let targetLocalPath = path.resolve(assetsDir, item.filename);
 
         // Path containment check
         if (!isPathContained(targetLocalPath, assetsDir)) {
@@ -1009,6 +1069,15 @@ export class AssetLocalizer {
 
           item.sha256 = dlRes.sha256;
           item.byteCount = dlRes.byteCount;
+
+          if (item.type === 'image' && dlRes.byteCount > 0) {
+            const actualLocalPath = this.correctImageExtension(item, targetLocalPath);
+            if (actualLocalPath !== targetLocalPath) {
+              item.filename = path.basename(actualLocalPath);
+              targetLocalPath = actualLocalPath;
+            }
+          }
+
           this.recordFileHash(targetLocalPath, dlRes.sha256);
           totalBytes += dlRes.byteCount;
           results.push({

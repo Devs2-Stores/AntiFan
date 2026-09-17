@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T05:01:07.502Z",
+  "liveOrigin": "https://comnieuthienly.com",
+  "cloneOrigin": "http://127.0.0.1:3311",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 8573,
+        "device": null,
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.overflow-hidden rounded-xl md:mx-auto md:w-1/2 md:max-w-[50v",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 22.5
+          },
+          {
+            "step": "open-on-load",
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-bright-yellow",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgb(245, 192, 27)",
+            "areaPercent": 10.67
+          },
+          {
+            "step": "open-on-load",
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex items-center j",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgba(0, 0, 0, 0.5)",
+            "areaPercent": 100
+          },
+          {
+            "step": "hidden",
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-bright-yellow",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgb(245, 192, 27)",
+            "areaPercent": 10.56,
+            "fixedAncestor": null
+          },
+          {
+            "step": "hidden",
+            "label": "div.block absolute top-[62px] z-50 h-[calc(100vh-62px)] w-screen",
+            "position": "absolute",
+            "zIndex": "50",
+            "background": "rgba(0, 0, 0, 0.5)",
+            "areaPercent": 0,
+            "fixedAncestor": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 "
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 8573,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-bright-yellow",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgb(245, 192, 27)",
+            "areaPercent": 10.56
+          },
+          {
+            "step": "hidden",
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-bright-yellow",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgb(245, 192, 27)",
+            "areaPercent": 10.56,
+            "fixedAncestor": null
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.05,
+      "diffPixels": 5608,
+      "totalPixels": 12039176,
+      "maskedAreaPercent": 2.675,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 416,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 15
+        },
+        {
+          "x": 448,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 480,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        },
+        {
+          "x": 512,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 11
+        },
+        {
+          "x": 544,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 576,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 19
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 33169
+    }
+  ],
+  "verdict": "INCONCLUSIVE"
+}

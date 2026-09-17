@@ -6,6 +6,14 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
+// Harness runs record verification claims through the live IssueRegister
+// singleton; point the register at a scratch dir so residue never lands in the
+// real register while the rest of the data root stays live.
+const os = require('node:os');
+process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = fs.mkdtempSync(
+  path.join(os.tmpdir(), 'antifan-freeze-workload-register-')
+);
+
 const CAPABILITY_INVOCATIONS_PER_BATCH = 25;
 const ARTIFACT_WRITES_PER_BATCH = 2;
 const RECEIPT_WRITES_PER_BATCH = 4;

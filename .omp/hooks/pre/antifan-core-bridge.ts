@@ -13,13 +13,16 @@
  * prints {"available":false,"reason":...} on stderr and exits 2 when Core
  * cannot load; that is the fail-open signal — no other probe is invented.
  *
- * Event surface used:
  *   session_start        reset per-session bridge state (dedupe window)
  *   before_agent_start   spawn `pack`, return ONE message carrying the pack
  *   context              budget lever: drop stale/duplicate pack injections
  *   session.compacting   preserveData {packId, coreRelease, taskHash}
  *   tool_call            R6 policy: refuse receipt-required actions when Core
  *                        is unavailable; advisory calls continue
+ *   turn_end             one BRIDGE_TURN_END row per completed turn (deduped)
+ *   agent_end            one BRIDGE_AGENT_END row per settled run (willContinue
+ *                        mid-run events are skipped)
+ *   session_shutdown     one BRIDGE_SESSION_SHUTDOWN row + pack identity release
  *
  * Evidence: every bridge event is appended as a session entry via
  * pi.appendEntry('antifan-core-bridge', ...) AND written as one JSONL line to
@@ -87,6 +90,12 @@ interface BridgeState {
 	taskHash: string | null;
 	projectRoot: string | null;
 	failureEmitted: boolean;
+	/** Monotonic count of completed turns, for lifecycle telemetry. */
+	turnsCompleted: number;
+	/** Dedupe keys for re-entered lifecycle events (same message → same key). */
+	lastTurnKey: string | null;
+	lastAgentEndKey: string | null;
+	shutdownEmitted: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +528,28 @@ function messagesField(event: unknown): Array<Record<string, unknown>> | undefin
 	return undefined;
 }
 
+/**
+ * Stable identity of the message a lifecycle event carries, used to dedupe a
+ * re-entered `turn_end` / `agent_end`: the same turn re-emitted carries the same
+ * assistant message (`id` when present, else `timestamp`), a new turn does not.
+ */
+function eventMessageKey(event: unknown): string | null {
+	if (typeof event !== "object" || event === null) return null;
+	const e = event as Record<string, unknown>;
+	const pick = (m: unknown): string | null => {
+		if (typeof m !== "object" || m === null) return null;
+		const r = m as Record<string, unknown>;
+		if (typeof r.id === "string" && r.id.length > 0) return `id:${r.id}`;
+		if (typeof r.timestamp === "number") return `ts:${r.timestamp}`;
+		return null;
+	};
+	const direct = pick(e.message);
+	if (direct) return direct;
+	const msgs = e.messages;
+	if (Array.isArray(msgs) && msgs.length > 0) return pick(msgs[msgs.length - 1]);
+	return null;
+}
+
 // ---------------------------------------------------------------------------
 // Hook factory — one state instance per session binding
 // ---------------------------------------------------------------------------
@@ -536,6 +567,10 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		taskHash: null,
 		projectRoot: null,
 		failureEmitted: false,
+		turnsCompleted: 0,
+		lastTurnKey: null,
+		lastAgentEndKey: null,
+		shutdownEmitted: false,
 	};
 
 	const log = (level: "info" | "warn" | "error", message: string) => {
@@ -663,6 +698,10 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		state.taskHash = null;
 		state.projectRoot = null;
 		state.failureEmitted = false;
+		state.turnsCompleted = 0;
+		state.lastTurnKey = null;
+		state.lastAgentEndKey = null;
+		state.shutdownEmitted = false;
 	});
 
 	// -- before_agent_start: seed exactly one pack message ---------------------
@@ -815,6 +854,61 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			// A receipt-required action whose guard itself failed must not run.
 			const reason = `${REFUSAL_CODE}: bridge policy check failed (${err instanceof Error ? err.message : String(err)})`;
 			return { block: true, reason };
+		}
+	});
+
+	// -- turn_end / agent_end / session_shutdown: lifecycle truth --------------
+	// The three previously unbound events complete the bridge's session
+	// lifecycle: each completed turn and each settled agent run leaves exactly
+	// one evidence row (a re-entered event carrying the same message emits zero
+	// duplicates), and session_shutdown releases the pack identity so the next
+	// session cannot inherit a stale pack. Telemetry only: handlers never throw
+	// and never spawn — the CLI is not touched here.
+	pi.on("turn_end", (event: unknown) => {
+		try {
+			const key = eventMessageKey(event);
+			if (key !== null && key === state.lastTurnKey) return;
+			state.lastTurnKey = key;
+			state.turnsCompleted += 1;
+			recordEvent("BRIDGE_TURN_END", { turn: state.turnsCompleted });
+		} catch {
+			/* telemetry only: never break the session */
+		}
+	});
+
+	pi.on("agent_end", (event: unknown) => {
+		try {
+			// Modern Pi/OMP emit agent_end mid-run and mark the non-terminal ones
+			// with willContinue; only the settling event is a completion.
+			const willContinue =
+				typeof event === "object" && event !== null &&
+				(event as Record<string, unknown>).willContinue === true;
+			if (willContinue) return;
+			const key = eventMessageKey(event);
+			if (key !== null && key === state.lastAgentEndKey) return;
+			state.lastAgentEndKey = key;
+			recordEvent("BRIDGE_AGENT_END", { turnsCompleted: state.turnsCompleted });
+		} catch {
+			/* telemetry only */
+		}
+	});
+
+	pi.on("session_shutdown", () => {
+		try {
+			if (state.shutdownEmitted) return;
+			state.shutdownEmitted = true;
+			recordEvent("BRIDGE_SESSION_SHUTDOWN", {
+				coreStatus: state.coreStatus,
+				turnsCompleted: state.turnsCompleted,
+			});
+			// Release the pack identity: a shutdown session must not pin the pack
+			// for whatever runs next.
+			state.pack = null;
+			state.packId = null;
+			state.coreRelease = null;
+			state.taskHash = null;
+		} catch {
+			/* telemetry only */
 		}
 	});
 }

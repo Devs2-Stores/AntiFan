@@ -1143,6 +1143,7 @@ const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
         const timing = effect && typeof effect.getTiming === 'function' ? effect.getTiming() : null;
         if (timing && typeof timing.iterations === 'number') iterations = timing.iterations;
       } catch {}
+      if (animation.playState === 'paused' || animation.playState === 'idle') continue;
       if (iterations === Infinity) infiniteAnimations++;
     }
   } catch {}

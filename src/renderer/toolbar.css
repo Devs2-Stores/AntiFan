@@ -2238,6 +2238,22 @@ body, html {
   gap: 6px;
 }
 
+/* Static provenance disclosure for the MCP Dispatch tab. This is markup, not a
+   computed value: the panel counts records the ledger already wrote, which is a
+   proxy for effectiveness rather than a measurement of it, and the surface has
+   to say so where those counts are read. Styled apart from .hub-list-item so it
+   can never be mistaken for a row of data. */
+.hub-provenance {
+  margin: 8px 8px 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #111c2e;
+  border: 1px solid #1e293b;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .hub-list-item {
   display: flex;
   flex-direction: column;

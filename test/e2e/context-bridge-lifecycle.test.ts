@@ -338,8 +338,11 @@ describe('Context Bridge Lifecycle E2E (Audit #29)', () => {
       });
 
       const taskRuns = await healthService.listTaskRuns();
-      assert.equal(taskRuns.status, 'HEALTHY', 'Task runs list must be HEALTHY when runs exist');
-      assert.equal(taskRuns.reasonCode, 'TASK_RUNS_PRESENT');
+      // task_runs has no writer in the store (read surface only), so the honest
+      // contract reports UNKNOWN/NO_TASK_RUNS — while still enumerating the
+      // packs and cases the loop just created (narrowed deliberately in ececa1d9).
+      assert.equal(taskRuns.status, 'UNKNOWN', 'Task runs list must report UNKNOWN when no task_runs rows exist');
+      assert.equal(taskRuns.reasonCode, 'NO_TASK_RUNS');
       assert.ok(taskRuns.packs.some((p) => p.packId === pack.packId), 'Health surface must enumerate the created pack');
       assert.ok(taskRuns.cases.some((c) => c.caseId === outcome.caseId), 'Health surface must enumerate the created case');
 

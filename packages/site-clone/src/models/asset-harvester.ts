@@ -420,6 +420,24 @@ export class AssetHarvester {
         const bodyStart = match.index + match[0].indexOf('>') + 1;
         scriptBodySpans.push({ start: bodyStart, end: bodyStart + match[1].length });
       }
+      // A `url(...)` token only resolves inside a CSS context: a `style` attribute or a
+      // `<style>` block. In any other attribute value it is inert markup text — Tailwind
+      // emits utility classes such as class="bg-[url('../assets/hero.jpg')]", which the
+      // browser never requests as an asset, so collecting them invents 404 downloads.
+      const inertUrlSpans: Array<{ start: number; end: number }> = [];
+      const attributeRegex = /(^|\s)([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+      while ((match = attributeRegex.exec(content)) !== null) {
+        if (match[2].toLowerCase() === 'style') continue;
+        const value = match[3] ?? match[4] ?? '';
+        if (!/url\(/i.test(value)) continue;
+        const raw = match[0];
+        let cursor = raw.indexOf('=') + 1;
+        while (cursor < raw.length && /\s/.test(raw[cursor]!)) cursor++;
+        const quoted = raw[cursor] === '"' || raw[cursor] === "'";
+        const valueStart = match.index + cursor + (quoted ? 1 : 0);
+        inertUrlSpans.push({ start: valueStart, end: valueStart + value.length });
+      }
+
       // 5. CSS @import declarations (gather exact ranges to prevent double-counting in url() matching)
       const importSpans: Array<{ start: number; end: number }> = [];
       const importRegex = /@import\s+(?:url\(['"]?|['"])([^'")]+)['"]?\)?(?:[^;]*;)?/gi;
@@ -445,7 +463,8 @@ export class AssetHarvester {
         const matchIdx = match.index;
         const isInsideImport = importSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
         const isInsideScriptBody = scriptBodySpans.some(span => matchIdx >= span.start && matchIdx < span.end);
-        if (isInsideImport || isInsideScriptBody) continue;
+        const isInsideInertAttribute = inertUrlSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
+        if (isInsideImport || isInsideScriptBody || isInsideInertAttribute) continue;
 
         const urlCandidate = (match[2] || match[3] || '').trim();
         if (!urlCandidate || urlCandidate.startsWith('data:') || isInternalFragmentRef(urlCandidate)) continue;

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T04:56:25.689Z",
+  "liveOrigin": "https://comnieuthienly.com",
+  "cloneOrigin": "http://127.0.0.1:3311",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 8573,
+        "device": null,
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": []
+      },
+      "clone": {
+        "width": 1440,
+        "height": 8573,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 7.87,
+      "diffPixels": 947692,
+      "totalPixels": 12039176,
+      "maskedAreaPercent": 2.675,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 982
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 975
+        },
+        {
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 991
+        },
+        {
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 992
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 0,
+          "height": 600,
+          "diffPixels": 105483,
+          "mismatchPercent": 12.21
+        },
+        {
+          "y": 600,
+          "height": 600,
+          "diffPixels": 1495,
+          "mismatchPercent": 0.25
+        },
+        {
+          "y": 8400,
+          "height": 173,
+          "diffPixels": 969,
+          "mismatchPercent": 0.39
+        },
+        {
+          "y": 7800,
+          "height": 600,
+          "diffPixels": 254,
+          "mismatchPercent": 0.03
+        }
+      ],
+      "elapsedMs": 42134
+    }
+  ],
+  "verdict": "HARD_FAILED",
+  "executed": 1,
+  "passed": 0,
+  "blocked": 0,
+  "errored": 0,
+  "worstMismatchPercent": 7.87,
+  "finishedAt": "2026-09-17T04:57:07.842Z"
+}

@@ -15,6 +15,7 @@ export * from './generators/haravan-schema-generator.js';
 export * from './generators/haravan-snippet-generator.js';
 export * from './generators/theme-compiler.js';
 export * from './generators/independent-html-clone-generator.js';
+export * from './generators/html-parse-fidelity.js';
 export * from './generators/settings-assets-normalizer.js';
 export * from './generators/liquid-binding-engine.js';
 export * from './qa/canvas-masking-helper.js';

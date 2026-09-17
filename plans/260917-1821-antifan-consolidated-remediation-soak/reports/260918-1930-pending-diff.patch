@@ -1,0 +1,2515 @@
+diff --git a/.omp/hooks/pre/antifan-core-bridge.ts b/.omp/hooks/pre/antifan-core-bridge.ts
+index a8d36068..5daee30d 100644
+--- a/.omp/hooks/pre/antifan-core-bridge.ts
++++ b/.omp/hooks/pre/antifan-core-bridge.ts
+@@ -13,13 +13,16 @@
+  * prints {"available":false,"reason":...} on stderr and exits 2 when Core
+  * cannot load; that is the fail-open signal — no other probe is invented.
+  *
+- * Event surface used:
+  *   session_start        reset per-session bridge state (dedupe window)
+  *   before_agent_start   spawn `pack`, return ONE message carrying the pack
+  *   context              budget lever: drop stale/duplicate pack injections
+  *   session.compacting   preserveData {packId, coreRelease, taskHash}
+  *   tool_call            R6 policy: refuse receipt-required actions when Core
+  *                        is unavailable; advisory calls continue
++ *   turn_end             one BRIDGE_TURN_END row per completed turn (deduped)
++ *   agent_end            one BRIDGE_AGENT_END row per settled run (willContinue
++ *                        mid-run events are skipped)
++ *   session_shutdown     one BRIDGE_SESSION_SHUTDOWN row + pack identity release
+  *
+  * Evidence: every bridge event is appended as a session entry via
+  * pi.appendEntry('antifan-core-bridge', ...) AND written as one JSONL line to
+@@ -87,6 +90,12 @@ interface BridgeState {
+ 	taskHash: string | null;
+ 	projectRoot: string | null;
+ 	failureEmitted: boolean;
++	/** Monotonic count of completed turns, for lifecycle telemetry. */
++	turnsCompleted: number;
++	/** Dedupe keys for re-entered lifecycle events (same message → same key). */
++	lastTurnKey: string | null;
++	lastAgentEndKey: string | null;
++	shutdownEmitted: boolean;
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -519,6 +528,28 @@ function messagesField(event: unknown): Array<Record<string, unknown>> | undefin
+ 	return undefined;
+ }
+ 
++/**
++ * Stable identity of the message a lifecycle event carries, used to dedupe a
++ * re-entered `turn_end` / `agent_end`: the same turn re-emitted carries the same
++ * assistant message (`id` when present, else `timestamp`), a new turn does not.
++ */
++function eventMessageKey(event: unknown): string | null {
++	if (typeof event !== "object" || event === null) return null;
++	const e = event as Record<string, unknown>;
++	const pick = (m: unknown): string | null => {
++		if (typeof m !== "object" || m === null) return null;
++		const r = m as Record<string, unknown>;
++		if (typeof r.id === "string" && r.id.length > 0) return `id:${r.id}`;
++		if (typeof r.timestamp === "number") return `ts:${r.timestamp}`;
++		return null;
++	};
++	const direct = pick(e.message);
++	if (direct) return direct;
++	const msgs = e.messages;
++	if (Array.isArray(msgs) && msgs.length > 0) return pick(msgs[msgs.length - 1]);
++	return null;
++}
++
+ // ---------------------------------------------------------------------------
+ // Hook factory — one state instance per session binding
+ // ---------------------------------------------------------------------------
+@@ -536,6 +567,10 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
+ 		taskHash: null,
+ 		projectRoot: null,
+ 		failureEmitted: false,
++		turnsCompleted: 0,
++		lastTurnKey: null,
++		lastAgentEndKey: null,
++		shutdownEmitted: false,
+ 	};
+ 
+ 	const log = (level: "info" | "warn" | "error", message: string) => {
+@@ -663,6 +698,10 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
+ 		state.taskHash = null;
+ 		state.projectRoot = null;
+ 		state.failureEmitted = false;
++		state.turnsCompleted = 0;
++		state.lastTurnKey = null;
++		state.lastAgentEndKey = null;
++		state.shutdownEmitted = false;
+ 	});
+ 
+ 	// -- before_agent_start: seed exactly one pack message ---------------------
+@@ -817,4 +856,59 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
+ 			return { block: true, reason };
+ 		}
+ 	});
++
++	// -- turn_end / agent_end / session_shutdown: lifecycle truth --------------
++	// The three previously unbound events complete the bridge's session
++	// lifecycle: each completed turn and each settled agent run leaves exactly
++	// one evidence row (a re-entered event carrying the same message emits zero
++	// duplicates), and session_shutdown releases the pack identity so the next
++	// session cannot inherit a stale pack. Telemetry only: handlers never throw
++	// and never spawn — the CLI is not touched here.
++	pi.on("turn_end", (event: unknown) => {
++		try {
++			const key = eventMessageKey(event);
++			if (key !== null && key === state.lastTurnKey) return;
++			state.lastTurnKey = key;
++			state.turnsCompleted += 1;
++			recordEvent("BRIDGE_TURN_END", { turn: state.turnsCompleted });
++		} catch {
++			/* telemetry only: never break the session */
++		}
++	});
++
++	pi.on("agent_end", (event: unknown) => {
++		try {
++			// Modern Pi/OMP emit agent_end mid-run and mark the non-terminal ones
++			// with willContinue; only the settling event is a completion.
++			const willContinue =
++				typeof event === "object" && event !== null &&
++				(event as Record<string, unknown>).willContinue === true;
++			if (willContinue) return;
++			const key = eventMessageKey(event);
++			if (key !== null && key === state.lastAgentEndKey) return;
++			state.lastAgentEndKey = key;
++			recordEvent("BRIDGE_AGENT_END", { turnsCompleted: state.turnsCompleted });
++		} catch {
++			/* telemetry only */
++		}
++	});
++
++	pi.on("session_shutdown", () => {
++		try {
++			if (state.shutdownEmitted) return;
++			state.shutdownEmitted = true;
++			recordEvent("BRIDGE_SESSION_SHUTDOWN", {
++				coreStatus: state.coreStatus,
++				turnsCompleted: state.turnsCompleted,
++			});
++			// Release the pack identity: a shutdown session must not pin the pack
++			// for whatever runs next.
++			state.pack = null;
++			state.packId = null;
++			state.coreRelease = null;
++			state.taskHash = null;
++		} catch {
++			/* telemetry only */
++		}
++	});
+ }
+diff --git a/packages/site-clone/src/generators/independent-html-clone-generator.test.ts b/packages/site-clone/src/generators/independent-html-clone-generator.test.ts
+index ea996897..7e0f3439 100644
+--- a/packages/site-clone/src/generators/independent-html-clone-generator.test.ts
++++ b/packages/site-clone/src/generators/independent-html-clone-generator.test.ts
+@@ -6,6 +6,7 @@ import {
+   extractEmbeddedEffects,
+   localizeSameOriginReferences,
+   stripCaptureTimeSliderGeometry,
++  restoreMeasuredSliderGeometry,
+   IndependentHtmlCloneGenerator
+ } from './independent-html-clone-generator.js';
+ import { createDefaultComponentContractIR, type ComponentContractIR } from '../models/clone-ir.js';
+@@ -528,6 +529,93 @@ describe('IndependentHtmlCloneGenerator - fullscreen capture overlay retirement'
+     }
+   });
+ 
++  it('retires the backdrop that carries an open splash so the page is not left dimmed', async () => {
++    const generator = new IndependentHtmlCloneGenerator();
++    const os = require('node:os');
++    const path = require('node:path');
++    const fs = require('node:fs');
++    const { JSDOM } = require('jsdom');
++    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-dialog-backdrop-'));
++    const fullscreen = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 50;';
++    try {
++      const sampleHtml = '<!DOCTYPE html><html><head><title>Dialogs</title></head><body>'
++        + '<div id="page">'
++        + `<div id="promo-backdrop" style="${fullscreen}">`
++        + '<div id="promo-card" class="modal-content" style="position: relative; background: #fff;">'
++        + '<p>Uu dai</p>'
++        + '</div></div>'
++        + `<div id="order-backdrop" style="${fullscreen}">`
++        + '<div id="order-card" class="modal-content" style="position: relative; background: #fff;">'
++        + '<p>Chon vi tri giao hang</p><input name="address"><button type="button">Xac nhan</button>'
++        + '</div></div>'
++        + '<div id="inline-wrap" style="position: relative;">'
++        + '<div id="inline-card" class="modal-content" style="position: relative;">Inline</div>'
++        + '</div>'
++        + '</div>'
++        + '<main>Content</main></body></html>';
++      const res = generator.generateFromMaterializedHtml(sampleHtml, {
++        outputDir: tmpDir,
++        entryFilename: 'index.html',
++        device: 'web'
++      });
++
++      const dom = new JSDOM(res.html, { runScripts: 'outside-only', pretendToBeVisual: true });
++      const win = dom.window;
++      win.innerWidth = 1440;
++      win.innerHeight = 900;
++      win.Element.prototype.getBoundingClientRect = function () {
++        const id = this.getAttribute ? this.getAttribute('id') : null;
++        return id === 'promo-backdrop' || id === 'order-backdrop'
++          ? { x: 0, y: 0, top: 0, left: 0, right: 1440, bottom: 900, width: 1440, height: 900 }
++          : { x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 200, width: 400, height: 200 };
++      };
++      const script = res.html.match(/<script id="antifan-clone-interactivity">([\s\S]*?)<\/script>/)?.[1] ?? '';
++      assert.ok(script.length > 0, 'generated document must carry the interactivity script');
++      win.eval(script);
++      await new Promise<void>(resolve => {
++        if (win.document.readyState === 'loading') {
++          win.document.addEventListener('DOMContentLoaded', () => resolve());
++        } else {
++          resolve();
++        }
++      });
++
++      const isRetired = (id: string) => win.document.getElementById(id)?.hasAttribute('data-antifan-unhydrated-overlay');
++      assert.strictEqual(
++        isRetired('promo-backdrop'),
++        true,
++        'the full-viewport layer carrying a control-less splash must be retired'
++      );
++      assert.strictEqual(isRetired('promo-card'), false, 'the dialog itself is hidden by its retired backdrop');
++      assert.strictEqual(
++        isRetired('order-backdrop'),
++        false,
++        'a backdrop whose dialog owns controls is the baseline page state and must stay'
++      );
++      assert.strictEqual(isRetired('order-card'), false, 'the interactive dialog must stay rendered');
++      assert.strictEqual(isRetired('inline-card'), false, 'a dialog that is not layered over the page must stay');
++      assert.strictEqual(isRetired('inline-wrap'), false, 'a relative container is not a backdrop');
++      assert.strictEqual(
++        win.getComputedStyle(win.document.getElementById('promo-backdrop')).display,
++        'none',
++        'the retired backdrop must not dim the page'
++      );
++      assert.notStrictEqual(
++        win.getComputedStyle(win.document.getElementById('order-backdrop')).display,
++        'none',
++        'the interactive dialog must keep the visibility the reference page shows'
++      );
++      assert.notStrictEqual(
++        win.getComputedStyle(win.document.querySelector('main')).display,
++        'none',
++        'page content must stay visible'
++      );
++      dom.window.close();
++    } finally {
++      fs.rmSync(tmpDir, { recursive: true, force: true });
++    }
++  });
++
+   it('retires the overlay once a surface that loaded without layout is measured', async () => {
+     const generator = new IndependentHtmlCloneGenerator();
+     const os = require('node:os');
+@@ -725,14 +813,110 @@ describe('IndependentHtmlCloneGenerator - Slider Geometry Normalization', () =>
+     assert.ok(stripped.includes('background: blue'), 'non-slider item background preserved');
+   });
+ 
+-  it('neutralizes in-flight transforms to zero offset in sanitizeSectionMarkup', () => {
++  it('keeps the captured slide count on a track whose slides only had library-written widths', () => {
++    const annotation = JSON.stringify({ perView: 4, fractional: false, gap: 24, slide: 215, track: 932 });
++    const sampleHtml = [
++      `<div class="swiper-wrapper" data-antifan-slider='${annotation}'>`,
++      '  <div class="swiper-slide" style="width: 215px; margin-right: 24px;">Slide 1</div>',
++      '  <div class="swiper-slide" style="width: 215px; margin-right: 24px;"><div style="width: 80px;">Badge</div>Slide 2</div>',
++      '</div>',
++      '<div class="swiper-wrapper">',
++      '  <div class="swiper-slide" style="width: 215px;">Unmeasured track</div>',
++      '</div>'
++    ].join('');
++
++    const restored = restoreMeasuredSliderGeometry(sampleHtml);
++
++    assert.ok(restored.includes('width: calc((100% - 72px) / 4) !important'), 'slide width becomes the library law the capture measured');
++    assert.ok(restored.includes('margin-right: 24px !important'), 'the gap the library wrote as a margin is restored');
++    assert.ok(!restored.includes('data-antifan-slider'), 'the capture-only annotation is dropped from the emitted markup');
++    assert.ok(!restored.includes('calc((100% - 72px) / 4) !important; width: calc'), 'the slider stylesheet is not duplicated per slide');
++    assert.ok(restored.includes('<div style="width: 80px;">Badge</div>'), 'markup deeper than the slide is not rewritten');
++    assert.ok(restored.includes('style="width: 215px;"'), 'a track without a measurement keeps its original markup');
++  });
++
++  it('restores geometry from the entity-encoded annotation a serialized capture writes', () => {
++    // outerHTML escapes every quote inside the attribute value, so the emitted markup
++    // carries `{&quot;perView&quot;:4,...}`; the parser must decode before it can rest.
++    const annotation = JSON.stringify({ perView: 4, fractional: false, gap: 24, slide: 215, track: 932 })
++      .replace(/"/g, '&quot;');
++    const sampleHtml = [
++      `<div class="swiper-wrapper" data-antifan-slider="${annotation}">`,
++      '  <div class="swiper-slide" style="width: 215px; margin-right: 24px;">Slide 1</div>',
++      '  <div class="swiper-slide" style="width: 215px; margin-right: 24px;">Slide 2</div>',
++      '</div>'
++    ].join('');
++
++    const restored = restoreMeasuredSliderGeometry(sampleHtml);
++
++    assert.ok(
++      restored.includes('width: calc((100% - 72px) / 4) !important'),
++      'a serialized capture must still restore the measured slide geometry'
++    );
++    assert.ok(restored.includes('margin-right: 24px !important'), 'the measured gap is restored from the escaped annotation');
++    assert.ok(!restored.includes('data-antifan-slider'), 'the capture-only annotation is dropped from the emitted markup');
++  });
++
++  it('holds track scope across raw-text elements whose content looks like markup', () => {
++    const annotation = JSON.stringify({ perView: 2, fractional: false, gap: 0, slide: 300, track: 600 });
++    const sampleHtml = [
++      `<div class="swiper-wrapper" data-antifan-slider='${annotation}'>`,
++      '  <div class="swiper-slide">Slide 1</div>',
++      '  <script>var template = "</div><div class=\"swiper-slide\">";</script>',
++      '  <div class="swiper-slide">Slide 2</div>',
++      '</div>'
++    ].join('');
++
++    const restored = restoreMeasuredSliderGeometry(sampleHtml);
++
++    const rewritten = restored.match(/width: calc\(\(100% - 0px\) \/ 2\) !important/g) ?? [];
++    assert.strictEqual(rewritten.length, 2, 'both slides keep the captured ratio despite tag-like text inside the script');
++  });
++
++  it('keeps a partial-per-view track on the measured ratio instead of a whole-slide law', () => {
++    // The live instance showed 3.5 slides across; a law that divides the track into whole
++    // slides would widen every card, so only the measured fraction may be emitted.
++    const annotation = JSON.stringify({ perView: 4, fractional: true, gap: 20, slide: 250, track: 1000 });
++    const sampleHtml = [
++      `<div class="swiper-wrapper" data-antifan-slider='${annotation}'>`,
++      '  <div class="swiper-slide" style="width: 250px; margin-right: 20px;">Slide 1</div>',
++      '</div>'
++    ].join('');
++
++    const restored = restoreMeasuredSliderGeometry(sampleHtml);
++
++    assert.ok(restored.includes('width: calc(25%) !important'), 'a fractional track keeps the measured slide-to-track ratio');
++    assert.ok(!restored.includes('(100%'), 'no whole-slide law may be emitted for a partial per-view track');
++  });
++
++  it('sizes a whole-per-view slide by the law the library recomputes, at every track width', () => {
++    // The measured capture: (1440 - 220) / 2 = 610. The live instance recomputes the same
++    // law when the track resizes, so the emitted rule must reproduce it at another width,
++    // not only at the width the capture happened to use.
++    const annotation = JSON.stringify({ perView: 2, fractional: false, gap: 220, slide: 610, track: 1440 })
++      .replace(/"/g, '&quot;');
++    const sampleHtml = [
++      `<div class="swiper-wrapper" data-antifan-slider="${annotation}">`,
++      '  <div class="swiper-slide" style="width: 610px; margin-right: 220px;">Slide 1</div>',
++      '</div>'
++    ].join('');
++
++    const restored = restoreMeasuredSliderGeometry(sampleHtml);
++    const rule = /width: calc\(\(100% - (\d+)px\) \/ (\d+)\)/.exec(restored);
++    assert.ok(rule, 'the law is emitted for a whole-per-view track');
++    const slideAt = (track: number) => (track - Number(rule![1])) / Number(rule![2]);
++    assert.strictEqual(slideAt(1440), 610, 'the law reproduces the measured slide at the capture width');
++    assert.strictEqual(slideAt(1425), 602.5, 'the law reproduces the slide the library recomputes at a narrower track');
++  });
++
++  it('keeps the captured slide offset so a carousel opens on the slide the reference shows', () => {
+     const sample = '<div class="slick-track" style="transform: translateX(-1090px); transition: 0.3s;">Content</div>';
+     const sanitized = sanitizeSectionMarkup(sample);
+-    assert.ok(sanitized.includes('transform: translateX(0px);'), 'neutralizes translateX');
++    assert.ok(sanitized.includes('transform: translateX(-1090px);'), 'keeps the captured translateX offset');
+ 
+     const sample3d = '<div class="s-content" style="transform: translate3d(-545px, 0px, 0px);">Content</div>';
+     const sanitized3d = sanitizeSectionMarkup(sample3d);
+-    assert.ok(sanitized3d.includes('transform: translate3d(0px, 0px, 0px);'), 'neutralizes translate3d');
++    assert.ok(sanitized3d.includes('transform: translate3d(-545px, 0px, 0px);'), 'keeps the captured translate3d offset');
+   });
+ });
+ 
+diff --git a/packages/site-clone/src/generators/independent-html-clone-generator.ts b/packages/site-clone/src/generators/independent-html-clone-generator.ts
+index 55f9c592..2e7ebe92 100644
+--- a/packages/site-clone/src/generators/independent-html-clone-generator.ts
++++ b/packages/site-clone/src/generators/independent-html-clone-generator.ts
+@@ -147,8 +147,6 @@ const STYLE_ATTR_INNER_RE = /(\sstyle\s*=\s*(["']))([\s\S]*?)\2/i;
+ const DISPLAY_NONE_DECL_RE = /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/gi;
+ const EDGE_SEMICOLONS_RE = /^;+|;+$/g;
+ 
+-const TRANSLATE_X_RE = /(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translateX\(-?[0-9]+(?:\.[0-9]+)?px\)\s*;?/gi;
+-const TRANSLATE_3D_RE = /(\sstyle\s*=\s*["'][^"']*?)transform\s*:\s*translate3d\(-?[0-9]+(?:\.[0-9]+)?px,\s*0(?:px)?,\s*0(?:px)?\)\s*;?/gi;
+ 
+ const SLICK_DOTS_RE = /<ul\b[^>]*\bclass=["'][^"']*\bslick-dots\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/gi;
+ const SLICK_ARROWS_RE = /<button\b[^>]*\bclass=["'][^"']*\bslick-(?:prev|next|arrow)\b[^"']*["'][^>]*>[\s\S]*?<\/button>/gi;
+@@ -301,6 +299,168 @@ export function stripCaptureTimeSliderGeometry(html: string): string {
+   return result;
+ }
+ 
++const SLIDER_ANNOTATION_RE = /\sdata-antifan-slider\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
++const VOID_ELEMENTS: Record<string, true> = {
++  area: true, base: true, br: true, col: true, embed: true, hr: true, img: true,
++  input: true, link: true, meta: true, param: true, source: true, track: true, wbr: true
++};
++const RAWTEXT_ELEMENTS: Record<string, true> = { script: true, style: true, textarea: true, title: true };
++
++interface MeasuredSliderGeometry {
++  perView: number;
++  fractional: boolean;
++  gap: number;
++  slide: number;
++  track: number;
++}
++
++function parseMeasuredSlider(annotation: string): MeasuredSliderGeometry | null {
++  try {
++    // The capture serializes through outerHTML, so the JSON arrives entity-encoded
++    // (&quot; for every quote). Decode before parsing or every real capture is dropped.
++    const decoded = annotation
++      .replace(/&quot;|&#34;|&#x22;/gi, '"')
++      .replace(/&#39;|&apos;|&#x27;/gi, "'")
++      .replace(/&amp;|&#38;/gi, '&');
++    const parsed = JSON.parse(decoded) as Partial<MeasuredSliderGeometry>;
++    if (!parsed || !Number.isFinite(parsed.slide) || !Number.isFinite(parsed.track)) return null;
++    if (!parsed.slide || !parsed.track) return null;
++    return {
++      perView: Number.isFinite(parsed.perView) && parsed.perView! > 0 ? Math.round(parsed.perView!) : 1,
++      fractional: parsed.fractional === true,
++      gap: Number.isFinite(parsed.gap) ? Math.max(0, Math.round(parsed.gap!)) : 0,
++      slide: parsed.slide!,
++      track: parsed.track!
++    };
++  } catch {
++    return null;
++  }
++}
++
++function hasPixelGeometryDeclaration(styleValue: string): boolean {
++  return styleValue.split(';').some((declaration) => {
++    const separator = declaration.indexOf(':');
++    if (separator === -1) return false;
++    const property = declaration.slice(0, separator).trim().toLowerCase();
++    const value = declaration.slice(separator + 1).trim();
++    return CAPTURE_GEOMETRY_PROPERTIES.test(property) && value.includes('px');
++  });
++}
++
++// Only real slides carry the measured geometry. A track can also hold inline scripts
++// or control markup, and those must never receive a slide width.
++function isMeasuredSlideTag(tag: string, name: string): boolean {
++  if (VOID_ELEMENTS[name] === true || RAWTEXT_ELEMENTS[name] === true) return false;
++  const classMatch = CLASS_ATTR_RE.exec(tag);
++  if (classMatch && (hasClassToken(classMatch[2], SLIDER_SLIDE_CLASSES) || hasClassToken(classMatch[2], ['item']))) {
++    return true;
++  }
++  const styleMatch = STYLE_ATTR_RE.exec(tag);
++  return Boolean(styleMatch && hasPixelGeometryDeclaration(styleMatch[3]));
++}
++
++function applyMeasuredSlideGeometry(tag: string, geometry: MeasuredSliderGeometry): string {
++  // The library sizes a whole-per-view slide as (track - (perView - 1) * gap) / perView.
++  // Expressing that law instead of one measured fraction keeps the capture exact at the
++  // capture width AND at every other width, because the live instance recomputes the same
++  // law on resize. The measured numbers gate it: a whole-per-view slider whose recorded
++  // slide does not satisfy the law (nested boxes, an inner margin the library wrote) falls
++  // back to the ratio, so no track can be resized by a figure the capture never showed.
++  const lawSlide = (geometry.track - (geometry.perView - 1) * geometry.gap) / geometry.perView;
++  const lawHolds = !geometry.fractional && Math.abs(lawSlide - geometry.slide) <= 1.5;
++  // The capture measured the slide against the track that rendered it. Keeping that
++  // ratio (instead of the pixels) preserves the captured slide count at every track
++  // width, which is what the live library does when the container resizes.
++  const percent = Number(((geometry.slide / geometry.track) * 100).toFixed(4));
++  const declarations = [
++    lawHolds
++      ? `width: calc((100% - ${(geometry.perView - 1) * geometry.gap}px) / ${geometry.perView}) !important`
++      : `width: calc(${percent}%) !important`
++  ];
++  if (geometry.gap > 0) {
++    declarations.push(`margin-right: ${geometry.gap}px !important`);
++  }
++  const styleMatch = STYLE_ATTR_RE.exec(tag);
++  if (!styleMatch) {
++    return tag.replace(/>$/, ` style="${declarations.join('; ')}">`);
++  }
++  const kept = styleMatch[3]
++    .split(';')
++    .map((declaration) => declaration.trim())
++    .filter((declaration) => {
++      if (!declaration) return false;
++      const separator = declaration.indexOf(':');
++      if (separator === -1) return true;
++      return !CAPTURE_GEOMETRY_PROPERTIES.test(declaration.slice(0, separator).trim().toLowerCase());
++    });
++  const merged = [...kept, ...declarations].join('; ');
++  return tag.replace(styleMatch[0], `${styleMatch[1]}${styleMatch[2]}${merged}${styleMatch[2]}`);
++}
++
++/**
++ * Slider libraries write the geometry they measured for the capture viewport into
++ * inline styles, which `stripCaptureTimeSliderGeometry` removes so a single snapshot
++ * cannot freeze every screen at the capture width. Dropping the numbers only works
++ * when the stylesheet alone resolves a usable width: a track whose slides are sized
++ * by the library's own runtime (Swiper's `.swiper-slide`, Splide's `.splide__slide`)
++ * collapses to one slide per view once the runtime is gone.
++ *
++ * The capture records the measured slide-to-track ratio on the track
++ * (`data-antifan-slider`). This pass re-expresses that ratio as a relative width on
++ * the track's direct children, so the clone renders the captured slide count at any
++ * viewport, and drops the capture-only annotation from the emitted markup.
++ */
++export function restoreMeasuredSliderGeometry(html: string): string {
++  if (!html.includes('data-antifan-slider')) return html;
++  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
++  let out = '';
++  let cursor = 0;
++  let depth = 0;
++  let scoped: { depth: number; geometry: MeasuredSliderGeometry } | null = null;
++  let match: RegExpExecArray | null;
++  while ((match = tagRe.exec(html)) !== null) {
++    out += html.slice(cursor, match.index);
++    cursor = tagRe.lastIndex;
++    const isClosing = match[1] === '/';
++    const name = match[2].toLowerCase();
++    const selfClosing = /\/>$/.test(match[0]);
++    let tag = match[0];
++    if (isClosing) {
++      if (VOID_ELEMENTS[name] !== true && !selfClosing) {
++        depth--;
++        if (scoped && depth < scoped.depth) scoped = null;
++      }
++      out += tag;
++      continue;
++    }
++    const annotation = SLIDER_ANNOTATION_RE.exec(tag);
++    if (VOID_ELEMENTS[name] !== true && !selfClosing) {
++      depth++;
++    }
++    if (annotation) {
++      tag = tag.replace(SLIDER_ANNOTATION_RE, '');
++      const geometry = parseMeasuredSlider(annotation[1] ?? annotation[2]);
++      scoped = geometry ? { depth, geometry } : null;
++      out += tag;
++      continue;
++    }
++    if (scoped && depth === scoped.depth + 1 && !selfClosing && isMeasuredSlideTag(tag, name)) {
++      tag = applyMeasuredSlideGeometry(tag, scoped.geometry);
++    }
++    out += tag;
++    if (RAWTEXT_ELEMENTS[name] === true && !selfClosing) {
++      const closingIndex = html.toLowerCase().indexOf(`</${name}`, cursor);
++      if (closingIndex !== -1) {
++        out += html.slice(cursor, closingIndex);
++        cursor = closingIndex;
++        tagRe.lastIndex = closingIndex;
++      }
++    }
++  }
++  out += html.slice(cursor);
++  return out;
++}
++
+ export function sanitizeSectionMarkup(html: string): string {
+   // 1. Synthesize declarative state/open/close toggle bindings BEFORE stripping reactive framework attributes
+   let processed = html
+@@ -348,14 +508,13 @@ export function sanitizeSectionMarkup(html: string): string {
+       });
+     });
+ 
+-  // 2. Reset transient in-flight slider/carousel transforms to neutral origin
+-  processed = processed
+-    .replace(TRANSLATE_X_RE, '$1transform: translateX(0px);')
+-    .replace(TRANSLATE_3D_RE, '$1transform: translate3d(0px, 0px, 0px);');
+ 
+-  // 3. Strip proven capture-time slider geometry and unwrap capture-time slick DOM
++  // 2. Strip proven capture-time slider geometry and unwrap capture-time slick DOM
+   processed = stripCaptureTimeSliderGeometry(processed);
+ 
++  // 3. Re-express the captured slider ratios the strip pass removed as relative widths
++  processed = restoreMeasuredSliderGeometry(processed);
++
+   // Unwrap injected capture-time .slick-list and .slick-track, strip runtime classes/dots/clones
+   // so static markup holds original slide children that client scripts (home.js) cleanly initialize
+   processed = processed
+@@ -1259,9 +1418,43 @@ ${extractedEffectsScripts.join('\n\n')}
+ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+ 
+     // 1b. Mobile Drawer Navigation & Drilldown (Universal & Theme)
++    // A drawer captured in its closed state keeps the slide-out offset that the site's own
++    // runtime applied to it. Swapping the display token reveals the panel but leaves the
++    // surface parked outside the viewport, so the open state must also release that offset.
++    var releaseSlideOffset = function(drawer) {
++      var surfaces = [drawer].concat(Array.prototype.slice.call(drawer.children));
++      surfaces.forEach(function(node) {
++        if (!node || node.nodeType !== 1) return;
++        var style = window.getComputedStyle(node);
++        var transform = style.transform || style.webkitTransform;
++        if (!transform || transform === 'none') return;
++        var rect = node.getBoundingClientRect();
++        if (!rect.width) return;
++        var offset = 0;
++        try {
++          offset = new WebKitCSSMatrix(transform).m41 || 0;
++        } catch (err) {
++          var match = /matrix(?:3d)?\((.+)\)/.exec(transform);
++          if (match) {
++            var parts = match[1].split(',');
++            offset = parseFloat(parts[parts.length === 6 ? 4 : 12]) || 0;
++          }
++        }
++        if (Math.abs(offset) >= rect.width * 0.9) node.style.transform = 'translateX(0px)';
++      });
++    };
+     var openDrawer = function(drawer) {
+       if (!drawer) return;
+       var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
++      // A panel whose closed state is the utility token 'hidden' (rather than a state class)
++      // must have that token swapped, not have a class added beside it: 'hidden' keeps
++      // 'display: none' however many state classes are present.
++      if (drawer.classList.contains('hidden')) {
++        drawer.classList.remove('hidden');
++        drawer.classList.add('block');
++        drawer.setAttribute('data-antifan-utility-swap', 'true');
++        if (targetClass === 'hidden') targetClass = 'block';
++      }
+       drawer.classList.add(targetClass, 'show', 'active');
+       drawer.setAttribute('data-antifan-opened', 'true');
+       if (drawer.hasAttribute('data-antifan-target') && drawer.style) {
+@@ -1272,7 +1465,12 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+         }
+         drawer.style.display = 'block';
+       }
+-      if (document && document.body && document.body.style) {
++      releaseSlideOffset(drawer);
++      // An inferred overlay has no site contract to follow: the surface it was captured from
++      // decided whether the page scrolls behind the panel, so only an explicitly marked
++      // drawer owns a scroll lock here.
++      var inferredOverlay = Boolean(drawer.id && drawer.id.indexOf('antifan-inferred-overlay-') === 0);
++      if (!inferredOverlay && document && document.body && document.body.style) {
+         document.body.style.overflow = 'hidden';
+       }
+     };
+@@ -1280,6 +1478,11 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+       if (!drawer) return;
+       var targetClass = drawer.getAttribute('data-antifan-class') || 'show';
+       drawer.classList.remove(targetClass, 'show', 'active');
++      if (drawer.hasAttribute('data-antifan-utility-swap')) {
++        drawer.classList.remove('block');
++        drawer.classList.add('hidden');
++        drawer.removeAttribute('data-antifan-utility-swap');
++      }
+       drawer.removeAttribute('data-antifan-opened');
+       if (drawer.hasAttribute('data-antifan-target')) {
+         drawer.style.display = 'none';
+@@ -1379,6 +1582,102 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+       });
+     });
+ 
++    // 1c. Icon-control / hidden-overlay inference. A drawer or offcanvas is sometimes driven by
++    // a control that carries no marker at all: a bare icon button whose panel is a hidden
++    // overlay the site reveals by swapping the utility token 'hidden' for 'block'. That swap is
++    // the site's entire interaction contract, so inferring the pair reproduces it.
++    var iconControlMaxSize = 72;
++    var isIconOnlyControl = function(el) {
++      if (!el || el.nodeType !== 1) return false;
++      if (el.hasAttribute('data-antifan-toggle') || el.hasAttribute('data-antifan-open') || el.hasAttribute('data-antifan-close') || el.hasAttribute('data-antifan-target')) return false;
++      if ((el.textContent || '').trim() !== '') return false;
++      if (!el.querySelector('svg')) return false;
++      if (typeof el.getBoundingClientRect !== 'function') return false;
++      var rect = el.getBoundingClientRect();
++      if (rect.width <= 0 || rect.height <= 0) return false;
++      return rect.width <= iconControlMaxSize && rect.height <= iconControlMaxSize;
++    };
++    var isHiddenOverlayPanel = function(el) {
++      if (!el || el.nodeType !== 1) return false;
++      if (!el.classList.contains('hidden')) return false;
++      if (el.hasAttribute('data-antifan-unhydrated-overlay') || el.hasAttribute('data-antifan-drawer')) return false;
++      if (typeof el.matches === 'function' && el.matches(overlayExcluded)) return false;
++      var raw = el.getAttribute('class') || '';
++      if (!/(^|\\s)(absolute|fixed)(\\s|$)/.test(raw)) return false;
++      if (!/(^|\\s)z-(\\d+|\\[[^\\]]+\\])(\\s|$)/.test(raw)) return false;
++      if (!/(^|\\s)(w-screen|inset-0|w-full|w-1\\/2|w-2\\/3|w-3\\/4|w-\\[[^\\]]+\\])(\\s|$)/.test(raw)) return false;
++      return el.querySelectorAll('a[href]').length > 0;
++    };
++    var inferredOverlayIndex = 0;
++    Array.prototype.filter.call(document.querySelectorAll('.hidden'), isHiddenOverlayPanel).forEach(function(panel) {
++      var trigger = null;
++      var scope = panel.parentElement;
++      for (var depth = 0; scope && depth < 5 && !trigger; depth += 1) {
++        var walk = Array.prototype.slice.call(scope.querySelectorAll('*'));
++        var panelIndex = walk.indexOf(panel);
++        // Only a control that can act as a toggle competes for the pairing: an icon-only
++        // element that merely looks like a button (a decorative span) or an anchor that
++        // navigates away is not the drawer's control.
++        var actionable = Array.prototype.filter.call(
++          scope.querySelectorAll('button, [role="button"], a'),
++          function(candidate) {
++            var tag = candidate.tagName ? candidate.tagName.toLowerCase() : '';
++            if (tag === 'a') {
++              var href = candidate.getAttribute('href');
++              if (href && href !== '#') return false;
++            }
++            return isIconOnlyControl(candidate);
++          }
++        );
++        var preceding = actionable.filter(function(candidate) {
++          return panelIndex === -1 || walk.indexOf(candidate) < panelIndex;
++        });
++        var toggles = preceding.filter(function(candidate) {
++          var tag = candidate.tagName ? candidate.tagName.toLowerCase() : '';
++          return tag === 'button' || candidate.getAttribute('role') === 'button';
++        });
++        trigger = toggles.length ? toggles[toggles.length - 1] : (preceding.length ? preceding[preceding.length - 1] : null);
++        scope = scope.parentElement;
++      }
++      if (!trigger) return;
++      inferredOverlayIndex += 1;
++      if (!panel.id) panel.id = 'antifan-inferred-overlay-' + inferredOverlayIndex;
++      panel.setAttribute('data-antifan-drawer', 'true');
++      if (!panel.getAttribute('data-antifan-class')) panel.setAttribute('data-antifan-class', 'block');
++      trigger.setAttribute('data-antifan-drawer-trigger', 'true');
++      trigger.setAttribute('data-antifan-drawer-for', panel.id);
++    });
++    // The toggle is delegated in the capture phase: a hydrated framework bundle that is
++    // still present in the clone can stop propagation inside its own subtree, and a handler
++    // bound on the control itself would never be reached.
++    var inferredPanelFrom = function(node) {
++      if (!node || typeof node.closest !== 'function') return null;
++      var trigger = node.closest('[data-antifan-drawer-trigger][data-antifan-drawer-for]');
++      if (trigger) {
++        var triggerFor = trigger.getAttribute('data-antifan-drawer-for');
++        return triggerFor ? document.getElementById(triggerFor) : null;
++      }
++      var panel = node.closest('[data-antifan-drawer]');
++      if (!panel || !panel.id || panel.id.indexOf('antifan-inferred-overlay-') !== 0) return null;
++      if (node === panel) return panel;
++      var control = node.closest('button, a, [role="button"]');
++      if (!control || control === panel || !isIconOnlyControl(control)) return null;
++      var href = control.getAttribute('href');
++      var samePage = !href || href === '#' || href === location.pathname || href === location.href;
++      return samePage ? panel : null;
++    };
++    document.addEventListener('click', function(e) {
++      var panel = inferredPanelFrom(e.target);
++      if (!panel) return;
++      e.preventDefault();
++      e.stopPropagation();
++      if (panel.classList.contains('hidden')) {
++        openDrawer(panel);
++      } else {
++        closeDrawer(panel);
++      }
++    }, true);
++
+     var drawerCloseBtns = document.querySelectorAll('.category-navigation__header .close, .category-navigation__block .close, [data-antifan-drawer] .close, .drawer .close, .offcanvas .close, [data-dismiss="drawer"]');
+     drawerCloseBtns.forEach(function(btn) {
+       btn.addEventListener('click', function(e) {
+@@ -1438,6 +1737,56 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+       });
+     });
+ 
++    // Captured framework modals keep their markup but lose the state handler; bind their icon-only header dismiss control.
++    var closeCaptureModal = function(overlay) {
++      if (!overlay) return;
++      overlay.classList.remove('active', 'show');
++      overlay.setAttribute('data-antifan-closed-overlay', 'true');
++      if (overlay.style && typeof overlay.style.setProperty === 'function') {
++        overlay.style.setProperty('display', 'none', 'important');
++        overlay.style.setProperty('visibility', 'hidden', 'important');
++        overlay.style.setProperty('pointer-events', 'none', 'important');
++      } else if (overlay.style) {
++        overlay.style.display = 'none';
++        overlay.style.visibility = 'hidden';
++        overlay.style.pointerEvents = 'none';
++      }
++      var openCaptureOverlays = document.querySelectorAll('[data-antifan-capture-modal]:not([data-antifan-closed-overlay])');
++      if (!openCaptureOverlays.length) document.body.style.overflow = '';
++    };
++    Array.prototype.forEach.call(document.querySelectorAll('body *'), function(node) {
++      if (!node || node.hasAttribute('data-antifan-capture-modal')) return;
++      if (typeof window.getComputedStyle !== 'function' || typeof node.getBoundingClientRect !== 'function') return;
++      var nodeStyle = window.getComputedStyle(node);
++      if (!nodeStyle || nodeStyle.position !== 'fixed') return;
++      var documentElement = document.documentElement || {};
++      var viewportWidth = window.innerWidth || documentElement.clientWidth || 0;
++      var viewportHeight = window.innerHeight || documentElement.clientHeight || 0;
++      var nodeRect = node.getBoundingClientRect();
++      if (nodeRect.width < viewportWidth * 0.9 || nodeRect.height < viewportHeight * 0.9) return;
++      if (node.matches('.modal, .popup, #popup-video, #popup-login') || node.closest('.modal, .popup, #popup-video, #popup-login')) return;
++      var content = node.querySelector('.modal-content');
++      if (!content) return;
++      var contentRect = content.getBoundingClientRect();
++      var closeButton = Array.prototype.filter.call(content.querySelectorAll('button'), function(button) {
++        var rect = button.getBoundingClientRect();
++        var label = (button.innerText || button.getAttribute('aria-label') || '').trim();
++        var namedDismiss = /close|dismiss|cancel|back|quay|đóng|trở lại/i.test(label);
++        var iconOnly = !label && rect.top <= contentRect.top + Math.min(120, contentRect.height * 0.25);
++        return rect.top <= contentRect.top + Math.min(120, contentRect.height * 0.25) && (namedDismiss || iconOnly);
++      })[0];
++      if (!closeButton) return;
++      node.setAttribute('data-antifan-capture-modal', 'true');
++      closeButton.addEventListener('click', function(e) {
++        e.preventDefault();
++        e.stopPropagation();
++        closeCaptureModal(node);
++      });
++      node.addEventListener('click', function(e) {
++        if (e.target === node) closeCaptureModal(node);
++      });
++    });
++
+     // Universal Escape key listener for modals and drawers
+     document.addEventListener('keydown', function(e) {
+       if (e.key === 'Escape' || e.keyCode === 27) {
+@@ -1451,6 +1800,9 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+           var iframe = m.querySelector('iframe');
+           if (iframe) iframe.src = 'about:blank';
+         });
++        document.querySelectorAll('[data-antifan-capture-modal]:not([data-antifan-closed-overlay])').forEach(function(m) {
++          closeCaptureModal(m);
++        });
+         document.body.style.overflow = '';
+       }
+     });
+@@ -1579,14 +1931,47 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+     // 5b. Fullscreen capture overlays. An overlay that was open while the capture ran is baked
+     // into the bundle with nothing left to close it, so its backdrop covers the whole page.
+     // Overlays that expose no dismiss affordance of their own are marked for the parity
+-    // stylesheet to retire.
++    // stylesheet to retire. The scan covers every depth: a modal wrapper is usually nested
++    // inside the page layout, not a direct child of <body>.
+     var overlayExcluded = '.category-navigation__block, [data-antifan-drawer], [data-antifan-state], [data-antifan-target], .drawer, .offcanvas, .mobile-drawer, #popup-video, #popup-login, .popup, .modal';
++    var dialogSelector = '[class*="modal"], [class*="popup"], [role="dialog"], [aria-modal="true"]';
++    var coversViewport = function(el, width, height) {
++      var rect = el.getBoundingClientRect();
++      return rect.width >= width * 0.9 && rect.height >= height * 0.9;
++    };
++    // An overlay that owns controls is a page surface the visitor drives, not a splash the
++    // capture left open: retiring it would delete the baseline the reference page shows.
++    var interactionSelector = 'form, input, select, textarea, button, [class*="close"], [aria-label*="close"], [aria-label*="đóng"]';
++    // A dialog captured in its open state keeps its backdrop over the page: a static bundle
++    // has no controller left to close it, and hiding the dialog alone would trade a visible
++    // modal for a permanently dimmed page. Retire the full-viewport layer that carries it.
++    var retireOpenDialogBackdrops = function() {
++      var viewportWidth = window.innerWidth || 0;
++      var viewportHeight = window.innerHeight || 0;
++      if (viewportWidth <= 0 || viewportHeight <= 0) return;
++      Array.prototype.forEach.call(document.querySelectorAll(dialogSelector), function(dialog) {
++        if (dialog.hasAttribute('data-antifan-unhydrated-overlay')) return;
++        if (dialog.matches(overlayExcluded) || dialog.closest(overlayExcluded)) return;
++        if (dialog.querySelector(interactionSelector)) return;
++        var node = dialog.parentElement;
++        while (node && node !== document.documentElement) {
++          var nodeStyle = window.getComputedStyle(node);
++          if ((nodeStyle.position === 'fixed' || nodeStyle.position === 'absolute') && coversViewport(node, viewportWidth, viewportHeight)) {
++            if (node.querySelector(interactionSelector)) return;
++            node.setAttribute('data-antifan-unhydrated-overlay', 'true');
++            return;
++          }
++          node = node.parentElement;
++        }
++      });
++    };
+     var retireUnhydratedOverlays = function() {
+       var documentElement = document.documentElement || {};
+       var viewportWidth = window.innerWidth || documentElement.clientWidth || 0;
+       var viewportHeight = window.innerHeight || documentElement.clientHeight || 0;
+       if (viewportWidth <= 0 || viewportHeight <= 0) return false;
+-      var overlayCandidates = document.querySelectorAll('body > *, body > * > *');
++      retireOpenDialogBackdrops();
++      var overlayCandidates = document.querySelectorAll('body *');
+       Array.prototype.forEach.call(overlayCandidates, function(el) {
+         if (el.hasAttribute('data-antifan-unhydrated-overlay')) return;
+         if (el.matches(overlayExcluded) || el.closest(overlayExcluded)) return;
+@@ -1597,7 +1982,7 @@ ${options.hasCategoryNav ? this.getCategoryNavigationScript() : ''}
+         var overlayRect = el.getBoundingClientRect();
+         if (overlayRect.width < viewportWidth * 0.9 || overlayRect.height < viewportHeight * 0.9) return;
+         // A form or a labelled dismiss control means the overlay owns real interaction.
+-        if (el.querySelector('form, input, select, textarea, button, [class*="close"], [aria-label*="close"], [aria-label*="đóng"]')) return;
++        if (el.querySelector(interactionSelector)) return;
+         el.setAttribute('data-antifan-unhydrated-overlay', 'true');
+       });
+       return true;
+diff --git a/packages/site-clone/src/index.ts b/packages/site-clone/src/index.ts
+index 34e209c1..33990e57 100644
+--- a/packages/site-clone/src/index.ts
++++ b/packages/site-clone/src/index.ts
+@@ -15,6 +15,7 @@ export * from './generators/haravan-schema-generator.js';
+ export * from './generators/haravan-snippet-generator.js';
+ export * from './generators/theme-compiler.js';
+ export * from './generators/independent-html-clone-generator.js';
++export * from './generators/html-parse-fidelity.js';
+ export * from './generators/settings-assets-normalizer.js';
+ export * from './generators/liquid-binding-engine.js';
+ export * from './qa/canvas-masking-helper.js';
+diff --git a/packages/site-clone/src/models/asset-harvester.ts b/packages/site-clone/src/models/asset-harvester.ts
+index 2114c381..013a0f98 100644
+--- a/packages/site-clone/src/models/asset-harvester.ts
++++ b/packages/site-clone/src/models/asset-harvester.ts
+@@ -420,6 +420,24 @@ export class AssetHarvester {
+         const bodyStart = match.index + match[0].indexOf('>') + 1;
+         scriptBodySpans.push({ start: bodyStart, end: bodyStart + match[1].length });
+       }
++      // A `url(...)` token only resolves inside a CSS context: a `style` attribute or a
++      // `<style>` block. In any other attribute value it is inert markup text — Tailwind
++      // emits utility classes such as class="bg-[url('../assets/hero.jpg')]", which the
++      // browser never requests as an asset, so collecting them invents 404 downloads.
++      const inertUrlSpans: Array<{ start: number; end: number }> = [];
++      const attributeRegex = /(^|\s)([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
++      while ((match = attributeRegex.exec(content)) !== null) {
++        if (match[2].toLowerCase() === 'style') continue;
++        const value = match[3] ?? match[4] ?? '';
++        if (!/url\(/i.test(value)) continue;
++        const raw = match[0];
++        let cursor = raw.indexOf('=') + 1;
++        while (cursor < raw.length && /\s/.test(raw[cursor]!)) cursor++;
++        const quoted = raw[cursor] === '"' || raw[cursor] === "'";
++        const valueStart = match.index + cursor + (quoted ? 1 : 0);
++        inertUrlSpans.push({ start: valueStart, end: valueStart + value.length });
++      }
++
+       // 5. CSS @import declarations (gather exact ranges to prevent double-counting in url() matching)
+       const importSpans: Array<{ start: number; end: number }> = [];
+       const importRegex = /@import\s+(?:url\(['"]?|['"])([^'")]+)['"]?\)?(?:[^;]*;)?/gi;
+@@ -445,7 +463,8 @@ export class AssetHarvester {
+         const matchIdx = match.index;
+         const isInsideImport = importSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
+         const isInsideScriptBody = scriptBodySpans.some(span => matchIdx >= span.start && matchIdx < span.end);
+-        if (isInsideImport || isInsideScriptBody) continue;
++        const isInsideInertAttribute = inertUrlSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
++        if (isInsideImport || isInsideScriptBody || isInsideInertAttribute) continue;
+ 
+         const urlCandidate = (match[2] || match[3] || '').trim();
+         if (!urlCandidate || urlCandidate.startsWith('data:') || isInternalFragmentRef(urlCandidate)) continue;
+diff --git a/packages/site-clone/src/models/asset-localizer.ts b/packages/site-clone/src/models/asset-localizer.ts
+index 0630e408..8596778a 100644
+--- a/packages/site-clone/src/models/asset-localizer.ts
++++ b/packages/site-clone/src/models/asset-localizer.ts
+@@ -547,6 +547,37 @@ const WINDOWS_RESERVED_NAMES = new Set([
+   'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+ ]);
+ 
++const IMAGE_MAGIC_EXTENSIONS: Array<{ extension: string; matches: (head: Buffer) => boolean }> = [
++  { extension: '.jpg', matches: (h) => h.length >= 3 && h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff },
++  { extension: '.png', matches: (h) => h.length >= 8 && h.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
++  { extension: '.gif', matches: (h) => h.length >= 4 && h.subarray(0, 4).toString('latin1') === 'GIF8' },
++  { extension: '.webp', matches: (h) => h.length >= 12 && h.subarray(0, 4).toString('latin1') === 'RIFF' && h.subarray(8, 12).toString('latin1') === 'WEBP' },
++  { extension: '.avif', matches: (h) => h.length >= 12 && h.subarray(4, 8).toString('latin1') === 'ftyp' && ['avif', 'avis'].includes(h.subarray(8, 12).toString('latin1')) },
++  { extension: '.ico', matches: (h) => h.length >= 4 && h[0] === 0x00 && h[1] === 0x00 && h[2] === 0x01 && h[3] === 0x00 },
++  { extension: '.bmp', matches: (h) => h.length >= 2 && h[0] === 0x42 && h[1] === 0x4d },
++  {
++    extension: '.svg',
++    matches: (h) => {
++      const text = h.subarray(0, 256).toString('utf8').trimStart().toLowerCase();
++      return text.startsWith('<svg') || (text.startsWith('<?xml') && text.includes('<svg'));
++    }
++  }
++];
++
++/**
++ * A CDN may serve JPEG, WebP or AVIF bytes from a URL ending in `.png`. Writing those bytes
++ * under the URL-derived name makes the browser fetch an image whose declared type disagrees
++ * with its content, and the decoder refuses it, so the payload wins over the URL hint.
++ */
++export function sniffImageExtensionFromBuffer(head: Buffer): string | null {
++  for (const candidate of IMAGE_MAGIC_EXTENSIONS) {
++    if (candidate.matches(head)) {
++      return candidate.extension;
++    }
++  }
++  return null;
++}
++
+ export function lookupUrlInMap(
+   urlMap: Map<string, string>,
+   ref: string,
+@@ -883,6 +914,35 @@ export class AssetLocalizer {
+     } catch {}
+   }
+ 
++  /**
++   * Renames a downloaded image whose bytes disagree with its URL-derived extension so the
++   * browser decodes it under the type it actually is. Returns the path holding the bytes:
++   * the renamed path when a correction happened, otherwise the original.
++   */
++  private correctImageExtension(item: HarvestedAssetItem, localPath: string): string {
++    try {
++      const fd = fs.openSync(localPath, 'r');
++      const head = Buffer.alloc(256);
++      const read = fs.readSync(fd, head, 0, head.length, 0);
++      fs.closeSync(fd);
++
++      const sniffed = sniffImageExtensionFromBuffer(head.subarray(0, read));
++      if (!sniffed) return localPath;
++
++      const currentExt = path.extname(localPath).toLowerCase();
++      if (currentExt === sniffed) return localPath;
++      if (currentExt === '.jpeg' && sniffed === '.jpg') return localPath;
++
++      const correctedPath = `${localPath.slice(0, localPath.length - currentExt.length)}${sniffed}`;
++      if (fs.existsSync(correctedPath)) return localPath;
++
++      fs.renameSync(localPath, correctedPath);
++      return correctedPath;
++    } catch {
++      return localPath;
++    }
++  }
++
+   private hashFileOnDisk(resolvedPath: string): string | undefined {
+     try {
+       const st = fs.statSync(resolvedPath);
+@@ -928,7 +988,7 @@ export class AssetLocalizer {
+         const item = queue[queueHead++];
+         if (!item) break;
+ 
+-        const targetLocalPath = path.resolve(assetsDir, item.filename);
++        let targetLocalPath = path.resolve(assetsDir, item.filename);
+ 
+         // Path containment check
+         if (!isPathContained(targetLocalPath, assetsDir)) {
+@@ -1009,6 +1069,15 @@ export class AssetLocalizer {
+ 
+           item.sha256 = dlRes.sha256;
+           item.byteCount = dlRes.byteCount;
++
++          if (item.type === 'image' && dlRes.byteCount > 0) {
++            const actualLocalPath = this.correctImageExtension(item, targetLocalPath);
++            if (actualLocalPath !== targetLocalPath) {
++              item.filename = path.basename(actualLocalPath);
++              targetLocalPath = actualLocalPath;
++            }
++          }
++
+           this.recordFileHash(targetLocalPath, dlRes.sha256);
+           totalBytes += dlRes.byteCount;
+           results.push({
+diff --git a/packages/site-clone/src/models/models.test.ts b/packages/site-clone/src/models/models.test.ts
+index 043d2d75..eb3f75ed 100644
+--- a/packages/site-clone/src/models/models.test.ts
++++ b/packages/site-clone/src/models/models.test.ts
+@@ -120,6 +120,32 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
+     }
+   });
+ 
++  it('1a-4. AssetHarvester ignores url() tokens outside a CSS context (arbitrary-value classes, framework payloads)', () => {
++    const harvester = new AssetHarvester();
++    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-inert-url-test-'));
++
++    const html = `
++      <div class="relative w-screen bg-[url('../assets/images/bg.jpeg')] bg-cover bg-center"></div>
++      <div data-bg="url('https://example.com/images/data-attr.png')"></div>
++      <div style="background-image:url('https://example.com/images/inline-style.png')"></div>
++      <style>.hero{background-image:url('https://example.com/images/style-block.png')}</style>
++      <script id="__payload">self.__next_f.push([1,"{\\"className\\":\\"bg-[url('../assets/new-images/banner.jpg')]\\"}"])</script>
++    `;
++
++    try {
++      const manifest = harvester.harvestFromHtml(html, tempDir, { baseUrl: 'https://comnieuthienly.com/' });
++      const urls = manifest.images.map(img => img.sourceUrl).sort();
++
++      assert.deepStrictEqual(
++        urls,
++        ['https://example.com/images/inline-style.png', 'https://example.com/images/style-block.png'],
++        'Only a style attribute or a <style> block may yield a background image'
++      );
++    } finally {
++      fs.rmSync(tempDir, { recursive: true, force: true });
++    }
++  });
++
+   it('1b. AssetHarvester extracts srcset, picture sources, and background-images with deduplication', () => {
+     const harvester = new AssetHarvester();
+     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-srcset-test-'));
+diff --git a/packages/site-clone/src/qa/control-state-journeys.ts b/packages/site-clone/src/qa/control-state-journeys.ts
+index b02dca06..d9fb3e80 100644
+--- a/packages/site-clone/src/qa/control-state-journeys.ts
++++ b/packages/site-clone/src/qa/control-state-journeys.ts
+@@ -425,34 +425,35 @@ async function openPrerequisiteContainer(
+   browser: InteractionBrowser,
+   desc: ElementDescriptor,
+   isReference: boolean
+-): Promise<boolean> {
+-  return (await browser.evaluate(`(() => {
++): Promise<{ opened: boolean; branch: string }> {
++  const outcome = (await browser.evaluate(`(() => {
+     ${RESOLVER_HELPER_JS}
+     const target = resolveControl(${literal(desc)}, ${literal(isReference)});
+ 
++    const visibleClickable = (el) => {
++      if (!el || typeof el.click !== 'function') return false;
++      const rect = el.getBoundingClientRect();
++      if (rect.width <= 0 || rect.height <= 0) return false;
++      const cs = window.getComputedStyle(el);
++      if (!cs || cs.display === 'none' || cs.visibility === 'hidden') return false;
++      return true;
++    };
++
+     let inCategorySub = false;
+     let inDrawer = false;
+     let inPopupOrModal = false;
+ 
+-    // Derive live ancestor roles, classes, and tags from resolved DOM element
+-    let curr = target ? target.parentElement : null;
+-    while (curr && curr !== document.body) {
+-      const cls = (curr.className && typeof curr.className === 'string') ? curr.className.toLowerCase() : '';
+-      const role = (curr.getAttribute('role') || '').toLowerCase();
+-      const id = (curr.id || '').toLowerCase();
+-      const tag = curr.tagName.toLowerCase();
+-
+-      if (id.includes('category-navigation__sub') || cls.includes('category-navigation__sub') || cls.includes('sub-menu')) {
+-        inCategorySub = true;
+-      }
+-      if (cls.includes('category-navigation__block') || cls.includes('drawer') || (role === 'navigation' && cls.includes('mobile'))) {
+-        inDrawer = true;
++    const closestSafe = (el, selector) => {
++      try {
++        return el && typeof el.closest === 'function' ? el.closest(selector) : null;
++      } catch (e) {
++        return null;
+       }
+-      if (id.includes('popup') || cls.includes('popup') || cls.includes('modal') || role === 'dialog' || tag === 'dialog') {
+-        inPopupOrModal = true;
+-      }
+-      curr = curr.parentElement;
+-    }
++    };
++
++    inCategorySub = !!closestSafe(target, '.category-navigation__sub, .sub-menu, [class*="sub-menu"]');
++    inDrawer = !!closestSafe(target, '.category-navigation__block, .drawer, [class*="drawer"], [role="navigation"][class*="mobile"]');
++    inPopupOrModal = !!closestSafe(target, '[id*="popup"], [class*="popup"], [class*="modal"], [role="dialog"], dialog');
+ 
+     // Fallback if element itself not rendered: inspect desc hints
+     if (!inCategorySub && !inDrawer && !inPopupOrModal) {
+@@ -465,31 +466,46 @@ async function openPrerequisiteContainer(
+     // Native user actions ONLY (no inline style or class mutations)
+     if (inCategorySub) {
+       const parent = document.querySelector('.category-navigation__list > ul > li, .category-navigation__main > li');
+-      if (parent) {
++      if (parent && visibleClickable(parent)) {
+         parent.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+         parent.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+-        return true;
++        return { opened: true, branch: 'category-sub' };
+       }
++      return { opened: false, branch: 'category-sub-absent' };
+     }
+ 
+     if (inDrawer) {
+       const btn = document.querySelector('.menu-mobile, [data-toggle="menu-mobile"], .header-mobile__menu');
+-      if (btn && typeof btn.click === 'function') {
++      if (visibleClickable(btn)) {
+         btn.click();
+-        return true;
++        return { opened: true, branch: 'drawer' };
+       }
++      return { opened: false, branch: 'drawer-hidden' };
+     }
+ 
+     if (inPopupOrModal) {
+-      const btn = document.querySelector('.video-content__button, [data-fancybox="video"], [data-toggle="modal"], [data-target*="modal"]');
+-      if (btn && typeof btn.click === 'function') {
+-        btn.click();
+-        return true;
++      // Scope the opener to the control's own ancestry. A document-wide query picks the first
++      // global trigger in the page, which fires an unrelated heavyweight action that has
++      // nothing to do with this control.
++      let node = target;
++      let opener = null;
++      while (node && node !== document.body) {
++        if (node.matches && node.matches('.video-content__button, [data-fancybox="video"], [data-toggle="modal"], [data-target*="modal"]')) {
++          opener = node;
++          break;
++        }
++        node = node.parentElement;
++      }
++      if (visibleClickable(opener)) {
++        opener.click();
++        return { opened: true, branch: 'popup' };
+       }
++      return { opened: false, branch: 'popup-hidden' };
+     }
+ 
+-    return false;
+-  })()`)) as boolean;
++    return { opened: false, branch: 'none' };
++  })()`)) as { opened: boolean; branch: string } | null;
++  return outcome || { opened: false, branch: 'unresolved' };
+ }
+ 
+ async function closePrerequisiteContainer(browser: InteractionBrowser): Promise<void> {
+@@ -644,17 +660,28 @@ export async function runControlStateJourneys(options: {
+   });
+ 
+   // FULL DISCOVERED DENOMINATOR: Every item in options.inventory is processed without sampling cap
++  // A crashed pass leaves no receipts behind, so an opted-in trace names the control that
++  // was in flight when the browser went down.
++  const trace = process.env.CLONE_E2E_TRACE
++    ? (message: string) => { console.log(`[journey] ${message}`); }
++    : () => {};
++
+   for (let i = 0; i < options.inventory.length; i++) {
+     const item = options.inventory[i] as InventoryControlItem;
++    trace(`${i}/${options.inventory.length} ${item.id} ${item.tag} ${item.name.slice(0, 40)} visible=${item.visible}`);
+     const desc = descriptors[i];
+     const states = item.states && item.states.length ? item.states : ['initial', 'hover', 'focus', 'activate', 'exit', 'reopen'];
+ 
+     // 1. Hidden controls: attempt prerequisite opening (dropdown links, mobile drawer, modals)
+     let openedPrereq = false;
+     if (!item.visible && (item.parentSelector || item.classes?.length)) {
+-      const refOpened = await openPrerequisiteContainer(options.reference, desc, true);
+-      const cloneOpened = await openPrerequisiteContainer(options.clone, desc, false);
+-      openedPrereq = refOpened || cloneOpened;
++      trace(`  prereq-open ${item.id}`);
++      trace(`  prereq-desc ${item.id} ${JSON.stringify(desc).slice(0, 400)}`);
++      const refState = await openPrerequisiteContainer(options.reference, desc, true);
++      trace(`  prereq-ref ${item.id} ${JSON.stringify(refState)}`);
++      const cloneState = await openPrerequisiteContainer(options.clone, desc, false);
++      trace(`  prereq-branch ${item.id} ref=${refState.branch} clone=${cloneState.branch}`);
++      openedPrereq = refState.opened || cloneState.opened;
+       if (openedPrereq) await pause(150);
+     }
+ 
+@@ -681,6 +708,7 @@ export async function runControlStateJourneys(options: {
+     // NOTE: Initial, hover, and focus are purely read-only observational states and run safely
+     // for ALL controls. Only activate triggers live actions.
+     try {
++      trace(`  scroll-into-view ${item.id}`);
+       await scrollIntoView(options.reference, desc, true);
+       await scrollIntoView(options.clone, desc, false);
+       await pause(80);
+@@ -754,6 +782,7 @@ export async function runControlStateJourneys(options: {
+ 
+       const refInitShot = `${options.viewport}/${item.id}-initial-reference.png`;
+       const cloneInitShot = `${options.viewport}/${item.id}-initial-clone.png`;
++      trace(`  initial-screenshot ${item.id}`);
+       await options.save(refInitShot, await options.reference.screenshot());
+       await options.save(cloneInitShot, await options.clone.screenshot());
+       initialReceipt.evidence.push(refInitShot, cloneInitShot);
+@@ -784,6 +813,7 @@ export async function runControlStateJourneys(options: {
+           hoverReceipt.reason = 'Hover state not applicable on mobile touch viewport';
+         } else {
+           try {
++            trace(`  hover-move ${item.id}`);
+             await options.reference.move(refInitial.center.x, refInitial.center.y);
+             await options.clone.move(cloneInitial.center.x, cloneInitial.center.y);
+             await pause(100);
+diff --git a/plans/260916-1037-antifan-defect-remediation-master/plan.md b/plans/260916-1037-antifan-defect-remediation-master/plan.md
+index ff48d6e3..3714529d 100644
+--- a/plans/260916-1037-antifan-defect-remediation-master/plan.md
++++ b/plans/260916-1037-antifan-defect-remediation-master/plan.md
+@@ -6,6 +6,7 @@ priority: P1
+ effort: "3-5d"
+ tags: [crash, workflow-hub, memory-churn, dom-automation, issue-register]
+ created: 2026-09-16
++blockedBy: ["plans/260917-1821-antifan-consolidated-remediation-soak"]
+ ---
+ 
+ # AntiFan Comprehensive Defect Remediation
+diff --git a/scripts/freeze-theme-workload.cjs b/scripts/freeze-theme-workload.cjs
+index 22d8c281..965262c3 100644
+--- a/scripts/freeze-theme-workload.cjs
++++ b/scripts/freeze-theme-workload.cjs
+@@ -6,6 +6,14 @@ const fs = require('node:fs');
+ const http = require('node:http');
+ const path = require('node:path');
+ 
++// Harness runs record verification claims through the live IssueRegister
++// singleton; point the register at a scratch dir so residue never lands in the
++// real register while the rest of the data root stays live.
++const os = require('node:os');
++process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = fs.mkdtempSync(
++  path.join(os.tmpdir(), 'antifan-freeze-workload-register-')
++);
++
+ const CAPABILITY_INVOCATIONS_PER_BATCH = 25;
+ const ARTIFACT_WRITES_PER_BATCH = 2;
+ const RECEIPT_WRITES_PER_BATCH = 4;
+diff --git a/scripts/materialize-surface.cjs b/scripts/materialize-surface.cjs
+index 52578a61..a37a0865 100644
+--- a/scripts/materialize-surface.cjs
++++ b/scripts/materialize-surface.cjs
+@@ -20,6 +20,7 @@ const fs = require('node:fs');
+ const path = require('node:path');
+ const os = require('node:os');
+ const crypto = require('node:crypto');
++const { HTML_AUTOCLOSE_NORMALIZER_SOURCE } = require('../packages/site-clone/dist/index.js');
+ 
+ app.commandLine.appendSwitch('no-sandbox');
+ app.commandLine.appendSwitch('disable-gpu');
+@@ -273,6 +274,45 @@ app.whenReady().then(async () => {
+ 
+       const totalHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+       const productCards = document.querySelectorAll('.product-list__item, .product-item, .card-item, .product-card');
++
++      // The markup is re-parsed by every downstream consumer, so the serialized tree
++      // must survive the HTML tree builder's auto-closing rules (see Core
++      // html-parse-fidelity). Runs immediately before serialization.
++      ${HTML_AUTOCLOSE_NORMALIZER_SOURCE}
++      const autocloseRewrites = normalizeHtmlAutoclose(document.documentElement);
++
++      // Slider libraries (Swiper, Slick, Splide) write the geometry they measured for
++      // this viewport into inline styles on the track and its slides. The sanitizer
++      // must drop those numbers -- they freeze one viewport -- and can only re-express
++      // them relative to the track if it knows the captured ratio. Layout exists only
++      // here, so measure it now: per-view slot count plus the design gap between slots.
++      let slidersAnnotated = 0;
++      try {
++        const TRACK_CLASS_TOKENS = ['swiper-wrapper', 'slick-track', 'splide__list', 's-content'];
++        // Token match without regex: this block is an escaped template literal, where
++        // \s inside a pattern literal is silently collapsed to s.
++        const hasTrackToken = (value) => TRACK_CLASS_TOKENS.some((token) => (' ' + value + ' ').includes(' ' + token + ' '));
++        for (const track of document.querySelectorAll('*')) {
++          const className = typeof track.className === 'string' ? track.className : '';
++          if (!className || !hasTrackToken(className)) continue;
++          const slides = Array.from(track.children).filter((child) => child.offsetWidth > 0);
++          if (slides.length < 2) continue;
++          const slideWidth = slides[0].offsetWidth;
++          const gap = Math.max(0, slides[1].offsetLeft - slides[0].offsetLeft - slideWidth);
++          const trackWidth = track.clientWidth || track.offsetWidth;
++          if (!slideWidth || !trackWidth) continue;
++          const ratio = (trackWidth + gap) / (slideWidth + gap);
++          track.setAttribute('data-antifan-slider', JSON.stringify({
++            perView: Math.max(1, Math.round(ratio)),
++            fractional: Math.abs(ratio - Math.round(ratio)) > 0.15,
++            gap: Math.round(gap),
++            slide: slideWidth,
++            track: trackWidth,
++          }));
++          slidersAnnotated++;
++        }
++      } catch {}
++
+       const html = document.documentElement.outerHTML;
+       const htmlBytes = (new TextEncoder().encode(html)).length;
+ 
+@@ -309,6 +349,8 @@ app.whenReady().then(async () => {
+         htmlBytes,
+         mutationsCount: mutationCount,
+         passesCount,
++        autocloseRewrites,
++        slidersAnnotated,
+         settlement: {
+           passed,
+           reason
+@@ -327,6 +369,8 @@ app.whenReady().then(async () => {
+       imagesLoaded: result.imagesLoaded,
+       htmlBytes: result.htmlBytes,
+       mutationsCount: result.mutationsCount,
++      autocloseRewrites: result.autocloseRewrites,
++      slidersAnnotated: result.slidersAnnotated,
+       settlement: result.settlement
+     });
+ 
+@@ -365,6 +409,7 @@ app.whenReady().then(async () => {
+         htmlBytes: result.htmlBytes,
+         mutationsCount: result.mutationsCount,
+         passesCount: result.passesCount,
++        slidersAnnotated: result.slidersAnnotated,
+         durationMs: Date.now() - startTime
+       }
+     };
+diff --git a/scripts/run-omp-soak.cjs b/scripts/run-omp-soak.cjs
+index 9d4e6b29..2e96cc10 100644
+--- a/scripts/run-omp-soak.cjs
++++ b/scripts/run-omp-soak.cjs
+@@ -19,7 +19,7 @@
+  * Usage:
+  *   node scripts/run-omp-soak.cjs --minutes 2      # Fast 2-minute proof of harness
+  *   node scripts/run-omp-soak.cjs --minutes 30     # Full 30-minute soak certification
+- *   node scripts/run-omp-soak.cjs --minutes 60     # Extended 60-minute soak certification
++ *   node scripts/run-omp-soak.cjs --minutes 120    # Certification soak (260917-1821 phase 10)
+  */
+ 
+ const { spawn } = require('node:child_process');
+@@ -301,8 +301,8 @@ Options:
+ 
+   console.log('To run the full 30-minute soak certification, execute:');
+   console.log('  node scripts/run-omp-soak.cjs --minutes 30\n');
+-  console.log('To run an extended 60-minute soak certification, execute:');
+-  console.log('  node scripts/run-omp-soak.cjs --minutes 60\n');
++  console.log('To run the plan certification soak (120 minutes), execute:');
++  console.log('  node scripts/run-omp-soak.cjs --minutes 120\n');
+ 
+   if (!allPassed) {
+     console.error(`[Soak-Runner] Soak certification failed one or more stability gates.`);
+diff --git a/scripts/smoke-theme-golden-live.cjs b/scripts/smoke-theme-golden-live.cjs
+index ad475506..ca2bac9f 100644
+--- a/scripts/smoke-theme-golden-live.cjs
++++ b/scripts/smoke-theme-golden-live.cjs
+@@ -8,6 +8,14 @@ const path = require('node:path');
+ const { spawn } = require('node:child_process');
+ const { StringDecoder } = require('node:string_decoder');
+ const WebSocket = require('ws');
++
++// The worker records verification claims through the live IssueRegister
++// singleton; isolate the register inside the orchestrator-owned temp root so
++// residue never lands in the real register.
++process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = path.join(
++  process.env.ANTIFAN_LIVE_PROOF_TEMP_ROOT || os.tmpdir(),
++  'verification-register'
++);
+ function redactCreds(val) {
+   const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+   return str
+diff --git a/scripts/test-clone-features.cjs b/scripts/test-clone-features.cjs
+index 3839c694..cd9c8fc4 100644
+--- a/scripts/test-clone-features.cjs
++++ b/scripts/test-clone-features.cjs
+@@ -240,6 +240,21 @@ async function createBrowser(viewport) {
+   openWindows.add(win);
+   win.once('closed', () => openWindows.delete(win));
+ 
++  // A crashed renderer leaves pending CDP promises unsettled, so the process drains its event
++  // loop and exits 0 mid-suite: the gate then reports nothing about the controls it never ran.
++  // Recording the death makes every later call fail loudly, and the suite records BLOCKED.
++  let deathReason = null;
++  win.webContents.on('render-process-gone', (_event, details) => {
++    deathReason = details && details.reason ? details.reason : 'unknown';
++    console.error(
++      `[test-clone-features] renderer gone during ${viewport.name || 'surface'}: ${JSON.stringify(details)}`
++    );
++  });
++  const guard = () => {
++    if (deathReason) throw new Error(`SURFACE_DEAD: renderer ${deathReason}`);
++  };
++  const traceCdp = process.env.CLONE_E2E_TRACE ? (m) => console.log(`[cdp] ${m}`) : () => {};
++
+   // Initialize renderer process with initial document before attaching CDP
+   await win.loadURL('about:blank');
+ 
+@@ -297,6 +312,7 @@ async function createBrowser(viewport) {
+ 
+   return {
+     async navigate(url) {
++      guard();
+       let navTimeout;
+       let loadFailure = null;
+ 
+@@ -367,6 +383,7 @@ async function createBrowser(viewport) {
+     },
+ 
+     async evaluate(expression, timeoutMs = 30_000) {
++      guard();
+       let timer;
+       try {
+         const timeoutPromise = new Promise((_, reject) => {
+@@ -379,14 +396,32 @@ async function createBrowser(viewport) {
+           ? `(${expression.toString()})()`
+           : expression;
+ 
++        // Dispatching script into a frame that is mid-navigation aborts the browser process
++        // rather than rejecting, so the call waits out any load already in flight.
++        if (win.webContents.isLoading()) {
++          await new Promise((resolve) => {
++            const done = () => {
++              win.webContents.removeListener('did-stop-loading', done);
++              resolve();
++            };
++            win.webContents.on('did-stop-loading', done);
++            setTimeout(done, 5000);
++          });
++        }
++
+         const evalPromise = win.webContents.executeJavaScript(script, true);
+-        return await Promise.race([evalPromise, timeoutPromise]);
++        traceCdp(`evaluate:start len=${script.length}`);
++        const result = await Promise.race([evalPromise, timeoutPromise]);
++        traceCdp('evaluate:done');
++        return result;
+       } finally {
+         clearTimeout(timer);
+       }
+     },
+ 
+     async move(x, y) {
++      guard();
++      traceCdp('move');
+       const rx = Math.round(x);
+       const ry = Math.round(y);
+       await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+@@ -397,6 +432,8 @@ async function createBrowser(viewport) {
+     },
+ 
+     async click(x, y) {
++      guard();
++      traceCdp('click');
+       const rx = Math.round(x);
+       const ry = Math.round(y);
+ 
+@@ -444,6 +481,8 @@ async function createBrowser(viewport) {
+     },
+ 
+     async key(keyName, modifiers = []) {
++      guard();
++      traceCdp('key');
+       const modMask = getModifierMask(modifiers);
+       const def = KEY_DEFINITIONS[keyName] || {
+         code: keyName,
+@@ -478,12 +517,16 @@ async function createBrowser(viewport) {
+     },
+ 
+     async type(text) {
++      guard();
++      traceCdp('type');
+       const str = String(text ?? '');
+       if (!str) return;
+       await win.webContents.debugger.sendCommand('Input.insertText', { text: str });
+     },
+ 
+     async scroll(x, y, deltaY) {
++      guard();
++      traceCdp('scroll');
+       const rx = Math.round(x);
+       const ry = Math.round(y);
+ 
+@@ -523,18 +566,30 @@ async function createBrowser(viewport) {
+     },
+ 
+     async screenshot() {
++      guard();
++      traceCdp('screenshot:start');
+       let timer;
+       try {
+         const timeoutPromise = new Promise((_, reject) => {
+           timer = setTimeout(() => {
+-            reject(new Error('screenshot capturePage timed out after 30 seconds'));
++            reject(new Error('screenshot capture timed out after 30 seconds'));
+           }, 30_000);
+         });
++        // CDP page capture runs through the renderer's own frame path. win.capturePage()
++        // drives the offscreen software compositor, which aborts the browser process on
++        // large pages instead of rejecting.
+         const capturePromise = (async () => {
+-          const img = await win.capturePage();
+-          return img.toPNG();
++          const shot = await win.webContents.debugger.sendCommand('Page.captureScreenshot', {
++            format: 'png',
++            fromSurface: true,
++            captureBeyondViewport: false,
++          });
++          const data = shot && shot.data ? shot.data : '';
++          return Buffer.from(data, 'base64');
+         })();
+-        return await Promise.race([capturePromise, timeoutPromise]);
++        const png = await Promise.race([capturePromise, timeoutPromise]);
++        traceCdp('screenshot:done');
++        return png;
+       } finally {
+         clearTimeout(timer);
+       }
+diff --git a/src/main/browser/scripts/injected-script-store.ts b/src/main/browser/scripts/injected-script-store.ts
+index 6d98958c..8f1bc533 100644
+--- a/src/main/browser/scripts/injected-script-store.ts
++++ b/src/main/browser/scripts/injected-script-store.ts
+@@ -189,7 +189,7 @@ export class InjectedScriptStore {
+           if (!styleEl) {
+             styleEl = document.createElement('style');
+             styleEl.id = freezeStyleId;
+-            styleEl.textContent = '*:not([class*="menu"], [class*="menu"] *, [class*="nav"], [class*="nav"] *, [class*="dropdown"], [class*="dropdown"] *, [role="menu"], [role="menu"] *, [role="dialog"], [role="dialog"] *) { animation-play-state: paused !important; transition: none !important; }';
++            styleEl.textContent = '*, *::before, *::after { animation-play-state: paused !important; } *:not([class*="menu"], [class*="menu"] *, [class*="nav"], [class*="nav"] *, [class*="dropdown"], [class*="dropdown"] *, [role="menu"], [role="menu"] *, [role="dialog"], [role="dialog"] *) { transition: none !important; }';
+             document.head.appendChild(styleEl);
+           }
+           if (window.__antifanFreezeTimer) clearTimeout(window.__antifanFreezeTimer);
+diff --git a/src/main/browser/tab-devtools-host.ts b/src/main/browser/tab-devtools-host.ts
+index e6be3d02..a10d5be7 100644
+--- a/src/main/browser/tab-devtools-host.ts
++++ b/src/main/browser/tab-devtools-host.ts
+@@ -50,6 +50,27 @@ const delay = (ms: number): Promise<void> => {
+  */
+ const PREWARM_EXEC_BUDGET_MS = 15_000;
+ 
++/**
++ * Bound for the native viewport raster. A view whose surface can answer at all
++ * answers in tens of milliseconds (measured 27-47ms on an attached
++ * viewport-sized view), so this ceiling only has to absorb a surface that has
++ * to be rebuilt first (measured 1.1-2.4s for the first raster of a hidden
++ * window). A view that never answers falls through to the CDP path instead of
++ * stalling the capture at the caller's bound.
++ */
++const NATIVE_VIEWPORT_RASTER_BOUND_MS = 4_000;
++
++/**
++ * A viewport capture whose native tier handed back no frame has no compositor
++ * surface to copy: the viewport raster is the view's own composited image, so an
++ * empty native answer means the window is not presenting the view. The CDP tier
++ * then has nothing to rasterize and waits out its whole bound instead of failing,
++ * which also leaves the target's CDP transport draining for every later command.
++ * The fallback therefore gets this short probe bound and reports the missing
++ * surface by name when it cannot answer.
++ */
++const NO_SURFACE_CAPTURE_PROBE_BOUND_MS = 8_000;
++
+ export interface TabDevToolsContext {
+   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
+   getTabRecord: (tabId: string) => NativeTabRecord | undefined;
+@@ -1732,6 +1753,48 @@ export class TabDevToolsHost {
+   });
+   }
+ 
++  /**
++   * Raster of the view's own composited surface, bounded so a view that cannot
++   * produce one falls through to the CDP path instead of stalling the capture at
++   * the caller's bound. Returns encoded bytes, or null when the surface is
++   * absent, empty, or did not answer within the bound.
++   *
++   * Only ever used for a viewport raster: the native surface holds nothing
++   * beyond the visible region, so a clip or a document snapshot has to come from
++   * the CDP path that can rasterize past the viewport.
++   */
++  private async captureNativeViewportRaster(
++    wc: Electron.WebContents,
++    format: 'png' | 'jpeg',
++    quality?: number,
++    boundMs: number = NATIVE_VIEWPORT_RASTER_BOUND_MS
++  ): Promise<Buffer | null> {
++    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return null;
++    if (typeof wc.capturePage !== 'function') return null;
++    let timer: NodeJS.Timeout | undefined;
++    try {
++      // The capture starts before the race, so the bound never cancels the
++      // raster itself — only this call's wait for it.
++      const pending = wc.capturePage().catch(() => null);
++      const bound = new Promise<null>((resolve) => {
++        timer = setTimeout(() => resolve(null), Math.max(1, Math.round(boundMs)));
++      });
++      const image = await Promise.race([pending, bound]);
++      if (!image) return null;
++      if (typeof image.isEmpty === 'function' && image.isEmpty()) return null;
++      if (format === 'jpeg' && typeof image.toJPEG === 'function') {
++        const jpeg = image.toJPEG(Math.max(1, Math.min(100, Math.round(quality ?? 85))));
++        if (jpeg.length > 0) return jpeg;
++      }
++      const png = typeof image.toPNG === 'function' ? image.toPNG() : Buffer.alloc(0);
++      return png.length > 0 ? png : null;
++    } catch {
++      return null;
++    } finally {
++      clearTimeout(timer);
++    }
++  }
++
+   public async captureVerificationScreenshot(
+     rect?: Rectangle,
+     tabId?: string,
+@@ -1969,9 +2032,19 @@ export class TabDevToolsHost {
+             }
+           }
+ 
+-          // ONE bounded Page.captureScreenshot. No retry tier and no capturePage
+-          // fallback: a second attempt on a poisoned CDP queue is what wedged the
+-          // target before, and capturePage can only ever return viewport bytes.
++          // A viewport raster is exactly what the native view already composites,
++          // so ask the view for it before reaching for a fresh copy of the
++          // compositor surface. A background target is attached in place for the
++          // raster — the window is not presenting it — and Page.captureScreenshot
++          // on a surface nobody presents can wait out the whole bound instead of
++          // failing; that same hang leaves the target's CDP transport draining,
++          // which blocks every later command on it. The native raster is
++          // geometry-checked against the measured render surface, so a view that
++          // answers with a different size (emulated viewport, scaled pane) falls
++          // through to CDP instead of returning mislabeled evidence.
++          //
++          // ONE bounded Page.captureScreenshot below. No retry tier: a second
++          // attempt on a poisoned CDP queue is what wedged the target before.
+           //
+           // clip/full-page must rasterize from the compositor surface: with
+           // fromSurface:false Chromium captures the renderer view, which is
+@@ -1993,12 +2066,56 @@ export class TabDevToolsHost {
+           // walk + settle gate (seconds of work), so a window hidden mid-capture
+           // would otherwise still reach captureBeyondViewport and wait out the
+           // bound — the same 60s hang this guard exists to prevent.
++          let nativeRasterAnswered = false;
++          if (mode === 'viewport' && !isOffscreenTarget) {
++            const nativeBytes = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality);
++            if (nativeBytes) {
++              const nativeImage = imageFormat === 'jpeg' ? validateJpegBuffer(nativeBytes) : validatePngBuffer(nativeBytes);
++              const nativeSize = nativeImage.ok ? { width: nativeImage.width, height: nativeImage.height } : null;
++              if (nativeImage.ok && nativeSize) nativeRasterAnswered = true;
++              if (nativeImage.ok && nativeSize && rasterMatchesCss(nativeSize, cssCaptureSize, dpr, zoom)) {
++                return {
++                  data: nativeBytes.toString('base64'),
++                  backend: 'capturePage',
++                  dpr,
++                  zoom,
++                  cssViewport,
++                  cssCaptureSize,
++                  rasterSize: nativeSize,
++                  captureMode: mode,
++                  timestamp: Date.now(),
++                  settle: lastQuiescence?.warnings,
++                };
++              }
++            }
++          }
++
++          // A surface that no window presents never answers the capture: measured
++          // against a detached WebContentsView (never added to a window's contentView),
++          // Page.captureScreenshot times out for viewport and beyond-viewport alike and
++          // capturePage() never settles, while the same view attached to the window
++          // answers in ~130ms. Occlusion is irrelevant (a covered view captures in
++          // ~150ms). Failing closed keeps a missing surface a typed error instead of a
++          // bound-long hang that also poisons the target's CDP queue.
++          if (!isForeground && !isOffscreenTarget && this.ctx.isTabViewAttached && targetPaneView && !this.ctx.isTabViewAttached(targetPaneView)) {
++            throw new CaptureError(
++              'NO_RENDER_SURFACE',
++              `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: its view is not attached to a window, so the compositor produces no surface. Present the view (attach-for-capture) before capturing.`
++            );
++          }
++
+           if (mode !== 'viewport' && !isOffscreenTarget && this.ctx.isWindowRenderable && !this.ctx.isWindowRenderable()) {
+             throw new CaptureError(
+               'NO_RENDER_SURFACE',
+               `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window was hidden or minimized during capture setup, so the compositor produces no beyond-viewport surface. Show the window or use a viewport capture.`
+             );
+           }
++          // A viewport raster that the native tier could not answer has no compositor
++          // frame to copy: the fallback would wait out its whole bound and leave the
++          // target's CDP transport draining. Give it a short probe bound instead, and
++          // name the missing surface when it cannot answer (below).
++          const captureHasNoSurface = mode === 'viewport' && !isOffscreenTarget && !nativeRasterAnswered;
++          const cdpBoundMs = captureHasNoSurface ? Math.min(boundMs, NO_SURFACE_CAPTURE_PROBE_BOUND_MS) : boundMs;
+           let captureRes: { data?: string } | undefined;
+           try {
+             captureRes = await this.sendCdpCommand<{ data?: string }>(
+@@ -2011,9 +2128,15 @@ export class TabDevToolsHost {
+                 captureBeyondViewport: mode !== 'viewport',
+                 clip,
+               },
+-              boundMs
++              cdpBoundMs
+             );
+           } catch (err) {
++            if (captureHasNoSurface) {
++              throw new CaptureError(
++                'NO_RENDER_SURFACE',
++                `Tab '${targetId}' pane '${effectivePane}' produced no ${mode} raster: the native view handed back no frame and the CDP fallback found no compositor surface to copy, so the window is not presenting this view (a hidden, minimised or Chromium-occluded window, or a tab the window is not showing). Bring the AntiFan window to the foreground, or capture an offscreen agent-plane tab.`
++              );
++            }
+             throw this.toCaptureError(err, `Page.captureScreenshot (${mode}) on tab '${targetId}'`);
+           }
+ 
+diff --git a/src/main/control-plane/control-plane-runtime.ts b/src/main/control-plane/control-plane-runtime.ts
+index d887278c..9b2b806c 100644
+--- a/src/main/control-plane/control-plane-runtime.ts
++++ b/src/main/control-plane/control-plane-runtime.ts
+@@ -224,7 +224,7 @@ export class ControlPlaneRuntime {
+ 
+   public async initialize(): Promise<void> {
+     const t0 = performance.now();
+-    await this.runs.attachments.initialize();
++    await this.runs.attachments.initialize(this.leaseState.runtimeId);
+     const t1 = performance.now();
+     await this.ledger.initialize();
+     const t2 = performance.now();
+diff --git a/src/main/run/attachment-registry.ts b/src/main/run/attachment-registry.ts
+index 8d9100fb..0bd54a4e 100644
+--- a/src/main/run/attachment-registry.ts
++++ b/src/main/run/attachment-registry.ts
+@@ -109,7 +109,7 @@ export class AttachmentRegistry {
+     this.mutationLock = next.then(() => {}, () => {});
+     return next;
+   }
+-  public async initialize(): Promise<void> {
++  public async initialize(currentRuntimeId?: string): Promise<void> {
+     if (!this.dataRoot) return;
+     const filePath = path.join(this.dataRoot, 'attachments-v1.jsonl');
+     try {
+@@ -121,6 +121,7 @@ export class AttachmentRegistry {
+     const raw = await fs.promises.readFile(filePath, 'utf8');
+     const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+     let processed = 0;
++    let foreignRuntimeRecords = 0;
+     for (const line of lines) {
+       if (++processed % 200 === 0) {
+         const { promise, resolve } = Promise.withResolvers<void>();
+@@ -146,6 +147,18 @@ export class AttachmentRegistry {
+           return;
+         }
+         const rec = frame.record;
++        // An attachment's authority is scoped to the runtime that minted it, and
++        // the runtime id is minted per process (`binding-<uuid>`). A frame
++        // replayed from a previous process can therefore never dispatch again —
++        // the catalogue refuses it with RUNTIME_MISMATCH — yet without this check
++        // it is restored as `active` and renewed forever, so the client never
++        // learns it must re-pair. Dropping it is also what lets the compaction
++        // below physically remove the frame.
++        const leaseRuntimeId = rec.lease?.runtimeId;
++        if (currentRuntimeId && leaseRuntimeId && leaseRuntimeId !== currentRuntimeId) {
++          foreignRuntimeRecords++;
++          continue;
++        }
+         if (Array.isArray(frame.revisions)) {
+           const sortedRevs = [...frame.revisions].sort((a, b) => (a.revisionNumber || 0) - (b.revisionNumber || 0));
+           const revHandles: AuthorityRevisionHandle[] = [];
+@@ -197,6 +210,12 @@ export class AttachmentRegistry {
+       }
+     }
+     this.uncompactedFramesCount = Math.max(0, lines.length - this.records.size);
++    if (foreignRuntimeRecords > 0) {
++      console.warn(
++        `[AttachmentRegistry] Dropped ${foreignRuntimeRecords} attachment record(s) bound to a previous runtime ` +
++          `(current ${currentRuntimeId}); their owners re-pair through the bridge's 4001 path.`
++      );
++    }
+     if (lines.length > Math.max(100, this.records.size * 1.5)) {
+       await this.compactAttachmentsUnlocked();
+     }
+@@ -989,7 +1008,14 @@ export class AttachmentRegistry {
+         }
+         if (this.delegate.getBackendId) {
+           const backendId = this.delegate.getBackendId(record.attemptId);
+-          if (!backendId || backendId !== record.backendId) {
++          // `undefined` here means the same thing it means one block above: this
++          // registry does not track that attempt. Pairing-exchange attachments are
++          // minted straight into the registry with a run/attempt pair RunService
++          // never registers, so reading `undefined` as a lineage violation made
++          // renewSession fail for every one of them — which is the client's only
++          // liveness proof for reusing a live attachment, so each recovery spent a
++          // fresh pairing code. A backend that is *reported* and differs still fails.
++          if (backendId !== undefined && backendId !== record.backendId) {
+             throw new CapabilityError('LINEAGE_MISMATCH', `Backend mismatch: expected ${record.backendId}, got ${backendId ?? 'none'}`);
+           }
+         }
+diff --git a/src/main/session/issue-register.ts b/src/main/session/issue-register.ts
+index 3e1e6dc3..faab131b 100644
+--- a/src/main/session/issue-register.ts
++++ b/src/main/session/issue-register.ts
+@@ -285,12 +285,56 @@ export interface IssueGroupSummary {
+   workaround?: string;
+ }
+ 
++/** A register write that would lose records is refused, never performed. */
++function durabilityFailure(message: string): Error {
++  const failure = new Error(message);
++  failure.name = 'DURABILITY_FAILED';
++  return failure;
++}
++
++/** An unreadable register is an error, never an empty register. */
++function registerReadFailure(filePath: string, cause: unknown): Error {
++  const failure = new Error(
++    `Verification register is unreadable (${filePath}): ${String(cause)}`
++  );
++  failure.name = 'REGISTER_READ_FAILED';
++  return failure;
++}
++
++/**
++ * Merge by `id`: disk order first, then ids only the caller knows. The caller's
++ * copy wins for a shared id — that copy carries the mutation — while every record
++ * already on disk survives, which is what makes a rewrite unable to shrink the
++ * register.
++ */
++function mergeRecordsById<T extends { id: string }>(
++  onDisk: T[],
++  intent: T[]
++): T[] {
++  const byId = new Map<string, T>();
++  const order: string[] = [];
++  for (const rec of onDisk) {
++    if (!byId.has(rec.id)) order.push(rec.id);
++    byId.set(rec.id, rec);
++  }
++  for (const rec of intent) {
++    if (!byId.has(rec.id)) order.push(rec.id);
++    byId.set(rec.id, rec);
++  }
++  return order.map((id) => byId.get(id) as T);
++}
++
+ export class IssueRegister {
+   private static instance: IssueRegister | null = null;
+   private readonly issues: IssueRecord[] = [];
+-  private readonly verifications: VerificationRecord[] = [];
+   private readonly logPath: string;
+   private readonly verificationsPath: string;
++  /**
++   * Stat-keyed cache of the register file's parsed records. The file is the
++   * source of truth; this is a read optimization only and is never a write
++   * source — see `rewriteVerificationsFile`.
++   */
++  private verificationsCache: { key: string; records: VerificationRecord[] } | null = null;
+ 
+   private constructor() {
+     const dataRoot = StorageLocations.getDataRoot();
+@@ -299,7 +343,15 @@ export class IssueRegister {
+       fs.mkdirSync(antifanDir, { recursive: true });
+     } catch {}
+     this.logPath = path.join(antifanDir, 'issue-register.jsonl');
+-    this.verificationsPath = path.join(antifanDir, 'verification-register.jsonl');
++    // The verification register is the artifact harness runs pollute: e2e and
++    // smoke scripts record claims through the same singleton, and their residue
++    // lands in the live register when the run shares the real data root. The
++    // override isolates exactly that file while leaving Profile/artifacts live.
++    const registerDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR || antifanDir;
++    try {
++      fs.mkdirSync(registerDir, { recursive: true });
++    } catch {}
++    this.verificationsPath = path.join(registerDir, 'verification-register.jsonl');
+     this.loadInitialIssues();
+     this.loadInitialVerifications();
+   }
+@@ -326,16 +378,93 @@ export class IssueRegister {
+       console.warn('[IssueRegister] Failed to read existing issues:', err);
+     }
+   }
++
++  /**
++   * Read every issue record from the register file. A missing file is an empty
++   * register; a file that cannot be read is a durability failure, never an
++   * empty register — the merge in `rewriteFile` must not treat "unreadable" as
++   * "nothing to preserve".
++   */
++  private readIssuesFromDisk(): IssueRecord[] {
++    if (!fs.existsSync(this.logPath)) return [];
++    let content: string;
++    try {
++      content = fs.readFileSync(this.logPath, 'utf8');
++    } catch (err) {
++      throw durabilityFailure(`Failed to read issue register: ${String(err)}`);
++    }
++    const records: IssueRecord[] = [];
++    for (const line of content.split('\n')) {
++      if (!line.trim()) continue;
++      try {
++        const rec = JSON.parse(line) as IssueRecord;
++        if (rec?.id) records.push(rec);
++      } catch {}
++    }
++    return records;
++  }
++
++  /**
++   * Read every record from the register file. A missing file is an empty
++   * register; a file that cannot be read is an error, never an empty register.
++   * Unparseable lines are skipped and counted, because a line the parser rejects
++   * is a diagnostic signal rather than an absence of records.
++   */
++  private readVerificationsFromDisk(force = false): VerificationRecord[] {
++    let key: string | null = null;
++    try {
++      const stat = fs.statSync(this.verificationsPath);
++      key = `${stat.size}:${stat.mtimeMs}`;
++    } catch {
++      key = null;
++    }
++    if (key === null) {
++      this.verificationsCache = { key: 'absent', records: [] };
++      return [];
++    }
++    if (!force && this.verificationsCache && this.verificationsCache.key === key) {
++      return this.verificationsCache.records;
++    }
++    const content = fs.readFileSync(this.verificationsPath, 'utf8');
++    const records: VerificationRecord[] = [];
++    let malformed = 0;
++    for (const line of content.split('\n')) {
++      if (!line.trim()) continue;
++      try {
++        const rec = JSON.parse(line) as VerificationRecord;
++        if (rec?.id) records.push(rec);
++        else malformed++;
++      } catch {
++        malformed++;
++      }
++    }
++    if (malformed > 0) {
++      console.warn(
++        `[IssueRegister] ${malformed} unparseable line(s) in ${this.verificationsPath}`
++      );
++    }
++    this.verificationsCache = { key, records };
++    return records;
++  }
++
++  /**
++   * Mutation entry point: always a fresh read, never the cache, so a mutation
++   * cannot be applied to a stale view. The caller mutates the returned set and
++   * hands it back to `rewriteVerificationsFile`.
++   */
++  private readVerificationsForMutation(): VerificationRecord[] {
++    try {
++      return this.readVerificationsFromDisk(true);
++    } catch (err) {
++      throw registerReadFailure(this.verificationsPath, err);
++    }
++  }
++
+   private loadInitialVerifications(): void {
+-    if (!fs.existsSync(this.verificationsPath)) return;
+     try {
+-      const content = fs.readFileSync(this.verificationsPath, 'utf8');
+-      const lines = content.split('\n').filter(Boolean);
+-      for (const line of lines) {
+-        try {
+-          const rec = JSON.parse(line) as VerificationRecord;
+-          if (rec.id) this.verifications.push(rec);
+-        } catch {}
++      const records = this.readVerificationsFromDisk();
++      if (records.length > 0) {
++        console.log(`[IssueRegister] Loaded ${records.length} verification record(s).`);
+       }
+     } catch (err) {
+       console.warn('[IssueRegister] Failed to read existing verifications:', err);
+@@ -401,10 +530,12 @@ export class IssueRegister {
+       if (!fullRecord.affected.includes(fullRecord.claimId)) {
+         fullRecord.affected.push(fullRecord.claimId);
+       }
+-      const existingVerif = this.verifications.find((v) => v.id === fullRecord.claimId);
++      const verifications = this.readVerificationsForMutation();
++      const existingVerif = verifications.find((v) => v.id === fullRecord.claimId);
+       if (existingVerif) {
+         existingVerif.linkedIssueId = fullRecord.id;
+         this.applyVerificationVerdictToIssue(fullRecord, existingVerif);
++        this.rewriteVerificationsFile(verifications);
+       }
+     }
+ 
+@@ -713,7 +844,8 @@ export class IssueRegister {
+     if (!issue.affected) issue.affected = [];
+     if (!issue.affected.includes(claimId)) issue.affected.push(claimId);
+ 
+-    const verification = this.verifications.find((v) => v.id === claimId);
++    const verifications = this.readVerificationsForMutation();
++    const verification = verifications.find((v) => v.id === claimId);
+     if (verification) {
+       verification.linkedIssueId = issueId;
+     }
+@@ -734,8 +866,11 @@ export class IssueRegister {
+     this.rewriteFile();
+     if (verification) {
+       try {
+-        this.rewriteVerificationsFile();
+-      } catch {}
++        this.rewriteVerificationsFile(verifications);
++      } catch (err) {
++        if (err instanceof Error && err.name === 'DURABILITY_FAILED') throw err;
++        console.warn('[IssueRegister] Failed to persist linked verification:', err);
++      }
+     }
+ 
+     return issue;
+@@ -816,20 +951,15 @@ export class IssueRegister {
+       }
+     }
+ 
+-    this.verifications.push(fullRecord);
+-    if (this.verifications.length > 1000) {
+-      this.verifications.splice(0, this.verifications.length - 1000);
+-    }
+-
+     try {
+-      const dir = path.dirname(this.verificationsPath);
+-      if (!fs.existsSync(dir)) {
+-        fs.mkdirSync(dir, { recursive: true });
+-      }
++      fs.mkdirSync(path.dirname(this.verificationsPath), { recursive: true });
+       fs.appendFileSync(this.verificationsPath, JSON.stringify(fullRecord) + '\n', 'utf8');
+     } catch (err) {
+-      console.warn('[IssueRegister] Failed to persist verification record:', err);
++      throw durabilityFailure(`Failed to persist verification record: ${String(err)}`);
+     }
++    // The file is the retention owner. Invalidate the cache so the next read
++    // re-parses it rather than serving a view that could become a write source.
++    this.verificationsCache = null;
+     return fullRecord;
+   }
+ 
+@@ -840,7 +970,12 @@ export class IssueRegister {
+     stalemateState?: StalemateState;
+     limit?: number;
+   }): VerificationRecord[] {
+-    let result = [...this.verifications];
++    let result: VerificationRecord[];
++    try {
++      result = [...this.readVerificationsFromDisk()];
++    } catch (err) {
++      throw registerReadFailure(this.verificationsPath, err);
++    }
+     if (options?.verdict) {
+       result = result.filter((v) => v.verdict === options.verdict);
+     }
+@@ -861,7 +996,13 @@ export class IssueRegister {
+   }
+ 
+   public getVerification(id: string): VerificationRecord | undefined {
+-    return this.verifications.find((v) => v.id === id);
++    let records: VerificationRecord[];
++    try {
++      records = this.readVerificationsFromDisk();
++    } catch (err) {
++      throw registerReadFailure(this.verificationsPath, err);
++    }
++    return records.find((v) => v.id === id);
+   }
+ 
+   public updateVerificationStalemate(
+@@ -869,7 +1010,8 @@ export class IssueRegister {
+     state: StalemateState,
+     exemptionReason?: string
+   ): boolean {
+-    const item = this.verifications.find((v) => v.id === id);
++    const records = this.readVerificationsForMutation();
++    const item = records.find((v) => v.id === id);
+     if (!item) return false;
+ 
+     item.stalemateState = state;
+@@ -889,7 +1031,7 @@ export class IssueRegister {
+       );
+     }
+ 
+-    this.rewriteVerificationsFile();
++    this.rewriteVerificationsFile(records);
+     return true;
+   }
+   public updateVerificationVerdict(
+@@ -899,7 +1041,8 @@ export class IssueRegister {
+     inconclusiveReason?: InconclusiveReason,
+     lifecycle?: VerificationBatchLifecycle
+   ): VerificationRecord | undefined {
+-    const item = this.verifications.find((v) => v.id === id);
++    const records = this.readVerificationsForMutation();
++    const item = records.find((v) => v.id === id);
+     if (!item) return undefined;
+     const previous = { ...item, lifecycleHistory: item.lifecycleHistory?.map((entry) => ({ ...entry })) };
+ 
+@@ -925,7 +1068,7 @@ export class IssueRegister {
+     }
+ 
+     try {
+-      this.rewriteVerificationsFile();
++      this.rewriteVerificationsFile(records);
+     } catch (err) {
+       Object.assign(item, previous);
+       throw err;
+@@ -942,28 +1085,114 @@ export class IssueRegister {
+     return next.slice(-32);
+   }
+ 
+-  private rewriteVerificationsFile(): void {
++  /**
++   * Register writes are disk-reconciled and monotone. The caller's records are
++   * merged with a fresh read of the file, so a stale or empty in-memory view can
++   * neither empty nor shrink a populated register; a violation is refused with
++   * `DURABILITY_FAILED` and leaves the file byte-identical.
++   */
++  private rewriteVerificationsFile(records: VerificationRecord[]): void {
++    let existingBytes = 0;
++    try {
++      existingBytes = fs.statSync(this.verificationsPath).size;
++    } catch {
++      existingBytes = 0;
++    }
++    if (records.length === 0 && existingBytes > 0) {
++      throw durabilityFailure(
++        `refusing to overwrite a ${existingBytes}-byte verification register with 0 records`
++      );
++    }
++
++    const onDisk = this.readVerificationsForMutation();
++    const merged = mergeRecordsById(onDisk, records);
++    // The invariant is per record identity, not per line. A register that already
++    // carries two lines for one id is collapsed by the merge, so a line-count
++    // comparison reads that repair as a shrink and refuses every later write.
++    // Ask instead whether every id present on disk survived the merge.
++    const onDiskIds = new Set(onDisk.map((v) => v.id));
++    const mergedIds = new Set(merged.map((v) => v.id));
++    const droppedIds = [...onDiskIds].filter((id) => !mergedIds.has(id));
++    if (droppedIds.length > 0) {
++      throw durabilityFailure(
++        `refusing to drop ${droppedIds.length} verification record(s) from the register: ` +
++          `${droppedIds.slice(0, 3).join(', ')}`
++      );
++    }
++    const duplicateLines = onDisk.length - onDiskIds.size;
++    if (duplicateLines > 0) {
++      console.warn(
++        `[IssueRegister] Verification register carried ${duplicateLines} duplicate id line(s); ` +
++          'collapsed to the newest record per id.'
++      );
++    }
++
+     const lines =
+-      this.verifications.map((v) => JSON.stringify(v)).join('\n') +
+-      (this.verifications.length > 0 ? '\n' : '');
++      merged.map((v) => JSON.stringify(v)).join('\n') + (merged.length > 0 ? '\n' : '');
+     const tempPath = `${this.verificationsPath}.tmp-${process.pid}-${Date.now()}`;
+     try {
++      fs.mkdirSync(path.dirname(this.verificationsPath), { recursive: true });
+       fs.writeFileSync(tempPath, lines, 'utf8');
+       fs.renameSync(tempPath, this.verificationsPath);
+     } catch (err) {
+       try { fs.unlinkSync(tempPath); } catch {}
+-      const failure = new Error(`Failed to persist verification register: ${String(err)}`);
+-      failure.name = 'DURABILITY_FAILED';
+-      throw failure;
++      throw durabilityFailure(`Failed to persist verification register: ${String(err)}`);
+     }
++    this.verificationsCache = null;
+   }
+ 
++  /**
++   * Issue writes are disk-reconciled and monotone, same contract as the
++   * verification register: the caller's in-memory list is merged with a fresh
++   * read of the file, so a stale or empty view can neither empty nor shrink a
++   * populated register; a violation is refused with `DURABILITY_FAILED` and
++   * leaves the file byte-identical. The in-memory list is refreshed to the
++   * merged truth after a successful write.
++   */
+   private rewriteFile(): void {
++    let existingBytes = 0;
+     try {
+-      const lines = this.issues.map((i) => JSON.stringify(i)).join('\n') + (this.issues.length > 0 ? '\n' : '');
+-      fs.writeFileSync(this.logPath, lines, 'utf8');
++      existingBytes = fs.statSync(this.logPath).size;
++    } catch {
++      existingBytes = 0;
++    }
++    if (this.issues.length === 0 && existingBytes > 0) {
++      throw durabilityFailure(
++        `refusing to overwrite a ${existingBytes}-byte issue register with 0 records`
++      );
++    }
++
++    const onDisk = this.readIssuesFromDisk();
++    const merged = mergeRecordsById(onDisk, this.issues);
++    const onDiskIds = new Set(onDisk.map((i) => i.id));
++    const mergedIds = new Set(merged.map((i) => i.id));
++    const droppedIds = [...onDiskIds].filter((id) => !mergedIds.has(id));
++    if (droppedIds.length > 0) {
++      throw durabilityFailure(
++        `refusing to drop ${droppedIds.length} issue record(s) from the register: ` +
++          `${droppedIds.slice(0, 3).join(', ')}`
++      );
++    }
++    const duplicateLines = onDisk.length - onDiskIds.size;
++    if (duplicateLines > 0) {
++      console.warn(
++        `[IssueRegister] Issue register carried ${duplicateLines} duplicate id line(s); ` +
++          'collapsed to the newest record per id.'
++      );
++    }
++
++    const lines =
++      merged.map((i) => JSON.stringify(i)).join('\n') + (merged.length > 0 ? '\n' : '');
++    const tempPath = `${this.logPath}.tmp-${process.pid}-${Date.now()}`;
++    try {
++      fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
++      fs.writeFileSync(tempPath, lines, 'utf8');
++      fs.renameSync(tempPath, this.logPath);
+     } catch (err) {
+-      console.warn('[IssueRegister] Failed to rewrite issue register:', err);
++      try { fs.unlinkSync(tempPath); } catch {}
++      throw durabilityFailure(`Failed to persist issue register: ${String(err)}`);
+     }
++    this.issues.length = 0;
++    this.issues.push(...merged);
+   }
+ }
+diff --git a/src/main/tools/adapters/tree-walker-sanitizer.ts b/src/main/tools/adapters/tree-walker-sanitizer.ts
+index 11ffa85f..364ad3d7 100644
+--- a/src/main/tools/adapters/tree-walker-sanitizer.ts
++++ b/src/main/tools/adapters/tree-walker-sanitizer.ts
+@@ -510,6 +510,44 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
+         }
+       }
+ 
++      // Serialized markup is re-parsed by every consumer, and the HTML tree builder
++      // auto-closes an open <p> at the next block-level start tag, while a client-built
++      // DOM may nest one paragraph inside another. Demoting only the hazardous
++      // paragraph preserves the nesting and the typography its items inherit.
++      // Canonical rule table: packages/site-clone/src/generators/html-parse-fidelity.ts
++      var normalizeHtmlAutoclose = function (root) {
++        if (!root || !root.querySelectorAll) return 0;
++        var P_CLOSING = {ADDRESS:1,ARTICLE:1,ASIDE:1,BLOCKQUOTE:1,CENTER:1,DETAILS:1,DIALOG:1,DIR:1,DIV:1,DL:1,DT:1,DD:1,FIELDSET:1,FIGCAPTION:1,FIGURE:1,FOOTER:1,FORM:1,H1:1,H2:1,H3:1,H4:1,H5:1,H6:1,HEADER:1,HGROUP:1,HR:1,LI:1,LISTING:1,MAIN:1,MENU:1,NAV:1,OL:1,P:1,PLAINTEXT:1,PRE:1,SEARCH:1,SECTION:1,SUMMARY:1,TABLE:1,UL:1,XMP:1};
++        var FOREIGN = {SVG:1,MATH:1,TEMPLATE:1};
++        var hasHazard = function (node) {
++          var children = node.children;
++          for (var i = 0; i < children.length; i++) {
++            var child = children[i];
++            if (FOREIGN[child.tagName]) continue;
++            if (P_CLOSING[child.tagName]) return true;
++            if (hasHazard(child)) return true;
++          }
++          return false;
++        };
++        var owner = root.ownerDocument || document;
++        var paragraphs = root.querySelectorAll('p');
++        var renamed = 0;
++        for (var p = 0; p < paragraphs.length; p++) {
++          var paragraph = paragraphs[p];
++          if (!hasHazard(paragraph)) continue;
++          var replacement = owner.createElement('div');
++          for (var a = 0; a < paragraph.attributes.length; a++) {
++            var attr = paragraph.attributes[a];
++            replacement.setAttribute(attr.name, attr.value);
++          }
++          while (paragraph.firstChild) replacement.appendChild(paragraph.firstChild);
++          if (paragraph.parentNode) paragraph.parentNode.replaceChild(replacement, paragraph);
++          renamed++;
++        }
++        return renamed;
++      };
++      normalizeHtmlAutoclose(clone);
++
+       return (isFullDoc ? '<!DOCTYPE html>\\n' : '') + clone.outerHTML;
+     })()
+   `;
+diff --git a/src/main/tools/browser-capabilities.ts b/src/main/tools/browser-capabilities.ts
+index 9dd279cb..c736d47c 100644
+--- a/src/main/tools/browser-capabilities.ts
++++ b/src/main/tools/browser-capabilities.ts
+@@ -382,6 +382,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
+         ? params.outputPath
+         : path.resolve(rootPath, params.outputPath);
+       const safePath = confineWorkspaceRoot(resolvedTarget, rootPath);
++      // `confineWorkspaceRoot` falls back to the root itself when the candidate
++      // escapes it. Writing there is never the caller's intent and a directory
++      // target fails later as a bare EISDIR rename, so refuse with the reason.
++      if (path.resolve(safePath) === path.resolve(rootPath) && path.resolve(resolvedTarget) !== path.resolve(rootPath)) {
++        throw new CapabilityError(
++          'INVALID_ARGUMENT',
++          `outputPath '${params.outputPath}' resolves outside workspace root '${rootPath}'; pass a path inside the root`
++        );
++      }
+       return browser.dumpDom(context.browserTarget as BrowserTarget, safePath, params);
+     },
+   });
+diff --git a/src/main/tools/browser-control-port.ts b/src/main/tools/browser-control-port.ts
+index 37e8fc11..58c127b7 100644
+--- a/src/main/tools/browser-control-port.ts
++++ b/src/main/tools/browser-control-port.ts
+@@ -1143,6 +1143,7 @@ const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
+         const timing = effect && typeof effect.getTiming === 'function' ? effect.getTiming() : null;
+         if (timing && typeof timing.iterations === 'number') iterations = timing.iterations;
+       } catch {}
++      if (animation.playState === 'paused' || animation.playState === 'idle') continue;
+       if (iterations === Infinity) infiniteAnimations++;
+     }
+   } catch {}
+diff --git a/src/renderer/toolbar.css b/src/renderer/toolbar.css
+index ff1f4516..f26c648a 100644
+--- a/src/renderer/toolbar.css
++++ b/src/renderer/toolbar.css
+@@ -2238,6 +2238,22 @@ body, html {
+   gap: 6px;
+ }
+ 
++/* Static provenance disclosure for the MCP Dispatch tab. This is markup, not a
++   computed value: the panel counts records the ledger already wrote, which is a
++   proxy for effectiveness rather than a measurement of it, and the surface has
++   to say so where those counts are read. Styled apart from .hub-list-item so it
++   can never be mistaken for a row of data. */
++.hub-provenance {
++  margin: 8px 8px 0 8px;
++  padding: 8px 10px;
++  border-radius: 8px;
++  background: #111c2e;
++  border: 1px solid #1e293b;
++  color: #94a3b8;
++  font-size: 11px;
++  line-height: 1.5;
++}
++
+ .hub-list-item {
+   display: flex;
+   flex-direction: column;
+diff --git a/src/renderer/toolbar.html b/src/renderer/toolbar.html
+index 257d4f6d..b11e34b6 100644
+--- a/src/renderer/toolbar.html
++++ b/src/renderer/toolbar.html
+@@ -512,6 +512,12 @@
+         <div class="hub-body">
+           <!-- Left Pane: Item List -->
+           <div class="hub-list-pane" id="hubListPane">
++            <!-- Static provenance disclosure for the MCP Dispatch tab. This is MARKUP, never a
++                 payload field and never a second data source: the counts beside it describe
++                 dispatches the invocation ledger already recorded, which is a proxy for
++                 effectiveness rather than a measurement of it. Agent-side fallback lives in
++                 another plan's gaps.jsonl and is deliberately never joined here. -->
++            <div class="hub-provenance" id="mcpDispatchProvenance" style="display:none;">Nguồn số liệu: các dispatch đã được ghi vào invocation ledger — đây là chỉ báo thay thế (proxy) cho mức độ hiệu quả, <strong>không phải phép đo hiệu quả</strong>. Fallback phía agent (gaps.jsonl, thuộc plan khác) không được join vào bảng này.</div>
+             <div class="hub-items-list" id="hubItemsList"></div>
+           </div>
+ 
+diff --git a/src/renderer/toolbar.ts b/src/renderer/toolbar.ts
+index c056b0b0..e06d2f67 100644
+--- a/src/renderer/toolbar.ts
++++ b/src/renderer/toolbar.ts
+@@ -401,6 +401,12 @@ const hubSearchInput = document.getElementById('hubSearchInput') as HTMLInputEle
+ const hubSearchClear = document.getElementById('hubSearchClear') as HTMLButtonElement | null;
+ const btnHubNewWorkflow = document.getElementById('btnHubNewWorkflow') as HTMLButtonElement | null;
+ const hubItemsList = document.getElementById('hubItemsList') as HTMLElement | null;
++// Static provenance disclosure, declared in toolbar.html and only ever shown or
++// hidden here. It is deliberately NOT built from the payload: the panel reports
++// dispatches the ledger recorded, which is a proxy for effectiveness rather than
++// a measurement of it, so the sentence must stay identical for every payload
++// (including no payload at all) instead of tracking the data it qualifies.
++const hubMcpDispatchProvenance = document.getElementById('mcpDispatchProvenance') as HTMLElement | null;
+ const hubDetailEmpty = document.getElementById('hubDetailEmpty') as HTMLElement | null;
+ const hubWfDetail = document.getElementById('hubWfDetail') as HTMLElement | null;
+ const hubMcpDetail = document.getElementById('hubMcpDetail') as HTMLElement | null;
+@@ -1405,6 +1411,11 @@ function setHubTab(tab: HubTab) {
+     if (btn) btn.classList.toggle('active', t === tab);
+   }
+   hubCoreSelected = null;
++  // The provenance line belongs to the MCP Dispatch tab's counts, so it is shown
++  // exactly with that tab. Visibility only — its text never depends on the data.
++  if (hubMcpDispatchProvenance) {
++    hubMcpDispatchProvenance.style.display = tab === 'mcp-dispatch' ? 'block' : 'none';
++  }
+   renderHubList();
+   if (tab === 'workflows') {
+     if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);
+diff --git a/test/golden-slice-e2e.test.ts b/test/golden-slice-e2e.test.ts
+index 94dc625c..3f0af77e 100644
+--- a/test/golden-slice-e2e.test.ts
++++ b/test/golden-slice-e2e.test.ts
+@@ -4,6 +4,16 @@ import * as path from 'node:path';
+ import * as fs from 'node:fs';
+ import * as http from 'node:http';
+ import * as net from 'node:net';
++import * as os from 'node:os';
++import { StorageLocations } from '../src/main/config/storage-locations';
++import { IssueRegister } from '../src/main/session/issue-register';
++
++// The e2e records verification claims through the live IssueRegister singleton;
++// without a scratch data root every run appends residue to the real register.
++const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
++const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-golden-slice-'));
++process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
++StorageLocations.resetCache();
+ import {
+   ThemeTaskContext,
+   assertValidThemeTaskContext,
+@@ -245,6 +255,12 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
+     if (fs.existsSync(tempWorkspaceDir)) {
+       fs.rmSync(tempWorkspaceDir, { recursive: true, force: true });
+     }
++    // Restore the live data root and drop the scratch register.
++    (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
++    if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
++    else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
++    StorageLocations.resetCache();
++    fs.rmSync(scratchDataRoot, { recursive: true, force: true });
+   });
+ 
+   async function dispatchMonitoredCapability<T>(capabilityName: string, params: Record<string, unknown>, grant: 'read' | 'write' = 'write'): Promise<T> {
+diff --git a/test/renderer/mcp-stats-hub.test.ts b/test/renderer/mcp-stats-hub.test.ts
+index eb0fd2a9..742567c9 100644
+--- a/test/renderer/mcp-stats-hub.test.ts
++++ b/test/renderer/mcp-stats-hub.test.ts
+@@ -773,3 +773,79 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
+     assert.ok(navButtons[1]!.includes("'mcp-dispatch': tabNavMcpDispatch"), 'HUB_NAV_BUTTONS must carry the new key');
+   });
+ });
++
++// ---------------------------------------------------------------------------
++// The provenance disclosure: what this panel does and does not measure.
++//
++// The request behind this plan was to see how effective each MCP is. What the
++// panel can actually observe is what the ledger recorded, which is a PROXY for
++// effectiveness rather than a measurement of it, because agent-side fallback and
++// escape live in another plan's gaps.jsonl and are deliberately never joined.
++// Nothing on the surface said so, which let a reader take the counts for an
++// effectiveness score. The sentence that fixes that is static markup, and these
++// tests hold it static: the literal is pinned, and the same text must come out
++// for a measured payload, an unmeasured payload, and no payload at all.
++// ---------------------------------------------------------------------------
++const PROVENANCE_TEXT = 'Nguồn số liệu: các dispatch đã được ghi vào invocation ledger — đây là chỉ báo thay thế (proxy) cho mức độ hiệu quả, không phải phép đo hiệu quả. Fallback phía agent (gaps.jsonl, thuộc plan khác) không được join vào bảng này.';
++
++function normalizeText(value: string | null | undefined): string {
++  return (value ?? '').replace(/\s+/g, ' ').trim();
++}
++
++describe('MCP Dispatch provenance disclosure (the framing of the honest hole)', () => {
++  test('R10 — the line renders beside the rows and is declared exactly once, in markup', async (t) => {
++    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
++    const ctx = await loadToolbar(measuredPayload());
++    await openMcpDispatchTab(ctx);
++    const el = ctx.doc.getElementById('mcpDispatchProvenance');
++    assert.ok(el, '#mcpDispatchProvenance must exist in the Hub markup');
++    assert.equal(normalizeText(el!.textContent), PROVENANCE_TEXT, 'the line renders verbatim');
++    // It belongs where the counts are read, not buried in the detail pane.
++    assert.ok(ctx.doc.getElementById('hubListPane')!.contains(el), 'the line sits in the list pane beside the rows');
++    // It is MARKUP: one declaration, in the HTML, not assembled by the renderer.
++    const html = fs.readFileSync(path.join(RENDERER_DIR, 'toolbar.html'), 'utf8');
++    assert.equal(html.split('id="mcpDispatchProvenance"').length - 1, 1, 'declared exactly once in toolbar.html');
++    assert.ok(html.includes('chỉ báo thay thế (proxy)'), 'the proxy wording lives in the markup');
++    const rendererSource = fs.readFileSync(SOURCE_TOOLBAR_TS, 'utf8');
++    assert.ok(!rendererSource.includes('chỉ báo thay thế (proxy)'), 'the sentence is NOT built in toolbar.ts');
++  });
++
++  test('R10b — the text is identical for a measured payload, an unmeasured one and none at all', async (t) => {
++    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
++    const measured = await loadToolbar(measuredPayload());
++    await openMcpDispatchTab(measured);
++    const withRows = normalizeText(measured.doc.getElementById('mcpDispatchProvenance')?.textContent);
++    // An UNMEASURED store is exactly the state in which a reader is most tempted to
++    // read the panel as an effectiveness score, so the qualifier must not disappear.
++    const nothing = await loadToolbar(unmeasuredPayload(null, 'NO_DATA_ROOT_RESOLVED', []));
++    await openMcpDispatchTab(nothing);
++    const withoutRows = normalizeText(nothing.doc.getElementById('mcpDispatchProvenance')?.textContent);
++    // A bridge that never answers leaves the tab with no payload object at all.
++    const absent = await loadToolbar(undefined, 'absent');
++    await openMcpDispatchTab(absent);
++    const withNoPayload = normalizeText(absent.doc.getElementById('mcpDispatchProvenance')?.textContent);
++    measured.dom.window.close();
++    nothing.dom.window.close();
++    absent.dom.window.close();
++    assert.equal(withRows, PROVENANCE_TEXT);
++    assert.equal(withoutRows, withRows, 'a measured→unmeasured change must not alter the sentence');
++    assert.equal(withNoPayload, withRows, 'a missing payload must not alter the sentence');
++  });
++
++  test('R10c — the line follows the tab: shown on mcp-dispatch, hidden on every other tab', async (t) => {
++    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
++    const ctx = await loadToolbar(measuredPayload());
++    const doc = ctx.doc;
++    const el = doc.getElementById('mcpDispatchProvenance') as HTMLElement;
++    (doc.getElementById('btnWorkflowHub') as HTMLElement).click();
++    await flush();
++    assert.notEqual(el.style.display, 'block', 'hidden on the tab the Hub opens with');
++    (doc.getElementById('tabNavMcpDispatch') as HTMLElement).click();
++    await flush();
++    assert.equal(el.style.display, 'block', 'shown with the counts it qualifies');
++    (doc.getElementById('tabNavMcp') as HTMLElement).click();
++    await flush();
++    assert.notEqual(el.style.display, 'block', 'hidden again when another tab takes over');
++    ctx.dom.window.close();
++  });
++});

@@ -10,8 +10,10 @@ contracts/dist/
 .antigravity/
 scratch/
 appdata/
-.tmp-*/
+.tmp-*
 *.tmp
+*.diff
+_verify/
 probe.js
 smoke-result*.json
 audit-*-results.json
@@ -47,6 +49,8 @@ plans/reports/.store-fixture-cache/
 
 # Bulk regenerable evidence dumps (reproduce with plans/reports/_*.mjs)
 plans/reports/_corpus-*.json
+plans/reports/_probe-*.json
+plans/reports/clone-e2e/
 plans/reports/_render-diagnostic.html
 plans/reports/haravan-live-store-fixture.json
 

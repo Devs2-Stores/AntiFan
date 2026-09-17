@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T07:57:02.142Z",
+  "liveOrigin": "https://comnieuthienly.com",
+  "cloneOrigin": "http://127.0.0.1:3311",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 10566,
+        "device": null,
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.overflow-hidden rounded-xl md:mx-auto md:w-1/2 md:max-w-[50v",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 21.9
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 390,
+        "height": 10566,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.08,
+      "diffPixels": 3340,
+      "totalPixels": 4048782,
+      "maskedAreaPercent": 1.858,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 96,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 128,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 160,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 192,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 21
+        },
+        {
+          "x": 224,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 0,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 26568
+    },
+    {
+      "route": "/loyal-customers",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/loyal-customers",
+      "cloneUrl": "http://127.0.0.1:3311/loyal-customers",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 4337,
+        "device": null,
+        "brokenImages": 0,
+        "images": 16,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 390,
+        "height": 4337,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 1.93,
+      "diffPixels": 32645,
+      "totalPixels": 1691430,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 32,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 14
+        },
+        {
+          "x": 64,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 14
+        },
+        {
+          "x": 96,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 17
+        },
+        {
+          "x": 128,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 10
+        },
+        {
+          "x": 160,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 31
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 14050
+    }
+  ],
+  "verdict": "VERIFIED",
+  "executed": 2,
+  "passed": 2,
+  "blocked": 0,
+  "errored": 0,
+  "worstMismatchPercent": 1.93,
+  "finishedAt": "2026-09-17T07:57:42.768Z"
+}

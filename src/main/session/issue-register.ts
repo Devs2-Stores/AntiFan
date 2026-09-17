@@ -285,12 +285,56 @@ export interface IssueGroupSummary {
   workaround?: string;
 }
 
+/** A register write that would lose records is refused, never performed. */
+function durabilityFailure(message: string): Error {
+  const failure = new Error(message);
+  failure.name = 'DURABILITY_FAILED';
+  return failure;
+}
+
+/** An unreadable register is an error, never an empty register. */
+function registerReadFailure(filePath: string, cause: unknown): Error {
+  const failure = new Error(
+    `Verification register is unreadable (${filePath}): ${String(cause)}`
+  );
+  failure.name = 'REGISTER_READ_FAILED';
+  return failure;
+}
+
+/**
+ * Merge by `id`: disk order first, then ids only the caller knows. The caller's
+ * copy wins for a shared id — that copy carries the mutation — while every record
+ * already on disk survives, which is what makes a rewrite unable to shrink the
+ * register.
+ */
+function mergeRecordsById<T extends { id: string }>(
+  onDisk: T[],
+  intent: T[]
+): T[] {
+  const byId = new Map<string, T>();
+  const order: string[] = [];
+  for (const rec of onDisk) {
+    if (!byId.has(rec.id)) order.push(rec.id);
+    byId.set(rec.id, rec);
+  }
+  for (const rec of intent) {
+    if (!byId.has(rec.id)) order.push(rec.id);
+    byId.set(rec.id, rec);
+  }
+  return order.map((id) => byId.get(id) as T);
+}
+
 export class IssueRegister {
   private static instance: IssueRegister | null = null;
   private readonly issues: IssueRecord[] = [];
-  private readonly verifications: VerificationRecord[] = [];
   private readonly logPath: string;
   private readonly verificationsPath: string;
+  /**
+   * Stat-keyed cache of the register file's parsed records. The file is the
+   * source of truth; this is a read optimization only and is never a write
+   * source — see `rewriteVerificationsFile`.
+   */
+  private verificationsCache: { key: string; records: VerificationRecord[] } | null = null;
 
   private constructor() {
     const dataRoot = StorageLocations.getDataRoot();
@@ -299,7 +343,15 @@ export class IssueRegister {
       fs.mkdirSync(antifanDir, { recursive: true });
     } catch {}
     this.logPath = path.join(antifanDir, 'issue-register.jsonl');
-    this.verificationsPath = path.join(antifanDir, 'verification-register.jsonl');
+    // The verification register is the artifact harness runs pollute: e2e and
+    // smoke scripts record claims through the same singleton, and their residue
+    // lands in the live register when the run shares the real data root. The
+    // override isolates exactly that file while leaving Profile/artifacts live.
+    const registerDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR || antifanDir;
+    try {
+      fs.mkdirSync(registerDir, { recursive: true });
+    } catch {}
+    this.verificationsPath = path.join(registerDir, 'verification-register.jsonl');
     this.loadInitialIssues();
     this.loadInitialVerifications();
   }
@@ -326,16 +378,93 @@ export class IssueRegister {
       console.warn('[IssueRegister] Failed to read existing issues:', err);
     }
   }
-  private loadInitialVerifications(): void {
-    if (!fs.existsSync(this.verificationsPath)) return;
+
+  /**
+   * Read every issue record from the register file. A missing file is an empty
+   * register; a file that cannot be read is a durability failure, never an
+   * empty register — the merge in `rewriteFile` must not treat "unreadable" as
+   * "nothing to preserve".
+   */
+  private readIssuesFromDisk(): IssueRecord[] {
+    if (!fs.existsSync(this.logPath)) return [];
+    let content: string;
     try {
-      const content = fs.readFileSync(this.verificationsPath, 'utf8');
-      const lines = content.split('\n').filter(Boolean);
-      for (const line of lines) {
-        try {
-          const rec = JSON.parse(line) as VerificationRecord;
-          if (rec.id) this.verifications.push(rec);
-        } catch {}
+      content = fs.readFileSync(this.logPath, 'utf8');
+    } catch (err) {
+      throw durabilityFailure(`Failed to read issue register: ${String(err)}`);
+    }
+    const records: IssueRecord[] = [];
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const rec = JSON.parse(line) as IssueRecord;
+        if (rec?.id) records.push(rec);
+      } catch {}
+    }
+    return records;
+  }
+
+  /**
+   * Read every record from the register file. A missing file is an empty
+   * register; a file that cannot be read is an error, never an empty register.
+   * Unparseable lines are skipped and counted, because a line the parser rejects
+   * is a diagnostic signal rather than an absence of records.
+   */
+  private readVerificationsFromDisk(force = false): VerificationRecord[] {
+    let key: string | null = null;
+    try {
+      const stat = fs.statSync(this.verificationsPath);
+      key = `${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      key = null;
+    }
+    if (key === null) {
+      this.verificationsCache = { key: 'absent', records: [] };
+      return [];
+    }
+    if (!force && this.verificationsCache && this.verificationsCache.key === key) {
+      return this.verificationsCache.records;
+    }
+    const content = fs.readFileSync(this.verificationsPath, 'utf8');
+    const records: VerificationRecord[] = [];
+    let malformed = 0;
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const rec = JSON.parse(line) as VerificationRecord;
+        if (rec?.id) records.push(rec);
+        else malformed++;
+      } catch {
+        malformed++;
+      }
+    }
+    if (malformed > 0) {
+      console.warn(
+        `[IssueRegister] ${malformed} unparseable line(s) in ${this.verificationsPath}`
+      );
+    }
+    this.verificationsCache = { key, records };
+    return records;
+  }
+
+  /**
+   * Mutation entry point: always a fresh read, never the cache, so a mutation
+   * cannot be applied to a stale view. The caller mutates the returned set and
+   * hands it back to `rewriteVerificationsFile`.
+   */
+  private readVerificationsForMutation(): VerificationRecord[] {
+    try {
+      return this.readVerificationsFromDisk(true);
+    } catch (err) {
+      throw registerReadFailure(this.verificationsPath, err);
+    }
+  }
+
+  private loadInitialVerifications(): void {
+    try {
+      const records = this.readVerificationsFromDisk();
+      if (records.length > 0) {
+        console.log(`[IssueRegister] Loaded ${records.length} verification record(s).`);
       }
     } catch (err) {
       console.warn('[IssueRegister] Failed to read existing verifications:', err);
@@ -401,10 +530,12 @@ export class IssueRegister {
       if (!fullRecord.affected.includes(fullRecord.claimId)) {
         fullRecord.affected.push(fullRecord.claimId);
       }
-      const existingVerif = this.verifications.find((v) => v.id === fullRecord.claimId);
+      const verifications = this.readVerificationsForMutation();
+      const existingVerif = verifications.find((v) => v.id === fullRecord.claimId);
       if (existingVerif) {
         existingVerif.linkedIssueId = fullRecord.id;
         this.applyVerificationVerdictToIssue(fullRecord, existingVerif);
+        this.rewriteVerificationsFile(verifications);
       }
     }
 
@@ -713,7 +844,8 @@ export class IssueRegister {
     if (!issue.affected) issue.affected = [];
     if (!issue.affected.includes(claimId)) issue.affected.push(claimId);
 
-    const verification = this.verifications.find((v) => v.id === claimId);
+    const verifications = this.readVerificationsForMutation();
+    const verification = verifications.find((v) => v.id === claimId);
     if (verification) {
       verification.linkedIssueId = issueId;
     }
@@ -734,8 +866,11 @@ export class IssueRegister {
     this.rewriteFile();
     if (verification) {
       try {
-        this.rewriteVerificationsFile();
-      } catch {}
+        this.rewriteVerificationsFile(verifications);
+      } catch (err) {
+        if (err instanceof Error && err.name === 'DURABILITY_FAILED') throw err;
+        console.warn('[IssueRegister] Failed to persist linked verification:', err);
+      }
     }
 
     return issue;
@@ -816,20 +951,15 @@ export class IssueRegister {
       }
     }
 
-    this.verifications.push(fullRecord);
-    if (this.verifications.length > 1000) {
-      this.verifications.splice(0, this.verifications.length - 1000);
-    }
-
     try {
-      const dir = path.dirname(this.verificationsPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+      fs.mkdirSync(path.dirname(this.verificationsPath), { recursive: true });
       fs.appendFileSync(this.verificationsPath, JSON.stringify(fullRecord) + '\n', 'utf8');
     } catch (err) {
-      console.warn('[IssueRegister] Failed to persist verification record:', err);
+      throw durabilityFailure(`Failed to persist verification record: ${String(err)}`);
     }
+    // The file is the retention owner. Invalidate the cache so the next read
+    // re-parses it rather than serving a view that could become a write source.
+    this.verificationsCache = null;
     return fullRecord;
   }
 
@@ -840,7 +970,12 @@ export class IssueRegister {
     stalemateState?: StalemateState;
     limit?: number;
   }): VerificationRecord[] {
-    let result = [...this.verifications];
+    let result: VerificationRecord[];
+    try {
+      result = [...this.readVerificationsFromDisk()];
+    } catch (err) {
+      throw registerReadFailure(this.verificationsPath, err);
+    }
     if (options?.verdict) {
       result = result.filter((v) => v.verdict === options.verdict);
     }
@@ -861,7 +996,13 @@ export class IssueRegister {
   }
 
   public getVerification(id: string): VerificationRecord | undefined {
-    return this.verifications.find((v) => v.id === id);
+    let records: VerificationRecord[];
+    try {
+      records = this.readVerificationsFromDisk();
+    } catch (err) {
+      throw registerReadFailure(this.verificationsPath, err);
+    }
+    return records.find((v) => v.id === id);
   }
 
   public updateVerificationStalemate(
@@ -869,7 +1010,8 @@ export class IssueRegister {
     state: StalemateState,
     exemptionReason?: string
   ): boolean {
-    const item = this.verifications.find((v) => v.id === id);
+    const records = this.readVerificationsForMutation();
+    const item = records.find((v) => v.id === id);
     if (!item) return false;
 
     item.stalemateState = state;
@@ -889,7 +1031,7 @@ export class IssueRegister {
       );
     }
 
-    this.rewriteVerificationsFile();
+    this.rewriteVerificationsFile(records);
     return true;
   }
   public updateVerificationVerdict(
@@ -899,7 +1041,8 @@ export class IssueRegister {
     inconclusiveReason?: InconclusiveReason,
     lifecycle?: VerificationBatchLifecycle
   ): VerificationRecord | undefined {
-    const item = this.verifications.find((v) => v.id === id);
+    const records = this.readVerificationsForMutation();
+    const item = records.find((v) => v.id === id);
     if (!item) return undefined;
     const previous = { ...item, lifecycleHistory: item.lifecycleHistory?.map((entry) => ({ ...entry })) };
 
@@ -925,7 +1068,7 @@ export class IssueRegister {
     }
 
     try {
-      this.rewriteVerificationsFile();
+      this.rewriteVerificationsFile(records);
     } catch (err) {
       Object.assign(item, previous);
       throw err;
@@ -942,28 +1085,114 @@ export class IssueRegister {
     return next.slice(-32);
   }
 
-  private rewriteVerificationsFile(): void {
+  /**
+   * Register writes are disk-reconciled and monotone. The caller's records are
+   * merged with a fresh read of the file, so a stale or empty in-memory view can
+   * neither empty nor shrink a populated register; a violation is refused with
+   * `DURABILITY_FAILED` and leaves the file byte-identical.
+   */
+  private rewriteVerificationsFile(records: VerificationRecord[]): void {
+    let existingBytes = 0;
+    try {
+      existingBytes = fs.statSync(this.verificationsPath).size;
+    } catch {
+      existingBytes = 0;
+    }
+    if (records.length === 0 && existingBytes > 0) {
+      throw durabilityFailure(
+        `refusing to overwrite a ${existingBytes}-byte verification register with 0 records`
+      );
+    }
+
+    const onDisk = this.readVerificationsForMutation();
+    const merged = mergeRecordsById(onDisk, records);
+    // The invariant is per record identity, not per line. A register that already
+    // carries two lines for one id is collapsed by the merge, so a line-count
+    // comparison reads that repair as a shrink and refuses every later write.
+    // Ask instead whether every id present on disk survived the merge.
+    const onDiskIds = new Set(onDisk.map((v) => v.id));
+    const mergedIds = new Set(merged.map((v) => v.id));
+    const droppedIds = [...onDiskIds].filter((id) => !mergedIds.has(id));
+    if (droppedIds.length > 0) {
+      throw durabilityFailure(
+        `refusing to drop ${droppedIds.length} verification record(s) from the register: ` +
+          `${droppedIds.slice(0, 3).join(', ')}`
+      );
+    }
+    const duplicateLines = onDisk.length - onDiskIds.size;
+    if (duplicateLines > 0) {
+      console.warn(
+        `[IssueRegister] Verification register carried ${duplicateLines} duplicate id line(s); ` +
+          'collapsed to the newest record per id.'
+      );
+    }
+
     const lines =
-      this.verifications.map((v) => JSON.stringify(v)).join('\n') +
-      (this.verifications.length > 0 ? '\n' : '');
+      merged.map((v) => JSON.stringify(v)).join('\n') + (merged.length > 0 ? '\n' : '');
     const tempPath = `${this.verificationsPath}.tmp-${process.pid}-${Date.now()}`;
     try {
+      fs.mkdirSync(path.dirname(this.verificationsPath), { recursive: true });
       fs.writeFileSync(tempPath, lines, 'utf8');
       fs.renameSync(tempPath, this.verificationsPath);
     } catch (err) {
       try { fs.unlinkSync(tempPath); } catch {}
-      const failure = new Error(`Failed to persist verification register: ${String(err)}`);
-      failure.name = 'DURABILITY_FAILED';
-      throw failure;
+      throw durabilityFailure(`Failed to persist verification register: ${String(err)}`);
     }
+    this.verificationsCache = null;
   }
 
+  /**
+   * Issue writes are disk-reconciled and monotone, same contract as the
+   * verification register: the caller's in-memory list is merged with a fresh
+   * read of the file, so a stale or empty view can neither empty nor shrink a
+   * populated register; a violation is refused with `DURABILITY_FAILED` and
+   * leaves the file byte-identical. The in-memory list is refreshed to the
+   * merged truth after a successful write.
+   */
   private rewriteFile(): void {
+    let existingBytes = 0;
     try {
-      const lines = this.issues.map((i) => JSON.stringify(i)).join('\n') + (this.issues.length > 0 ? '\n' : '');
-      fs.writeFileSync(this.logPath, lines, 'utf8');
-    } catch (err) {
-      console.warn('[IssueRegister] Failed to rewrite issue register:', err);
+      existingBytes = fs.statSync(this.logPath).size;
+    } catch {
+      existingBytes = 0;
     }
+    if (this.issues.length === 0 && existingBytes > 0) {
+      throw durabilityFailure(
+        `refusing to overwrite a ${existingBytes}-byte issue register with 0 records`
+      );
+    }
+
+    const onDisk = this.readIssuesFromDisk();
+    const merged = mergeRecordsById(onDisk, this.issues);
+    const onDiskIds = new Set(onDisk.map((i) => i.id));
+    const mergedIds = new Set(merged.map((i) => i.id));
+    const droppedIds = [...onDiskIds].filter((id) => !mergedIds.has(id));
+    if (droppedIds.length > 0) {
+      throw durabilityFailure(
+        `refusing to drop ${droppedIds.length} issue record(s) from the register: ` +
+          `${droppedIds.slice(0, 3).join(', ')}`
+      );
+    }
+    const duplicateLines = onDisk.length - onDiskIds.size;
+    if (duplicateLines > 0) {
+      console.warn(
+        `[IssueRegister] Issue register carried ${duplicateLines} duplicate id line(s); ` +
+          'collapsed to the newest record per id.'
+      );
+    }
+
+    const lines =
+      merged.map((i) => JSON.stringify(i)).join('\n') + (merged.length > 0 ? '\n' : '');
+    const tempPath = `${this.logPath}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
+      fs.writeFileSync(tempPath, lines, 'utf8');
+      fs.renameSync(tempPath, this.logPath);
+    } catch (err) {
+      try { fs.unlinkSync(tempPath); } catch {}
+      throw durabilityFailure(`Failed to persist issue register: ${String(err)}`);
+    }
+    this.issues.length = 0;
+    this.issues.push(...merged);
   }
 }

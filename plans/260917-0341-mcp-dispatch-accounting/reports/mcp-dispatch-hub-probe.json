@@ -1,0 +1,2680 @@
+{
+  "probe": "test/e2e/mcp-dispatch-hub-probe.cjs",
+  "startedAt": "2026-09-17T07:17:23.809Z",
+  "finishedAt": "2026-09-17T07:17:25.559Z",
+  "electron": "43.4.0",
+  "node": "24.18.1",
+  "cwd": "E:\\Work\\apps\\AntiFan",
+  "artifacts": {
+    "toolbarHtml": {
+      "path": ".compiled\\src\\renderer\\toolbar.html",
+      "sha256": "9027e09c8c4071167924bda6b993870e7ae2fb2925998019131fb5b1da3d426f",
+      "bytes": 43385,
+      "mtimeMs": 1789628613540.6675
+    },
+    "toolbarJs": {
+      "path": ".compiled\\src\\renderer\\toolbar.js",
+      "sha256": "720620a2730aadec4c9998073b8a5d162a682a28a9718da6da328f88bf1c34ea",
+      "bytes": 148252,
+      "mtimeMs": 1789629132772.283
+    },
+    "exportsShim": {
+      "path": ".compiled\\src\\renderer\\exports-shim.js",
+      "sha256": "2ac077859891873de09681a43f30cc57794bdc89338e28af57fa7ed2ec4f2be4",
+      "bytes": 591,
+      "mtimeMs": 1789573734385.2256
+    },
+    "toolbarPreload": {
+      "path": ".compiled\\src\\preload\\toolbar-preload.js",
+      "sha256": "c46314bee45057fd908b01bacc12946caec855d7f39e27cac33cff27e69400a6",
+      "bytes": 12402,
+      "mtimeMs": 1789622472987.2495
+    },
+    "mcpDispatchService": {
+      "path": ".compiled\\src\\main\\diagnostics\\mcp-dispatch-service.js",
+      "sha256": "9e0dbbce342e17a6f4426e72be4560ce869a188eee8166065a63063304238d71",
+      "bytes": 37148,
+      "mtimeMs": 1789623981113.96
+    },
+    "sourceToolbarTs": {
+      "path": "src\\renderer\\toolbar.ts",
+      "sha256": "8d82260a9510dd3001c1f9d736edfb6c0696a696b40ae417e91e9fa4c1ef5866",
+      "bytes": 151460,
+      "mtimeMs": 1789628607334.639
+    },
+    "sourceToolbarHtml": {
+      "path": "src\\renderer\\toolbar.html",
+      "sha256": "9027e09c8c4071167924bda6b993870e7ae2fb2925998019131fb5b1da3d426f",
+      "bytes": 43385,
+      "mtimeMs": 1789628613540.6675
+    },
+    "sourceVsCompiled": {
+      "compiledToolbarJsMtimeMs": 1789629132772.283,
+      "sourceToolbarTsMtimeMs": 1789628607334.639,
+      "sourceIsNewerThanCompiled": false,
+      "note": "This probe observes the COMPILED renderer. If the source is newer, the observed revision is not the current source revision and the hashes above (not the working tree) define what passed. Re-run after a compile to certify the newer source."
+    }
+  },
+  "route": {
+    "renderer": "real compiled toolbar.html + toolbar.js via BrowserWindow.loadFile",
+    "preload": "real compiled toolbar-preload.js (contextBridge -> window.antifanToolbar)",
+    "ipcChannel": "antifan:mcp-dispatch:get-state",
+    "mainProcessHandler": "probe-registered ipcMain.handle on the production channel name; the production handler (native-tab-host.ts:2265) lives inside NativeTabHost and requires the full app graph",
+    "payloadDelivery": "seeded envelope -> real projectEnvelope() (Phase 4 delivery surface) -> IPC channel -> real preload -> renderer",
+    "navButtonId": "tabNavMcpDispatch",
+    "hubButtonId": "btnWorkflowHub",
+    "listElementId": "hubItemsList"
+  },
+  "projection": {
+    "available": true,
+    "module": "E:\\Work\\apps\\AntiFan\\.compiled\\src\\main\\diagnostics\\mcp-dispatch-service.js",
+    "error": null,
+    "storeLabel": "invocations",
+    "envelopeKeys": [
+      "status",
+      "reasonCode",
+      "affected",
+      "evidenceRefs",
+      "asOf",
+      "storePath",
+      "census",
+      "fileRollups",
+      "rows",
+      "totals",
+      "reconciliation"
+    ],
+    "rowKeys": [
+      "name",
+      "calls",
+      "frames",
+      "superseded",
+      "states",
+      "errors",
+      "latency",
+      "excludedLatency",
+      "firstSeen",
+      "lastSeen",
+      "lowerBound"
+    ]
+  },
+  "boot": {
+    "readyWait": {
+      "ok": true,
+      "label": "toolbar document ready with nav button",
+      "waitedMs": 0
+    },
+    "location": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/toolbar.html",
+    "readyState": "complete",
+    "title": "AntiFan Browser",
+    "bridgeKeys": 75,
+    "hasBridge": true,
+    "hasGetMcpDispatchState": true,
+    "hasGetWorkflowState": true,
+    "hasExportsShim": true,
+    "scriptSources": [
+      "exports-shim.js",
+      "toolbar.js"
+    ],
+    "hubButton": {
+      "id": "btnWorkflowHub",
+      "text": "",
+      "visible": true
+    },
+    "navButton": {
+      "id": "tabNavMcpDispatch",
+      "text": "📊 Thống kê MCP (Dispatch) –",
+      "cls": "hub-nav-tab",
+      "present": true
+    },
+    "overlayBefore": "none",
+    "baselineCensus": {
+      "elements": 576,
+      "img": 1,
+      "imgWithOnerror": 0,
+      "script": 2,
+      "elementsWithOnAttributes": 0,
+      "onAttributeSamples": [],
+      "canary": 0
+    },
+    "baselineHits": {
+      "tag": [],
+      "attrName": [],
+      "attrValue": [],
+      "id": [],
+      "class": []
+    },
+    "baselineTextHits": [],
+    "scannerSelfTest": {
+      "marker": "probe-selftest-token",
+      "positiveTagHits": 0,
+      "positiveIdHits": 1,
+      "positiveAttrNameHits": 1,
+      "positiveAttrValueHits": 2,
+      "positiveTextNodeHits": 1,
+      "negativeTagHits": 0,
+      "negativeIdHits": 0,
+      "negativeAttrNameHits": 0,
+      "negativeAttrValueHits": 0,
+      "negativeTextNodeHits": 0,
+      "residueElements": 0
+    },
+    "afterSelfTestCensus": {
+      "elements": 576,
+      "img": 1,
+      "imgWithOnerror": 0,
+      "script": 2,
+      "elementsWithOnAttributes": 0,
+      "onAttributeSamples": [],
+      "canary": 0
+    }
+  },
+  "scannerSelfTest": null,
+  "scenarios": {
+    "A-measured-truncated": {
+      "expectation": "MEASURED + ceiling-tripped rows, invariants, margin, partial notice",
+      "payloadSha256": "6fd8f8629d37bee1c53bf030c593754a5b513ed4ebdd1bcfc2ac62a7332365a4",
+      "payloadVia": "projectEnvelope(seed, storeLabel)",
+      "result": {
+        "overlayOpenWait": {
+          "ok": true,
+          "label": "workflow hub overlay opened",
+          "waitedMs": 0
+        },
+        "overlayDisplay": "flex",
+        "listChildCountBeforeClick": 0,
+        "navClicked": true,
+        "navClassAfterClickPending": "hub-nav-tab",
+        "sentinelWait": {
+          "ok": true,
+          "label": "list text contains sentinel calls 7",
+          "waitedMs": 105
+        },
+        "navClass": "hub-nav-tab active",
+        "navAriaSelected": null,
+        "listChildCount": 6,
+        "listItemCount": 6,
+        "listText": "\n        \n          Đối soát (Reconciliation)\n          MEASURED\n        \n        classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 7 + unattributedKeys 0 == compositeKeys 7\nframes 12 == compositeKeys 7 + superseded 1 + keylessFrames 4\n        asOf 2026-09-17T03:41:00.000Z · invocations\n        \n          antifan_navigate_3f6a73181cb6\n          ≥ LOWER BOUND\n        \n        states: completed×5 · failed×1 · superseded×1 · errors: E_TIMEOUT×1 · latency: p50 12ms · p95 88ms (n=5) · excluded: UNMEASURED · sàn (lowerBound): đây là sàn, không phải tổng lịch sử\n        ≥ calls 7 · frames 7 · superseded 1 · window 2026-09-16T01:00:00.000Z → 2026-09-17T03:40:00.000Z\n        \n          antifan_screenshot_viewport_3d98bcf74af0\n          RETAINED\n        \n        states: completed×4 · errors: UNMEASURED · latency: p50 210ms · p95 640ms (n=4) · excluded: UNMEASURED\n        calls 4 · frames 4 · superseded 0 · window 2026-09-16T02:00:00.000Z → 2026-09-17T02:00:00.000ZChuẩn cách ly: 0 frame bị loại — 6 trên 6 frame đủ điều kiệnpartial: 3 of 12 files\n        \n          Lỗ core.* (chưa đo được)\n          UNMEASURED\n        \n        core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".\n        bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path",
+        "listTextLength": 1778,
+        "listInnerHtml": "<div class=\"hub-list-item selected\" id=\"mcpDispatchReconciliation\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">Đối soát (Reconciliation)</span>\n          <span class=\"hub-item-pill\">MEASURED</span>\n        </div>\n        <div class=\"hub-item-desc\">classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 7 + unattributedKeys 0 == compositeKeys 7\nframes 12 == compositeKeys 7 + superseded 1 + keylessFrames 4</div>\n        <div class=\"hub-item-meta\"><span>asOf 2026-09-17T03:41:00.000Z · invocations</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchRow:0\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">antifan_navigate_3f6a73181cb6</span>\n          <span class=\"hub-item-pill\">≥ LOWER BOUND</span>\n        </div>\n        <div class=\"hub-item-desc\">states: completed×5 · failed×1 · superseded×1 · errors: E_TIMEOUT×1 · latency: p50 12ms · p95 88ms (n=5) · excluded: UNMEASURED · sàn (lowerBound): đây là sàn, không phải tổng lịch sử</div>\n        <div class=\"hub-item-meta\"><span>≥ calls 7 · frames 7 · superseded 1 · window 2026-09-16T01:00:00.000Z → 2026-09-17T03:40:00.000Z</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchRow:1\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">antifan_screenshot_viewport_3d98bcf74af0</span>\n          <span class=\"hub-item-pill\">RETAINED</span>\n        </div>\n        <div class=\"hub-item-desc\">states: completed×4 · errors: UNMEASURED · latency: p50 210ms · p95 640ms (n=4) · excluded: UNMEASURED</div>\n        <div class=\"hub-item-meta\"><span>calls 4 · frames 4 · superseded 0 · window 2026-09-16T02:00:00.000Z → 2026-09-17T02:00:00.000Z</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchQuarantineMargin\"><div class=\"hub-item-desc\">Chuẩn cách ly: 0 frame bị loại — 6 trên 6 frame đủ điều kiện</div></div><div class=\"hub-list-item \" id=\"mcpDispatchTruncation\"><div class=\"hub-item-desc\">partial: 3 of 12 files</div></div><div class=\"hub-list-item \" id=\"mcpDispatchCoreHole\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">Lỗ core.* (chưa đo được)</span>\n          <span class=\"hub-item-pill\">UNMEASURED</span>\n        </div>\n        <div class=\"hub-item-desc\">core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".</div>\n        <div class=\"hub-item-meta\"><span>bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path</span></div></div>",
+        "items": [
+          {
+            "id": "mcpDispatchReconciliation",
+            "cls": "hub-list-item selected",
+            "title": "Đối soát (Reconciliation)",
+            "pill": "MEASURED",
+            "desc": "classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 7 + unattributedKeys 0 == compositeKeys 7\nframes 12 == compositeKeys 7 + superseded 1 + keylessFrames 4",
+            "meta": "asOf 2026-09-17T03:41:00.000Z · invocations",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchRow:0",
+            "cls": "hub-list-item ",
+            "title": "antifan_navigate_3f6a73181cb6",
+            "pill": "≥ LOWER BOUND",
+            "desc": "states: completed×5 · failed×1 · superseded×1 · errors: E_TIMEOUT×1 · latency: p50 12ms · p95 88ms (n=5) · excluded: UNMEASURED · sàn (lowerBound): đây là sàn, không phải tổng lịch sử",
+            "meta": "≥ calls 7 · frames 7 · superseded 1 · window 2026-09-16T01:00:00.000Z → 2026-09-17T03:40:00.000Z",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchRow:1",
+            "cls": "hub-list-item ",
+            "title": "antifan_screenshot_viewport_3d98bcf74af0",
+            "pill": "RETAINED",
+            "desc": "states: completed×4 · errors: UNMEASURED · latency: p50 210ms · p95 640ms (n=4) · excluded: UNMEASURED",
+            "meta": "calls 4 · frames 4 · superseded 0 · window 2026-09-16T02:00:00.000Z → 2026-09-17T02:00:00.000Z",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchQuarantineMargin",
+            "cls": "hub-list-item ",
+            "title": null,
+            "pill": null,
+            "desc": "Chuẩn cách ly: 0 frame bị loại — 6 trên 6 frame đủ điều kiện",
+            "meta": null,
+            "childElementCount": 1
+          },
+          {
+            "id": "mcpDispatchTruncation",
+            "cls": "hub-list-item ",
+            "title": null,
+            "pill": null,
+            "desc": "partial: 3 of 12 files",
+            "meta": null,
+            "childElementCount": 1
+          },
+          {
+            "id": "mcpDispatchCoreHole",
+            "cls": "hub-list-item ",
+            "title": "Lỗ core.* (chưa đo được)",
+            "pill": "UNMEASURED",
+            "desc": "core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".",
+            "meta": "bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path",
+            "childElementCount": 3
+          }
+        ],
+        "notice": null,
+        "margin": {
+          "id": "mcpDispatchQuarantineMargin",
+          "text": "Chuẩn cách ly: 0 frame bị loại — 6 trên 6 frame đủ điều kiện",
+          "html": "<div class=\"hub-item-desc\">Chuẩn cách ly: 0 frame bị loại — 6 trên 6 frame đủ điều kiện</div>",
+          "childElementCount": 1
+        },
+        "truncation": {
+          "id": "mcpDispatchTruncation",
+          "text": "partial: 3 of 12 files",
+          "html": "<div class=\"hub-item-desc\">partial: 3 of 12 files</div>"
+        },
+        "reconciliation": {
+          "id": "mcpDispatchReconciliation",
+          "title": "Đối soát (Reconciliation)",
+          "desc": "classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 7 + unattributedKeys 0 == compositeKeys 7\nframes 12 == compositeKeys 7 + superseded 1 + keylessFrames 4",
+          "meta": "asOf 2026-09-17T03:41:00.000Z · invocations"
+        },
+        "coreHole": {
+          "id": "mcpDispatchCoreHole",
+          "title": "Lỗ core.* (chưa đo được)",
+          "pill": "UNMEASURED",
+          "desc": "core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\"."
+        },
+        "listIds": [
+          "mcpDispatchReconciliation",
+          "mcpDispatchRow:0",
+          "mcpDispatchRow:1",
+          "mcpDispatchQuarantineMargin",
+          "mcpDispatchTruncation",
+          "mcpDispatchCoreHole"
+        ],
+        "badge": "2",
+        "layout": {
+          "viewport": {
+            "w": 1184,
+            "h": 695,
+            "dpr": 1
+          },
+          "docScrollHeight": 695,
+          "list": {
+            "w": 324,
+            "h": 600.67,
+            "top": 268.2,
+            "left": 40.05
+          },
+          "reconciliation": {
+            "w": 308,
+            "h": 95.03,
+            "top": 276.2,
+            "left": 48.05
+          },
+          "margin": {
+            "w": 308,
+            "h": 53.03,
+            "top": 607.3,
+            "left": 48.05
+          },
+          "truncation": {
+            "w": 308,
+            "h": 37.52,
+            "top": 666.33,
+            "left": 48.05
+          },
+          "rowsWithPositiveHeight": 6,
+          "rows": [
+            {
+              "id": "mcpDispatchReconciliation",
+              "rect": {
+                "w": 308,
+                "h": 95.03,
+                "top": 276.2,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchRow:0",
+              "rect": {
+                "w": 308,
+                "h": 109.03,
+                "top": 377.23,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchRow:1",
+              "rect": {
+                "w": 308,
+                "h": 109.03,
+                "top": 492.27,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchQuarantineMargin",
+              "rect": {
+                "w": 308,
+                "h": 53.03,
+                "top": 607.3,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchTruncation",
+              "rect": {
+                "w": 308,
+                "h": 37.52,
+                "top": 666.33,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchCoreHole",
+              "rect": {
+                "w": 308,
+                "h": 151.03,
+                "top": 709.84,
+                "left": 48.05
+              }
+            }
+          ],
+          "overlayComputedDisplay": "flex",
+          "listComputedVisibility": "visible"
+        },
+        "detailAutoSelectedFor": "mcpDispatchReconciliation",
+        "detailName": "Đối soát (Reconciliation)",
+        "detailCategory": "RECONCILIATION",
+        "detailStatusPill": "MEASURED",
+        "detailPaneDisplay": "flex",
+        "rowClicked": "mcpDispatchRow:0",
+        "detailNameAfterRowClick": "antifan_navigate_3f6a73181cb6",
+        "detailDescAfterRowClick": "states: completed×5 · failed×1 · superseded×1 · errors: E_TIMEOUT×1 · latency: p50 12ms · p95 88ms (n=5) · excluded: UNMEASURED · sàn (lowerBound): đây là sàn, không phải tổng lịch sử",
+        "detailCategoryAfterRowClick": "DISPATCH NAME",
+        "detailStatusPillAfterRowClick": "≥ LOWER BOUND",
+        "detailNameChildElementCount": 0,
+        "detailDescChildElementCount": 0,
+        "census": {
+          "elements": 608,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "listScoped": {
+          "present": true,
+          "totalElements": 32,
+          "img": 0,
+          "script": 0,
+          "iframe": 0,
+          "objectEmbeds": 0,
+          "elementsWithOnAttributes": 0,
+          "listIds": [
+            "mcpDispatchReconciliation",
+            "mcpDispatchRow:0",
+            "mcpDispatchRow:1",
+            "mcpDispatchQuarantineMargin",
+            "mcpDispatchTruncation",
+            "mcpDispatchCoreHole"
+          ],
+          "listTagNames": [
+            "DIV",
+            "SPAN"
+          ]
+        },
+        "markerHits": {
+          "tag": [],
+          "attrName": [],
+          "attrValue": [],
+          "id": [],
+          "class": []
+        },
+        "markerTextHits": [],
+        "jsonPane": {
+          "present": true,
+          "tagName": "PRE",
+          "childElementCount": 0,
+          "textLength": 426,
+          "parsed": true,
+          "parsedKeys": [],
+          "textHits": []
+        },
+        "bodyHasMarkupAsText": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "inBodyText": false
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "inBodyText": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "inBodyText": false
+          }
+        ],
+        "getElementByIdForMarkers": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "found": false
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "found": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "found": false
+          }
+        ]
+      }
+    },
+    "B-unmeasured-no-census": {
+      "expectation": "UNMEASURED notice with reasonCode, no fabricated 0",
+      "payloadSha256": "87b36bf45221a4e37aa84e3273db3e280719a29495cf3e1b18d306a3f93cd09a",
+      "payloadVia": "projectEnvelope(seed, storeLabel)",
+      "result": {
+        "overlayDisplay": "flex",
+        "listChildCountBeforeClick": 6,
+        "navClicked": true,
+        "navClassAfterClickPending": "hub-nav-tab active",
+        "sentinelWait": {
+          "ok": true,
+          "label": "list text contains sentinel NO_DATA_ROOT_RESOLVED",
+          "waitedMs": 52
+        },
+        "navClass": "hub-nav-tab active",
+        "navAriaSelected": null,
+        "listChildCount": 1,
+        "listItemCount": 0,
+        "listText": "UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted",
+        "listTextLength": 89,
+        "listInnerHtml": "<div id=\"mcpDispatchNotice\" style=\"color:#64748b;font-size:12px;padding:20px;text-align:center;white-space:pre-line;\">UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted</div>",
+        "items": [],
+        "notice": {
+          "id": "mcpDispatchNotice",
+          "text": "UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted",
+          "childElementCount": 0,
+          "listChildCount": 1
+        },
+        "margin": null,
+        "truncation": null,
+        "reconciliation": null,
+        "coreHole": null,
+        "listIds": [],
+        "badge": "–",
+        "layout": {
+          "viewport": {
+            "w": 1184,
+            "h": 695,
+            "dpr": 1
+          },
+          "docScrollHeight": 695,
+          "list": {
+            "w": 339,
+            "h": 120,
+            "top": 251.7,
+            "left": 40.05
+          },
+          "reconciliation": null,
+          "margin": null,
+          "truncation": null,
+          "rowsWithPositiveHeight": 0,
+          "rows": [],
+          "overlayComputedDisplay": "flex",
+          "listComputedVisibility": "visible"
+        },
+        "detailAutoSelectedFor": null,
+        "detailName": "Đối soát (Reconciliation)",
+        "detailCategory": "RECONCILIATION",
+        "detailStatusPill": "MEASURED",
+        "detailPaneDisplay": "flex",
+        "rowClicked": null,
+        "detailNameAfterRowClick": "Đối soát (Reconciliation)",
+        "detailDescAfterRowClick": "classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 7 + unattributedKeys 0 == compositeKeys 7\nframes 12 == compositeKeys 7 + superseded 1 + keylessFrames 4",
+        "detailCategoryAfterRowClick": "RECONCILIATION",
+        "detailStatusPillAfterRowClick": "MEASURED",
+        "detailNameChildElementCount": 0,
+        "detailDescChildElementCount": 0,
+        "census": {
+          "elements": 577,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "listScoped": {
+          "present": true,
+          "totalElements": 1,
+          "img": 0,
+          "script": 0,
+          "iframe": 0,
+          "objectEmbeds": 0,
+          "elementsWithOnAttributes": 0,
+          "listIds": [
+            "mcpDispatchNotice"
+          ],
+          "listTagNames": [
+            "DIV"
+          ]
+        },
+        "markerHits": {
+          "tag": [],
+          "attrName": [],
+          "attrValue": [],
+          "id": [],
+          "class": []
+        },
+        "markerTextHits": [],
+        "jsonPane": {
+          "present": true,
+          "tagName": "PRE",
+          "childElementCount": 0,
+          "textLength": 945,
+          "parsed": true,
+          "parsedKeys": [],
+          "textHits": []
+        },
+        "bodyHasMarkupAsText": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "inBodyText": false
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "inBodyText": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "inBodyText": false
+          }
+        ],
+        "getElementByIdForMarkers": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "found": false
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "found": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "found": false
+          }
+        ]
+      }
+    },
+    "C-unmeasured-with-census": {
+      "expectation": "UNMEASURED + reasonCode + read facts (payload-sourced 0 only)",
+      "payloadSha256": "a2f321a2a12e4a98b2bf4e162a474957a35dbda8be242310de2f58a4bcd55c27",
+      "payloadVia": "projectEnvelope(seed, storeLabel)",
+      "result": {
+        "overlayDisplay": "flex",
+        "listChildCountBeforeClick": 1,
+        "navClicked": true,
+        "navClassAfterClickPending": "hub-nav-tab active",
+        "sentinelWait": {
+          "ok": true,
+          "label": "list text contains sentinel CENSUS_DRIFT",
+          "waitedMs": 54
+        },
+        "navClass": "hub-nav-tab active",
+        "navAriaSelected": null,
+        "listChildCount": 1,
+        "listItemCount": 0,
+        "listText": "UNMEASURED\nCENSUS_DRIFT · invocations\nread: census.limits.observedFiles: 9 · census.limits.filesRead: 0 · census.limits.outcome: POPULATION_TRUNCATED · census.limits.ceiling: MAX_CENSUS_BYTES\naffected: ipc-sender-not-trusted · invocations",
+        "listTextLength": 238,
+        "listInnerHtml": "<div id=\"mcpDispatchNotice\" style=\"color:#64748b;font-size:12px;padding:20px;text-align:center;white-space:pre-line;\">UNMEASURED\nCENSUS_DRIFT · invocations\nread: census.limits.observedFiles: 9 · census.limits.filesRead: 0 · census.limits.outcome: POPULATION_TRUNCATED · census.limits.ceiling: MAX_CENSUS_BYTES\naffected: ipc-sender-not-trusted · invocations</div>",
+        "items": [],
+        "notice": {
+          "id": "mcpDispatchNotice",
+          "text": "UNMEASURED\nCENSUS_DRIFT · invocations\nread: census.limits.observedFiles: 9 · census.limits.filesRead: 0 · census.limits.outcome: POPULATION_TRUNCATED · census.limits.ceiling: MAX_CENSUS_BYTES\naffected: ipc-sender-not-trusted · invocations",
+          "childElementCount": 0,
+          "listChildCount": 1
+        },
+        "margin": null,
+        "truncation": null,
+        "reconciliation": null,
+        "coreHole": null,
+        "listIds": [],
+        "badge": "–",
+        "layout": {
+          "viewport": {
+            "w": 1184,
+            "h": 695,
+            "dpr": 1
+          },
+          "docScrollHeight": 695,
+          "list": {
+            "w": 339,
+            "h": 168,
+            "top": 251.7,
+            "left": 40.05
+          },
+          "reconciliation": null,
+          "margin": null,
+          "truncation": null,
+          "rowsWithPositiveHeight": 0,
+          "rows": [],
+          "overlayComputedDisplay": "flex",
+          "listComputedVisibility": "visible"
+        },
+        "detailAutoSelectedFor": null,
+        "detailName": "UNMEASURED",
+        "detailCategory": "NO_DATA_ROOT_RESOLVED",
+        "detailStatusPill": "UNMEASURED",
+        "detailPaneDisplay": "flex",
+        "rowClicked": null,
+        "detailNameAfterRowClick": "UNMEASURED",
+        "detailDescAfterRowClick": "NO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED",
+        "detailCategoryAfterRowClick": "NO_DATA_ROOT_RESOLVED",
+        "detailStatusPillAfterRowClick": "UNMEASURED",
+        "detailNameChildElementCount": 0,
+        "detailDescChildElementCount": 0,
+        "census": {
+          "elements": 577,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "listScoped": {
+          "present": true,
+          "totalElements": 1,
+          "img": 0,
+          "script": 0,
+          "iframe": 0,
+          "objectEmbeds": 0,
+          "elementsWithOnAttributes": 0,
+          "listIds": [
+            "mcpDispatchNotice"
+          ],
+          "listTagNames": [
+            "DIV"
+          ]
+        },
+        "markerHits": {
+          "tag": [],
+          "attrName": [],
+          "attrValue": [],
+          "id": [],
+          "class": []
+        },
+        "markerTextHits": [],
+        "jsonPane": {
+          "present": true,
+          "tagName": "PRE",
+          "childElementCount": 0,
+          "textLength": 266,
+          "parsed": true,
+          "parsedKeys": [],
+          "textHits": []
+        },
+        "bodyHasMarkupAsText": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "inBodyText": false
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "inBodyText": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "inBodyText": false
+          }
+        ],
+        "getElementByIdForMarkers": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "found": false
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "found": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "found": false
+          }
+        ]
+      }
+    },
+    "D1-hostile-projected": {
+      "expectation": "hostile seed through the real projection: markup survives, paths do not",
+      "payloadSha256": "3594940b1bcd675552382c751ee586e9c41789332573428214ebe014fec4fdfe",
+      "payloadVia": "projectEnvelope(seed, storeLabel)",
+      "result": {
+        "overlayDisplay": "flex",
+        "listChildCountBeforeClick": 1,
+        "navClicked": true,
+        "navClassAfterClickPending": "hub-nav-tab active",
+        "sentinelWait": {
+          "ok": true,
+          "label": "list text contains sentinel UNRECOGNIZED",
+          "waitedMs": 52
+        },
+        "navClass": "hub-nav-tab active",
+        "navAriaSelected": null,
+        "listChildCount": 5,
+        "listItemCount": 5,
+        "listText": "\n        \n          Đối soát (Reconciliation)\n          MEASURED\n        \n        classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 2 + unattributedKeys 0 == compositeKeys 2\n        asOf 2026-09-17T03:41:00.000Z · invocations\n        \n          <img src=x onerror=alert(1)>\n          RETAINED\n        \n        states: HTML_STATE×3 · errors: UNRECOGNIZED×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED\n        calls 3 · frames 3 · superseded 0 · window 2026-09-17T01:00:00.000Z → 2026-09-17T02:00:00.000Z\n        \n          invocations\n          RETAINED\n        \n        states: UNRECOGNIZED×2 · errors: UNRECOGNIZED×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED\n        calls 2 · frames 2 · superseded 0 · window 2026-09-17T01:10:00.000Z → 2026-09-17T02:10:00.000ZChuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện\n        \n          Lỗ core.* (chưa đo được)\n          UNMEASURED\n        \n        core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".\n        bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path",
+        "listTextLength": 1613,
+        "listInnerHtml": "<div class=\"hub-list-item \" id=\"mcpDispatchReconciliation\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">Đối soát (Reconciliation)</span>\n          <span class=\"hub-item-pill\">MEASURED</span>\n        </div>\n        <div class=\"hub-item-desc\">classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 2 + unattributedKeys 0 == compositeKeys 2</div>\n        <div class=\"hub-item-meta\"><span>asOf 2026-09-17T03:41:00.000Z · invocations</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchRow:0\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">&lt;img src=x onerror=alert(1)&gt;</span>\n          <span class=\"hub-item-pill\">RETAINED</span>\n        </div>\n        <div class=\"hub-item-desc\">states: HTML_STATE×3 · errors: UNRECOGNIZED×5 · &lt;img src=x onerror=alert(1)&gt;×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED</div>\n        <div class=\"hub-item-meta\"><span>calls 3 · frames 3 · superseded 0 · window 2026-09-17T01:00:00.000Z → 2026-09-17T02:00:00.000Z</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchRow:1\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">invocations</span>\n          <span class=\"hub-item-pill\">RETAINED</span>\n        </div>\n        <div class=\"hub-item-desc\">states: UNRECOGNIZED×2 · errors: UNRECOGNIZED×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED</div>\n        <div class=\"hub-item-meta\"><span>calls 2 · frames 2 · superseded 0 · window 2026-09-17T01:10:00.000Z → 2026-09-17T02:10:00.000Z</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchQuarantineMargin\"><div class=\"hub-item-desc\">Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện</div></div><div class=\"hub-list-item \" id=\"mcpDispatchCoreHole\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">Lỗ core.* (chưa đo được)</span>\n          <span class=\"hub-item-pill\">UNMEASURED</span>\n        </div>\n        <div class=\"hub-item-desc\">core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".</div>\n        <div class=\"hub-item-meta\"><span>bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path</span></div></div>",
+        "items": [
+          {
+            "id": "mcpDispatchReconciliation",
+            "cls": "hub-list-item ",
+            "title": "Đối soát (Reconciliation)",
+            "pill": "MEASURED",
+            "desc": "classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 2 + unattributedKeys 0 == compositeKeys 2",
+            "meta": "asOf 2026-09-17T03:41:00.000Z · invocations",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchRow:0",
+            "cls": "hub-list-item ",
+            "title": "<img src=x onerror=alert(1)>",
+            "pill": "RETAINED",
+            "desc": "states: HTML_STATE×3 · errors: UNRECOGNIZED×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED",
+            "meta": "calls 3 · frames 3 · superseded 0 · window 2026-09-17T01:00:00.000Z → 2026-09-17T02:00:00.000Z",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchRow:1",
+            "cls": "hub-list-item ",
+            "title": "invocations",
+            "pill": "RETAINED",
+            "desc": "states: UNRECOGNIZED×2 · errors: UNRECOGNIZED×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED",
+            "meta": "calls 2 · frames 2 · superseded 0 · window 2026-09-17T01:10:00.000Z → 2026-09-17T02:10:00.000Z",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchQuarantineMargin",
+            "cls": "hub-list-item ",
+            "title": null,
+            "pill": null,
+            "desc": "Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện",
+            "meta": null,
+            "childElementCount": 1
+          },
+          {
+            "id": "mcpDispatchCoreHole",
+            "cls": "hub-list-item ",
+            "title": "Lỗ core.* (chưa đo được)",
+            "pill": "UNMEASURED",
+            "desc": "core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".",
+            "meta": "bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path",
+            "childElementCount": 3
+          }
+        ],
+        "notice": null,
+        "margin": {
+          "id": "mcpDispatchQuarantineMargin",
+          "text": "Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện",
+          "html": "<div class=\"hub-item-desc\">Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện</div>",
+          "childElementCount": 1
+        },
+        "truncation": null,
+        "reconciliation": {
+          "id": "mcpDispatchReconciliation",
+          "title": "Đối soát (Reconciliation)",
+          "desc": "classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 2 + unattributedKeys 0 == compositeKeys 2",
+          "meta": "asOf 2026-09-17T03:41:00.000Z · invocations"
+        },
+        "coreHole": {
+          "id": "mcpDispatchCoreHole",
+          "title": "Lỗ core.* (chưa đo được)",
+          "pill": "UNMEASURED",
+          "desc": "core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\"."
+        },
+        "listIds": [
+          "mcpDispatchReconciliation",
+          "mcpDispatchRow:0",
+          "mcpDispatchRow:1",
+          "mcpDispatchQuarantineMargin",
+          "mcpDispatchCoreHole"
+        ],
+        "badge": "2",
+        "layout": {
+          "viewport": {
+            "w": 1184,
+            "h": 695,
+            "dpr": 1
+          },
+          "docScrollHeight": 695,
+          "list": {
+            "w": 324,
+            "h": 557.16,
+            "top": 268.2,
+            "left": 40.05
+          },
+          "reconciliation": {
+            "w": 308,
+            "h": 95.03,
+            "top": 276.2,
+            "left": 48.05
+          },
+          "margin": {
+            "w": 308,
+            "h": 53.03,
+            "top": 607.3,
+            "left": 48.05
+          },
+          "truncation": null,
+          "rowsWithPositiveHeight": 5,
+          "rows": [
+            {
+              "id": "mcpDispatchReconciliation",
+              "rect": {
+                "w": 308,
+                "h": 95.03,
+                "top": 276.2,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchRow:0",
+              "rect": {
+                "w": 308,
+                "h": 109.03,
+                "top": 377.23,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchRow:1",
+              "rect": {
+                "w": 308,
+                "h": 109.03,
+                "top": 492.27,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchQuarantineMargin",
+              "rect": {
+                "w": 308,
+                "h": 53.03,
+                "top": 607.3,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchCoreHole",
+              "rect": {
+                "w": 308,
+                "h": 151.03,
+                "top": 666.33,
+                "left": 48.05
+              }
+            }
+          ],
+          "overlayComputedDisplay": "flex",
+          "listComputedVisibility": "visible"
+        },
+        "detailAutoSelectedFor": "mcpDispatchReconciliation",
+        "detailName": "UNMEASURED",
+        "detailCategory": "CENSUS_DRIFT",
+        "detailStatusPill": "UNMEASURED",
+        "detailPaneDisplay": "flex",
+        "rowClicked": "mcpDispatchRow:0",
+        "detailNameAfterRowClick": "<img src=x onerror=alert(1)>",
+        "detailDescAfterRowClick": "states: HTML_STATE×3 · errors: UNRECOGNIZED×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED",
+        "detailCategoryAfterRowClick": "DISPATCH NAME",
+        "detailStatusPillAfterRowClick": "RETAINED",
+        "detailNameChildElementCount": 0,
+        "detailDescChildElementCount": 0,
+        "census": {
+          "elements": 606,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "listScoped": {
+          "present": true,
+          "totalElements": 30,
+          "img": 0,
+          "script": 0,
+          "iframe": 0,
+          "objectEmbeds": 0,
+          "elementsWithOnAttributes": 0,
+          "listIds": [
+            "mcpDispatchReconciliation",
+            "mcpDispatchRow:0",
+            "mcpDispatchRow:1",
+            "mcpDispatchQuarantineMargin",
+            "mcpDispatchCoreHole"
+          ],
+          "listTagNames": [
+            "DIV",
+            "SPAN"
+          ]
+        },
+        "markerHits": {
+          "tag": [],
+          "attrName": [],
+          "attrValue": [],
+          "id": [],
+          "class": []
+        },
+        "markerTextHits": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "SPAN",
+            "snippet": "<img src=x onerror=alert(1)>"
+          },
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "DIV",
+            "snippet": "states: HTML_STATE×3 · errors: UNRECOGNIZED×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+          },
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "DIV#coreDetailName",
+            "snippet": "<img src=x onerror=alert(1)>"
+          },
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "DIV#coreDetailDesc",
+            "snippet": "states: HTML_STATE×3 · errors: UNRECOGNIZED×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+          },
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "PRE#coreDetailCode",
+            "snippet": "{\n  \"name\": \"<img src=x onerror=alert(1)>\",\n  \"calls\": 3,\n  \"frames\": 3,\n  \"superseded\": 0,\n  \"lowerBound\": false,\n  \"firstSeen\": \"2026-09-17T01:00:00.000Z\",\n  \"lastSeen\": \"2026-09-17T02:00:00.000Z\",\n  \"states\": {\n    \"HTML_STATE\": 3\n  },\n "
+          }
+        ],
+        "jsonPane": {
+          "present": true,
+          "tagName": "PRE",
+          "childElementCount": 0,
+          "textLength": 429,
+          "parsed": true,
+          "parsedKeys": [
+            {
+              "marker": "<img src=x onerror=alert(1)>",
+              "keyPath": "$.errors.<img src=x onerror=alert(1)>",
+              "key": "<img src=x onerror=alert(1)>"
+            }
+          ],
+          "textHits": [
+            "<img src=x onerror=alert(1)>"
+          ]
+        },
+        "bodyHasMarkupAsText": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "inBodyText": true
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "inBodyText": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "inBodyText": false
+          }
+        ],
+        "getElementByIdForMarkers": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "found": false
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "found": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "found": false
+          }
+        ]
+      }
+    },
+    "D2-hostile-raw": {
+      "expectation": "hostile seed delivered unprojected: escaped, never parsed",
+      "payloadSha256": "fc67ab005a9ac605f1a2a9b1c524811ffffb0039a8e081f3a71b619bdd8a0df6",
+      "payloadVia": "raw (by design: simulate a hostile upstream producer)",
+      "result": {
+        "overlayDisplay": "flex",
+        "listChildCountBeforeClick": 5,
+        "navClicked": true,
+        "navClassAfterClickPending": "hub-nav-tab active",
+        "sentinelWait": {
+          "ok": true,
+          "label": "list text contains sentinel secrets",
+          "waitedMs": 52
+        },
+        "navClass": "hub-nav-tab active",
+        "navAriaSelected": null,
+        "listChildCount": 5,
+        "listItemCount": 5,
+        "listText": "\n        \n          Đối soát (Reconciliation)\n          MEASURED\n        \n        classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 2 + unattributedKeys 0 == compositeKeys 2\n        asOf 2026-09-17T03:41:00.000Z · C:\\Users\\Admin\\AppData\\Roaming\\AntiFan\\control-plane\\invocations\n        \n          <img src=x onerror=alert(1)>\n          RETAINED\n        \n        states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED\n        calls 3 · frames 3 · superseded 0 · window 2026-09-17T01:00:00.000Z → 2026-09-17T02:00:00.000Z\n        \n          C:\\Users\\Admin\\secrets\n          RETAINED\n        \n        states: <script>alert(2)</script>×2 · errors: <script>alert(2)</script>×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED\n        calls 2 · frames 2 · superseded 0 · window 2026-09-17T01:10:00.000Z → 2026-09-17T02:10:00.000ZChuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện\n        \n          Lỗ core.* (chưa đo được)\n          UNMEASURED\n        \n        core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".\n        bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path",
+        "listTextLength": 1713,
+        "listInnerHtml": "<div class=\"hub-list-item selected\" id=\"mcpDispatchReconciliation\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">Đối soát (Reconciliation)</span>\n          <span class=\"hub-item-pill\">MEASURED</span>\n        </div>\n        <div class=\"hub-item-desc\">classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 2 + unattributedKeys 0 == compositeKeys 2</div>\n        <div class=\"hub-item-meta\"><span>asOf 2026-09-17T03:41:00.000Z · C:\\Users\\Admin\\AppData\\Roaming\\AntiFan\\control-plane\\invocations</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchRow:0\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">&lt;img src=x onerror=alert(1)&gt;</span>\n          <span class=\"hub-item-pill\">RETAINED</span>\n        </div>\n        <div class=\"hub-item-desc\">states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · &lt;img src=x onerror=alert(1)&gt;×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED</div>\n        <div class=\"hub-item-meta\"><span>calls 3 · frames 3 · superseded 0 · window 2026-09-17T01:00:00.000Z → 2026-09-17T02:00:00.000Z</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchRow:1\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">C:\\Users\\Admin\\secrets</span>\n          <span class=\"hub-item-pill\">RETAINED</span>\n        </div>\n        <div class=\"hub-item-desc\">states: &lt;script&gt;alert(2)&lt;/script&gt;×2 · errors: &lt;script&gt;alert(2)&lt;/script&gt;×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED</div>\n        <div class=\"hub-item-meta\"><span>calls 2 · frames 2 · superseded 0 · window 2026-09-17T01:10:00.000Z → 2026-09-17T02:10:00.000Z</span></div></div><div class=\"hub-list-item \" id=\"mcpDispatchQuarantineMargin\"><div class=\"hub-item-desc\">Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện</div></div><div class=\"hub-list-item \" id=\"mcpDispatchCoreHole\">\n        <div class=\"hub-item-top\">\n          <span class=\"hub-item-title\">Lỗ core.* (chưa đo được)</span>\n          <span class=\"hub-item-pill\">UNMEASURED</span>\n        </div>\n        <div class=\"hub-item-desc\">core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".</div>\n        <div class=\"hub-item-meta\"><span>bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path</span></div></div>",
+        "items": [
+          {
+            "id": "mcpDispatchReconciliation",
+            "cls": "hub-list-item selected",
+            "title": "Đối soát (Reconciliation)",
+            "pill": "MEASURED",
+            "desc": "classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 2 + unattributedKeys 0 == compositeKeys 2",
+            "meta": "asOf 2026-09-17T03:41:00.000Z · C:\\Users\\Admin\\AppData\\Roaming\\AntiFan\\control-plane\\invocations",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchRow:0",
+            "cls": "hub-list-item ",
+            "title": "<img src=x onerror=alert(1)>",
+            "pill": "RETAINED",
+            "desc": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED",
+            "meta": "calls 3 · frames 3 · superseded 0 · window 2026-09-17T01:00:00.000Z → 2026-09-17T02:00:00.000Z",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchRow:1",
+            "cls": "hub-list-item ",
+            "title": "C:\\Users\\Admin\\secrets",
+            "pill": "RETAINED",
+            "desc": "states: <script>alert(2)</script>×2 · errors: <script>alert(2)</script>×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED",
+            "meta": "calls 2 · frames 2 · superseded 0 · window 2026-09-17T01:10:00.000Z → 2026-09-17T02:10:00.000Z",
+            "childElementCount": 3
+          },
+          {
+            "id": "mcpDispatchQuarantineMargin",
+            "cls": "hub-list-item ",
+            "title": null,
+            "pill": null,
+            "desc": "Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện",
+            "meta": null,
+            "childElementCount": 1
+          },
+          {
+            "id": "mcpDispatchCoreHole",
+            "cls": "hub-list-item ",
+            "title": "Lỗ core.* (chưa đo được)",
+            "pill": "UNMEASURED",
+            "desc": "core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\".",
+            "meta": "bin.antifan-mcp (package.json:12) — spawned directly, never receives ANTIFAN_PROXY_TELEMETRY_DIR · npm run mcp (package.json:17) — same proxy, same missing variable · Codex — src/main/agent/codex-execution-backend.ts:81-100 builds the child env and injects no proxy telemetry path",
+            "childElementCount": 3
+          }
+        ],
+        "notice": null,
+        "margin": {
+          "id": "mcpDispatchQuarantineMargin",
+          "text": "Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện",
+          "html": "<div class=\"hub-item-desc\">Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện</div>",
+          "childElementCount": 1
+        },
+        "truncation": null,
+        "reconciliation": {
+          "id": "mcpDispatchReconciliation",
+          "title": "Đối soát (Reconciliation)",
+          "desc": "classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 2 + unattributedKeys 0 == compositeKeys 2",
+          "meta": "asOf 2026-09-17T03:41:00.000Z · C:\\Users\\Admin\\AppData\\Roaming\\AntiFan\\control-plane\\invocations"
+        },
+        "coreHole": {
+          "id": "mcpDispatchCoreHole",
+          "title": "Lỗ core.* (chưa đo được)",
+          "pill": "UNMEASURED",
+          "desc": "core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\"."
+        },
+        "listIds": [
+          "mcpDispatchReconciliation",
+          "mcpDispatchRow:0",
+          "mcpDispatchRow:1",
+          "mcpDispatchQuarantineMargin",
+          "mcpDispatchCoreHole"
+        ],
+        "badge": "2",
+        "layout": {
+          "viewport": {
+            "w": 1184,
+            "h": 695,
+            "dpr": 1
+          },
+          "docScrollHeight": 695,
+          "list": {
+            "w": 324,
+            "h": 585.16,
+            "top": 268.2,
+            "left": 40.05
+          },
+          "reconciliation": {
+            "w": 308,
+            "h": 123.03,
+            "top": 276.2,
+            "left": 48.05
+          },
+          "margin": {
+            "w": 308,
+            "h": 53.03,
+            "top": 635.3,
+            "left": 48.05
+          },
+          "truncation": null,
+          "rowsWithPositiveHeight": 5,
+          "rows": [
+            {
+              "id": "mcpDispatchReconciliation",
+              "rect": {
+                "w": 308,
+                "h": 123.03,
+                "top": 276.2,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchRow:0",
+              "rect": {
+                "w": 308,
+                "h": 109.03,
+                "top": 405.23,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchRow:1",
+              "rect": {
+                "w": 308,
+                "h": 109.03,
+                "top": 520.27,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchQuarantineMargin",
+              "rect": {
+                "w": 308,
+                "h": 53.03,
+                "top": 635.3,
+                "left": 48.05
+              }
+            },
+            {
+              "id": "mcpDispatchCoreHole",
+              "rect": {
+                "w": 308,
+                "h": 151.03,
+                "top": 694.33,
+                "left": 48.05
+              }
+            }
+          ],
+          "overlayComputedDisplay": "flex",
+          "listComputedVisibility": "visible"
+        },
+        "detailAutoSelectedFor": "mcpDispatchReconciliation",
+        "detailName": "Đối soát (Reconciliation)",
+        "detailCategory": "RECONCILIATION",
+        "detailStatusPill": "MEASURED",
+        "detailPaneDisplay": "flex",
+        "rowClicked": "mcpDispatchRow:0",
+        "detailNameAfterRowClick": "<img src=x onerror=alert(1)>",
+        "detailDescAfterRowClick": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED",
+        "detailCategoryAfterRowClick": "DISPATCH NAME",
+        "detailStatusPillAfterRowClick": "RETAINED",
+        "detailNameChildElementCount": 0,
+        "detailDescChildElementCount": 0,
+        "census": {
+          "elements": 606,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "listScoped": {
+          "present": true,
+          "totalElements": 30,
+          "img": 0,
+          "script": 0,
+          "iframe": 0,
+          "objectEmbeds": 0,
+          "elementsWithOnAttributes": 0,
+          "listIds": [
+            "mcpDispatchReconciliation",
+            "mcpDispatchRow:0",
+            "mcpDispatchRow:1",
+            "mcpDispatchQuarantineMargin",
+            "mcpDispatchCoreHole"
+          ],
+          "listTagNames": [
+            "DIV",
+            "SPAN"
+          ]
+        },
+        "markerHits": {
+          "tag": [],
+          "attrName": [],
+          "attrValue": [],
+          "id": [],
+          "class": []
+        },
+        "markerTextHits": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "SPAN",
+            "snippet": "<img src=x onerror=alert(1)>"
+          },
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "DIV",
+            "snippet": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "parent": "DIV",
+            "snippet": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "parent": "SPAN",
+            "snippet": "C:\\Users\\Admin\\secrets"
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "parent": "DIV",
+            "snippet": "states: <script>alert(2)</script>×2 · errors: <script>alert(2)</script>×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED"
+          },
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "DIV#coreDetailName",
+            "snippet": "<img src=x onerror=alert(1)>"
+          },
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "DIV#coreDetailDesc",
+            "snippet": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "parent": "DIV#coreDetailDesc",
+            "snippet": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+          },
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "parent": "PRE#coreDetailCode",
+            "snippet": "{\n  \"name\": \"<img src=x onerror=alert(1)>\",\n  \"calls\": 3,\n  \"frames\": 3,\n  \"superseded\": 0,\n  \"lowerBound\": false,\n  \"firstSeen\": \"2026-09-17T01:00:00.000Z\",\n  \"lastSeen\": \"2026-09-17T02:00:00.000Z\",\n  \"states\": {\n    \"HTML_STATE\": 3\n  },\n "
+          }
+        ],
+        "jsonPane": {
+          "present": true,
+          "tagName": "PRE",
+          "childElementCount": 0,
+          "textLength": 442,
+          "parsed": true,
+          "parsedKeys": [
+            {
+              "marker": "<img src=x onerror=alert(1)>",
+              "keyPath": "$.errors.<img src=x onerror=alert(1)>",
+              "key": "<img src=x onerror=alert(1)>"
+            },
+            {
+              "marker": "C:\\Users\\Admin\\secrets",
+              "keyPath": "$.errors.C:\\Users\\Admin\\secrets",
+              "key": "C:\\Users\\Admin\\secrets"
+            }
+          ],
+          "textHits": [
+            "<img src=x onerror=alert(1)>"
+          ]
+        },
+        "bodyHasMarkupAsText": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "inBodyText": true
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "inBodyText": true
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "inBodyText": true
+          }
+        ],
+        "getElementByIdForMarkers": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "found": false
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "found": false
+          },
+          {
+            "marker": "<script>alert(2)</script>",
+            "found": false
+          }
+        ]
+      }
+    }
+  },
+  "payloads": {
+    "A-measured-truncated": {
+      "via": "projectEnvelope(seed, storeLabel)",
+      "expectedByProbe": "MEASURED + ceiling-tripped rows, invariants, margin, partial notice",
+      "sha256": "6fd8f8629d37bee1c53bf030c593754a5b513ed4ebdd1bcfc2ac62a7332365a4",
+      "delivered": {
+        "status": "MEASURED",
+        "reasonCode": "OK",
+        "affected": [],
+        "evidenceRefs": [
+          "census:1a2b3c4d#L12",
+          "census:deadbeef#L4"
+        ],
+        "asOf": "2026-09-17T03:41:00.000Z",
+        "storePath": "invocations",
+        "census": {
+          "asOf": "2026-09-17T03:41:00.000Z",
+          "files": [],
+          "fileCount": 12,
+          "jsonlCount": 11,
+          "quarantineCount": 1,
+          "tempCount": 0,
+          "otherCount": 0,
+          "totalBytes": 40960,
+          "censusHash": "a1b2c3d4e5f60718",
+          "limits": {
+            "budgetMs": 5000,
+            "maxBytes": 8388608,
+            "maxFiles": 3,
+            "observedBytes": 40960,
+            "observedFiles": 12,
+            "filesRead": 3,
+            "filesSkipped": 9,
+            "ceiling": "MAX_CENSUS_FILES",
+            "windowNewestMtimeMs": 1758080460000,
+            "windowOldestMtimeMs": 1757994060000,
+            "elapsedMs": 41,
+            "outcome": "POPULATION_TRUNCATED"
+          }
+        },
+        "fileRollups": [
+          {
+            "file": "2026-09-16.jsonl",
+            "quarantineLike": false,
+            "tempLike": false,
+            "frames": 4,
+            "admitted": 4,
+            "namedInvalid": 0
+          },
+          {
+            "file": "2026-09-17.jsonl",
+            "quarantineLike": true,
+            "tempLike": false,
+            "frames": 6,
+            "admitted": 5,
+            "namedInvalid": 1
+          }
+        ],
+        "rows": [
+          {
+            "name": "antifan_navigate_3f6a73181cb6",
+            "calls": 7,
+            "frames": 7,
+            "superseded": 1,
+            "states": {
+              "completed": 5,
+              "failed": 1,
+              "superseded": 1
+            },
+            "errors": {
+              "E_TIMEOUT": 1
+            },
+            "latency": {
+              "count": 5,
+              "p50Ms": 12,
+              "p95Ms": 88
+            },
+            "excludedLatency": {
+              "count": 0
+            },
+            "firstSeen": "2026-09-16T01:00:00.000Z",
+            "lastSeen": "2026-09-17T03:40:00.000Z",
+            "lowerBound": true
+          },
+          {
+            "name": "antifan_screenshot_viewport_3d98bcf74af0",
+            "calls": 4,
+            "frames": 4,
+            "superseded": 0,
+            "states": {
+              "completed": 4
+            },
+            "errors": {},
+            "latency": {
+              "count": 4,
+              "p50Ms": 210,
+              "p95Ms": 640
+            },
+            "excludedLatency": {
+              "count": 0
+            },
+            "firstSeen": "2026-09-16T02:00:00.000Z",
+            "lastSeen": "2026-09-17T02:00:00.000Z",
+            "lowerBound": false
+          }
+        ],
+        "totals": {
+          "residue": {
+            "ADMITTED": 9,
+            "STRUCTURAL_INVALID": 0,
+            "CHECKSUM_MISMATCH": 0,
+            "TORN_TAIL": 0,
+            "UNPARSEABLE": 0,
+            "RESIDUE_NO_CHECKSUM": 0,
+            "POST_CENSUS_APPEND": 1,
+            "POST_CENSUS_TRUNCATE": 0,
+            "VANISHED": 0
+          },
+          "quarantineMargin": {
+            "label": "Chuẩn cách ly: 0 frame bị loại — 6 trên 6 frame đủ điều kiện",
+            "files": 1,
+            "framesPresent": 6,
+            "framesAdmitted": 5,
+            "framesNamedInvalid": 1,
+            "reasons": []
+          },
+          "retention": {
+            "firstSeen": "2026-09-16T01:00:00.000Z",
+            "lastSeen": "2026-09-17T03:40:00.000Z",
+            "note": "a name absent from this store means no frame is retained, not that the tool was never called"
+          },
+          "excludedLatency": {
+            "count": 0,
+            "p50Ms": null,
+            "p95Ms": null
+          },
+          "unattributedByReason": {
+            "MISSING_IDENTITY_FIELD": 0,
+            "MISSING_ROW_KEY": 0
+          },
+          "truncation": {
+            "ceiling": "MAX_CENSUS_FILES",
+            "filesRead": 3,
+            "filesSkipped": 9,
+            "order": "mtimeMs-desc,name-asc",
+            "label": "partial: 3 of 12 files"
+          }
+        },
+        "reconciliation": {
+          "classifiedKeys": 7,
+          "unattributedKeys": 0,
+          "unattributedFrames": 0,
+          "unattributedByReason": {
+            "MISSING_IDENTITY_FIELD": 0,
+            "MISSING_ROW_KEY": 0
+          },
+          "keylessFrames": 4,
+          "compositeKeys": 7,
+          "frames": 12,
+          "superseded": 1,
+          "holdsKeys": true,
+          "holdsFrames": true,
+          "holdsMargin": true,
+          "lines": [
+            "classifiedKeys 7 + unattributedKeys 0 == compositeKeys 7",
+            "frames 12 == compositeKeys 7 + superseded 1 + keylessFrames 4"
+          ]
+        }
+      }
+    },
+    "B-unmeasured-no-census": {
+      "via": "projectEnvelope(seed, storeLabel)",
+      "expectedByProbe": "UNMEASURED notice with reasonCode, no fabricated 0",
+      "sha256": "87b36bf45221a4e37aa84e3273db3e280719a29495cf3e1b18d306a3f93cd09a",
+      "delivered": {
+        "status": "UNMEASURED",
+        "reasonCode": "NO_DATA_ROOT_RESOLVED",
+        "affected": [
+          "ipc-sender-not-trusted"
+        ],
+        "evidenceRefs": [],
+        "asOf": "2026-09-17T03:41:00.000Z",
+        "storePath": null,
+        "census": null,
+        "fileRollups": [],
+        "rows": [],
+        "totals": null,
+        "reconciliation": null
+      }
+    },
+    "C-unmeasured-with-census": {
+      "via": "projectEnvelope(seed, storeLabel)",
+      "expectedByProbe": "UNMEASURED + reasonCode + read facts (payload-sourced 0 only)",
+      "sha256": "a2f321a2a12e4a98b2bf4e162a474957a35dbda8be242310de2f58a4bcd55c27",
+      "delivered": {
+        "status": "UNMEASURED",
+        "reasonCode": "CENSUS_DRIFT",
+        "affected": [
+          "ipc-sender-not-trusted",
+          "invocations"
+        ],
+        "evidenceRefs": [
+          "census:0f0f0f0f#L9"
+        ],
+        "asOf": "2026-09-17T03:41:00.000Z",
+        "storePath": "invocations",
+        "census": {
+          "asOf": "2026-09-17T03:41:00.000Z",
+          "files": [],
+          "fileCount": 9,
+          "jsonlCount": 9,
+          "quarantineCount": 0,
+          "tempCount": 0,
+          "otherCount": 0,
+          "totalBytes": 0,
+          "censusHash": "0f0f0f0f0f0f0f0f",
+          "limits": {
+            "budgetMs": 5000,
+            "maxBytes": 1,
+            "maxFiles": 0,
+            "observedBytes": 81920,
+            "observedFiles": 9,
+            "filesRead": 0,
+            "filesSkipped": 9,
+            "ceiling": "MAX_CENSUS_BYTES",
+            "windowNewestMtimeMs": null,
+            "windowOldestMtimeMs": null,
+            "elapsedMs": 12,
+            "outcome": "POPULATION_TRUNCATED"
+          }
+        },
+        "fileRollups": [],
+        "rows": [],
+        "totals": null,
+        "reconciliation": null
+      }
+    },
+    "D1-hostile-projected": {
+      "via": "projectEnvelope(seed, storeLabel)",
+      "expectedByProbe": "hostile seed through the real projection: markup survives, paths do not",
+      "sha256": "3594940b1bcd675552382c751ee586e9c41789332573428214ebe014fec4fdfe",
+      "delivered": {
+        "status": "MEASURED",
+        "reasonCode": "OK",
+        "affected": [],
+        "evidenceRefs": [],
+        "asOf": "2026-09-17T03:41:00.000Z",
+        "storePath": "invocations",
+        "census": null,
+        "fileRollups": [],
+        "rows": [
+          {
+            "name": "<img src=x onerror=alert(1)>",
+            "calls": 3,
+            "frames": 3,
+            "superseded": 0,
+            "states": {
+              "HTML_STATE": 3
+            },
+            "errors": {
+              "<img src=x onerror=alert(1)>": 2,
+              "UNRECOGNIZED": 5
+            },
+            "latency": {
+              "count": 3,
+              "p50Ms": 7,
+              "p95Ms": 9
+            },
+            "excludedLatency": {
+              "count": 0
+            },
+            "firstSeen": "2026-09-17T01:00:00.000Z",
+            "lastSeen": "2026-09-17T02:00:00.000Z",
+            "lowerBound": false
+          },
+          {
+            "name": "invocations",
+            "calls": 2,
+            "frames": 2,
+            "superseded": 0,
+            "states": {
+              "UNRECOGNIZED": 2
+            },
+            "errors": {
+              "UNRECOGNIZED": 1
+            },
+            "latency": {
+              "count": 2,
+              "p50Ms": 5,
+              "p95Ms": 6
+            },
+            "excludedLatency": {
+              "count": 0
+            },
+            "firstSeen": "2026-09-17T01:10:00.000Z",
+            "lastSeen": "2026-09-17T02:10:00.000Z",
+            "lowerBound": false
+          }
+        ],
+        "totals": {
+          "quarantineMargin": {
+            "label": "Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện",
+            "files": 0,
+            "framesPresent": 0,
+            "framesAdmitted": 0,
+            "framesNamedInvalid": 0,
+            "reasons": []
+          },
+          "truncation": null
+        },
+        "reconciliation": {
+          "classificationLine": "classifiedKeys 2 + unattributedKeys 0 == compositeKeys 2",
+          "lines": [
+            "classifiedKeys 2 + unattributedKeys 0 == compositeKeys 2"
+          ]
+        }
+      }
+    },
+    "D2-hostile-raw": {
+      "via": "raw (by design: simulate a hostile upstream producer)",
+      "expectedByProbe": "hostile seed delivered unprojected: escaped, never parsed",
+      "sha256": "fc67ab005a9ac605f1a2a9b1c524811ffffb0039a8e081f3a71b619bdd8a0df6",
+      "delivered": {
+        "status": "MEASURED",
+        "reasonCode": "OK",
+        "affected": [],
+        "evidenceRefs": [],
+        "asOf": "2026-09-17T03:41:00.000Z",
+        "storePath": "C:\\Users\\Admin\\AppData\\Roaming\\AntiFan\\control-plane\\invocations",
+        "census": null,
+        "fileRollups": [],
+        "rows": [
+          {
+            "name": "<img src=x onerror=alert(1)>",
+            "calls": 3,
+            "frames": 3,
+            "superseded": 0,
+            "states": {
+              "HTML_STATE": 3
+            },
+            "errors": {
+              "<img src=x onerror=alert(1)>": 2,
+              "C:\\Users\\Admin\\secrets": 5
+            },
+            "latency": {
+              "count": 3,
+              "p50Ms": 7,
+              "p95Ms": 9
+            },
+            "excludedLatency": {
+              "count": 0
+            },
+            "firstSeen": "2026-09-17T01:00:00.000Z",
+            "lastSeen": "2026-09-17T02:00:00.000Z",
+            "lowerBound": false
+          },
+          {
+            "name": "C:\\Users\\Admin\\secrets",
+            "calls": 2,
+            "frames": 2,
+            "superseded": 0,
+            "states": {
+              "<script>alert(2)</script>": 2
+            },
+            "errors": {
+              "<script>alert(2)</script>": 1
+            },
+            "latency": {
+              "count": 2,
+              "p50Ms": 5,
+              "p95Ms": 6
+            },
+            "excludedLatency": {
+              "count": 0
+            },
+            "firstSeen": "2026-09-17T01:10:00.000Z",
+            "lastSeen": "2026-09-17T02:10:00.000Z",
+            "lowerBound": false
+          }
+        ],
+        "totals": {
+          "quarantineMargin": {
+            "label": "Chuẩn cách ly: 0 frame bị loại — 0 trên 0 frame đủ điều kiện",
+            "files": 0,
+            "framesPresent": 0,
+            "framesAdmitted": 0,
+            "framesNamedInvalid": 0,
+            "reasons": []
+          },
+          "truncation": null
+        },
+        "reconciliation": {
+          "classificationLine": "classifiedKeys 2 + unattributedKeys 0 == compositeKeys 2",
+          "lines": [
+            "classifiedKeys 2 + unattributedKeys 0 == compositeKeys 2"
+          ]
+        }
+      }
+    }
+  },
+  "ipcCalls": [
+    {
+      "channel": "antifan:toolbar:get-initial-state",
+      "scenario": null,
+      "at": "2026-09-17T07:17:24.038Z",
+      "argSummary": null
+    },
+    {
+      "channel": "antifan:toolbar:get-phone-status",
+      "scenario": null,
+      "at": "2026-09-17T07:17:24.069Z",
+      "argSummary": "undefined"
+    },
+    {
+      "channel": "antifan:workflow:get-state",
+      "scenario": "A-measured-truncated",
+      "at": "2026-09-17T07:17:24.112Z",
+      "argSummary": null
+    },
+    {
+      "channel": "antifan:toolbar:set-overlay",
+      "scenario": "A-measured-truncated",
+      "at": "2026-09-17T07:17:24.112Z",
+      "argSummary": "true"
+    },
+    {
+      "channel": "antifan:mcp-dispatch:get-state",
+      "scenario": "A-measured-truncated",
+      "at": "2026-09-17T07:17:24.113Z",
+      "argSummary": null
+    },
+    {
+      "channel": "antifan:core-health:get-state",
+      "scenario": "A-measured-truncated",
+      "at": "2026-09-17T07:17:24.113Z",
+      "argSummary": null
+    },
+    {
+      "channel": "antifan:mcp-dispatch:get-state",
+      "scenario": "A-measured-truncated",
+      "at": "2026-09-17T07:17:24.114Z",
+      "argSummary": null
+    },
+    {
+      "channel": "antifan:mcp-dispatch:get-state",
+      "scenario": "B-unmeasured-no-census",
+      "at": "2026-09-17T07:17:24.512Z",
+      "argSummary": null
+    },
+    {
+      "channel": "antifan:mcp-dispatch:get-state",
+      "scenario": "C-unmeasured-with-census",
+      "at": "2026-09-17T07:17:24.692Z",
+      "argSummary": null
+    },
+    {
+      "channel": "antifan:mcp-dispatch:get-state",
+      "scenario": "D1-hostile-projected",
+      "at": "2026-09-17T07:17:24.877Z",
+      "argSummary": null
+    },
+    {
+      "channel": "antifan:mcp-dispatch:get-state",
+      "scenario": "D2-hostile-raw",
+      "at": "2026-09-17T07:17:25.226Z",
+      "argSummary": null
+    }
+  ],
+  "rendererLogs": [],
+  "consoleErrors": [],
+  "assertions": [
+    {
+      "id": "boot-A1-toolbar-document-loaded",
+      "verdict": "PASS",
+      "expected": "location.href ends in toolbar.html",
+      "observed": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/toolbar.html"
+    },
+    {
+      "id": "boot-A2-real-preload-bridge-present",
+      "verdict": "PASS",
+      "expected": "window.antifanToolbar.getMcpDispatchState is a function (real compiled preload)",
+      "observed": {
+        "hasBridge": true,
+        "bridgeKeys": 75,
+        "hasGetMcpDispatchState": true,
+        "hasGetWorkflowState": true
+      }
+    },
+    {
+      "id": "boot-A3-renderer-scripts-loaded",
+      "verdict": "PASS",
+      "expected": "exports-shim.js + toolbar.js are the loaded scripts",
+      "observed": {
+        "hasExportsShim": true,
+        "scriptSources": [
+          "exports-shim.js",
+          "toolbar.js"
+        ]
+      }
+    },
+    {
+      "id": "boot-A4-nav-button-present",
+      "verdict": "PASS",
+      "expected": "#tabNavMcpDispatch exists in the live toolbar document",
+      "observed": {
+        "id": "tabNavMcpDispatch",
+        "text": "📊 Thống kê MCP (Dispatch) –",
+        "cls": "hub-nav-tab",
+        "present": true
+      }
+    },
+    {
+      "id": "boot-A5-scanner-self-test-detects-hits",
+      "verdict": "PASS",
+      "expected": "the scanner reports hits for a planted marker in every non-tag category (id, attribute name, attribute value, text node), so a later \"no hits\" result is not vacuous",
+      "observed": {
+        "marker": "probe-selftest-token",
+        "positiveTagHits": 0,
+        "positiveIdHits": 1,
+        "positiveAttrNameHits": 1,
+        "positiveAttrValueHits": 2,
+        "positiveTextNodeHits": 1,
+        "negativeTagHits": 0,
+        "negativeIdHits": 0,
+        "negativeAttrNameHits": 0,
+        "negativeAttrValueHits": 0,
+        "negativeTextNodeHits": 0,
+        "residueElements": 0
+      }
+    },
+    {
+      "id": "boot-A6-scanner-self-test-clean-after-removal",
+      "verdict": "PASS",
+      "expected": "removing the planted element clears every scanner hit and leaves no residue",
+      "observed": {
+        "marker": "probe-selftest-token",
+        "positiveTagHits": 0,
+        "positiveIdHits": 1,
+        "positiveAttrNameHits": 1,
+        "positiveAttrValueHits": 2,
+        "positiveTextNodeHits": 1,
+        "negativeTagHits": 0,
+        "negativeIdHits": 0,
+        "negativeAttrNameHits": 0,
+        "negativeAttrValueHits": 0,
+        "negativeTextNodeHits": 0,
+        "residueElements": 0
+      }
+    },
+    {
+      "id": "boot-A7-baseline-has-no-inline-handlers",
+      "verdict": "PASS",
+      "expected": "baseline document has 0 elements with inline on* attributes, 0 img[onerror], canary 0",
+      "observed": {
+        "census": {
+          "elements": 576,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "note": "toolbar.ts:1669 renders <img class=\"tab-icon\"> for the boot tab; exports-shim.js + toolbar.js are the two scripts",
+        "baselineMarkerHits": {
+          "tag": [],
+          "attrName": [],
+          "attrValue": [],
+          "id": [],
+          "class": []
+        },
+        "baselineTextHits": []
+      }
+    },
+    {
+      "id": "boot-A8-canary-armed",
+      "verdict": "PASS",
+      "expected": "window.alert override armed and never invoked (canary === 0)",
+      "observed": {
+        "canary": 0,
+        "elements": 576
+      }
+    },
+    {
+      "id": "A1-hub-overlay-opens",
+      "verdict": "PASS",
+      "expected": "workflowHubOverlay style.display === 'flex' after clicking #btnWorkflowHub",
+      "observed": {
+        "overlayDisplay": "flex",
+        "overlayOpenWait": {
+          "ok": true,
+          "label": "workflow hub overlay opened",
+          "waitedMs": 0
+        },
+        "navClicked": true
+      }
+    },
+    {
+      "id": "A2-nav-click-activates-tab",
+      "verdict": "PASS",
+      "expected": "#tabNavMcpDispatch.className contains 'active'",
+      "observed": {
+        "navClass": "hub-nav-tab active",
+        "navAriaSelected": null
+      }
+    },
+    {
+      "id": "A3-sentinel-rendered",
+      "verdict": "PASS",
+      "expected": "list text contains 'calls 7' within 6000ms",
+      "observed": {
+        "sentinelWait": {
+          "ok": true,
+          "label": "list text contains sentinel calls 7",
+          "waitedMs": 105
+        },
+        "listItemCount": 6,
+        "listIds": [
+          "mcpDispatchReconciliation",
+          "mcpDispatchRow:0",
+          "mcpDispatchRow:1",
+          "mcpDispatchQuarantineMargin",
+          "mcpDispatchTruncation",
+          "mcpDispatchCoreHole"
+        ]
+      }
+    },
+    {
+      "id": "A4-list-rendered-six-items",
+      "verdict": "PASS",
+      "expected": "6 .hub-list-item rows: reconciliation + 2 names + margin + truncation + core-hole",
+      "observed": {
+        "listItemCount": 6,
+        "listIds": [
+          "mcpDispatchReconciliation",
+          "mcpDispatchRow:0",
+          "mcpDispatchRow:1",
+          "mcpDispatchQuarantineMargin",
+          "mcpDispatchTruncation",
+          "mcpDispatchCoreHole"
+        ],
+        "listChildCount": 6,
+        "listChildCountBeforeClick": 0
+      }
+    },
+    {
+      "id": "A5-row0-name-calls-states-errors-latency",
+      "verdict": "PASS",
+      "expected": "row 0 renders name, \"≥ calls 7\", states mix, error histogram and latency line",
+      "observed": {
+        "id": "mcpDispatchRow:0",
+        "cls": "hub-list-item ",
+        "title": "antifan_navigate_3f6a73181cb6",
+        "pill": "≥ LOWER BOUND",
+        "desc": "states: completed×5 · failed×1 · superseded×1 · errors: E_TIMEOUT×1 · latency: p50 12ms · p95 88ms (n=5) · excluded: UNMEASURED · sàn (lowerBound): đây là sàn, không phải tổng lịch sử",
+        "meta": "≥ calls 7 · frames 7 · superseded 1 · window 2026-09-16T01:00:00.000Z → 2026-09-17T03:40:00.000Z",
+        "childElementCount": 3
+      }
+    },
+    {
+      "id": "A6-row0-lower-bound-marker",
+      "verdict": "PASS",
+      "expected": "row 0 pill is \"≥ LOWER BOUND\" and its desc carries the lowerBound marker",
+      "observed": {
+        "pill": "≥ LOWER BOUND",
+        "desc": "states: completed×5 · failed×1 · superseded×1 · errors: E_TIMEOUT×1 · latency: p50 12ms · p95 88ms (n=5) · excluded: UNMEASURED · sàn (lowerBound): đây là sàn, không phải tổng lịch sử"
+      }
+    },
+    {
+      "id": "A7-row1-retained-and-reads-exact-counts",
+      "verdict": "PASS",
+      "expected": "row 1 (lowerBound false) is RETAINED with exact calls 4 and its own latency line",
+      "observed": {
+        "id": "mcpDispatchRow:1",
+        "cls": "hub-list-item ",
+        "title": "antifan_screenshot_viewport_3d98bcf74af0",
+        "pill": "RETAINED",
+        "desc": "states: completed×4 · errors: UNMEASURED · latency: p50 210ms · p95 640ms (n=4) · excluded: UNMEASURED",
+        "meta": "calls 4 · frames 4 · superseded 0 · window 2026-09-16T02:00:00.000Z → 2026-09-17T02:00:00.000Z",
+        "childElementCount": 3
+      }
+    },
+    {
+      "id": "A8-empty-histogram-and-empty-latency-render-UNMEASURED",
+      "verdict": "PASS",
+      "expected": "empty errors histogram and count===0 latency render UNMEASURED, never a fabricated 0",
+      "observed": "states: completed×4 · errors: UNMEASURED · latency: p50 210ms · p95 640ms (n=4) · excluded: UNMEASURED"
+    },
+    {
+      "id": "A9-invariant-lines-printed",
+      "verdict": "PASS",
+      "expected": "both GENERAL invariant lines plus the payload reconciliation lines are printed",
+      "observed": {
+        "id": "mcpDispatchReconciliation",
+        "title": "Đối soát (Reconciliation)",
+        "desc": "classifiedKeys + unattributedKeys == compositeKeys\nframes == compositeKeys + superseded + keylessFrames\nclassifiedKeys 7 + unattributedKeys 0 == compositeKeys 7\nframes 12 == compositeKeys 7 + superseded 1 + keylessFrames 4",
+        "meta": "asOf 2026-09-17T03:41:00.000Z · invocations"
+      }
+    },
+    {
+      "id": "A10-reconciliation-meta-asof-store-label",
+      "verdict": "PASS",
+      "expected": "meta reads 'asOf <instant> · invocations' with no path fragment",
+      "observed": "asOf 2026-09-17T03:41:00.000Z · invocations"
+    },
+    {
+      "id": "A11-quarantine-margin-label-printed-verbatim",
+      "verdict": "PASS",
+      "expected": "\"Chuẩn cách ly: 0 frame bị loại — 6 trên 6 frame đủ điều kiện\"",
+      "observed": {
+        "text": "Chuẩn cách ly: 0 frame bị loại — 6 trên 6 frame đủ điều kiện",
+        "childElementCount": 1
+      }
+    },
+    {
+      "id": "A12-truncation-partial-notice",
+      "verdict": "PASS",
+      "expected": "'partial: 3 of 12 files'",
+      "observed": {
+        "text": "partial: 3 of 12 files",
+        "html": "<div class=\"hub-item-desc\">partial: 3 of 12 files</div>",
+        "contractLabel": "partial: 3 of 12 files"
+      }
+    },
+    {
+      "id": "A13-core-hole-disclosure",
+      "verdict": "PASS",
+      "expected": "core.* hole row present, pill UNMEASURED, desc keeps the \"0 attempts ≠ unused\" disclosure",
+      "observed": {
+        "id": "mcpDispatchCoreHole",
+        "title": "Lỗ core.* (chưa đo được)",
+        "pill": "UNMEASURED",
+        "desc": "core.* không có frame nào trong ledger: lệnh trả về trong tiến trình trước khi định danh invocation được cấp (scripts/antifan-omp-mcp.cjs: nhánh core.* trả về trước cổng bootstrap). Đơn vị: proxy-attempt · nguồn: omp-proxy. 0 lần thử nghĩa là CHƯA ĐƯỢC GHI NHẬN, không phải \"không dùng\"."
+      }
+    },
+    {
+      "id": "A14-badge-rows-count",
+      "verdict": "PASS",
+      "expected": "#badgeMcpDispatch textContent === '2' for a MEASURED payload",
+      "observed": {
+        "badge": "2",
+        "rows": 2
+      }
+    },
+    {
+      "id": "A15-detail-pane-json-text-only",
+      "verdict": "PASS",
+      "expected": "<pre id=\"coreDetailCode\"> carries JSON as text with 0 child elements",
+      "observed": {
+        "tagName": "PRE",
+        "childElementCount": 0,
+        "parsed": true,
+        "textLength": 426
+      }
+    },
+    {
+      "id": "A16-live-layout-boxes-non-zero",
+      "verdict": "PASS",
+      "expected": "a real layout engine produced positive-height boxes for all 6 items (jsdom reports 0x0 for every one of these) and the overlay computes to display:flex",
+      "observed": {
+        "viewport": {
+          "w": 1184,
+          "h": 695,
+          "dpr": 1
+        },
+        "docScrollHeight": 695,
+        "rowsWithPositiveHeight": 6,
+        "reconciliation": {
+          "w": 308,
+          "h": 95.03,
+          "top": 276.2,
+          "left": 48.05
+        },
+        "margin": {
+          "w": 308,
+          "h": 53.03,
+          "top": 607.3,
+          "left": 48.05
+        },
+        "truncation": {
+          "w": 308,
+          "h": 37.52,
+          "top": 666.33,
+          "left": 48.05
+        },
+        "overlayComputedDisplay": "flex",
+        "listComputedVisibility": "visible",
+        "rows": [
+          {
+            "id": "mcpDispatchReconciliation",
+            "rect": {
+              "w": 308,
+              "h": 95.03,
+              "top": 276.2,
+              "left": 48.05
+            }
+          },
+          {
+            "id": "mcpDispatchRow:0",
+            "rect": {
+              "w": 308,
+              "h": 109.03,
+              "top": 377.23,
+              "left": 48.05
+            }
+          },
+          {
+            "id": "mcpDispatchRow:1",
+            "rect": {
+              "w": 308,
+              "h": 109.03,
+              "top": 492.27,
+              "left": 48.05
+            }
+          },
+          {
+            "id": "mcpDispatchQuarantineMargin",
+            "rect": {
+              "w": 308,
+              "h": 53.03,
+              "top": 607.3,
+              "left": 48.05
+            }
+          },
+          {
+            "id": "mcpDispatchTruncation",
+            "rect": {
+              "w": 308,
+              "h": 37.52,
+              "top": 666.33,
+              "left": 48.05
+            }
+          },
+          {
+            "id": "mcpDispatchCoreHole",
+            "rect": {
+              "w": 308,
+              "h": 151.03,
+              "top": 709.84,
+              "left": 48.05
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "B1-nav-sentinel-and-single-notice",
+      "verdict": "PASS",
+      "expected": "the list holds exactly one child (#mcpDispatchNotice) and zero .hub-list-item rows",
+      "observed": {
+        "sentinelWait": {
+          "ok": true,
+          "label": "list text contains sentinel NO_DATA_ROOT_RESOLVED",
+          "waitedMs": 52
+        },
+        "listItemCount": 0,
+        "notice": {
+          "id": "mcpDispatchNotice",
+          "childElementCount": 0,
+          "listChildCount": 1
+        }
+      }
+    },
+    {
+      "id": "B2-unmeasured-copy-with-reason-code",
+      "verdict": "PASS",
+      "expected": "notice text contains UNMEASURED and the reasonCode NO_DATA_ROOT_RESOLVED",
+      "observed": "UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted"
+    },
+    {
+      "id": "B3-store-label-falls-back-to-reason-code-not-null",
+      "verdict": "PASS",
+      "expected": "no literal \"null\"/\"undefined\" in the notice",
+      "observed": "UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted"
+    },
+    {
+      "id": "B4-badge-is-dash-not-zero",
+      "verdict": "PASS",
+      "expected": "#badgeMcpDispatch textContent === '–' (a 0 badge would claim 'never dispatched')",
+      "observed": {
+        "badge": "–",
+        "noticeText": "UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted"
+      }
+    },
+    {
+      "id": "B5-no-fabricated-count-zero",
+      "verdict": "PASS",
+      "expected": "no fabricated count text (calls 0 / n=0 / 0 rows) anywhere in the pane",
+      "observed": {
+        "noticeText": "UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted",
+        "listText": "UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted"
+      }
+    },
+    {
+      "id": "B6-affected-token-rendered",
+      "verdict": "PASS",
+      "expected": "the affected[] mechanism token is printed",
+      "observed": "UNMEASURED\nNO_DATA_ROOT_RESOLVED · NO_DATA_ROOT_RESOLVED\naffected: ipc-sender-not-trusted"
+    },
+    {
+      "id": "C1-unmeasured-with-reason-code",
+      "verdict": "PASS",
+      "expected": "notice renders UNMEASURED + CENSUS_DRIFT",
+      "observed": "UNMEASURED\nCENSUS_DRIFT · invocations\nread: census.limits.observedFiles: 9 · census.limits.filesRead: 0 · census.limits.outcome: POPULATION_TRUNCATED · census.limits.ceiling: MAX_CENSUS_BYTES\naffected: ipc-sender-not-trusted · invocations"
+    },
+    {
+      "id": "C2-read-facts-verbatim-from-payload",
+      "verdict": "PASS",
+      "expected": "every rendered number/outcome is the payload value (observedFiles 9, filesRead 0, outcome, ceiling)",
+      "observed": {
+        "noticeText": "UNMEASURED\nCENSUS_DRIFT · invocations\nread: census.limits.observedFiles: 9 · census.limits.filesRead: 0 · census.limits.outcome: POPULATION_TRUNCATED · census.limits.ceiling: MAX_CENSUS_BYTES\naffected: ipc-sender-not-trusted · invocations",
+        "deliveredLimits": {
+          "budgetMs": 5000,
+          "maxBytes": 1,
+          "maxFiles": 0,
+          "observedBytes": 81920,
+          "observedFiles": 9,
+          "filesRead": 0,
+          "filesSkipped": 9,
+          "ceiling": "MAX_CENSUS_BYTES",
+          "windowNewestMtimeMs": null,
+          "windowOldestMtimeMs": null,
+          "elapsedMs": 12,
+          "outcome": "POPULATION_TRUNCATED"
+        }
+      }
+    },
+    {
+      "id": "C3-read-facts-are-payload-sourced",
+      "verdict": "PASS",
+      "expected": "the rendered read facts equal the delivered envelope values",
+      "observed": {
+        "observedFiles": 9,
+        "filesRead": 0,
+        "noticeText": "UNMEASURED\nCENSUS_DRIFT · invocations\nread: census.limits.observedFiles: 9 · census.limits.filesRead: 0 · census.limits.outcome: POPULATION_TRUNCATED · census.limits.ceiling: MAX_CENSUS_BYTES\naffected: ipc-sender-not-trusted · invocations"
+      }
+    },
+    {
+      "id": "C4-path-in-affected-never-crosses-the-boundary",
+      "verdict": "PASS",
+      "expected": "the drive-absolute path in affected[] is reduced to the store label; no path text reaches the DOM",
+      "observed": "UNMEASURED\nCENSUS_DRIFT · invocations\nread: census.limits.observedFiles: 9 · census.limits.filesRead: 0 · census.limits.outcome: POPULATION_TRUNCATED · census.limits.ceiling: MAX_CENSUS_BYTES\naffected: ipc-sender-not-trusted · invocations"
+    },
+    {
+      "id": "D1-1-markup-survives-the-real-projection",
+      "verdict": "PASS",
+      "expected": "row 0 name is the raw markup string (proves the projection admits it and it really reached the DOM)",
+      "observed": {
+        "title": "<img src=x onerror=alert(1)>",
+        "deliveredName": "<img src=x onerror=alert(1)>"
+      }
+    },
+    {
+      "id": "D1-2-path-keys-and-names-collapse-to-UNRECOGNIZED",
+      "verdict": "PASS",
+      "expected": "location-shaped keys/names are rewritten (count preserved: UNRECOGNIZED=5) and row 1's path name becomes 'invocations'",
+      "observed": {
+        "row1Title": "invocations",
+        "deliveredRow1Name": "invocations",
+        "projectedErrors": {
+          "<img src=x onerror=alert(1)>": 2,
+          "UNRECOGNIZED": 5
+        }
+      }
+    },
+    {
+      "id": "D1-3-markup-is-visible-as-text",
+      "verdict": "PASS",
+      "expected": "the markup string is present as text (non-vacuity: the payload really rendered)",
+      "observed": {
+        "inListText": true,
+        "rowDesc": "states: HTML_STATE×3 · errors: UNRECOGNIZED×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+      }
+    },
+    {
+      "id": "D1-4-no-element-tag-id-class-or-attribute-hit",
+      "verdict": "PASS",
+      "expected": "no element tagName/id/class/attribute name/attribute value contains any marker",
+      "observed": {
+        "tag": [],
+        "attrName": [],
+        "attrValue": [],
+        "id": [],
+        "class": []
+      }
+    },
+    {
+      "id": "D1-5-no-injected-elements-or-handlers",
+      "verdict": "PASS",
+      "expected": "inside #hubItemsList: 0 img/script/iframe/object/embed and 0 elements with on* attributes; document-wide img/script counts equal the pre-payload baseline, img[onerror] 0, canary 0",
+      "observed": {
+        "listScoped": {
+          "present": true,
+          "totalElements": 30,
+          "img": 0,
+          "script": 0,
+          "iframe": 0,
+          "objectEmbeds": 0,
+          "elementsWithOnAttributes": 0,
+          "listIds": [
+            "mcpDispatchReconciliation",
+            "mcpDispatchRow:0",
+            "mcpDispatchRow:1",
+            "mcpDispatchQuarantineMargin",
+            "mcpDispatchCoreHole"
+          ],
+          "listTagNames": [
+            "DIV",
+            "SPAN"
+          ]
+        },
+        "census": {
+          "elements": 606,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "baseline": {
+          "elements": 576,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "baselineNote": "toolbar.ts:1669 renders <img class=\"tab-icon\"> for the boot tab; exports-shim.js + toolbar.js are the two scripts"
+      }
+    },
+    {
+      "id": "D1-6-getElementById-pollution-none",
+      "verdict": "PASS",
+      "expected": "document.getElementById(<marker>) returns null for every marker (no id was built from payload text)",
+      "observed": [
+        {
+          "marker": "<img src=x onerror=alert(1)>",
+          "found": false
+        },
+        {
+          "marker": "C:\\Users\\Admin\\secrets",
+          "found": false
+        },
+        {
+          "marker": "<script>alert(2)</script>",
+          "found": false
+        }
+      ]
+    },
+    {
+      "id": "D1-7-json-pane-keys-are-inert-text",
+      "verdict": "PASS",
+      "expected": "the JSON detail pane kept 0 child elements even where a marker appears as a serialized key",
+      "observed": {
+        "present": true,
+        "tagName": "PRE",
+        "childElementCount": 0,
+        "textLength": 429,
+        "parsed": true,
+        "parsedKeys": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "keyPath": "$.errors.<img src=x onerror=alert(1)>",
+            "key": "<img src=x onerror=alert(1)>"
+          }
+        ],
+        "textHits": [
+          "<img src=x onerror=alert(1)>"
+        ]
+      }
+    },
+    {
+      "id": "D1-8-path-text-absent-from-the-whole-document",
+      "verdict": "PASS",
+      "expected": "the drive-absolute path appears in no text node anywhere in the document",
+      "observed": {
+        "pathTextHits": [],
+        "deliveredStorePath": "invocations"
+      }
+    },
+    {
+      "id": "D2-1-raw-hostile-payload-rendered",
+      "verdict": "PASS",
+      "expected": "unprojected hostile name and error.code values are present as text (non-vacuity)",
+      "observed": {
+        "row0Title": "<img src=x onerror=alert(1)>",
+        "row1Title": "C:\\Users\\Admin\\secrets",
+        "row0Desc": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED",
+        "row1Desc": "states: <script>alert(2)</script>×2 · errors: <script>alert(2)</script>×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED"
+      }
+    },
+    {
+      "id": "D2-2-no-element-tag-id-class-or-attribute-hit",
+      "verdict": "PASS",
+      "expected": "no element tagName/id/class/attribute name/attribute value contains any marker",
+      "observed": {
+        "tag": [],
+        "attrName": [],
+        "attrValue": [],
+        "id": [],
+        "class": []
+      }
+    },
+    {
+      "id": "D2-3-no-img-or-script-element-created",
+      "verdict": "PASS",
+      "expected": "inside #hubItemsList: 0 img/script/iframe/object/embed and 0 elements with on* attributes; document-wide img/script counts equal the pre-payload baseline, img[onerror] 0, alert() canary 0",
+      "observed": {
+        "listScoped": {
+          "present": true,
+          "totalElements": 30,
+          "img": 0,
+          "script": 0,
+          "iframe": 0,
+          "objectEmbeds": 0,
+          "elementsWithOnAttributes": 0,
+          "listIds": [
+            "mcpDispatchReconciliation",
+            "mcpDispatchRow:0",
+            "mcpDispatchRow:1",
+            "mcpDispatchQuarantineMargin",
+            "mcpDispatchCoreHole"
+          ],
+          "listTagNames": [
+            "DIV",
+            "SPAN"
+          ]
+        },
+        "census": {
+          "elements": 606,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "baseline": {
+          "elements": 576,
+          "img": 1,
+          "imgWithOnerror": 0,
+          "script": 2,
+          "elementsWithOnAttributes": 0,
+          "onAttributeSamples": [],
+          "canary": 0
+        },
+        "baselineNote": "toolbar.ts:1669 renders <img class=\"tab-icon\"> for the boot tab; exports-shim.js + toolbar.js are the two scripts"
+      }
+    },
+    {
+      "id": "D2-4-markup-escaped-in-innerhtml",
+      "verdict": "PASS",
+      "expected": "the list innerHTML carries the escaped entity form and contains no live <img src=x",
+      "observed": {
+        "escapedPresent": true,
+        "liveImgPresent": false
+      }
+    },
+    {
+      "id": "D2-5-getElementById-pollution-none",
+      "verdict": "PASS",
+      "expected": "document.getElementById(<marker>) returns null for every marker",
+      "observed": [
+        {
+          "marker": "<img src=x onerror=alert(1)>",
+          "found": false
+        },
+        {
+          "marker": "C:\\Users\\Admin\\secrets",
+          "found": false
+        },
+        {
+          "marker": "<script>alert(2)</script>",
+          "found": false
+        }
+      ]
+    },
+    {
+      "id": "D2-6-detail-pane-text-only",
+      "verdict": "PASS",
+      "expected": "the detail pane name is the raw string as textContent with 0 child elements",
+      "observed": {
+        "detailNameAfterRowClick": "<img src=x onerror=alert(1)>",
+        "detailNameChildElementCount": 0,
+        "detailDescChildElementCount": 0,
+        "jsonPane": {
+          "present": true,
+          "tagName": "PRE",
+          "childElementCount": 0,
+          "textLength": 442,
+          "parsed": true,
+          "parsedKeys": [
+            {
+              "marker": "<img src=x onerror=alert(1)>",
+              "keyPath": "$.errors.<img src=x onerror=alert(1)>",
+              "key": "<img src=x onerror=alert(1)>"
+            },
+            {
+              "marker": "C:\\Users\\Admin\\secrets",
+              "keyPath": "$.errors.C:\\Users\\Admin\\secrets",
+              "key": "C:\\Users\\Admin\\secrets"
+            }
+          ],
+          "textHits": [
+            "<img src=x onerror=alert(1)>"
+          ]
+        }
+      }
+    },
+    {
+      "id": "D2-7-json-pane-keys-are-inert-text",
+      "verdict": "PASS",
+      "expected": "the JSON pane serializes the marker as a key inside a <pre> text node with 0 child elements (inert, never parsed as markup)",
+      "observed": {
+        "present": true,
+        "tagName": "PRE",
+        "childElementCount": 0,
+        "textLength": 442,
+        "parsed": true,
+        "parsedKeys": [
+          {
+            "marker": "<img src=x onerror=alert(1)>",
+            "keyPath": "$.errors.<img src=x onerror=alert(1)>",
+            "key": "<img src=x onerror=alert(1)>"
+          },
+          {
+            "marker": "C:\\Users\\Admin\\secrets",
+            "keyPath": "$.errors.C:\\Users\\Admin\\secrets",
+            "key": "C:\\Users\\Admin\\secrets"
+          }
+        ],
+        "textHits": [
+          "<img src=x onerror=alert(1)>"
+        ]
+      }
+    },
+    {
+      "id": "D2-8-markers-exist-only-as-text-nodes",
+      "verdict": "PASS",
+      "expected": "every marker occurrence is inside a text node with a real parent element (text only)",
+      "observed": [
+        {
+          "marker": "<img src=x onerror=alert(1)>",
+          "parent": "SPAN",
+          "snippet": "<img src=x onerror=alert(1)>"
+        },
+        {
+          "marker": "<img src=x onerror=alert(1)>",
+          "parent": "DIV",
+          "snippet": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+        },
+        {
+          "marker": "C:\\Users\\Admin\\secrets",
+          "parent": "DIV",
+          "snippet": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+        },
+        {
+          "marker": "C:\\Users\\Admin\\secrets",
+          "parent": "SPAN",
+          "snippet": "C:\\Users\\Admin\\secrets"
+        },
+        {
+          "marker": "<script>alert(2)</script>",
+          "parent": "DIV",
+          "snippet": "states: <script>alert(2)</script>×2 · errors: <script>alert(2)</script>×1 · latency: p50 5ms · p95 6ms (n=2) · excluded: UNMEASURED"
+        },
+        {
+          "marker": "<img src=x onerror=alert(1)>",
+          "parent": "DIV#coreDetailName",
+          "snippet": "<img src=x onerror=alert(1)>"
+        },
+        {
+          "marker": "<img src=x onerror=alert(1)>",
+          "parent": "DIV#coreDetailDesc",
+          "snippet": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+        },
+        {
+          "marker": "C:\\Users\\Admin\\secrets",
+          "parent": "DIV#coreDetailDesc",
+          "snippet": "states: HTML_STATE×3 · errors: C:\\Users\\Admin\\secrets×5 · <img src=x onerror=alert(1)>×2 · latency: p50 7ms · p95 9ms (n=3) · excluded: UNMEASURED"
+        },
+        {
+          "marker": "<img src=x onerror=alert(1)>",
+          "parent": "PRE#coreDetailCode",
+          "snippet": "{\n  \"name\": \"<img src=x onerror=alert(1)>\",\n  \"calls\": 3,\n  \"frames\": 3,\n  \"superseded\": 0,\n  \"lowerBound\": false,\n  \"firstSeen\": \"2026-09-17T01:00:00.000Z\",\n  \"lastSeen\": \"2026-09-17T02:00:00.000Z\",\n  \"states\": {\n    \"HTML_STATE\": 3\n  },\n "
+        }
+      ]
+    },
+    {
+      "id": "route-1-dispatch-channel-invoked",
+      "verdict": "PASS",
+      "expected": "the seeded handler for antifan:mcp-dispatch:get-state was invoked at least once per scenario",
+      "observed": {
+        "dispatchInvocations": 6,
+        "scenarios": 5
+      }
+    },
+    {
+      "id": "route-2-real-projection-available",
+      "verdict": "PASS",
+      "expected": "the compiled Phase-4 projectEnvelope was loaded and used for the projected scenarios",
+      "observed": {
+        "available": true,
+        "error": null,
+        "module": ".compiled\\src\\main\\diagnostics\\mcp-dispatch-service.js"
+      }
+    }
+  ],
+  "findings": [],
+  "summary": {
+    "assertions": 52,
+    "pass": 52,
+    "fail": 0,
+    "failedIds": [],
+    "status": "PASS",
+    "dispatchInvocationCount": 6,
+    "booted": true
+  }
+}

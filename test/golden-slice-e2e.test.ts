@@ -4,6 +4,16 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as net from 'node:net';
+import * as os from 'node:os';
+import { StorageLocations } from '../src/main/config/storage-locations';
+import { IssueRegister } from '../src/main/session/issue-register';
+
+// The e2e records verification claims through the live IssueRegister singleton;
+// without a scratch data root every run appends residue to the real register.
+const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-golden-slice-'));
+process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+StorageLocations.resetCache();
 import {
   ThemeTaskContext,
   assertValidThemeTaskContext,
@@ -245,6 +255,12 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
     if (fs.existsSync(tempWorkspaceDir)) {
       fs.rmSync(tempWorkspaceDir, { recursive: true, force: true });
     }
+    // Restore the live data root and drop the scratch register.
+    (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
+    if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+    else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+    StorageLocations.resetCache();
+    fs.rmSync(scratchDataRoot, { recursive: true, force: true });
   });
 
   async function dispatchMonitoredCapability<T>(capabilityName: string, params: Record<string, unknown>, grant: 'read' | 'write' = 'write'): Promise<T> {

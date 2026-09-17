@@ -382,6 +382,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         ? params.outputPath
         : path.resolve(rootPath, params.outputPath);
       const safePath = confineWorkspaceRoot(resolvedTarget, rootPath);
+      // `confineWorkspaceRoot` falls back to the root itself when the candidate
+      // escapes it. Writing there is never the caller's intent and a directory
+      // target fails later as a bare EISDIR rename, so refuse with the reason.
+      if (path.resolve(safePath) === path.resolve(rootPath) && path.resolve(resolvedTarget) !== path.resolve(rootPath)) {
+        throw new CapabilityError(
+          'INVALID_ARGUMENT',
+          `outputPath '${params.outputPath}' resolves outside workspace root '${rootPath}'; pass a path inside the root`
+        );
+      }
       return browser.dumpDom(context.browserTarget as BrowserTarget, safePath, params);
     },
   });

@@ -1,0 +1,414 @@
+# probe-live-races.cjs — raw output
+# command: node plans/260917-0341-mcp-dispatch-accounting/reports/probe-live-races.cjs
+# cwd: E:\Work\apps\AntiFan
+# node: v24.13.0
+# started: 2026-09-17T07:11:24.244Z
+# live data root (read-only source): E:\Work\.antifan-data
+# live store (read-only source):     E:\Work\.antifan-data\control-plane-v2\invocations
+# temp root (ALL mutation happens here): C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z
+
+
+================================================================================
+RACE A — mid-read APPEND against a copy that is growing while the reader reads
+================================================================================
+copied live store -> C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\A\control-plane-v2\invocations
+  files=1048 bytes=242321596 durationMs=2936
+copy snapshot BEFORE: files=1048 bytes=242321596 lines=19896
+append targets (oldest mtime first => read last), pre-state:
+  attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl  11 lines / 21125 B
+  attachment-34d5693f-a245-470a-bed3-5709eede2873.jsonl  45 lines / 103478 B
+  attachment-fe3c6656-c827-4f14-92d8-18d567409e03.jsonl  8 lines / 24615 B
+  attachment-2cb67823-676c-4497-ab0b-b4fe90330aa8.jsonl  29 lines / 108766 B
+  attachment-425cb41d-fe89-4ff2-a640-88002053aa1a.jsonl  12 lines / 27562 B
+  attachment-5f2d258f-e802-4e1d-ad64-7444c7c1f02f.jsonl  27 lines / 57450 B
+rename target (supplementary VANISHED probe): attachment-b7f66515-0192-4a4b-8dc2-537bfa52aa08.jsonl 86 lines / 250148 B
+CLI started pid=23008 at 2026-09-17T07:11:29.030Z
+  argv: node scripts/antifan-mcp-dispatch-account.cjs --store "C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\A\control-plane-v2\invocations" --json
+  stdout -> C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\race-a.json
+  (the child also inherits ANTIFAN_DATA_ROOT=E:\Work\.antifan-data; --store wins in resolveStore(), so the pass reads the COPY only)
+ledger surface: initialize:function observe:function claimOwner:function settle:function advanceStage:function getStats:function drain:function compactPartition:function settleInFlightForShutdown:function pruneDeadPartitions:function
+[append] #1 attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl lines 11 -> 12 (21125 -> 22156 B) observe=undefined(wrote 0 B) claim=owner at +725ms..+739ms
+[append] #2 attachment-34d5693f-a245-470a-bed3-5709eede2873.jsonl lines 45 -> 47 (103478 -> 109707 B) observe=undefined(wrote 0 B) claim=owner at +1457ms..+1475ms
+[append] #3 attachment-fe3c6656-c827-4f14-92d8-18d567409e03.jsonl lines 8 -> 9 (24615 -> 25646 B) observe=undefined(wrote 0 B) claim=owner at +2184ms..+2192ms
+[append] #4 attachment-2cb67823-676c-4497-ab0b-b4fe90330aa8.jsonl lines 29 -> 31 (108766 -> 114995 B) observe=undefined(wrote 0 B) claim=owner at +2907ms..+2923ms
+[append] #5 attachment-425cb41d-fe89-4ff2-a640-88002053aa1a.jsonl lines 12 -> 13 (27562 -> 28593 B) observe=undefined(wrote 0 B) claim=owner at +3644ms..+3654ms
+[append] #6 attachment-5f2d258f-e802-4e1d-ad64-7444c7c1f02f.jsonl lines 27 -> 29 (57450 -> 63679 B) observe=undefined(wrote 0 B) claim=owner at +4365ms..+4378ms
+[rename] attachment-b7f66515-0192-4a4b-8dc2-537bfa52aa08.jsonl -> attachment-b7f66515-0192-4a4b-8dc2-537bfa52aa08.jsonl.quarantine-1789629094110 at +5080ms err=none
+[append] #7 attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl lines 12 -> 13 (22156 -> 23187 B) observe=undefined(wrote 0 B) claim=owner at +5084ms..+5095ms
+[append] #8 attachment-34d5693f-a245-470a-bed3-5709eede2873.jsonl lines 47 -> 49 (109707 -> 115936 B) observe=undefined(wrote 0 B) claim=owner at +5801ms..+5813ms
+[append] #9 attachment-fe3c6656-c827-4f14-92d8-18d567409e03.jsonl lines 9 -> 10 (25646 -> 26677 B) observe=undefined(wrote 0 B) claim=owner at +6521ms..+6530ms
+[append] #10 attachment-2cb67823-676c-4497-ab0b-b4fe90330aa8.jsonl lines 31 -> 33 (114995 -> 121233 B) observe=undefined(wrote 0 B) claim=owner at +7234ms..+7254ms
+[append] #11 attachment-425cb41d-fe89-4ff2-a640-88002053aa1a.jsonl lines 13 -> 14 (28593 -> 29628 B) observe=undefined(wrote 0 B) claim=owner at +7961ms..+7971ms
+[append] #12 attachment-5f2d258f-e802-4e1d-ad64-7444c7c1f02f.jsonl lines 29 -> 31 (63679 -> 69917 B) observe=undefined(wrote 0 B) claim=owner at +8710ms..+8726ms
+[append] #13 attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl lines 13 -> 14 (23187 -> 24222 B) observe=undefined(wrote 0 B) claim=owner at +9431ms..+9439ms
+CLI exit code=0 signal=null durationMs=9830 (ended 2026-09-17T07:11:38.860Z)
+copy snapshot AFTER: files=1048 bytes=242366213 lines=19915
+appends inside the pass process lifetime: 13 of 13
+----- RACE A — reader reconciliation lines (verbatim) -----
+classifiedKeys + unattributedKeys == compositeKeys  (19333 + 0 == 19333)
+frames == compositeKeys + superseded + keylessFrames  (19802 == 19333 + 469 + 0)
+----- end -----
+----- RACE A — payload shape and counters -----
+{
+  "storeAbsolute": "C:\\Users\\Admin\\AppData\\Local\\Temp\\probe-live-races-2564-2026-09-17T07-11-24-235Z\\A\\control-plane-v2\\invocations",
+  "status": "MEASURED",
+  "reasonCode": "OK",
+  "affected": [],
+  "evidenceRefs": 10,
+  "rows": 83,
+  "census": {
+    "fileCount": 1048,
+    "jsonlCount": 1041,
+    "quarantineCount": 7,
+    "tempCount": 0,
+    "otherCount": 0,
+    "totalBytes": 242321596,
+    "censusHash": "7f7698ac00659568dd55eab1b4446c6226eff09832f84fcf4c51e6fda6ef031c",
+    "limits": {
+      "budgetMs": 20000,
+      "maxBytes": 536870912,
+      "maxFiles": 4096,
+      "observedBytes": 242321596,
+      "observedFiles": 1048,
+      "filesRead": 1048,
+      "filesSkipped": 0,
+      "ceiling": null,
+      "windowNewestMtimeMs": 1789629098464.7495,
+      "windowOldestMtimeMs": 1788341196437.2546,
+      "elapsedMs": 9618,
+      "outcome": "COMPLETE"
+    },
+    "filesRead": 1048
+  }
+}
+----- end -----
+----- RACE A — invariants (as published, plus an independent re-check of the printed lines) -----
+{
+  "holdsKeys": true,
+  "holdsFrames": true,
+  "holdsMargin": true,
+  "rollupsClosed": true,
+  "rollupsUnclosed": [],
+  "printedKeysIdentityHolds": true,
+  "printedFramesIdentityHolds": true,
+  "invariantsClosed": true,
+  "reconciliationNumbers": {
+    "classifiedKeys": 19333,
+    "unattributedKeys": 0,
+    "keylessFrames": 0,
+    "compositeKeys": 19333,
+    "frames": 19802,
+    "superseded": 469
+  }
+}
+----- end -----
+----- RACE A — quarantine margin (verbatim) -----
+quarantine margin: present 254 = admitted 247 + named-invalid 7 (CHECKSUM_MISMATCH writer-canonicalization-array-slot 7) — a margin, not a recovery promise
+----- end -----
+----- RACE A — totals.residue histogram -----
+{
+  "STRUCTURAL_INVALID": 0,
+  "CHECKSUM_MISMATCH": 8,
+  "TORN_TAIL": 0,
+  "UNPARSEABLE": 0,
+  "RESIDUE_NO_CHECKSUM": 0,
+  "POST_CENSUS_APPEND": 6,
+  "POST_CENSUS_TRUNCATE": 0,
+  "VANISHED": 1
+}
+----- end -----
+----- RACE A — census consistency histogram -----
+{
+  "clean": 1041,
+  "post-census-append": 6,
+  "vanished": 1
+}
+----- end -----
+----- RACE A — consistency vs residue-histogram cross-check -----
+[
+  {
+    "consistency": "post-census-append",
+    "class": "POST_CENSUS_APPEND",
+    "filesWithConsistency": 6,
+    "histogramCount": 6,
+    "agree": true
+  },
+  {
+    "consistency": "post-census-truncate",
+    "class": "POST_CENSUS_TRUNCATE",
+    "filesWithConsistency": 0,
+    "histogramCount": 0,
+    "agree": true
+  },
+  {
+    "consistency": "vanished",
+    "class": "VANISHED",
+    "filesWithConsistency": 1,
+    "histogramCount": 1,
+    "agree": true
+  }
+]
+----- end -----
+[target] attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl: 11 lines/21125 B -> 14 lines/24222 B; appends=3 at +725..+9439ms
+         reader census entry: {"name":"attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl","bucket":"jsonl","size":21125,"mtimeMs":1789629098464.7495,"lineCount":11,"sha256":"748799d0c8b52c8194b478bfc4ada3ecc378e5c5d20ae034fa5549ced16b6dea","consistency":"post-census-append"}
+         reader consistency => post-census-append (implies POST_CENSUS_APPEND)
+         reader rollup: {"file":"attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl","quarantineLike":false,"tempLike":false,"frames":11,"admitted":11,"namedInvalid":0}
+[target] attachment-34d5693f-a245-470a-bed3-5709eede2873.jsonl: 45 lines/103478 B -> 49 lines/115936 B; appends=2 at +1457..+5813ms
+         reader census entry: {"name":"attachment-34d5693f-a245-470a-bed3-5709eede2873.jsonl","bucket":"jsonl","size":103478,"mtimeMs":1789629094838.5647,"lineCount":45,"sha256":"ac311e7d1e44ff6f871e415c3d466a23f28fde572a3228454448ff5e670f60ec","consistency":"post-census-append"}
+         reader consistency => post-census-append (implies POST_CENSUS_APPEND)
+         reader rollup: {"file":"attachment-34d5693f-a245-470a-bed3-5709eede2873.jsonl","quarantineLike":false,"tempLike":false,"frames":45,"admitted":45,"namedInvalid":0}
+[target] attachment-fe3c6656-c827-4f14-92d8-18d567409e03.jsonl: 8 lines/24615 B -> 10 lines/26677 B; appends=2 at +2184..+6530ms
+         reader census entry: {"name":"attachment-fe3c6656-c827-4f14-92d8-18d567409e03.jsonl","bucket":"jsonl","size":24615,"mtimeMs":1789629095554.361,"lineCount":8,"sha256":"eed4b565a7f978a9428d92b579c7c0251652fb246b0b81288ca784df93cc2f2b","consistency":"post-census-append"}
+         reader consistency => post-census-append (implies POST_CENSUS_APPEND)
+         reader rollup: {"file":"attachment-fe3c6656-c827-4f14-92d8-18d567409e03.jsonl","quarantineLike":false,"tempLike":false,"frames":8,"admitted":8,"namedInvalid":0}
+[target] attachment-2cb67823-676c-4497-ab0b-b4fe90330aa8.jsonl: 29 lines/108766 B -> 33 lines/121233 B; appends=2 at +2907..+7254ms
+         reader census entry: {"name":"attachment-2cb67823-676c-4497-ab0b-b4fe90330aa8.jsonl","bucket":"jsonl","size":108766,"mtimeMs":1789629096278.2593,"lineCount":29,"sha256":"b2231d2eb78b1cdbd69242ef3ca474acc7eb54618f67fa3ff999659a97ec8000","consistency":"post-census-append"}
+         reader consistency => post-census-append (implies POST_CENSUS_APPEND)
+         reader rollup: {"file":"attachment-2cb67823-676c-4497-ab0b-b4fe90330aa8.jsonl","quarantineLike":false,"tempLike":false,"frames":29,"admitted":29,"namedInvalid":0}
+[target] attachment-425cb41d-fe89-4ff2-a640-88002053aa1a.jsonl: 12 lines/27562 B -> 14 lines/29628 B; appends=2 at +3644..+7971ms
+         reader census entry: {"name":"attachment-425cb41d-fe89-4ff2-a640-88002053aa1a.jsonl","bucket":"jsonl","size":27562,"mtimeMs":1789629096995.645,"lineCount":12,"sha256":"6118f72e5c8308e6784d7b4f5d514414ca218fc02262a1a61809bdcf79538051","consistency":"post-census-append"}
+         reader consistency => post-census-append (implies POST_CENSUS_APPEND)
+         reader rollup: {"file":"attachment-425cb41d-fe89-4ff2-a640-88002053aa1a.jsonl","quarantineLike":false,"tempLike":false,"frames":12,"admitted":12,"namedInvalid":0}
+[target] attachment-5f2d258f-e802-4e1d-ad64-7444c7c1f02f.jsonl: 27 lines/57450 B -> 31 lines/69917 B; appends=2 at +4365..+8726ms
+         reader census entry: {"name":"attachment-5f2d258f-e802-4e1d-ad64-7444c7c1f02f.jsonl","bucket":"jsonl","size":57450,"mtimeMs":1789629097750.8462,"lineCount":27,"sha256":"ec61c10446974d2178271e7b4212ddabdb66d3952a4f7a70804b18ee69d772c3","consistency":"post-census-append"}
+         reader consistency => post-census-append (implies POST_CENSUS_APPEND)
+         reader rollup: {"file":"attachment-5f2d258f-e802-4e1d-ad64-7444c7c1f02f.jsonl","quarantineLike":false,"tempLike":false,"frames":27,"admitted":27,"namedInvalid":0}
+[target] attachment-b7f66515-0192-4a4b-8dc2-537bfa52aa08.jsonl (renamed mid-pass at +5080ms): census entry {"name":"attachment-b7f66515-0192-4a4b-8dc2-537bfa52aa08.jsonl","bucket":"jsonl","size":0,"mtimeMs":1788405460422.2556,"lineCount":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","consistency":"vanished"} => vanished
+[rename] {"from":"attachment-b7f66515-0192-4a4b-8dc2-537bfa52aa08.jsonl","to":"attachment-b7f66515-0192-4a4b-8dc2-537bfa52aa08.jsonl.quarantine-1789629094110","t0":1789629094110,"t1":1789629094111,"err":null,"elapsedMs":5080}
+[tmp files observed during race A] none
+
+--- CONTROL — a second CLI pass over the same directory with nothing mutating (A) ---
+[control A] exit=0 durationMs=14087 status=MEASURED/OK
+[control A] totals.residue = {"STRUCTURAL_INVALID":0,"CHECKSUM_MISMATCH":8,"TORN_TAIL":0,"UNPARSEABLE":0,"RESIDUE_NO_CHECKSUM":0,"POST_CENSUS_APPEND":0,"POST_CENSUS_TRUNCATE":0,"VANISHED":0}
+[control A] census consistency = {"clean":1048}
+[control A] invariants closed = true (holdsKeys=true holdsFrames=true holdsMargin=true rollupsClosed=true printedIdentities=true/true)
+[control A] reconciliation lines: classifiedKeys + unattributedKeys == compositeKeys  (19432 + 0 == 19432) | frames == compositeKeys + superseded + keylessFrames  (19907 == 19432 + 475 + 0)
+[control A] race classes still present: none; non-clean consistencies: none
+
+================================================================================
+RACE B — COMPACTION mid-read: auto-compaction at the default threshold (200) plus
+         explicit public compactPartition() calls while a CLI pass is reading
+================================================================================
+copied live store -> C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\B\control-plane-v2\invocations
+  files=1048 bytes=242326379 durationMs=3480
+copy snapshot BEFORE (pre-seed): files=1048 bytes=242326379 lines=19899
+
+--- B1: auto-compaction at the DEFAULT threshold (200), no explicit compact call ---
+[B1] constructor threshold in force: maxHotRecordsPerPartition default = 200 (invocation-ledger.ts:121); frames appended = 100 x (claimOwner + settle) = 200
+[B1] explicit compactPartition() calls issued by this probe in B1: 0
+[B1] ledger getStats BEFORE: {"partitionCount":0,"hotRecordCount":0,"inFlightCount":0,"queuedIoCount":0,"frameCount":0,"persistedBytes":0,"quarantinedPartitionCount":0,"poisonedPartitionCount":0}
+[B1] ledger getStats AFTER:  {"partitionCount":1,"hotRecordCount":100,"inFlightCount":0,"queuedIoCount":0,"frameCount":100,"persistedBytes":2569604,"quarantinedPartitionCount":0,"poisonedPartitionCount":0}
+[B1] partition lines now: 100 (one retained frame per idempotencyKey => 100); lines without a compaction would still be 200
+[B1] partition size now: 2569604 B
+[B1] temp artifacts for this partition: [{"name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","firstSeenAt":1789629127203,"sizeWhenFirstSeen":0}]
+[B1] size timeline (2 ms poll): [{"t":1789629124018,"size":1051,"elapsedMs":8},{"t":1789629124035,"size":26744,"elapsedMs":25},{"t":1789629124048,"size":27795,"elapsedMs":38},{"t":1789629124060,"size":53488,"elapsedMs":50},{"t":1789629124078,"size":54539,"elapsedMs":68},{"t":1789629124096,"size":80232,"elapsedMs":86},{"t":1789629124115,"size":81283,"elapsedMs":105},{"t":1789629124125,"size":106976,"elapsedMs":115},{"t":1789629124137,"size":108027,"elapsedMs":127},{"t":1789629124153,"size":133720,"elapsedMs":143},{"t":1789629124165,"size":134771,"elapsedMs":155},{"t":1789629124182,"size":160464,"elapsedMs":172},{"t":1789629124196,"size":161515,"elapsedMs":186},{"t":1789629124208,"size":187208,"elapsedMs":198},{"t":1789629124224,"size":188259,"elapsedMs":214},{"t":1789629124243,"size":213952,"elapsedMs":233},{"t":1789629124260,"size":215003,"elapsedMs":250},{"t":1789629124286,"size":240696,"elapsedMs":276},{"t":1789629124298,"size":241749,"elapsedMs":288},{"t":1789629124330,"size":267445,"elapsedMs":320},{"t":1789629124349,"size":268498,"elapsedMs":339},{"t":1789629124372,"size":294194,"elapsedMs":362},{"t":1789629124380,"size":295247,"elapsedMs":370},{"t":1789629124407,"size":320943,"elapsedMs":397},{"t":1789629124436,"size":321996,"elapsedMs":426},{"t":1789629124458,"size":347692,"elapsedMs":448},{"t":1789629124475,"size":348745,"elapsedMs":465},{"t":1789629124492,"size":374441,"elapsedMs":482},{"t":1789629124504,"size":375494,"elapsedMs":494},{"t":1789629124527,"size":401190,"elapsedMs":517},{"t":1789629124542,"size":402243,"elapsedMs":532},{"t":1789629124555,"size":427939,"elapsedMs":545},{"t":1789629124568,"size":428992,"elapsedMs":558},{"t":1789629124581,"size":454688,"elapsedMs":571},{"t":1789629124600,"size":455741,"elapsedMs":590},{"t":1789629124613,"size":481437,"elapsedMs":603},{"t":1789629124623,"size":482490,"elapsedMs":613},{"t":1789629124638,"size":508186,"elapsedMs":628},{"t":1789629124653,"size":509239,"elapsedMs":643},{"t":1789629124664,"size":534935,"elapsedMs":654},{"t":1789629124681,"size":535988,"elapsedMs":671},{"t":1789629124705,"size":561684,"elapsedMs":695},{"t":1789629124730,"size":562737,"elapsedMs":720},{"t":1789629124747,"size":588433,"elapsedMs":737},{"t":1789629124760,"size":589486,"elapsedMs":750},{"t":1789629124776,"size":615182,"elapsedMs":766},{"t":1789629124787,"size":616235,"elapsedMs":777},{"t":1789629124802,"size":641931,"elapsedMs":792},{"t":1789629124815,"size":642984,"elapsedMs":805},{"t":1789629124829,"size":668680,"elapsedMs":819},{"t":1789629124842,"size":669733,"elapsedMs":832},{"t":1789629124851,"size":695429,"elapsedMs":841},{"t":1789629124864,"size":696482,"elapsedMs":854},{"t":1789629124875,"size":722178,"elapsedMs":865},{"t":1789629124891,"size":723231,"elapsedMs":881},{"t":1789629124909,"size":748927,"elapsedMs":899},{"t":1789629124927,"size":749980,"elapsedMs":917},{"t":1789629124937,"size":775676,"elapsedMs":927},{"t":1789629124950,"size":776729,"elapsedMs":940},{"t":1789629124964,"size":802425,"elapsedMs":954},{"t":1789629124977,"size":803478,"elapsedMs":967},{"t":1789629124994,"size":829174,"elapsedMs":984},{"t":1789629125012,"size":830227,"elapsedMs":1002},{"t":1789629125030,"size":855923,"elapsedMs":1020},{"t":1789629125044,"size":856976,"elapsedMs":1034},{"t":1789629125059,"size":882672,"elapsedMs":1049},{"t":1789629125077,"size":883725,"elapsedMs":1067},{"t":1789629125093,"size":909421,"elapsedMs":1083},{"t":1789629125102,"size":910474,"elapsedMs":1092},{"t":1789629125118,"size":936170,"elapsedMs":1108},{"t":1789629125137,"size":937223,"elapsedMs":1127},{"t":1789629125149,"size":962919,"elapsedMs":1139},{"t":1789629125173,"size":963972,"elapsedMs":1163},{"t":1789629125187,"size":989668,"elapsedMs":1177},{"t":1789629125204,"size":990721,"elapsedMs":1194},{"t":1789629125219,"size":1016417,"elapsedMs":1209},{"t":1789629125238,"size":1017470,"elapsedMs":1228},{"t":1789629125300,"size":1043166,"elapsedMs":1290},{"t":1789629125310,"size":1044219,"elapsedMs":1300},{"t":1789629125327,"size":1069915,"elapsedMs":1317},{"t":1789629125344,"size":1070968,"elapsedMs":1334},{"t":1789629125355,"size":1096664,"elapsedMs":1345},{"t":1789629125388,"size":1097717,"elapsedMs":1378},{"t":1789629125404,"size":1123413,"elapsedMs":1394},{"t":1789629125414,"size":1124466,"elapsedMs":1404},{"t":1789629125434,"size":1150162,"elapsedMs":1424},{"t":1789629125450,"size":1151215,"elapsedMs":1440},{"t":1789629125480,"size":1176911,"elapsedMs":1470},{"t":1789629125492,"size":1177964,"elapsedMs":1482},{"t":1789629125503,"size":1203660,"elapsedMs":1493},{"t":1789629125515,"size":1204713,"elapsedMs":1505},{"t":1789629125531,"size":1230409,"elapsedMs":1521},{"t":1789629125541,"size":1231462,"elapsedMs":1531},{"t":1789629125556,"size":1257158,"elapsedMs":1546},{"t":1789629125580,"size":1258211,"elapsedMs":1570},{"t":1789629125617,"size":1283907,"elapsedMs":1607},{"t":1789629125625,"size":1284960,"elapsedMs":1615},{"t":1789629125641,"size":1310656,"elapsedMs":1631},{"t":1789629125671,"size":1311709,"elapsedMs":1661},{"t":1789629125678,"size":1337405,"elapsedMs":1668},{"t":1789629125688,"size":1338458,"elapsedMs":1678},{"t":1789629125700,"size":1364154,"elapsedMs":1690},{"t":1789629125709,"size":1365207,"elapsedMs":1699},{"t":1789629125721,"size":1390903,"elapsedMs":1711},{"t":1789629125733,"size":1391956,"elapsedMs":1723},{"t":1789629125743,"size":1417652,"elapsedMs":1733},{"t":1789629125757,"size":1418705,"elapsedMs":1747},{"t":1789629125772,"size":1444401,"elapsedMs":1762},{"t":1789629125784,"size":1445454,"elapsedMs":1774},{"t":1789629125794,"size":1471150,"elapsedMs":1784},{"t":1789629125808,"size":1472203,"elapsedMs":1798},{"t":1789629125823,"size":1497899,"elapsedMs":1813},{"t":1789629125833,"size":1498952,"elapsedMs":1823},{"t":1789629125843,"size":1524648,"elapsedMs":1833},{"t":1789629125852,"size":1525701,"elapsedMs":1842},{"t":1789629125865,"size":1551397,"elapsedMs":1855},{"t":1789629125871,"size":1552450,"elapsedMs":1861},{"t":1789629125874,"size":1578146,"elapsedMs":1864},{"t":1789629125888,"size":1579199,"elapsedMs":1878},{"t":1789629125907,"size":1604895,"elapsedMs":1897},{"t":1789629125913,"size":1605948,"elapsedMs":1903},{"t":1789629125927,"size":1631644,"elapsedMs":1917},{"t":1789629125934,"size":1632697,"elapsedMs":1924},{"t":1789629125947,"size":1658393,"elapsedMs":1937},{"t":1789629125958,"size":1659446,"elapsedMs":1948},{"t":1789629125973,"size":1685142,"elapsedMs":1963},{"t":1789629125987,"size":1686195,"elapsedMs":1977},{"t":1789629125998,"size":1711891,"elapsedMs":1988},{"t":1789629126013,"size":1712944,"elapsedMs":2003},{"t":1789629126029,"size":1738640,"elapsedMs":2019},{"t":1789629126040,"size":1739693,"elapsedMs":2030},{"t":1789629126051,"size":1765389,"elapsedMs":2041},{"t":1789629126060,"size":1766442,"elapsedMs":2050},{"t":1789629126073,"size":1792138,"elapsedMs":2063},{"t":1789629126083,"size":1793191,"elapsedMs":2073},{"t":1789629126101,"size":1818887,"elapsedMs":2091},{"t":1789629126115,"size":1819940,"elapsedMs":2105},{"t":1789629126129,"size":1845636,"elapsedMs":2119},{"t":1789629126137,"size":1846689,"elapsedMs":2127},{"t":1789629126152,"size":1872385,"elapsedMs":2142},{"t":1789629126159,"size":1873438,"elapsedMs":2149},{"t":1789629126172,"size":1899134,"elapsedMs":2162},{"t":1789629126186,"size":1900187,"elapsedMs":2176},{"t":1789629126203,"size":1925883,"elapsedMs":2193},{"t":1789629126216,"size":1926936,"elapsedMs":2206},{"t":1789629126228,"size":1952632,"elapsedMs":2218},{"t":1789629126246,"size":1953685,"elapsedMs":2236},{"t":1789629126259,"size":1979381,"elapsedMs":2249},{"t":1789629126270,"size":1980434,"elapsedMs":2260},{"t":1789629126328,"size":2006130,"elapsedMs":2318},{"t":1789629126346,"size":2007183,"elapsedMs":2336},{"t":1789629126352,"size":2032879,"elapsedMs":2342},{"t":1789629126368,"size":2033932,"elapsedMs":2358},{"t":1789629126384,"size":2059628,"elapsedMs":2374},{"t":1789629126395,"size":2060681,"elapsedMs":2385},{"t":1789629126418,"size":2086377,"elapsedMs":2408},{"t":1789629126446,"size":2087430,"elapsedMs":2436},{"t":1789629126464,"size":2113126,"elapsedMs":2454},{"t":1789629126472,"size":2114179,"elapsedMs":2462},{"t":1789629126497,"size":2139875,"elapsedMs":2487},{"t":1789629126511,"size":2140928,"elapsedMs":2501},{"t":1789629126526,"size":2166624,"elapsedMs":2516},{"t":1789629126541,"size":2167677,"elapsedMs":2531},{"t":1789629126555,"size":2193373,"elapsedMs":2545},{"t":1789629126567,"size":2194426,"elapsedMs":2557},{"t":1789629126579,"size":2220122,"elapsedMs":2569},{"t":1789629126592,"size":2221175,"elapsedMs":2582},{"t":1789629126604,"size":2246871,"elapsedMs":2594},{"t":1789629126620,"size":2247924,"elapsedMs":2610},{"t":1789629126633,"size":2273620,"elapsedMs":2623},{"t":1789629126643,"size":2274673,"elapsedMs":2633},{"t":1789629126682,"size":2300369,"elapsedMs":2672},{"t":1789629126704,"size":2301424,"elapsedMs":2694},{"t":1789629126725,"size":2327122,"elapsedMs":2715},{"t":1789629126748,"size":2328177,"elapsedMs":2738},{"t":1789629126762,"size":2353875,"elapsedMs":2752},{"t":1789629126773,"size":2354930,"elapsedMs":2763},{"t":1789629126786,"size":2380628,"elapsedMs":2776},{"t":1789629126803,"size":2381683,"elapsedMs":2793},{"t":1789629126813,"size":2407381,"elapsedMs":2803},{"t":1789629126831,"size":2408436,"elapsedMs":2821},{"t":1789629126840,"size":2434134,"elapsedMs":2830},{"t":1789629126853,"size":2435189,"elapsedMs":2843},{"t":1789629126869,"size":2460887,"elapsedMs":2859},{"t":1789629126886,"size":2461942,"elapsedMs":2876},{"t":1789629126893,"size":2487640,"elapsedMs":2883},{"t":1789629126909,"size":2488695,"elapsedMs":2899},{"t":1789629126915,"size":2514393,"elapsedMs":2905},{"t":1789629126938,"size":2515448,"elapsedMs":2928},{"t":1789629126959,"size":2541146,"elapsedMs":2949},{"t":1789629126973,"size":2542201,"elapsedMs":2963},{"t":1789629126993,"size":2567899,"elapsedMs":2983},{"t":1789629126999,"size":2568954,"elapsedMs":2989},{"t":1789629127015,"size":2594652,"elapsedMs":3005},{"t":1789629127033,"size":2595707,"elapsedMs":3023},{"t":1789629127050,"size":2621405,"elapsedMs":3040},{"t":1789629127060,"size":2622460,"elapsedMs":3050},{"t":1789629127076,"size":2648158,"elapsedMs":3066},{"t":1789629127090,"size":2649215,"elapsedMs":3080},{"t":1789629127103,"size":2674916,"elapsedMs":3093},{"t":1789629127282,"size":2569604,"elapsedMs":3272}]
+[B1] shrink transitions in the timeline: [{"t":1789629127282,"size":2569604,"elapsedMs":3272}]
+[B1] shrink observations from the append loop: []
+[B1] AUTO-COMPACTION OBSERVED: yes (lines 100 < 200 AND a temp artifact was seen AND getStats().frameCount 100 == 100)
+
+--- B2: explicit public compactPartition() timed to land inside a CLI pass ---
+[B2 seed] attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl 160 lines / 2794675 B (threshold raised to 1000000 so only the explicit call can compact) mtime backdated to 1970-01-02T00:00:00.000Z
+[B2 seed] attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl 160 lines / 2794675 B (threshold raised to 1000000 so only the explicit call can compact) mtime backdated to 1970-01-03T00:00:00.000Z
+[B2 seed] attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl 160 lines / 2794675 B (threshold raised to 1000000 so only the explicit call can compact) mtime backdated to 1970-01-04T00:00:00.000Z
+[B2 seed] attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl 160 lines / 2794675 B (threshold raised to 1000000 so only the explicit call can compact) mtime backdated to 1970-01-05T00:00:00.000Z
+copy snapshot AFTER SEED (= the census population of the pass): files=1053 bytes=256074683 lines=20639
+CLI started pid=15816 at 2026-09-17T07:12:18.292Z
+  argv: node scripts/antifan-mcp-dispatch-account.cjs --store "C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\B\control-plane-v2\invocations" --json
+  stdout -> C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\race-b.json
+[B2 wave 1] compactPartition(attachment-probe-race-b1-2026-09-17T07-11-24-235Z) called at +1017ms err=none
+           attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl: 160 lines/2794675 B -> 80 lines/2711093 B
+           ino 1125899909201965 -> 1407374885917584; birthtime 1789629127896.6997 -> 1789629139357.0378
+           ledger frameCount 640 -> 560; persistedBytes 11178700 -> 11095118
+           watcher events in this window: [{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","size":0,"t":1789629139361},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","t":1789629139363},{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","t":1789629139383},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl","t":1789629139387}]
+[B2 wave 2] compactPartition(attachment-probe-race-b2-2026-09-17T07-11-24-235Z) called at +2025ms err=none
+           attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl: 160 lines/2794675 B -> 80 lines/2711093 B
+           ino 1125899909202938 -> 844424932496919; birthtime 1789629129827.0815 -> 1789629140393.09
+           ledger frameCount 560 -> 480; persistedBytes 11095118 -> 11011536
+           watcher events in this window: [{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","size":0,"t":1789629140395},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","t":1789629140396},{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","t":1789629140417},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl","t":1789629140423}]
+[B2 wave 3] compactPartition(attachment-probe-race-b3-2026-09-17T07-11-24-235Z) called at +3036ms err=none
+           attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl: 160 lines/2794675 B -> 80 lines/2711093 B
+           ino 1125899909204117 -> 5348024557951777; birthtime 1789629131580.3079 -> 1789629141408.2083
+           ledger frameCount 480 -> 400; persistedBytes 11011536 -> 10927954
+           watcher events in this window: [{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","size":0,"t":1789629141412},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","t":1789629141413},{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","t":1789629141463},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl","t":1789629141480}]
+[B2 wave 4] compactPartition(attachment-probe-race-b4-2026-09-17T07-11-24-235Z) called at +4024ms err=none
+           attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl: 160 lines/2794675 B -> 80 lines/2711093 B
+           ino 1407374885915268 -> 9851624184909778; birthtime 1789629133458.6702 -> 1789629142396.4685
+           ledger frameCount 400 -> 320; persistedBytes 10927954 -> 10844372
+           watcher events in this window: [{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629142317","size":0,"t":1789629142401},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629142317","t":1789629142404},{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629142317","t":1789629142434},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl","t":1789629142438}]
+CLI exit code=0 signal=null durationMs=14058 (ended 2026-09-17T07:12:32.350Z)
+copy snapshot AFTER: files=1053 bytes=255740355 lines=20319
+----- RACE B — reader reconciliation lines (verbatim) -----
+classifiedKeys + unattributedKeys == compositeKeys  (19840 + 0 == 19840)
+frames == compositeKeys + superseded + keylessFrames  (20311 == 19840 + 471 + 0)
+----- end -----
+----- RACE B — payload shape and counters -----
+{
+  "storeAbsolute": "C:\\Users\\Admin\\AppData\\Local\\Temp\\probe-live-races-2564-2026-09-17T07-11-24-235Z\\B\\control-plane-v2\\invocations",
+  "status": "MEASURED",
+  "reasonCode": "OK",
+  "affected": [],
+  "evidenceRefs": 6,
+  "rows": 84,
+  "census": {
+    "fileCount": 1053,
+    "jsonlCount": 1046,
+    "quarantineCount": 7,
+    "tempCount": 0,
+    "otherCount": 0,
+    "totalBytes": 256074683,
+    "censusHash": "b994ae8ac07596e36e543e6d7c25376fe469be256bdf828e357c2053177c261f",
+    "limits": {
+      "budgetMs": 20000,
+      "maxBytes": 536870912,
+      "maxFiles": 4096,
+      "observedBytes": 256074683,
+      "observedFiles": 1053,
+      "filesRead": 1053,
+      "filesSkipped": 0,
+      "ceiling": null,
+      "windowNewestMtimeMs": 1789629142429.1619,
+      "windowOldestMtimeMs": 1788325958592.2627,
+      "elapsedMs": 13799,
+      "outcome": "COMPLETE"
+    },
+    "filesRead": 1053
+  }
+}
+----- end -----
+----- RACE B — invariants (as published, plus an independent re-check of the printed lines) -----
+{
+  "holdsKeys": true,
+  "holdsFrames": true,
+  "holdsMargin": true,
+  "rollupsClosed": true,
+  "rollupsUnclosed": [],
+  "printedKeysIdentityHolds": true,
+  "printedFramesIdentityHolds": true,
+  "invariantsClosed": true,
+  "reconciliationNumbers": {
+    "classifiedKeys": 19840,
+    "unattributedKeys": 0,
+    "keylessFrames": 0,
+    "compositeKeys": 19840,
+    "frames": 20311,
+    "superseded": 471
+  }
+}
+----- end -----
+----- RACE B — quarantine margin (verbatim) -----
+quarantine margin: present 254 = admitted 247 + named-invalid 7 (CHECKSUM_MISMATCH writer-canonicalization-array-slot 7) — a margin, not a recovery promise
+----- end -----
+----- RACE B — totals.residue histogram -----
+{
+  "STRUCTURAL_INVALID": 0,
+  "CHECKSUM_MISMATCH": 8,
+  "TORN_TAIL": 0,
+  "UNPARSEABLE": 0,
+  "RESIDUE_NO_CHECKSUM": 0,
+  "POST_CENSUS_APPEND": 0,
+  "POST_CENSUS_TRUNCATE": 4,
+  "VANISHED": 0
+}
+----- end -----
+----- RACE B — census consistency histogram -----
+{
+  "clean": 1049,
+  "post-census-truncate": 4
+}
+----- end -----
+----- RACE B — consistency vs residue-histogram cross-check -----
+[
+  {
+    "consistency": "post-census-append",
+    "class": "POST_CENSUS_APPEND",
+    "filesWithConsistency": 0,
+    "histogramCount": 0,
+    "agree": true
+  },
+  {
+    "consistency": "post-census-truncate",
+    "class": "POST_CENSUS_TRUNCATE",
+    "filesWithConsistency": 4,
+    "histogramCount": 4,
+    "agree": true
+  },
+  {
+    "consistency": "vanished",
+    "class": "VANISHED",
+    "filesWithConsistency": 0,
+    "histogramCount": 0,
+    "agree": true
+  }
+]
+----- end -----
+[target] attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl: seeded 160 lines/2794675 B -> final 80 lines/2711093 B
+         waves: [{"wave":1,"elapsedMsAtCall":1017,"err":null,"linesBefore":160,"linesAfter":80,"sizeBefore":2794675,"sizeAfter":2711093,"tmpNamesInWindow":["attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309"]}]
+         reader census entry: {"name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl","bucket":"jsonl","size":2711093,"mtimeMs":1789629139376.92,"lineCount":80,"sha256":"9c6c8eea50faf7d6509da64272ad5329be2dba54da7c08ff20e2662d004a0c3d","consistency":"post-census-truncate"}
+         reader consistency => post-census-truncate (implies POST_CENSUS_TRUNCATE)
+[target] attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl: seeded 160 lines/2794675 B -> final 80 lines/2711093 B
+         waves: [{"wave":2,"elapsedMsAtCall":2025,"err":null,"linesBefore":160,"linesAfter":80,"sizeBefore":2794675,"sizeAfter":2711093,"tmpNamesInWindow":["attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317"]}]
+         reader census entry: {"name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl","bucket":"jsonl","size":2711093,"mtimeMs":1789629140411.8054,"lineCount":80,"sha256":"38c5c1f1d53ad23fe5ba43bd56f8d3a4d4484a86b22fa7da7987b3e0c305a31b","consistency":"post-census-truncate"}
+         reader consistency => post-census-truncate (implies POST_CENSUS_TRUNCATE)
+[target] attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl: seeded 160 lines/2794675 B -> final 80 lines/2711093 B
+         waves: [{"wave":3,"elapsedMsAtCall":3036,"err":null,"linesBefore":160,"linesAfter":80,"sizeBefore":2794675,"sizeAfter":2711093,"tmpNamesInWindow":["attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328"]}]
+         reader census entry: {"name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl","bucket":"jsonl","size":2711093,"mtimeMs":1789629141452.5273,"lineCount":80,"sha256":"fb3eb1e746ae544e7b018349432118cec273a0acfd61c1c940894221dde0891b","consistency":"post-census-truncate"}
+         reader consistency => post-census-truncate (implies POST_CENSUS_TRUNCATE)
+[target] attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl: seeded 160 lines/2794675 B -> final 80 lines/2711093 B
+         waves: [{"wave":4,"elapsedMsAtCall":4024,"err":null,"linesBefore":160,"linesAfter":80,"sizeBefore":2794675,"sizeAfter":2711093,"tmpNamesInWindow":["attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629142317","attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629142317","attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629142317"]}]
+         reader census entry: {"name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl","bucket":"jsonl","size":2711093,"mtimeMs":1789629142429.1619,"lineCount":80,"sha256":"e5070637d09ca8f0c01381beb1cb5a0d3b6527b32fdea2c0c6e289f1fdd23c12","consistency":"post-census-truncate"}
+         reader consistency => post-census-truncate (implies POST_CENSUS_TRUNCATE)
+[tmp files observed during race B] [{"name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","firstSeenAt":1789629127203,"sizeWhenFirstSeen":0},{"name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","firstSeenAt":1789629139361,"sizeWhenFirstSeen":0},{"name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","firstSeenAt":1789629140395,"sizeWhenFirstSeen":0},{"name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","firstSeenAt":1789629141412,"sizeWhenFirstSeen":0},{"name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629142317","firstSeenAt":1789629142401,"sizeWhenFirstSeen":0}]
+[fs.watch temp events during race B] [{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","size":0,"t":1789629127203},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127211},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127225},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127239},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127248},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127258},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127267},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127282},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127282},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127285},{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","size":0,"t":1789629139361},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","t":1789629139363},{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","t":1789629139383},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","t":1789629139399},{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","size":0,"t":1789629140395},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","t":1789629140396},{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","t":1789629140417},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","t":1789629140439},{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","size":0,"t":1789629141412},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","t":1789629141413}]
+[B1 census] attachment-probe-autocompact: {"name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl","bucket":"jsonl","size":2569604,"mtimeMs":1789629127251.6433,"lineCount":100,"sha256":"84f956d5269bf33dd065cbc873195b7c725662f79a6c036c3d3d5ec08dcc038e","consistency":"clean"}
+[leftover tmp files after the pass] none
+[B2 replacement events on tracked partition names] [{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl","t":1789629138318},{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl","t":1789629138323},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl","t":1789629139387},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl","t":1789629139401},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl","t":1789629140423},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl","t":1789629140443},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl","t":1789629141480},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl","t":1789629141501},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl","t":1789629142438},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl","t":1789629142457}]
+
+--- CONTROL — a second CLI pass over the same directory with nothing mutating (B) ---
+[control B] exit=0 durationMs=9884 status=MEASURED/OK
+[control B] totals.residue = {"STRUCTURAL_INVALID":0,"CHECKSUM_MISMATCH":8,"TORN_TAIL":0,"UNPARSEABLE":0,"RESIDUE_NO_CHECKSUM":0,"POST_CENSUS_APPEND":0,"POST_CENSUS_TRUNCATE":0,"VANISHED":0}
+[control B] census consistency = {"clean":1053}
+[control B] invariants closed = true (holdsKeys=true holdsFrames=true holdsMargin=true rollupsClosed=true printedIdentities=true/true)
+[control B] reconciliation lines: classifiedKeys + unattributedKeys == compositeKeys  (19840 + 0 == 19840) | frames == compositeKeys + superseded + keylessFrames  (20311 == 19840 + 471 + 0)
+[control B] race classes still present: none; non-clean consistencies: none
+
+================================================================================
+SUMMARY
+================================================================================
+RACE A (append): overlap_proven=yes | files 1048 -> 1048 | lines 19896 -> 19915 | residue_observed=CHECKSUM_MISMATCH=8,POST_CENSUS_APPEND=6,VANISHED=1 | invariants_closed=true | reader=MEASURED/OK | verdict=DETECTED — the reader named the mid-read append: totals.residue.POST_CENSUS_APPEND=6 (censused files reporting consistency=post-census-append: 6 -> attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl, attachment-34d5693f-a245-470a-bed3-5709eede2873.jsonl, attachment-fe3c6656-c827-4f14-92d8-18d567409e03.jsonl, attachment-2cb67823-676c-4497-ab0b-b4fe90330aa8.jsonl, attachment-425cb41d-fe89-4ff2-a640-88002053aa1a.jsonl, attachment-5f2d258f-e802-4e1d-ad64-7444c7c1f02f.jsonl), and VANISHED=1 for the partition renamed mid-pass
+RACE B (compaction): overlap_proven=yes | files 1048 -> 1053 | lines 19899 -> 20319 | residue_observed=CHECKSUM_MISMATCH=8,POST_CENSUS_TRUNCATE=4 | invariants_closed=true | reader=MEASURED/OK | verdict=DETECTED — the reader named the mid-read compaction: totals.residue.POST_CENSUS_TRUNCATE=4 (censused files reporting consistency=post-census-truncate: attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl, attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl, attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl, attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl)
+
+RACE A detail:
+  appended frames landing inside the pass process lifetime: 13/13
+  attachment-05492e8f-5ce8-4f70-a66c-1a80b92bd92f.jsonl: 3 append(s) at +725..+9439ms -> reader consistency=post-census-append residue=POST_CENSUS_APPEND
+  attachment-34d5693f-a245-470a-bed3-5709eede2873.jsonl: 2 append(s) at +1457..+5813ms -> reader consistency=post-census-append residue=POST_CENSUS_APPEND
+  attachment-fe3c6656-c827-4f14-92d8-18d567409e03.jsonl: 2 append(s) at +2184..+6530ms -> reader consistency=post-census-append residue=POST_CENSUS_APPEND
+  attachment-2cb67823-676c-4497-ab0b-b4fe90330aa8.jsonl: 2 append(s) at +2907..+7254ms -> reader consistency=post-census-append residue=POST_CENSUS_APPEND
+  attachment-425cb41d-fe89-4ff2-a640-88002053aa1a.jsonl: 2 append(s) at +3644..+7971ms -> reader consistency=post-census-append residue=POST_CENSUS_APPEND
+  attachment-5f2d258f-e802-4e1d-ad64-7444c7c1f02f.jsonl: 2 append(s) at +4365..+8726ms -> reader consistency=post-census-append residue=POST_CENSUS_APPEND
+  rename probe attachment-b7f66515-0192-4a4b-8dc2-537bfa52aa08.jsonl -> consistency=vanished
+  consistency vs histogram cross-check: [{"consistency":"post-census-append","class":"POST_CENSUS_APPEND","filesWithConsistency":6,"histogramCount":6,"agree":true},{"consistency":"post-census-truncate","class":"POST_CENSUS_TRUNCATE","filesWithConsistency":0,"histogramCount":0,"agree":true},{"consistency":"vanished","class":"VANISHED","filesWithConsistency":1,"histogramCount":1,"agree":true}]
+  artifacts: store=C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\A\control-plane-v2\invocations json=C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\race-a.json outcome={"code":0,"signal":null,"error":null,"startedAt":1789629089030,"endedAt":1789629098860,"durationMs":9830}
+
+RACE B detail:
+  B1 auto-compaction (default threshold 200, no explicit call): observed=yes lines=100/200 tmpArtifacts=[{"name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","firstSeenAt":1789629127203,"sizeWhenFirstSeen":0}] timelineShrinks=[{"t":1789629127282,"size":2569604,"elapsedMs":3272}]
+  B1 getStats: before={"partitionCount":0,"hotRecordCount":0,"inFlightCount":0,"queuedIoCount":0,"frameCount":0,"persistedBytes":0,"quarantinedPartitionCount":0,"poisonedPartitionCount":0} after={"partitionCount":1,"hotRecordCount":100,"inFlightCount":0,"queuedIoCount":0,"frameCount":100,"persistedBytes":2569604,"quarantinedPartitionCount":0,"poisonedPartitionCount":0}
+  B2 explicit compactPartition() calls: 4 with a line-count collapse: 4 errors: [null,null,null,null]
+  B2 replacement events on the tracked partition names inside the pass: [{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl","t":1789629138318},{"source":"fs.watch","eventType":"change","name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl","t":1789629138323},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl","t":1789629139387},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl","t":1789629139401},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl","t":1789629140423},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl","t":1789629140443},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl","t":1789629141480},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl","t":1789629141501}]
+  attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl: seeded 160 lines/2794675 B -> final 80 lines/2711093 B; reader consistency=post-census-truncate residue=POST_CENSUS_TRUNCATE
+  attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl: seeded 160 lines/2794675 B -> final 80 lines/2711093 B; reader consistency=post-census-truncate residue=POST_CENSUS_TRUNCATE
+  attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl: seeded 160 lines/2794675 B -> final 80 lines/2711093 B; reader consistency=post-census-truncate residue=POST_CENSUS_TRUNCATE
+  attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl: seeded 160 lines/2794675 B -> final 80 lines/2711093 B; reader consistency=post-census-truncate residue=POST_CENSUS_TRUNCATE
+  tmp artifacts observed (5): [{"name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","firstSeenAt":1789629127203,"sizeWhenFirstSeen":0},{"name":"attachment-probe-race-b1-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629139309","firstSeenAt":1789629139361,"sizeWhenFirstSeen":0},{"name":"attachment-probe-race-b2-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629140317","firstSeenAt":1789629140395,"sizeWhenFirstSeen":0},{"name":"attachment-probe-race-b3-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629141328","firstSeenAt":1789629141412,"sizeWhenFirstSeen":0},{"name":"attachment-probe-race-b4-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629142317","firstSeenAt":1789629142401,"sizeWhenFirstSeen":0}]
+  fs.watch temp events (26): [{"source":"poll","eventType":"tmp-observed","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","size":0,"t":1789629127203},{"source":"fs.watch","eventType":"rename","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127211},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127225},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127239},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127248},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127258},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127267},{"source":"fs.watch","eventType":"change","name":"attachment-probe-autocompact-2026-09-17T07-11-24-235Z.jsonl.tmp-2564-1789629127111","t":1789629127282}]
+  leftover tmp files after the pass: []
+  consistency vs histogram cross-check: [{"consistency":"post-census-append","class":"POST_CENSUS_APPEND","filesWithConsistency":0,"histogramCount":0,"agree":true},{"consistency":"post-census-truncate","class":"POST_CENSUS_TRUNCATE","filesWithConsistency":4,"histogramCount":4,"agree":true},{"consistency":"vanished","class":"VANISHED","filesWithConsistency":0,"histogramCount":0,"agree":true}]
+  compaction really occurred (temp artifact or line collapse, plus the ledger's own stats): yes
+  artifacts: store=C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\B\control-plane-v2\invocations json=C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z\race-b.json outcome={"code":0,"signal":null,"error":null,"startedAt":1789629138292,"endedAt":1789629152350,"durationMs":14058}
+
+
+live store post-check (read-only): files=1048 tmp-artifacts=[] probe-named=[]
+note: copy A bytes=242321596, copy B bytes=242326379; a difference is the running application writing to the source store between the two copies, not this probe.
+CONTROL A (same directory, nothing mutating): status=MEASURED/OK race-classes-still-present=[] non-clean-consistencies=[] residue={"STRUCTURAL_INVALID":0,"CHECKSUM_MISMATCH":8,"TORN_TAIL":0,"UNPARSEABLE":0,"RESIDUE_NO_CHECKSUM":0,"POST_CENSUS_APPEND":0,"POST_CENSUS_TRUNCATE":0,"VANISHED":0}
+CONTROL B (same directory, nothing mutating): status=MEASURED/OK race-classes-still-present=[] non-clean-consistencies=[] residue={"STRUCTURAL_INVALID":0,"CHECKSUM_MISMATCH":8,"TORN_TAIL":0,"UNPARSEABLE":0,"RESIDUE_NO_CHECKSUM":0,"POST_CENSUS_APPEND":0,"POST_CENSUS_TRUNCATE":0,"VANISHED":0}
+live store untouched: source=E:\Work\.antifan-data\control-plane-v2\invocations (opened read-only for the copy; every mutation above is under C:\Users\Admin\AppData\Local\Temp\probe-live-races-2564-2026-09-17T07-11-24-235Z)
+# finished: 2026-09-17T07:12:44.371Z

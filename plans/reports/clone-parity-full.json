@@ -1,0 +1,2198 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T05:07:36.884Z",
+  "liveOrigin": "https://comnieuthienly.com",
+  "cloneOrigin": "http://127.0.0.1:3311",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 8573,
+        "device": null,
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.overflow-hidden rounded-xl md:mx-auto md:w-1/2 md:max-w-[50v",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 22.5
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 8573,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.05,
+      "diffPixels": 5501,
+      "totalPixels": 12039176,
+      "maskedAreaPercent": 2.675,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 416,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 14
+        },
+        {
+          "x": 448,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 480,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 512,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 13
+        },
+        {
+          "x": 576,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 11
+        },
+        {
+          "x": 640,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 32
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 31762
+    },
+    {
+      "route": "/",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 10566,
+        "device": null,
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 10566,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.08,
+      "diffPixels": 3333,
+      "totalPixels": 4048782,
+      "maskedAreaPercent": 1.858,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 128,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        },
+        {
+          "x": 160,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 192,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 15
+        },
+        {
+          "x": 224,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        },
+        {
+          "x": 32,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 224,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 29709
+    },
+    {
+      "route": "/blogs",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/blogs",
+      "cloneUrl": "http://127.0.0.1:3311/blogs",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 2559,
+        "device": null,
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 2559,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.08,
+      "diffPixels": 3027,
+      "totalPixels": 3684960,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 224,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 1024,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 15
+        },
+        {
+          "x": 1088,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 288,
+          "y": 416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        },
+        {
+          "x": 288,
+          "y": 448,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        },
+        {
+          "x": 1088,
+          "y": 448,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 13332
+    },
+    {
+      "route": "/blogs",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/blogs",
+      "cloneUrl": "http://127.0.0.1:3311/blogs",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 5927,
+        "device": null,
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 5927,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.21,
+      "diffPixels": 4894,
+      "totalPixels": 2311530,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 17
+        },
+        {
+          "x": 32,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 49
+        },
+        {
+          "x": 320,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 36
+        },
+        {
+          "x": 352,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 31
+        },
+        {
+          "x": 0,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 70
+        },
+        {
+          "x": 32,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 273
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 16618
+    },
+    {
+      "route": "/branches",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/branches",
+      "cloneUrl": "http://127.0.0.1:3311/branches",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 3364,
+        "device": null,
+        "brokenImages": 0,
+        "images": 10,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 3364,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 11,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.1,
+      "diffPixels": 4987,
+      "totalPixels": 4844160,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 256,
+          "y": 352,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 352,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 19
+        },
+        {
+          "x": 384,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 44
+        },
+        {
+          "x": 288,
+          "y": 416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 22
+        },
+        {
+          "x": 320,
+          "y": 416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 18
+        },
+        {
+          "x": 352,
+          "y": 416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 11
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 13369
+    },
+    {
+      "route": "/branches",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/branches",
+      "cloneUrl": "http://127.0.0.1:3311/branches",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 3719,
+        "device": null,
+        "brokenImages": 0,
+        "images": 10,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 3719,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 11,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.12,
+      "diffPixels": 1780,
+      "totalPixels": 1450410,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 64,
+          "y": 416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 10
+        },
+        {
+          "x": 64,
+          "y": 448,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 11
+        },
+        {
+          "x": 224,
+          "y": 512,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 224,
+          "y": 544,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 288,
+          "y": 576,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 128,
+          "y": 2592,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 13049
+    },
+    {
+      "route": "/introduce",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/introduce",
+      "cloneUrl": "http://127.0.0.1:3311/introduce",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 8002,
+        "device": null,
+        "brokenImages": 0,
+        "images": 26,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 8002,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 27,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.1,
+      "diffPixels": 10934,
+      "totalPixels": 11292480,
+      "maskedAreaPercent": 2.095,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 992,
+          "y": 1376,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 15
+        },
+        {
+          "x": 1024,
+          "y": 1376,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 19
+        },
+        {
+          "x": 1088,
+          "y": 1376,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 928,
+          "y": 1408,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 960,
+          "y": 1408,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 1088,
+          "y": 1408,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 22086
+    },
+    {
+      "route": "/introduce",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/introduce",
+      "cloneUrl": "http://127.0.0.1:3311/introduce",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 7213,
+        "device": null,
+        "brokenImages": 0,
+        "images": 26,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 7213,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 27,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.08,
+      "diffPixels": 2188,
+      "totalPixels": 2741112,
+      "maskedAreaPercent": 2.93,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 192,
+          "y": 1792,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 224,
+          "y": 1792,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 13
+        },
+        {
+          "x": 288,
+          "y": 1824,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 128,
+          "y": 1856,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 160,
+          "y": 1856,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 224,
+          "y": 1888,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 10
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 18636
+    },
+    {
+      "route": "/loyal-customers",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/loyal-customers",
+      "cloneUrl": "http://127.0.0.1:3311/loyal-customers",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 4006,
+        "device": null,
+        "brokenImages": 0,
+        "images": 16,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 4006,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 6.31,
+      "diffPixels": 363938,
+      "totalPixels": 5768640,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 960,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 96,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 76
+        },
+        {
+          "x": 128,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 160,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 192,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 224,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 2400,
+          "height": 600,
+          "diffPixels": 82852,
+          "mismatchPercent": 9.59
+        },
+        {
+          "y": 3600,
+          "height": 406,
+          "diffPixels": 1218,
+          "mismatchPercent": 0.21
+        }
+      ],
+      "elapsedMs": 19125
+    },
+    {
+      "route": "/loyal-customers",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/loyal-customers",
+      "cloneUrl": "http://127.0.0.1:3311/loyal-customers",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 4337,
+        "device": null,
+        "brokenImages": 0,
+        "images": 16,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 4337,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 1.91,
+      "diffPixels": 32301,
+      "totalPixels": 1691430,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 32,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 13
+        },
+        {
+          "x": 64,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 14
+        },
+        {
+          "x": 96,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 17
+        },
+        {
+          "x": 128,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 10
+        },
+        {
+          "x": 160,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 33
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 14335
+    },
+    {
+      "route": "/menu",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/menu",
+      "cloneUrl": "http://127.0.0.1:3311/menu",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 14007,
+        "device": null,
+        "brokenImages": 0,
+        "images": 111,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.89
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          },
+          {
+            "label": "aside.pointer-events-auto fixed z-40 hidden w-64 rounded",
+            "zIndex": 40,
+            "areaPercent": 10.19
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 14007,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 112,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          },
+          {
+            "label": "aside.pointer-events-auto fixed z-40 hidden w-64 rounded",
+            "zIndex": 40,
+            "areaPercent": 10.19
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex item",
+            "zIndex": 50,
+            "areaPercent": 98.96
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 5.41,
+      "diffPixels": 1091149,
+      "totalPixels": 20170080,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 982
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 975
+        },
+        {
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 991
+        },
+        {
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 992
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 0,
+          "height": 600,
+          "diffPixels": 61121,
+          "mismatchPercent": 7.07
+        },
+        {
+          "y": 13800,
+          "height": 207,
+          "diffPixels": 1218,
+          "mismatchPercent": 0.41
+        }
+      ],
+      "elapsedMs": 55732
+    },
+    {
+      "route": "/menu",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/menu",
+      "cloneUrl": "http://127.0.0.1:3311/menu",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 19454,
+        "device": null,
+        "brokenImages": 0,
+        "images": 111,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 19454,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 112,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex item",
+            "zIndex": 50,
+            "areaPercent": 100
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 6.78,
+      "diffPixels": 514280,
+      "totalPixels": 7587060,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 938
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 830
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 915
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 0,
+          "height": 600,
+          "diffPixels": 24720,
+          "mismatchPercent": 10.56
+        },
+        {
+          "y": 16200,
+          "height": 600,
+          "diffPixels": 24330,
+          "mismatchPercent": 10.4
+        }
+      ],
+      "elapsedMs": 44201
+    },
+    {
+      "route": "/order-food",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/order-food",
+      "cloneUrl": "http://127.0.0.1:3311/order-food",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 6366,
+        "device": null,
+        "brokenImages": 0,
+        "images": 109,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.89
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 6206,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 110,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex item",
+            "zIndex": 50,
+            "areaPercent": 98.96
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": -2.51,
+      "dimensionsMatch": false,
+      "mismatchPercent": 51.61,
+      "diffPixels": 4731335,
+      "totalPixels": 9167040,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 982
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 975
+        },
+        {
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 991
+        },
+        {
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 992
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 4200,
+          "height": 600,
+          "diffPixels": 112049,
+          "mismatchPercent": 12.97
+        },
+        {
+          "y": 4800,
+          "height": 600,
+          "diffPixels": 111515,
+          "mismatchPercent": 12.91
+        },
+        {
+          "y": 0,
+          "height": 600,
+          "diffPixels": 88028,
+          "mismatchPercent": 10.19
+        },
+        {
+          "y": 3600,
+          "height": 600,
+          "diffPixels": 78818,
+          "mismatchPercent": 9.12
+        },
+        {
+          "y": 3000,
+          "height": 600,
+          "diffPixels": 70576,
+          "mismatchPercent": 8.17
+        },
+        {
+          "y": 1800,
+          "height": 600,
+          "diffPixels": 70354,
+          "mismatchPercent": 8.14
+        },
+        {
+          "y": 2400,
+          "height": 600,
+          "diffPixels": 67221,
+          "mismatchPercent": 7.78
+        },
+        {
+          "y": 1200,
+          "height": 600,
+          "diffPixels": 59514,
+          "mismatchPercent": 6.89
+        },
+        {
+          "y": 600,
+          "height": 600,
+          "diffPixels": 46253,
+          "mismatchPercent": 5.35
+        },
+        {
+          "y": 5400,
+          "height": 600,
+          "diffPixels": 11224,
+          "mismatchPercent": 1.3
+        },
+        {
+          "y": 6000,
+          "height": 206,
+          "diffPixels": 3362,
+          "mismatchPercent": 1.13
+        }
+      ],
+      "elapsedMs": 31021
+    },
+    {
+      "route": "/order-food",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/order-food",
+      "cloneUrl": "http://127.0.0.1:3311/order-food",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 15284,
+        "device": null,
+        "brokenImages": 0,
+        "images": 109,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 z-40 bg-light-cream ",
+            "zIndex": 40,
+            "areaPercent": 14.22
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 15284,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 110,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 z-40 bg-light-cream ",
+            "zIndex": 40,
+            "areaPercent": 14.22
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex item",
+            "zIndex": 50,
+            "areaPercent": 100
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 4.86,
+      "diffPixels": 289793,
+      "totalPixels": 5960760,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 938
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 830
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 915
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 0,
+          "height": 600,
+          "diffPixels": 33435,
+          "mismatchPercent": 14.29
+        },
+        {
+          "y": 14400,
+          "height": 600,
+          "diffPixels": 727,
+          "mismatchPercent": 0.31
+        }
+      ],
+      "elapsedMs": 36502
+    },
+    {
+      "route": "/reservations",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/reservations",
+      "cloneUrl": "http://127.0.0.1:3311/reservations",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 1912,
+        "device": null,
+        "brokenImages": 0,
+        "images": 7,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.89
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 1912,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 8,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex item",
+            "zIndex": 50,
+            "areaPercent": 98.96
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 40.52,
+      "diffPixels": 1115572,
+      "totalPixels": 2753280,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 982
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 975
+        },
+        {
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 991
+        },
+        {
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 992
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 0,
+          "height": 600,
+          "diffPixels": 61182,
+          "mismatchPercent": 7.08
+        },
+        {
+          "y": 1200,
+          "height": 600,
+          "diffPixels": 1218,
+          "mismatchPercent": 0.14
+        }
+      ],
+      "elapsedMs": 13363
+    },
+    {
+      "route": "/reservations",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/reservations",
+      "cloneUrl": "http://127.0.0.1:3311/reservations",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 2344,
+        "device": null,
+        "brokenImages": 0,
+        "images": 7,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 2344,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 8,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex item",
+            "zIndex": 50,
+            "areaPercent": 100
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 33.58,
+      "diffPixels": 306970,
+      "totalPixels": 914160,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 938
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 830
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 915
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        },
+        {
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1024
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 0,
+          "height": 600,
+          "diffPixels": 24720,
+          "mismatchPercent": 10.56
+        },
+        {
+          "y": 1800,
+          "height": 544,
+          "diffPixels": 727,
+          "mismatchPercent": 0.34
+        }
+      ],
+      "elapsedMs": 12208
+    },
+    {
+      "route": "/team-culture",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/team-culture",
+      "cloneUrl": "http://127.0.0.1:3311/team-culture",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 3188,
+        "device": null,
+        "brokenImages": 0,
+        "images": 12,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ]
+      },
+      "clone": {
+        "width": 1440,
+        "height": 3188,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 13,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.05,
+      "diffPixels": 2460,
+      "totalPixels": 4590720,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 96,
+          "y": 3008,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 128
+        },
+        {
+          "x": 128,
+          "y": 3008,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 176
+        },
+        {
+          "x": 160,
+          "y": 3008,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 366
+        },
+        {
+          "x": 192,
+          "y": 3008,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 224
+        },
+        {
+          "x": 224,
+          "y": 3008,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 224
+        },
+        {
+          "x": 256,
+          "y": 3008,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 119
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 13348
+    },
+    {
+      "route": "/team-culture",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/team-culture",
+      "cloneUrl": "http://127.0.0.1:3311/team-culture",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 4883,
+        "device": null,
+        "brokenImages": 0,
+        "images": 12,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ]
+      },
+      "clone": {
+        "width": 390,
+        "height": 4883,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 13,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.09,
+      "diffPixels": 1714,
+      "totalPixels": 1904370,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 4416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 24
+        },
+        {
+          "x": 32,
+          "y": 4416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 72
+        },
+        {
+          "x": 64,
+          "y": 4416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 96
+        },
+        {
+          "x": 96,
+          "y": 4416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 96
+        },
+        {
+          "x": 128,
+          "y": 4416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 60
+        },
+        {
+          "x": 0,
+          "y": 4448,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 128
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 15304
+    }
+  ],
+  "verdict": "HARD_FAILED",
+  "executed": 18,
+  "passed": 11,
+  "blocked": 0,
+  "errored": 0,
+  "worstMismatchPercent": 51.61,
+  "finishedAt": "2026-09-17T05:14:30.682Z"
+}

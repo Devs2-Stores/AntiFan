@@ -1,0 +1,1522 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T07:27:22.113Z",
+  "liveOrigin": "https://comnieuthienly.com",
+  "cloneOrigin": "http://127.0.0.1:3311",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 8573,
+        "device": null,
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.overflow-hidden rounded-xl md:mx-auto md:w-1/2 md:max-w-[50v",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 22.5
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 1440,
+        "height": 8573,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": [
+          "-3 "
+        ]
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.05,
+      "diffPixels": 5500,
+      "totalPixels": 12039176,
+      "maskedAreaPercent": 2.675,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 416,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 14
+        },
+        {
+          "x": 448,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 480,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 512,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 13
+        },
+        {
+          "x": 576,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 11
+        },
+        {
+          "x": 640,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 32
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 27263
+    },
+    {
+      "route": "/",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/",
+      "cloneUrl": "http://127.0.0.1:3311/",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 10566,
+        "device": null,
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 390,
+        "height": 10566,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.08,
+      "diffPixels": 3334,
+      "totalPixels": 4048782,
+      "maskedAreaPercent": 1.858,
+      "maskBoxes": 1,
+      "diffRegions": [
+        {
+          "x": 128,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 160,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 192,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 18
+        },
+        {
+          "x": 224,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 32,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 224,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 11
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 26316
+    },
+    {
+      "route": "/blogs",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/blogs",
+      "cloneUrl": "http://127.0.0.1:3311/blogs",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 2559,
+        "device": null,
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 1440,
+        "height": 2559,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.08,
+      "diffPixels": 3034,
+      "totalPixels": 3684960,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 1024,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 13
+        },
+        {
+          "x": 1088,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 288,
+          "y": 416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 288,
+          "y": 448,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 12
+        },
+        {
+          "x": 1088,
+          "y": 448,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 1248,
+          "y": 448,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 12134
+    },
+    {
+      "route": "/blogs",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/blogs",
+      "cloneUrl": "http://127.0.0.1:3311/blogs",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 5927,
+        "device": null,
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 390,
+        "height": 5927,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 18,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.21,
+      "diffPixels": 4883,
+      "totalPixels": 2311530,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 17
+        },
+        {
+          "x": 32,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 49
+        },
+        {
+          "x": 320,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 36
+        },
+        {
+          "x": 352,
+          "y": 160,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 31
+        },
+        {
+          "x": 0,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 70
+        },
+        {
+          "x": 32,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 273
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 16140
+    },
+    {
+      "route": "/branches",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/branches",
+      "cloneUrl": "http://127.0.0.1:3311/branches",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 3364,
+        "device": null,
+        "brokenImages": 0,
+        "images": 10,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 1440,
+        "height": 3364,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 11,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.1,
+      "diffPixels": 5013,
+      "totalPixels": 4844160,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 256,
+          "y": 352,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 10
+        },
+        {
+          "x": 736,
+          "y": 352,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 352,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 26
+        },
+        {
+          "x": 384,
+          "y": 384,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 48
+        },
+        {
+          "x": 288,
+          "y": 416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 23
+        },
+        {
+          "x": 320,
+          "y": 416,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 12
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 122652
+    },
+    {
+      "route": "/branches",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/branches",
+      "cloneUrl": "http://127.0.0.1:3311/branches",
+      "verdict": "BLOCKED",
+      "error": "TIMEOUT(180000ms): case mobile /branches",
+      "elapsedMs": 180008
+    },
+    {
+      "route": "/introduce",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/introduce",
+      "cloneUrl": "http://127.0.0.1:3311/introduce",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "verdict": "BLOCKED",
+      "error": "TIMEOUT(180000ms): case desktop /introduce",
+      "elapsedMs": 180016
+    },
+    {
+      "route": "/introduce",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/introduce",
+      "cloneUrl": "http://127.0.0.1:3311/introduce",
+      "verdict": "BLOCKED",
+      "error": "TIMEOUT(180000ms): case mobile /introduce",
+      "elapsedMs": 180011
+    },
+    {
+      "route": "/loyal-customers",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/loyal-customers",
+      "cloneUrl": "http://127.0.0.1:3311/loyal-customers",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 4006,
+        "device": null,
+        "brokenImages": 0,
+        "images": 16,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 1440,
+        "height": 4006,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 5.17,
+      "diffPixels": 298224,
+      "totalPixels": 5768640,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 960,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 96,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 75
+        },
+        {
+          "x": 128,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 160,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 192,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 224,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        }
+      ],
+      "verdict": "FAIL",
+      "diffBands": [
+        {
+          "y": 2400,
+          "height": 600,
+          "diffPixels": 33881,
+          "mismatchPercent": 3.92
+        },
+        {
+          "y": 3600,
+          "height": 406,
+          "diffPixels": 1218,
+          "mismatchPercent": 0.21
+        }
+      ],
+      "elapsedMs": 19040
+    },
+    {
+      "route": "/loyal-customers",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/loyal-customers",
+      "cloneUrl": "http://127.0.0.1:3311/loyal-customers",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 4337,
+        "device": null,
+        "brokenImages": 0,
+        "images": 16,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 390,
+        "height": 4337,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 17,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 1.93,
+      "diffPixels": 32668,
+      "totalPixels": 1691430,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 32,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 13
+        },
+        {
+          "x": 64,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 14
+        },
+        {
+          "x": 96,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 17
+        },
+        {
+          "x": 128,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 10
+        },
+        {
+          "x": 160,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 33
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 14093
+    },
+    {
+      "route": "/menu",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/menu",
+      "cloneUrl": "http://127.0.0.1:3311/menu",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 14007,
+        "device": null,
+        "brokenImages": 0,
+        "images": 111,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.89
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          },
+          {
+            "label": "aside.pointer-events-auto fixed z-40 hidden w-64 rounded",
+            "zIndex": 40,
+            "areaPercent": 10.19
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 1440,
+        "height": 14007,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 112,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden-wrapper",
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex items-center j",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgba(0, 0, 0, 0.5)",
+            "areaPercent": 98.96
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          },
+          {
+            "label": "aside.pointer-events-auto fixed z-40 hidden w-64 rounded",
+            "zIndex": 40,
+            "areaPercent": 10.19
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.01,
+      "diffPixels": 2698,
+      "totalPixels": 20170080,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 480,
+          "y": 9120,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 96,
+          "y": 13824,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 117
+        },
+        {
+          "x": 128,
+          "y": 13824,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 133
+        },
+        {
+          "x": 160,
+          "y": 13824,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 351
+        },
+        {
+          "x": 192,
+          "y": 13824,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 224
+        },
+        {
+          "x": 224,
+          "y": 13824,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 224
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 36292
+    },
+    {
+      "route": "/menu",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/menu",
+      "cloneUrl": "http://127.0.0.1:3311/menu",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 19454,
+        "device": null,
+        "brokenImages": 0,
+        "images": 111,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 390,
+        "height": 19454,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 112,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          },
+          {
+            "step": "hidden-wrapper",
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex items-center j",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgba(0, 0, 0, 0.5)",
+            "areaPercent": 100
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.01,
+      "diffPixels": 662,
+      "totalPixels": 7587060,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 96,
+          "y": 1856,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 32,
+          "y": 3552,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 320,
+          "y": 6464,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 32,
+          "y": 14816,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 64,
+          "y": 15936,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 96,
+          "y": 15936,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 14
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 38859
+    },
+    {
+      "route": "/order-food",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/order-food",
+      "cloneUrl": "http://127.0.0.1:3311/order-food",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 6366,
+        "device": null,
+        "brokenImages": 0,
+        "images": 109,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.89
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 1440,
+        "height": 6366,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 110,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden-wrapper",
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex items-center j",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgba(0, 0, 0, 0.5)",
+            "areaPercent": 98.96
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.03,
+      "diffPixels": 2689,
+      "totalPixels": 9167040,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 224,
+          "y": 960,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        },
+        {
+          "x": 96,
+          "y": 6176,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 105
+        },
+        {
+          "x": 128,
+          "y": 6176,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 100
+        },
+        {
+          "x": 160,
+          "y": 6176,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 286
+        },
+        {
+          "x": 192,
+          "y": 6176,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 224
+        },
+        {
+          "x": 224,
+          "y": 6176,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 224
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 23672
+    },
+    {
+      "route": "/order-food",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/order-food",
+      "cloneUrl": "http://127.0.0.1:3311/order-food",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 390,
+        "height": 15284,
+        "device": null,
+        "brokenImages": 0,
+        "images": 109,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 z-40 bg-light-cream ",
+            "zIndex": 40,
+            "areaPercent": 14.22
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 390,
+        "height": 15284,
+        "device": "mobile",
+        "brokenImages": 0,
+        "images": 110,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 77.87
+          },
+          {
+            "step": "hidden-wrapper",
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex items-center j",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgba(0, 0, 0, 0.5)",
+            "areaPercent": 100
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 16.35
+          },
+          {
+            "label": "div.fixed bottom-0 left-0 right-0 z-40 bg-light-cream ",
+            "zIndex": 40,
+            "areaPercent": 14.22
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 0.03,
+      "diffPixels": 1720,
+      "totalPixels": 5960760,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 0,
+          "y": 14816,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 16
+        },
+        {
+          "x": 32,
+          "y": 14816,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 55
+        },
+        {
+          "x": 64,
+          "y": 14816,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 96,
+          "y": 14816,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 64
+        },
+        {
+          "x": 128,
+          "y": 14816,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 40
+        },
+        {
+          "x": 0,
+          "y": 14848,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 129
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 31873
+    },
+    {
+      "route": "/reservations",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/reservations",
+      "cloneUrl": "http://127.0.0.1:3311/reservations",
+      "blockedRequestsLive": [
+        "https://www.googletagmanager.com/gtm.js?id=GTM-NFMPMRZ7"
+      ],
+      "blockedRequestsClone": [],
+      "live": {
+        "width": 1440,
+        "height": 1912,
+        "device": null,
+        "brokenImages": 0,
+        "images": 7,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.89
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0
+      },
+      "clone": {
+        "width": 1440,
+        "height": 1912,
+        "device": "web",
+        "brokenImages": 0,
+        "images": 8,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "horizontalOverflow": false,
+        "overlays": [
+          {
+            "step": "open-on-load",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden",
+            "label": "div.mx-4 flex h-[calc(100vh-8rem)] flex-col overflow-hidden roun",
+            "position": "relative",
+            "zIndex": "auto",
+            "background": "rgb(255, 255, 255)",
+            "areaPercent": 42.44
+          },
+          {
+            "step": "hidden-wrapper",
+            "label": "div.fixed bottom-0 left-0 right-0 top-0 z-50 flex items-center j",
+            "position": "fixed",
+            "zIndex": "50",
+            "background": "rgba(0, 0, 0, 0.5)",
+            "areaPercent": 98.96
+          }
+        ],
+        "keptChrome": [
+          {
+            "label": "div.fixed left-0 right-0 top-0 z-50 xl:h-24 xl:bg-brig",
+            "zIndex": 50,
+            "areaPercent": 10.56
+          }
+        ],
+        "carouselsNormalized": 0,
+        "slideStatesNeutralized": 0,
+        "loadFailures": []
+      },
+      "heightDeltaPercent": 0,
+      "dimensionsMatch": true,
+      "mismatchPercent": 1.49,
+      "diffPixels": 41046,
+      "totalPixels": 2753280,
+      "maskedAreaPercent": 0,
+      "maskBoxes": 0,
+      "diffRegions": [
+        {
+          "x": 736,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 768,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 800,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 8
+        },
+        {
+          "x": 864,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 896,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 6
+        },
+        {
+          "x": 928,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 9
+        }
+      ],
+      "verdict": "PASS",
+      "elapsedMs": 12653
+    },
+    {
+      "route": "/reservations",
+      "surface": "mobile",
+      "liveUrl": "https://comnieuthienly.com/reservations",
+      "cloneUrl": "http://127.0.0.1:3311/reservations",
+      "verdict": "BLOCKED",
+      "error": "TIMEOUT(180000ms): case mobile /reservations",
+      "elapsedMs": 180022
+    },
+    {
+      "route": "/team-culture",
+      "surface": "desktop",
+      "liveUrl": "https://comnieuthienly.com/team-culture",
+      "cloneUrl": "http://127.0.0.1:3311/team-culture",
+      "verdict": "BLOCKED",
+      "error": "TIMEOUT(180000ms): case desktop /team-culture",
+      "elapsedMs": 180008
+    }
+  ],
+  "verdict": "INCONCLUSIVE"
+}

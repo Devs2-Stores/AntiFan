@@ -6,6 +6,7 @@ import {
   extractEmbeddedEffects,
   localizeSameOriginReferences,
   stripCaptureTimeSliderGeometry,
+  restoreMeasuredSliderGeometry,
   IndependentHtmlCloneGenerator
 } from './independent-html-clone-generator.js';
 import { createDefaultComponentContractIR, type ComponentContractIR } from '../models/clone-ir.js';
@@ -528,6 +529,93 @@ describe('IndependentHtmlCloneGenerator - fullscreen capture overlay retirement'
     }
   });
 
+  it('retires the backdrop that carries an open splash so the page is not left dimmed', async () => {
+    const generator = new IndependentHtmlCloneGenerator();
+    const os = require('node:os');
+    const path = require('node:path');
+    const fs = require('node:fs');
+    const { JSDOM } = require('jsdom');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-dialog-backdrop-'));
+    const fullscreen = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 50;';
+    try {
+      const sampleHtml = '<!DOCTYPE html><html><head><title>Dialogs</title></head><body>'
+        + '<div id="page">'
+        + `<div id="promo-backdrop" style="${fullscreen}">`
+        + '<div id="promo-card" class="modal-content" style="position: relative; background: #fff;">'
+        + '<p>Uu dai</p>'
+        + '</div></div>'
+        + `<div id="order-backdrop" style="${fullscreen}">`
+        + '<div id="order-card" class="modal-content" style="position: relative; background: #fff;">'
+        + '<p>Chon vi tri giao hang</p><input name="address"><button type="button">Xac nhan</button>'
+        + '</div></div>'
+        + '<div id="inline-wrap" style="position: relative;">'
+        + '<div id="inline-card" class="modal-content" style="position: relative;">Inline</div>'
+        + '</div>'
+        + '</div>'
+        + '<main>Content</main></body></html>';
+      const res = generator.generateFromMaterializedHtml(sampleHtml, {
+        outputDir: tmpDir,
+        entryFilename: 'index.html',
+        device: 'web'
+      });
+
+      const dom = new JSDOM(res.html, { runScripts: 'outside-only', pretendToBeVisual: true });
+      const win = dom.window;
+      win.innerWidth = 1440;
+      win.innerHeight = 900;
+      win.Element.prototype.getBoundingClientRect = function () {
+        const id = this.getAttribute ? this.getAttribute('id') : null;
+        return id === 'promo-backdrop' || id === 'order-backdrop'
+          ? { x: 0, y: 0, top: 0, left: 0, right: 1440, bottom: 900, width: 1440, height: 900 }
+          : { x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 200, width: 400, height: 200 };
+      };
+      const script = res.html.match(/<script id="antifan-clone-interactivity">([\s\S]*?)<\/script>/)?.[1] ?? '';
+      assert.ok(script.length > 0, 'generated document must carry the interactivity script');
+      win.eval(script);
+      await new Promise<void>(resolve => {
+        if (win.document.readyState === 'loading') {
+          win.document.addEventListener('DOMContentLoaded', () => resolve());
+        } else {
+          resolve();
+        }
+      });
+
+      const isRetired = (id: string) => win.document.getElementById(id)?.hasAttribute('data-antifan-unhydrated-overlay');
+      assert.strictEqual(
+        isRetired('promo-backdrop'),
+        true,
+        'the full-viewport layer carrying a control-less splash must be retired'
+      );
+      assert.strictEqual(isRetired('promo-card'), false, 'the dialog itself is hidden by its retired backdrop');
+      assert.strictEqual(
+        isRetired('order-backdrop'),
+        false,
+        'a backdrop whose dialog owns controls is the baseline page state and must stay'
+      );
+      assert.strictEqual(isRetired('order-card'), false, 'the interactive dialog must stay rendered');
+      assert.strictEqual(isRetired('inline-card'), false, 'a dialog that is not layered over the page must stay');
+      assert.strictEqual(isRetired('inline-wrap'), false, 'a relative container is not a backdrop');
+      assert.strictEqual(
+        win.getComputedStyle(win.document.getElementById('promo-backdrop')).display,
+        'none',
+        'the retired backdrop must not dim the page'
+      );
+      assert.notStrictEqual(
+        win.getComputedStyle(win.document.getElementById('order-backdrop')).display,
+        'none',
+        'the interactive dialog must keep the visibility the reference page shows'
+      );
+      assert.notStrictEqual(
+        win.getComputedStyle(win.document.querySelector('main')).display,
+        'none',
+        'page content must stay visible'
+      );
+      dom.window.close();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('retires the overlay once a surface that loaded without layout is measured', async () => {
     const generator = new IndependentHtmlCloneGenerator();
     const os = require('node:os');
@@ -725,14 +813,110 @@ describe('IndependentHtmlCloneGenerator - Slider Geometry Normalization', () => 
     assert.ok(stripped.includes('background: blue'), 'non-slider item background preserved');
   });
 
-  it('neutralizes in-flight transforms to zero offset in sanitizeSectionMarkup', () => {
+  it('keeps the captured slide count on a track whose slides only had library-written widths', () => {
+    const annotation = JSON.stringify({ perView: 4, fractional: false, gap: 24, slide: 215, track: 932 });
+    const sampleHtml = [
+      `<div class="swiper-wrapper" data-antifan-slider='${annotation}'>`,
+      '  <div class="swiper-slide" style="width: 215px; margin-right: 24px;">Slide 1</div>',
+      '  <div class="swiper-slide" style="width: 215px; margin-right: 24px;"><div style="width: 80px;">Badge</div>Slide 2</div>',
+      '</div>',
+      '<div class="swiper-wrapper">',
+      '  <div class="swiper-slide" style="width: 215px;">Unmeasured track</div>',
+      '</div>'
+    ].join('');
+
+    const restored = restoreMeasuredSliderGeometry(sampleHtml);
+
+    assert.ok(restored.includes('width: calc((100% - 72px) / 4) !important'), 'slide width becomes the library law the capture measured');
+    assert.ok(restored.includes('margin-right: 24px !important'), 'the gap the library wrote as a margin is restored');
+    assert.ok(!restored.includes('data-antifan-slider'), 'the capture-only annotation is dropped from the emitted markup');
+    assert.ok(!restored.includes('calc((100% - 72px) / 4) !important; width: calc'), 'the slider stylesheet is not duplicated per slide');
+    assert.ok(restored.includes('<div style="width: 80px;">Badge</div>'), 'markup deeper than the slide is not rewritten');
+    assert.ok(restored.includes('style="width: 215px;"'), 'a track without a measurement keeps its original markup');
+  });
+
+  it('restores geometry from the entity-encoded annotation a serialized capture writes', () => {
+    // outerHTML escapes every quote inside the attribute value, so the emitted markup
+    // carries `{&quot;perView&quot;:4,...}`; the parser must decode before it can rest.
+    const annotation = JSON.stringify({ perView: 4, fractional: false, gap: 24, slide: 215, track: 932 })
+      .replace(/"/g, '&quot;');
+    const sampleHtml = [
+      `<div class="swiper-wrapper" data-antifan-slider="${annotation}">`,
+      '  <div class="swiper-slide" style="width: 215px; margin-right: 24px;">Slide 1</div>',
+      '  <div class="swiper-slide" style="width: 215px; margin-right: 24px;">Slide 2</div>',
+      '</div>'
+    ].join('');
+
+    const restored = restoreMeasuredSliderGeometry(sampleHtml);
+
+    assert.ok(
+      restored.includes('width: calc((100% - 72px) / 4) !important'),
+      'a serialized capture must still restore the measured slide geometry'
+    );
+    assert.ok(restored.includes('margin-right: 24px !important'), 'the measured gap is restored from the escaped annotation');
+    assert.ok(!restored.includes('data-antifan-slider'), 'the capture-only annotation is dropped from the emitted markup');
+  });
+
+  it('holds track scope across raw-text elements whose content looks like markup', () => {
+    const annotation = JSON.stringify({ perView: 2, fractional: false, gap: 0, slide: 300, track: 600 });
+    const sampleHtml = [
+      `<div class="swiper-wrapper" data-antifan-slider='${annotation}'>`,
+      '  <div class="swiper-slide">Slide 1</div>',
+      '  <script>var template = "</div><div class=\"swiper-slide\">";</script>',
+      '  <div class="swiper-slide">Slide 2</div>',
+      '</div>'
+    ].join('');
+
+    const restored = restoreMeasuredSliderGeometry(sampleHtml);
+
+    const rewritten = restored.match(/width: calc\(\(100% - 0px\) \/ 2\) !important/g) ?? [];
+    assert.strictEqual(rewritten.length, 2, 'both slides keep the captured ratio despite tag-like text inside the script');
+  });
+
+  it('keeps a partial-per-view track on the measured ratio instead of a whole-slide law', () => {
+    // The live instance showed 3.5 slides across; a law that divides the track into whole
+    // slides would widen every card, so only the measured fraction may be emitted.
+    const annotation = JSON.stringify({ perView: 4, fractional: true, gap: 20, slide: 250, track: 1000 });
+    const sampleHtml = [
+      `<div class="swiper-wrapper" data-antifan-slider='${annotation}'>`,
+      '  <div class="swiper-slide" style="width: 250px; margin-right: 20px;">Slide 1</div>',
+      '</div>'
+    ].join('');
+
+    const restored = restoreMeasuredSliderGeometry(sampleHtml);
+
+    assert.ok(restored.includes('width: calc(25%) !important'), 'a fractional track keeps the measured slide-to-track ratio');
+    assert.ok(!restored.includes('(100%'), 'no whole-slide law may be emitted for a partial per-view track');
+  });
+
+  it('sizes a whole-per-view slide by the law the library recomputes, at every track width', () => {
+    // The measured capture: (1440 - 220) / 2 = 610. The live instance recomputes the same
+    // law when the track resizes, so the emitted rule must reproduce it at another width,
+    // not only at the width the capture happened to use.
+    const annotation = JSON.stringify({ perView: 2, fractional: false, gap: 220, slide: 610, track: 1440 })
+      .replace(/"/g, '&quot;');
+    const sampleHtml = [
+      `<div class="swiper-wrapper" data-antifan-slider="${annotation}">`,
+      '  <div class="swiper-slide" style="width: 610px; margin-right: 220px;">Slide 1</div>',
+      '</div>'
+    ].join('');
+
+    const restored = restoreMeasuredSliderGeometry(sampleHtml);
+    const rule = /width: calc\(\(100% - (\d+)px\) \/ (\d+)\)/.exec(restored);
+    assert.ok(rule, 'the law is emitted for a whole-per-view track');
+    const slideAt = (track: number) => (track - Number(rule![1])) / Number(rule![2]);
+    assert.strictEqual(slideAt(1440), 610, 'the law reproduces the measured slide at the capture width');
+    assert.strictEqual(slideAt(1425), 602.5, 'the law reproduces the slide the library recomputes at a narrower track');
+  });
+
+  it('keeps the captured slide offset so a carousel opens on the slide the reference shows', () => {
     const sample = '<div class="slick-track" style="transform: translateX(-1090px); transition: 0.3s;">Content</div>';
     const sanitized = sanitizeSectionMarkup(sample);
-    assert.ok(sanitized.includes('transform: translateX(0px);'), 'neutralizes translateX');
+    assert.ok(sanitized.includes('transform: translateX(-1090px);'), 'keeps the captured translateX offset');
 
     const sample3d = '<div class="s-content" style="transform: translate3d(-545px, 0px, 0px);">Content</div>';
     const sanitized3d = sanitizeSectionMarkup(sample3d);
-    assert.ok(sanitized3d.includes('transform: translate3d(0px, 0px, 0px);'), 'neutralizes translate3d');
+    assert.ok(sanitized3d.includes('transform: translate3d(-545px, 0px, 0px);'), 'keeps the captured translate3d offset');
   });
 });
 

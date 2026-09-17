@@ -240,6 +240,21 @@ async function createBrowser(viewport) {
   openWindows.add(win);
   win.once('closed', () => openWindows.delete(win));
 
+  // A crashed renderer leaves pending CDP promises unsettled, so the process drains its event
+  // loop and exits 0 mid-suite: the gate then reports nothing about the controls it never ran.
+  // Recording the death makes every later call fail loudly, and the suite records BLOCKED.
+  let deathReason = null;
+  win.webContents.on('render-process-gone', (_event, details) => {
+    deathReason = details && details.reason ? details.reason : 'unknown';
+    console.error(
+      `[test-clone-features] renderer gone during ${viewport.name || 'surface'}: ${JSON.stringify(details)}`
+    );
+  });
+  const guard = () => {
+    if (deathReason) throw new Error(`SURFACE_DEAD: renderer ${deathReason}`);
+  };
+  const traceCdp = process.env.CLONE_E2E_TRACE ? (m) => console.log(`[cdp] ${m}`) : () => {};
+
   // Initialize renderer process with initial document before attaching CDP
   await win.loadURL('about:blank');
 
@@ -297,6 +312,7 @@ async function createBrowser(viewport) {
 
   return {
     async navigate(url) {
+      guard();
       let navTimeout;
       let loadFailure = null;
 
@@ -367,6 +383,7 @@ async function createBrowser(viewport) {
     },
 
     async evaluate(expression, timeoutMs = 30_000) {
+      guard();
       let timer;
       try {
         const timeoutPromise = new Promise((_, reject) => {
@@ -379,14 +396,32 @@ async function createBrowser(viewport) {
           ? `(${expression.toString()})()`
           : expression;
 
+        // Dispatching script into a frame that is mid-navigation aborts the browser process
+        // rather than rejecting, so the call waits out any load already in flight.
+        if (win.webContents.isLoading()) {
+          await new Promise((resolve) => {
+            const done = () => {
+              win.webContents.removeListener('did-stop-loading', done);
+              resolve();
+            };
+            win.webContents.on('did-stop-loading', done);
+            setTimeout(done, 5000);
+          });
+        }
+
         const evalPromise = win.webContents.executeJavaScript(script, true);
-        return await Promise.race([evalPromise, timeoutPromise]);
+        traceCdp(`evaluate:start len=${script.length}`);
+        const result = await Promise.race([evalPromise, timeoutPromise]);
+        traceCdp('evaluate:done');
+        return result;
       } finally {
         clearTimeout(timer);
       }
     },
 
     async move(x, y) {
+      guard();
+      traceCdp('move');
       const rx = Math.round(x);
       const ry = Math.round(y);
       await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
@@ -397,6 +432,8 @@ async function createBrowser(viewport) {
     },
 
     async click(x, y) {
+      guard();
+      traceCdp('click');
       const rx = Math.round(x);
       const ry = Math.round(y);
 
@@ -444,6 +481,8 @@ async function createBrowser(viewport) {
     },
 
     async key(keyName, modifiers = []) {
+      guard();
+      traceCdp('key');
       const modMask = getModifierMask(modifiers);
       const def = KEY_DEFINITIONS[keyName] || {
         code: keyName,
@@ -478,12 +517,16 @@ async function createBrowser(viewport) {
     },
 
     async type(text) {
+      guard();
+      traceCdp('type');
       const str = String(text ?? '');
       if (!str) return;
       await win.webContents.debugger.sendCommand('Input.insertText', { text: str });
     },
 
     async scroll(x, y, deltaY) {
+      guard();
+      traceCdp('scroll');
       const rx = Math.round(x);
       const ry = Math.round(y);
 
@@ -523,18 +566,30 @@ async function createBrowser(viewport) {
     },
 
     async screenshot() {
+      guard();
+      traceCdp('screenshot:start');
       let timer;
       try {
         const timeoutPromise = new Promise((_, reject) => {
           timer = setTimeout(() => {
-            reject(new Error('screenshot capturePage timed out after 30 seconds'));
+            reject(new Error('screenshot capture timed out after 30 seconds'));
           }, 30_000);
         });
+        // CDP page capture runs through the renderer's own frame path. win.capturePage()
+        // drives the offscreen software compositor, which aborts the browser process on
+        // large pages instead of rejecting.
         const capturePromise = (async () => {
-          const img = await win.capturePage();
-          return img.toPNG();
+          const shot = await win.webContents.debugger.sendCommand('Page.captureScreenshot', {
+            format: 'png',
+            fromSurface: true,
+            captureBeyondViewport: false,
+          });
+          const data = shot && shot.data ? shot.data : '';
+          return Buffer.from(data, 'base64');
         })();
-        return await Promise.race([capturePromise, timeoutPromise]);
+        const png = await Promise.race([capturePromise, timeoutPromise]);
+        traceCdp('screenshot:done');
+        return png;
       } finally {
         clearTimeout(timer);
       }

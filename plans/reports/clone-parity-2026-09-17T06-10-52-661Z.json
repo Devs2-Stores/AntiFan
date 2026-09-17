@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-17T06:10:53.395Z",
+  "liveOrigin": "x",
+  "cloneOrigin": "y",
+  "tolerancePercent": 2,
+  "devices": {},
+  "cases": [
+    {
+      "route": "/",
+      "surface": "desktop",
+      "liveUrl": "x/",
+      "cloneUrl": "y/",
+      "verdict": "ERROR",
+      "error": "ERR_INVALID_URL (-300) loading ''",
+      "elapsedMs": 1121
+    },
+    {
+      "route": "/",
+      "surface": "mobile",
+      "liveUrl": "x/",
+      "cloneUrl": "y/",
+      "verdict": "ERROR",
+      "error": "ERR_INVALID_URL (-300) loading ''",
+      "elapsedMs": 1149
+    }
+  ],
+  "verdict": "BLOCKED",
+  "executed": 0,
+  "passed": 0,
+  "blocked": 0,
+  "errored": 2,
+  "worstMismatchPercent": null,
+  "finishedAt": "2026-09-17T06:10:57.354Z"
+}
