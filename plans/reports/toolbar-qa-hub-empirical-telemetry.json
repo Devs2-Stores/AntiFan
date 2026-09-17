@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-12T06:56:41.330Z",
+  "timestamp": "2026-09-17T22:14:07.846Z",
   "themeQa": {
     "beforeClick": {
       "btnText": "QA",
@@ -7,7 +7,7 @@
       "overlayDisplay": "none"
     },
     "afterClick1": {
-      "btnText": "QA",
+      "btnText": "QA Clean",
       "btnDisabled": false,
       "overlayDisplay": "flex",
       "summaryText": "Platform: unknown\nResult: PASSED (Critical: 0, Total: 0)\nLiquid errors: 0\nLayout overflow culprits: 0\nBroken assets: 0\nHS violations: 0\nDiagnostic issues (critical): 0\nDiagnostic warnings: 0\n"
@@ -16,10 +16,10 @@
       "overlayDisplay": "none"
     },
     "afterClick2": {
-      "btnText": "QA",
+      "btnText": "QA Clean",
       "overlayDisplay": "flex"
     },
-    "invocations": 2
+    "invocations": 1
   },
   "workflowHub": {
     "afterOpen": {
@@ -51,19 +51,15 @@
   "ipcCalls": [
     {
       "channel": "antifan:toolbar:get-initial-state",
-      "time": 1789196201629
+      "time": 1789683248120
     },
     {
       "channel": "antifan:toolbar:theme-qa-run",
-      "time": 1789196202133
-    },
-    {
-      "channel": "antifan:toolbar:theme-qa-run",
-      "time": 1789196202345
+      "time": 1789683248634
     },
     {
       "channel": "antifan:workflow:get-state",
-      "time": 1789196202453
+      "time": 1789683248946
     },
     {
       "channel": "antifan:workflow:run",
@@ -107,8 +103,166 @@
           ]
         }
       },
-      "time": 1789196203297
+      "time": 1789683249667
     }
   ],
-  "rendererLogs": []
+  "rendererLogs": [
+    {
+      "level": 3,
+      "msg": "[core health] Failed to fetch state: Error: Error invoking remote method 'antifan:core-health:get-state': Error: No handler registered for 'antifan:core-health:get-state'"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "themeqa-initial-idle",
+      "verdict": "PASS",
+      "expected": {
+        "btnText": "QA",
+        "btnDisabled": false,
+        "overlayDisplay": "none"
+      },
+      "observed": {
+        "btnText": "QA",
+        "btnDisabled": false,
+        "overlayDisplay": "none"
+      }
+    },
+    {
+      "id": "themeqa-click-opens-summary",
+      "verdict": "PASS",
+      "expected": "flex",
+      "observed": "flex"
+    },
+    {
+      "id": "themeqa-run-invoked-once",
+      "verdict": "PASS",
+      "expected": 1,
+      "observed": 1
+    },
+    {
+      "id": "themeqa-status-reflects-passed-state",
+      "verdict": "PASS",
+      "expected": "QA Clean",
+      "observed": "QA Clean"
+    },
+    {
+      "id": "themeqa-summary-renders-report",
+      "verdict": "PASS",
+      "expected": "summary containing \"Result: PASSED\"",
+      "observed": "Platform: unknown\nResult: PASSED (Critical: 0, Total: 0)\nLiquid errors: 0\nLayout overflow culprits: 0\nBroken assets: 0\nHS violations: 0\nDiagnostic issues (critical): 0\nDiagnostic warnings: 0\n"
+    },
+    {
+      "id": "themeqa-close-hides-overlay",
+      "verdict": "PASS",
+      "expected": "none",
+      "observed": "none"
+    },
+    {
+      "id": "themeqa-second-click-reopens-without-rerun",
+      "verdict": "PASS",
+      "expected": {
+        "overlayDisplay": "flex",
+        "invocations": 1
+      },
+      "observed": {
+        "overlayDisplay": "flex",
+        "invocations": 1
+      }
+    },
+    {
+      "id": "hub-open-shows-overlay",
+      "verdict": "PASS",
+      "expected": "flex",
+      "observed": "flex"
+    },
+    {
+      "id": "hub-badges-match-seeded-counts",
+      "verdict": "PASS",
+      "expected": {
+        "workflows": "1",
+        "mcp": "12"
+      },
+      "observed": {
+        "workflows": "1",
+        "mcp": "12"
+      }
+    },
+    {
+      "id": "hub-workflows-list-renders-seeded-item",
+      "verdict": "PASS",
+      "expected": {
+        "itemsCount": 1,
+        "title": "Haravan / Sapo Theme Storefront QA & Audit",
+        "pill": "qa"
+      },
+      "observed": {
+        "itemsCount": 1,
+        "title": "Haravan / Sapo Theme Storefront QA & Audit",
+        "pill": "qa"
+      }
+    },
+    {
+      "id": "hub-workflow-detail-and-run-visible",
+      "verdict": "PASS",
+      "expected": {
+        "wfDetailVisible": true,
+        "btnRunVisible": true
+      },
+      "observed": {
+        "wfDetailVisible": true,
+        "btnRunVisible": true
+      }
+    },
+    {
+      "id": "hub-mcp-tab-lists-seeded-tools",
+      "verdict": "PASS",
+      "expected": 12,
+      "observed": 12
+    },
+    {
+      "id": "hub-mcp-detail-renders-seeded-tool",
+      "verdict": "PASS",
+      "expected": {
+        "name": "antifan_open_tab",
+        "perm": "Quyền Yêu Cầu: execute",
+        "schema": "{}"
+      },
+      "observed": {
+        "name": "antifan_open_tab",
+        "desc": "Mở tab Chromium mới trong AntiFan Desktop",
+        "perm": "Quyền Yêu Cầu: execute",
+        "schema": "{}"
+      }
+    },
+    {
+      "id": "hub-mcp-detail-has-no-run-button",
+      "verdict": "PASS",
+      "expected": false,
+      "observed": false
+    },
+    {
+      "id": "hub-run-reports-passed",
+      "verdict": "PASS",
+      "expected": "PASSED (100%)",
+      "observed": "PASSED (100%)"
+    },
+    {
+      "id": "hub-run-reports-step-tally",
+      "verdict": "PASS",
+      "expected": "Hoàn thành: 6/6 bước thành công (1.20s)",
+      "observed": "Hoàn thành: 6/6 bước thành công (1.20s)"
+    },
+    {
+      "id": "hub-ipc-invocations",
+      "verdict": "PASS",
+      "expected": {
+        "getState": 1,
+        "run": 1
+      },
+      "observed": {
+        "getState": 1,
+        "run": 1
+      }
+    }
+  ]
 }

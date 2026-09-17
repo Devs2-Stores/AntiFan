@@ -1,7 +1,7 @@
 {
   "probe": "test/e2e/mcp-dispatch-hub-probe.cjs",
-  "startedAt": "2026-09-17T07:17:23.809Z",
-  "finishedAt": "2026-09-17T07:17:25.559Z",
+  "startedAt": "2026-09-17T22:13:58.509Z",
+  "finishedAt": "2026-09-17T22:14:00.316Z",
   "electron": "43.4.0",
   "node": "24.18.1",
   "cwd": "E:\\Work\\apps\\AntiFan",
@@ -187,7 +187,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 105
+          "waitedMs": 84
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -293,83 +293,83 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 324,
-            "h": 600.67,
-            "top": 268.2,
-            "left": 40.05
+            "w": 319.14,
+            "h": 591.66,
+            "top": 269.39,
+            "left": 48.33
           },
           "reconciliation": {
-            "w": 308,
-            "h": 95.03,
-            "top": 276.2,
-            "left": 48.05
+            "w": 303.38,
+            "h": 93.61,
+            "top": 277.27,
+            "left": 56.21
           },
           "margin": {
-            "w": 308,
-            "h": 53.03,
-            "top": 607.3,
-            "left": 48.05
+            "w": 303.38,
+            "h": 52.24,
+            "top": 603.4,
+            "left": 56.21
           },
           "truncation": {
-            "w": 308,
-            "h": 37.52,
-            "top": 666.33,
-            "left": 48.05
+            "w": 303.38,
+            "h": 36.95,
+            "top": 661.55,
+            "left": 56.21
           },
           "rowsWithPositiveHeight": 6,
           "rows": [
             {
               "id": "mcpDispatchReconciliation",
               "rect": {
-                "w": 308,
-                "h": 95.03,
-                "top": 276.2,
-                "left": 48.05
+                "w": 303.38,
+                "h": 93.61,
+                "top": 277.27,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchRow:0",
               "rect": {
-                "w": 308,
-                "h": 109.03,
-                "top": 377.23,
-                "left": 48.05
+                "w": 303.38,
+                "h": 107.4,
+                "top": 376.79,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchRow:1",
               "rect": {
-                "w": 308,
-                "h": 109.03,
-                "top": 492.27,
-                "left": 48.05
+                "w": 303.38,
+                "h": 107.4,
+                "top": 490.09,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchQuarantineMargin",
               "rect": {
-                "w": 308,
-                "h": 53.03,
-                "top": 607.3,
-                "left": 48.05
+                "w": 303.38,
+                "h": 52.24,
+                "top": 603.4,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchTruncation",
               "rect": {
-                "w": 308,
-                "h": 37.52,
-                "top": 666.33,
-                "left": 48.05
+                "w": 303.38,
+                "h": 36.95,
+                "top": 661.55,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchCoreHole",
               "rect": {
-                "w": 308,
-                "h": 151.03,
-                "top": 709.84,
-                "left": 48.05
+                "w": 303.38,
+                "h": 148.77,
+                "top": 704.41,
+                "left": 56.21
               }
             }
           ],
@@ -477,7 +477,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel NO_DATA_ROOT_RESOLVED",
-          "waitedMs": 52
+          "waitedMs": 53
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -507,10 +507,10 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 339,
-            "h": 120,
-            "top": 251.7,
-            "left": 40.05
+            "w": 333.92,
+            "h": 118.2,
+            "top": 253.14,
+            "left": 48.33
           },
           "reconciliation": null,
           "margin": null,
@@ -615,7 +615,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel CENSUS_DRIFT",
-          "waitedMs": 54
+          "waitedMs": 52
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -645,10 +645,10 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 339,
-            "h": 168,
-            "top": 251.7,
-            "left": 40.05
+            "w": 333.92,
+            "h": 165.48,
+            "top": 253.14,
+            "left": 48.33
           },
           "reconciliation": null,
           "margin": null,
@@ -845,22 +845,22 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 324,
-            "h": 557.16,
-            "top": 268.2,
-            "left": 40.05
+            "w": 319.14,
+            "h": 548.8,
+            "top": 269.39,
+            "left": 48.33
           },
           "reconciliation": {
-            "w": 308,
-            "h": 95.03,
-            "top": 276.2,
-            "left": 48.05
+            "w": 303.38,
+            "h": 93.61,
+            "top": 277.27,
+            "left": 56.21
           },
           "margin": {
-            "w": 308,
-            "h": 53.03,
-            "top": 607.3,
-            "left": 48.05
+            "w": 303.38,
+            "h": 52.24,
+            "top": 603.4,
+            "left": 56.21
           },
           "truncation": null,
           "rowsWithPositiveHeight": 5,
@@ -868,46 +868,46 @@
             {
               "id": "mcpDispatchReconciliation",
               "rect": {
-                "w": 308,
-                "h": 95.03,
-                "top": 276.2,
-                "left": 48.05
+                "w": 303.38,
+                "h": 93.61,
+                "top": 277.27,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchRow:0",
               "rect": {
-                "w": 308,
-                "h": 109.03,
-                "top": 377.23,
-                "left": 48.05
+                "w": 303.38,
+                "h": 107.4,
+                "top": 376.79,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchRow:1",
               "rect": {
-                "w": 308,
-                "h": 109.03,
-                "top": 492.27,
-                "left": 48.05
+                "w": 303.38,
+                "h": 107.4,
+                "top": 490.09,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchQuarantineMargin",
               "rect": {
-                "w": 308,
-                "h": 53.03,
-                "top": 607.3,
-                "left": 48.05
+                "w": 303.38,
+                "h": 52.24,
+                "top": 603.4,
+                "left": 56.21
               }
             },
             {
               "id": "mcpDispatchCoreHole",
               "rect": {
-                "w": 308,
-                "h": 151.03,
-                "top": 666.33,
-                "left": 48.05
+                "w": 303.38,
+                "h": 148.77,
+                "top": 661.55,
+                "left": 56.21
               }
             }
           ],
@@ -1048,7 +1048,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel secrets",
-          "waitedMs": 52
+          "waitedMs": 63
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -1761,67 +1761,67 @@
     {
       "channel": "antifan:toolbar:get-initial-state",
       "scenario": null,
-      "at": "2026-09-17T07:17:24.038Z",
+      "at": "2026-09-17T22:13:58.788Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:get-phone-status",
       "scenario": null,
-      "at": "2026-09-17T07:17:24.069Z",
+      "at": "2026-09-17T22:13:58.791Z",
       "argSummary": "undefined"
     },
     {
       "channel": "antifan:workflow:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T07:17:24.112Z",
+      "at": "2026-09-17T22:13:58.838Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:set-overlay",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T07:17:24.112Z",
+      "at": "2026-09-17T22:13:58.839Z",
       "argSummary": "true"
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T07:17:24.113Z",
+      "at": "2026-09-17T22:13:58.839Z",
       "argSummary": null
     },
     {
       "channel": "antifan:core-health:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T07:17:24.113Z",
+      "at": "2026-09-17T22:13:58.840Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T07:17:24.114Z",
+      "at": "2026-09-17T22:13:58.921Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "B-unmeasured-no-census",
-      "at": "2026-09-17T07:17:24.512Z",
+      "at": "2026-09-17T22:13:59.223Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "C-unmeasured-with-census",
-      "at": "2026-09-17T07:17:24.692Z",
+      "at": "2026-09-17T22:13:59.412Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D1-hostile-projected",
-      "at": "2026-09-17T07:17:24.877Z",
+      "at": "2026-09-17T22:13:59.602Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D2-hostile-raw",
-      "at": "2026-09-17T07:17:25.226Z",
+      "at": "2026-09-17T22:13:59.965Z",
       "argSummary": null
     }
   ],
@@ -1971,7 +1971,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 105
+          "waitedMs": 84
         },
         "listItemCount": 6,
         "listIds": [
@@ -2125,22 +2125,22 @@
         "docScrollHeight": 695,
         "rowsWithPositiveHeight": 6,
         "reconciliation": {
-          "w": 308,
-          "h": 95.03,
-          "top": 276.2,
-          "left": 48.05
+          "w": 303.38,
+          "h": 93.61,
+          "top": 277.27,
+          "left": 56.21
         },
         "margin": {
-          "w": 308,
-          "h": 53.03,
-          "top": 607.3,
-          "left": 48.05
+          "w": 303.38,
+          "h": 52.24,
+          "top": 603.4,
+          "left": 56.21
         },
         "truncation": {
-          "w": 308,
-          "h": 37.52,
-          "top": 666.33,
-          "left": 48.05
+          "w": 303.38,
+          "h": 36.95,
+          "top": 661.55,
+          "left": 56.21
         },
         "overlayComputedDisplay": "flex",
         "listComputedVisibility": "visible",
@@ -2148,55 +2148,55 @@
           {
             "id": "mcpDispatchReconciliation",
             "rect": {
-              "w": 308,
-              "h": 95.03,
-              "top": 276.2,
-              "left": 48.05
+              "w": 303.38,
+              "h": 93.61,
+              "top": 277.27,
+              "left": 56.21
             }
           },
           {
             "id": "mcpDispatchRow:0",
             "rect": {
-              "w": 308,
-              "h": 109.03,
-              "top": 377.23,
-              "left": 48.05
+              "w": 303.38,
+              "h": 107.4,
+              "top": 376.79,
+              "left": 56.21
             }
           },
           {
             "id": "mcpDispatchRow:1",
             "rect": {
-              "w": 308,
-              "h": 109.03,
-              "top": 492.27,
-              "left": 48.05
+              "w": 303.38,
+              "h": 107.4,
+              "top": 490.09,
+              "left": 56.21
             }
           },
           {
             "id": "mcpDispatchQuarantineMargin",
             "rect": {
-              "w": 308,
-              "h": 53.03,
-              "top": 607.3,
-              "left": 48.05
+              "w": 303.38,
+              "h": 52.24,
+              "top": 603.4,
+              "left": 56.21
             }
           },
           {
             "id": "mcpDispatchTruncation",
             "rect": {
-              "w": 308,
-              "h": 37.52,
-              "top": 666.33,
-              "left": 48.05
+              "w": 303.38,
+              "h": 36.95,
+              "top": 661.55,
+              "left": 56.21
             }
           },
           {
             "id": "mcpDispatchCoreHole",
             "rect": {
-              "w": 308,
-              "h": 151.03,
-              "top": 709.84,
-              "left": 48.05
+              "w": 303.38,
+              "h": 148.77,
+              "top": 704.41,
+              "left": 56.21
             }
           }
         ]
@@ -2210,7 +2210,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel NO_DATA_ROOT_RESOLVED",
-          "waitedMs": 52
+          "waitedMs": 53
         },
         "listItemCount": 0,
         "notice": {
