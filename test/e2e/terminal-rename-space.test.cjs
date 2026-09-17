@@ -94,6 +94,10 @@ app.whenReady().then(async () => {
     webPreferences: {
       preload: path.join(__dirname, '..', '..', '.compiled', 'src', 'preload', 'standalone-preload.js'),
       contextIsolation: true,
+      // Mirrors production's standalone views (native-tab-host.ts): a sandboxed
+      // preload cannot require a relative module, so leaving the default sandbox
+      // on makes this harness exercise a window the app never creates.
+      sandbox: false,
       nodeIntegration: false,
     },
   });

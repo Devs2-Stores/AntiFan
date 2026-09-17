@@ -172,6 +172,12 @@ app.whenReady().then(async () => {
     webPreferences: {
       preload: path.join(__dirname, '..', '..', '.compiled', 'src', 'preload', 'standalone-preload.js'),
       contextIsolation: true,
+      // Production creates every standalone view with sandbox: false
+      // (native-tab-host.ts). A sandboxed preload cannot require a relative
+      // module, so the default sandbox leaves it unloaded and the renderer
+      // without its bridge - a harness that does not mirror the real window
+      // would certify a surface the app never creates.
+      sandbox: false,
       nodeIntegration: false,
     },
   });
