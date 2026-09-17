@@ -101,6 +101,16 @@ Program acceptance criteria (report §6) are reproduced verbatim in
 | 8 | [Quota adoption](./phase-08-quota-adoption.md) | Pending |
 | 9 | [Core Health defects D1–D11](./phase-09-core-health-defects.md) | Pending |
 | 10 | [120-minute soak & evidence](./phase-10-soak-120m-and-evidence.md) | Pending |
+| 11 | [Verification lane truth](./phase-11-verification-lane-truth.md) | **In progress** |
+
+**Phase 11 is the instrument, and it runs first.** It is the adjudicated union of
+the best-of-5 audit of the red e2e lane: 19 confirmed findings, 2 refuted packet
+claims, 1 uncertain. Its two root causes are one **test** defect (a max-of-20
+sample gated as `p95` at 120 ms, below the product's own documented 200–2500 ms
+stall envelope) and one **product** defect (the renewal-persist throttle was dead
+code, so a 1 Hz heartbeat appended a full-revisions frame every second). Every
+phase below is graded by the lanes this phase repairs, and the autonomous loop's
+"trust but verify the assertions" pass reads this register.
 
 ## 120-minute soak contract (Phase 10)
 

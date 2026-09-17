@@ -1,0 +1,86 @@
+{
+  "iteration": 0,
+  "phase": "11-verification-lane-truth",
+  "unit": "phase-11 instrumentation repair (wave 1: U1/U3/U5-U16)",
+  "unitStatus": "wave-1 units integrated and lane-verified; U3 + U30 closed",
+  "lane": "test:e2e",
+  "startedAt": "2026-09-18",
+  "baseline": {
+    "e2e": "red - theme-golden-live 180s timeout (run 1) then pass 11.5s (run 2); industrial lane red on the max-of-20 'p95' gate at 120ms",
+    "rootCauses": [
+      "U1 test: max-of-20 gated as p95 at 120ms",
+      "U2 product: dead renewal-persist throttle -> 1Hz full-revisions append (FIXED + regression-proven)"
+    ],
+    "liveStoresMeasured260918": {
+      "registerBytes": 1837479,
+      "registerLines": 1001,
+      "registerPath": "E:/Work/.antifan-data/issues/verification-register.jsonl",
+      "attachmentFrames": 2,
+      "attachmentBytes": 3517,
+      "attachmentNote": "the 2,585-frame bloat measured in the audit is gone; the two remaining frames are two revisions of one record, so the throttle fix has no backlog to clear",
+      "ledgerRuntimeMismatchFrames": 0,
+      "ledgerNote": "the current non-quarantine partitions hold 0 RUNTIME_MISMATCH frames; the audit's 2,444 came from partitions now quarantined"
+    }
+  },
+  "units": [
+    {
+      "id": "U2",
+      "status": "proven",
+      "evidence": "test/main/attachment-runtime-scoping.test.ts - 'throttles heartbeat renewals instead of appending a durable frame per tick': fails pre-fix (actual 6, expected 1 frames), passes post-fix; pid rebind still writes through",
+      "commit": null
+    },
+    {
+      "id": "U3",
+      "status": "proven",
+      "evidence": "Both harnesses now wire isTabAllowed/resolveTabId/resolveFailoverTabId (+getDocumentGeneration) and assert zero stale-target warnings in-process: industrial Milestone 7 (close-tab failover: authority rotation + next dispatch on the live replacement + no warning) and the golden lane's capture window over its dispatch phase. Structural guard: test/main/capture-lane-host-mirror.test.ts asserts both harnesses mirror the composition root's runtime delegates. Falsified: golden fails on the captured warnings when resolveTabId is unwired; npm run test:e2e green 5/5 in 40.1s.",
+      "commit": null
+    },
+    {
+      "id": "U30",
+      "status": "proven",
+      "evidence": "test/main/mcp-proxy-bound-tab-rotation.test.ts - the proxy's bound-tab default follows the authority: open rotates to the created tab, close-with-replacement rotates to failoverTabId, close-without-replacement clears (no resurrection from the bootstrap), an unrelated close does not move it. Fails pre-fix on cases 2 and 3 with the close branch disabled. Found and fixed via the new industrial Milestone 7 case (TARGET_MISMATCH after a close-induced failover).",
+      "commit": null
+    }
+  ],
+  "wave1": {
+    "dispatched": [
+      "FixIndustrialSmoke",
+      "FixGoldenLiveLane",
+      "FixSuiteWatchdogs"
+    ],
+    "covers": [
+      "U1",
+      "U3",
+      "U5",
+      "U6",
+      "U7",
+      "U8",
+      "U9",
+      "U10",
+      "U11",
+      "U12",
+      "U13",
+      "U14",
+      "U15",
+      "U16",
+      "U20",
+      "client-timeout-gap",
+      "force-exit-gap"
+    ],
+    "deferred": [
+      "U17",
+      "U24",
+      "U18",
+      "U23"
+    ],
+    "status": "lane-green after integration: test:e2e 5/5 (40.1s - both live smokes assert zero stale-target warnings; industrial Milestone 7 now proves the close-tab failover incl. authority rotation), test:main 1315 pass/0 fail, test:fast 1261 pass/0 fail on rerun (run 1 red on the goal-runner kill/resume wait budget, recorded as U31). U3 and U30 proven (see units).",
+    "integrationFindings": {
+      "U25": "tab-devtools-host case 22 pinned CAPTURE_TIMEOUT but the committed capture rework reports NO_RENDER_SURFACE when the native tier never answered; test repaired (native tier answers with a mismatched raster), production contract unchanged",
+      "U26": "omp-mcp-adapter's blanket no-node:fs ban conflicts with the accepted proxy attempt store; narrowed to the real invariant (no credential/instance discovery, one fs require, env-named dir) plus a new behavioural import-time-write test - the only narrowed assertion in this phase, flagged for review",
+      "U27": "getViewport swallowed a thrown surface probe (catch {}), hiding CDP timeouts; under that blind spot no live harness mirrored readRenderSurface/isTabOffscreen/getSessionTabList from the composition root, so every lane asserted captures on unmeasured surfaces. Port now reports probeError {code,message}; both smokes mirror the three fields; capture-lane-host-mirror.test.ts guards the parity",
+      "U28": "CLAIM CHANGE: milestone 6 asserted a background-created tab returns an MCP image. That tab is never laid out (measured 0x296 CSS px, document.hidden) so the raster could only be empty or fabricated. The milestone now asserts NO_RENDER_SURFACE + classified cause + the tab still serving ref-only DOM actions. Positive capture coverage unchanged (milestone 1 IHDR vs live viewport; golden product-card slice)",
+      "U29": "test:e2e:strict stays opt-in: the default lane still needs --test-force-exit for leaked handles"
+    }
+  },
+  "notes": "loop-protocol.md is the loop contract. Falsification pass required before any commit: a green must be shown to fail without the change."
+}
