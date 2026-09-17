@@ -274,3 +274,125 @@ describe('NativeTabHost initial navigation history', () => {
     assert.strictEqual(clearCount, 0);
   });
 });
+
+// Native device emulation reaches into a view's platform widget. A view that is not a
+// child of the window has none, and calling it there dereferences a null render widget
+// host view and takes the whole browser process down (STATUS_ACCESS_VIOLATION, read of
+// 0x0) - a native fault no try/catch can intercept, which is why the refusal has to
+// happen before the call rather than around it. These cases pin the refusal, that a
+// refused native call leaves the emulation bookkeeping truthful so a later call made
+// while the view is attached still retries, and the split-tab shape behind the crash.
+describe('NativeTabHost device emulation requires a platform surface', () => {
+  const EMULATION_PARAMS = {
+    screenSize: { width: 390, height: 844 },
+    viewSize: { width: 390, height: 844 },
+    deviceScaleFactor: 3,
+    scale: 1,
+  };
+
+  function createEmulationHost() {
+    const host = Object.create(NativeTabHost.prototype) as TestHost;
+    const calls: string[] = [];
+    const makeWc = (name: string) => ({
+      isDestroyed: () => false,
+      getUserAgent: () => 'default-ua',
+      setUserAgent: () => {},
+      setZoomFactor: () => {},
+      insertCSS: async () => 'clip-key',
+      executeJavaScript: async () => true,
+      enableDeviceEmulation: () => { calls.push(`enable:${name}`); },
+      disableDeviceEmulation: () => { calls.push(`disable:${name}`); },
+    });
+    const makeView = (webContents: unknown) => ({
+      webContents,
+      setBounds: () => {},
+      setBackgroundColor: () => {},
+    });
+    const desktopWc = makeWc('desktop');
+    const mobileWc = makeWc('mobile');
+    const desktopView = makeView(desktopWc);
+    const mobileView = makeView(mobileWc);
+    const children: unknown[] = [];
+    host.window = {
+      isDestroyed: () => false,
+      getContentBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+      contentView: {
+        children,
+        addChildView: (view: unknown) => {
+          const existing = children.indexOf(view);
+          if (existing >= 0) children.splice(existing, 1);
+          children.push(view);
+        },
+        removeChildView: (view: unknown) => {
+          const existing = children.indexOf(view);
+          if (existing >= 0) children.splice(existing, 1);
+        },
+      },
+    };
+    host.emulatedWebContents = new WeakSet();
+    host.appliedClipRadius = new Map();
+    host.touchEmulationStates = new Map();
+    host.tabs = new Map();
+    host.activeTabId = 'tab-desktop';
+    host.isSidebarOpen = false;
+    host.defaultUserAgent = 'default-ua';
+    host.broadcastState = () => {};
+    return { host, calls, children, desktopWc, mobileWc, desktopView, mobileView };
+  }
+
+  it('refuses native emulation for a view with no platform surface', () => {
+    const { host, calls, desktopWc, desktopView } = createEmulationHost();
+    host.tabs.set('tab-desktop', { state: { splitMode: false }, view: desktopView });
+
+    host.safeEnableDeviceEmulation(desktopWc, EMULATION_PARAMS, desktopView);
+
+    assert.deepStrictEqual(calls, []);
+    assert.strictEqual(host.emulatedWebContents.has(desktopWc), false);
+  });
+
+  it('applies native emulation once the view is a child of the window', () => {
+    const { host, calls, children, desktopWc, desktopView } = createEmulationHost();
+    children.push(desktopView);
+
+    host.safeEnableDeviceEmulation(desktopWc, EMULATION_PARAMS, desktopView);
+
+    assert.deepStrictEqual(calls, ['enable:desktop']);
+    assert.strictEqual(host.emulatedWebContents.has(desktopWc), true);
+  });
+
+  it('defers the native disable while detached so the emulation state stays truthful', () => {
+    const { host, calls, children, desktopWc, desktopView } = createEmulationHost();
+    children.push(desktopView);
+    host.safeEnableDeviceEmulation(desktopWc, EMULATION_PARAMS, desktopView);
+
+    children.length = 0;
+    host.safeDisableDeviceEmulation(desktopWc, desktopView);
+    // No native call, and the WebContents is still recorded as emulated: clearing the
+    // record here would strand the platform in its emulated state forever.
+    assert.deepStrictEqual(calls, ['enable:desktop']);
+    assert.strictEqual(host.emulatedWebContents.has(desktopWc), true);
+
+    children.push(desktopView);
+    host.safeDisableDeviceEmulation(desktopWc, desktopView);
+    assert.deepStrictEqual(calls, ['enable:desktop', 'disable:desktop']);
+    assert.strictEqual(host.emulatedWebContents.has(desktopWc), false);
+  });
+
+  it('never applies native emulation to a split tab\'s detached pane', () => {
+    const run = (attachMobile: boolean) => {
+      const { host, calls, children, desktopView, mobileView } = createEmulationHost();
+      const tab = { state: { splitMode: true, zoomFactor: 1 }, view: desktopView, mobileView };
+      host.tabs.set('tab-desktop', tab);
+      children.push(desktopView);
+      if (attachMobile) children.push(mobileView);
+
+      host.applyTabDeviceEmulation(tab, 1600, 900, 74);
+      return calls;
+    };
+
+    // With both panes attached the split path does emulate the mobile pane, so the
+    // absence below is the attachment guard and not an earlier return on the path.
+    assert.ok(run(true).includes('enable:mobile'), 'an attached mobile pane is emulated');
+    assert.deepStrictEqual(run(false).filter((call) => call === 'enable:mobile'), []);
+  });
+});

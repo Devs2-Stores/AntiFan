@@ -672,10 +672,25 @@ export class NativeTabHost extends EventEmitter {
   }
 
 
+  /**
+   * Native device emulation reaches into the WebContents' platform widget. A view
+   * that is not a child of the window has no such widget, and applying emulation to
+   * it dereferences a null render widget host view, killing the whole browser
+   * process — observed as STATUS_ACCESS_VIOLATION, "read of 0x0", while a background
+   * tab's viewport was being set. `try`/`catch` cannot intercept a native fault.
+   *
+   * A view without a surface keeps the CDP emulation applied by
+   * `applyCdpDeviceEmulationState`, which is what defines its layout viewport; the
+   * native half lands on the next `updateLayout()` once the view is displayable.
+   *
+   * @param view The view that owns `wc`. When supplied and detached, refuse.
+   */
   private safeEnableDeviceEmulation(
     wc: Electron.WebContents | null | undefined,
-    params: Parameters<Electron.WebContents['enableDeviceEmulation']>[0]
+    params: Parameters<Electron.WebContents['enableDeviceEmulation']>[0],
+    view?: WebContentsView | null
   ): void {
+    if (view && !this.isTabViewAttached(view)) return;
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
     try {
       if (typeof wc.enableDeviceEmulation === 'function') {
@@ -815,7 +830,11 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  private safeDisableDeviceEmulation(wc: Electron.WebContents | null | undefined): void {
+  private safeDisableDeviceEmulation(wc: Electron.WebContents | null | undefined, view?: WebContentsView | null): void {
+    // Native disable has the same platform-surface requirement as the enable half.
+    // Returning before the bookkeeping keeps `emulatedWebContents` truthful: the
+    // emulation is still on, so a later call made while the view is attached retries.
+    if (view && !this.isTabViewAttached(view)) return;
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
     if (!this.emulatedWebContents.has(wc)) return;
     try {
@@ -5096,7 +5115,7 @@ export class NativeTabHost extends EventEmitter {
           deviceScaleFactor: splitLayout.desktop.deviceScaleFactor,
           viewSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
           scale: splitLayout.desktop.scale,
-        });
+        }, tab.view);
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
         try {
           if (!tab.view.webContents.isDestroyed()) {
@@ -5131,7 +5150,7 @@ export class NativeTabHost extends EventEmitter {
           deviceScaleFactor: splitLayout.mobile.deviceScaleFactor,
           viewSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
           scale: splitLayout.mobile.scale,
-        });
+        }, tab.mobileView);
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
         try {
           if (!tab.mobileView.webContents.isDestroyed()) {
@@ -5218,7 +5237,7 @@ export class NativeTabHost extends EventEmitter {
           deviceScaleFactor: preset.deviceScaleFactor || (preset.category === 'desktop' ? 1 : 2),
           viewSize: { width: preset.width, height: preset.height },
           scale: renderScale,
-        });
+        }, tab.view);
         // Dynamic corner clipping per-device preset, clear for desktop/flat screens.
         // The view background must mirror the clip state on every preset change: a
         // rounded preset needs a transparent view so the device chassis shows through
@@ -5258,7 +5277,7 @@ export class NativeTabHost extends EventEmitter {
         this.applyCdpTouchEmulation(tab.view.webContents, false);
         this.applyCdpDeviceEmulationState(tab.view.webContents, null);
         this.setSafeUserAgent(tab.view.webContents, this.defaultUserAgent);
-        this.safeDisableDeviceEmulation(tab.view.webContents);
+        this.safeDisableDeviceEmulation(tab.view.webContents, tab.view);
 
         const userZoom = tab.state.zoomFactor || 1.0;
         try {
@@ -7406,7 +7425,7 @@ export class NativeTabHost extends EventEmitter {
           deviceScaleFactor: bp.deviceScaleFactor || (bp.mobile ? 2 : 1),
           viewSize: { width: bp.width, height: bp.height },
           scale: 1,
-        });
+        }, tab.view);
 
         await new Promise((resolve) => setTimeout(resolve, 60));
 
@@ -7476,7 +7495,7 @@ export class NativeTabHost extends EventEmitter {
       }
     } finally {
       try {
-        this.safeDisableDeviceEmulation(wc);
+        this.safeDisableDeviceEmulation(wc, tab.view);
         if (previousPreset && previousPreset !== 'responsive') {
           this.setDevicePreset(targetId, previousPreset);
         } else {

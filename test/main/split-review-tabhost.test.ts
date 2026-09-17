@@ -119,12 +119,30 @@ function createTestHost() {
   };
   host.window = {
     contentView: {
-      addChildView: () => {},
-      removeChildView: () => {},
+      // A real child list, not a no-op pair: the host's native emulation primitives
+      // refuse to touch a WebContents whose view has no platform widget, and this list
+      // is what tells an attached view from a detached one. Without it every view reads
+      // as surface-less, which no production tab ever is.
+      children: [] as unknown[],
+      addChildView: (view: any, index?: number) => {
+        const children: any[] = host.window.contentView.children;
+        const existing = children.indexOf(view);
+        if (existing >= 0) children.splice(existing, 1);
+        if (typeof index === 'number') children.splice(Math.max(0, Math.min(index, children.length)), 0, view);
+        else children.push(view);
+      },
+      removeChildView: (view: any) => {
+        const children: any[] = host.window.contentView.children;
+        const existing = children.indexOf(view);
+        if (existing >= 0) children.splice(existing, 1);
+      },
     },
     getBounds: () => ({ x: 0, y: 0, width: 1400, height: 900 }),
     getContentBounds: () => ({ x: 0, y: 0, width: 1400, height: 900 }),
   };
+  // An active tab's view is in the window in production; the emulation primitives reach
+  // the platform only through such a view, so the harness starts from the same state.
+  host.attachTabView(host.tabs.get('tab-split-1')?.view, false);
   host.sidebarWidth = 380;
   host.isSidebarOpen = false;
   host.isBookmarkBarVisible = false;
@@ -135,6 +153,15 @@ function createTestHost() {
   host.updateLayout = () => {
     const tab = host.tabs.get(host.activeTabId);
     if (tab) {
+      // Production `updateLayout` attaches the active tab's panes before applying
+      // emulation; mirroring it here keeps the harness's views attached, which is the
+      // state every emulation call is made in.
+      if (tab.view && !host.window.contentView.children.includes(tab.view)) {
+        host.attachTabView(tab.view, false);
+      }
+      if (tab.state.splitMode && tab.mobileView && !host.window.contentView.children.includes(tab.mobileView)) {
+        host.attachTabView(tab.mobileView, true);
+      }
       (NativeTabHost.prototype as any).applyTabDeviceEmulation.call(host, tab, 1400, 850, 42);
     }
   };
@@ -592,6 +619,11 @@ describe('NativeTabHost Split Review Integration', () => {
     const tab = tabs.get('tab-split-1')!;
     tab.state.splitMode = true;
     tab.mobileView = { webContents: mobileWc, setBounds: () => {} } as any;
+    // Emulation reaches the platform only through a view that is a child of the window;
+    // production never drives this path for a pane without a surface (a native emulation
+    // call there faults the browser process), so both panes are attached first.
+    host.window.contentView.addChildView(tab.view);
+    host.window.contentView.addChildView(tab.mobileView);
 
     let desktopUaSet = '';
     let mobileUaSet = '';
