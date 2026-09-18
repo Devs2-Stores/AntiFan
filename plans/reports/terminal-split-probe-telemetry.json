@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-09-12T07:02:28.945Z",
+  "timestamp": "2026-09-18T23:43:57.540Z",
   "checks": {
     "remountHydrationGuard": {
       "emptyCallHydratedFromBackend": true,
       "emptyCallDetails": {
-        "lines": 24,
+        "lines": 6,
         "lastSeq": 3,
         "cursorX": 0,
         "cursorY": 3,
