@@ -23,6 +23,34 @@ empty array replaces 1,000 verdicts with an empty file, atomically.
 This phase is first in the plan because it is **irreversible × a precondition**:
 every other phase is accepted through this subsystem.
 
+### Root cause of the live `totalCount: 0` (2026-09-18, measured after the
+### durability work landed — corrects this phase's opening diagnosis)
+
+The zero is **not** produced by this subsystem. Live on app pid 43168 (bridge
+`127.0.0.1:20130`, runtime in the ledger's authority snapshot):
+
+| Call | Result |
+|---|---|
+| `anti.verification.list {}` | `{"totalCount":0,"verifications":[]}` |
+| `anti.verification.list {"tabId":"tab-e2e-1"}` | real register records |
+| records in `scope.tabId = tab-e2e-1` (on disk) | 324 |
+| records in `scope.tabId = <live bound tab 9c5d2bd9-…>` | **0** |
+
+In-process, the same compiled module reads `E:\Work\.antifan-data` and
+`listVerifications({})` returns **1001** records, so the file-backed read is
+healthy. The surface fabricates the filter: `scripts/antifan-omp-mcp.cjs`
+`invoke()` injects an ambient `tabId` into every call that omits one
+(`resolveBoundTabId` at `:171-179`, injection at `:2243`), and for
+`anti.verification.list` `tabId` is a **record filter**
+(`issue-register.ts:1014-1027`, `v.scope.tabId === options.tabId`). An unscoped
+list therefore arrives pre-filtered to a tab with no records and answers an
+empty page — R2 is satisfied by the subsystem and defeated by the transport.
+
+Fix ownership: **phase 6** (surface/args transport), requirement R6 below.
+Acceptance for this phase's `anti.verification.list` probe must be re-run
+**after** the surface fix, from a fresh proxy process (the running OMP session
+holds the old injection code).
+
 ## Requirements
 
 - **R1** Reads answer from the file, not from a per-process array. A missing file

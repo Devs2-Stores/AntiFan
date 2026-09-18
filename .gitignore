@@ -10,6 +10,10 @@ contracts/dist/
 .antigravity/
 scratch/
 .probe-tmp/
+# Raw register/attachment dumps are local evidence: they carry live session ids,
+# attachment secret hashes and user claim text. The plan report that cites them
+# (reports/pre-boot/pre-boot-state.md) ships; the dumps themselves do not.
+plans/**/reports/pre-boot/*.jsonl
 appdata/
 .tmp-*
 *.tmp
