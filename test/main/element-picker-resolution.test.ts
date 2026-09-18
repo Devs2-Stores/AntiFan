@@ -449,8 +449,8 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
 
     const content = fs.readFileSync(res.markdownPath, 'utf8');
     // Verify critical sections
-    // Bumped with AGENT_CONTRACT_VERSION 3.3.0-lean -> 3.4.0-lean
-    assert.ok(content.includes('contract_version: "3.4.0-lean"'));
+    // Bumped AGENT_CONTRACT_VERSION to 3.5.0-lean
+    assert.ok(content.includes('contract_version: "3.5.0-lean"'));
     assert.ok(content.length < 7500, `Markdown content size (${content.length} chars) should be lean (< 7.5KB / ~1,500 tokens)`);
     assert.ok(content.includes('## Fable-Thinking Invariant Ledger & Safety Boundaries'));
     assert.ok(content.includes('PRESERVES'));

@@ -34,6 +34,7 @@ const ENV_KEYS = [
 	'ANTIFAN_CORE_TIMEOUT_MS',
 	'ANTIFAN_PROJECT_ROOT',
 	'ANTIFAN_CORE_PACK_LIMIT',
+	'ANTIFAN_CORE_BRIDGE_GATE',
 ];
 
 async function withEnv(overrides, fn) {
@@ -544,4 +545,221 @@ test('a transient outage does not refuse receipt actions after Core recovers', a
 			assert.equal(afterRecovery, undefined, 'a recovered Core is no longer refused');
 		},
 	);
+});
+
+// ---------------------------------------------------------------------------
+// Storefront decoupling P0: intent gating (clone vs storefront-edit)
+// ---------------------------------------------------------------------------
+
+test('storefront-edit prompt returns zero messages and records BRIDGE_CONTEXT_SKIPPED once', async () => {
+	const dir = tmpDir('core-bridge-storefront-edit-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+
+		const prompt = 'ẩn nút Book Now bằng display none';
+		const messages = await h.emitBeforeAgentStart(prompt, ctx);
+		assert.equal(messages.length, 0, 'storefront-edit prompt returns zero messages');
+
+		const skipped = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(skipped.length, 1, 'records exactly one BRIDGE_CONTEXT_SKIPPED session entry');
+		assert.equal(skipped[0].data?.intent, 'storefront-edit');
+
+		// An identical re-prompt adds no second skip event
+		const again = await h.emitBeforeAgentStart(prompt, ctx);
+		assert.equal(again.length, 0, 'identical re-prompt returns zero messages');
+		const skippedAgain = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(skippedAgain.length, 1, 'identical re-prompt adds no second skip event');
+
+		const fileEvents = readJsonl(log).filter((r) => r.event === 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(fileEvents.length, 1, 'file log matches session entry');
+	});
+});
+
+test('clone intent still seeds exactly one core-context-pack message', async () => {
+	const dir = tmpDir('core-bridge-clone-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+
+		const prompt = 'clone website https://example.com vào theme hiện có';
+		const messages = await h.emitBeforeAgentStart(prompt, ctx);
+		assert.equal(messages.length, 1, 'clone intent seeds exactly one message');
+		const msg = messages[0];
+		assert.equal(msg.customType, 'antifan-core-bridge');
+		assert.equal(msg.details.kind, 'core-context-pack');
+		assert.match(msg.details.packId, /^pack-/);
+
+		const seeded = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SEEDED');
+		assert.equal(seeded.length, 1, 'BRIDGE_CONTEXT_SEEDED recorded');
+	});
+});
+
+test('with ANTIFAN_CORE_BRIDGE_GATE=off, storefront-edit prompt seeds a pack', async () => {
+	const dir = tmpDir('core-bridge-gate-off-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv(
+		{
+			SUPER_CORE_DB: db,
+			ANTIFAN_CORE_BRIDGE_LOG: log,
+			ANTIFAN_CORE_CLI: undefined,
+			ANTIFAN_PROJECT_ROOT: undefined,
+			ANTIFAN_CORE_BRIDGE_GATE: 'off',
+		},
+		async () => {
+			const h = makePi();
+			bridgeHook(h.pi);
+			const ctx = { cwd: REPO };
+
+			const prompt = 'ẩn nút Book Now bằng display none';
+			const messages = await h.emitBeforeAgentStart(prompt, ctx);
+			assert.equal(messages.length, 1, 'seeds a pack when gate is off');
+			const msg = messages[0];
+			assert.equal(msg.customType, 'antifan-core-bridge');
+			assert.equal(msg.details.kind, 'core-context-pack');
+			assert.match(msg.details.packId, /^pack-/);
+
+			const seeded = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SEEDED');
+			assert.equal(seeded.length, 1, 'BRIDGE_CONTEXT_SEEDED recorded');
+		},
+	);
+});
+
+test('general prompt seeds pack, subsequent storefront-edit clears pack and context strips earlier pack', async () => {
+	const dir = tmpDir('core-bridge-seq-strip-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+
+		// 1. General prompt seeds a pack
+		const generalMessages = await h.emitBeforeAgentStart('general prompt to analyze system', ctx);
+		assert.equal(generalMessages.length, 1, 'general prompt seeds exactly one pack message');
+		assert.equal(generalMessages[0].details.kind, 'core-context-pack');
+		assert.match(generalMessages[0].details.packId, /^pack-/);
+		const firstPackId = generalMessages[0].details.packId;
+
+		// 2. Storefront-edit prompt in the same session returns zero messages
+		const editMessages = await h.emitBeforeAgentStart('ẩn nút Book Now bằng display none', ctx);
+		assert.equal(editMessages.length, 0, 'storefront-edit prompt returns zero messages');
+
+		// 3. context handler strips earlier pack message from conversation (reuse packMessage('pack-stale-old'))
+		const results = await h.emit(
+			'context',
+			{ messages: [packMessage('pack-stale-old'), { role: 'user', content: 'x', timestamp: 1 }] },
+			ctx,
+		);
+		const out = results.map((r) => r?.messages).find(Boolean);
+		assert.ok(out, 'context handler returns filtered messages');
+		assert.equal(out.length, 1, 'must leave only the user message');
+		assert.equal(out[0].role, 'user');
+		assert.equal(out[0].content, 'x');
+
+		// Also verify that the earlier pack message from turn 1 is stripped
+		const resultsFirst = await h.emit(
+			'context',
+			{ messages: [packMessage(firstPackId), { role: 'user', content: 'y', timestamp: 2 }] },
+			ctx,
+		);
+		const outFirst = resultsFirst.map((r) => r?.messages).find(Boolean);
+		assert.ok(outFirst, 'context handler strips previously active pack as well');
+		assert.equal(outFirst.length, 1);
+		assert.equal(outFirst[0].role, 'user');
+		assert.equal(outFirst[0].content, 'y');
+	});
+});
+
+test('storefront-edit: "xóa nút mua ngay trên mobile" returns zero messages and records BRIDGE_CONTEXT_SKIPPED', async () => {
+	const dir = tmpDir('core-bridge-storefront-edit-xoa-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+
+		const prompt = 'xóa nút mua ngay trên mobile';
+		const messages = await h.emitBeforeAgentStart(prompt, ctx);
+		assert.equal(messages.length, 0, 'storefront-edit prompt returns zero messages');
+
+		const skipped = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(skipped.length, 1, 'records exactly one BRIDGE_CONTEXT_SKIPPED session entry');
+		assert.equal(skipped[0].data?.intent, 'storefront-edit');
+
+		const fileEvents = readJsonl(log).filter((r) => r.event === 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(fileEvents.length, 1, 'file log matches session entry');
+	});
+});
+
+test('storefront-edit: "delete cart button from header" returns zero messages and records BRIDGE_CONTEXT_SKIPPED', async () => {
+	const dir = tmpDir('core-bridge-storefront-edit-delete-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+
+		const prompt = 'delete cart button from header';
+		const messages = await h.emitBeforeAgentStart(prompt, ctx);
+		assert.equal(messages.length, 0, 'storefront-edit prompt returns zero messages');
+
+		const skipped = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(skipped.length, 1, 'records exactly one BRIDGE_CONTEXT_SKIPPED session entry');
+		assert.equal(skipped[0].data?.intent, 'storefront-edit');
+
+		const fileEvents = readJsonl(log).filter((r) => r.event === 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(fileEvents.length, 1, 'file log matches session entry');
+	});
+});
+
+test('clone wins over storefront-edit: "chỉnh banner cho giống mẫu tham khảo" seeds core-context-pack', async () => {
+	const dir = tmpDir('core-bridge-clone-wins-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+
+		const prompt = 'chỉnh banner cho giống mẫu tham khảo';
+		const messages = await h.emitBeforeAgentStart(prompt, ctx);
+		assert.equal(messages.length, 1, 'clone intent wins and seeds exactly one message');
+		const msg = messages[0];
+		assert.equal(msg.customType, 'antifan-core-bridge');
+		assert.equal(msg.details.kind, 'core-context-pack');
+		assert.match(msg.details.packId, /^pack-/);
+
+		const skipped = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(skipped.length, 0, 'not skipped');
+
+		const seeded = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SEEDED');
+		assert.equal(seeded.length, 1, 'BRIDGE_CONTEXT_SEEDED recorded');
+	});
+});
+
+test('clone wins over storefront-edit: "chỉnh theo web đối thủ" seeds core-context-pack', async () => {
+	const dir = tmpDir('core-bridge-clone-web-doi-thu-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+
+		const messages = await h.emitBeforeAgentStart('chỉnh header theo web đối thủ', ctx);
+		assert.equal(messages.length, 1, 'reference phrasing seeds exactly one message');
+		assert.equal(messages[0].details.kind, 'core-context-pack');
+		assert.match(messages[0].details.packId, /^pack-/);
+		assert.equal(h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED').length, 0, 'not skipped');
+	});
 });

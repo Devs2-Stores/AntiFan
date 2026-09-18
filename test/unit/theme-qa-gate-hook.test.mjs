@@ -25,6 +25,7 @@ const BYPASS_TOKENS = [
   "qaStatus: QA_INCONCLUSIVE",
   "qaStatus:QA_INCONCLUSIVE",
 ];
+const MICRO_TOKEN = "qaStatus: QA_MICRO_STATIC";
 const TTL_MS = 10 * 60_000;
 const REMIND_EVERY = 8;
 const GATE_REMINDER_SENTINEL = "QA GATE PENDING";
@@ -99,6 +100,15 @@ function count(haystack, needle) {
 
 function writeCall(handlers, ctx, target, toolName = "write") {
   return handlers.get("tool_call")({ toolName, input: { path: target } }, ctx);
+}
+
+function editCall(handlers, ctx, absPath, addedLines = ["color: red;"]) {
+  const lines = Array.isArray(addedLines) ? addedLines : [addedLines];
+  const plusBody = lines.map((l) => `+${l}`).join("\n");
+  return handlers.get("tool_call")(
+    { toolName: "edit", input: { input: `[${absPath}#TAG]\n@@\n${plusBody}` } },
+    ctx
+  );
 }
 
 function result(handlers, ctx, content) {
@@ -348,4 +358,300 @@ test("churn hint and QA reminder compose into one tool_result", () => {
   const text = resText(result(handlers, ctx, "ok"));
   assert.equal(count(text, GATE_REMINDER_SENTINEL), 1, "QA reminder present");
   assert.equal(count(text, CHURN_SENTINEL), 1, "churn hint present in the same result");
+});
+
+test("micro lane: qualifying single-file CSS edit clears on assistant declaration, not tool message", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const cssPath = path.join(root, "assets", "custom.css");
+
+  editCall(handlers, ctx, cssPath, ["body { color: red; }"]);
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after qualifying micro edit");
+
+  handlers.get("context")(
+    {
+      messages: [
+        { role: "tool", content: `status: ${MICRO_TOKEN}` },
+        { role: "user", content: MICRO_TOKEN },
+      ],
+    },
+    ctx
+  );
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "non-assistant token message does not clear gate");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Micro CSS tweak applied. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 0, "assistant micro token clears the qualifying gate");
+});
+
+test("micro lane rejection: structural or Liquid file cannot be cleared by micro token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  const liquidPath = path.join(root, "sections", "hero.liquid");
+
+  editCall(handlers, ctx, liquidPath, ["<div class=\"hero\">{% render 'hero' %}</div>"]);
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after liquid edit");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear structural edit");
+});
+
+test("micro lane rejection: diff exceeding 10 added lines cannot be cleared by micro token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const cssPath = path.join(root, "assets", "custom.css");
+
+  const lines = Array.from({ length: 12 }, (_, i) => `.rule-${i} { color: red; }`);
+  editCall(handlers, ctx, cssPath, lines);
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after 12-line edit");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear diff > 10 lines");
+});
+
+test("micro lane rejection: multi-file edits cannot be cleared by micro token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const file1 = path.join(root, "assets", "custom.css");
+  const file2 = path.join(root, "assets", "theme.css");
+
+  editCall(handlers, ctx, file1, ["body { color: red; }"]);
+  editCall(handlers, ctx, file2, ["h1 { font-size: 16px; }"]);
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after two-file edit");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear multi-file edits");
+});
+
+test("micro lane fail-closed: unobservable tool input shape (ast_edit) cannot be cleared by micro token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const cssPath = path.join(root, "assets", "custom.css");
+
+  handlers.get("tool_call")(
+    {
+      toolName: "ast_edit",
+      input: { path: cssPath },
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after ast_edit call");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear unobservable shape");
+});
+
+test("token hidden in assistant tool arguments does not clear the gate", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const cssPath = path.join(root, "assets", "custom.css");
+
+  editCall(handlers, ctx, cssPath, ["body { color: red; }"]);
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears while gate armed");
+
+  handlers.get("context")(
+    {
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              function: {
+                arguments: JSON.stringify({ cmd: "grep qaStatus: QA_UNAVAILABLE" }),
+              },
+            },
+          ],
+        },
+      ],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "token in tool arguments must not clear gate");
+});
+
+test("multi-file single call cannot be cleared by micro token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  fs.mkdirSync(path.join(root, "sections"), { recursive: true });
+  const cssPath = path.join(root, "assets", "custom.css");
+  const liquidPath = path.join(root, "sections", "hero.liquid");
+
+  handlers.get("tool_call")(
+    {
+      toolName: "edit",
+      input: {
+        input: `[${cssPath}#A]\n@@\n+body { color: red; }\n[${liquidPath}#B]\n@@\n+div { color: blue; }`,
+      },
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after multi-file edit call");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear multi-file call");
+});
+
+test("bulk deletion cannot be cleared by micro token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const cssPath = path.join(root, "assets", "custom.css");
+
+  handlers.get("tool_call")(
+    {
+      toolName: "edit",
+      input: {
+        input: `[${cssPath}#TAG]\n@@\nCUT 1.=500:\n`,
+      },
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after bulk deletion");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear bulk deletion");
+});
+
+test(".css.liquid file cannot be cleared by micro token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const liquidCssPath = path.join(root, "assets", "theme.css.liquid");
+
+  editCall(handlers, ctx, liquidCssPath, ["body { color: red; }"]);
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after theme.css.liquid edit");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear .css.liquid file");
+});
+
+test("session_start resets state and clears pending gate reminders", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const cssPath = path.join(root, "assets", "custom.css");
+
+  editCall(handlers, ctx, cssPath, ["body { color: red; }"]);
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after arming gate");
+
+  handlers.get("session_start")();
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 0, "zero reminders after session_start reset");
+});
+
+test("micro lane fail-closed: block-syntax and REM edits cannot be cleared by micro token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const cssPath = path.join(root, "assets", "custom.css");
+
+  // AST block ops carry unobservable spans; the plain `N` prefix in the regex
+  // would otherwise count `CUT 10*` as a single changed line.
+  handlers.get("tool_call")(
+    { toolName: "edit", input: { input: `[${cssPath}#TAG]\nCUT 10*` } },
+    ctx
+  );
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after block CUT");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear block CUT");
+
+  handlers.get("session_start")();
+
+  handlers.get("tool_call")(
+    { toolName: "edit", input: { input: `[${cssPath}#TAG]\nREM` } },
+    ctx
+  );
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "reminder appears after REM");
+
+  handlers.get("context")(
+    {
+      messages: [{ role: "assistant", content: `Declared micro fix. ${MICRO_TOKEN}` }],
+    },
+    ctx
+  );
+
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear whole-file REM");
 });

@@ -635,22 +635,37 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
   });
 
   it('22. removeManagedTab isolates removal strictly to designated terminal session pool without corrupting other sessions', () => {
-    const host = createTestHost(['tab-primary-1', 'tab-primary-2', 'tab-shared']);
+    const host = createTestHost(['tab-primary-1', 'tab-primary-2', 'tab-shared', 'tab-owned-2']);
     assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-primary-1'), true);
     assert.strictEqual(host.bindTerminalAgentAffinity('terminal-2', 1, 'tab-primary-2'), true);
 
     assert.strictEqual(host.adoptChildTab('terminal-1', 'tab-shared', 1), true);
-    assert.strictEqual(host.adoptChildTab('terminal-2', 'tab-shared', 1), true);
+    assert.strictEqual(host.adoptChildTab('terminal-2', 'tab-owned-2', 1), true);
 
     assert.ok(host.getManagedTabIds('tab-primary-1').has('tab-shared'));
-    assert.ok(host.getManagedTabIds('tab-primary-2').has('tab-shared'));
+    assert.ok(host.getManagedTabIds('tab-primary-2').has('tab-owned-2'));
 
     // Remove tab-shared strictly from terminal-1
     assert.strictEqual(host.removeManagedTab('terminal-1', 'tab-shared', 1), true);
 
     // terminal-1 pool no longer has tab-shared
     assert.strictEqual(host.getManagedTabIds('tab-primary-1').has('tab-shared'), false);
-    // terminal-2 pool MUST still preserve tab-shared (cross-session isolation)
+    // terminal-2 pool MUST still preserve its own tab (cross-session isolation)
+    assert.strictEqual(host.getManagedTabIds('tab-primary-2').has('tab-owned-2'), true);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-primary-2', 'tab-owned-2'), true);
+
+    // Seating a tab into a second terminal transfers it — one tab, one owner. The
+    // session it left must not keep a copy in its pool or in its affinity entry:
+    // both readers answer whether terminal-1 still holds tab-shared.
+    assert.strictEqual(host.adoptChildTab('terminal-2', 'tab-shared', 1), true);
+    assert.strictEqual(host.getManagedTabIds('tab-primary-1').has('tab-shared'), false);
+    assert.strictEqual(host.getManagedTabIds('tab-primary-2').has('tab-shared'), true);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-primary-1', 'tab-shared'), false);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-primary-2', 'tab-shared'), true);
+
+    // A removal addressed at the session that no longer holds it frees nothing from
+    // the session that does: isolation holds in both directions.
+    host.removeManagedTab('terminal-1', 'tab-shared', 1);
     assert.strictEqual(host.getManagedTabIds('tab-primary-2').has('tab-shared'), true);
     assert.strictEqual(host.isTabAllowedForPrimary('tab-primary-2', 'tab-shared'), true);
   });
@@ -844,6 +859,30 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     // But the session-closed path DOES clear stale picks
     host.clearTerminalAgentAffinity('terminal-1');
     assert.strictEqual(host.tabs.get('tab-bystander')?.state.terminalSessionId, undefined);
+  });
+
+  it('31. Seating a tab into a second terminal revokes the first terminal authority over it', () => {
+    const host = createTestHost(['tab-a', 'tab-b', 'tab-shared']);
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-a');
+    host.bindTerminalAgentAffinity('terminal-2', 1, 'tab-b');
+    host.adoptChildTab('terminal-1', 'tab-shared', 1);
+    assert.strictEqual(host.isTerminalAllowedForTab('tab-shared', 'terminal-1'), true);
+
+    // The user seats the same tab into the second terminal: one tab, one owner.
+    assert.strictEqual(host.adoptChildTab('terminal-2', 'tab-shared', 1), true);
+
+    const previousOwner = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.ok(previousOwner);
+    assert.strictEqual(
+      previousOwner.managedTabIds?.includes('tab-shared'),
+      false,
+      'the previous owner stops naming the tab in its ownership record'
+    );
+    assert.strictEqual(previousOwner.managedTabIds?.includes('tab-a'), true, 'and keeps the tab it still owns');
+    assert.strictEqual(host.isTerminalAllowedForTab('tab-shared', 'terminal-1'), false, 'authority over it is revoked');
+    assert.strictEqual(host.isTerminalAllowedForTab('tab-shared', 'terminal-2'), true, 'the receiving terminal owns it');
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-a', 'tab-shared'), false);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-b', 'tab-shared'), true);
   });
 });
 

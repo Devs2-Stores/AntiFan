@@ -814,6 +814,10 @@ function renderCoreHubList(search: string) {
   items.forEach((it) => {
     const item = document.createElement('div');
     item.className = `hub-list-item ${hubCoreSelected?.id === it.id ? 'selected' : ''}`;
+    // The selection key is mirrored on the DOM so a row can be addressed by
+    // identity: the auto-selected surface row is always index 0, which makes
+    // positional selection silently point at the wrong row.
+    item.setAttribute('data-item-id', it.id);
     item.innerHTML = `
       <div class="hub-item-top">
         <span class="hub-item-title">${escapeHtml(it.title)}</span>

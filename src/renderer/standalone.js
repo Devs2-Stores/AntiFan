@@ -337,6 +337,23 @@ function categoryKeyOf(session) {
   return raw || UNCATEGORIZED_CATEGORY;
 }
 
+/**
+ * The key a session is grouped under. Normally its own category — except for a split pane,
+ * which is a pane of the tab that owns it: it is filed with its parent, so dragging the
+ * parent into a group takes its panes along instead of leaving them behind in the catch-all.
+ *
+ * Display-only, exactly like the sleep bucket: `session.category` is never rewritten, so a
+ * pane that is unsplit needs no bookkeeping. A pane whose parent is asleep never reaches
+ * here — it is parked with that parent, which is also its wake path. One whose parent the
+ * active filter dropped (or which is already gone) falls back to its own category and keeps
+ * its own row, because a pane the sidebar drops is a pane that cannot be reached or closed.
+ */
+function groupKeyOf(session, keyBySessionId) {
+  const parentId = (session && typeof session.splitOf === 'string') ? session.splitOf : '';
+  const parentKey = parentId ? keyBySessionId.get(parentId) : undefined;
+  return parentKey === undefined ? categoryKeyOf(session) : parentKey;
+}
+
 /** Category name -> user-chosen chip colour. Absence means "derive it from the name". */
 let categoryColors = Object.create(null);
 /** Categories the user marked with `*`. A marker only — `terminalCategories` orders. */
@@ -412,8 +429,11 @@ function groupSessionsByCategory(list) {
       else categoryOrder.splice(uncategorizedAt, 0, name);
     }
   }
+  // Every session's own key, so a pane can be filed under the key of the tab it splits.
+  const keyBySessionId = new Map();
+  for (const s of (list || [])) keyBySessionId.set(s.id, categoryKeyOf(s));
   for (const s of (list || [])) {
-    const key = categoryKeyOf(s);
+    const key = groupKeyOf(s, keyBySessionId);
     let group = byKey.get(key);
     if (!group) {
       group = { key, label: categoryLabelOf(key), color: categoryColorOf(key), items: [] };
@@ -3014,6 +3034,10 @@ function showCategoryPicker(sessionId, anchorEl) {
  * what the grouping is really derived from.
  */
 function applyCategoryToSession(sessionId, rawCategory, popover) {
+  // A pane has no group of its own: the group chosen for a pane is the group of the tab
+  // that owns it, so the whole family moves and the sidebar can never show a pane filed
+  // somewhere its parent is not.
+  const baseId = findSession(sessionId)?.splitOf || sessionId;
   const category = typeof rawCategory === 'string' ? rawCategory.trim() : '';
   if (popover) popover.style.display = 'none';
   // A name typed here becomes a durable group, not just a value on one tab, so it is
@@ -3021,12 +3045,12 @@ function applyCategoryToSession(sessionId, rawCategory, popover) {
   const isNewName = Boolean(category)
     && !terminalCategories.some((name) => name.toLowerCase() === category.toLowerCase());
   if (isNewName) terminalCategories.push(category);
-  const session = findSession(sessionId);
+  const session = findSession(baseId);
   if (session) session.category = category || undefined;
   if (typeof renderTabs === 'function') renderTabs();
   if (isNewName) persistTerminalTabPrefs();
   try {
-    api?.setCategory?.(sessionId, category || undefined);
+    api?.setCategory?.(baseId, category || undefined);
   } catch {}
 }
 
@@ -3146,9 +3170,12 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
     if (action === 'open-folder') {
       api?.openWorkspace(targetId);
     } else if (action === 'rebind-tab') {
-      const wrap = tabsEl.querySelector(`[data-session-id="${targetId}"]`);
+      // Affinity belongs to the tab that owns the pane: a right-click on a split row
+      // rebinds the parent, whose session id is the one the pane's shell reports.
+      const affinityTargetId = findSession(targetId)?.splitOf || targetId;
+      const wrap = tabsEl.querySelector(`.terminal-tab-wrap[data-session-id="${affinityTargetId}"]`);
       const anchor = wrap?.querySelector('.terminal-tab-affinity-badge') || wrap || item;
-      showAffinityPicker(targetId, anchor);
+      showAffinityPicker(affinityTargetId, anchor);
     } else if (action === 'rename') {
       const wrap = tabsEl.querySelector(`[data-session-id="${targetId}"]`);
       const titleSpan = wrap?.querySelector('.terminal-tab-title');
@@ -3188,7 +3215,10 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
     } else if (action === 'category') {
       const wrap = tabsEl.querySelector(`.terminal-tab-wrap[data-session-id="${targetId}"]`);
       const anchor = wrap?.querySelector('.terminal-tab-affinity-badge') || wrap || item;
-      showCategoryPicker(targetId, anchor);
+      // The picker speaks for the tab that owns the pane: that owner's group is the value
+      // shown, and picking one moves the parent — with its panes — rather than filing a
+      // pane into a group its parent is not in.
+      showCategoryPicker(findSession(targetId)?.splitOf || targetId, anchor);
     } else if (action === 'transcript') {
       if (transcriptPreviewSessionId === targetId) {
         closeTranscriptPreview();
@@ -3468,6 +3498,25 @@ function splitGlyphTitle(session) {
     : 'Pane chia đôi';
 }
 
+/** The tab-strip badge that opens the browser-tab affinity picker for one tab. */
+function createAffinityBadge(s) {
+  const badge = document.createElement('span');
+  badge.className = 'terminal-tab-affinity-badge unbound';
+  badge.setAttribute('data-session-id', s.id);
+  badge.textContent = '🎯 Gán Tab';
+  badge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
+  if (isSessionSleeping(s.id)) {
+    badge.className = 'terminal-tab-affinity-badge sleeping';
+    badge.textContent = '💤 Ngủ';
+    badge.title = 'Terminal đang ngủ — click để đánh thức';
+  }
+  badge.onclick = (e) => {
+    e.stopPropagation();
+    showAffinityPicker(s.id, badge);
+  };
+  return badge;
+}
+
 /**
  * Create-or-update the tab wrap for one session. Extracted from `renderTabs` so
  * the grouping pass can order wraps after every one of them exists.
@@ -3549,22 +3598,14 @@ function ensureTerminalTabWrap(s, currentWraps) {
     const beacon = document.createElement('span');
     beacon.className = 'terminal-tab-status-beacon';
 
-    const affinityBadge = document.createElement('span');
-    affinityBadge.className = 'terminal-tab-affinity-badge unbound';
-    affinityBadge.setAttribute('data-session-id', s.id);
-    affinityBadge.textContent = '🎯 Gán Tab';
-    affinityBadge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
-    if (isSessionSleeping(s.id)) {
-      affinityBadge.className = 'terminal-tab-affinity-badge sleeping';
-      affinityBadge.textContent = '💤 Ngủ';
-      affinityBadge.title = 'Terminal đang ngủ — click để đánh thức';
-    }
-    affinityBadge.onclick = (e) => {
-      e.stopPropagation();
-      showAffinityPicker(s.id, affinityBadge);
-    };
+    // Affinity is inherited, never owned by a pane: a split's shell reports its parent's
+    // session id, so a badge on a pane row could only ever read "chưa gán" and its picker
+    // would write a key no process advertises. The tab that owns the pane carries it.
+    const affinityBadge = s.splitOf ? null : createAffinityBadge(s);
 
-    b.append(icon, splitGlyph, titleSpan, affinityBadge, beacon);
+    b.append(icon, splitGlyph, titleSpan);
+    if (affinityBadge) b.append(affinityBadge);
+    b.append(beacon);
     b.title = `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`;
 
     b.onclick = () => {
@@ -3626,21 +3667,12 @@ function ensureTerminalTabWrap(s, currentWraps) {
       titleSpan.textContent = s.name;
     }
     let affinityBadge = wrap.querySelector('.terminal-tab-affinity-badge');
-    if (!affinityBadge) {
-      affinityBadge = document.createElement('span');
-      affinityBadge.className = 'terminal-tab-affinity-badge unbound';
-      affinityBadge.setAttribute('data-session-id', s.id);
-      affinityBadge.textContent = '🎯 Gán Tab';
-      affinityBadge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
-      if (isSessionSleeping(s.id)) {
-        affinityBadge.className = 'terminal-tab-affinity-badge sleeping';
-        affinityBadge.textContent = '💤 Ngủ';
-        affinityBadge.title = 'Terminal đang ngủ — click để đánh thức';
-      }
-      affinityBadge.onclick = (e) => {
-        e.stopPropagation();
-        showAffinityPicker(s.id, affinityBadge);
-      };
+    if (s.splitOf) {
+      // A wrap that became a pane row keeps no badge: the tab it splits owns the binding,
+      // and `updateAffinityBadges` reads the key off whatever badge is in the DOM.
+      affinityBadge?.remove();
+    } else if (!affinityBadge) {
+      affinityBadge = createAffinityBadge(s);
       const btn = wrap.querySelector('.terminal-tab');
       const beacon = wrap.querySelector('.terminal-tab-status-beacon');
       if (btn && beacon) {
@@ -4342,9 +4374,24 @@ function renderTabs() {
   // The bucket is appended last so it reads as "parked", after everything still running.
   const awakeSessions = [];
   const sleepingSessions = [];
+  // A pane's row belongs to the tab it splits, so a parked tab parks its rows. Main
+  // parks a parent's panes in the same transition; this set covers the broadcast that
+  // already shows the parent asleep before the pane's own state lands, which is the
+  // window where the pane is filed by its own category — the parent it inherits its
+  // group from is missing from the awake set — and leaks into another group.
+  const sleepingParentIds = new Set(
+    allSessions.filter((s) => s && s.state === 'sleeping' && !s.splitOf).map((s) => s.id),
+  );
   for (const s of allSessions) {
-    if (s && s.state === 'sleeping') sleepingSessions.push(s);
-    else awakeSessions.push(s);
+    if (!s) continue;
+    if (s.state === 'sleeping') {
+      // Sleeping split panes are implementation rows, not independent tabs.
+      // The split toggle wakes the existing session when the row is hidden.
+      if (!s.splitOf) sleepingSessions.push(s);
+      continue;
+    }
+    if (s.splitOf && sleepingParentIds.has(s.splitOf)) continue;
+    awakeSessions.push(s);
   }
   const groups = groupSessionsByCategory(awakeSessions);
   if (sleepingSessions.length > 0) {
@@ -4404,6 +4451,10 @@ function renderTabs() {
       // is drawn as a child of the tab it splits, not as a peer the user has to tell
       // apart from a real tab.
       wrap.classList.toggle('is-split-pane', Boolean(s.splitOf));
+      // A pane is moved by the tab that owns it, never on its own: a split cannot be
+      // reordered away from its parent, and its group follows the parent's, so dragging a
+      // pane row could only produce a drop the next render would undo.
+      wrap.draggable = !s.splitOf;
       wrap.classList.toggle('is-category-collapsed', isCollapsed);
       applyCategoryChip(wrap, group, isSidebarLayout);
       updateTabActivityUi(s.id);

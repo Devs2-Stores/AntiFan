@@ -32,12 +32,10 @@
  * marks the target draining, and the capture is refused by the drain guard.
  *
  * The register is sampled every cycle: its byte length must be monotone and
- * `anti.verification.list` must equal the parsed on-disk record count. The
- * proxy injects the session's bound tabId into calls that omit one, and for
- * this surface tabId is a scope filter — so a totalCount matching the
- * bound-tab-scoped count is recorded as `bound_tab_filtered` (a known surface
- * defect, fix in flight), while a divergence from both counts is a real
- * register failure.
+ * `anti.verification.list` must equal the parsed on-disk record count. That
+ * surface declares no ambient target field, so the proxy never injects a tabId
+ * into the harness's call (`{}`) and no scoped reading is legitimate: a
+ * totalCount below the on-disk count is a register divergence, full stop.
  *
  * Can be run standalone as a single-shot smoke test or as a sustained soak harness:
  *   node scripts/smoke-omp-closed-loop.cjs
@@ -535,13 +533,6 @@ function runElectronWorkload() {
       let rpcId = 100;
       let totalArtifactBytes = 0;
       let lastRegisterBytes = 0;
-      // Mirror of the proxy's bound-tab state (recordBoundTab): a successful
-      // tabs.create binds the new tab, a close binds its failover, and a host
-      // close is invisible to the proxy (the binding stays on the dead tab).
-      // Needed to compute the bound-tab-scoped register count — the harness's
-      // automation tab is set via a host call, never via MCP, so it is NOT the
-      // proxy's bound tab.
-      let proxyBoundTabId = null;
 
       // Per-iteration failure ledger (phase 10 R5/R7): a sample that could not
       // read the surface, or whose probe missed its expectation, is a FAILED
@@ -799,8 +790,6 @@ function runElectronWorkload() {
                 createdTabId = fromText || null;
               } catch {}
             }
-            // Mirror the proxy: browser.open-tab binds the created tab.
-            if (createdTabId) proxyBoundTabId = createdTabId;
           } else {
             // A refusal here must be self-diagnosing (phase 8 R3): used/limit + noun.
             check(
@@ -827,19 +816,6 @@ function runElectronWorkload() {
             }
             const closeOutcome = describeToolResult(closeResp);
             releasedTabId = closeOutcome.ok ? createdTabId : null;
-            // Mirror the proxy: browser.close-tab binds the failover it names.
-            if (closeOutcome.ok) {
-              const closeStructured = closeResp?.result?.structuredContent;
-              const closeText = (closeResp?.result?.content || []).map((c) => (typeof c.text === 'string' ? c.text : '')).join('');
-              let failover = [closeStructured?.failoverTabId, closeStructured?.tabId].find((v) => typeof v === 'string' && v.length > 0) || null;
-              if (!failover) {
-                try {
-                  const parsed = JSON.parse(closeText);
-                  failover = [parsed?.failoverTabId, parsed?.tabId].find((v) => typeof v === 'string' && v.length > 0) || null;
-                } catch {}
-              }
-              proxyBoundTabId = failover;
-            }
           }
           const createVerdict = checkExpectation(
             'quota.create',
@@ -902,8 +878,6 @@ function runElectronWorkload() {
                   drainTabId = [parsed?.tabId, parsed?.id, parsed?.tab?.id].find((v) => typeof v === 'string' && v.length > 0) || null;
                 } catch {}
               }
-              // Mirror the proxy: browser.open-tab binds the created tab.
-              if (drainTabId) proxyBoundTabId = drainTabId;
             }
             if (!drainTabId) {
               drainOutcome = { ok: false, code: 'SETUP_FAILED', text: `sacrificial tab create failed: ${drainCreateOutcome.code} ${drainCreateOutcome.text}` };
@@ -983,14 +957,14 @@ function runElectronWorkload() {
         }
 
         // --- Step 2e: Register integrity (phase 10 R5.1/R5.2 in-harness) ---
-        // The register is disk-authoritative: it must never shrink, and the
-        // surface count must equal the parsed on-disk record count every cycle —
-        // or, when the proxy's ambient tabId filter scopes the surface to the
-        // bound tab, the bound-tab-scoped count computed from the same records.
+        // The register is disk-authoritative: it must never shrink, and the surface
+        // count must equal the parsed on-disk record count every cycle. The called
+        // surface takes tabId as a filter and declares no ambient target field, so
+        // the proxy injects nothing into this call and no scoped reading is
+        // legitimate — a count below the on-disk count is a register divergence.
         const registerFile = path.join(StorageLocations.getDataRoot(), 'issues', 'verification-register.jsonl');
         let registerBytes = 0;
         let registerRecordCount = 0;
-        let boundTabRecordCount = 0;
         if (fs.existsSync(registerFile)) {
           const rawRegister = fs.readFileSync(registerFile, 'utf8');
           registerBytes = Buffer.byteLength(rawRegister, 'utf8');
@@ -998,16 +972,8 @@ function runElectronWorkload() {
             const trimmed = line.trim();
             if (trimmed.length === 0) continue;
             try {
-              const record = JSON.parse(trimmed);
+              JSON.parse(trimmed);
               registerRecordCount += 1;
-              // The OMP proxy injects the session's bound tabId into calls that
-              // omit one, and for this surface tabId is a scope filter — so a
-              // totalCount below the full count can be the ambient-filtered
-              // view, not a divergence. The bound-tab count is computed from
-              // the same disk records so both readings are distinguishable.
-              // proxyBoundTabId mirrors the proxy's recordBoundTab state (the
-              // harness's automation tab is host-bound, never MCP-bound).
-              if (record && record.scope && record.scope.tabId === proxyBoundTabId) boundTabRecordCount += 1;
             } catch {}
           }
         }
@@ -1055,18 +1021,11 @@ function runElectronWorkload() {
             recordFailure('register.surface', 'verification list returned no totalCount');
           } else if (reportedCount === registerRecordCount) {
             registerCheck = 'match';
-          } else if (proxyBoundTabId !== null && reportedCount === boundTabRecordCount) {
-            // Ambient tabId filter applied by the proxy (known surface defect,
-            // fix in flight): the count is the bound-tab-scoped view, not a
-            // register divergence — recorded as its own state, never a failure.
-            // Only reachable while the proxy is actually bound; an unbound
-            // proxy reporting 0 must not mask a real divergence.
-            registerCheck = 'bound_tab_filtered';
           } else {
             registerCheck = 'diverged';
             recordFailure(
               'register.count',
-              `verification surface totalCount (${reportedCount}) != on-disk records (${registerRecordCount}) or bound-tab records (${boundTabRecordCount})`
+              `verification surface totalCount (${reportedCount}) != on-disk records (${registerRecordCount})`
             );
           }
         }
@@ -1143,7 +1102,6 @@ function runElectronWorkload() {
           register: {
             bytes: registerBytes,
             records: registerRecordCount,
-            boundTabRecords: boundTabRecordCount,
             surfaceCount: reportedCount,
             check: registerCheck,
           },
@@ -1209,13 +1167,11 @@ function runElectronWorkload() {
         monotone: samples.every((s, i) => i === 0 || s.register.bytes >= samples[i - 1].register.bytes),
         lastRecordCount: finalSample.register.records,
         // 'match' = surface count equalled the full on-disk count;
-        // 'bound_tab_filtered' = the proxy's ambient tabId filter scoped the
-        // count to the bound tab (known surface defect, not a divergence);
         // 'diverged'/'unreadable' = real failures already counted per sample.
+        // No scoped reading is legitimate here (see Step 2e), so 'match' is the
+        // only state that may certify the surface.
         checkCounts: registerCheckCounts,
-        surfaceCountMatchesDisk: samples.every(
-          (s) => s.register.check === 'match' || s.register.check === 'bound_tab_filtered'
-        ),
+        surfaceCountMatchesDisk: samples.every((s) => s.register.check === 'match'),
       };
 
       const summary = {

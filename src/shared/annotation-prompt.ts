@@ -3,7 +3,7 @@
  * 100% Parity with Antigravity Browser standalone prompt generation contract.
  */
 
-export const AGENT_CONTRACT_VERSION = '3.4.0-lean';
+export const AGENT_CONTRACT_VERSION = '3.5.0-lean';
 
 export type TaskIntent =
   | 'tweak'
@@ -40,20 +40,20 @@ export interface AnnotationEvidenceEnvelope {
   terminalState: TerminalState;
 }
 
-export const STANDALONE_AGENT_CONTRACT = `## Core Execution Invariants (v3.4.0-lean)
-1. **Scope Lock**: Exactly ONE logical outcome matching the user request. Report adjacent issues; do NOT fix them unprompted.
-2. **Scout & Root Cause**: Verify ownership and root-cause mechanism at the source template before editing. Heuristics/locators are hints, not proof.
-3. **Source-Level Edits**: Modify the original component/template/style, not generated files or runtime workarounds.
-4. **Invariant Ledger**: PRESERVES untargeted behavior; DELIBERATELY CHANGES only requested targets; verify RISKS & side-effects before completing.`;
+export const STANDALONE_AGENT_CONTRACT = `## Core Execution Invariants (v3.5.0-lean)
+1. **Scope Lock**: Exactly ONE outcome matching request. Report adjacent issues; do not fix unprompted.
+2. **Scout & Root Cause**: Verify ownership at source template before editing. Heuristics are hints.
+3. **Source-Level Edits**: Modify original component/template/style, not generated files or workarounds.
+4. **Invariant Ledger**: PRESERVES untargeted behavior; DELIBERATELY CHANGES only requested targets; verify RISKS before completing.`;
 
 export const LIGHT_AGENT_CONTRACT = `## Intent Module - Small Tweak
-This module is additive; the core contract remains mandatory.
+This module is additive; core contract mandatory.
 
-1. Change only the named property at the owning source.
-2. Read the current and winning rendered value before editing; diagnose cascade/specificity instead of adding a blind override.
-3. Reuse the existing unit, token, variable, and component pattern.
-4. Verify the exact before -> after value and run the narrowest configured project check.
-5. Do not refactor or add abstractions for a one-property change.`;
+1. Change only named property at owning source.
+2. Read current and winning value; diagnose cascade/specificity before editing.
+3. Reuse existing unit, token, variable, and pattern.
+4. Verify exact before -> after value and run narrowest check.
+5. Do not refactor or add abstractions.`;
 
 /** Intents không sửa file repo — self-QA chỉ là bằng chứng, không bắt buộc. */
 const SELF_QA_READONLY_INTENTS: Partial<Record<TaskIntent, true>> = {
@@ -73,16 +73,17 @@ const SELF_QA_READONLY_INTENTS: Partial<Record<TaskIntent, true>> = {
  */
 export const SELF_QA_DIRECTIVE = `## Self-QA bắt buộc sau khi sửa (AntiFan Theme QA Gate)
 SAU KHI SỬA file theme, PHẢI tự kiểm chứng trên AntiFan MCP theo đúng thứ tự — mỗi task tự probe lại tool, KHÔNG kế thừa kết luận "tool không có" từ task trước:
-1. MỞ TAB XEM THẬT: navigate/reload tab tới Page URL (ưu tiên \`tabId\` trong "QA Binding"; không bind được thì navigate tab đang bind), rồi \`anti.inspect.dom\` + \`anti.inspect.styles\` đúng Element Selector xác nhận DOM live đã phản ánh edit. Chưa phản ánh → báo "verification pending theme sync", KHÔNG báo pass/fail.
+1. MỞ TAB XEM THẬT: navigate/reload tab tới Page URL (ưu tiên \`tabId\` trong "QA Binding"), rồi \`anti.inspect.dom\` + \`anti.inspect.styles\` đúng Element Selector xác nhận DOM live đã phản ánh edit. Chưa phản ánh → báo "verification pending theme sync", KHÔNG báo pass/fail.
 2. Chụp bằng chứng: \`anti.screenshot.viewport\` (hoặc \`anti.screenshot.full_page\`) vùng đã sửa.
-3. GỌI \`theme.qa_validate\` với \`tabId\` + \`workspaceRoot\` + \`expectedUrl\` + \`annotationId\` từ "QA Binding"; chỉ báo hoàn tất khi \`summary.passed === true\` và \`criticalCount === 0\`. Tool ghi receipt vào \`.antifan/qa-receipts/\` — receipt là bằng chứng gate, không phải lời báo của agent.
+3. GỌI \`theme.qa_validate\` với \`tabId\` + \`workspaceRoot\` + \`expectedUrl\` + \`annotationId\` từ "QA Binding"; chỉ báo hoàn tất khi \`summary.passed === true\` và \`criticalCount === 0\`. Receipt ghi vào \`.antifan/qa-receipts/\` làm bằng chứng gate.
 4. Fail → tự sửa tiếp NGAY trong lượt này, tối đa 2 vòng; sau mỗi vòng lặp lại bước 1-3.
-5. \`CAPABILITY_NOT_FOUND\` → re-probe ĐÚNG 1 lần (capability có thể vừa đăng ký sau restart); vẫn không có → \`qaStatus: QA_UNAVAILABLE\` kèm mã lỗi gốc, báo dev xác nhận visual trực tiếp. Lỗi auth (\`ATTACHMENT_REQUIRED\`, \`ATTACHMENT_INVALID\`, \`MCP_CONTEXT_REQUIRED\`, \`UNAUTHENTICATED\`) → terminal ngay, \`qaStatus: QA_UNAVAILABLE\`.
+5. \`CAPABILITY_NOT_FOUND\` → re-probe ĐÚNG 1 lần (capability có thể vừa đăng ký sau restart); vẫn không có → \`qaStatus: QA_UNAVAILABLE\` kèm mã lỗi gốc. Lỗi auth (\`ATTACHMENT_REQUIRED\`, \`ATTACHMENT_INVALID\`, \`MCP_CONTEXT_REQUIRED\`, \`UNAUTHENTICATED\`) → terminal ngay, \`qaStatus: QA_UNAVAILABLE\`.
 6. Lỗi môi trường (\`SETTLE_INCOMPLETE\`, \`CAPTURE_NOT_READY\`) → reload/re-probe rồi retry ĐÚNG 1 lần; vẫn lỗi → \`qaStatus: QA_INCONCLUSIVE\` kèm gate detail (network/fonts/images/dom).
 7. \`TARGET_REQUIRED\`/\`TARGET_MISMATCH\`/\`TARGET_STALE\`/\`URL_*_MISMATCH\` → \`anti.browser.rebind_target\` với \`tabId\` rồi retry 1 lần; vẫn mismatch → navigate tab đang bind tới Page URL rồi chạy lại bước 1-3.
 8. Hết 2 vòng vẫn fail → \`qaStatus: QA_FAILED\`, báo fail trung thực kèm criticalIssues, nhờ dev xác nhận hướng xử lý — KHÔNG báo hoàn tất.
-MỌI đường kết thúc PHẢI khai báo đúng một token \`qaStatus\`: \`QA_PASSED\` | \`QA_FAILED\` | \`QA_INCONCLUSIVE\` | \`QA_UNAVAILABLE\`. Báo "done" mà không có \`qaStatus\` là vi phạm contract.
-CẤM bịa kết quả QA: không có tool thì không có điểm số — không bao giờ tự gán summary.passed hay criticalCount nếu chưa gọi được tool.`;
+9. LÀN MICRO-EDIT (Pure-CSS): Sửa đúng 1 file CSS leaf trong \`assets/\` (\`*.css\`, \`*.scss\` — file có thể mang Liquid không bao giờ an toàn cho làn tĩnh), tổng dòng thay đổi (thêm + xoá/thay thế) ≤ 10 và KHÔNG chứa thẻ Liquid (\`{{\`/\`{%\`), agent được đóng gate tĩnh bằng \`qaStatus: QA_MICRO_STATIC\` kèm path + selector + số dòng thay đổi. Hook \`theme-qa-gate\` đối soát khai báo với edit quan sát được; vi phạm (nhiều file, sai path, >10 dòng, có Liquid, edit không đo được) ép chạy toàn bộ pipeline (bước 1-8).
+MỌI đường kết thúc PHẢI khai báo đúng một token \`qaStatus\`: \`QA_PASSED\` | \`QA_FAILED\` | \`QA_INCONCLUSIVE\` | \`QA_UNAVAILABLE\` | \`QA_MICRO_STATIC (lane 9)\`. Báo "done" mà không có \`qaStatus\` là vi phạm contract.
+CẤM bịa kết quả QA: không tự gán summary.passed hay criticalCount nếu chưa gọi được tool.`;
 
 /** Self-QA variant cho READ-ONLY intents — bằng chứng hiện trạng, không bắt buộc. */
 export const SELF_QA_DIRECTIVE_READONLY = `## Self-QA (READ-ONLY — bằng chứng hiện trạng)
@@ -198,11 +199,11 @@ export function buildEvidenceEnvelope(envelope: AnnotationEvidenceEnvelope): str
 export function buildAcceptanceCriteria(intent: TaskIntent, userInstruction: string = ''): string[] {
   const value = normalizeInstruction(userInstruction);
   const criteria = [
-    'The world-state outcome, scope, non-goals, dependencies, and acceptance criteria are explicit before editing.',
-    'The core contract remains active and the intent module is additive.',
-    'The owning source and direct dependents pass intent-appropriate verification.',
-    'Load-bearing claims are typed and supported by fresh evidence.',
-    'Exactly one logical outcome is delivered without unrequested edits.',
+    'Outcome, scope, non-goals, and criteria explicit before editing.',
+    'Core contract active; intent module additive.',
+    'Owning source and dependents pass verification.',
+    'Load-bearing claims typed with fresh evidence.',
+    'One logical outcome delivered without unrequested edits.',
   ];
 
   if (intent === 'tweak') criteria.push('The named property has a verified before -> after value at the owning source.');
@@ -222,7 +223,7 @@ export function buildAcceptanceCriteria(intent: TaskIntent, userInstruction: str
   if (/mobile|responsive|viewport|breakpoint|tablet/.test(value)) criteria.push('Representative mobile (375px), tablet (768px), desktop (1280px+), and relevant boundary widths are verified.');
   if (/hover|click|open|close|focus|animation|interaction|keyboard/.test(value)) criteria.push('Relevant default, hover, focus, active, disabled, keyboard, timing, and repeated-action states are verified.');
   if (/accessib|a11y|aria|screen reader/.test(value)) criteria.push('Semantic role/name/state, keyboard operation, focus visibility, contrast, labels, and announcements are verified.');
-  if (/design|style|color|spacing|beautiful|modern|giao dien|ui/.test(value)) criteria.push('Visual composition, typography, spacing, contrast, overflow, and responsive behavior match the intended result.');
+  if (/design|style|color|spacing|beautiful|modern|giao dien|ui/.test(value)) criteria.push('Visual styling, layout, contrast, and responsive behavior match intended result.');
   if (isFigmaRelated(userInstruction)) criteria.push('Figma evidence, tokens, dimensions, and layout constraints are verified or the task is BLOCKED without guessing.');
   return criteria;
 }
@@ -237,7 +238,7 @@ export function buildAgentTaskHeader(userInstruction: string, terminalStateOverr
     ? `> IMPORTANT: Figma is part of this request. Analyze the supplied Figma source and record verified tokens, dimensions, and layout constraints before editing. If it is unavailable, use BLOCKED and do not guess.\n\n`
     : '';
   const nonGoals = intent === 'tweak'
-    ? '- Anything not named in the request. Only implementation and verification edits required for the property are allowed.'
+    ? '- Anything not named in the request. Only edits required for the property are allowed.'
     : intent === 'extract-component'
     ? '- No repository file edits. No refactoring the owning theme. The only deliverable is the code snippet.'
     : '- Unrequested adjacent fixes, speculative improvements, unrelated refactors, and silent public-contract changes.';
@@ -249,7 +250,7 @@ export function buildAgentTaskHeader(userInstruction: string, terminalStateOverr
     ? 'READ-ONLY recovery: inspect and report the incomplete evidence. Do not mutate code until the missing evidence is refreshed and the task returns to READY.'
     : intent === 'external-mutation' || intent === 'unknown'
     ? 'NO MUTATION: remain at DECISION REQUIRED until the outcome and authority are explicit.'
-    : 'Implementation remains gated by the core contract, fresh evidence, and intent-appropriate verification.';
+    : 'Gated by core contract, fresh evidence, and intent verification.';
 
   return `# Browser Element Task
 
@@ -261,8 +262,6 @@ ${intent}
 
 ## Initial execution state
 Current state: ${terminalState}
-Allowed states: READY, BLOCKED, DECISION REQUIRED, PARTIAL, FAILED.
-Replace this initial state with exactly one final terminal state in the handoff.
 
 ## Execution permission
 ${executionPermission}
@@ -271,11 +270,10 @@ ${executionPermission}
 ${nonGoals}
 ## Acceptance criteria
 ${criteria}
-
 ## Fable-Thinking Invariant Ledger & Safety Boundaries
-- **PRESERVES**: Existing behavior, public contracts, untargeted attributes, and system state outside the request boundary.
-- **DELIBERATELY CHANGES**: Only the explicitly targeted code, properties, or configuration required by the request.
-- **RISKS & SIDE EFFECTS**: Check regression paths, responsive constraints, and dependent module interactions before committing changes.
+- **PRESERVES**: Existing behavior outside request boundary.
+- **DELIBERATELY CHANGES**: Only targeted code and properties.
+- **RISKS & SIDE EFFECTS**: Check regression paths and constraints before committing.
 ${buildSelfQaDirective(intent)}
 
 ${STANDALONE_AGENT_CONTRACT}

@@ -214,8 +214,12 @@ describe('Core Health surfaces inside the existing Hub', () => {
     (doc.getElementById('tabNavTaskRuns') as HTMLElement).click();
     await flush();
     const items = doc.querySelectorAll('#hubItemsList .hub-list-item');
-    assert.ok(items.length >= 2, 'pack + case rows listed');
-    (items[0] as HTMLElement).click();
+    assert.ok(items.length >= 3, 'surface + pack + case rows listed');
+    // The surface row is auto-selected and sits first; the trace loads only for
+    // the pack row, so select it by identity rather than by position.
+    const packRow = doc.querySelector('#hubItemsList .hub-list-item[data-item-id="pack-abc"]') as HTMLElement | null;
+    assert.ok(packRow, 'pack row addressable');
+    packRow.click();
     await flush();
     assert.equal(doc.getElementById('coreStatusPill')?.textContent, 'HEALTHY');
     assert.equal(doc.getElementById('coreDetailCategory')?.textContent, 'TRACE_FOUND');

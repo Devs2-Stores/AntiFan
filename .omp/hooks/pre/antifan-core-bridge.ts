@@ -267,6 +267,57 @@ function computeTaskHash(task: string, projectRoot: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Task intent gating (storefront decoupling P0)
+// ---------------------------------------------------------------------------
+
+/**
+ * Storefront-edit intent: the prompt edits the merchant's OWN theme sources
+ * (CSS/Liquid/HTML/settings) instead of analyzing an external site. The Core
+ * pack for such prompts has repeatedly surfaced clone/dogfood framing
+ * (PRACTICE_PARITY goals naming packages/site-clone) — conditioning trivial
+ * edits into the clone lane that the storefront-decoupling refactor exists to
+ * remove. For these prompts the pack is skipped: project rules (AGENTS.md,
+ * customizes README) already carry the authority, and the theme-qa-gate hook
+ * owns edit verification. Kill switch: ANTIFAN_CORE_BRIDGE_GATE=off restores
+ * the always-seed behavior.
+ */
+type TaskIntentClass = "clone" | "storefront-edit" | "general";
+
+const CLONE_INTENT_RE =
+	/\b(clone|cloning|recreat\w*|replicat\w*|reconstruct\w*|dogfood\w*|stitch|site[-\s]?clone)\b/i;
+/**
+ * Vietnamese phrasing for clone/reference intent. A mixed "sửa X theo
+ * website/mẫu tham khảo" task needs the reference pack, so reference
+ * phrasing must outrank the edit verb. Over-matching clone is the safe
+ * direction (keeps the pack); under-matching storefront-edit pollutes
+ * context, which is the bug being fixed.
+ */
+const CLONE_INTENT_VI_RE =
+	/(sao\s*(ch|k)ép|copy\s*giao\s*diện|làm\s*giống|giống\s*mẫu|giống\s*(website|trang|web|site)|theo\s*(website|trang|web|site|mẫu|tham\s*chiếu|đối\s*thủ)|tham\s*khảo|website\s*bên\s*ngoài|trang\s*bên\s*ngoài|lấy\s*(website|trang|web)\s*làm\s*(reference|mẫu|tham\s*chiếu))/i;
+const EDIT_VERB_RE =
+	/(?:^|[^\p{L}])(fix|edit|change|update|add|remove|delete|hide|move|adjust|tweak|align|optimize|sửa|sua|đổi|doi|thêm|bỏ|ẩn|giấu|chữa|căn|canh|cập\s*nhật|cap\s*nhat|chỉnh|chinh|di\s*chuyển|xóa|xoá|xoa|tối\s*ưu|toi\s*uu)(?:[^\p{L}]|$)/iu;
+const STOREFRONT_TARGET_RE =
+	/(?:^|[^\p{L}])(css|liquid|html|snippet|section|header|footer|menu|nav|banner|button|icon|logo|font|padding|margin|color|colour|element|selector|template|cart|checkout|storefront|homepage|nút|nut|giỏ\s*hàng|gio\s*hang|settings\.html|settings_schema|settings\.json)(?:[^\p{L}]|$)|display\s*:\s*none|đổi\s*màu|doi\s*mau|home\s*page|theme\s*(file|settings)/iu;
+
+/**
+ * CLONE outranks STOREFRONT_EDIT when both match: a mixed task ("làm
+ * storefront giống website X") still needs the reference analysis, only the
+ * implementation afterwards is direct. Unclassifiable prompts stay "general"
+ * and keep the current always-seed behavior (fail-open).
+ */
+function classifyTaskIntent(task: string): TaskIntentClass {
+	if (CLONE_INTENT_RE.test(task) || CLONE_INTENT_VI_RE.test(task)) return "clone";
+	if (EDIT_VERB_RE.test(task) && STOREFRONT_TARGET_RE.test(task)) return "storefront-edit";
+	return "general";
+}
+
+/** ANTIFAN_CORE_BRIDGE_GATE=off disables intent gating (always seed). */
+function bridgeGateDisabled(): boolean {
+	const raw = process.env.ANTIFAN_CORE_BRIDGE_GATE;
+	return typeof raw === "string" && raw.trim().toLowerCase() === "off";
+}
+
+// ---------------------------------------------------------------------------
 // CLI transport — hard timeout, fail-open result, never throws
 // ---------------------------------------------------------------------------
 
@@ -712,6 +763,28 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 
 			// Identical prompt re-seed: reuse the pack, do not spawn again.
 			if (state.pack && isSameTask) {
+				return undefined;
+			}
+
+			// Storefront decoupling P0: storefront-edit prompts run WITHOUT a
+			// Core pack. A later storefront-edit prompt also drops any pack
+			// seeded by an earlier prompt in this session (the context handler
+			// then strips those pack messages from the conversation), because
+			// the pack's clone-lane conditioning is exactly the routing bug
+			// being fixed.
+			const intent = classifyTaskIntent(task);
+			if (intent === "storefront-edit" && !bridgeGateDisabled()) {
+				state.pack = null;
+				state.packId = null;
+				state.coreRelease = null;
+				if (!isSameTask) {
+					recordEvent("BRIDGE_CONTEXT_SKIPPED", {
+						intent,
+						taskHash,
+						reason: "storefront-edit: project rules + theme-qa-gate own the edit, no Core pack",
+					});
+					log("info", `core pack skipped: storefront-edit intent (taskHash=${taskHash ?? "none"})`);
+				}
 				return undefined;
 			}
 

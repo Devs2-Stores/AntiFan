@@ -3,11 +3,35 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as vm from 'node:vm';
+import { createRequire } from 'node:module';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 
 const ROOT = path.resolve(__dirname, '../../..');
+
+/**
+ * jsdom is a dev dependency resolved at runtime: the compiled test may run from a
+ * junctioned node_modules, and `ANTIFAN_JSDOM` can point at a directory holding it.
+ * A missing jsdom skips the DOM-driven case instead of failing the lane.
+ */
+interface JsdomWindow {
+  window: Window & typeof globalThis;
+  getInternalVMContext: () => vm.Context;
+}
+function loadJsdom(): (new (html: string, options: Record<string, unknown>) => JsdomWindow) | null {
+  const req = createRequire(__filename);
+  const searchPaths = process.env.ANTIFAN_JSDOM
+    ? [process.env.ANTIFAN_JSDOM, path.dirname(__filename)]
+    : [path.dirname(__filename)];
+  try {
+    const resolved = req.resolve('jsdom', { paths: searchPaths });
+    return (req(resolved) as { JSDOM: (new (html: string, options: Record<string, unknown>) => JsdomWindow) }).JSDOM;
+  } catch {
+    return null;
+  }
+}
 
 // Test seam: run NativeTabHost prototype methods without the full Electron
 // constructor. Shape mirrors the real NativeTabRecord (native-tab-host.ts:153).
@@ -36,9 +60,10 @@ interface PerTabHost {
 }
 
 // Test seam: NativeTabHost reads the TerminalManager singleton's listSessions()
-// to validate remembered session ids. Override that public boundary so the
+// to validate remembered session ids and to build the annotation target list.
+// Override that public boundary so the
 interface TerminalManagerOverride {
-  listSessions: () => Array<{ id: string; name: string; cwd: string }>;
+  listSessions: () => Array<{ id: string; name: string; cwd: string; state?: 'running' | 'exited' | 'closed' | 'sleeping'; splitOf?: string }>;
   getActiveSessionId: () => string;
   getSession?: (id: string) => { id: string; name: string; cwd: string } | undefined;
 }
@@ -63,14 +88,14 @@ function createHost(tabIds: string[]): PerTabHost {
 describe('Per-tab terminal memory in Popup Annotation', () => {
   const tm = TerminalManager.getInstance() as unknown as TerminalManagerOverride;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-pertab-test-'));
-  let liveSessions: Array<{ id: string; name: string; cwd: string }> = [];
+  let liveSessions: Array<{ id: string; name: string; cwd: string; state?: 'running' | 'exited' | 'closed' | 'sleeping'; splitOf?: string }> = [];
   let sessionA = 'terminal-A';
   let sessionB = 'terminal-B';
 
   before(() => {
     liveSessions = [
-      { id: sessionA, name: 'Terminal A', cwd: tempDir },
-      { id: sessionB, name: 'Terminal B', cwd: tempDir },
+      { id: sessionA, name: 'Terminal A', cwd: tempDir, state: 'running' },
+      { id: sessionB, name: 'Terminal B', cwd: tempDir, state: 'running' },
     ];
     tm.listSessions = () => liveSessions;
     tm.getActiveSessionId = () => sessionA;
@@ -147,6 +172,48 @@ describe('Per-tab terminal memory in Popup Annotation', () => {
     assert.ok(injected.includes(`"${sessionA}"`), 'injected context must carry the tab remembered session');
     assert.ok(injected.includes('"tabId"'), 'injected context must be tab-scoped');
     host.stopInspect('tab-1');
+  });
+
+  it('offers only running base sessions as annotation targets (no sleeping, no split pane)', async (t) => {
+    const JSDOM = loadJsdom();
+    if (!JSDOM) { t.skip('jsdom unavailable'); return; }
+    const host = createHost(['tab-1']);
+    host.setTabTerminalSession('tab-1', sessionA);
+    liveSessions = [
+      { id: sessionA, name: 'Terminal A', cwd: tempDir, state: 'running' },
+      { id: 'terminal-nap', name: 'Terminal NAP', cwd: tempDir, state: 'sleeping' },
+      { id: 'terminal-dead', name: 'Terminal DEAD', cwd: tempDir, state: 'exited' },
+      { id: 'terminal-split', name: 'Terminal split-1', cwd: tempDir, state: 'running', splitOf: sessionA },
+    ];
+
+    let injected = '';
+    const wc: HostWebContents = {
+      isDestroyed: () => false,
+      executeJavaScript: async (code: string) => {
+        if (code.includes('__antifanTerminalContext')) injected = code;
+        return undefined;
+      },
+    };
+    host.tabs.get('tab-1')!.view = { webContents: wc };
+    host.startInspect();
+    assert.ok(injected.includes('__antifanTerminalContext'), 'the picker context must be injected');
+
+    // Run the real injected script in a DOM and open the modal the way a click does:
+    // the assertion is on the <option> rows the user actually sees, not on the payload.
+    const dom = new JSDOM('<!doctype html><html><body><div class="grid">x</div></body></html>', { runScripts: 'outside-only', url: 'http://localhost/' });
+    const ctx = dom.getInternalVMContext();
+    vm.runInContext(injected, ctx);
+    const target = dom.window.document.querySelector('.grid') as HTMLElement;
+    target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+    const select = dom.window.document.getElementById('antifanTerminalSelect') as HTMLSelectElement | null;
+    assert.ok(select, 'the annotation modal must render its target select');
+    assert.deepStrictEqual(
+      Array.from(select.options).map((o) => o.value),
+      ['auto', sessionA],
+      'only the running base session may be offered beside auto'
+    );
+    host.stopInspect('tab-1');
+    dom.window.close();
   });
 
   it('guarantees startInspect is idempotent when called repeatedly and advances inspectGeneration on stop', () => {

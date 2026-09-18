@@ -1004,3 +1004,48 @@ test('low confidence or namespace mismatch triggers explicit abstention', () => 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('context pack collapses one statement re-extracted across units, query keeps every row', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-pack-dedupe-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    // One boilerplate rule carried by three skills (three units, two platforms)
+    // plus one distinct rule: the shape the real corpus produces, where claimId
+    // is derived from unitId+statement so no two copies ever collide.
+    const shared = 'Core Rules: Treat `config/settings_data.json` as read-only context by default; edit it only when the user explicitly asks or approves it in the current task.';
+    const distinct = 'Core Rules: Keep `config/settings_data.json` UTF-8 and free of BOM characters.';
+    const nowStr = new Date().toISOString();
+    const seed = (claimId: string, unitId: string, platform: string, statement: string, rowid: number) => {
+      raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt, contextPlatform, namespace)
+        VALUES (?,?,?, 'RULE', 'ACTIVE', 'deep-analyze/1.0', ?, ?, 'PLATFORM_KNOWLEDGE')`).run(claimId, unitId, statement, nowStr, platform);
+      raw.prepare("INSERT INTO evidence(id, claimId, revision) VALUES (?, ?, 'rev1')").run(`ev-${claimId}`, claimId);
+      raw.prepare('INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (?,?,?,?,?)').run(rowid, statement, 'RULE', unitId, claimId);
+    };
+    seed('c-copy-a', 'u-a', 'haravan', shared, 1);
+    seed('c-copy-b', 'u-b', 'haravan', shared, 2);
+    seed('c-copy-c', 'u-c', 'generic-liquid', shared, 3);
+    seed('c-other', 'u-d', 'haravan', distinct, 4);
+
+    // Raw retrieval stays truthful: three rows, three pieces of evidence.
+    const hits = core.query({ text: 'settings_data.json read-only', namespace: 'PLATFORM_KNOWLEDGE' });
+    assert.equal(hits.filter((h) => String(h.statement).includes('read-only context by default')).length, 3, 'query returns every stored copy');
+
+    // The pack spends its budget on DISTINCT facts, and says how many copies it stood for.
+    const pack = core.contextPack({ task: 'settings_data.json', namespace: 'PLATFORM_KNOWLEDGE', limit: 2 });
+    assert.equal(pack.claims.length, 2, 'two slots, two distinct statements');
+    const collapsed = pack.claims.find((c) => String(c.statement).includes('read-only context by default')) as
+      | { duplicateCount: number; alsoInUnitIds: string[]; contextPlatforms: string[] }
+      | undefined;
+    assert.ok(collapsed, 'the shared rule is present once');
+    assert.equal(collapsed.duplicateCount, 3, 'multiplicity is recorded, not hidden');
+    assert.deepEqual(collapsed.alsoInUnitIds.sort(), ['u-a', 'u-b', 'u-c'], 'every contributing unit is named');
+    assert.deepEqual(collapsed.contextPlatforms.sort(), ['generic-liquid', 'haravan'], 'platforms merge into the kept row');
+    assert.ok(pack.claims.some((c) => String(c.statement).includes('UTF-8')), 'the distinct fact is not crowded out');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

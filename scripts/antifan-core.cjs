@@ -68,7 +68,19 @@ async function main() {
     case 'similar': out = core.findSimilar(parse(arg)); break;
     case 'uncertainty': out = core.classifyUncertainty(parse(arg)); break;
     case 'decay': out = core.decayCheck(parse(arg)); break;
-    case 'audit': out = core.corpusAudit({ record: true }); break;
+    case 'audit': {
+      // Read-only by default, exactly like `gate`: both are inspection commands, and an
+      // inspection must not grow the store. The store already records only on an explicit
+      // opt-in, so the CLI was the last path appending a row unconditionally — every plain
+      // `audit` wrote into whatever store the working directory implied. The caller is told
+      // what it did not persist and how to persist it.
+      const record = parse(arg).record === true;
+      if (!record) {
+        console.error('note: audit evaluated read-only, nothing persisted — pass {"record":true} to record it');
+      }
+      out = core.corpusAudit({ record });
+      break;
+    }
     case 'gate': {
       // Read-only by default. This command doubles as the only way to inspect a single
       // gate, and an inspection must not grow the store — the same rule `health` follows.

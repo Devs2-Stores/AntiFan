@@ -17,6 +17,43 @@ const now = () => new Date().toISOString();
 const TERMINAL_DISPOSITIONS = new Set(['ANALYZED_NO_CLAIM', 'ANALYZED_WITH_CLAIMS', 'EXCLUDED']);
 const CONFLICT_CLASSIFICATIONS = new Set(['GENERAL_RULE', 'CONTEXTUAL_RULE', 'LEGACY_RULE', 'EXCEPTION', 'CONFLICTED', 'UNRESOLVED']);
 
+/** Whitespace-insensitive statement key: the same sentence re-extracted from
+ *  another unit differs only in spacing/line-wrap, never in what it asserts. */
+const normalizeStatement = (s: unknown): string => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '');
+
+/**
+ * Collapse claims that assert the same sentence, keeping the strongest row (the
+ * input is already ranked) and recording how many copies it stands for. Namespace
+ * is part of the key: the same words in PLATFORM_KNOWLEDGE and in
+ * ANTIFAN_ENGINEERING are two different pieces of knowledge, and the corpus gate
+ * counts a principle per namespace. Platforms are merged into the kept row
+ * instead of splitting it, because the copies ARE the same assertion observed in
+ * several contexts.
+ */
+function collapseDuplicateStatements<
+  T extends { statement?: unknown; namespace?: unknown; unitId?: unknown; contextPlatform?: unknown },
+>(claims: T[], limit: number): Array<T & { duplicateCount: number; alsoInUnitIds: string[]; contextPlatforms: string[] }> {
+  const byKey = new Map<string, T & { duplicateCount: number; alsoInUnitIds: string[]; contextPlatforms: string[] }>();
+  for (const claim of claims) {
+    const key = `${typeof claim.namespace === 'string' ? claim.namespace : ''}|${normalizeStatement(claim.statement)}`;
+    const kept = byKey.get(key);
+    if (!kept) {
+      byKey.set(key, Object.assign(claim, {
+        duplicateCount: 1,
+        alsoInUnitIds: typeof claim.unitId === 'string' ? [claim.unitId] : [],
+        contextPlatforms: typeof claim.contextPlatform === 'string' ? [claim.contextPlatform] : [],
+      }));
+      continue;
+    }
+    kept.duplicateCount += 1;
+    const unit = typeof claim.unitId === 'string' ? claim.unitId : null;
+    if (unit && !kept.alsoInUnitIds.includes(unit) && kept.alsoInUnitIds.length < 8) kept.alsoInUnitIds.push(unit);
+    const platform = typeof claim.contextPlatform === 'string' ? claim.contextPlatform : null;
+    if (platform && !kept.contextPlatforms.includes(platform) && kept.contextPlatforms.length < 6) kept.contextPlatforms.push(platform);
+  }
+  return [...byKey.values()].slice(0, limit);
+}
+
 
 export interface QueryOpts { text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace; }
 export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; namespace?: CoreNamespace; }
@@ -470,7 +507,14 @@ export class Core {
 
   contextPack(opts: PackOpts) {
     const limit = Math.max(1, Math.min(opts.limit ?? 30, 200));
-    const claims = this.query({ text: opts.task, platform: opts.platform, unitIds: opts.unitIds, includeGlobal: opts.includeGlobal, namespace: opts.namespace, limit });
+    // A statement re-extracted for every unit that carries it (a boilerplate rule
+    // shared by N skills, a worktree copy of the same file) is N distinct claims:
+    // claimId is sha1(unitId + statement), so nothing collapses it at write time.
+    // A plain top-N query therefore fills the pack with copies of one fact. Ask
+    // for an oversampled pool, collapse equal statements, then take N DISTINCT.
+    const pool = Math.min(limit * 4, 200);
+    const raw = this.query({ text: opts.task, platform: opts.platform, unitIds: opts.unitIds, includeGlobal: opts.includeGlobal, namespace: opts.namespace, limit: pool });
+    const claims = collapseDuplicateStatements(raw, limit);
     const scope = this.unresolvedConflictScope(opts);
     const conflicts = this.db.prepare(`SELECT * FROM conflicts WHERE ${scope.where} LIMIT 50`).all(...scope.args as never[]);
     // Unknowns = units with blocked/pending artifacts. Scoped to requested

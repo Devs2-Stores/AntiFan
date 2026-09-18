@@ -45,6 +45,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--minutes' && argv[i + 1]) {
+      parsed.minutes = parseFloat(argv[++i]) || 30;
     } else if ((arg === '--report' || arg === '--jsonl') && argv[i + 1]) {
       parsed.reportPath = argv[++i];
     } else if (arg === '--summary' && argv[i + 1]) {

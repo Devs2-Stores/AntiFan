@@ -439,6 +439,19 @@ export interface TerminalManagerStats {
   dataSubscriptionCount: number;
   exitSubscriptionCount: number;
 }
+
+/**
+ * The sessions an annotation can be sent to, derived from `listSessions()`.
+ *
+ * Only a running base session has a shell that accepts the queued prompt, and a
+ * split pane is the same tab as the parent it belongs to — so a sleeping session
+ * or a pane would only add a target row a user cannot act on (and the pane would
+ * duplicate its parent). The annotation picker's target list is built from this,
+ * never from the raw session list.
+ */
+export function selectAnnotationTargets(sessions: SessionSummary[]): SessionSummary[] {
+  return sessions.filter((s) => s.state === 'running' && !s.splitOf);
+}
 export interface TerminalSessionDiagnostics {
   sessionId: string;
   generation: number;
@@ -1010,7 +1023,10 @@ export class TerminalManager extends EventEmitter {
             const parent = item.splitOf ? this.sessions.get(item.splitOf) : undefined;
             const parentRows = parent?.pty?.rows || parent?.pendingRows;
             const initialRows = item.rows || this.getInitialSplitRows(parentRows || this.lastRows);
-            if (item.state === 'sleeping') {
+            // A pane cannot outlive its parent's live shell, so a save that predates the
+            // sleep cascade (or a parent parked while this pane still ran) restores the
+            // pane asleep instead of resurrecting a shell under a parked tab.
+            if (item.state === 'sleeping' || parent?.state === 'sleeping') {
               this.restoreSleepingSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
             } else if (item.splitOf === activeBaseId) {
               const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
@@ -1453,7 +1469,10 @@ export class TerminalManager extends EventEmitter {
           const parent = item.splitOf ? this.sessions.get(item.splitOf) : undefined;
           const parentRows = parent?.pty?.rows || parent?.pendingRows;
           const initialRows = item.rows || this.getInitialSplitRows(parentRows || this.lastRows);
-          if (item.state === 'sleeping') {
+          // A pane cannot outlive its parent's live shell, so a save that predates the
+          // sleep cascade (or a parent parked while this pane still ran) restores the
+          // pane asleep instead of resurrecting a shell under a parked tab.
+          if (item.state === 'sleeping' || parent?.state === 'sleeping') {
             this.restoreSleepingSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
           } else if (item.splitOf === activeBaseId) {
             const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
@@ -1778,7 +1797,13 @@ export class TerminalManager extends EventEmitter {
       ? (this.wakeSession(parentId) ? (this.sessions.get(parentId) || parentRecord) : parentRecord)
       : (this.ensureSessionPty(parentId) || parentRecord);
     const existing = [...this.sessions.values()].find(x => x.splitOf === parentId);
-    if (existing) return existing.id;
+    if (existing) {
+      // The sidebar may hide a sleeping split, so the split toggle is also its
+      // explicit wake path. Reuse the existing pane instead of creating a second
+      // split, and wake it after the parent has been made live above.
+      if (existing.state === 'sleeping') this.wakeSession(existing.id);
+      return existing.id;
+    }
     let n = 1;
     while (this.sessions.has(`split-${n}`)) n++;
     const id = `split-${n}`;
@@ -1818,6 +1843,11 @@ export class TerminalManager extends EventEmitter {
    * released, the transcript is folded into `restoredTail` and the record stays
    * in the session map so every viewer keeps its history.
    *
+   * A base session takes its split panes with it: a pane has no life outside the
+   * tab it splits, and a pane left running under a parked tab keeps a shell for a
+   * session the user believes is put away. `wakeSession` is the mirror — waking a
+   * pane wakes the tab that owns it.
+   *
    * Sleep is NOT close. It never sets `disposed` and never emits `'close'` or
    * `'session-closed'`: `native-tab-host.ts` treats those as the signal to drop
    * the browser-tab ↔ terminal affinity mapping, which would make the session
@@ -1827,8 +1857,30 @@ export class TerminalManager extends EventEmitter {
   public sleepSession(id: string): boolean {
     const s = this.sessions.get(id);
     if (!s || s.disposed || s.state !== 'running') return false;
+    // A pane is subordinate to the tab it splits, so parking the parent parks its panes
+    // in the same breath. A split left running under a sleeping parent keeps a PTY
+    // alive for a tab the user believes is parked, and the sidebar files that pane by
+    // its own category — the parent it inherits its group from is no longer awake —
+    // so the row leaks out of its parent's group as a standalone entry.
+    for (const split of [...this.sessions.values()]) {
+      if (split.splitOf === id) this.parkRecord(split);
+    }
+    const parked = this.parkRecord(s);
+    // One broadcast for the whole cascade: the panes and their parent change state
+    // together, and a per-record emit would paint the sidebar mid-park.
+    this.emitSession();
+    return parked;
+  }
+
+  /**
+   * The per-record half of `sleepSession`: releases the shell, folds the live output
+   * behind the restored tail and leaves the record in the map. Deliberately silent —
+   * the caller owns the single broadcast for the whole cascade.
+   */
+  private parkRecord(s: Session | undefined): boolean {
+    if (!s || s.disposed || s.state !== 'running') return false;
     // A queued deferred start would spawn the shell we are about to release.
-    const queuedIdx = this.deferredPtyIds.indexOf(id);
+    const queuedIdx = this.deferredPtyIds.indexOf(s.id);
     if (queuedIdx !== -1) this.deferredPtyIds.splice(queuedIdx, 1);
     // Disposes the data/exit subscriptions first, so no chunk can land between
     // the fold and the kill.
@@ -1849,7 +1901,6 @@ export class TerminalManager extends EventEmitter {
     s.state = 'sleeping';
     s.sleptAt = Date.now();
     this.schedulePersist(s.id);
-    this.emitSession();
     return true;
   }
 
@@ -1862,6 +1913,14 @@ export class TerminalManager extends EventEmitter {
   public wakeSession(id: string): boolean {
     const s = this.sessions.get(id);
     if (!s || s.disposed || s.state !== 'sleeping') return false;
+    // The mirror of the sleep cascade: a pane needs the tab it splits to be live, so a
+    // wake request for a pane wakes that tab first. A pane awake under a sleeping parent
+    // is a shell the sidebar cannot file — its group comes from a parent that is parked —
+    // and the parent's own wake path would then park it again on the next sleep.
+    if (s.splitOf) {
+      const parent = this.sessions.get(s.splitOf);
+      if (parent && !parent.disposed && parent.state === 'sleeping') this.wakeSession(s.splitOf);
+    }
     // ensureSessionPty replaces the reserved record with the spawned one, so the
     // state flip and the event must be driven from the returned live record.
     const live = this.ensureSessionPty(id);

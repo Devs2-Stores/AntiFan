@@ -347,6 +347,7 @@ describe('Process Lifecycle & Windows Orphan Sweep Proof', () => {
         temporal: { passed: true, detail: 'ok', gateId: 'gate-4' },
         promotion: { passed: true, detail: 'ok', gateId: 'gate-5' },
         regression: { passed: true, detail: 'last regression: PASS', gateId: 'gate-6' },
+        principles: { passed: true, detail: 'ok', gateId: 'gate-7' },
       },
       uncertainty: { level: 'STRONGLY_SUPPORTED', reason: 'claims promoted' },
     };

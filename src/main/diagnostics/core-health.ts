@@ -533,8 +533,13 @@ export class CoreHealthService {
     // report cannot decide the store's health.
     const dispatch = await dispatchPromise;
     if (dispatch && dispatch.status === 'MEASURED') {
-      const calls = dispatch.reconciliation?.classifiedKeys
-        ?? (dispatch.rows ?? []).reduce((n, r) => n + (typeof r.calls === 'number' ? r.calls : 0), 0);
+      const rows = dispatch.rows ?? [];
+      // The line's number is invocations, summed from the per-name rows. The
+      // reconciliation's key counts are not invocations — one composite key groups
+      // every repeat of the same call — so they are reported as their own figure
+      // instead of being passed off as the call count.
+      const calls = rows.reduce((n, r) => n + (typeof r.calls === 'number' ? r.calls : 0), 0);
+      const compositeKeys = dispatch.reconciliation?.compositeKeys;
       stats.mcpDispatchCalls = calls;
       checks.push({
         name: 'mcp.dispatch',
@@ -542,7 +547,9 @@ export class CoreHealthService {
         reasonCode: 'DISPATCH_MEASURED',
         affected: [],
         evidenceRefs: ['mcp-dispatch:aggregate'],
-        detail: `${calls} dispatch call(s) across ${(dispatch.rows ?? []).length} name(s) — ledger aggregate as of ${dispatch.asOf}`,
+        detail: `${calls} dispatch call(s) across ${rows.length} name(s)`
+          + (typeof compositeKeys === 'number' ? ` — ${compositeKeys} composite key(s)` : '')
+          + ` — ledger aggregate as of ${dispatch.asOf}`,
         gating: false,
       });
     } else {

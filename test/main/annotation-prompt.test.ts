@@ -9,8 +9,20 @@ import {
 } from '../../src/shared/annotation-prompt';
 
 describe('Annotation prompt self-QA directive', () => {
-  it('bumps AGENT_CONTRACT_VERSION to 3.4.0-lean', () => {
-    assert.strictEqual(AGENT_CONTRACT_VERSION, '3.4.0-lean');
+  it('bumps AGENT_CONTRACT_VERSION to 3.5.0-lean', () => {
+    assert.strictEqual(AGENT_CONTRACT_VERSION, '3.5.0-lean');
+  });
+
+  it('directive permits static bypass for pure-CSS micro edits (lane 9)', () => {
+    const header = buildAgentTaskHeader('fix lỗi lệch header trên mobile');
+    assert.ok(header.includes('QA_MICRO_STATIC'));
+    assert.ok(header.includes('assets/'));
+    assert.ok(header.includes('*.css'));
+    assert.ok(header.includes('*.scss'));
+    const forbiddenExt = ['*', 'css', 'liquid'].join('.');
+    assert.ok(!header.includes(forbiddenExt));
+    assert.ok(header.includes('≤ 10'));
+    assert.ok(header.includes('thêm + xoá'));
   });
 
   it('implementation intents carry the mandatory self-QA directive', () => {

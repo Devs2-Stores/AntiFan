@@ -476,9 +476,15 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     const started = tm.startTerminal('E:/Work/project');
     assert.strictEqual(started, true);
 
-    // 5. Verify all tabs are restored in-memory with names, order, and active tab
+    // 5. Verify all tabs are restored in-memory with names, order, and active tab.
+    //    A split pane is projected as its own entry (the tab strip keys panes by id), so
+    //    the list is [s1, s2, sp2, s3] — each base tab followed by the panes it owns.
     const restoredSessions = tm.listSessions();
-    assert.strictEqual(restoredSessions.length, 3);
+    assert.deepStrictEqual(
+      restoredSessions.map((s) => s.id),
+      [s1, s2, sp2, s3],
+      'base tabs keep their restart order and sp2 comes back as the pane under s2'
+    );
     assert.strictEqual(tm.getActiveSessionId(), s2);
     assert.ok(restoredSessions.some((s) => s.id === s1 && s.name === 'Backend Dev'));
     assert.ok(restoredSessions.some((s) => s.id === s2 && s.name === 'Frontend Vite' && s.active));
@@ -604,11 +610,21 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     // 4. App Reopen phase: new startup invokes setCapsule() or startTerminal()
     tm.setCapsule('capsule-reopen', 'E:/Work/project-a');
     const restoredSessions = tm.listSessions();
-    assert.strictEqual(restoredSessions.length, 4, 'All 4 terminal tabs must be completely restored upon app reopen');
-    assert.strictEqual(restoredSessions[0]?.name, 'Terminal 1');
-    assert.strictEqual(restoredSessions[1]?.name, 'Terminal 2');
-    assert.strictEqual(restoredSessions[2]?.name, 'Terminal 3');
-    assert.strictEqual(restoredSessions[3]?.name, 'Terminal 4');
+    assert.strictEqual(
+      restoredSessions.length,
+      5,
+      'All 4 terminal tabs plus the pane under Terminal 1 must be restored upon app reopen'
+    );
+    assert.deepStrictEqual(
+      restoredSessions.map((s) => s.id),
+      [t1, sp1, t2, t3, t4],
+      'the pane is projected as its own entry, directly under the tab that owns it'
+    );
+    assert.deepStrictEqual(
+      restoredSessions.filter((s) => !s.splitOf).map((s) => s.name),
+      ['Terminal 1', 'Terminal 2', 'Terminal 3', 'Terminal 4'],
+      'the four base tabs keep their order and names'
+    );
 
     assert.ok(restoredSessions.some((s) => s.id === t1 && s.buffer.includes('HIST_T1_PRESERVED_OUTPUT')), 'T1 buffer must be preserved on reopen');
     assert.ok(restoredSessions.some((s) => s.id === t2 && s.buffer.includes('HIST_T2_PRESERVED_OUTPUT')), 'T2 buffer must be preserved on reopen');

@@ -1,7 +1,7 @@
 {
   "probe": "test/e2e/mcp-dispatch-hub-probe.cjs",
-  "startedAt": "2026-09-17T22:46:43.214Z",
-  "finishedAt": "2026-09-17T22:46:45.070Z",
+  "startedAt": "2026-09-18T05:58:35.050Z",
+  "finishedAt": "2026-09-18T05:58:37.040Z",
   "electron": "43.4.0",
   "node": "24.18.1",
   "cwd": "E:\\Work\\apps\\AntiFan",
@@ -14,9 +14,9 @@
     },
     "toolbarJs": {
       "path": ".compiled\\src\\renderer\\toolbar.js",
-      "sha256": "720620a2730aadec4c9998073b8a5d162a682a28a9718da6da328f88bf1c34ea",
-      "bytes": 148252,
-      "mtimeMs": 1789629132772.283
+      "sha256": "20ebda29b22e237f579065665bdd22729a2213e1009aeb9325f53c13c7858108",
+      "bytes": 149151,
+      "mtimeMs": 1789705895044.7239
     },
     "exportsShim": {
       "path": ".compiled\\src\\renderer\\exports-shim.js",
@@ -26,21 +26,21 @@
     },
     "toolbarPreload": {
       "path": ".compiled\\src\\preload\\toolbar-preload.js",
-      "sha256": "c46314bee45057fd908b01bacc12946caec855d7f39e27cac33cff27e69400a6",
-      "bytes": 12402,
-      "mtimeMs": 1789622472987.2495
+      "sha256": "1f255f04646e5e38f52c6a0066072b5dc2d39dcb495868cb6c4673bb33495493",
+      "bytes": 12445,
+      "mtimeMs": 1789705888275.9082
     },
     "mcpDispatchService": {
       "path": ".compiled\\src\\main\\diagnostics\\mcp-dispatch-service.js",
       "sha256": "9e0dbbce342e17a6f4426e72be4560ce869a188eee8166065a63063304238d71",
       "bytes": 37148,
-      "mtimeMs": 1789623981113.96
+      "mtimeMs": 1789705886752.5132
     },
     "sourceToolbarTs": {
       "path": "src\\renderer\\toolbar.ts",
-      "sha256": "8d82260a9510dd3001c1f9d736edfb6c0696a696b40ae417e91e9fa4c1ef5866",
-      "bytes": 151460,
-      "mtimeMs": 1789628607334.639
+      "sha256": "157f2dcf378d6d04c89b179a421df0eafb2e2bc8285cf79dcf88554bc1857d99",
+      "bytes": 152289,
+      "mtimeMs": 1789705852232.137
     },
     "sourceToolbarHtml": {
       "path": "src\\renderer\\toolbar.html",
@@ -49,8 +49,8 @@
       "mtimeMs": 1789628613540.6675
     },
     "sourceVsCompiled": {
-      "compiledToolbarJsMtimeMs": 1789629132772.283,
-      "sourceToolbarTsMtimeMs": 1789628607334.639,
+      "compiledToolbarJsMtimeMs": 1789705895044.7239,
+      "sourceToolbarTsMtimeMs": 1789705852232.137,
       "sourceIsNewerThanCompiled": false,
       "note": "This probe observes the COMPILED renderer. If the source is newer, the observed revision is not the current source revision and the hashes above (not the working tree) define what passed. Re-run after a compile to certify the newer source."
     }
@@ -187,7 +187,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 103
+          "waitedMs": 107
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -293,83 +293,83 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 319.14,
-            "h": 591.66,
-            "top": 269.39,
-            "left": 48.33
+            "w": 324,
+            "h": 600.67,
+            "top": 268.2,
+            "left": 40.05
           },
           "reconciliation": {
-            "w": 303.38,
-            "h": 93.61,
-            "top": 277.27,
-            "left": 56.21
+            "w": 308,
+            "h": 95.03,
+            "top": 276.2,
+            "left": 48.05
           },
           "margin": {
-            "w": 303.38,
-            "h": 52.24,
-            "top": 603.4,
-            "left": 56.21
+            "w": 308,
+            "h": 53.03,
+            "top": 607.3,
+            "left": 48.05
           },
           "truncation": {
-            "w": 303.38,
-            "h": 36.95,
-            "top": 661.55,
-            "left": 56.21
+            "w": 308,
+            "h": 37.52,
+            "top": 666.33,
+            "left": 48.05
           },
           "rowsWithPositiveHeight": 6,
           "rows": [
             {
               "id": "mcpDispatchReconciliation",
               "rect": {
-                "w": 303.38,
-                "h": 93.61,
-                "top": 277.27,
-                "left": 56.21
+                "w": 308,
+                "h": 95.03,
+                "top": 276.2,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchRow:0",
               "rect": {
-                "w": 303.38,
-                "h": 107.4,
-                "top": 376.79,
-                "left": 56.21
+                "w": 308,
+                "h": 109.03,
+                "top": 377.23,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchRow:1",
               "rect": {
-                "w": 303.38,
-                "h": 107.4,
-                "top": 490.09,
-                "left": 56.21
+                "w": 308,
+                "h": 109.03,
+                "top": 492.27,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchQuarantineMargin",
               "rect": {
-                "w": 303.38,
-                "h": 52.24,
-                "top": 603.4,
-                "left": 56.21
+                "w": 308,
+                "h": 53.03,
+                "top": 607.3,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchTruncation",
               "rect": {
-                "w": 303.38,
-                "h": 36.95,
-                "top": 661.55,
-                "left": 56.21
+                "w": 308,
+                "h": 37.52,
+                "top": 666.33,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchCoreHole",
               "rect": {
-                "w": 303.38,
-                "h": 148.77,
-                "top": 704.41,
-                "left": 56.21
+                "w": 308,
+                "h": 151.03,
+                "top": 709.84,
+                "left": 48.05
               }
             }
           ],
@@ -507,10 +507,10 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 333.92,
-            "h": 118.2,
-            "top": 253.14,
-            "left": 48.33
+            "w": 339,
+            "h": 120,
+            "top": 251.7,
+            "left": 40.05
           },
           "reconciliation": null,
           "margin": null,
@@ -615,7 +615,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel CENSUS_DRIFT",
-          "waitedMs": 57
+          "waitedMs": 62
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -645,10 +645,10 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 333.92,
-            "h": 165.48,
-            "top": 253.14,
-            "left": 48.33
+            "w": 339,
+            "h": 168,
+            "top": 251.7,
+            "left": 40.05
           },
           "reconciliation": null,
           "margin": null,
@@ -753,7 +753,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel UNRECOGNIZED",
-          "waitedMs": 55
+          "waitedMs": 61
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -845,22 +845,22 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 319.14,
-            "h": 548.8,
-            "top": 269.39,
-            "left": 48.33
+            "w": 324,
+            "h": 557.16,
+            "top": 268.2,
+            "left": 40.05
           },
           "reconciliation": {
-            "w": 303.38,
-            "h": 93.61,
-            "top": 277.27,
-            "left": 56.21
+            "w": 308,
+            "h": 95.03,
+            "top": 276.2,
+            "left": 48.05
           },
           "margin": {
-            "w": 303.38,
-            "h": 52.24,
-            "top": 603.4,
-            "left": 56.21
+            "w": 308,
+            "h": 53.03,
+            "top": 607.3,
+            "left": 48.05
           },
           "truncation": null,
           "rowsWithPositiveHeight": 5,
@@ -868,46 +868,46 @@
             {
               "id": "mcpDispatchReconciliation",
               "rect": {
-                "w": 303.38,
-                "h": 93.61,
-                "top": 277.27,
-                "left": 56.21
+                "w": 308,
+                "h": 95.03,
+                "top": 276.2,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchRow:0",
               "rect": {
-                "w": 303.38,
-                "h": 107.4,
-                "top": 376.79,
-                "left": 56.21
+                "w": 308,
+                "h": 109.03,
+                "top": 377.23,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchRow:1",
               "rect": {
-                "w": 303.38,
-                "h": 107.4,
-                "top": 490.09,
-                "left": 56.21
+                "w": 308,
+                "h": 109.03,
+                "top": 492.27,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchQuarantineMargin",
               "rect": {
-                "w": 303.38,
-                "h": 52.24,
-                "top": 603.4,
-                "left": 56.21
+                "w": 308,
+                "h": 53.03,
+                "top": 607.3,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchCoreHole",
               "rect": {
-                "w": 303.38,
-                "h": 148.77,
-                "top": 661.55,
-                "left": 56.21
+                "w": 308,
+                "h": 151.03,
+                "top": 666.33,
+                "left": 48.05
               }
             }
           ],
@@ -1048,7 +1048,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel secrets",
-          "waitedMs": 55
+          "waitedMs": 65
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -1761,67 +1761,67 @@
     {
       "channel": "antifan:toolbar:get-initial-state",
       "scenario": null,
-      "at": "2026-09-17T22:46:43.516Z",
+      "at": "2026-09-18T05:58:35.428Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:get-phone-status",
       "scenario": null,
-      "at": "2026-09-17T22:46:43.519Z",
+      "at": "2026-09-18T05:58:35.431Z",
       "argSummary": "undefined"
     },
     {
       "channel": "antifan:workflow:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:46:43.571Z",
+      "at": "2026-09-18T05:58:35.487Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:set-overlay",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:46:43.571Z",
+      "at": "2026-09-18T05:58:35.487Z",
       "argSummary": "true"
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:46:43.572Z",
+      "at": "2026-09-18T05:58:35.488Z",
       "argSummary": null
     },
     {
       "channel": "antifan:core-health:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:46:43.647Z",
+      "at": "2026-09-18T05:58:35.574Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-17T22:46:43.677Z",
+      "at": "2026-09-18T05:58:35.596Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "B-unmeasured-no-census",
-      "at": "2026-09-17T22:46:43.999Z",
+      "at": "2026-09-18T05:58:35.913Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "C-unmeasured-with-census",
-      "at": "2026-09-17T22:46:44.179Z",
+      "at": "2026-09-18T05:58:36.100Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D1-hostile-projected",
-      "at": "2026-09-17T22:46:44.368Z",
+      "at": "2026-09-18T05:58:36.315Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D2-hostile-raw",
-      "at": "2026-09-17T22:46:44.714Z",
+      "at": "2026-09-18T05:58:36.674Z",
       "argSummary": null
     }
   ],
@@ -1971,7 +1971,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 103
+          "waitedMs": 107
         },
         "listItemCount": 6,
         "listIds": [
@@ -2125,22 +2125,22 @@
         "docScrollHeight": 695,
         "rowsWithPositiveHeight": 6,
         "reconciliation": {
-          "w": 303.38,
-          "h": 93.61,
-          "top": 277.27,
-          "left": 56.21
+          "w": 308,
+          "h": 95.03,
+          "top": 276.2,
+          "left": 48.05
         },
         "margin": {
-          "w": 303.38,
-          "h": 52.24,
-          "top": 603.4,
-          "left": 56.21
+          "w": 308,
+          "h": 53.03,
+          "top": 607.3,
+          "left": 48.05
         },
         "truncation": {
-          "w": 303.38,
-          "h": 36.95,
-          "top": 661.55,
-          "left": 56.21
+          "w": 308,
+          "h": 37.52,
+          "top": 666.33,
+          "left": 48.05
         },
         "overlayComputedDisplay": "flex",
         "listComputedVisibility": "visible",
@@ -2148,55 +2148,55 @@
           {
             "id": "mcpDispatchReconciliation",
             "rect": {
-              "w": 303.38,
-              "h": 93.61,
-              "top": 277.27,
-              "left": 56.21
+              "w": 308,
+              "h": 95.03,
+              "top": 276.2,
+              "left": 48.05
             }
           },
           {
             "id": "mcpDispatchRow:0",
             "rect": {
-              "w": 303.38,
-              "h": 107.4,
-              "top": 376.79,
-              "left": 56.21
+              "w": 308,
+              "h": 109.03,
+              "top": 377.23,
+              "left": 48.05
             }
           },
           {
             "id": "mcpDispatchRow:1",
             "rect": {
-              "w": 303.38,
-              "h": 107.4,
-              "top": 490.09,
-              "left": 56.21
+              "w": 308,
+              "h": 109.03,
+              "top": 492.27,
+              "left": 48.05
             }
           },
           {
             "id": "mcpDispatchQuarantineMargin",
             "rect": {
-              "w": 303.38,
-              "h": 52.24,
-              "top": 603.4,
-              "left": 56.21
+              "w": 308,
+              "h": 53.03,
+              "top": 607.3,
+              "left": 48.05
             }
           },
           {
             "id": "mcpDispatchTruncation",
             "rect": {
-              "w": 303.38,
-              "h": 36.95,
-              "top": 661.55,
-              "left": 56.21
+              "w": 308,
+              "h": 37.52,
+              "top": 666.33,
+              "left": 48.05
             }
           },
           {
             "id": "mcpDispatchCoreHole",
             "rect": {
-              "w": 303.38,
-              "h": 148.77,
-              "top": 704.41,
-              "left": 56.21
+              "w": 308,
+              "h": 151.03,
+              "top": 709.84,
+              "left": 48.05
             }
           }
         ]

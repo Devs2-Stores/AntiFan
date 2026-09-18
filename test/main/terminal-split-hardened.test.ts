@@ -61,6 +61,8 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
         cwd: cwd || 'E:/Work/project',
         pty: mockPty,
         buffer: restoredBuffer || '',
+        bufferBytes: Buffer.byteLength(restoredBuffer || '', 'utf8'),
+        deliveryJournal: { clear: () => {} },
         capsuleId: tmInternal.currentCapsuleId || 'default',
         disposed: false,
       };
@@ -100,6 +102,44 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     assert.strictEqual(tm.listSessions().find(s => s.id === p1)?.splitSessionId, undefined);
 
     await tm.closeSession(p1);
+  });
+ 
+  it('parks a parent\'s panes with it and wakes them through the split toggle path', async () => {
+    const parent = tm.createSession();
+    const split = tm.createSplitSession(parent);
+    assert.ok(split);
+    tm.getSession(parent)!.state = 'running';
+    tm.getSession(split)!.state = 'running';
+    // A pane is subordinate to the tab it splits: parking the parent parks its panes in
+    // the same transition. A split left running under a sleeping parent keeps a shell
+    // alive for a tab the user believes is parked, and its row leaks out of the parent's
+    // group in the sidebar — the group a pane inherits comes from the awake parent.
+    assert.strictEqual(tm.sleepSession(parent), true);
+    assert.strictEqual(tm.getSession(parent)?.state, 'sleeping');
+    assert.strictEqual(tm.getSession(split)?.state, 'sleeping');
+    assert.strictEqual(tm.getSession(split)?.pty, null, 'the parked pane releases its shell');
+
+    assert.strictEqual(tm.createSplitSession(parent), split,
+      'waking a hidden split must reuse its existing session');
+    assert.strictEqual(tm.getSession(parent)?.state, 'running');
+    assert.strictEqual(tm.getSession(split)?.state, 'running');
+
+    // The mirror rule: waking a pane wakes the tab that owns it, so a keystroke in the
+    // lower pane can never leave a live shell under a parked parent.
+    assert.strictEqual(tm.sleepSession(parent), true);
+    assert.strictEqual(tm.wakeSession(split), true);
+    assert.strictEqual(tm.getSession(parent)?.state, 'running');
+    assert.strictEqual(tm.getSession(split)?.state, 'running');
+
+    // A pane can still be parked on its own; the tab it splits keeps running, and the
+    // toggle is still the pane's wake path.
+    assert.strictEqual(tm.sleepSession(split), true);
+    assert.strictEqual(tm.getSession(parent)?.state, 'running');
+    assert.strictEqual(tm.getSession(split)?.state, 'sleeping');
+    assert.strictEqual(tm.createSplitSession(parent), split);
+    assert.strictEqual(tm.getSession(split)?.state, 'running');
+
+    await tm.closeSession(parent);
   });
 
   // Round 3: Disposed session rejection and safe attached split killing
