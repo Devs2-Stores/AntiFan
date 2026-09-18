@@ -1,9 +1,21 @@
 ---
 title: "Phase 10: 120-minute soak & evidence"
-status: todo
+status: deferred
 ---
 
 # Phase 10: 120-minute soak & evidence
+
+## Status — not executed (deferred)
+
+The 120-minute window has **not** been spent: this phase has no run, no telemetry
+and no report, so nothing in phases 1–11 is certified by it. The runner of record
+is `node run-omp-soak.cjs --minutes 120` (fixture `scripts/smoke-omp-closed-loop.cjs
+--soak`), to be driven against one live app instance and one OMP session.
+
+Until it runs, every claim in this plan rests on the phase lanes (`tsc -p .`,
+`test:main`, `test:unit`, `test:e2e`) and on the targeted probes recorded per
+phase — never on soak evidence. `plan.md § Global success criteria` keeps the soak
+criterion unchecked for the same reason.
 
 ## Overview
 

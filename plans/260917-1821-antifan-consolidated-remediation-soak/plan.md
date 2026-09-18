@@ -117,6 +117,10 @@ phase below is graded by the lanes this phase repairs, and the autonomous loop's
 The user's explicit ask: the plan ships with a 120-minute soak, executed, not
 described.
 
+**Observed state (2026-09-18): deferred — the run has not been executed.** No
+telemetry, no report, no certification; phases 1–11 are lane-verified only. See
+`phase-10 § Status` for the runner of record and what stays open.
+
 - **Duration:** 120 minutes continuous wall clock, one live app instance, one OMP
   session driving it. No phase may be marked done while the soak is pending —
   the soak is the program's own acceptance gate.
@@ -229,4 +233,5 @@ described.
 - [ ] `npm run audit`, `npm run accounting:mcp-dispatch`, `npm run compile`, and the
       existing unit suite pass **without any test being widened**.
 - [ ] The 120-minute soak (§ Phase 10) completes with every invariant holding and a
-      written evidence report.
+      written evidence report. **Not run — deferred, see `phase-10 § Status`: no
+      soak evidence exists, so this gate is open.**
