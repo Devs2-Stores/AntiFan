@@ -1,0 +1,10 @@
+{
+  "name": "antifan-wait-alert",
+  "version": "1.0.0",
+  "description": "AntiFan wait-alert extension: sound, taskbar flash, and balloon tip the moment OMP blocks on the user",
+  "type": "module",
+  "main": "./index.ts",
+  "omp": {
+    "extensions": ["./index.ts"]
+  }
+}

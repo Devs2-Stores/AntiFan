@@ -3,3 +3,4 @@
 
 extensions:
   - "./.omp/extensions/antifan-fix-guard"
+  - "./.omp/extensions/wait-alert"
