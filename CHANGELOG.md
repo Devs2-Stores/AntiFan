@@ -6,6 +6,16 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa lỗi — Rebind đi khỏi tab không trả slot về pool đang giữ nó (session tự chặn chính mình)
+- **Nguyên nhân**: `releaseSessionTab` tra pool theo **id mà caller truyền vào như session**, nhưng registry chỉ biết **tab đã được nhả**: tab vào chỗ qua `createTab({ terminalSessionId })` hoặc bị terminal nhận làm con thì nằm trong pool khoá bằng **id terminal**. Lệnh xoá theo khoá trả `false` và slot vẫn bị đếm, nên sau khi rebind đi khỏi tab, `openTab` kế tiếp của chính session đó có thể từ chối `POLICY_DENIED` với một tab nó đã bỏ.
+- **Sửa**: `native-tab-host.ts` duyệt các pool và xoá tab **ở nơi nó đang được giữ** — đúng cách `adoptChildTab` và `getManagedTabIds` vốn tra pool — và bỏ pool đã rỗng. Caller truyền id terminal vẫn nhả toàn bộ affinity entry qua `removeManagedTab`; caller truyền id tab thì không đụng entry đó, vì nó ghi quyền sở hữu terminal (badge + access check), không phải hạn mức của session này. Kèm theo: `listTerminalSessionIds` khử trùng — một pane split được `listSessions` chiếu thành entry riêng nên entry cha nêu lại nó bị liệt kê hai lần.
+- **Bằng chứng**: `test/unit/browser/session-tab-slot-release.test.ts` khoá hợp đồng tại `getManagedTabIds` — nguồn prune duy nhất mà cả hai cổng hạn mức đọc: **đỏ trước fix** ở đúng các ca khoá bằng terminal, xanh sau.
+
+### Sửa lỗi — Terminal đọc lệnh chuyển alternate-screen vắt qua ranh giới chunk
+- **Nguyên nhân**: `appendData` khớp `\x1b[?1049h` / `\x1b[?1049l` **trong một chunk**, nhưng chunk không phải một message: ConPTY cắt chuỗi này, nên một lệnh *enter* bị vắt làm đôi để lại cờ `false` (chương trình full-screen bị xoá transcript) và một lệnh *leave* bị vắt để lại cờ **kẹt `true`** (`cls`/Ctrl+L của người dùng bị nuốt im lặng).
+- **Sửa**: `terminal-manager.ts` quét trên **đuôi chunk trước + chunk này**, giữ lại đuôi (`ALT_SCREEN_SEQ_LENGTH - 1`) cho lần sau, và lấy lệnh **cuối cùng** khi một chunk mang cả hai.
+- **Bằng chứng**: `test/unit/browser/terminal-alt-screen-scan.test.ts` chạy đúng handler `child.onData` của production qua ranh giới `FakePty` và khẳng định cờ cùng phần repaint xoá màn hình mà nó giữ lại cho tới khi chương trình rời screen.
+
 ### Cập nhật — Nhóm tab ở sidebar: đánh dấu `*`, màu, thứ tự; pane chia đôi nằm dưới tab cha
 - **Việc**: header nhóm bỏ **badge đếm tab** (một con số không ai hành động được) và nhận menu `⋮` gom ba thao tác nhóm — đánh dấu `*`, chọn màu (8 màu + "Tự động"), chuyển nhóm lên/xuống. Mục không áp dụng được thì **vô hiệu hoá** (nhóm đầu không "chuyển lên" được) thay vì im lặng không làm gì. Tên nhóm lấy phần bề rộng còn lại và cắt bằng ellipsis nên nhóm dài không đẩy nút của chính nó ra ngoài cột 220px.
 - **Màu nhóm nhìn thấy được ở cả hai layout**: ở sidebar, tên nhóm tô đúng màu nhóm (layout ngang đã có chip màu từ trước, nhưng sidebar thì màu chỉ nằm trong menu — một lựa chọn vô hình với người dùng sidebar). Màu suy diễn sẵn cho mọi nhóm thật, nên lựa chọn của người dùng chỉ là ghi đè.
