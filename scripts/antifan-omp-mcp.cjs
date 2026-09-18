@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const { createRequire } = require('node:module');
 const http = require('node:http');
 const { WebSocket } = require('ws');
@@ -201,18 +202,82 @@ function ambientTargetFieldFor(method) {
   return typeof field === 'string' && field.length > 0 ? field : undefined;
 }
 
+let bootstrapChannelCache;
+let bootstrapChannelRead = false;
+
+/**
+ * The bootstrap payload carries the bridge secret, so the channel it arrives on decides who can
+ * read it: an environment block is visible to every same-user process, a pipe is not.
+ *
+ * Env wins when both are present because MCP client configs outside this repo (Codex, harness
+ * configs) deliver the payload that way and this process cannot tell them to do otherwise. Only a
+ * spawner that owns this child's stdin can use the pipe, and it must write the payload as the very
+ * first line — the read below happens before the MCP transport touches stdin, and byte-by-byte so
+ * a batched read cannot swallow the first JSON-RPC frame.
+ */
+function rawBootstrapFromChannel() {
+  if (bootstrapChannelRead) return bootstrapChannelCache;
+  bootstrapChannelRead = true;
+  bootstrapChannelCache = null;
+  const fromEnv = process.env.ANTIFAN_MCP_BOOTSTRAP;
+  if (fromEnv) {
+    try {
+      bootstrapChannelCache = JSON.parse(fromEnv);
+    } catch {
+      bootstrapChannelCache = null;
+    }
+    return bootstrapChannelCache;
+  }
+  if (process.stdin.isTTY) return null;
+  const bytes = [];
+  const one = Buffer.alloc(1);
+  try {
+    for (let i = 0; i < 65536; i++) {
+      const read = fs.readSync(0, one, 0, 1, null);
+      if (read <= 0 || one[0] === 10) break;
+      bytes.push(one[0]);
+    }
+  } catch {
+    return null;
+  }
+  if (bytes.length === 0) return null;
+  // A pipe can carry two kinds of first line: the launcher's bootstrap payload, or the first
+  // JSON-RPC frame of a client that knows nothing about any bootstrap. Only a payload that
+  // actually names a bridge endpoint is claimed here; anything else — including a perfectly
+  // valid `initialize` — goes back on stdin so the MCP transport reads it. Consuming that frame
+  // left the server mute for every stock MCP client: the handshake arrived, was parsed as a
+  // bootstrap, and never reached the protocol layer.
+  let parsed = null;
+  try {
+    parsed = JSON.parse(Buffer.from(bytes).toString('utf8'));
+  } catch {
+    parsed = null;
+  }
+  const isBootstrapPayload =
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    !('jsonrpc' in parsed) &&
+    !('method' in parsed) &&
+    (typeof parsed.port === 'number' || typeof parsed.token === 'string' || typeof parsed.secret === 'string');
+  if (!isBootstrapPayload) {
+    // Replay the exact bytes, newline included: the transport has not read stdin yet, so the
+    // unshift lands before its first read and the frame arrives intact.
+    process.stdin.unshift(Buffer.concat([Buffer.from(bytes), Buffer.from([10])]));
+    return null;
+  }
+  bootstrapChannelCache = parsed;
+  return bootstrapChannelCache;
+}
+
 function resolveBridgeCandidates() {
   // Fail-closed, bootstrap-only authority: the OMP proxy connects exclusively to
   // the explicit bridge endpoint supplied via environment. It MUST NOT discover
   // bridge credentials from disk — ambient endpoint discovery is the fail-open
   // vector dual-plane eliminates.
   const parsedBootstrap = (() => {
-    if (process.env.ANTIFAN_MCP_BOOTSTRAP) {
-      try {
-        const b = JSON.parse(process.env.ANTIFAN_MCP_BOOTSTRAP);
-        if (b && typeof b.port === 'number' && b.port > 0) return b;
-      } catch {}
-    }
+    const fromChannel = rawBootstrapFromChannel();
+    if (fromChannel && typeof fromChannel.port === 'number' && fromChannel.port > 0) return fromChannel;
     if (process.env.ANTIFAN_ATTACHMENT_SECRET) {
       const port = parseInt(process.env.ANTIFAN_MCP_PORT || '20129', 10);
       if (port > 0) {
@@ -292,21 +357,18 @@ function getBootstrap() {
     }
     return dynamicBootstrap;
   }
-  if (process.env.ANTIFAN_MCP_BOOTSTRAP) {
-    try {
-      const b = JSON.parse(process.env.ANTIFAN_MCP_BOOTSTRAP);
-      if (b.authorityRevision && !currentAuthorityRevision) {
-        currentAuthorityRevision = b.authorityRevision;
-      }
-      return {
-        ...b,
-        tabId: process.env.ANTIFAN_BOUND_TAB_ID || b.tabId || undefined,
-        authorityRevision: currentAuthorityRevision || b.authorityRevision,
-        ownerPid: b.ownerPid || (process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined),
-      };
-    } catch {
-      return null;
+  const fromChannel = rawBootstrapFromChannel();
+  if (fromChannel) {
+    const b = fromChannel;
+    if (b.authorityRevision && !currentAuthorityRevision) {
+      currentAuthorityRevision = b.authorityRevision;
     }
+    return {
+      ...b,
+      tabId: process.env.ANTIFAN_BOUND_TAB_ID || b.tabId || undefined,
+      authorityRevision: currentAuthorityRevision || b.authorityRevision,
+      ownerPid: b.ownerPid || (process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined),
+    };
   }
   if (process.env.ANTIFAN_ATTACHMENT_SECRET) {
     if (process.env.ANTIFAN_AUTHORITY_REVISION && !currentAuthorityRevision) {
@@ -611,7 +673,6 @@ async function invokeCore(method, params) {
 // scripts/check-mcp-budget-dominance.mjs require()s this module before it does
 // anything else, so an import-time probe or write would put a store on the
 // build path. The directory is re-read per emit; nothing is probed at import.
-const coreAttemptFs = require('node:fs');
 const coreAttemptPath = require('node:path');
 const CORE_ATTEMPT_DIR_ENV = 'ANTIFAN_PROXY_TELEMETRY_DIR';
 const CORE_ATTEMPT_PROVENANCE = 'omp-proxy';
@@ -808,16 +869,16 @@ function enqueueCoreAttemptLine(dir, line) {
 }
 
 async function coreAttemptPrepareFile(dir, incomingBytes) {
-  await coreAttemptFs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.mkdir(dir, { recursive: true });
   const file = coreAttemptPath.join(dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.jsonl`);
-  let stats = await coreAttemptFs.promises.stat(file).catch(() => null);
+  let stats = await fs.promises.stat(file).catch(() => null);
   if (stats && stats.size > 0 && stats.size + incomingBytes > coreAttemptLimits().maxFileBytes) {
     await coreAttemptRotate(dir, file);
     stats = null;
   }
   if (!stats || stats.size === 0) {
     if (!coreAttemptInstrumentedSince) coreAttemptInstrumentedSince = new Date().toISOString();
-    await coreAttemptFs.promises.appendFile(file, `${JSON.stringify(coreAttemptHeaderLine())}\n`, 'utf8');
+    await fs.promises.appendFile(file, `${JSON.stringify(coreAttemptHeaderLine())}\n`, 'utf8');
   }
   return file;
 }
@@ -825,8 +886,8 @@ async function coreAttemptPrepareFile(dir, incomingBytes) {
 async function coreAttemptRotate(dir, activeFile) {
   const limits = coreAttemptLimits();
   const rotated = coreAttemptPath.join(dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.${coreAttemptRotationSuffix()}.jsonl`);
-  await coreAttemptFs.promises.rename(activeFile, rotated);
-  const entries = await coreAttemptFs.promises.readdir(dir).catch(() => []);
+  await fs.promises.rename(activeFile, rotated);
+  const entries = await fs.promises.readdir(dir).catch(() => []);
   const rotatedFiles = [];
   for (const name of entries) {
     // Another pid's ACTIVE file is never a rotation candidate: pruning it would
@@ -834,14 +895,14 @@ async function coreAttemptRotate(dir, activeFile) {
     // proxies apart, it is not a rotation slot).
     if (CORE_ATTEMPT_ACTIVE_FILE.test(name) || !CORE_ATTEMPT_ROTATED_FILE.test(name)) continue;
     const full = coreAttemptPath.join(dir, name);
-    const stats = await coreAttemptFs.promises.stat(full).catch(() => null);
+    const stats = await fs.promises.stat(full).catch(() => null);
     if (!stats || !stats.isFile()) continue;
     rotatedFiles.push({ name, full, mtimeMs: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : 0 });
   }
   rotatedFiles.sort((a, b) => (a.mtimeMs - b.mtimeMs) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   while (rotatedFiles.length > limits.retainedFiles) {
     const oldest = rotatedFiles.shift();
-    await coreAttemptFs.promises.unlink(oldest.full).catch(() => {});
+    await fs.promises.unlink(oldest.full).catch(() => {});
   }
 }
 
@@ -858,7 +919,7 @@ async function drainCoreAttemptQueue() {
         // interrupted without risking a duplicate line.
         item.inFlight = true;
         try {
-          await coreAttemptFs.promises.appendFile(file, item.line, 'utf8');
+          await fs.promises.appendFile(file, item.line, 'utf8');
         } catch {
           // A telemetry write that fails is dropped, never rethrown at a caller.
         } finally {
@@ -882,7 +943,7 @@ async function drainCoreAttemptQueue() {
           pid: process.pid,
         })}\n`;
         const file = await coreAttemptPrepareFile(dir, Buffer.byteLength(line, 'utf8')).catch(() => null);
-        if (file) await coreAttemptFs.promises.appendFile(file, line, 'utf8').catch(() => {});
+        if (file) await fs.promises.appendFile(file, line, 'utf8').catch(() => {});
       }
     }
   } finally {
@@ -905,20 +966,20 @@ function flushCoreAttemptsSync() {
       const limits = coreAttemptLimits();
       for (const item of pending) {
         try {
-          coreAttemptFs.mkdirSync(item.dir, { recursive: true });
+          fs.mkdirSync(item.dir, { recursive: true });
           const file = coreAttemptPath.join(item.dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.jsonl`);
-          let stats = coreAttemptFs.statSync(file, { throwIfNoEntry: false }) || null;
+          let stats = fs.statSync(file, { throwIfNoEntry: false }) || null;
           if (stats && stats.size > 0 && stats.size + item.bytes > limits.maxFileBytes) {
             try {
-              coreAttemptFs.renameSync(file, coreAttemptPath.join(item.dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.${coreAttemptRotationSuffix()}.jsonl`));
+              fs.renameSync(file, coreAttemptPath.join(item.dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.${coreAttemptRotationSuffix()}.jsonl`));
               stats = null;
             } catch {}
           }
           if (!stats || stats.size === 0) {
             if (!coreAttemptInstrumentedSince) coreAttemptInstrumentedSince = new Date().toISOString();
-            coreAttemptFs.appendFileSync(file, `${JSON.stringify(coreAttemptHeaderLine())}\n`, 'utf8');
+            fs.appendFileSync(file, `${JSON.stringify(coreAttemptHeaderLine())}\n`, 'utf8');
           }
-          coreAttemptFs.appendFileSync(file, item.line, 'utf8');
+          fs.appendFileSync(file, item.line, 'utf8');
         } catch {}
       }
       coreAttemptQueue = coreAttemptQueue.filter((item) => item.inFlight);
@@ -929,9 +990,9 @@ function flushCoreAttemptsSync() {
       const dir = coreAttemptResolveDir();
       if (dir) {
         try {
-          coreAttemptFs.mkdirSync(dir, { recursive: true });
+          fs.mkdirSync(dir, { recursive: true });
           const file = coreAttemptPath.join(dir, `${CORE_ATTEMPT_FILE_PREFIX}${process.pid}.jsonl`);
-          coreAttemptFs.appendFileSync(file, `${JSON.stringify({
+          fs.appendFileSync(file, `${JSON.stringify({
             kind: 'drop',
             timestamp: new Date().toISOString(),
             reason: 'QUEUE_BOUND_EXCEEDED',
@@ -1060,7 +1121,7 @@ function readCoreAttemptStore(dirInput) {
   report.storePath = coreAttemptPath.resolve(asked);
   let entries;
   try {
-    entries = coreAttemptFs.readdirSync(asked);
+    entries = fs.readdirSync(asked);
   } catch {
     report.reasonCode = 'STORE_ABSENT';
     return report;
@@ -1072,8 +1133,8 @@ function readCoreAttemptStore(dirInput) {
     const full = coreAttemptPath.join(asked, name);
     let text;
     try {
-      if (!coreAttemptFs.statSync(full, { throwIfNoEntry: false })?.isFile()) continue;
-      text = coreAttemptFs.readFileSync(full, 'utf8');
+      if (!fs.statSync(full, { throwIfNoEntry: false })?.isFile()) continue;
+      text = fs.readFileSync(full, 'utf8');
     } catch {
       report.unparseableLines += 1;
       continue;
@@ -2726,7 +2787,10 @@ if (require.main === module) {
     }
     process.exit(0);
   }
-  if (process.stdin.isTTY && !process.env.ANTIFAN_MCP_BOOTSTRAP) {
+  // Read the bootstrap channel BEFORE the MCP transport attaches to stdin: the transport would
+  // otherwise consume a piped first line as a JSON-RPC frame.
+  const bootstrap = rawBootstrapFromChannel();
+  if (process.stdin.isTTY && !bootstrap) {
     const candidates = resolveBridgeCandidates();
     if (candidates.length === 0) {
       process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running.\n');

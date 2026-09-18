@@ -20,9 +20,7 @@ const bootstrapObj = {
 
 const env = {
   ...process.env,
-  ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrapObj),
   ANTIFAN_ATTACHMENT_ID: sessionData.attachmentId,
-  ANTIFAN_ATTACHMENT_SECRET: sessionData.secret,
   ANTIFAN_AUTHORITY_REVISION: sessionData.authorityRevision,
   ANTIFAN_MCP_PORT: String(sessionData.port),
 };
@@ -31,6 +29,9 @@ const mcpProc = spawn(process.execPath, ['scripts/antifan-omp-mcp.cjs'], {
   env,
   stdio: ['pipe', 'pipe', 'inherit'],
 });
+
+// Secret channel: the pipe, not the process-table-visible environment block.
+mcpProc.stdin.write(`${JSON.stringify(bootstrapObj)}\n`);
 
 let msgId = 1;
 const pending = new Map();

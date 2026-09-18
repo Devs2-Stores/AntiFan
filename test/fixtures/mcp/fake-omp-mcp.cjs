@@ -41,11 +41,29 @@ const TOOL_NAMES = [
   'file.read',
   'file.write',
   'storefront.resolve_product',
+  'anti.browser.tabs.create',
+  'anti.browser.tabs.activate',
+  'anti.browser.tabs.close',
+  'anti.browser.rebind_target',
+  'anti.browser.set_automation_target',
+  'anti.browser.set_viewport',
+  'anti.browser.get_viewport',
+  'anti.browser.dump_dom',
+  'anti.browser.evaluate',
+  'anti.browser.evaluate_frame',
+  'anti.agent.cursor.highlight',
+  'anti.agent.cursor.clear',
+  'anti.agent.file_upload',
+  'anti.agent.drop',
+  'anti.inspect.styles',
+  'anti.inspect.region',
+  'anti.inspect.page_inventory',
+  'anti.inspect.style_diff',
+  'anti.inspect.matched_styles',
+  'anti.inspect.responsive_matrix',
+  'anti.reference.capture',
+  'anti.spec.validate_gate',
 ];
-
-// The catalogue is padded to the count the production server advertises so callers that assert
-// on catalogue size exercise the same contract.
-while (TOOL_NAMES.length < 52) TOOL_NAMES.push(`fixture.tool.${TOOL_NAMES.length + 1}`);
 
 function reply(id, result) {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`);

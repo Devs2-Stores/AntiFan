@@ -770,6 +770,8 @@ async function main() {
       ANTIFAN_WORKSPACE_ID: session.workspaceId,
       ANTIFAN_OWNER_PID: String(boundPid),
       ANTIFAN_BOUND_TAB_ID: session.tabId || explicitTabId || '',
+      // The CLI this launches is the one that spawns the MCP proxy, so the grandchild's stdin is
+      // out of reach; the environment block is the only channel left and stays the contract here.
       ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
         port: session.port || bridgeInfo.port,
         secret: session.secret,

@@ -30,13 +30,26 @@ describe('Live Chromium E2E: MCP Industrial Overhaul & Storefront Benchmark', ()
     });
 
     // Real wall-clock watchdog: it bounds a hung Electron child, which fake timers cannot kill.
-    // SIGTERM first so run-electron.cjs can taskkill the tree, SIGKILL as the hard bound.
+    // On Windows, taskkill /T /F reaps the entire process tree; on POSIX, SIGTERM then SIGKILL.
     let timeoutTimer: NodeJS.Timeout | undefined;
     let killTimer: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutTimer = setTimeout(() => {
-        try { proc.kill('SIGTERM'); } catch {}
-        killTimer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);
+        if (process.platform === 'win32') {
+          if (proc.pid) {
+            try {
+              const killer = spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], {
+                windowsHide: true,
+                stdio: 'ignore',
+              });
+              killer.unref();
+              killer.on('error', () => {});
+            } catch {}
+          }
+        } else {
+          try { proc.kill('SIGTERM'); } catch {}
+          killTimer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);
+        }
         console.error('STDOUT (on timeout):\n', stdout);
         console.error('STDERR (on timeout):\n', stderr);
         reject(new Error('Live Electron industrial overhaul E2E timed out after 90s'));

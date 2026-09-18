@@ -55,6 +55,8 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     // the invariant it protected: the store's directory is named by environment (or by
     // the operator's --dir), never derived from a plausible path, and nothing else on
     // disk is read. The store's own frames are read back only by that operator CLI.
+    // The same handle also reads the bootstrap line from fd 0, which is a spawner's
+    // pipe when a caller hands the payload over stdin — never a file on disk.
     assert.strictEqual(
       (content.match(/require\('node:fs'\)/g) ?? []).length,
       1,

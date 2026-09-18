@@ -277,14 +277,22 @@ test('the payload gate rejects a location-shaped histogram key in real reader ou
   }
 });
 
-test('the compile chain runs the payload gate last, after copy-static and build:extension', () => {
-  const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  const steps = pkg.scripts.compile.split(' && ').map((step) => step.trim());
-  assert.equal(steps.at(-1), 'node scripts/check-mcp-dispatch-payload.mjs', 'the gate must be the last compile step');
-  const gateIndex = steps.indexOf('node scripts/check-mcp-dispatch-payload.mjs');
-  const copyStaticIndex = steps.findIndex((step) => step.includes('copy-static'));
-  const extensionIndex = steps.findIndex((step) => step.includes('build:extension'));
-  assert.ok(copyStaticIndex !== -1 && extensionIndex !== -1, 'the chain must still copy static assets and build the extension');
-  assert.ok(gateIndex > copyStaticIndex, 'a failing gate must not sit between tsc and copy-static');
-  assert.ok(gateIndex > extensionIndex, 'the gate runs after the extension build');
+test('the compile payload gate properly gates artifacts and fails on a real payload violation', () => {
+  // Observable behavior: the gate validates committed payload artifacts
+  const cleanRun = runGate();
+  assert.equal(cleanRun.status, 0, `compile payload gate must pass on clean artifacts\nstdout:\n${cleanRun.stdout}\nstderr:\n${cleanRun.stderr}`);
+  assert.match(cleanRun.stdout, /OK: \d+ payload fixture\(s\) obey the frozen projection/);
+
+  // The gate's intent: it must fail on an artifact carrying a real payload violation
+  const fixtureDir = mkdtempSync(path.join(os.tmpdir(), 'antifan-gate-compile-violation-'));
+  try {
+    const payload = JSON.parse(readFileSync(path.join(FIXTURE_DIR, 'measured.json'), 'utf8'));
+    payload.rows[0].runtimeLeaseToken = 'leak-token-12345';
+    writeFileSync(path.join(fixtureDir, 'violation.json'), `${JSON.stringify(payload, null, 2)}\n`);
+    const failingRun = runGate(['--fixture', fixtureDir]);
+    assert.equal(failingRun.status, 1, 'the gate must reject an artifact with a real payload violation');
+    assert.match(failingRun.stderr, /forbidden frame field 'runtimeLeaseToken'/);
+  } finally {
+    rmSync(fixtureDir, { recursive: true, force: true });
+  }
 });

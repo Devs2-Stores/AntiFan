@@ -87,6 +87,8 @@ export class CodexExecutionBackend implements ExecutionBackend {
       childEnv.ANTIFAN_ATTEMPT_ID = input.attemptId;
       childEnv.ANTIFAN_PROJECT_ID = input.attachmentLaunch.projectId;
       childEnv.ANTIFAN_WORKSPACE_ID = input.attachmentLaunch.workspaceId;
+      // Codex spawns the MCP proxy itself, so this process cannot preface the grandchild's stdin;
+      // the environment block is the only channel left for the bootstrap here.
       childEnv.ANTIFAN_MCP_BOOTSTRAP = JSON.stringify({
         port: process.env.ANTIFAN_BRIDGE_PORT || process.env.ANTIFAN_MCP_PORT,
         secret: input.attachmentLaunch.secret,

@@ -72,12 +72,6 @@ export async function startMcpClient({ repoRoot, candidate, env = process.env })
   delete childEnv.ANTIFAN_MCP_BOOTSTRAP;
   delete childEnv.ANTIFAN_ATTACHMENT_SECRET;
   delete childEnv.ANTIFAN_BOUND_TAB_ID;
-  childEnv.ANTIFAN_MCP_BOOTSTRAP = JSON.stringify({
-    host: candidate.host,
-    port: candidate.port,
-    token: candidate.token,
-    secret: candidate.token,
-  });
   if (candidate.pid) childEnv.ANTIFAN_BRIDGE_PID = String(candidate.pid);
 
   const child = spawn(process.execPath, [path.join(repoRoot, MCP_SERVER)], {
@@ -86,6 +80,14 @@ export async function startMcpClient({ repoRoot, candidate, env = process.env })
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
+  // The candidate's token is a live bridge credential: it goes over the pipe, which no other
+  // process can read, rather than the inherited environment block.
+  child.stdin.write(`${JSON.stringify({
+    host: candidate.host,
+    port: candidate.port,
+    token: candidate.token,
+    secret: candidate.token,
+  })}\n`);
   child.stderr.on('data', (chunk) => process.stderr.write(`[theme-harness mcp] ${chunk}`));
 
   const decoder = new StringDecoder('utf8');

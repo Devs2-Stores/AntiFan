@@ -359,18 +359,18 @@ function runElectronWorkload() {
         env: {
           ...harnessEnv,
           ELECTRON_RUN_AS_NODE: '1',
-          ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
-            port: bridgePort,
-            secret: session.launch.secret,
-            attachmentId: session.launch.attachmentId,
-            authorityRevision: session.launch.authorityRevision,
-            runId: session.run.id,
-            attemptId: session.attempt.id,
-            projectId,
-            workspaceId,
-          }),
         },
       });
+      mcpProc.stdin.write(`${JSON.stringify({
+        port: bridgePort,
+        secret: session.launch.secret,
+        attachmentId: session.launch.attachmentId,
+        authorityRevision: session.launch.authorityRevision,
+        runId: session.run.id,
+        attemptId: session.attempt.id,
+        projectId,
+        workspaceId,
+      })}\n`);
 
       mcpProc.stderr.on('data', (d) => {
         const msg = d.toString().trim();

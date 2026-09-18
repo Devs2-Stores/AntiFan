@@ -23,22 +23,35 @@ export class AntiFanMcpClient {
     const session = this.resolveSession();
     const bootstrapObj = session.bootstrap;
 
-    const env = {
-      ...process.env,
-      ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrapObj),
-      ANTIFAN_ATTACHMENT_ID: session.attachmentId,
-      ANTIFAN_ATTACHMENT_SECRET: session.secret,
-      ANTIFAN_AUTHORITY_REVISION: session.authorityRevision,
-      ANTIFAN_MCP_PORT: String(session.port),
-    };
+    const isProxy = !this.options.mcpScript;
+    const env = { ...process.env };
+    // A binding inherited from the caller's shell describes a different session, and the proxy
+    // prefers the env channel over the pipe: leaving it in place would silently retarget this
+    // pinned client.
+    delete env.ANTIFAN_MCP_BOOTSTRAP;
+    delete env.ANTIFAN_ATTACHMENT_SECRET;
+    delete env.ANTIFAN_BOUND_TAB_ID;
+    env.ANTIFAN_ATTACHMENT_ID = session.attachmentId;
+    env.ANTIFAN_AUTHORITY_REVISION = session.authorityRevision;
+    env.ANTIFAN_MCP_PORT = String(session.port);
+    if (!isProxy) {
+      // The environment block is readable by every same-user process, so the real proxy takes the
+      // secret on stdin instead. A test double cannot read the pipe preface, so it keeps the env
+      // channel — it never sees a real session secret.
+      env.ANTIFAN_MCP_BOOTSTRAP = JSON.stringify(bootstrapObj);
+      env.ANTIFAN_ATTACHMENT_SECRET = session.secret;
+    }
 
-    const mcpScript = this.options.mcpScript
-      ? path.resolve(this.options.mcpScript)
-      : path.resolve('scripts/antifan-omp-mcp.cjs');
+    const mcpScript = isProxy
+      ? path.resolve('scripts/antifan-omp-mcp.cjs')
+      : path.resolve(this.options.mcpScript);
     this.mcpProc = spawn(process.execPath, [mcpScript], {
       env,
       stdio: ['pipe', 'pipe', 'inherit'],
     });
+    if (isProxy) {
+      this.mcpProc.stdin.write(`${JSON.stringify(bootstrapObj)}\n`);
+    }
 
     const rl = readline.createInterface({
       input: this.mcpProc.stdout,
@@ -51,33 +64,61 @@ export class AntiFanMcpClient {
       try {
         const json = JSON.parse(trimmed);
         if (json.id && this.pending.has(json.id)) {
-          const { resolve, reject } = this.pending.get(json.id);
+          const { resolve, reject, timer } = this.pending.get(json.id);
           this.pending.delete(json.id);
+          clearTimeout(timer);
           if (json.error) {
             reject(new Error(json.error.message || JSON.stringify(json.error)));
           } else {
             resolve(json.result);
           }
         }
-      } catch (e) {}
+      } catch (err) {
+        if (typeof this.options.onMalformedLine === 'function') {
+          this.options.onMalformedLine(trimmed, err);
+        } else if (!this.options.silent) {
+          console.error(`[AntiFanMcpClient] Malformed MCP stdout: ${trimmed}`);
+        }
+        for (const { reject, timer } of this.pending.values()) {
+          clearTimeout(timer);
+          reject(new Error(`MCP server emitted invalid JSON: ${trimmed}`));
+        }
+        this.pending.clear();
+      }
+    });
+
+    this.mcpProc.on('error', (err) => {
+      this.mcpProc = null;
+      this.initialized = false;
+      for (const { reject, timer } of this.pending.values()) {
+        clearTimeout(timer);
+        reject(new Error(`MCP process error: ${err.message}`));
+      }
+      this.pending.clear();
     });
 
     this.mcpProc.on('exit', (code) => {
       this.mcpProc = null;
       this.initialized = false;
-      for (const { reject } of this.pending.values()) {
+      for (const { reject, timer } of this.pending.values()) {
+        clearTimeout(timer);
         reject(new Error(`MCP process exited with code ${code}`));
       }
       this.pending.clear();
     });
 
-    // Initialize MCP handshake
-    await this.sendRaw('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'antifan-omp-client', version: '1.3.6' },
-    });
-    this.initialized = true;
+    try {
+      // Initialize MCP handshake
+      await this.sendRaw('initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'antifan-omp-client', version: '1.3.6' },
+      });
+      this.initialized = true;
+    } catch (err) {
+      this.close();
+      throw err;
+    }
   }
 
   /**
@@ -123,30 +164,53 @@ export class AntiFanMcpClient {
     };
   }
 
-  sendRaw(method, params = {}) {
+  sendRaw(method, params = {}, timeoutOrOptions = {}) {
     if (!this.mcpProc) {
       throw new Error('MCP client is not connected');
     }
+    const timeoutMs = typeof timeoutOrOptions === 'number'
+      ? timeoutOrOptions
+      : (timeoutOrOptions?.timeoutMs ?? timeoutOrOptions?.timeout ?? this.options.timeoutMs ?? this.options.timeout ?? 30000);
+
     const id = this.msgId++;
     const payload = { jsonrpc: '2.0', id, method, params };
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.mcpProc.stdin.write(JSON.stringify(payload) + '\n');
+      let timer = null;
+      if (timeoutMs > 0 && Number.isFinite(timeoutMs)) {
+        timer = setTimeout(() => {
+          if (this.pending.has(id)) {
+            this.pending.delete(id);
+            reject(new Error(`MCP request '${method}' timed out after ${timeoutMs}ms`));
+          }
+        }, timeoutMs);
+        if (typeof timer.unref === 'function') {
+          timer.unref();
+        }
+      }
+
+      this.pending.set(id, { resolve, reject, timer, method });
+      try {
+        this.mcpProc.stdin.write(JSON.stringify(payload) + '\n');
+      } catch (err) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(err);
+      }
     });
   }
 
-  async listTools() {
+  async listTools(options = {}) {
     await this.connect();
-    const res = await this.sendRaw('tools/list', {});
+    const res = await this.sendRaw('tools/list', {}, options);
     return res.tools || [];
   }
 
-  async callTool(name, args = {}) {
+  async callTool(name, args = {}, options = {}) {
     await this.connect();
     const res = await this.sendRaw('tools/call', {
       name,
       arguments: args,
-    });
+    }, options);
     // Parse MCP content format
     if (res && res.content && Array.isArray(res.content)) {
       const textItem = res.content.find(c => c.type === 'text');
@@ -174,6 +238,11 @@ export class AntiFanMcpClient {
   }
 
   close() {
+    for (const { reject, timer } of this.pending.values()) {
+      clearTimeout(timer);
+      reject(new Error('MCP client closed'));
+    }
+    this.pending.clear();
     if (this.mcpProc) {
       this.mcpProc.kill();
       this.mcpProc = null;

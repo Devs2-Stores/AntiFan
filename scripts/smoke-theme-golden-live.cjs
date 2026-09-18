@@ -360,20 +360,20 @@ async function run() {
         ...harnessEnv,
         ELECTRON_RUN_AS_NODE: '1',
         ANTIFAN_HEARTBEAT_MS: '1000',
-        ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
-          port: bridgePort,
-          secret: session.launch.secret,
-          attachmentId: session.launch.attachmentId,
-          authorityRevision: session.launch.authorityRevision,
-          runId: session.run.id,
-          attemptId: session.attempt.id,
-          projectId,
-          workspaceId,
-          tabId,
-        }),
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    mcp.stdin.write(`${JSON.stringify({
+      port: bridgePort,
+      secret: session.launch.secret,
+      attachmentId: session.launch.attachmentId,
+      authorityRevision: session.launch.authorityRevision,
+      runId: session.run.id,
+      attemptId: session.attempt.id,
+      projectId,
+      workspaceId,
+      tabId,
+    })}\n`);
     mcp.stderr.on('data', (chunk) => process.stderr.write(`[Theme MCP] ${chunk}`));
 
     const decoder = new StringDecoder('utf8');
