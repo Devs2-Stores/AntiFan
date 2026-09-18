@@ -1021,11 +1021,35 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       boundPid: 33333,
     });
     const before = record.expiresAt;
+    const renewStart = Date.now();
     const renewed = await registry.renewAttachment(launch.attachmentId, launch.secret, {
       extensionMs: 60_000,
       ownerPid: 33333,
     });
-    assert.ok(renewed.expiresAt > before, 'active renewal must strictly advance expiresAt');
+    // The renewal window slides from now: it replaces the remaining TTL rather than
+    // adding to it, so a 60s extension on a 1h-minted record lands inside
+    // [renewStart + 60s, now + 60s] — never on top of the old deadline.
+    assert.ok(
+      renewed.expiresAt >= renewStart + 60_000 && renewed.expiresAt <= Date.now() + 60_000,
+      'a renewal restarts the window at now + extensionMs instead of stacking it on the old deadline'
+    );
+    // Heartbeat renewals must not grow the deadline by a full extension per tick.
+    for (let tick = 0; tick < 3; tick++) {
+      const ticked = await registry.renewAttachment(launch.attachmentId, launch.secret, {
+        extensionMs: 60_000,
+        ownerPid: 33333,
+      });
+      assert.ok(
+        ticked.expiresAt <= Date.now() + 60_000,
+        'repeated renewals slide the same window; the deadline never accumulates extensions'
+      );
+    }
+    // When the extension covers the remaining TTL the window still advances, never backwards.
+    const extended = await registry.renewAttachment(launch.attachmentId, launch.secret, {
+      extensionMs: 3_600_000,
+      ownerPid: 33333,
+    });
+    assert.ok(extended.expiresAt > before, 'a renewal whose extension exceeds the remaining TTL still advances expiresAt');
     // Every non-active state must be rejected with ATTACHMENT_STALE.
     for (const state of ['issued', 'bound', 'stale', 'revoked', 'expired'] as const) {
       const stored = registry.getAttachment(launch.attachmentId)!;

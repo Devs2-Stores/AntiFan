@@ -212,7 +212,7 @@ describe('Session-scoped tab listing and adoption', () => {
       ],
     });
     const port = new BrowserControlPort(host);
-    const tabs = port.listTabs({ target: TARGET }) as Array<Record<string, unknown>>;
+    const tabs = port.listTabs({ target: TARGET, scope: 'session' }) as Array<Record<string, unknown>>;
     assert.deepStrictEqual(
       tabs.map((t) => [t.id, t.isBoundTab, t.isPrimaryTab]),
       [
@@ -227,7 +227,7 @@ describe('Session-scoped tab listing and adoption', () => {
       sessionTabList: () => [],
     });
     const port = new BrowserControlPort(host);
-    assert.deepStrictEqual(port.listTabs({ target: TARGET }), []);
+    assert.deepStrictEqual(port.listTabs({ target: TARGET, scope: 'session' }), []);
     // The whole-window listing is an explicit request, not a fallback.
     assert.deepStrictEqual(port.listTabs({}), [{ id: 'tab-b' }]);
   });

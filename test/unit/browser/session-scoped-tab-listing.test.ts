@@ -44,7 +44,7 @@ describe('Tab listing for an attached agent session', () => {
       browserEpoch: 1,
     };
 
-    assert.deepStrictEqual(port.listTabs({ target }), [
+    assert.deepStrictEqual(port.listTabs({ target, scope: 'session' }), [
       { ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true },
     ]);
   });
@@ -80,22 +80,34 @@ describe('Tab listing for an attached agent session', () => {
     };
     const context = { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target };
 
-    // The tool the agent calls: no flags means "show me this window", never a
-    // silently empty list.
-    assert.deepStrictEqual(await catalogue.dispatch('anti.browser.tabs.list', { tabId: AGENT_TAB.id }, context), USER_STRIP);
+    // The tool the agent calls: no flags means "show me this window" — the whole
+    // strip annotated with the bound identity, never a silently empty list.
+    assert.deepStrictEqual(await catalogue.dispatch('anti.browser.tabs.list', { tabId: AGENT_TAB.id }, context), [
+      { ...USER_STRIP[0], isBoundTab: false, isPrimaryTab: false },
+      { ...USER_STRIP[1], isBoundTab: false, isPrimaryTab: false },
+      { ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true },
+    ]);
     assert.deepStrictEqual(
       await catalogue.dispatch('anti.browser.tabs.list', { tabId: AGENT_TAB.id, all: false }, context),
       [{ ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true }]
     );
 
-    // The canonical capability keeps its session-scoped default.
+    // The canonical capability follows the same scope contract.
     assert.deepStrictEqual(
       await catalogue.dispatch('browser.list-tabs', { tabId: AGENT_TAB.id }, context),
-      [{ ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true }]
+      [
+        { ...USER_STRIP[0], isBoundTab: false, isPrimaryTab: false },
+        { ...USER_STRIP[1], isBoundTab: false, isPrimaryTab: false },
+        { ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true },
+      ]
     );
     assert.deepStrictEqual(
       await catalogue.dispatch('browser.list-tabs', { tabId: AGENT_TAB.id, all: true }, context),
-      USER_STRIP
+      [
+        { ...USER_STRIP[0], isBoundTab: false, isPrimaryTab: false },
+        { ...USER_STRIP[1], isBoundTab: false, isPrimaryTab: false },
+        { ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true },
+      ]
     );
   });
 });

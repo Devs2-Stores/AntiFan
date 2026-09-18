@@ -40,7 +40,7 @@ function healthyHealth(): Record<string, unknown> {
     stats: { artifacts: 10, claims: 5, evidence: 8 },
     audit: { artifacts: 10, blocked: 0, blockedReasonless: 0, pending: 0, unresolved: 0 },
     decay: { stale: [], aging: [], cutoff: 'x' },
-    gates: { coverage: gate, evidence: gate, conflict: gate, temporal: gate, promotion: gate, regression: { ...gate, detail: 'last regression: PASS' } },
+    gates: { coverage: gate, evidence: gate, conflict: gate, temporal: gate, promotion: gate, regression: { ...gate, detail: 'last regression: PASS' }, principles: gate },
     uncertainty: { level: 'STRONGLY_SUPPORTED', reason: '2 promoted claims' },
   };
 }
@@ -112,6 +112,107 @@ describe('CoreHealthService snapshot mapping', () => {
     assert.equal(snap.status, 'UNAVAILABLE');
     assert.equal(snap.reasonCode, 'CORE_UNAVAILABLE');
     assert.ok(snap.affected[0]?.includes('super-core unavailable'));
+  });
+});
+
+describe('CoreHealthService phase-9 surfaces', () => {
+  test('two failed gates at the decisive severity are both named in reasonCode', async () => {
+    const health = healthyHealth();
+    (health.gates as Record<string, unknown>).promotion = { passed: false, detail: '3 pending candidates', gateId: 'gate-p' };
+    (health.gates as Record<string, unknown>).regression = { passed: false, detail: 'last regression: FAIL', gateId: 'gate-r' };
+    const svc = new CoreHealthService({ runCli: () => health, issueRegister: makeIssues() });
+    const snap = await svc.getSnapshot();
+    assert.equal(snap.status, 'DEGRADED');
+    assert.equal(snap.reasonCode, 'PENDING_CANDIDATES+REGRESSION_FAILED', 'every failed gate is named, not just the first');
+  });
+
+  test('corpus-wide UNKNOWN uncertainty is reported but never caps the panel', async () => {
+    const health = healthyHealth();
+    health.uncertainty = { level: 'UNKNOWN', reason: 'unscoped: uncertainty is per-task/claim, not corpus-wide' };
+    const svc = new CoreHealthService({ runCli: () => health, issueRegister: makeIssues() });
+    const snap = await svc.getSnapshot();
+    assert.equal(snap.status, 'HEALTHY', 'an unscoped UNKNOWN must not act as a ceiling');
+    const unc = snap.checks.find((c) => c.name === 'core.uncertainty');
+    assert.equal(unc?.status, 'UNKNOWN', 'the level is still reported honestly');
+    assert.equal(unc?.gating, false);
+  });
+
+  test('usage line reads the dispatch aggregate: stats carry the count, check never gates', async () => {
+    const envelope = {
+      status: 'MEASURED' as const,
+      reasonCode: 'MEASURED',
+      affected: [],
+      evidenceRefs: [],
+      asOf: '2026-09-18T00:00:00Z',
+      storePath: 'invocations',
+      census: null,
+      fileRollups: [],
+      rows: [
+        { name: 'browser.navigate', calls: 10, frames: 10, superseded: 0, states: {}, errors: {}, latency: null, excludedLatency: null, firstSeen: null, lastSeen: null, lowerBound: false },
+        { name: 'browser.reload', calls: 5, frames: 5, superseded: 0, states: {}, errors: {}, latency: null, excludedLatency: null, firstSeen: null, lastSeen: null, lowerBound: false },
+      ],
+      totals: null,
+      reconciliation: {
+        classifiedKeys: 15,
+        unattributedKeys: 0,
+        unattributedFrames: 0,
+        unattributedByReason: { MISSING_IDENTITY_FIELD: 0, MISSING_ROW_KEY: 0 },
+        keylessFrames: 0,
+        compositeKeys: 15,
+        frames: 15,
+        superseded: 0,
+        holdsKeys: true,
+        holdsFrames: true,
+        holdsMargin: true,
+        lines: [],
+      },
+    };
+    const svc = new CoreHealthService({
+      runCli: () => healthyHealth(),
+      issueRegister: makeIssues(),
+      mcpDispatch: { getState: async () => envelope, clearCache: () => {} },
+    });
+    const snap = await svc.getSnapshot();
+    assert.equal(snap.status, 'HEALTHY');
+    assert.equal(snap.stats?.mcpDispatchCalls, 15, 'the count comes from the aggregate, not a client-side tally');
+    const usage = snap.checks.find((c) => c.name === 'mcp.dispatch');
+    assert.equal(usage?.status, 'HEALTHY');
+    assert.equal(usage?.gating, false);
+    assert.ok(usage?.detail?.includes('15'), 'the line renders the aggregate count');
+  });
+
+  test('unmeasured dispatch reports UNKNOWN without touching the count or the status', async () => {
+    const svc = new CoreHealthService({
+      runCli: () => healthyHealth(),
+      issueRegister: makeIssues(),
+      mcpDispatch: { getState: async () => ({ status: 'UNMEASURED', reasonCode: 'NO_DATA_ROOT_RESOLVED', affected: [], evidenceRefs: [], asOf: 'x', storePath: null, census: null, fileRollups: [], rows: [], totals: null, reconciliation: null }), clearCache: () => {} },
+    });
+    const snap = await svc.getSnapshot();
+    assert.equal(snap.status, 'HEALTHY');
+    assert.equal(snap.stats?.mcpDispatchCalls, undefined, 'no count is fabricated when nothing was measured');
+    const usage = snap.checks.find((c) => c.name === 'mcp.dispatch');
+    assert.equal(usage?.status, 'UNKNOWN');
+    assert.equal(usage?.reasonCode, 'DISPATCH_NO_DATA_ROOT_RESOLVED');
+  });
+
+  test('connected is surfaced, not gated; knowledge gaps surface the largest store signal', async () => {
+    const health = healthyHealth();
+    health.audit = { ...(health.audit as Record<string, unknown>), connected: 7 };
+    health.knowledgeGaps = { gaps: [
+      { platform: 'haravan', kind: 'NONE', activeClaims: 100, freshClaims: 10, unresolvedConflicts: 0 },
+      { platform: 'sapo', kind: 'NO_EVIDENCE', activeClaims: 0, freshClaims: 0, unresolvedConflicts: 0 },
+    ] };
+    const svc = new CoreHealthService({ runCli: () => health, issueRegister: makeIssues() });
+    const snap = await svc.getSnapshot();
+    assert.equal(snap.status, 'HEALTHY', 'reported-only signals must not degrade the panel');
+    const conn = snap.checks.find((c) => c.name === 'core.connected');
+    assert.equal(conn?.status, 'HEALTHY');
+    assert.equal(conn?.gating, false);
+    assert.ok(conn?.detail?.includes('7'), 'the connected count is rendered');
+    const gaps = snap.checks.find((c) => c.name === 'core.knowledge_gaps');
+    assert.equal(gaps?.status, 'UNKNOWN');
+    assert.equal(gaps?.gating, false);
+    assert.ok(gaps?.affected.some((a) => a.includes('sapo')), 'the gap names its platform');
   });
 });
 
@@ -224,15 +325,19 @@ describe('CoreHealthService bridge surface', () => {
 });
 
 describe('CoreHealthService regression surface (item 29)', () => {
-  test('no replay engine → UNKNOWN/REPLAY_ENGINE_NOT_IMPLEMENTED even with rows', async () => {
+  test('replayEngineAvailable flag is not special-cased: rows decide the verdict', async () => {
+    // The engine exists, so a payload claiming it does not is not a live state —
+    // the surface must not branch on the flag. A PASS row without replayedAt is
+    // an asserted verdict, not an observed one, so it degrades rather than reads
+    // as HEALTHY.
     const svc = new CoreHealthService({
       runCli: () => ({ replayEngineAvailable: false, rows: [{ regressionId: 'reg-1', replayResult: 'PASS' }] }),
       issueRegister: makeIssues(),
     });
     const r = await svc.getRegressions();
-    assert.equal(r.status, 'UNKNOWN');
-    assert.equal(r.reasonCode, 'REPLAY_ENGINE_NOT_IMPLEMENTED');
-    assert.notEqual(r.status, 'HEALTHY', 'must not PASS on rows without a replay engine');
+    assert.equal(r.status, 'DEGRADED');
+    assert.equal(r.reasonCode, 'REGRESSION_FAILED');
+    assert.notEqual(r.reasonCode, 'REPLAY_ENGINE_NOT_IMPLEMENTED', 'the dead branch must not come back');
   });
 
   test('replay engine + last FAIL → DEGRADED/REGRESSION_FAILED', async () => {
@@ -271,6 +376,26 @@ describe('CoreHealthService task runs (item 15)', () => {
     const trace = await svc.getTaskRunTrace('nope-1');
     assert.equal(trace.status, 'UNKNOWN');
     assert.equal(trace.reasonCode, 'TASK_RUN_NOT_FOUND');
+  });
+
+  test('absent task_runs table names the missing producer; an empty table is a different gap', async () => {
+    const absent = new CoreHealthService({
+      runCli: () => ({ taskRunsTable: false, taskRuns: [], packs: [], cases: [] }),
+      issueRegister: makeIssues(),
+    });
+    const absentState = await absent.listTaskRuns();
+    assert.equal(absentState.status, 'UNKNOWN');
+    assert.equal(absentState.reasonCode, 'NO_TASK_RUNS');
+    assert.ok(absentState.affected.some((a) => /absent/.test(a)), 'absent table must be named as the missing producer');
+
+    const empty = new CoreHealthService({
+      runCli: () => ({ taskRunsTable: true, taskRuns: [], packs: [], cases: [] }),
+      issueRegister: makeIssues(),
+    });
+    const emptyState = await empty.listTaskRuns();
+    assert.equal(emptyState.status, 'UNKNOWN');
+    assert.equal(emptyState.reasonCode, 'NO_TASK_RUNS');
+    assert.ok(emptyState.affected.some((a) => /empty/.test(a)), 'present-but-empty table must be named differently');
   });
 });
 

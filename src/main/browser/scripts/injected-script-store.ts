@@ -12,6 +12,26 @@ export interface FreezeMediaOptions {
   normalizeSliders?: boolean;
 }
 
+/**
+ * Classification returned by the injected `media.freeze` script so the capture
+ * census and receipt can prove which animation classes were frozen. `counts` is
+ * the motion census — only sources the freeze covers: media that was playing,
+ * animations that were running, SVG roots whose SMIL was active. Still elements
+ * (page-paused media, paused/idle/finished animations) are not counted.
+ * `animations` is a bounded per-animation detail list (constructor name, target
+ * label, infinite flag per the getComputedTiming classifier). `pausedHandles`
+ * and `restoredHandles` are totals across every paused class — media elements,
+ * SVG roots, and animation handles — so `pausedHandles >= sum(counts)` means
+ * every observed motion source was actually frozen.
+ */
+export interface MediaFreezeClassification {
+  counts: { media: number; css: number; waapi: number; smil: number };
+  classes: string[];
+  animations: Array<{ class: string; target: string; infinite: boolean }>;
+  pausedHandles: number;
+  restoredHandles: number;
+}
+
 export type ScriptSourceFn<T> = (params: T) => string;
 export type ScriptSource<T> = string | ScriptSourceFn<T>;
 
@@ -83,6 +103,43 @@ export class InjectedScriptStore {
         const normalizeSliders = ${Boolean(normalizeSliders)};
         let mediaCount = 0;
         const freezeStyleId = '__antifan_freeze_media_style';
+        const census = { counts: { media: 0, css: 0, waapi: 0, smil: 0 }, classes: [], animations: [] };
+        const waapiPaused = [];
+        let pausedHandles = 0;
+        let restoredHandles = 0;
+        let report = census;
+        const recordAnimationClass = (name) => {
+          if (name && census.classes.indexOf(name) === -1) census.classes.push(name);
+        };
+        const animationTargetLabel = (anim) => {
+          try {
+            const target = anim && anim.effect && anim.effect.target;
+            if (!target || !target.tagName) return 'unknown';
+            const firstClass = typeof target.className === 'string' ? target.className.trim().split(/\\s+/)[0] : '';
+            return firstClass ? String(target.tagName).toLowerCase() + '.' + firstClass : String(target.tagName).toLowerCase();
+          } catch { return 'unknown'; }
+        };
+        const censusAnimations = (root) => {
+          if (typeof root.getAnimations !== 'function') return;
+          let anims = [];
+          try { anims = root.getAnimations(); } catch { return; }
+          for (let i = 0; i < anims.length; i++) {
+            const a = anims[i];
+            if (!a || a.playState !== 'running') continue;
+            const ctor = a.constructor && a.constructor.name ? a.constructor.name : 'Animation';
+            const timing = a.effect && typeof a.effect.getComputedTiming === 'function' ? a.effect.getComputedTiming() : null;
+            const infinite = Boolean(timing && (timing.iterations === Infinity || timing.duration === Infinity));
+            recordAnimationClass(ctor);
+            if (ctor === 'CSSAnimation' || ctor === 'CSSTransition') census.counts.css++;
+            else census.counts.waapi++;
+            if (census.animations.length < 200) census.animations.push({ class: ctor, target: animationTargetLabel(a), infinite });
+            try {
+              a.pause();
+              waapiPaused.push({ anim: a, playState: 'running' });
+              pausedHandles++;
+            } catch {}
+          }
+        };
 
         const visitRoots = (root, cb) => {
           cb(root);
@@ -100,8 +157,10 @@ export class InjectedScriptStore {
           r.querySelectorAll('video, audio').forEach(el => {
             mediaCount++;
             if (freeze && !el.paused) {
+              census.counts.media++;
               el.dataset.__antifanPaused = 'true';
               el.pause();
+              pausedHandles++;
             }
           });
 
@@ -114,6 +173,8 @@ export class InjectedScriptStore {
                   s.pauseAnimations();
                   didPause = true;
                   s.setAttribute('data-antifan-svg-paused', 'true');
+                  census.counts.smil++;
+                  pausedHandles++;
                 } catch {
                   if (didPause && typeof s.unpauseAnimations === 'function') {
                     try { s.unpauseAnimations(); } catch {}
@@ -122,6 +183,7 @@ export class InjectedScriptStore {
               }
             }
           });
+          if (freeze) censusAnimations(r);
         });
 
         const restoreSliderNormalization = () => {
@@ -147,11 +209,23 @@ export class InjectedScriptStore {
         };
 
         const performUnfreeze = (clearScheduledTimer = true) => {
+          let restored = 0;
+          const freezeState = window.__antifanFreezeState;
+          if (freezeState && Array.isArray(freezeState.handles)) {
+            freezeState.handles.forEach(entry => {
+              const a = entry && entry.anim;
+              // Resume only a handle still paused; a playState the page changed itself is left alone.
+              if (a && a.playState === 'paused') {
+                try { a.play(); restored++; } catch {}
+              }
+            });
+          }
           visitRoots(document, r => {
             r.querySelectorAll('video, audio').forEach(el => {
               if (el.dataset.__antifanPaused === 'true') {
                 delete el.dataset.__antifanPaused;
                 el.play().catch(() => {});
+                restored++;
               }
             });
             r.querySelectorAll('svg').forEach(s => {
@@ -162,6 +236,7 @@ export class InjectedScriptStore {
                     if (typeof s.removeAttribute === 'function') {
                       s.removeAttribute('data-antifan-svg-paused');
                     }
+                    restored++;
                   } catch {}
                 } else if (typeof s.removeAttribute === 'function') {
                   s.removeAttribute('data-antifan-svg-paused');
@@ -179,6 +254,8 @@ export class InjectedScriptStore {
           restoreSliderNormalization();
           delete window.__antifanFreeze;
           delete window.__antifanPaused;
+          delete window.__antifanFreezeState;
+          return restored;
         };
 
         let styleEl = document.getElementById(freezeStyleId);
@@ -194,6 +271,21 @@ export class InjectedScriptStore {
           }
           if (window.__antifanFreezeTimer) clearTimeout(window.__antifanFreezeTimer);
           window.__antifanFreezeTimer = setTimeout(() => performUnfreeze(false), 60000);
+          const priorState = window.__antifanFreezeState;
+          if (priorState) {
+            const priorCensus = priorState.census;
+            if (priorCensus && priorCensus.counts) {
+              census.counts.media += priorCensus.counts.media || 0;
+              census.counts.css += priorCensus.counts.css || 0;
+              census.counts.waapi += priorCensus.counts.waapi || 0;
+              census.counts.smil += priorCensus.counts.smil || 0;
+              if (Array.isArray(priorCensus.classes)) priorCensus.classes.forEach(recordAnimationClass);
+              if (Array.isArray(priorCensus.animations)) census.animations = priorCensus.animations.concat(census.animations).slice(0, 200);
+            }
+            pausedHandles += typeof priorState.paused === 'number' ? priorState.paused : 0;
+          }
+          const priorHandles = priorState && Array.isArray(priorState.handles) ? priorState.handles : [];
+          window.__antifanFreezeState = { handles: priorHandles.concat(waapiPaused), census, paused: pausedHandles };
 
           // Only freeze slider motion destructively IF explicitly requested by normalizeSliders flag
         if (normalizeSliders) {
@@ -237,9 +329,22 @@ export class InjectedScriptStore {
           });
         }
         } else {
-          performUnfreeze();
+          const prior = window.__antifanFreezeState;
+          restoredHandles = performUnfreeze();
+          if (prior && prior.census) {
+            report = prior.census;
+            pausedHandles = typeof prior.paused === 'number' ? prior.paused : 0;
+          }
         }
-        return { frozen: freeze, mediaCount };
+        return {
+          frozen: freeze,
+          mediaCount,
+          counts: report.counts,
+          classes: report.classes,
+          animations: report.animations,
+          pausedHandles,
+          restoredHandles
+        };
       })()`;
     });
 

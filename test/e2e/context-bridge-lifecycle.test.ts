@@ -365,8 +365,12 @@ describe('Context Bridge Lifecycle E2E (Audit #29)', () => {
       // task_runs has no writer in the store (read surface only), so the honest
       // contract reports UNKNOWN/NO_TASK_RUNS — while still enumerating the
       // packs and cases the loop just created (narrowed deliberately in ececa1d9).
+      // The surface must also name the gap: an absent table means no producer
+      // exists, which is a different state from a present-but-empty table.
       assert.equal(taskRuns.status, 'UNKNOWN', 'Task runs list must report UNKNOWN when no task_runs rows exist');
       assert.equal(taskRuns.reasonCode, 'NO_TASK_RUNS');
+      assert.equal(taskRuns.taskRunsTable, false, 'task_runs table must be absent from the seeded store');
+      assert.ok(taskRuns.affected.some((a) => /absent/.test(a)), 'affected must name the absent task_runs table');
       assert.ok(taskRuns.packs.some((p) => p.packId === pack.packId), 'Health surface must enumerate the created pack');
       assert.ok(taskRuns.cases.some((c) => c.caseId === outcome.caseId), 'Health surface must enumerate the created case');
 

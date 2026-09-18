@@ -21,7 +21,7 @@ integration notes below describe those integrations, not a required core depende
 - Source CSS/JS now requires `codeApprovals`, supplied to the CLI as a path to a JSON file (`--code-approvals <path>` or `--code-approvals=<path>`), an array of `{ sha256, classification, usage, evidence }`. Classification must be `THEME_REQUIRED` or `EXTRACTED`; the hash binds exact UTF-8 source content. Unclassified or changed code fails with `UNRESOLVED_CODE_OWNERSHIP`. Approval is an explicit maintainer decision, not automatic semantic classification or visual certification. Do not generate approvals for all files merely to bypass the gate. A harvested stylesheet or script whose bytes never reached disk is reported by the existing asset audit as a missing/unavailable asset, not as an ownership violation.
 - The CLI compiler stages route transforms and asset consolidation before final validation/promotion. Conflicting basename contents and missing final Liquid asset references fail before promotion. This integrity gate does not classify reference CSS/JS ownership. Compiles without an asset source (`assetsDir`/`inputPath`/`failClosedAssets`) keep the platform's existing tolerance for third-party or externally supplied references; the reference audit is mandatory whenever the compiler owns the referenced bytes.
 - Asset filenames come from the source reference only when that stem carries meaning. Generic download names (`image`, `download`, `untitled`, `default`, `screenshot`, …), pure digits, and hash-only stems are replaced with a stable `asset-<source-url-hash>` id. The rule applies to harvested assets and to dependencies discovered inside CSS (`@import`, `url(...)`) alike. Role-shaped names such as `hero-banner.webp` are never invented from a guess; provenance (`sourceUrl`, occurrences, request identity) is retained on every item.
-- `anti.media.freeze` leaves native RAF/cancellation untouched. It pauses media/CSS animation and optionally normalizes slider tracks; unfreeze restores recorded styles/scroll state without synthetic hover events. RAF-driven visual motion requires separate capture-settle evidence.
+- `anti.media.freeze` leaves native RAF/cancellation untouched. It pauses media/CSS animation and running infinite Web Animations API animations (the classification reports per-class counts: `media`, `css`, `waapi`, `smil`), and optionally normalizes slider tracks; unfreeze resumes exactly the handles this freeze paused and restores recorded styles/scroll state without synthetic hover events. RAF-driven visual motion requires separate capture-settle evidence.
 
 Executable checks (build emitted TypeScript first):
 
@@ -227,6 +227,56 @@ Second, a launch path with no records means **not instrumented**, never "called 
 Third, the wrap point is **not the only place a `core.*` call can end**. `invoke()` refuses before the wrap in two further classes — the session tool-surface policy (`REFUSED_TOOL_SURFACE`: a capability forbidden for the session) and the advertised required-field contract (`INVALID_ARGUMENT`: a tool whose schema declares required fields, e.g. `core.record_observation` without `source`/`kind`, supplies no usable value for one of them). Those calls are neither dispatches nor attempts, so **the attempt store undercounts `core.*` calls by exactly those two classes**. This is why a zero must never be read alone: "0 attempts" for a tool that is in fact being refused before the wrap looks exactly like "not instrumented", and the two states call for completely different responses — the first is a policy doing its job on a tool that needs a different argument or a different session, the second is a coverage hole that needs the instrumentation path fixed. Read `instrumentedSince` and the launch-path column before drawing a conclusion from any zero.
 
 This section is scoped to MCP dispatch accounting and the proxy attempt store.
+
+---
+
+## Agent-facing call contracts (remediation soak)
+
+Landed by `plans/260917-1821-antifan-consolidated-remediation-soak`. Every statement below
+describes the path an agent actually uses (stdio proxy -> bridge -> capability) and the live
+evidence that proves it.
+
+### Tab listing
+
+- `anti.browser.tabs.list` on a bound session returns the **window strip annotated with the bound
+  identity**: exactly one row carries `isBoundTab: true` (and `isPrimaryTab: true`), and that id
+  equals the id the same session sees under the session scope. An offscreen/ephemeral tab the agent
+  plane created is unioned into the strip when the window does not render it, so the bound row is
+  never missing.
+- `scope: 'session'` returns only the tabs that session owns; a session that owns nothing lists
+  nothing rather than leaking the user's strip.
+
+### Admission budget and tab quota
+
+- `VIEWPORT_GATE_ADMISSION_BUDGET_MS` (30 s) is the default admission budget for the viewport gate
+  (`withLock`). It is deliberately the inner bound of the dispatch policy ceiling, so a queued
+  admission cannot outlive the policy that admitted it.
+- `SESSION_TAB_LIMIT` (10) bounds the tabs one session may own. The refusal is `POLICY_DENIED`
+  carrying `used`/`limit`/`countedTabIds` (a bounded sample), and its message names a **browser**
+  tab, never a terminal tab.
+
+### Capture truth
+
+- A capture that freezes media attaches the freeze measurement to its envelope: the classification
+  reports per-class counts, and the receipt carries the capture policy identity
+  (`capture-freeze-classes-v1`) plus `isMediaFrozen` at raster time. A baseline captured before that
+  policy is **not comparable** with one captured after it, by design.
+- A failed capture returns a diagnosis whose remedy names the dominant animation class
+  (`Animation` -> WAAPI, `CSSAnimation` -> CSS), so the repair is not guessed.
+
+### Core Health
+
+- The Hub's usage line comes from `stats.mcpDispatchCalls` plus a non-gating `mcp.dispatch` check,
+  both read from the **ledger aggregate** (`accounting:mcp-dispatch`) and never from a client-side
+  tally. The MCP tool `core.health` returns the store payload and therefore does not carry that
+  line; the per-name breakdown is the Hub's MCP Dispatch tab.
+- `reasonCode` joins **every** failed gate, and `checks[].gating` marks which checks are allowed to
+  decide the aggregate status — a reported fact (usage, knowledge gaps, connected count) can no
+  longer cap the panel below `HEALTHY`.
+- The dispatch reader resolves its store from `--store` or `ANTIFAN_DATA_ROOT` only. Run with
+  neither it reports `UNMEASURED` / `NO_DATA_ROOT_RESOLVED` by design, so a bare
+  `npm run accounting:mcp-dispatch` proves the gates but measures nothing: pass the root to read
+  per-name call counts.
 
 ---
 

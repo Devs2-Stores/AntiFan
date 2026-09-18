@@ -328,6 +328,8 @@ async function createWindow(): Promise<void> {
     isTabAllowed: (primaryTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryTabId, requestedTabId),
     resolveTabId: (id) => tabHost!.resolveTargetTabId(id),
     resolveFailoverTabId: (staleTabId) => tabHost!.getFailoverTargetTab(staleTabId),
+    releaseSessionTab: (sessionId, tabId) => tabHost!.releaseSessionTab(sessionId, tabId),
+    releaseSessionTabPool: (sessionId) => tabHost!.releaseSessionTabPool(sessionId),
   });
   // Show the window as soon as its renderer paints
   // init below), so the user sees chrome immediately instead of waiting for the

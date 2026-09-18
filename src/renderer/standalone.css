@@ -642,6 +642,16 @@ button {
   font-weight: 600;
 }
 
+/* An inapplicable offer refuses rather than round-trips: the first group cannot move up
+   and the last cannot move down, and a row that looks like every other row but does
+   nothing is worse than one that says so. */
+.terminal-category-picker-item.is-disabled,
+.terminal-category-picker-item.is-disabled:hover {
+  color: #475569;
+  background: transparent;
+  cursor: default;
+}
+
 .terminal-category-picker-item.clear {
   color: #94a3b8;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -1176,6 +1186,43 @@ button {
   color: #7c8ba1;
 }
 
+/* SPLIT PANE ROW: a pane, not a peer tab. It keeps its own row because that is how the
+   pane is focused and closed, but it is indented under the tab it splits, drawn a step
+   quieter, and marked with a `⤷` glyph, so a split can never read as a second tab the
+   user does not remember opening. */
+.terminal-tab-wrap.is-split-pane {
+  margin-left: 14px;
+  background: rgba(255, 255, 255, 0.015);
+  border-left: 2px solid rgba(56, 189, 248, 0.35);
+}
+
+.terminal-tab-wrap.is-split-pane .terminal-tab {
+  font-size: 11px;
+  color: #7d8ea3;
+}
+
+.terminal-tab-wrap.is-split-pane.active {
+  background: linear-gradient(180deg, #14212f 0%, #0d1624 100%);
+}
+
+/* The glyph element is created with every tab so the row markup never depends on the
+   session shape at creation time; only a split row reveals it. Hidden is the base
+   state, so a plain tab that was once rendered as a pane can never keep the mark. */
+.terminal-tab-split-glyph {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  color: #38bdf8;
+  opacity: 0.75;
+}
+
+.terminal-tab-wrap.is-split-pane .terminal-tab-split-glyph {
+  display: inline-flex;
+}
+
 .terminal-tab-sleep-icon {
   display: inline-flex;
   align-items: center;
@@ -1192,9 +1239,10 @@ button {
   background: #64748b;
 }
 
-/* SLEEPING SESSION PREVIEW
-   Plain text, deliberately: viewing a slept tab must not build an xterm or wake
-   a PTY. It only exists while the active tab is asleep. */
+/* READ-ONLY TRANSCRIPT SURFACE
+   Plain text, deliberately: reading a slept tab or a full-screen TUI must not build an
+   xterm, and the capture is shown stripped rather than emulated. Mounted while the active
+   tab is asleep, and while the user reads a live tab as text (`data-mode="lossy"`). */
 .terminal-sleep-preview {
   position: absolute;
   inset: 0;
@@ -1244,6 +1292,18 @@ button {
   background: rgba(148, 163, 184, 0.16);
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 999px;
+}
+
+/* A live tab read as text is not a slept one: the badge keeps the live accent so the
+   surface never claims the session stopped running. */
+.terminal-sleep-preview[data-mode="lossy"] .terminal-sleep-preview-badge {
+  color: #bae6fd;
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.terminal-sleep-preview[data-mode="lossy"] .terminal-sleep-preview-icon {
+  color: #7dd3fc;
 }
 
 .terminal-sleep-preview-name {
@@ -1619,15 +1679,101 @@ button {
   transform: rotate(-90deg);
 }
 
-.standalone.tabs-sidebar .terminal-tab-category-count {
-  margin-left: auto;
-  font-size: 9px;
+/* The group name takes the free width, so the rename and menu controls sit on the right
+   edge whether or not the group is starred. Ellipsised rather than wrapped: a header is
+   one row, and a long name must not push its own controls out of the sidebar. */
+.standalone.tabs-sidebar .terminal-tab-category-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The `*` marker: a literal asterisk next to the name, in the same amber the tab strip
+   uses for attention, so the marked group is legible without reading the menu. */
+.standalone.tabs-sidebar .terminal-tab-category-star {
+  display: none;
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  color: #fbbf24;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-starred .terminal-tab-category-star {
+  display: inline-block;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-starred .terminal-tab-category-label {
+  color: #cbd5e1;
+}
+
+/* The group menu (mark / colour / order). Same quiet-on-rest, visible-on-hover contract
+   as the rename control, so the header reads as a label until it is used. */
+.standalone.tabs-sidebar .terminal-tab-category-menu {
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header:hover .terminal-tab-category-menu,
+.standalone.tabs-sidebar .terminal-tab-category-menu:focus-visible {
+  opacity: 1;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-menu:hover {
+  color: #38bdf8;
+}
+
+/* Colour swatches for one group: the automatic (derived) colour first, then the fixed
+   palette, so "back to automatic" is a visible choice next to the manual ones. */
+.terminal-category-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 8px 6px;
+}
+
+.terminal-category-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 8px;
   font-weight: 600;
-  color: #475569;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 0 6px;
-  line-height: 14px;
+  color: #0b1220;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.terminal-category-swatch.auto {
+  width: auto;
+  padding: 0 7px;
+  font-size: 9px;
+  color: #e2e8f0;
+  border-radius: 9px;
+}
+
+.terminal-category-swatch.active {
+  box-shadow: 0 0 0 2px rgba(226, 232, 240, 0.85);
+}
+
+.terminal-category-swatch:hover {
+  border-color: #e2e8f0;
+}
+
+.terminal-category-swatch:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
 }
 
 .standalone.tabs-sidebar .terminal-tab-wrap.is-category-collapsed {

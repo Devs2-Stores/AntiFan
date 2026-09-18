@@ -477,7 +477,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     for (let i = 0; i < 50; i++) {
       await assert.rejects(
         devTools.sendCdpCommand(mockWc, 'DOM.enable', {}, 50),
-        /TARGET_BUSY_DRAINING/
+        (err: unknown) => err instanceof CaptureError && err.code === 'TARGET_BUSY_DRAINING' && /TARGET_BUSY_DRAINING/.test(err.message)
       );
     }
 
@@ -1050,7 +1050,8 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     // render surface (NO_RENDER_SURFACE), which is correct for that case and would mask
     // the mapping this test pins. An answer whose dimensions do not match the measured
     // 4x4 CSS surface keeps the native result unused, so the CDP tier is the failing one.
-    (devTools as unknown as { captureNativeViewportRaster: () => Promise<Buffer | undefined> }).captureNativeViewportRaster = async () => makePng(8, 8);
+    const devToolsInternals = devTools as unknown as { captureNativeViewportRaster: () => Promise<{ bytes: Buffer | null; timedOut: boolean }> };
+    devToolsInternals.captureNativeViewportRaster = async () => ({ bytes: makePng(8, 8), timedOut: false });
 
     await assert.rejects(
       () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 10 }),
@@ -1110,5 +1111,121 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
 
     const afterRecovery = await devTools.sendCdpCommand(poisonedWc, 'DOM.enable', {}, 50);
     assert.deepStrictEqual(afterRecovery, { result: { value: { dpr: 1, vw: 4, vh: 4 } } });
+  });
+
+  it('24. getDom, evalJs and evalJsInFrame all reject TARGET_STALE on a dead target', async () => {
+    const { ctx, tabs, mockWc } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    const isStale = (err: unknown) => err instanceof Error && 'code' in err && err.code === 'TARGET_STALE';
+
+    // Missing tab record: all three paths agree on the typed refusal.
+    await assert.rejects(devTools.getDom(undefined, 'tab-missing'), isStale);
+    await assert.rejects(devTools.evalJs('1 + 1', 'tab-missing'), isStale);
+    await assert.rejects(devTools.evalJsInFrame('1 + 1', 'frame', 'tab-missing'), isStale);
+
+    // Live record whose WebContents is gone: same contract, never '' or undefined.
+    const deadWc = { ...mockWc, isDestroyed: () => true };
+    tabs.set('tab-dead', {
+      state: {
+        id: 'tab-dead',
+        url: 'about:blank',
+        title: 'Dead',
+        isLoading: false,
+        canGoBack: false,
+        canGoForward: false,
+        crashed: false,
+        zoomFactor: 1,
+        devicePresetId: 'responsive',
+      },
+      focusedPane: 'desktop',
+      view: { webContents: deadWc },
+    });
+    ctx.getTabWebContents = (tabId) => (tabId === 'tab-dead' ? deadWc : mockWc) as unknown as Electron.WebContents;
+
+    await assert.rejects(devTools.getDom(undefined, 'tab-dead'), isStale);
+    await assert.rejects(devTools.evalJs('1 + 1', 'tab-dead'), isStale);
+    await assert.rejects(devTools.evalJsInFrame('1 + 1', 'frame', 'tab-dead'), isStale);
+
+    // A live target still answers: the contract only refuses dead targets.
+    const dom = await devTools.getDom(undefined, 'tab-1');
+    assert.strictEqual(dom, '<html><body><h1>Hello Test</h1></body></html>');
+  });
+
+  it('25. a hung native viewport raster reports CAPTURE_TIMEOUT, not NO_RENDER_SURFACE', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    let capturePageCalls = 0;
+    const { promise: rasterPromise, resolve: resolveRaster } = Promise.withResolvers<unknown>();
+    const { promise: screenshotPromise, resolve: resolveScreenshot } = Promise.withResolvers<unknown>();
+    const mockWc = {
+      id: 700,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      executeJavaScript: async () => undefined,
+      capturePage: () => {
+        capturePageCalls += 1;
+        return rasterPromise;
+      },
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) =>
+          method === 'Page.captureScreenshot'
+            ? screenshotPromise
+            : Promise.resolve({ result: { value: { dpr: 1, vw: 4, vh: 4 } } }),
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+
+    // The caller's timeoutMs bounds the native raster wait too, so a 10ms bound
+    // exercises the real timeout path without stubbing the private method.
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 10 }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+    );
+    assert.strictEqual(capturePageCalls, 1);
+
+    resolveRaster({ isEmpty: () => false, toPNG: () => makePng(4, 4) });
+    resolveScreenshot({ data: makePng(4, 4).toString('base64') });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
+
+  it('26. a second native raster request shares the in-flight capture instead of stacking another capturePage', async () => {
+    const { ctx } = createMockContext();
+    let capturePageCalls = 0;
+    const { promise: rasterPromise, resolve: resolveRaster } = Promise.withResolvers<unknown>();
+    const mockWc = {
+      id: 701,
+      isDestroyed: () => false,
+      capturePage: () => {
+        capturePageCalls += 1;
+        return rasterPromise;
+      },
+    } as unknown as Electron.WebContents;
+    const devTools = new TabDevToolsHost(ctx);
+    const internals = devTools as unknown as {
+      captureNativeViewportRaster: (wc: Electron.WebContents, format: 'png' | 'jpeg', quality?: number, boundMs?: number) => Promise<{ bytes: Buffer | null; timedOut: boolean }>;
+    };
+
+    const first = internals.captureNativeViewportRaster(mockWc, 'png', undefined, 5);
+    const second = internals.captureNativeViewportRaster(mockWc, 'png', undefined, 5);
+    const [firstRes, secondRes] = await Promise.all([first, second]);
+    assert.strictEqual(firstRes.timedOut, true);
+    assert.strictEqual(secondRes.timedOut, true);
+    assert.strictEqual(capturePageCalls, 1, 'A wedged raster must not accumulate a second capturePage');
+
+    // Once the raster settles, the shared promise is released and a later call
+    // captures fresh — the map never pins a stale entry.
+    resolveRaster({ isEmpty: () => false, toPNG: () => makePng(4, 4) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const third = await internals.captureNativeViewportRaster(mockWc, 'png', undefined, 50);
+    assert.strictEqual(third.timedOut, false);
+    assert.strictEqual(capturePageCalls, 2);
+    assert.ok(third.bytes && third.bytes.length > 0);
   });
 });

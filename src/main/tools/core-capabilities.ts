@@ -44,6 +44,7 @@ export interface CoreStorePort {
   classifyUncertainty(opts: Record<string, unknown>): unknown;
   decayCheck(opts?: Record<string, unknown>): unknown;
   corpusAudit(): unknown;
+  candidates(opts?: Record<string, unknown>): unknown;
   checkPhaseGate(phase: string, gate: string): unknown;
   recordRegression(opts: Record<string, unknown>): unknown;
   replayRegression(regressionId: string): unknown;
@@ -120,6 +121,7 @@ export function createLazyCorePort(): CoreStorePort {
     classifyUncertainty: (o) => load().classifyUncertainty(o),
     decayCheck: (o) => load().decayCheck(o),
     corpusAudit: () => load().corpusAudit(),
+    candidates: (o) => load().candidates(o),
     checkPhaseGate: (p, g) => load().checkPhaseGate(p, g),
     recordRegression: (o) => load().recordRegression(o),
     replayRegression: (r) => load().replayRegression(r),
@@ -250,10 +252,14 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     { type: 'object', properties: { staleDays: { type: 'number' } } },
     READ_POLICY, (p: Record<string, unknown>) => core.knowledgeGaps(p));
 
-  // v4: Corpus Audit
-  reg('core.corpus_audit', 'Run a corpus completion audit.',
+  // v4: Corpus Audit — read-only evaluation; the store records only on an
+  // explicit {record:true}, which this surface never passes.
+  reg('core.corpus_audit', 'Run a corpus completion audit (read-only evaluation).',
     { type: 'object', properties: {} },
     READ_POLICY, () => core.corpusAudit());
+  reg('core.candidates', 'List adjudication candidates (default PENDING).',
+    { type: 'object', properties: { status: { type: 'string' }, limit: { type: 'number' } } },
+    READ_POLICY, (p: Record<string, unknown>) => core.candidates(p));
 
   // v4: Phase Gates
   reg('core.check_phase_gate', 'Check a phase gate.',

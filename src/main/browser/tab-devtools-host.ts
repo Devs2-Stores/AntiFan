@@ -200,6 +200,12 @@ export class TabDevToolsHost {
   private stylesheetUrls = new Map<number, Map<string, string>>();
   private isolatedContextIds = new Map<number, number>();
   /**
+   * One in-flight native viewport raster per WebContents. A raster that never
+   * answers leaves its promise pending forever; without sharing, every later
+   * capture would stack another capturePage on the same wedged compositor.
+   */
+  private nativeRasterInFlight = new Map<number, Promise<Electron.NativeImage | null>>();
+  /**
    * Per-target tracker-isolation state, keyed by WebContents id. Presence means
    * the target may still have a pre-document stub script registered and/or a
    * `Network.setBlockedURLs` blocklist applied, so `endTrackerIsolation` knows
@@ -680,7 +686,7 @@ export class TabDevToolsHost {
         this.cdpDrainingTargets.delete(wcId);
         this.cdpQueues.delete(wcId);
       } else {
-        throw new Error(`TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
+        throw new CaptureError('TARGET_BUSY_DRAINING', `TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
       }
     }
 
@@ -1756,8 +1762,15 @@ export class TabDevToolsHost {
   /**
    * Raster of the view's own composited surface, bounded so a view that cannot
    * produce one falls through to the CDP path instead of stalling the capture at
-   * the caller's bound. Returns encoded bytes, or null when the surface is
-   * absent, empty, or did not answer within the bound.
+   * the caller's bound. Returns the encoded bytes plus whether the raster
+   * outlived the bound: a timeout is a hung compositor (CAPTURE_TIMEOUT class),
+   * not a missing surface, and the caller must not relabel it NO_RENDER_SURFACE.
+   *
+   * The underlying capturePage promise is shared per WebContents: a raster that
+   * never answers leaves its promise pending forever, and issuing a fresh
+   * capturePage per request would stack unbounded pending captures on the same
+   * wedged compositor. A later call therefore waits on the same in-flight
+   * raster under its own bound instead of starting another one.
    *
    * Only ever used for a viewport raster: the native surface holds nothing
    * beyond the visible region, so a clip or a document snapshot has to come from
@@ -1768,33 +1781,49 @@ export class TabDevToolsHost {
     format: 'png' | 'jpeg',
     quality?: number,
     boundMs: number = NATIVE_VIEWPORT_RASTER_BOUND_MS
-  ): Promise<Buffer | null> {
-    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return null;
-    if (typeof wc.capturePage !== 'function') return null;
-    let timer: NodeJS.Timeout | undefined;
-    try {
+  ): Promise<{ bytes: Buffer | null; timedOut: boolean }> {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return { bytes: null, timedOut: false };
+    if (typeof wc.capturePage !== 'function') return { bytes: null, timedOut: false };
+    const wcId = typeof wc.id === 'number' ? wc.id : undefined;
+    let pending = wcId !== undefined ? this.nativeRasterInFlight.get(wcId) : undefined;
+    if (!pending) {
       // The capture starts before the race, so the bound never cancels the
       // raster itself — only this call's wait for it.
-      const pending = wc.capturePage().catch(() => null);
+      pending = wc.capturePage().catch(() => null);
+      if (wcId !== undefined) {
+        this.nativeRasterInFlight.set(wcId, pending);
+        const tracked = pending;
+        tracked.then(() => {
+          if (this.nativeRasterInFlight.get(wcId) === tracked) {
+            this.nativeRasterInFlight.delete(wcId);
+          }
+        }).catch(() => {});
+      }
+    }
+    let timer: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    try {
       const bound = new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), Math.max(1, Math.round(boundMs)));
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolve(null);
+        }, Math.max(1, Math.round(boundMs)));
       });
       const image = await Promise.race([pending, bound]);
-      if (!image) return null;
-      if (typeof image.isEmpty === 'function' && image.isEmpty()) return null;
+      if (!image) return { bytes: null, timedOut };
+      if (typeof image.isEmpty === 'function' && image.isEmpty()) return { bytes: null, timedOut: false };
       if (format === 'jpeg' && typeof image.toJPEG === 'function') {
         const jpeg = image.toJPEG(Math.max(1, Math.min(100, Math.round(quality ?? 85))));
-        if (jpeg.length > 0) return jpeg;
+        if (jpeg.length > 0) return { bytes: jpeg, timedOut: false };
       }
       const png = typeof image.toPNG === 'function' ? image.toPNG() : Buffer.alloc(0);
-      return png.length > 0 ? png : null;
+      return { bytes: png.length > 0 ? png : null, timedOut: false };
     } catch {
-      return null;
+      return { bytes: null, timedOut };
     } finally {
       clearTimeout(timer);
     }
   }
-
   public async captureVerificationScreenshot(
     rect?: Rectangle,
     tabId?: string,
@@ -2067,8 +2096,11 @@ export class TabDevToolsHost {
           // would otherwise still reach captureBeyondViewport and wait out the
           // bound — the same 60s hang this guard exists to prevent.
           let nativeRasterAnswered = false;
+          let nativeRasterTimedOut = false;
           if (mode === 'viewport' && !isOffscreenTarget) {
-            const nativeBytes = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality);
+            const nativeRaster = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality, Math.min(boundMs, NATIVE_VIEWPORT_RASTER_BOUND_MS));
+            nativeRasterTimedOut = nativeRaster.timedOut;
+            const nativeBytes = nativeRaster.bytes;
             if (nativeBytes) {
               const nativeImage = imageFormat === 'jpeg' ? validateJpegBuffer(nativeBytes) : validatePngBuffer(nativeBytes);
               const nativeSize = nativeImage.ok ? { width: nativeImage.width, height: nativeImage.height } : null;
@@ -2110,10 +2142,13 @@ export class TabDevToolsHost {
               `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window was hidden or minimized during capture setup, so the compositor produces no beyond-viewport surface. Show the window or use a viewport capture.`
             );
           }
-          // A viewport raster that the native tier could not answer has no compositor
-          // frame to copy: the fallback would wait out its whole bound and leave the
-          // target's CDP transport draining. Give it a short probe bound instead, and
-          // name the missing surface when it cannot answer (below).
+          // A viewport raster the native tier answered empty has no compositor
+          // frame to copy: the fallback would wait out its whole bound and leave
+          // the target's CDP transport draining. Give it a short probe bound
+          // instead, and name the missing surface when it cannot answer (below).
+          // A native raster that TIMED OUT is a different class: the compositor
+          // hung, so a probe failure must report the measured timeout, never
+          // the NO_RENDER_SURFACE label reserved for an absent surface.
           const captureHasNoSurface = mode === 'viewport' && !isOffscreenTarget && !nativeRasterAnswered;
           const cdpBoundMs = captureHasNoSurface ? Math.min(boundMs, NO_SURFACE_CAPTURE_PROBE_BOUND_MS) : boundMs;
           let captureRes: { data?: string } | undefined;
@@ -2131,7 +2166,7 @@ export class TabDevToolsHost {
               cdpBoundMs
             );
           } catch (err) {
-            if (captureHasNoSurface) {
+            if (captureHasNoSurface && !nativeRasterTimedOut) {
               throw new CaptureError(
                 'NO_RENDER_SURFACE',
                 `Tab '${targetId}' pane '${effectivePane}' produced no ${mode} raster: the native view handed back no frame and the CDP fallback found no compositor surface to copy, so the window is not presenting this view (a hidden, minimised or Chromium-occluded window, or a tab the window is not showing). Bring the AntiFan window to the foreground, or capture an offscreen agent-plane tab.`
@@ -2412,9 +2447,12 @@ export class TabDevToolsHost {
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
-    if (!target) return '';
-    const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
-    if (!wc || wc.isDestroyed()) return '';
+    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`);
+    const effectivePane = paneId || target.focusedPane;
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) {
+      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`);
+    }
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const script = selector
         ? `(() => {
@@ -2437,10 +2475,12 @@ export class TabDevToolsHost {
     const hardBudgetMs = Math.max(softBudgetMs + 3000, Math.round(softBudgetMs * 2.5));
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
-    if (!target) return undefined;
+    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`);
     const effectivePane = paneId || target.focusedPane;
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
-    if (!wc || wc.isDestroyed()) return undefined;
+    if (!wc || wc.isDestroyed()) {
+      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`);
+    }
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const execute = async (): Promise<unknown> => {
         const wrapped = `(async () => {

@@ -27,6 +27,8 @@ export interface AttachmentValidatorDelegate {
   getDocumentGeneration?: (tabId?: string) => number;
   getAutomationTabId?: () => string | null;
   isTabAllowed?: (record: any, tabId: string) => boolean;
+  releaseSessionTab?: (sessionId: string, tabId: string) => boolean;
+  releaseSessionTabPool?: (sessionId: string) => boolean;
 }
 export interface IssueAttachmentOptions {
   chatId?: string;
@@ -96,9 +98,9 @@ export class AttachmentRegistry {
   private disposeListener?: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void;
   private uncompactedFramesCount = 0;
   /**
-   * Wall-clock stamp of the last durable frame per attachment. Renewals extend `expiresAt` by
-   * `extensionMs`, so comparing expiries can only ever measure the extension itself; throttling
-   * a heartbeat needs the elapsed time since the last write.
+   * Wall-clock stamp of the last durable frame per attachment. Renewals reset `expiresAt`
+   * to `now + extensionMs`, so the throttle needs the elapsed time since the last durable
+   * write tracked directly rather than derived from deadline arithmetic.
    */
   private readonly lastPersistedAtMs = new Map<string, number>();
   constructor(
@@ -127,6 +129,7 @@ export class AttachmentRegistry {
     const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
     let processed = 0;
     let foreignRuntimeRecords = 0;
+    const foreignRuntimeIds = new Set<string>();
     for (const line of lines) {
       if (++processed % 200 === 0) {
         const { promise, resolve } = Promise.withResolvers<void>();
@@ -162,6 +165,7 @@ export class AttachmentRegistry {
         const leaseRuntimeId = rec.lease?.runtimeId;
         if (currentRuntimeId && leaseRuntimeId && leaseRuntimeId !== currentRuntimeId) {
           foreignRuntimeRecords++;
+          foreignRuntimeIds.add(leaseRuntimeId);
           continue;
         }
         if (Array.isArray(frame.revisions)) {
@@ -216,9 +220,12 @@ export class AttachmentRegistry {
     }
     this.uncompactedFramesCount = Math.max(0, lines.length - this.records.size);
     if (foreignRuntimeRecords > 0) {
+      const foreignIds = [...foreignRuntimeIds];
+      const named = foreignIds.slice(0, 5).join(', ');
       console.warn(
-        `[AttachmentRegistry] Dropped ${foreignRuntimeRecords} attachment record(s) bound to a previous runtime ` +
-          `(current ${currentRuntimeId}); their owners re-pair through the bridge's 4001 path.`
+        `[AttachmentRegistry] Dropped ${foreignRuntimeRecords} attachment record(s) bound to foreign runtime(s) ` +
+          `${named}${foreignIds.length > 5 ? ` (+${foreignIds.length - 5} more)` : ''}; current runtime is ` +
+          `${currentRuntimeId}. Their owners re-pair through the bridge's 4001 path.`
       );
     }
     if (lines.length > Math.max(100, this.records.size * 1.5)) {
@@ -909,14 +916,27 @@ export class AttachmentRegistry {
       browserEpoch: record.browserEpoch || record.hostEpoch || 1,
       documentGeneration: resolvedDocGen,
     };
+    const previousTabId = record.tabId;
     try {
-      return await this.rotateAuthorityRevision(attachmentId, {
+      const nextRevision = await this.rotateAuthorityRevision(attachmentId, {
         browserTarget: currentTarget,
         tabId,
         documentGeneration: resolvedDocGen,
         expectedRevision: casOptions?.expectedRevision,
         expectedTabId: casOptions?.expectedTabId,
       });
+      // The rotation moved the binding to a different tab: the old bound tab's
+      // session slot is no longer held by this attachment. Releasing is
+      // bookkeeping only — a failure must never fail the rotation — and the
+      // same-tab no-op releases nothing.
+      if (previousTabId && previousTabId !== tabId && this.delegate?.releaseSessionTab) {
+        try {
+          this.delegate.releaseSessionTab(previousTabId, previousTabId);
+        } catch (err) {
+          console.warn(`[AttachmentRegistry] Failed to release session tab ${previousTabId} after rebind:`, err);
+        }
+      }
+      return nextRevision;
     } catch (err: unknown) {
       if (err instanceof CapabilityError && err.code === 'TRANSACTION_CONFLICT') {
         console.warn(`[AttachmentRegistry] updateAttachmentTab: TRANSACTION_CONFLICT rotating ${attachmentId} to tab ${tabId}`);
@@ -1044,8 +1064,12 @@ export class AttachmentRegistry {
 
       const now = Date.now();
       const extensionMs = options?.extensionMs ?? 3_600_000;
-      const newExpiresAt = Math.max(record.expiresAt, now) + extensionMs;
-      const updatedLease = record.lease ? { ...record.lease, expiresAt: Math.max(record.lease.expiresAt, newExpiresAt) } : record.lease;
+      // A renewal restarts the window rather than extending the previous deadline: the
+      // expiry is always `now + extensionMs`, so a heartbeat can never stack extensions
+      // into an unbounded TTL. The embedded lease mirrors the same deadline so the
+      // LEASE_EXPIRED gate in validateLiveExecution tracks the attachment's real lifetime.
+      const newExpiresAt = now + extensionMs;
+      const updatedLease = record.lease ? { ...record.lease, expiresAt: newExpiresAt } : record.lease;
       const candidateRecord: ExecutionAttachmentRecord = {
         ...record,
         expiresAt: newExpiresAt,
@@ -1060,9 +1084,9 @@ export class AttachmentRegistry {
       // 200-2500ms stalls on concurrent dispatch, scaling with heartbeat frequency. Renewals are
       // therefore written through on a throttle: once the last durable frame is
       // RENEWAL_PERSIST_THRESHOLD_MS old, and immediately whenever `boundPid` changes (an
-      // authority-affecting binding). Elapsed wall-clock is the criterion because each renewal
-      // adds `extensionMs` to the previous expiry, so comparing expiries measures the extension
-      // (hours) rather than the interval between writes, and never throttles anything. The
+      // authority-affecting binding). Elapsed wall-clock is the criterion because the live
+      // record's deadline slides on every renewal — the registry does not retain the last
+      // persisted frame's expiry, so time since the last write is tracked directly. The
       // invariant this preserves: after a restart, initialize() replays the last persisted frame,
       // so a reloaded record's expiresAt lags the live in-memory value by at most the threshold —
       // a still-live owner's next heartbeat renews from that floor instead of hitting
@@ -1113,6 +1137,18 @@ export class AttachmentRegistry {
   }
 
   private notifyDispose(record: ExecutionAttachmentRecord): void {
+    // Session-end quota release: the bound tab's session pool is freed here,
+    // not in the dispose listener — the listener refuses user-visible tabs,
+    // which is exactly the case that leaks. Releasing is bookkeeping only and
+    // must never break the mutation path that fired it.
+    const sessionId = record?.tabId || record?.browserTarget?.tabId;
+    if (sessionId && this.delegate?.releaseSessionTabPool) {
+      try {
+        this.delegate.releaseSessionTabPool(sessionId);
+      } catch (err) {
+        console.warn(`[AttachmentRegistry] Failed to release session tab pool ${sessionId} on dispose:`, err);
+      }
+    }
     if (!this.disposeListener || !record) return;
     try {
       this.disposeListener({

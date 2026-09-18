@@ -8,7 +8,7 @@ import {
   CapabilityRequestContext,
   AuthenticatedCapabilityContext,
 } from '../../shared/control-plane-contracts';
-import { VerificationCaptureReceipt } from './visual-capture';
+import { VerificationCaptureReceipt, compareCapturePolicyIdentity } from './visual-capture';
 
 export interface BaselineCaptureStateMini {
   dpr: number;
@@ -16,6 +16,13 @@ export interface BaselineCaptureStateMini {
   backend: string;
   cssViewport: { width: number; height: number };
   rasterSize: { width: number; height: number };
+  /**
+   * The capture policy identity this baseline was promoted under. Absent on
+   * baselines promoted before the identity existed: those hold pixels from a
+   * pipeline whose comparability cannot be proven, so compare refuses them
+   * against a current capture instead of diffing across the boundary.
+   */
+  capturePolicy?: string;
 }
 
 export function readPngDimensions(buf: Buffer): { width: number; height: number } | null {
@@ -185,6 +192,13 @@ export class BaselineAuthority {
     if (!receipt.cssViewport || !Number.isFinite(receipt.cssViewport.width) || receipt.cssViewport.width <= 0 || !Number.isFinite(receipt.cssViewport.height) || receipt.cssViewport.height <= 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'Capture receipt cssViewport must have finite positive width and height');
     }
+    // A declared policy identity is persisted verbatim so a later compare can
+    // prove provenance. An undeclared one is legal (a record that predates the
+    // identity) and stays absent — never backfilled with the current value,
+    // which would claim a provenance the receipt never asserted.
+    if (receipt.capturePolicy !== undefined && (typeof receipt.capturePolicy !== 'string' || receipt.capturePolicy.trim().length === 0)) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Capture receipt capturePolicy must be a non-empty string when declared');
+    }
 
     const pngDims = readPngDimensions(data);
     if (!pngDims) {
@@ -217,6 +231,7 @@ export class BaselineAuthority {
         zoom: receipt.zoom,
         cssViewport: { ...receipt.cssViewport },
         rasterSize: { width: rasterSize.width, height: rasterSize.height },
+        ...(receipt.capturePolicy ? { capturePolicy: receipt.capturePolicy } : {}),
       },
       promotedAt: Date.now(),
       workspaceId,
@@ -330,6 +345,16 @@ export class BaselineAuthority {
     const mini = baseline.captureStateMini;
     if (!mini) {
       return { compatible: false, reason: 'Promoted baseline lacks captureStateMini metadata' };
+    }
+
+    // Policy identity outranks every geometric check: a baseline promoted under
+    // a different capture policy (or before the identity existed) holds pixels
+    // from a different pipeline, so a diff would report the policy change as a
+    // content change. Refuse, naming both identities, and never diff across the
+    // boundary.
+    const policy = compareCapturePolicyIdentity(mini, targetReceipt);
+    if (!policy.comparable) {
+      return { compatible: false, reason: policy.reason };
     }
 
     if (targetReceipt.backend !== mini.backend) {

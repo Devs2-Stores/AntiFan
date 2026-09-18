@@ -207,12 +207,65 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
       assert.ok(sp);
     }
 
-    assert.strictEqual(tm.listSessions().length, 5);
+    // Every split is projected as its own pane, so the strip sees 5 parents and their
+    // 5 splits; each split dies with the parent that owns it.
+    assert.strictEqual(tm.listSessions().length, 10);
+    assert.strictEqual(tm.listSessions().filter((s) => s.splitOf).length, 5);
 
     for (const p of created) {
       await tm.closeSession(p);
     }
 
     assert.strictEqual(tm.listSessions().length, 0);
+  });
+
+  // Split projection: a split pane is an independent terminal, so every split is
+  // projected as its own session entry (own id, transcript, state, alt-screen flag)
+  // while the base entry keeps naming the first split; `altScreen` reaches diagnostics.
+  it('projects every split as its own session entry with its own transcript and state', async () => {
+    const parent = tm.createSession();
+    const splitA = tm.createSplitSession(parent);
+    assert.ok(splitA);
+    tm.getSession(parent)!.buffer = 'PARENT_OUTPUT\r\n';
+    tm.getSession(splitA)!.buffer = 'SPLIT_A_OUTPUT\r\n';
+    tm.getSession(splitA)!.altScreen = true;
+
+    // A parent with two splits only exists after a restart restore, so the second one
+    // is injected the way the restore path builds it.
+    const splitB = 'split-restored-1';
+    tmInternal.sessions.set(splitB, {
+      id: splitB,
+      cwd: 'E:/Work/split-b',
+      name: 'Terminal (Split)',
+      splitOf: parent,
+      capsuleId: 'default',
+      disposed: false,
+      pty: { cols: 120, rows: 30, kill: () => {}, write: () => {}, resize: () => {} },
+    });
+    const restoredSplit = tm.getSession(splitB)!;
+    restoredSplit.buffer = 'SPLIT_B_OUTPUT\r\n';
+    restoredSplit.state = 'running';
+
+    const list = tm.listSessions();
+    const baseEntry = list.find((s) => s.id === parent);
+    const entryA = list.find((s) => s.id === splitA);
+    const entryB = list.find((s) => s.id === splitB);
+
+    assert.strictEqual(baseEntry?.splitSessionId, splitA);
+    assert.match(baseEntry?.splitBuffer || '', /SPLIT_A_OUTPUT/);
+    assert.ok(entryA && entryB, 'both splits of the parent must be listed');
+    assert.strictEqual(entryA!.splitOf, parent);
+    assert.strictEqual(entryB!.splitOf, parent);
+    assert.strictEqual(entryA!.active, false);
+    assert.match(entryA!.buffer, /SPLIT_A_OUTPUT/);
+    assert.match(entryB!.buffer, /SPLIT_B_OUTPUT/);
+    assert.strictEqual(entryA!.altScreen, true);
+    assert.strictEqual(
+      tm.getDiagnostics().sessions.find((s) => s.sessionId === splitA)?.altScreen,
+      true
+    );
+
+    await tm.closeSession(parent);
+    assert.strictEqual(tm.listSessions().find((s) => s.id === splitB), undefined);
   });
 });

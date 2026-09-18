@@ -59,10 +59,20 @@ async function waitFor(cond, { timeoutMs = 60_000, stepMs = 50 } = {}) {
 // The stall budget is 40x the fixture's 400ms unit, so it cannot fire on a
 // loaded host; the hard budget backstops a runner that keeps logging progress
 // without ever satisfying the condition.
+//
+// A stall only fast-fails when the runner behind it is GONE: no worklog entry for
+// 16s from a dead runner is a broken runner, and naming the last event beats a
+// wall-clock timeout. A stall from a LIVE runner is the host, not the run — the
+// lane runs its suites in parallel, and four Electron lanes on one box pushed this
+// case past the 16s window (17.1s, `no worklog entry for 16021ms … runnerAlive=
+// true`) while the same case runs in 4s when the box is idle. Failing that as if
+// the runner had wedged would re-introduce exactly the machine measurement this
+// helper exists to remove, so a live runner spends the hard budget instead.
 async function waitForProgress(dir, cond, { stallMs = 16_000, hardMs = 120_000, stepMs = 50 } = {}) {
   const deadline = Date.now() + hardMs;
   let entries = readWorklog(dir).length;
   let advancedAt = Date.now();
+  let stalledMs = 0;
   while (Date.now() < deadline) {
     if (cond()) return { ok: true };
     const now = readWorklog(dir).length;
@@ -70,11 +80,14 @@ async function waitForProgress(dir, cond, { stallMs = 16_000, hardMs = 120_000, 
       entries = now;
       advancedAt = Date.now();
     } else if (Date.now() - advancedAt > stallMs) {
-      return { ok: false, stalled: true, stalledMs: Date.now() - advancedAt };
+      stalledMs = Date.now() - advancedAt;
+      const lock = readRunnerMutex(dir);
+      const alive = lock?.pid ? isAlive(lock.pid) : null;
+      if (alive === false) return { ok: false, stalled: true, stalledMs };
     }
     await sleep(stepMs);
   }
-  return { ok: false, stalled: false };
+  return { ok: false, stalled: stalledMs > 0, stalledMs };
 }
 
 // What a failed wait needs to explain itself: where the run stopped, whether its
@@ -155,7 +168,7 @@ describe('goal runner kill/resume', () => {
       assert.ok(
         twoDone.ok,
         `runner never completed two units (${
-          twoDone.stalled ? `no worklog entry for ${twoDone.stalledMs}ms` : 'hard budget exhausted'
+          twoDone.stalled ? `stalled ${twoDone.stalledMs}ms and exhausted the hard budget` : 'hard budget exhausted'
         }): ${describeRun(dir)}`,
       );
 

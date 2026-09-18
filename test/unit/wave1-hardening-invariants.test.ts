@@ -25,6 +25,7 @@ describe('Wave 1 Hardening Invariants Suite', () => {
   function createTestCatalogue(options?: {
     isTabAllowed?: (p: string, r: string) => boolean;
     resolveTabId?: (id: string) => string | undefined;
+    resolveFailoverTabId?: (staleTabId: string) => string | undefined;
     getDocumentGeneration?: (tabId?: string) => number;
   }) {
     const isAllowedFn = options?.isTabAllowed || ((p, r) => {
@@ -48,6 +49,7 @@ describe('Wave 1 Hardening Invariants Suite', () => {
       isTabAllowed: isAllowedFn,
       resolveTabId: resolveFn,
       getDocumentGeneration: options?.getDocumentGeneration || ((id) => (id === TAB_SECONDARY ? 42 : 1)),
+      resolveFailoverTabId: options?.resolveFailoverTabId,
     });
 
     return { catalogue, isAllowedFn, resolveFn };
@@ -492,5 +494,129 @@ describe('Wave 1 Hardening Invariants Suite', () => {
     assert.strictEqual(res4.ok, true);
     assert.strictEqual(res4.replacementAuthorityRevision, undefined, 'Must reject failover alias with whitespace');
     assert.strictEqual(attachmentRegistry.getAttachment(launch.attachmentId)?.tabId, TAB_FAILOVER);
+  });
+
+
+  // --- TEST H: Error relay never renders [object Object] and never rewords Error messages ---
+  test('Test H: transport relays thrown values as readable messages, verbatim for Error', async () => {
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(PROJECT_ID, WORKSPACE_ID, 60_000, 1);
+    (lease as any).runtimeId = RUNTIME_ID;
+    const attachmentRegistry = new AttachmentRegistry();
+    const { launch } = await attachmentRegistry.issueAttachment(runId, attemptId, PROJECT_ID, WORKSPACE_ID, {
+      backendId: 'test-backend',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      tabId: TAB_PRIMARY,
+      grant: 'write',
+      documentGeneration: 1,
+    });
+
+    const { catalogue: cat } = createTestCatalogue();
+    let thrown: unknown;
+    cat.register({
+      name: 'browser.dom',
+      description: 'Throwing capability',
+      risk: 'write',
+      policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write' }),
+      inputSchema: { type: 'object' },
+      execute: async () => {
+        throw thrown;
+      },
+    });
+    const transport = new CapabilityTransportAdapter(cat, attachmentRegistry);
+    const dispatch = async (key: string) => transport.dispatchIntent({
+      requestId: `req-relay-${key}`,
+      idempotencyKey: `idem-relay-${key}`,
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: String(launch.authorityRevision),
+      name: 'browser.dom',
+      params: {},
+    });
+
+    // Object-shaped throw without a message: must never render '[object Object]'
+    thrown = { code: 'TARGET_STALE' };
+    const res1 = await dispatch('1');
+    assert.strictEqual(res1.ok, false);
+    assert.strictEqual(res1.error?.code, 'TARGET_STALE');
+    assert.strictEqual(typeof res1.error?.message, 'string');
+    assert.ok(!res1.error!.message.includes('[object Object]'), `message must not be [object Object]: ${res1.error!.message}`);
+    assert.ok(res1.error!.message.includes('TARGET_STALE'), `plain-object throw must relay its shape: ${res1.error!.message}`);
+
+    // Raw interpreter error from the agent's own expression: verbatim relay
+    thrown = new Error('missing ) after argument list');
+    const res2 = await dispatch('2');
+    assert.strictEqual(res2.ok, false);
+    assert.strictEqual(res2.error?.message, 'missing ) after argument list');
+
+    // String throw relays as-is
+    thrown = 'plain string failure';
+    const res3 = await dispatch('3');
+    assert.strictEqual(res3.ok, false);
+    assert.strictEqual(res3.error?.message, 'plain string failure');
+
+    // Object-shaped throw with a string message uses it
+    thrown = { code: 'NO_RENDER_SURFACE', message: 'surface reports no laid-out surface' };
+    const res4 = await dispatch('4');
+    assert.strictEqual(res4.ok, false);
+    assert.strictEqual(res4.error?.code, 'NO_RENDER_SURFACE');
+    assert.strictEqual(res4.error?.message, 'surface reports no laid-out surface');
+  });
+
+  // --- TEST I: Close-tab failover rotation follows the post-heal bound tab ---
+  test('Test I: close-tab failover rotates authority when the healed bound tab is closed', async () => {
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(PROJECT_ID, WORKSPACE_ID, 60_000, 1);
+    (lease as any).runtimeId = RUNTIME_ID;
+    const attachmentRegistry = new AttachmentRegistry();
+    const { launch } = await attachmentRegistry.issueAttachment(runId, attemptId, PROJECT_ID, WORKSPACE_ID, {
+      backendId: 'test-backend',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      tabId: TAB_PRIMARY,
+      grant: 'write',
+      documentGeneration: 1,
+    });
+
+    // The bound tab (TAB_PRIMARY) is dead: resolveTabId no longer knows it, and the
+    // host names TAB_SECONDARY as its failover. The transport heals the dispatch
+    // target to TAB_SECONDARY; the close then names that healed tab.
+    const { catalogue: cat } = createTestCatalogue({
+      resolveTabId: (id) => (id === TAB_SECONDARY || id === TAB_UNAUTHORIZED ? id : undefined),
+      resolveFailoverTabId: (stale) => (stale === TAB_PRIMARY ? TAB_SECONDARY : undefined),
+      getDocumentGeneration: () => 7,
+    });
+    cat.register({
+      name: 'browser.close-tab',
+      description: 'Close tab capability',
+      risk: 'write',
+      policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write' }),
+      inputSchema: { type: 'object' },
+      execute: async (params: { _mockResult?: unknown }) => params._mockResult,
+    });
+    const transport = new CapabilityTransportAdapter(cat, attachmentRegistry);
+
+    const res = await transport.dispatchIntent({
+      requestId: 'req-close-healed',
+      idempotencyKey: 'idem-close-healed',
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: String(launch.authorityRevision),
+      name: 'browser.close-tab',
+      params: {
+        _mockResult: { closed: true, tabId: TAB_SECONDARY, failoverTabId: TAB_UNAUTHORIZED },
+      },
+    });
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(
+      attachmentRegistry.getAttachment(launch.attachmentId)?.tabId,
+      TAB_UNAUTHORIZED,
+      'authority must follow the failover the port named for the healed bound tab'
+    );
   });
 });

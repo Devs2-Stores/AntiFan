@@ -60,6 +60,17 @@ function specKey(spec) {
     items: spec.items && typeof spec.items === 'object' ? (spec.items.type ?? null) : null,
   });
 }
+// A oneOf contract is the SET of required-groups it accepts, order-insensitive:
+// [{required:['a']},{required:['b']}] and [{required:['b']},{required:['a']}]
+// are the same promise.
+function oneOfKey(oneOf) {
+  if (!Array.isArray(oneOf) || oneOf.length === 0) return null;
+  return JSON.stringify(
+    oneOf
+      .map((group) => (group && Array.isArray(group.required) ? [...group.required].sort() : []))
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+  );
+}
 function sortedKeys(obj) {
   return Object.keys(obj || {}).sort();
 }
@@ -210,8 +221,10 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
   // equal the catalogue schema exactly, in both directions.
   const coreDispatch = proxy.CORE_DISPATCH || {};
   const advertisedCore = new Set();
-  for (const [advertised, , advProps, advRequired] of proxy.definitions || []) {
+  const advertisedResolved = new Set();
+  for (const [advertised, , advProps, advRequired, advOneOf] of proxy.definitions || []) {
     const resolved = map[advertised] || advertised;
+    advertisedResolved.add(resolved);
     const entry = catalogue.get(resolved);
     if (!entry) continue; // unresolved advertised names are already reported above
     const declared = entry.inputSchema || {};
@@ -239,6 +252,11 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
         problems.push(`advertised tool '${advertised}' property '${p}' diverges from '${resolved}': advertised ${specKey(advProps[p])} vs declared ${specKey(declaredProps[p])}`);
       }
     }
+    const advOneOfKey = oneOfKey(advOneOf);
+    const declaredOneOfKey = oneOfKey(declared.oneOf);
+    if (advOneOfKey !== declaredOneOfKey) {
+      problems.push(`advertised tool '${advertised}' oneOf diverges from '${resolved}': advertised ${advOneOfKey ?? '(none)'} vs declared ${declaredOneOfKey ?? '(none)'}`);
+    }
     if (resolved.startsWith('core.')) {
       advertisedCore.add(resolved);
       for (const p of sortedKeys(declaredProps)) {
@@ -256,15 +274,70 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
       }
     }
   }
-  // Every catalogue core.* registration must be advertised and dispatched: an
-  // unadvertised registration is unreachable through this surface, and a
-  // dispatch entry with no registration is a phantom.
+
+  // ─── Ambient bound-tab default: the declaration must be truthful ──────────
+  // The proxy fills an omitted field from the session's bound tab ONLY for rows
+  // that declare an ambient target field (definition element 5). The catalogue
+  // cannot distinguish a `tabId` that selects the tab to act on from one that
+  // predicates over stored records — both register requiresBrowserTarget:false
+  // with an optional tabId — so the row declaration is the sole authority and
+  // this gate verifies it against the catalogue:
+  //   * a declared row must resolve to a registration that accepts the field,
+  //    and the field must stay optional (a required field can never receive a
+  //    default, so declaring one is dead configuration);
+  //   * a declared row whose capability does not consume a browser target must
+  //    still show browser-target forwarding in its execute body — the evidence
+  //    that separates a selector (browser.get-viewport -> browser.getViewport)
+  //    from a filter (anti.verification.list -> IssueRegister.listVerifications);
+  //   * an undeclared row that advertises an optional `tabId` while its
+  //    capability consumes a browser target (requiresBrowserTarget, or the same
+  //    execute evidence for target-optional rows) would silently lose the
+  //    ambient default — declare the field or drop the property.
+  const browserTargetEvidence = (entry) =>
+    typeof entry?.execute === 'function' && /\bcontext\.browserTarget\b|\bbrowser\./.test(entry.execute.toString());
+  for (const [advertised, , advProps, advRequired, , ambientField] of proxy.definitions || []) {
+    const resolved = map[advertised] || advertised;
+    const entry = catalogue.has(resolved) ? catalogue.get(resolved) : null;
+    const advertisedOptionalTabId = Boolean(advProps && advProps.tabId) && !(Array.isArray(advRequired) && advRequired.includes('tabId'));
+    if (typeof ambientField === 'string' && ambientField.length > 0) {
+      if (!advProps || !(ambientField in advProps)) {
+        problems.push(`advertised tool '${advertised}' declares ambient target field '${ambientField}' but does not advertise it as a property`);
+      }
+      if (Array.isArray(advRequired) && advRequired.includes(ambientField)) {
+        problems.push(`advertised tool '${advertised}' declares ambient target field '${ambientField}' but also requires it — a required field can never receive the ambient default`);
+      }
+      if (!entry) {
+        problems.push(`advertised tool '${advertised}' declares ambient target field '${ambientField}' but resolves to '${resolved}', which the catalogue does not register`);
+      } else {
+        const declaredProps = (entry.inputSchema && entry.inputSchema.properties) || {};
+        if (!(ambientField in declaredProps)) {
+          problems.push(`advertised tool '${advertised}' declares ambient target field '${ambientField}', which '${resolved}' does not accept`);
+        }
+        if (!entry.requiresBrowserTarget && !browserTargetEvidence(entry)) {
+          problems.push(`advertised tool '${advertised}' declares ambient target field '${ambientField}' but '${resolved}' does not consume a browser target — its execute body forwards to no browser-scoped collaborator, so the field is a filter, not a selector`);
+        }
+      }
+    } else if (advertisedOptionalTabId) {
+      if (entry && entry.requiresBrowserTarget) {
+        problems.push(`advertised tool '${advertised}' advertises an optional 'tabId' and '${resolved}' consumes a browser target, but declares no ambient target field — the bound-tab default is silently lost; declare 'tabId' as the row's ambient field or drop the property`);
+      } else if (entry && browserTargetEvidence(entry)) {
+        problems.push(`advertised tool '${advertised}' advertises an optional 'tabId' and '${resolved}' forwards it to a browser-scoped collaborator, but declares no ambient target field — the bound-tab default is silently lost; declare 'tabId' as the row's ambient field or drop the property`);
+      }
+    }
+  }
+  // Every catalogue registration inside a namespace the surface promises must
+  // be advertised: an unadvertised registration is unreachable through this
+  // surface. `core.*` additionally requires a CORE_DISPATCH entry, because the
+  // proxy implements those in-process — a dispatch entry with no registration
+  // is a phantom. `terminal.*` joins the rule because the namespace was
+  // registered and wired while the surface advertised zero of its lines.
+  const COMPLETENESS_NAMESPACES = Object.freeze(['core.', 'terminal.']);
   for (const entry of catalogue.listAll()) {
-    if (!entry.name.startsWith('core.')) continue;
-    if (!advertisedCore.has(entry.name)) {
+    if (!COMPLETENESS_NAMESPACES.some((prefix) => entry.name.startsWith(prefix))) continue;
+    if (!advertisedResolved.has(entry.name)) {
       problems.push(`catalogue registers '${entry.name}' but the proxy does not advertise it`);
     }
-    if (!coreDispatch[entry.name]) {
+    if (entry.name.startsWith('core.') && !coreDispatch[entry.name]) {
       problems.push(`catalogue registers '${entry.name}' but CORE_DISPATCH has no entry for it`);
     }
   }

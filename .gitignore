@@ -9,6 +9,7 @@ contracts/dist/
 *.log
 .antigravity/
 scratch/
+.probe-tmp/
 appdata/
 .tmp-*
 *.tmp

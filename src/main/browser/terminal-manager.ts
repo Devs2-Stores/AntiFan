@@ -403,6 +403,8 @@ export interface SessionSummary {
   active: boolean;
   buffer: string;
   snapshotThroughSeq?: number;
+  /** Names the parent when this entry is a split pane, and is absent on base sessions. */
+  splitOf?: string;
   splitSessionId?: string;
   splitBuffer?: string;
   splitSnapshotThroughSeq?: number;
@@ -418,6 +420,10 @@ export interface SessionSummary {
   sleptAt?: number;
   cols?: number;
   rows?: number;
+  // True while the session's foreground program is on the alternate screen (vim,
+  // htop, an agent TUI). That screen is not scrollback, so a viewer must offer the
+  // transcript instead of pretending the history is there.
+  altScreen?: boolean;
 }
 export interface TerminalManagerStats {
   sessionCount: number;
@@ -433,6 +439,7 @@ export interface TerminalSessionDiagnostics {
   bufferBytes: number;
   state: 'running' | 'exited' | 'closed' | 'sleeping';
   splitOf?: string;
+  altScreen: boolean;
   capsuleId: string;
 }
 
@@ -1875,83 +1882,91 @@ export class TerminalManager extends EventEmitter {
     return (s.restoredTail ? s.restoredTail + '\r\n── phiên trước ──\r\n' : '') + s.buffer;
   }
 
+  /**
+   * Every live pane: base sessions first, each followed by the splits it owns.
+   *
+   * A split is an independent terminal (own id, own transcript, own activity), so it is
+   * projected as its own entry — the tab strip keys panes by id and would otherwise show
+   * a split as part of its parent. Base entries keep `splitSessionId`/`splitBuffer`
+   * carrying the first split, which is what the lower-pane plumbing asks for by name.
+   */
   public listSessions(paged = true): SessionSummary[] {
-    const baseSessions = [...this.sessions.values()].filter(s => !s.splitOf);
-    // One pass over the map instead of a per-base-session scan (O(S²) → O(S)).
-    const splitByParent = new Map<string, Session>();
-    for (const s of this.sessions.values()) {
-      if (s.splitOf && !splitByParent.has(s.splitOf)) {
-        splitByParent.set(s.splitOf, s);
-      }
+    const all = [...this.sessions.values()];
+    const baseSessions = all.filter(s => !s.splitOf);
+    const splitsByParent = new Map<string, Session[]>();
+    for (const s of all) {
+      if (!s.splitOf) continue;
+      const siblings = splitsByParent.get(s.splitOf);
+      if (siblings) siblings.push(s);
+      else splitsByParent.set(s.splitOf, [s]);
     }
+
+    // `cwd` is the directory the split was created in (a split does not follow the
+    // parent's later `cd`), and `state`/`exitCode` are its own PTY's.
+    const summarize = (s: Session, active: boolean, buffer: string): SessionSummary => ({
+      id: s.id,
+      name: s.name,
+      cwd: s.cwd,
+      active,
+      buffer,
+      snapshotThroughSeq: s.lastSeq || 0,
+      splitOf: s.splitOf,
+      bufferLength: s.bufferBytes ?? Buffer.byteLength(s.buffer, 'utf8'),
+      sessionGeneration: s.sessionGeneration,
+      state: s.state,
+      exitCode: s.exitCode,
+      exitedAt: s.exitedAt,
+      closedAt: s.closedAt,
+      category: s.category,
+      sleptAt: s.sleptAt,
+      cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
+      rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,
+      altScreen: Boolean(s.altScreen),
+    });
+
     if (!paged || baseSessions.length === 0) {
-      return baseSessions.map(s => {
-        const split = splitByParent.get(s.id);
-        return {
-          id: s.id,
-          name: s.name,
-          cwd: s.cwd,
-          active: s.id === this.activeSessionId,
-          buffer: this.composeTranscript(s),
-          snapshotThroughSeq: s.lastSeq || 0,
-          splitSessionId: split?.id,
-          splitBuffer: split ? this.composeTranscript(split) : '',
-          splitSnapshotThroughSeq: split ? (split.lastSeq || 0) : 0,
-          bufferLength: s.bufferBytes ?? Buffer.byteLength(s.buffer, 'utf8'),
-          sessionGeneration: s.sessionGeneration,
-          state: s.state,
-          exitCode: s.exitCode,
-          exitedAt: s.exitedAt,
-          closedAt: s.closedAt,
-          category: s.category,
-          sleptAt: s.sleptAt,
-          cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
-          rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,
-        };
-      });
-    }
-    let totalPanes = 0;
-    for (const s of baseSessions) {
-      totalPanes += 1;
-      if (splitByParent.has(s.id)) totalPanes += 1;
+      const summaries: SessionSummary[] = [];
+      for (const s of baseSessions) {
+        const splits = splitsByParent.get(s.id) || [];
+        const first = splits[0];
+        summaries.push({
+          ...summarize(s, s.id === this.activeSessionId, this.composeTranscript(s)),
+          splitSessionId: first?.id,
+          splitBuffer: first ? this.composeTranscript(first) : '',
+          splitSnapshotThroughSeq: first ? (first.lastSeq || 0) : 0,
+        });
+        for (const split of splits) {
+          summaries.push(summarize(split, false, this.composeTranscript(split)));
+        }
+      }
+      return summaries;
     }
 
     const activeBudget = ACTIVE_SNAPSHOT_BUDGET_BYTES;
-    const bgBudget = totalPanes > 1
-      ? Math.floor(BACKGROUND_SNAPSHOT_BUDGET_BYTES / (totalPanes - 1))
+    const bgBudget = all.length > 1
+      ? Math.floor(BACKGROUND_SNAPSHOT_BUDGET_BYTES / (all.length - 1))
       : activeBudget;
 
-    return baseSessions.map(s => {
+    const summaries: SessionSummary[] = [];
+    for (const s of baseSessions) {
       const isActive = s.id === this.activeSessionId;
-      const split = splitByParent.get(s.id);
+      const splits = splitsByParent.get(s.id) || [];
+      const first = splits[0];
       const baseSlotBudget = isActive ? activeBudget : bgBudget;
-      const splitSlotBudget = bgBudget;
 
-      const buffer = safeSliceTailJsonBounded(this.composeTranscript(s), baseSlotBudget);
-      const splitBuffer = split ? safeSliceTailJsonBounded(this.composeTranscript(split), splitSlotBudget) : '';
-
-      return {
-        id: s.id,
-        name: s.name,
-        cwd: s.cwd,
-        active: isActive,
-        buffer,
-        snapshotThroughSeq: s.lastSeq || 0,
-        splitSessionId: split?.id,
-        splitBuffer,
-        splitSnapshotThroughSeq: split ? (split.lastSeq || 0) : 0,
-        bufferLength: s.bufferBytes ?? Buffer.byteLength(s.buffer, 'utf8'),
-        sessionGeneration: s.sessionGeneration,
-        state: s.state,
-        exitCode: s.exitCode,
-        exitedAt: s.exitedAt,
-        closedAt: s.closedAt,
-        category: s.category,
-        sleptAt: s.sleptAt,
-        cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
-        rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,
-      };
-    });
+      summaries.push({
+        ...summarize(s, isActive, safeSliceTailJsonBounded(this.composeTranscript(s), baseSlotBudget)),
+        splitSessionId: first?.id,
+        splitBuffer: first ? safeSliceTailJsonBounded(this.composeTranscript(first), bgBudget) : '',
+        splitSnapshotThroughSeq: first ? (first.lastSeq || 0) : 0,
+      });
+      // Each split carries its own transcript, so a sibling split can never be rendered
+      // in another split's place.
+      for (const split of splits) {
+        summaries.push(summarize(split, false, safeSliceTailJsonBounded(this.composeTranscript(split), bgBudget)));
+      }
+    }
+    return summaries;
   }
 
   public getStats(): TerminalManagerStats {
@@ -1996,6 +2011,7 @@ export class TerminalManager extends EventEmitter {
         bufferBytes: Buffer.byteLength(s.buffer || '', 'utf8'),
         state: s.state,
         splitOf: s.splitOf,
+        altScreen: Boolean(s.altScreen),
         capsuleId: s.capsuleId,
       })),
       subscribers: this.getSubscribers(),
@@ -2173,8 +2189,10 @@ export class TerminalManager extends EventEmitter {
   public async closeSession(id: string): Promise<boolean> {
     const s = this.sessions.get(id);
     if (!s || s.splitOf) return false;
-    const split = [...this.sessions.values()].find(x => x.splitOf === id);
-    if (split) {
+    // Every split is its own PTY: closing the parent releases all of them, or a
+    // sibling split survives as an orphan with no tab that could ever show or close it.
+    const splits = [...this.sessions.values()].filter(x => x.splitOf === id);
+    for (const split of splits) {
       await this.safelyKillSession(split);
       this.sessions.delete(split.id);
       this.sessionGenerations.delete(split.id);

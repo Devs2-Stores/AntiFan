@@ -14,7 +14,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, ToolbarPhoneStatus } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -139,6 +139,28 @@ function normalizeTerminalCategories(value: unknown): string[] {
     seen.add(folded);
     out.push(name);
     if (out.length >= TERMINAL_CATEGORIES_MAX) break;
+  }
+  return out;
+}
+
+/**
+ * Normalize persisted or renderer-supplied colour overrides: a category name keyed to a
+ * plain 6-digit hex, capped. Any other value is dropped rather than repaired — a colour
+ * the picker never offered is not one the sidebar should paint — and the key keeps the
+ * same trimmed, length-capped shape as a group name so a stray key cannot paint a header
+ * the user cannot rename.
+ */
+function normalizeTerminalCategoryColors(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  let count = 0;
+  for (const [rawKey, rawColor] of Object.entries(value as Record<string, unknown>)) {
+    const key = String(rawKey).trim().slice(0, TERMINAL_CATEGORY_NAME_MAX);
+    if (!key) continue;
+    if (typeof rawColor !== 'string' || !TERMINAL_CATEGORY_COLOR_PATTERN.test(rawColor)) continue;
+    out[key] = rawColor.toLowerCase();
+    count += 1;
+    if (count >= TERMINAL_CATEGORY_COLORS_MAX) break;
   }
   return out;
 }
@@ -438,6 +460,10 @@ export class NativeTabHost extends EventEmitter {
   private terminalCollapsedCategories: string[] = [];
   /** User-managed group names; the only representation of an empty group. */
   private terminalCategories: string[] = [];
+  /** Category name -> user-chosen chip colour. Absence means "derive from the name". */
+  private terminalCategoryColors: Record<string, string> = {};
+  /** Categories the user marked with `*`. A marker only; `terminalCategories` orders. */
+  private terminalStarredCategories: string[] = [];
   // Running count of 'antifan:terminal:data' payloads actually handed to
   // safeSendWebContents; readable via getResourceStats/DUMP_DIAGNOSTICS without
   // benchmark mode.
@@ -1971,6 +1997,8 @@ export class NativeTabHost extends EventEmitter {
         sidebarWidth: this.terminalSidebarWidth,
         collapsedCategories: this.terminalCollapsedCategories,
         categories: this.terminalCategories,
+        categoryColors: this.terminalCategoryColors,
+        starredCategories: this.terminalStarredCategories,
       } satisfies TerminalTabPrefs;
     });
 
@@ -2384,6 +2412,8 @@ export class NativeTabHost extends EventEmitter {
           sidebarWidth: this.terminalSidebarWidth,
           collapsedCategories: this.terminalCollapsedCategories,
           categories: this.terminalCategories,
+          categoryColors: this.terminalCategoryColors,
+          starredCategories: this.terminalStarredCategories,
         } satisfies TerminalTabPrefs,
       };
     });
@@ -5854,6 +5884,22 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Every live terminal session id, splits included. listSessions() may carry a
+   * split either as its own entry or only as the parent's splitSessionId, so
+   * both shapes are collected; getSession() is the liveness oracle for anything
+   * beyond this list.
+   */
+  private listTerminalSessionIds(): string[] {
+    const tm = TerminalManager.getInstance();
+    const ids: string[] = [];
+    for (const s of tm.listSessions()) {
+      ids.push(s.id);
+      if (s.splitSessionId) ids.push(s.splitSessionId);
+    }
+    return ids;
+  }
+
+  /**
    * tab.state.terminalSessionId is the USER's per-tab terminal choice. Agent-side
    * ownership lives in the affinity map, so agent code may only claim the field
    * when it is unset or names a session that no longer exists — never overwrite a
@@ -5865,10 +5911,10 @@ export class NativeTabHost extends EventEmitter {
     const tm = TerminalManager.getInstance();
     // getSession is the liveness oracle: listSessions() composes per-session
     // transcripts and dereferences s.buffer — far too heavy for a membership
-    // check. Split panes are not claimable targets, matching the base-session
-    // filter listSessions applied.
+    // check. A split pane is a live, independent terminal session, so it is a
+    // claimable target like any base session.
     const target = tm.getSession(terminalId);
-    if (!target || target.splitOf) return;
+    if (!target) return;
     const current = tab.state.terminalSessionId;
     if (!current) {
       tab.state.terminalSessionId = terminalId;
@@ -5876,7 +5922,7 @@ export class NativeTabHost extends EventEmitter {
     }
     if (current === 'auto') return;
     const currentSession = tm.getSession(current);
-    if (!currentSession || currentSession.splitOf) {
+    if (!currentSession) {
       tab.state.terminalSessionId = terminalId;
     }
   }
@@ -5919,6 +5965,17 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
+  /**
+   * Drops ids that no longer name a live tab. Pools and affinity managed sets are
+   * pruned lazily — every reader and every quota check runs this first, so a
+   * closed tab can never be counted by one gate and ignored by another.
+   */
+  private pruneDeadTabIds(ids: Set<string>): void {
+    for (const id of Array.from(ids)) {
+      if (!this.tabs?.has(id)) ids.delete(id);
+    }
+  }
+
   public adoptChildTabForSession(sessionId: string, childTabId: string): boolean {
     if (!sessionId || !childTabId) return false;
     let pool = this.sessionTabPools.get(sessionId);
@@ -5926,13 +5983,9 @@ export class NativeTabHost extends EventEmitter {
       pool = new Set<string>();
       this.sessionTabPools.set(sessionId, pool);
     }
+    this.pruneDeadTabIds(pool);
     if (pool.size >= 10 && !pool.has(childTabId)) {
-      for (const id of Array.from(pool)) {
-        if (!this.tabs.has(id)) pool.delete(id);
-      }
-      if (pool.size >= 10 && !pool.has(childTabId)) {
-        return false;
-      }
+      return false;
     }
     pool.add(childTabId);
     const tab = this.tabs.get(childTabId);
@@ -5940,7 +5993,7 @@ export class NativeTabHost extends EventEmitter {
       // Ad-hoc pools are keyed by a tabId, not a terminal session — writing that
       // into terminalSessionId would poison the user's per-tab choice field.
       const candidate = TerminalManager.getInstance().getSession(sessionId);
-      const isLiveSession = !!candidate && !candidate.splitOf;
+      const isLiveSession = !!candidate;
       if (isLiveSession) {
         this.claimTabTerminalSession(tab, sessionId);
       }
@@ -6029,10 +6082,8 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    if (entry && entry.managedTabIds && entry.managedTabIds.size >= 10 && !entry.managedTabIds.has(childTabId)) {
-      for (const mId of Array.from(entry.managedTabIds)) {
-        if (!this.tabs?.has(String(mId))) entry.managedTabIds.delete(mId);
-      }
+    if (entry && entry.managedTabIds) {
+      this.pruneDeadTabIds(entry.managedTabIds);
       if (entry.managedTabIds.size >= 10 && !entry.managedTabIds.has(childTabId)) {
         return false;
       }
@@ -6090,19 +6141,28 @@ export class NativeTabHost extends EventEmitter {
     return this.adoptChildTab(boundTabId, childTabId, undefined, source, parentTabId || boundTabId);
   }
 
+  /**
+   * The session's managed set, pruned through the same source the adopt path
+   * counts: dead ids are dropped from the underlying pool/entry before the copy
+   * is returned, so the quota gates and adoption can never disagree about a
+   * closed tab.
+   */
   public getManagedTabIdsForBoundTab(boundTabId: string): Set<string> {
     if (!boundTabId) return new Set();
     const directPool = this.sessionTabPools.get(boundTabId);
     if (directPool) {
+      this.pruneDeadTabIds(directPool);
       return new Set(directPool);
     }
     for (const pool of this.sessionTabPools.values()) {
       if (pool.has(boundTabId)) {
+        this.pruneDeadTabIds(pool);
         return new Set(pool);
       }
     }
     for (const entry of this.terminalAgentAffinity.values()) {
       if (entry.primaryTabId === boundTabId || entry.managedTabIds?.has(boundTabId)) {
+        if (entry.managedTabIds) this.pruneDeadTabIds(entry.managedTabIds);
         return new Set(entry.managedTabIds);
       }
     }
@@ -6113,10 +6173,12 @@ export class NativeTabHost extends EventEmitter {
     if (!boundTabIdOrTerminalId) return new Set();
     const found = this.sessionTabPools.get(boundTabIdOrTerminalId);
     if (found) {
+      this.pruneDeadTabIds(found);
       return new Set(found);
     }
     for (const pool of this.sessionTabPools.values()) {
       if (pool.has(boundTabIdOrTerminalId)) {
+        this.pruneDeadTabIds(pool);
         return new Set(pool);
       }
     }
@@ -6384,22 +6446,56 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Releases one tab's slot in a session's pool — the rebind-away counterpart of
+   * adoption. When the session is terminal-backed the affinity entry is the
+   * authoritative record, so the release delegates to removeManagedTab; ad-hoc
+   * pools (keyed by a bound tab id) have no entry and are pruned directly.
+   */
+  public releaseSessionTab(sessionId: string, tabId: string): boolean {
+    if (!sessionId || !tabId) return false;
+    if (this.terminalAgentAffinity && this.resolveTerminalAffinityKey(sessionId)) {
+      return this.removeManagedTab(sessionId, tabId);
+    }
+    const pool = this.sessionTabPools?.get(sessionId);
+    if (!pool) return false;
+    const released = pool.delete(tabId);
+    if (pool.size === 0) {
+      this.sessionTabPools.delete(sessionId);
+    }
+    return released;
+  }
+
+  /**
+   * Releases every slot a session holds — the session-end counterpart of
+   * adoption. Terminal-backed sessions drop their affinity entries and pool via
+   * the same path rebind uses; ad-hoc pools are deleted outright. Member tabs
+   * are released, never closed.
+   */
+  public releaseSessionTabPool(sessionId: string): boolean {
+    if (!sessionId) return false;
+    return this.dropTerminalAffinityEntries(sessionId);
+  }
+
+  /**
    * Drops a terminal's affinity map keys and session pool without touching
    * tab.state.terminalSessionId. Used by bindTerminalAgentAffinity on rebind:
    * the field is the user's per-tab pick, and wiping it would erase explicit
    * choices on tabs the terminal never managed.
    */
-  private dropTerminalAffinityEntries(terminalId: string): void {
-    if (!this.terminalAgentAffinity || !terminalId) return;
+  private dropTerminalAffinityEntries(terminalId: string): boolean {
+    if (!this.terminalAgentAffinity || !terminalId) return false;
     const prefix = `${terminalId}@`;
+    let dropped = false;
     for (const key of Array.from(this.terminalAgentAffinity.keys())) {
       if (key === terminalId || key.startsWith(prefix)) {
         this.terminalAgentAffinity.delete(key);
+        dropped = true;
       }
     }
     if (this.sessionTabPools) {
-      this.sessionTabPools.delete(terminalId);
+      dropped = this.sessionTabPools.delete(terminalId) || dropped;
     }
+    return dropped;
   }
 
   public clearTerminalAgentAffinity(terminalId: string): void {
@@ -6631,15 +6727,16 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return undefined;
 
     const tm = TerminalManager.getInstance();
-    const liveSessions = tm.listSessions();
 
     // 1. The user's explicit per-tab choice wins over agent affinity. 'auto' is a
     // real choice (follow the active terminal), not "unset". A remembered id that
     // no longer names a live session is stale: clear it and fall through.
+    // getSession is the liveness oracle — it resolves split sessions too, so a
+    // split the user picked stays a valid choice.
     if (tab.state.terminalSessionId) {
       const sessionId = tab.state.terminalSessionId;
       if (sessionId === 'auto') return 'auto';
-      if (liveSessions.some((s) => s.id === sessionId)) {
+      if (tm.getSession(sessionId)) {
         return sessionId;
       }
       tab.state.terminalSessionId = undefined;
@@ -6648,7 +6745,7 @@ export class NativeTabHost extends EventEmitter {
     // 2. Check if the active terminal session has affinity to this tab (primary or managed)
     const activeSessionId = tm.getActiveSessionId();
     if (activeSessionId) {
-      const activeGen = liveSessions.find((s) => s.id === activeSessionId)?.sessionGeneration;
+      const activeGen = tm.getSession(activeSessionId)?.sessionGeneration;
       const affinity = this.getTerminalAgentAffinity(activeSessionId, activeGen);
       if (affinity && affinity.status === 'alive') {
         if (affinity.tabId === tabId || (affinity.managedTabIds && affinity.managedTabIds.includes(tabId))) {
@@ -6658,11 +6755,12 @@ export class NativeTabHost extends EventEmitter {
     }
 
     // 3. Check if any other live terminal session has affinity to this tab
-    for (const session of liveSessions) {
-      const affinity = this.getTerminalAgentAffinity(session.id, session.sessionGeneration);
+    for (const sessionId of this.listTerminalSessionIds()) {
+      if (sessionId === activeSessionId) continue;
+      const affinity = this.getTerminalAgentAffinity(sessionId, tm.getSession(sessionId)?.sessionGeneration);
       if (affinity && affinity.status === 'alive') {
         if (affinity.tabId === tabId || (affinity.managedTabIds && affinity.managedTabIds.includes(tabId))) {
-          return session.id;
+          return sessionId;
         }
       }
     }
@@ -6685,14 +6783,14 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return undefined;
 
     const tm = TerminalManager.getInstance();
-    const liveSessions = tm.listSessions();
+    const liveSessionIds = this.listTerminalSessionIds();
     const activeSessionId = tm.getActiveSessionId();
     const ordered = activeSessionId
-      ? [activeSessionId, ...liveSessions.filter((s) => s.id !== activeSessionId).map((s) => s.id)]
-      : liveSessions.map((s) => s.id);
+      ? [activeSessionId, ...liveSessionIds.filter((id) => id !== activeSessionId)]
+      : liveSessionIds;
 
     for (const sessionId of ordered) {
-      const gen = liveSessions.find((s) => s.id === sessionId)?.sessionGeneration;
+      const gen = tm.getSession(sessionId)?.sessionGeneration;
       const affinity = this.getTerminalAgentAffinity(sessionId, gen);
       if (affinity && affinity.status === 'alive') {
         if (affinity.tabId === tabId || (affinity.managedTabIds && affinity.managedTabIds.includes(tabId))) {
@@ -6708,7 +6806,7 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return false;
     if (typeof terminalSessionId === 'string' && terminalSessionId) {
       const tm = TerminalManager.getInstance();
-      const valid = terminalSessionId === 'auto' || tm.listSessions().some((s) => s.id === terminalSessionId);
+      const valid = terminalSessionId === 'auto' || Boolean(tm.getSession(terminalSessionId));
       tab.state.terminalSessionId = valid ? terminalSessionId : undefined;
     } else {
       tab.state.terminalSessionId = undefined;
@@ -6935,6 +7033,14 @@ export class NativeTabHost extends EventEmitter {
     if (Array.isArray(p.categories)) {
       this.terminalCategories = normalizeTerminalCategories(p.categories);
     }
+    if (p.categoryColors && typeof p.categoryColors === 'object') {
+      this.terminalCategoryColors = normalizeTerminalCategoryColors(p.categoryColors);
+    }
+    if (Array.isArray(p.starredCategories)) {
+      // A star names a category, so it takes the same normalization as the name list:
+      // trimmed, de-duplicated case-insensitively, length-capped.
+      this.terminalStarredCategories = normalizeTerminalCategories(p.starredCategories);
+    }
     return this.terminalTabLayout !== prevLayout;
   }
 
@@ -7077,6 +7183,8 @@ export class NativeTabHost extends EventEmitter {
       terminalSidebarWidth: this.terminalSidebarWidth,
       terminalCollapsedCategories: this.terminalCollapsedCategories,
       terminalCategories: this.terminalCategories,
+      terminalCategoryColors: this.terminalCategoryColors,
+      terminalStarredCategories: this.terminalStarredCategories,
       isTerminalPopoutOpen: Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed()),
       wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
       popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
@@ -7154,6 +7262,8 @@ export class NativeTabHost extends EventEmitter {
             sidebarWidth: data.terminalSidebarWidth,
             collapsedCategories: data.terminalCollapsedCategories,
             categories: data.terminalCategories,
+            categoryColors: data.terminalCategoryColors,
+            starredCategories: data.terminalStarredCategories,
           });
           if (Array.isArray(data.terminalWindows) && data.terminalWindows.length > 0) {
             TerminalManager.getInstance().startTerminal();

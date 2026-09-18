@@ -754,7 +754,11 @@ function coreListItems(): CoreListItem[] {
   }
   if (hubActiveTab === 'task-runs') {
     const t = s.taskRuns || {};
-    const items: CoreListItem[] = [];
+    const items: CoreListItem[] = [{
+      id: '__task_runs__', title: 'Task runs',
+      desc: t.taskRunsTable ? 'task_runs table present' : 'task_runs table absent — no producer writes it',
+      status: t.status || 'UNKNOWN', meta: t.reasonCode || '',
+    }];
     for (const r of (t.taskRuns || []) as Array<Record<string, unknown>>) {
       const rid = String(r.runId || r.taskRunId || r.id || '');
       items.push({ id: rid, title: String(r.task || rid || 'task run'), desc: 'task_runs row', status: 'INFO', meta: String(r.createdAt || '') });
@@ -783,7 +787,7 @@ function coreListItems(): CoreListItem[] {
     const r = s.regressions || {};
     const items: CoreListItem[] = [{
       id: '__regressions__', title: 'Replay engine',
-      desc: r.replayEngineAvailable ? 'available' : 'NOT_IMPLEMENTED — recorded rows shown read-only',
+      desc: r.replayEngineAvailable ? 'available' : 'unavailable',
       status: r.status || 'UNKNOWN', meta: r.reasonCode || '',
     }];
     for (const row of (r.rows || []) as Array<Record<string, unknown>>) {
@@ -1370,6 +1374,12 @@ async function renderCoreDetail(id: string) {
     return;
   }
   if (hubActiveTab === 'task-runs') {
+    const t = s.taskRuns || {};
+    if (id === '__task_runs__') {
+      setHeader('Task runs', t.taskRunsTable ? 'task_runs table present' : 'task_runs table absent — no producer writes it', String(t.status || 'UNKNOWN'), String(t.reasonCode || ''));
+      setBody({ taskRunsTable: t.taskRunsTable, affected: t.affected, taskRuns: t.taskRuns });
+      return;
+    }
     if (coreDetailCode) coreDetailCode.textContent = 'Đang tải trace…';
     try {
       const trace = await getApi()?.getCoreTaskRunTrace?.(id);
@@ -1393,7 +1403,7 @@ async function renderCoreDetail(id: string) {
   if (hubActiveTab === 'regressions') {
     const r = s.regressions || {};
     if (id === '__regressions__') {
-      setHeader('Core Regression', r.replayEngineAvailable ? 'replay engine available' : 'replay engine NOT_IMPLEMENTED', String(r.status || 'UNKNOWN'), String(r.reasonCode || ''));
+      setHeader('Core Regression', r.replayEngineAvailable ? 'replay engine available' : 'replay engine unavailable', String(r.status || 'UNKNOWN'), String(r.reasonCode || ''));
       setBody({ replayEngineAvailable: r.replayEngineAvailable, rows: r.rows });
     } else {
       const row = ((r.rows || []) as Array<Record<string, unknown>>).find((x) => x.regressionId === id);

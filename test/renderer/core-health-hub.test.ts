@@ -93,12 +93,12 @@ const DEGRADED_STATE = {
     groups: [{ key: 'CAPTURE_TIMEOUT', issueClass: 'browser', count: 2, worstSeverity: 'P1', affected: ['tab-1'], latestIssueId: 'ISS-9', latestMessage: 'screenshot timed out' }],
   },
   regressions: {
-    status: 'UNKNOWN',
-    reasonCode: 'REPLAY_ENGINE_NOT_IMPLEMENTED',
-    affected: [],
+    status: 'DEGRADED',
+    reasonCode: 'REGRESSION_FAILED',
+    affected: ['reg-1'],
     evidenceRefs: ['cli:regressions'],
-    replayEngineAvailable: false,
-    rows: [{ regressionId: 'reg-1', newKnowledge: 'batch', replayResult: 'PASS', createdAt: '2026-09-15T01:00:00Z' }],
+    replayEngineAvailable: true,
+    rows: [{ regressionId: 'reg-1', newKnowledge: 'batch', replayResult: 'FAIL', createdAt: '2026-09-15T01:00:00Z' }],
   },
 };
 
@@ -236,7 +236,7 @@ describe('Core Health surfaces inside the existing Hub', () => {
     assert.ok(doc.getElementById('coreDetailCode')?.textContent?.includes('screenshot timed out'));
   });
 
-  test('Regression surface: no replay engine → UNKNOWN/REPLAY_ENGINE_NOT_IMPLEMENTED, rows read-only', async (t) => {
+  test('Regression surface: a failed replay renders DEGRADED/REGRESSION_FAILED with its rows', async (t) => {
     if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
@@ -245,8 +245,8 @@ describe('Core Health surfaces inside the existing Hub', () => {
     await flush();
     (doc.getElementById('tabNavRegressions') as HTMLElement).click();
     await flush();
-    assert.equal(doc.getElementById('coreStatusPill')?.textContent, 'UNKNOWN');
-    assert.equal(doc.getElementById('coreDetailCategory')?.textContent, 'REPLAY_ENGINE_NOT_IMPLEMENTED');
+    assert.equal(doc.getElementById('coreStatusPill')?.textContent, 'DEGRADED');
+    assert.equal(doc.getElementById('coreDetailCategory')?.textContent, 'REGRESSION_FAILED');
     assert.ok(doc.getElementById('coreDetailCode')?.textContent?.includes('replayEngineAvailable'));
     const items = doc.querySelectorAll('#hubItemsList .hub-list-item');
     assert.ok(items.length >= 2, 'engine status + recorded row listed');

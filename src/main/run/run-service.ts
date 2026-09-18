@@ -79,7 +79,9 @@ export class RunService {
     private readonly getDocumentGeneration?: (tabId?: string) => number,
     private readonly getAutomationTabId?: () => string | null,
     dataRoot?: string,
-    private readonly isTabAllowed?: (record: any, tabId: string) => boolean
+    private readonly isTabAllowed?: (record: any, tabId: string) => boolean,
+    private readonly releaseSessionTab?: (sessionId: string, tabId: string) => boolean,
+    private readonly releaseSessionTabPool?: (sessionId: string) => boolean
   ) {
     this.attachments =
       attachments ||
@@ -91,6 +93,8 @@ export class RunService {
         getDocumentGeneration: (tabId) => (this.getDocumentGeneration ? this.getDocumentGeneration(tabId) : 1),
         getAutomationTabId: this.getAutomationTabId,
         isTabAllowed: this.isTabAllowed,
+        releaseSessionTab: this.releaseSessionTab,
+        releaseSessionTabPool: this.releaseSessionTabPool,
       },
       dataRoot);
   }

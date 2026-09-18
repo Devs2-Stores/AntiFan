@@ -343,13 +343,17 @@ test('health-surface evaluation records nothing; a real gate run still records',
     } finally { handle.close(); }
   };
   const before = counts();
+  // The default call shape is what the MCP surface invokes: no options at all.
+  // It must compute without appending — a read that writes is the defect.
+  core.corpusAudit();
+  core.checkPhaseGate('health-surface', 'coverage');
   core.corpusAudit({ record: false });
   core.checkPhaseGate('health-surface', 'coverage', { record: false });
   core.checkPhaseGate('health-surface', 'evidence', { record: false });
   assert.deepEqual(counts(), before, 'a read-shaped health evaluation leaves the store unchanged');
   // The recording form is what a real gate run uses, and it still persists.
-  core.corpusAudit();
-  core.checkPhaseGate('phase-01', 'coverage');
+  core.corpusAudit({ record: true });
+  core.checkPhaseGate('phase-01', 'coverage', { record: true });
   const after = counts();
   assert.equal(after.audits, before.audits + 1, 'a recorded audit appends one row');
   assert.equal(after.gates, before.gates + 1, 'a recorded gate check appends one row');
@@ -383,12 +387,13 @@ test('health() reports a reason-coded status from real gate outcomes and records
     }
   };
 
-  // The fixture carries one unresolved conflict, so the degraded branch must name
-  // that gate — and name the same one on every run, not whichever ran last.
+  // The fixture carries one unresolved conflict and no passing regression run,
+  // so the degraded branch must name every failed gate — and name the same set
+  // on every run, not whichever ran last.
   const before = countRows();
   const degraded = core.health() as { status: string; reasonCode: string; gates: Record<string, { passed: boolean; detail: string }> };
   assert.equal(degraded.status, 'DEGRADED');
-  assert.equal(degraded.reasonCode, 'GATE_CONFLICT_FAILED');
+  assert.equal(degraded.reasonCode, 'GATE_CONFLICT_FAILED+GATE_REGRESSION_FAILED');
   assert.equal(degraded.gates.conflict.passed, false);
   assert.match(degraded.gates.conflict.detail, /unresolved conflict/);
   assert.deepEqual(countRows(), before, 'reading health leaves the store unchanged');
@@ -407,7 +412,7 @@ test('health() reports a reason-coded status from real gate outcomes and records
   const failing = Object.entries(healthy.gates).filter(([, g]) => !g.passed).map(([name]) => name);
   assert.deepEqual(failing, [], `expected every gate to pass, still failing: ${failing.join(',')}`);
   assert.equal(healthy.status, 'HEALTHY');
-  assert.equal(healthy.reasonCode, 'ALL_GATES_PASS');
+  assert.equal(healthy.reasonCode, 'ALL_GATES_PASSED');
   // The consumer that renders this payload branches on uncertainty.level, so the
   // shape it maps has to be the shape emitted here. Uncertainty is scoped to a
   // task or claim, so the corpus-wide level is UNKNOWN by construction — a
@@ -619,9 +624,29 @@ test('adjudicate is the only promotion path; scope is explicit; claim is revisio
     const rejected = raw.prepare('SELECT status FROM candidates WHERE candidateId = ?').get(rej.candidateId) as { status: string };
     assert.equal(rejected.status, 'REJECTED');
     const promoted = core.query({ text: 'passed QA' });
+
     assert.ok(promoted.some((c) => c.claimId === `claim-${candidateId}`), 'promoted outcome now retrievable');
   } finally { raw.close(); }
   core.close();
+});
+
+test('candidates lists the adjudication queue: PENDING by default, every status on request', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+  const kept = core.ingestOutcome({ task: 'kept pending', outcome: 'ok', unitId: 'u-test' }) as { candidateId: string };
+  const promoted = core.ingestOutcome({ task: 'promoted outcome', outcome: 'ok', unitId: 'u-test' }) as { candidateId: string };
+  const pending = core.candidates() as Array<{ candidateId: string; status: string }>;
+  assert.equal(pending.length, 2, 'both ingested outcomes sit in the PENDING queue');
+  assert.ok(pending.every((c) => c.status === 'PENDING'));
+  core.adjudicate({ candidateId: promoted.candidateId, decision: 'PROMOTE', authority: 'test-authority' });
+  const after = core.candidates() as Array<{ candidateId: string }>;
+  assert.deepEqual(after.map((c) => c.candidateId), [kept.candidateId], 'adjudicated candidates leave the default queue');
+  const all = core.candidates({ status: 'PROMOTED' }) as Array<{ candidateId: string; status: string }>;
+  assert.deepEqual(all.map((c) => c.candidateId), [promoted.candidateId], 'a status filter reads the adjudicated rows');
+  core.close();
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('snapshot/rollback round-trips claims, candidates, and adjudications', () => {

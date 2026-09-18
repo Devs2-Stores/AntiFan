@@ -398,7 +398,28 @@ export interface TerminalTabPrefs {
    * order for the sidebar's headers.
    */
   categories: string[];
+  /**
+   * Per-category chip colour, keyed by the category name exactly as displayed.
+   *
+   * Absence means "derive it": the sidebar hashes the name onto its palette, so a
+   * group keeps one colour without anyone picking one. Only a deliberate choice is
+   * stored, which is what makes "Màu tự động" a delete rather than a sentinel value.
+   */
+  categoryColors: Record<string, string>;
+  /**
+   * Categories the user marked with `*`.
+   *
+   * A marker, never an ordering: display order stays `categories`, so starring a group
+   * can never reshuffle a list the user just arranged.
+   */
+  starredCategories: string[];
 }
+
+/** Cap on stored colour overrides, so a corrupt file cannot smuggle in an unbounded map. */
+export const TERMINAL_CATEGORY_COLORS_MAX = 128;
+
+/** A colour override is a plain 6-digit hex; anything else is unreadable and dropped. */
+export const TERMINAL_CATEGORY_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 export const TERMINAL_TAB_LAYOUT_MIN_WIDTH = 140;
 export const TERMINAL_TAB_LAYOUT_MAX_WIDTH = 400;

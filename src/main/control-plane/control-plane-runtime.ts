@@ -46,6 +46,8 @@ export interface ControlPlaneRuntimeOptions {
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
   resolveFailoverTabId?: (staleTabId: string) => string | undefined;
+  releaseSessionTab?: (sessionId: string, tabId: string) => boolean;
+  releaseSessionTabPool?: (sessionId: string) => boolean;
   browserControlPort?: BrowserControlPort;
   /**
    * Canonical single TerminalManager owned by the composition root (src/main/index.ts).
@@ -181,7 +183,9 @@ export class ControlPlaneRuntime {
         if (record.tabId === reqTabId) return true;
         if (record.allowedTabIds && record.allowedTabIds.has(reqTabId)) return true;
         return options.isTabAllowed ? options.isTabAllowed(record.tabId, reqTabId) : false;
-      }
+      },
+      options.releaseSessionTab,
+      options.releaseSessionTabPool
     );
     this.files = new WorkspaceFilePort();
     this.capabilities = new CapabilityCatalogue({

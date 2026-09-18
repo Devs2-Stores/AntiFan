@@ -49,6 +49,8 @@ import {
   type MaskResolutionEntry,
   type NormalizationReceipt,
   type VisualStructuralMetrics,
+  deriveCaptureFreezeMeasurement,
+  type CaptureFreezeMeasurement,
 } from '../verification/visual-capture.js';
 import { withZeroNetworkDenialTransaction, CdpDebuggerInterface } from '../browser/zero-network-interceptor.js';
 import { classifyNetworkUrl } from '../browser/network-policy.js';
@@ -497,6 +499,18 @@ export class WaitRegistry {
   }
 }
 
+/**
+ * Default admission bound for the viewport gate. This is the INNER bound of the
+ * capability policy it admits: every viewport-gated capability registers a
+ * 30_000 ms tool-policy budget (`makeBrowserPolicy` default), so a lock that
+ * abandons earlier strands an action the policy still considers live — the
+ * caller reports "outcome unknown" for a command that was never allowed to
+ * finish. The lock therefore defaults to the same budget the policy advertises;
+ * it is deliberately not smaller, and the per-step wait clamp inside a sequence
+ * (not this bound) is what keeps one wait from starving the rest of a sequence.
+ */
+export const VIEWPORT_GATE_ADMISSION_BUDGET_MS = 30_000;
+
 export class ViewportGate {
   private isLocked = false;
   private isPoisoned = false;
@@ -581,7 +595,7 @@ export class ViewportGate {
     if (this.isPoisoned || (lockTabId !== undefined && this.poisonedTabs.has(lockTabId))) {
       throw new CapabilityError('TARGET_STALE', 'ViewportGate is poisoned due to unacknowledged action cancellation');
     }
-    const timeoutMs = options.timeoutMs ?? 10_000;
+    const timeoutMs = options.timeoutMs ?? VIEWPORT_GATE_ADMISSION_BUDGET_MS;
     const controller = new AbortController();
 
     if (options.signal?.aborted) {
@@ -896,6 +910,15 @@ export const FULL_PAGE_CAPTURE_CLEANUP_BUDGET_MS = 15_000;
  */
 export const VIEWPORT_CONFIRM_BOUND_MS = 3_000;
 /**
+ * Per-session browser-tab quota, mirrored from the host's adopt-path cap
+ * (`native-tab-host.ts` prunes then counts `managedTabIds`/`sessionTabPools`
+ * against this value). The refusal payload reports it so an agent never has to
+ * guess the ceiling; the cap itself is unchanged.
+ */
+export const SESSION_TAB_LIMIT = 10;
+/** How many counted ids a quota refusal carries — enough to diagnose, bounded. */
+const SESSION_TAB_QUOTA_SAMPLE_MAX = 8;
+/**
  * Viewport-capture budget. The host command bound must sit inside the policy
  * cancellation grace: a transport cancel that arrives while CDP still admits the
  * command orphans it and drains the target. The number is the innermost layer of
@@ -1116,10 +1139,12 @@ const MEDIA_FREEZE_BOUND_MS = 4_000;
 /**
  * Read-only DOM census for a capture that never settled on the compositor.
  *
- * Counts the two conditions that keep `Page.captureScreenshot` from producing a
- * stable frame — media that is playing (or ready to play) and CSS animations with
- * no end — and reports a count per media tag. It never reads element text, never
- * touches storage or the network, and returns counts only.
+ * Counts the conditions that keep `Page.captureScreenshot` from producing a
+ * stable frame — media that is playing (or ready to play), endless animations
+ * classified by their real constructor (`CSSAnimation` vs the WAAPI `Animation`
+ * class `Element.animate` produces), and SVG SMIL — and reports a count per
+ * media tag. It never reads element text, never touches storage or the network,
+ * and returns counts only.
  */
 const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
   const media = Array.from(document.querySelectorAll('video, audio'));
@@ -1134,6 +1159,7 @@ const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
     }
   }
   let infiniteAnimations = 0;
+  const infiniteAnimationsByClass = {};
   try {
     const animations = typeof document.getAnimations === 'function' ? document.getAnimations() : [];
     for (const animation of animations) {
@@ -1144,11 +1170,39 @@ const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
         if (timing && typeof timing.iterations === 'number') iterations = timing.iterations;
       } catch {}
       if (animation.playState === 'paused' || animation.playState === 'idle') continue;
-      if (iterations === Infinity) infiniteAnimations++;
+      if (iterations === Infinity) {
+        infiniteAnimations++;
+        const cls = animation && animation.constructor && animation.constructor.name ? String(animation.constructor.name) : 'Animation';
+        infiniteAnimationsByClass[cls] = (infiniteAnimationsByClass[cls] || 0) + 1;
+      }
     }
   } catch {}
-  return { playing, tags, infiniteAnimations };
+  let smil = 0;
+  try {
+    for (const s of Array.from(document.querySelectorAll('svg'))) {
+      const paused = typeof s.animationsPaused === 'function' ? s.animationsPaused() : false;
+      if (!paused && s.querySelector('animate, animateTransform, animateMotion, set')) smil++;
+    }
+  } catch {}
+  return { playing, tags, infiniteAnimations, infiniteAnimationsByClass, smil };
 })()`;
+
+/**
+ * What the injected media.freeze script reports back: the per-class census it
+ * measured at freeze time plus the animation handles it paused (and, on the
+ * release path, restored). The handles themselves stay in-page — only counts
+ * and class names cross evalJs — so this receipt is the only evidence a capture
+ * has of what was actually frozen.
+ */
+export interface MediaFreezeReceipt {
+  frozen: boolean;
+  mediaCount: number;
+  counts: { media: number; css: number; waapi: number; smil: number };
+  classes: string[];
+  animations: Array<{ class: string; target: string }>;
+  pausedHandles: number;
+  restoredHandles: number;
+}
 
 /**
  * Least-revealing location label for a diagnosis: origin plus path with query and
@@ -1196,6 +1250,7 @@ function baselineCaptureReceipt(
     zoom: number;
     cssViewport: { width: number; height: number };
     rasterSize?: { width: number; height: number };
+    capturePolicy?: string;
   },
   promotedAt: number,
   bytes: Buffer
@@ -1222,6 +1277,9 @@ function baselineCaptureReceipt(
     captureMode,
     rasterSize,
     timestamp: promotedAt,
+    // Provenance the manifest persisted: absent on a pre-identity baseline, which
+    // is exactly what the compare gate refuses against a stamped receipt.
+    ...(mini.capturePolicy ? { capturePolicy: mini.capturePolicy } : {}),
   };
 }
 
@@ -1477,18 +1535,20 @@ export class BrowserControlPort {
   /** Targets holding a timed-out in-flight CDP command until their recovery receipt lands. */
   private readonly targetQuarantine = new Map<string, TargetQuarantineEntry>();
   /**
+   * Tabs whose media a capture in flight has frozen, and how many captures hold
+   * that freeze. Ownership is counted per tab rather than per call so a nested or
+   * concurrent capture on the same tab joins the freeze an outer capture took and
+   * cannot unfreeze media that capture is still rasterizing. The freeze receipt
+   * rides on the same record so the last owner's release can stamp the restored
+   * count onto the evidence every owner already reported.
+   */
+  private readonly mediaFreezeOwners = new Map<string, { count: number; freeze: MediaFreezeReceipt | null }>();
+  /**
    * Last geometry this session verified per tab. The surface probe reads
    * innerWidth/innerHeight, so a zero reading means the tab's view lost its
    * bounds; the verified geometry is the only size a bounded re-apply may restore.
    */
   private readonly verifiedTabGeometry = new Map<string, { width: number; height: number; mobile?: boolean }>();
-  /**
-   * Tabs whose media a capture in flight has frozen, and how many captures hold
-   * that freeze. Ownership is counted per tab rather than per call so a nested or
-   * concurrent capture on the same tab joins the freeze an outer capture took and
-   * cannot unfreeze media that capture is still rasterizing.
-   */
-  private readonly mediaFreezeOwners = new Map<string, number>();
   public readonly baselineAuthority: BaselineAuthority;
   constructor(private readonly host: BrowserHostPort, public readonly artifacts?: BrowserArtifactSink) {
     this.baselineAuthority = new BaselineAuthority({ artifactStore: this.artifacts as any });
@@ -1511,13 +1571,30 @@ export class BrowserControlPort {
     if (!this.artifacts) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'artifact sink unavailable');
     return this.artifacts.stageAsync ? this.artifacts.stageAsync(input) : this.artifacts.stage(input);
   }
-  listTabs(context: { target?: BrowserTarget }): unknown[] {
+  listTabs(context: { target?: BrowserTarget; scope?: 'all' | 'session' }): unknown[] {
     if (context.target) assertTarget(context.target);
     const boundTabId = context.target?.tabId;
     if (!boundTabId) return this.host.getTabList() || [];
     // A session asks for what it owns, not for the user's tab strip: the strip
     // omits the offscreen/ephemeral tabs the agent plane itself created.
     const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : undefined;
+    if (context.scope !== 'session') {
+      // The window strip annotated with the bound identity: the only honest way a
+      // client learns which tab it is bound to, since every other capability
+      // refuses a foreign tabId. The bound tab's own record is unioned in when the
+      // strip omits it (an offscreen agent-plane tab is never rendered in the
+      // window), so exactly one row carries isBoundTab: true and it is always the
+      // id the session scope lists.
+      const strip = (this.host.getTabList() || []).filter(isTabRecord);
+      const rows = strip.some((tab) => tab.id === boundTabId)
+        ? strip
+        : strip.concat((sessionRecords ?? []).filter(isTabRecord).filter((tab) => tab.id === boundTabId));
+      return rows.map((tab) => ({
+        ...tab,
+        isBoundTab: tab.id === boundTabId,
+        isPrimaryTab: tab.id === boundTabId,
+      }));
+    }
     const allowedIds = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : new Set([boundTabId]);
     const records: unknown[] = sessionRecords ?? (this.host.getTabList() || []).filter((tab) => isTabRecord(tab) && allowedIds.has(tab.id));
     // A session that owns nothing lists nothing: leaking the user's strip here would
@@ -2041,7 +2118,6 @@ export class BrowserControlPort {
       { tabId: targetId, ...(boundTabId ? { boundTabId } : {}), ...(offscreen !== undefined ? { offscreen } : {}), activationCandidates: candidates }
     );
   }
-
   /**
    * Best-effort media freeze for one bounded capture, owned per tab.
    *
@@ -2054,25 +2130,28 @@ export class BrowserControlPort {
    * tab joins the freeze an outer capture already took, and only the last owner
    * releases it, so no capture can be un-frozen out from under another one.
    *
-   * Returns the release function this call must run from its `finally`, or null
-   * when this call owns nothing to release (host cannot evaluate in a page, the
-   * freeze failed, or an outer capture holds the freeze). A freeze that cannot be
-   * taken is a diagnostic, never a capture failure.
+   * Returns the release function this call must run from its `finally` plus the
+   * freeze-time census the capture receipt reports, or null when this call owns
+   * nothing to release (host cannot evaluate in a page, the freeze failed, or an
+   * outer capture holds the freeze). A freeze that cannot be taken is a
+   * diagnostic, never a capture failure.
    */
   private async acquireMediaFreeze(
     target: BrowserTarget,
     tabId: string,
     paneId: 'desktop' | 'mobile' | undefined
-  ): Promise<(() => Promise<void>) | null> {
+  ): Promise<{ release: () => Promise<void>; freeze: MediaFreezeReceipt | null } | null> {
     // Feature-detect the capability the freeze needs rather than assuming it: a
     // host that cannot evaluate in the page cannot freeze or unfreeze anything.
     if (typeof this.host.evalJs !== 'function') return null;
-    const held = this.mediaFreezeOwners.get(tabId) ?? 0;
-    this.mediaFreezeOwners.set(tabId, held + 1);
+    const held = this.mediaFreezeOwners.get(tabId);
+    const owner: { count: number; freeze: MediaFreezeReceipt | null } = held ?? { count: 0, freeze: null };
+    owner.count += 1;
+    this.mediaFreezeOwners.set(tabId, owner);
     const release = async (): Promise<void> => {
-      const current = this.mediaFreezeOwners.get(tabId) ?? 0;
-      if (current > 1) {
-        this.mediaFreezeOwners.set(tabId, current - 1);
+      const current = this.mediaFreezeOwners.get(tabId);
+      if (current && current.count > 1) {
+        current.count -= 1;
         return;
       }
       // Last owner. Ownership is cleared whether or not the host confirms the
@@ -2087,7 +2166,14 @@ export class BrowserControlPort {
       try {
         const outcome = await raceWithTimeout<{ confirmed: boolean; reason?: string }>(
           this.freezeMedia(target, { freeze: false, normalizeSliders: false }, tabId, paneId).then(
-            () => ({ confirmed: true }),
+            (res) => {
+              // The receipt the caller projects is the same object this release
+              // updates: restoredHandles is only honest once the resume actually
+              // ran, which is here — after the raster, before the receipt is read.
+              if (owner.freeze) owner.freeze.restoredHandles = res.restoredHandles;
+              else owner.freeze = res;
+              return { confirmed: true };
+            },
             (err: unknown) => ({ confirmed: false, reason: err instanceof Error ? err.message : String(err) })
           ),
           MEDIA_FREEZE_BOUND_MS,
@@ -2100,7 +2186,7 @@ export class BrowserControlPort {
         console.warn(`[browser-port] Media unfreeze on tab ${tabId} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
-    if (held > 0) return release;
+    if (held) return { release, freeze: owner.freeze };
     // The freeze is a local operation (pause media, inject one stylesheet), so it
     // answers in milliseconds or the target is not answering at all. The wait is
     // bounded anyway: this step runs inside the same request budget as the capture
@@ -2109,7 +2195,10 @@ export class BrowserControlPort {
     try {
       attempt = await raceWithTimeout<'applied' | 'failed' | 'pending'>(
         this.freezeMedia(target, { freeze: true, normalizeSliders: true }, tabId, paneId).then(
-          () => 'applied' as const,
+          (res) => {
+            owner.freeze = res;
+            return 'applied' as const;
+          },
           () => 'failed' as const
         ),
         MEDIA_FREEZE_BOUND_MS,
@@ -2129,7 +2218,7 @@ export class BrowserControlPort {
     if (attempt === 'pending') {
       console.warn(`[browser-port] Media freeze on tab ${tabId} did not confirm within ${MEDIA_FREEZE_BOUND_MS}ms; capture continues`);
     }
-    return release;
+    return { release, freeze: owner.freeze };
   }
 
   /**
@@ -2162,7 +2251,9 @@ export class BrowserControlPort {
     let probed = false;
     let playing = 0;
     let infiniteAnimations = 0;
+    let smil = 0;
     const mediaTags: Record<string, number> = {};
+    const animationClasses: Record<string, number> = {};
     try {
       if (typeof this.host.evalJs === 'function') {
         const sample = await raceWithTimeout<unknown>(
@@ -2172,7 +2263,7 @@ export class BrowserControlPort {
         );
         if (sample && typeof sample === 'object') {
           probed = true;
-          const census = sample as { playing?: unknown; tags?: unknown; infiniteAnimations?: unknown };
+          const census = sample as { playing?: unknown; tags?: unknown; infiniteAnimations?: unknown; infiniteAnimationsByClass?: unknown; smil?: unknown };
           if (typeof census.playing === 'number' && Number.isFinite(census.playing) && census.playing > 0) {
             playing = Math.floor(census.playing);
           }
@@ -2183,6 +2274,14 @@ export class BrowserControlPort {
           }
           if (typeof census.infiniteAnimations === 'number' && Number.isFinite(census.infiniteAnimations) && census.infiniteAnimations > 0) {
             infiniteAnimations = Math.floor(census.infiniteAnimations);
+          }
+          if (census.infiniteAnimationsByClass && typeof census.infiniteAnimationsByClass === 'object' && !Array.isArray(census.infiniteAnimationsByClass)) {
+            for (const [cls, count] of Object.entries(census.infiniteAnimationsByClass as Record<string, unknown>)) {
+              if (typeof count === 'number' && Number.isFinite(count) && count > 0) animationClasses[cls] = Math.floor(count);
+            }
+          }
+          if (typeof census.smil === 'number' && Number.isFinite(census.smil) && census.smil > 0) {
+            smil = Math.floor(census.smil);
           }
         }
       }
@@ -2195,8 +2294,37 @@ export class BrowserControlPort {
       const hostSuffix = location.host ? `@${location.host}` : '';
       observed.push(`${playing} playing media element(s) (${describeMediaTags(mediaTags)}${hostSuffix})`);
     }
-    if (infiniteAnimations > 0) observed.push(`${infiniteAnimations} infinite CSS animation(s)`);
+    const classEntries = Object.entries(animationClasses).sort((left, right) => right[1] - left[1]);
+    for (const [cls, count] of classEntries) {
+      // The class name is the constructor the census measured: `Animation` is the
+      // WAAPI class Element.animate produces, `CSSAnimation` a stylesheet-driven
+      // one. Naming the wrong class sends the agent after a remedy that cannot
+      // pause what is actually running.
+      const label = cls === 'Animation' ? 'WAAPI' : cls === 'CSSAnimation' ? 'CSS' : cls;
+      observed.push(`${count} infinite ${label} animation(s)`);
+    }
+    if (smil > 0) observed.push(`${smil} SVG SMIL animation(s)`);
     if (observed.length === 0 && !location.label) return err;
+
+    // The remedy is branched on the census that was just taken: it names the
+    // dominant class actually running, and a page with no observed animation
+    // class gets no animation remedy at all.
+    const remedyParts: string[] = [];
+    if (playing > 0) remedyParts.push('pause the playing media');
+    if (classEntries.length > 0) {
+      const dominantClass = classEntries[0]?.[0] ?? 'Animation';
+      remedyParts.push(
+        dominantClass === 'Animation'
+          ? 'pause the running WAAPI animation(s) (Element.animate)'
+          : dominantClass === 'CSSAnimation'
+            ? 'pause the running CSS animation(s)'
+            : `pause the running ${dominantClass} animation(s)`
+      );
+    }
+    if (smil > 0 && classEntries.length === 0) remedyParts.push('pause the SVG SMIL animation(s)');
+    const remedy = remedyParts.length > 0
+      ? `anti.media.freeze(tabId) to ${remedyParts.join(' and ')}, then retry`
+      : 'retry the capture; the probe observed no playing media and no running animation class to freeze';
 
     const original = err instanceof Error ? err.message : String(err);
     // Never claim the probe *saw* nothing when it never ran: an unobserved tab is
@@ -2205,10 +2333,10 @@ export class BrowserControlPort {
     const observedClause = observed.length > 0
       ? `tab has ${observed.join(', ')}`
       : probed
-        ? 'the probe observed no playing media and no endless CSS animation'
+        ? 'the probe observed no playing media and no endless animation'
         : 'the probe could not observe the tab (it may still be draining a timed-out CDP command)';
     const locationClause = location.label ? ` on '${location.label}'` : '';
-    const message = `${original} | CAPTURE_TIMEOUT: capture did not settle: ${observedClause}${locationClause}. Remedy: anti.media.freeze(tabId) then retry.`;
+    const message = `${original} | CAPTURE_TIMEOUT: capture did not settle: ${observedClause}${locationClause}. Remedy: ${remedy}.`;
 
     const inherited = err && typeof err === 'object' && 'details' in err && (err as { details?: unknown }).details
       && typeof (err as { details?: unknown }).details === 'object'
@@ -2222,8 +2350,10 @@ export class BrowserControlPort {
         playingMedia: playing,
         mediaTags,
         infiniteAnimations,
+        infiniteAnimationsByClass: animationClasses,
+        smil,
         tabLocation: location.label,
-        remedy: 'anti.media.freeze(tabId) then retry',
+        remedy,
       },
     });
   }
@@ -2252,7 +2382,7 @@ export class BrowserControlPort {
       // Freeze immediately before the raster so the compositor has a stable frame
       // to capture; the release runs in the `finally` below and therefore also
       // when the capture throws or dies at its bound.
-      const releaseMediaFreeze = await this.acquireMediaFreeze(target, tabId, paneId);
+      const mediaFreeze = await this.acquireMediaFreeze(target, tabId, paneId);
       let envelope: VerificationCaptureEnvelope;
       try {
         try {
@@ -2271,12 +2401,12 @@ export class BrowserControlPort {
         }
       } finally {
         // The page is restored on every exit path — success, typed failure, or a
-        // throw from the diagnosis itself. `releaseMediaFreeze` swallows its own
+        // throw from the diagnosis itself. `mediaFreeze.release` swallows its own
         // errors, and this guard makes sure even an unexpected throw from it can
         // never mask the capture's own result or error.
-        if (releaseMediaFreeze) {
+        if (mediaFreeze) {
           try {
-            await releaseMediaFreeze();
+            await mediaFreeze.release();
           } catch (err) {
             console.warn(`[browser-port] Media unfreeze on tab ${tabId} threw during release: ${err instanceof Error ? err.message : String(err)}`);
           }
@@ -2284,6 +2414,12 @@ export class BrowserControlPort {
       }
       if (!envelope || typeof envelope.data !== 'string' || envelope.data.length === 0) {
         throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering or target unavailable)`);
+      }
+      if (mediaFreeze) {
+        // Derived after the release ran so restoredHandles is the measured count,
+        // not a pre-release zero; isMediaFrozen is computed from the counts, never
+        // asserted.
+        envelope.mediaFreeze = deriveCaptureFreezeMeasurement(mediaFreeze.freeze);
       }
       const buffer = Buffer.from(envelope.data, 'base64');
       if (buffer.length === 0) {
@@ -2495,21 +2631,43 @@ export class BrowserControlPort {
       );
     }
     const bound = Math.max(1, Math.min(budget.remainingMs, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, 60_000));
-    const envelope = await budget.run(
-      'Page.captureScreenshot(full-page)',
-      () =>
-        this.host.captureVerificationScreenshot!(undefined, tabId, effectivePane, {
-          format: 'png',
-          fullPage: true,
-          timeoutMs: bound,
-        }),
-      bound + 3_000
-    );
+    // Same freeze primitive as the viewport capture: a full-page raster on an
+    // animated page waits out its bound for a stable frame exactly the same way,
+    // so the freeze is scoped to this capture window and released in the
+    // `finally` on every exit path — success, typed failure, or a throw.
+    const mediaFreeze = await this.acquireMediaFreeze(target, tabId, effectivePane);
+    let envelope: VerificationCaptureEnvelope | undefined;
+    try {
+      envelope = await budget.run(
+        'Page.captureScreenshot(full-page)',
+        () =>
+          this.host.captureVerificationScreenshot!(undefined, tabId, effectivePane, {
+            format: 'png',
+            fullPage: true,
+            timeoutMs: bound,
+          }),
+        bound + 3_000
+      );
+    } finally {
+      if (mediaFreeze) {
+        try {
+          await mediaFreeze.release();
+        } catch (err) {
+          console.warn(`[browser-port] Media unfreeze on tab ${tabId} threw during release: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
     if (envelope) {
       envelope.expectedUrl = expectedUrl ?? null;
       envelope.expectationMarker = routeCheck.status === 'URL_EXPECTATION_MISSING' ? 'URL_EXPECTATION_MISSING' : undefined;
       envelope.missingExpectation = routeCheck.status === 'URL_EXPECTATION_MISSING' ? true : undefined;
       envelope.routeAssertion = routeCheck;
+      if (mediaFreeze) {
+        // Derived after the release ran so restoredHandles is the measured count,
+        // not a pre-release zero; isMediaFrozen is computed from the counts, never
+        // asserted.
+        envelope.mediaFreeze = deriveCaptureFreezeMeasurement(mediaFreeze.freeze);
+      }
     }
     // The capture moves the layout viewport and must put it back. An envelope
     // that admits it could not (or was not allowed to because the transport was
@@ -2988,9 +3146,16 @@ export class BrowserControlPort {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
     if (boundTabId && this.host.getManagedTabIds) {
+      // The same pruning source the adopt path counts: a closed tab can never be
+      // counted here and ignored there.
       const currentTabs = this.host.getManagedTabIds(boundTabId);
-      if (currentTabs && currentTabs.size >= 10) {
-        throw new CapabilityError('POLICY_DENIED', 'Terminal tab limit reached (maximum 10 tabs per session). Please close unused tabs.');
+      if (currentTabs && currentTabs.size >= SESSION_TAB_LIMIT) {
+        throw new CapabilityError('POLICY_DENIED', `Browser tab limit reached (${currentTabs.size}/${SESSION_TAB_LIMIT} tabs in this session). Close a tab this session owns, then retry.`, {
+          tabId: boundTabId,
+          used: currentTabs.size,
+          limit: SESSION_TAB_LIMIT,
+          countedTabIds: [...currentTabs].slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX),
+        });
       }
     }
     // Phase 2 (step 11): forward the offscreen option so dedicated agent tabs keep
@@ -3007,9 +3172,15 @@ export class BrowserControlPort {
       const adopted = this.host.adoptChildTab(boundTabId, tabId);
       if (adopted === false) {
         this.host.closeTab?.(tabId);
-        throw new CapabilityError('POLICY_DENIED', `Tab '${tabId}' could not be adopted into session '${boundTabId}' (session tab quota reached); the tab was closed instead of leaking outside the session`, {
+        // Re-read the same pruned source the gate and the adopt path count, so
+        // the refusal reports the set the host actually refused on.
+        const counted = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : undefined;
+        throw new CapabilityError('POLICY_DENIED', `Browser tab '${tabId}' could not be adopted into session '${boundTabId}' (browser tab quota reached); the tab was closed instead of leaking outside the session`, {
           tabId,
           boundTabId,
+          used: counted?.size ?? SESSION_TAB_LIMIT,
+          limit: SESSION_TAB_LIMIT,
+          countedTabIds: counted ? [...counted].slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX) : [],
         });
       }
     }
@@ -6583,7 +6754,7 @@ export class BrowserControlPort {
     params: { freeze?: boolean; normalizeSliders?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile'
-  ): Promise<{ frozen: boolean; mediaCount: number; tabId: string }> {
+  ): Promise<MediaFreezeReceipt & { tabId: string }> {
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
     const effectivePane = paneId || params.paneId || 'desktop';
     const freeze = params.freeze !== false;
@@ -6591,13 +6762,30 @@ export class BrowserControlPort {
     return this.passivePool.execute(tabId, async () => {
       const normalizeSliders = Boolean(params.normalizeSliders);
       const script = injectedScriptStore.getScript('media.freeze', { freeze, normalizeSliders });
-      const res = (await this.host.evalJs(script, tabId, effectivePane)) as { frozen?: boolean; mediaCount?: number } | undefined;
+      const res = (await this.host.evalJs(script, tabId, effectivePane)) as Partial<MediaFreezeReceipt> | undefined;
       if (!res || typeof res !== 'object') {
         throw new CapabilityError('TARGET_STALE', `Failed to execute freezeMedia on tab ${tabId}`);
       }
+      // The classification is what the capture receipt reports as frozen, so the
+      // fields are normalized here rather than trusted: an older injected script
+      // that predates the census still yields a truthful (zeroed) receipt instead
+      // of an absent one.
+      const rawCounts: Partial<MediaFreezeReceipt['counts']> = res.counts ?? {};
       return {
         frozen: Boolean(res.frozen),
         mediaCount: Number(res.mediaCount || 0),
+        counts: {
+          media: Number(rawCounts.media || 0),
+          css: Number(rawCounts.css || 0),
+          waapi: Number(rawCounts.waapi || 0),
+          smil: Number(rawCounts.smil || 0),
+        },
+        classes: Array.isArray(res.classes) ? res.classes.filter((cls): cls is string => typeof cls === 'string') : [],
+        animations: Array.isArray(res.animations)
+          ? res.animations.filter((a): a is { class: string; target: string } => Boolean(a && typeof a === 'object' && typeof (a as { class?: unknown }).class === 'string'))
+          : [],
+        pausedHandles: Number(res.pausedHandles || 0),
+        restoredHandles: Number(res.restoredHandles || 0),
         tabId,
       };
     });

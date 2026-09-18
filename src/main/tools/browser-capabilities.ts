@@ -206,7 +206,7 @@ const QA_RECEIPT_ERROR_CODE_MAX = 200;
 const QA_RECEIPT_ERROR_MESSAGE_MAX = 2000;
 
 /** `String(value)` cannot be trusted on a hostile thrown object; it may throw itself. */
-function safeErrorText(value: unknown): string {
+export function safeErrorText(value: unknown): string {
   try {
     return String(value);
   } catch {
@@ -258,6 +258,65 @@ export function extractErrorMessage(err: unknown): string | null {
 
 export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string, receipts?: ReceiptStore, getStylesheetUrlMap?: () => Record<string, string>): void {
   const coordinator = themeQaWorkflow ? new ThemeQaRepairCoordinator(themeQaWorkflow) : undefined;
+  /**
+   * `expression` and `expressionFile` are mutually exclusive forms of the same
+   * argument: the file form exists because a workspace-relative path survives
+   * transports that mangle a large escaped expression. The file is read through
+   * the same workspace-boundary confinement `browser.dump_dom` uses, so a path
+   * outside the root is refused rather than read.
+   */
+  const resolveExpressionInput = (
+    capabilityName: string,
+    params: { expression?: string; expressionFile?: string },
+    context: CapabilityRequestContext
+  ): string => {
+    const hasExpression = params.expression !== undefined && params.expression !== null && !(typeof params.expression === 'string' && params.expression.trim().length === 0);
+    const hasExpressionFile = params.expressionFile !== undefined && params.expressionFile !== null && !(typeof params.expressionFile === 'string' && params.expressionFile.trim().length === 0);
+    if (hasExpression && hasExpressionFile) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        `${capabilityName} accepts exactly one of 'expression' or 'expressionFile'; this call supplied both`
+      );
+    }
+    if (!hasExpression && !hasExpressionFile) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        `${capabilityName} requires 'expression' or 'expressionFile'; this call supplied neither`
+      );
+    }
+    if (!hasExpressionFile) return params.expression as string;
+    if (typeof params.expressionFile !== 'string') {
+      throw new CapabilityError('INVALID_ARGUMENT', `${capabilityName} expressionFile must be a workspace-relative path string`);
+    }
+    let rootPath = process.cwd();
+    if (context?.projectId && context?.workspaceId) {
+      try {
+        const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+        if (ws?.rootPath) rootPath = ws.rootPath;
+      } catch {}
+    }
+    const resolvedTarget = path.isAbsolute(params.expressionFile)
+      ? params.expressionFile
+      : path.resolve(rootPath, params.expressionFile);
+    const safePath = confineWorkspaceRoot(resolvedTarget, rootPath);
+    // `confineWorkspaceRoot` falls back to the root itself when the candidate
+    // escapes it, and a directory is not an expression source either way.
+    if (path.resolve(safePath) === path.resolve(rootPath)) {
+      const reason = path.resolve(resolvedTarget) === path.resolve(rootPath)
+        ? `expressionFile '${params.expressionFile}' resolves to the workspace root directory '${rootPath}'; pass a file path inside the root`
+        : `expressionFile '${params.expressionFile}' resolves outside workspace root '${rootPath}'; pass a path inside the root`;
+      throw new CapabilityError('INVALID_ARGUMENT', reason);
+    }
+    try {
+      return fs.readFileSync(safePath, 'utf8');
+    } catch (err) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        `${capabilityName} could not read expressionFile '${params.expressionFile}' at '${safePath}': ${extractErrorMessage(err) || 'unreadable'}`
+      );
+    }
+  };
+
 
   // 1. Standard canonical capabilities
   catalogue.register({
@@ -266,7 +325,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in the browser window instead of only the tabs managed by this session' } } },
-    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: params?.all ? undefined : context.browserTarget }),
+    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),
   });
 
   catalogue.register({
@@ -385,11 +444,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       // `confineWorkspaceRoot` falls back to the root itself when the candidate
       // escapes it. Writing there is never the caller's intent and a directory
       // target fails later as a bare EISDIR rename, so refuse with the reason.
-      if (path.resolve(safePath) === path.resolve(rootPath) && path.resolve(resolvedTarget) !== path.resolve(rootPath)) {
-        throw new CapabilityError(
-          'INVALID_ARGUMENT',
-          `outputPath '${params.outputPath}' resolves outside workspace root '${rootPath}'; pass a path inside the root`
-        );
+      // An explicit `outputPath: '.'` lands on the same directory, so it is
+      // refused by the same check rather than surfacing as EISDIR downstream.
+      if (path.resolve(safePath) === path.resolve(rootPath)) {
+        const reason = path.resolve(resolvedTarget) === path.resolve(rootPath)
+          ? `outputPath '${params.outputPath}' resolves to the workspace root directory '${rootPath}'; pass a file path inside the root`
+          : `outputPath '${params.outputPath}' resolves outside workspace root '${rootPath}'; pass a path inside the root`;
+        throw new CapabilityError('INVALID_ARGUMENT', reason);
       }
       return browser.dumpDom(context.browserTarget as BrowserTarget, safePath, params);
     },
@@ -885,9 +946,19 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'eval',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' } }, required: ['expression'] },
-    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean }, context) =>
-      browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId, {
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expression: { type: 'string', description: 'JavaScript expression to evaluate; mutually exclusive with expressionFile' },
+        expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' },
+      },
+      oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
+    },
+    execute: (params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean }, context) =>
+      browser.eval(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.browser.evaluate', params, context), params.tabId, params.paneId, {
         requireRenderSurface: true,
         allowDegradedSurface: params.allowDegradedSurface === true,
       }),
@@ -899,9 +970,20 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'eval',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, frameUrl: { type: 'string', description: 'Substring of the child frame URL to target (e.g. "web.haravan.app")' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['expression', 'frameUrl'] },
-    execute: (params: { expression: string; frameUrl: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.evalInFrame(context.browserTarget as BrowserTarget, params.expression, params.frameUrl, params.tabId, params.paneId),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expression: { type: 'string', description: 'JavaScript expression to evaluate; mutually exclusive with expressionFile' },
+        expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' },
+        frameUrl: { type: 'string', description: 'Substring of the child frame URL to target (e.g. "web.haravan.app")' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['frameUrl'],
+      oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
+    },
+    execute: (params: { expression?: string; expressionFile?: string; frameUrl: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.evalInFrame(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.browser.evaluate_frame', params, context), params.frameUrl, params.tabId, params.paneId),
   });
 
   catalogue.register({
@@ -910,8 +992,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'eval',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['expression'] },
-    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expression: { type: 'string', description: 'JavaScript expression to evaluate; mutually exclusive with expressionFile' },
+        expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
+    },
+    execute: (params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.eval(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.inspect.eval', params, context), params.tabId, params.paneId),
   });
 
   catalogue.register({
@@ -1103,7 +1195,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in the browser window instead of only the tabs managed by this session' } } },
-    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: params?.all ? undefined : context.browserTarget }),
+    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),
   });
 
   catalogue.register({
@@ -1950,7 +2042,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         all: { type: 'boolean', default: true, description: 'List every tab in the window (default). Pass false to restrict the list to the tabs this session owns.' }
       }
     },
-    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: params?.all === false ? context.browserTarget : undefined }),
+    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),
   });
   catalogue.register({
     name: 'anti.browser.tabs.create',

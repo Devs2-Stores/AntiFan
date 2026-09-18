@@ -73,6 +73,32 @@ describe('Attachment runtime scoping', () => {
     );
   });
 
+  it('keeps exactly the records bound to the replaying runtime', async () => {
+    const minting = new AttachmentRegistry(undefined, tmpDir);
+    await minting.initialize();
+    const current = await mint(minting, 'cli');
+    const foreign = await mint(minting, 'cli');
+    assert.notStrictEqual(foreign.lease.runtimeId, current.lease.runtimeId);
+
+    const replaying = new AttachmentRegistry(undefined, tmpDir);
+    await replaying.initialize(current.lease.runtimeId);
+
+    assert.ok(
+      replaying.getAttachment(current.launch.attachmentId),
+      'the record minted by the replaying runtime is restored'
+    );
+    assert.strictEqual(
+      replaying.getAttachment(foreign.launch.attachmentId),
+      undefined,
+      'the record bound to the other runtime is dropped'
+    );
+    assert.strictEqual(
+      replaying.getActiveRecordIds().size,
+      1,
+      'replay restores exactly the current-runtime record'
+    );
+  });
+
   it('keeps every record when replay is called without a runtime id', async () => {
     const minting = new AttachmentRegistry(undefined, tmpDir);
     await minting.initialize();
@@ -117,6 +143,33 @@ describe('Attachment runtime scoping', () => {
       (err: unknown) => (err as { code?: string }).code === 'LINEAGE_MISMATCH',
       'a reported backend mismatch is still a lineage violation'
     );
+  });
+
+  it('slides the deadline instead of stacking an extension per heartbeat', async () => {
+    // The bridge renews on a 30 s heartbeat. A renewal that adds extensionMs to the
+    // previous deadline grows the TTL by a full extension per tick — a day of
+    // heartbeats leaves months of remaining lease. The window must restart at now.
+    const registry = new AttachmentRegistry(undefined, tmpDir);
+    await registry.initialize();
+    const extensionMs = 30_000;
+    const { launch } = await mint(registry, 'mcp', extensionMs);
+
+    for (let tick = 0; tick < 3; tick++) {
+      const renewed = await registry.renewAttachment(launch.attachmentId, launch.secret, {
+        extensionMs,
+      });
+      assert.ok(
+        renewed.expiresAt <= Date.now() + extensionMs,
+        'a heartbeat renewal must not leave the deadline beyond one extension window'
+      );
+      assert.ok(renewed.expiresAt > Date.now(), 'the restarted window is still live');
+      const stored = registry.getAttachment(launch.attachmentId)!;
+      assert.strictEqual(
+        stored.lease?.expiresAt,
+        renewed.expiresAt,
+        'the embedded lease mirrors the same sliding deadline'
+      );
+    }
   });
 
   it('throttles heartbeat renewals instead of appending a durable frame per tick', async () => {

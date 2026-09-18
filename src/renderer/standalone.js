@@ -89,6 +89,8 @@ function persistTerminalTabPrefs() {
       sidebarWidth: terminalSidebarWidth,
       collapsedCategories: Array.from(collapsedCategories),
       categories: terminalCategories.slice(),
+      categoryColors: Object.assign({}, categoryColors),
+      starredCategories: Array.from(starredCategories),
     });
     if (result && typeof result.then === 'function') {
       result
@@ -102,6 +104,14 @@ function persistTerminalTabPrefs() {
             }
             if (Array.isArray(applied.categories)) {
               applyCategories(applied.categories);
+              if (typeof renderTabs === 'function') renderTabs();
+            }
+            if (applied.categoryColors && typeof applied.categoryColors === 'object') {
+              applyCategoryColors(applied.categoryColors);
+              if (typeof renderTabs === 'function') renderTabs();
+            }
+            if (Array.isArray(applied.starredCategories)) {
+              applyStarredCategories(applied.starredCategories);
               if (typeof renderTabs === 'function') renderTabs();
             }
             applyTerminalTabLayout(applied.layout, applied.sidebarWidth);
@@ -327,18 +337,51 @@ function categoryKeyOf(session) {
   return raw || UNCATEGORIZED_CATEGORY;
 }
 
+/** Category name -> user-chosen chip colour. Absence means "derive it from the name". */
+let categoryColors = Object.create(null);
+/** Categories the user marked with `*`. A marker only — `terminalCategories` orders. */
+let starredCategories = new Set();
+
+/** Replace the colour overrides with the values main persisted or echoed back. */
+function applyCategoryColors(map) {
+  categoryColors = Object.create(null);
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return;
+  for (const [key, color] of Object.entries(map)) {
+    if (!key || typeof color !== 'string') continue;
+    if (!/^#[0-9a-f]{6}$/i.test(color)) continue;
+    categoryColors[key] = color;
+  }
+}
+
+/** Replace the starred set with the values main persisted or echoed back. */
+function applyStarredCategories(list) {
+  starredCategories = new Set();
+  if (!Array.isArray(list)) return;
+  for (const entry of list) {
+    if (typeof entry === 'string' && entry) starredCategories.add(entry);
+  }
+}
+
 function categoryLabelOf(key) {
   return key === UNCATEGORIZED_CATEGORY ? UNCATEGORIZED_CATEGORY_LABEL : key;
 }
 
-/** Deterministic palette pick so a category keeps its colour across renders. */
-function categoryColorOf(key) {
-  if (key === UNCATEGORIZED_CATEGORY) return '';
+/** The colour a category derives from its own name, before any user choice. */
+function derivedCategoryColorOf(key) {
   let hash = 0;
   for (let i = 0; i < key.length; i += 1) {
     hash = ((hash * 31) + key.charCodeAt(i)) | 0;
   }
   return CATEGORY_CHIP_COLORS[Math.abs(hash) % CATEGORY_CHIP_COLORS.length];
+}
+
+/** Deterministic palette pick so a category keeps its colour across renders. */
+function categoryColorOf(key) {
+  if (key === UNCATEGORIZED_CATEGORY) return '';
+  // A user choice wins over the derived colour: the hash is a default, not a policy.
+  const override = categoryColors[key];
+  if (typeof override === 'string' && override) return override;
+  return derivedCategoryColorOf(key);
 }
 
 /**
@@ -476,12 +519,20 @@ function sendTerminalInputFor(sessionId, data) {
 
 let sleepPreviewEl = null;
 let sleepPreviewSessionId = '';
+/** 'sleeping' | 'lossy' while a read-only transcript view is mounted ('' = live pane). */
+let sleepPreviewMode = '';
+/** Whether the mounted view already holds the full retained transcript. */
+let sleepPreviewFullLoaded = false;
+/** Session whose on-demand transcript view the user opened ('' = none). */
+let transcriptPreviewSessionId = '';
 
 function teardownSleepPreview() {
   if (!sleepPreviewEl) return;
   try { sleepPreviewEl.remove(); } catch {}
   sleepPreviewEl = null;
   sleepPreviewSessionId = '';
+  sleepPreviewMode = '';
+  sleepPreviewFullLoaded = false;
 }
 
 /**
@@ -520,58 +571,130 @@ function transcriptToPlainText(raw) {
   return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function sleepPreviewText(session) {
+/** Plain text for a read-only transcript view. */
+function previewTranscriptText(session) {
   const raw = (session && typeof session.buffer === 'string') ? session.buffer : '';
   const text = transcriptToPlainText(raw);
   return text || '(Không có nội dung lưu lại)';
 }
 
 /**
- * Read-only view of a sleeping session's retained transcript. This is plain
- * text on purpose: no xterm, no PTY, no delta cursor — the whole point of sleep
- * is that viewing a finished tab is free.
+ * The pushed `buffer` is a JSON-budgeted suffix of the transcript, so a mounted view
+ * is upgraded to the full retained transcript once main answers. The load stays bound
+ * to the element it was started for: a later mount (another session, another mode)
+ * must never be overwritten by a slow answer.
  */
-function renderSleepPreview(session) {
+function loadFullTranscriptInto(el, sessionId, mode, body) {
+  if (!api?.getFullBuffer) return;
+  let pending;
+  try { pending = api.getFullBuffer(sessionId); } catch { return; }
+  Promise.resolve(pending)
+    .then((result) => {
+      if (sleepPreviewEl !== el || sleepPreviewSessionId !== sessionId || sleepPreviewMode !== mode) return;
+      const full = transcriptToPlainText(typeof result?.buffer === 'string' ? result.buffer : '');
+      if (!full) return;
+      sleepPreviewFullLoaded = true;
+      if (body.textContent !== full) body.textContent = full;
+    })
+    .catch(() => {});
+}
+
+/** Leave the on-demand transcript view and show the live pane again. */
+function closeTranscriptPreview() {
+  if (!transcriptPreviewSessionId) return;
+  transcriptPreviewSessionId = '';
+  syncTerminalPool(sessions, activeId);
+}
+
+/**
+ * Read-only transcript mode for the active tab: '' (live pane), 'sleeping' (its PTY is
+ * gone, so the retained transcript is all there is) or 'lossy' (the user asked for the
+ * text view). A split is reachable while its parent is the active tab, because the main
+ * process keeps the active session base-scoped and resolves a split to its parent.
+ */
+function resolveReadOnlyTranscriptMode(activeSession) {
+  if (!activeSession) return '';
+  if (activeSession.state === 'sleeping') return 'sleeping';
+  if (!transcriptPreviewSessionId) return '';
+  if (transcriptPreviewSessionId === activeSession.id) return 'lossy';
+  const requested = findSession(transcriptPreviewSessionId);
+  return requested && requested.splitOf === activeSession.id ? 'lossy' : '';
+}
+
+/**
+ * Read-only transcript view over the live pane.
+ *
+ * `mode` is 'sleeping' (finished session, PTY released) or 'lossy' (a live tab read as
+ * text — the honest answer for a full-screen TUI, whose alternate buffer offers no
+ * scrollback to show). Both are plain text on purpose: no xterm, no PTY, no delta
+ * cursor, and the capture is stripped of control codes rather than emulated.
+ */
+function renderSleepPreview(session, mode = 'sleeping') {
   if (!session || !mainPane) return;
-  if (sleepPreviewEl && sleepPreviewSessionId === session.id) {
+  const requestedMode = mode === 'lossy' ? 'lossy' : 'sleeping';
+  const text = previewTranscriptText(session);
+  if (sleepPreviewEl && sleepPreviewSessionId === session.id && sleepPreviewMode === requestedMode) {
+    // A view that already holds the full retained transcript is a snapshot: re-slicing
+    // megabytes on every push would cost more than the staleness it removes.
+    if (sleepPreviewFullLoaded) return;
     const body = sleepPreviewEl.querySelector('.terminal-sleep-preview-body');
-    const text = sleepPreviewText(session);
     if (body && body.textContent !== text) body.textContent = text;
     return;
   }
   teardownSleepPreview();
   sleepPreviewSessionId = session.id;
+  sleepPreviewMode = requestedMode;
+  const isLossy = requestedMode === 'lossy';
 
   const el = document.createElement('div');
   el.className = 'terminal-sleep-preview';
   el.setAttribute('data-session-id', session.id);
+  el.setAttribute('data-mode', requestedMode);
   el.tabIndex = 0;
-  el.title = 'Phiên đang ngủ. Transcript được giữ lại. Gõ phím để đánh thức.';
+  el.title = isLossy
+    ? 'Bản ghi văn bản (lossy). Nhấn phím bất kỳ để quay lại terminal.'
+    : 'Phiên đang ngủ. Transcript được giữ lại. Gõ phím để đánh thức.';
 
   const header = document.createElement('div');
   header.className = 'terminal-sleep-preview-header';
   const iconEl = document.createElement('span');
   iconEl.className = 'terminal-sleep-preview-icon';
-  iconEl.innerHTML = iconSvg(ICON_MOON, 12);
+  iconEl.innerHTML = iconSvg(isLossy ? ICON_LAYERS : ICON_MOON, 12);
   const badgeEl = document.createElement('span');
   badgeEl.className = 'terminal-sleep-preview-badge';
-  badgeEl.textContent = 'Đang ngủ';
+  badgeEl.textContent = isLossy ? 'Lossy' : 'Đang ngủ';
   const nameEl = document.createElement('span');
   nameEl.className = 'terminal-sleep-preview-name';
   nameEl.textContent = session.name || 'Terminal';
   const hintEl = document.createElement('span');
   hintEl.className = 'terminal-sleep-preview-hint';
-  hintEl.textContent = 'PTY đã giải phóng. Gõ phím để đánh thức phiên này';
+  hintEl.textContent = isLossy
+    ? (session.altScreen
+      ? 'Đã lược bỏ mã điều khiển. TUI toàn màn hình không giữ scrollback — nhấn phím hoặc bấm tiêu đề để quay lại'
+      : 'Bản ghi đã lược bỏ mã điều khiển — nhấn phím hoặc bấm tiêu đề để quay lại terminal')
+    : 'PTY đã giải phóng. Gõ phím để đánh thức phiên này';
   header.append(iconEl, badgeEl, nameEl, hintEl);
 
   const body = document.createElement('pre');
   body.className = 'terminal-sleep-preview-body';
-  body.textContent = sleepPreviewText(session);
+  body.textContent = text;
 
   el.append(header, body);
-  registerWakeOnInput(el, session.id);
+  if (isLossy) {
+    el.addEventListener('keydown', (e) => {
+      // Modified keys stay native so the selection can still be copied out.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      closeTranscriptPreview();
+    });
+    // The header is the exit control; the body stays selectable for copying.
+    header.addEventListener('click', () => closeTranscriptPreview());
+  } else {
+    registerWakeOnInput(el, session.id);
+  }
   mainPane.appendChild(el);
   sleepPreviewEl = el;
+  loadFullTranscriptInto(el, session.id, requestedMode, body);
 }
 
 /** Any first keystroke/paste on a sleeping surface wakes the session. */
@@ -1590,7 +1713,7 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
       await flushRun();
     }
 
-    if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active')) {
+    if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active') && viewportAtBottom(item.term)) {
       item.term.scrollToBottom();
     }
   } finally {
@@ -1664,7 +1787,7 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
       await flushRun();
     }
 
-    if (!isSplitUserScrolledUp && splitTerm) {
+    if (!isSplitUserScrolledUp && viewportAtBottom(splitTerm)) {
       splitTerm.scrollToBottom();
     }
   } finally {
@@ -1715,7 +1838,7 @@ function writeToTerminalPane(item, chunk) {
   try {
     item.term.write(chunk, () => {
       benchRecordPaint(item.id);
-      if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active')) {
+      if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active') && viewportAtBottom(item.term)) {
         item.term.scrollToBottom();
       }
       if (item.pendingWriteAckSeq > 0) {
@@ -1740,7 +1863,7 @@ function getWriteTargetFor(item) {
   if (!dispatcher) return null;
   item.writeTarget = dispatcher.createTarget(item.term, () => {
     benchRecordPaint(item.id);
-    if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active')) {
+    if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active') && viewportAtBottom(item.term)) {
       item.term.scrollToBottom();
     }
     if (item.pendingWriteAckSeq > 0) {
@@ -1758,7 +1881,7 @@ function writeToSplitPane(chunk) {
     if (!splitWriteTarget || splitWriteTarget.term !== splitTerm) {
       splitWriteTarget = dispatcher.createTarget(splitTerm, () => {
         benchRecordPaint(splitId);
-        if (!isSplitUserScrolledUp && splitTerm) {
+        if (!isSplitUserScrolledUp && viewportAtBottom(splitTerm)) {
           splitTerm.scrollToBottom();
         }
         if (splitSessionState.pendingWriteAckSeq > 0) {
@@ -1776,7 +1899,7 @@ function writeToSplitPane(chunk) {
   try {
     splitTerm.write(chunk, () => {
       benchRecordPaint(splitId);
-      if (!isSplitUserScrolledUp && splitTerm) {
+      if (!isSplitUserScrolledUp && viewportAtBottom(splitTerm)) {
         splitTerm.scrollToBottom();
       }
       if (splitSessionState.pendingWriteAckSeq > 0) {
@@ -1794,6 +1917,37 @@ function writeToSplitPane(chunk) {
     } catch {}
   }
 }
+
+/**
+ * True while the viewport is parked on the live edge. A TUI that redraws in the
+ * alternate buffer leaves `baseY` at 0, where a zero viewport is the bottom.
+ */
+function viewportAtBottom(term) {
+  const activeBuf = term?.buffer?.active;
+  if (!activeBuf) return true;
+  return activeBuf.viewportY >= activeBuf.baseY;
+}
+
+/**
+ * Record where the user is reading from, so a later refit can restore the position
+ * instead of dragging them to the live edge. "Scrolled up" means only "not at the
+ * bottom": the auto-scroll pin is released there and re-armed on return, which is
+ * what keeps a TUI redraw from yanking a reader back to the newest frame.
+ */
+function recordViewportReadPosition(item, term) {
+  const activeBuf = term?.buffer?.active;
+  if (!activeBuf) return;
+  if (activeBuf.viewportY >= activeBuf.baseY) {
+    item.isUserScrolledUp = false;
+    item.savedViewportY = null;
+    item.savedDistanceToBottom = 0;
+  } else {
+    item.isUserScrolledUp = true;
+    item.savedViewportY = activeBuf.viewportY;
+    item.savedDistanceToBottom = Math.max(0, activeBuf.baseY - activeBuf.viewportY);
+  }
+}
+
 function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthoritative = false) {
   let item = rawTerminalPool.get(sessionId);
   if (item) {
@@ -1892,19 +2046,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
 
   paneEl.addEventListener('wheel', () => {
     if (!item || !item.paneEl || !item.paneEl.classList.contains('active')) return;
-    const activeBuf = sTerm.buffer?.active;
-    if (activeBuf) {
-      const isAtBottom = activeBuf.viewportY >= activeBuf.baseY;
-      if (isAtBottom) {
-        item.isUserScrolledUp = false;
-        item.savedViewportY = null;
-        item.savedDistanceToBottom = 0;
-      } else {
-        item.isUserScrolledUp = true;
-        item.savedViewportY = activeBuf.viewportY;
-        item.savedDistanceToBottom = Math.max(0, activeBuf.baseY - activeBuf.viewportY);
-      }
-    }
+    recordViewportReadPosition(item, sTerm);
   }, { passive: true });
 
   sTerm.onScroll(() => {
@@ -1912,19 +2054,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
     if (!item || !item.paneEl || !item.paneEl.classList.contains('active')) {
       return;
     }
-    const activeBuf = sTerm.buffer?.active;
-    if (activeBuf) {
-      const isAtBottom = activeBuf.viewportY >= activeBuf.baseY;
-      if (isAtBottom) {
-        item.isUserScrolledUp = false;
-        item.savedViewportY = null;
-        item.savedDistanceToBottom = 0;
-      } else {
-        item.isUserScrolledUp = true;
-        item.savedViewportY = activeBuf.viewportY;
-        item.savedDistanceToBottom = Math.max(0, activeBuf.baseY - activeBuf.viewportY);
-      }
-    }
+    recordViewportReadPosition(item, sTerm);
   });
 
   rawTerminalPool.set(sessionId, item);
@@ -1980,19 +2110,7 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
     const wasActive = item.paneEl.classList.contains('active');
 
     if (wasActive && !isNowActive) {
-      const activeBuf = item.term.buffer?.active;
-      if (activeBuf) {
-        const isAtBottom = activeBuf.viewportY >= activeBuf.baseY;
-        if (isAtBottom) {
-          item.isUserScrolledUp = false;
-          item.savedViewportY = null;
-          item.savedDistanceToBottom = 0;
-        } else {
-          item.isUserScrolledUp = true;
-          item.savedViewportY = activeBuf.viewportY;
-          item.savedDistanceToBottom = Math.max(0, activeBuf.baseY - activeBuf.viewportY);
-        }
-      }
+      recordViewportReadPosition(item, item.term);
       item.paneEl.classList.remove('active');
     } else if (isNowActive) {
       const justBecameActive = !wasActive;
@@ -2022,9 +2140,14 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
           item.term.refresh(0, item.term.rows - 1);
           const activeBuf = item.term.buffer?.active;
           if (activeBuf) {
-            if (item.isUserScrolledUp && item.savedDistanceToBottom > 0) {
-              const targetLine = Math.max(0, activeBuf.baseY - item.savedDistanceToBottom);
-              item.term.scrollToLine(targetLine);
+            if (!viewportAtBottom(item.term)) {
+              // The viewport is not at the bottom: the user is reading scrollback (or a
+              // TUI redraw left them above the live edge), so a refit restores where
+              // they were reading instead of pinning them to the newest frame.
+              if (item.savedDistanceToBottom > 0) {
+                item.term.scrollToLine(Math.max(0, activeBuf.baseY - item.savedDistanceToBottom));
+              }
+              item.isUserScrolledUp = true;
             } else {
               item.isUserScrolledUp = false;
               item.savedViewportY = null;
@@ -2049,13 +2172,19 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
       item.paneEl.classList.remove('active');
     }
   }
-  // Viewing a sleeping tab is a read-only transcript replay: mount the plain-text
-  // preview instead of an xterm, and drop it the moment the session is awake.
-  if (currentActiveId && sleepingSessionIds.has(currentActiveId)) {
-    renderSleepPreview(activeSession || findSession(currentActiveId));
-  } else {
-    teardownSleepPreview();
-  }
+  // Viewing a sleeping tab, or asking a live one for its transcript, is a read-only
+  // replay: mount the plain-text view instead of an xterm, and drop it the moment the
+  // session is awake or the request stops applying to the active tab.
+  const previewSession = currentActiveId ? (activeSession || findSession(currentActiveId)) : null;
+  const previewMode = resolveReadOnlyTranscriptMode(previewSession);
+  const previewTarget = previewMode === 'lossy'
+    ? (findSession(transcriptPreviewSessionId) || previewSession)
+    : previewSession;
+  // A transcript request belongs to the tab it was made on: leaving that tab drops it,
+  // so returning to a live TUI never lands in a stale text view.
+  if (transcriptPreviewSessionId && previewMode !== 'lossy') transcriptPreviewSessionId = '';
+  if (previewTarget && previewMode) renderSleepPreview(previewTarget, previewMode);
+  else teardownSleepPreview();
   updateEmptyStateDisplay(sessionList.length > 0);
 }
 
@@ -2411,9 +2540,8 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
 
   splitTerm.onScroll(() => {
     if (isSplitProgrammaticScroll) return;
-    const buf = splitTerm?.buffer?.active;
-    if (buf) {
-      isSplitUserScrolledUp = buf.viewportY < buf.baseY;
+    if (splitTerm?.buffer?.active) {
+      isSplitUserScrolledUp = !viewportAtBottom(splitTerm);
     }
   });
 
@@ -2440,8 +2568,9 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
   // Hook close split button
   splitHeader.querySelector('#btnCloseSplitPane')?.addEventListener('click', async (e) => {
     e.stopPropagation();
-    if (activeId && api) {
-      await api.unsplitTerminal?.(activeId);
+    if (api) {
+      // Close the split this lower pane is mounting, not the parent's first one.
+      await api.unsplitTerminal?.(sessionId);
     }
     unmountSplit();
   });
@@ -2909,16 +3038,22 @@ function showContextMenu(e, sessionId) {
 
   const targetSession = sessions.find((item) => item.id === sessionId);
   const isTargetSplit = Boolean(targetSession?.splitSessionId);
+  const isTargetItselfSplit = Boolean(targetSession?.splitOf);
   const splitItem = contextMenu.querySelector('.context-item[data-action="split"]');
   if (splitItem) {
     const textSpan = splitItem.querySelector('span:last-child') || splitItem;
-    if (isTargetSplit) {
+    if (isTargetItselfSplit) {
+      textSpan.textContent = 'Pane chia đôi (Split)';
+      splitItem.title = 'Tab này là một pane chia đôi; đóng nó bằng ✕ hoặc "Đóng tab này"';
+    } else if (isTargetSplit) {
       textSpan.textContent = 'Đóng chia đôi (Unsplit)';
       splitItem.title = 'Tắt chia đôi màn hình terminal của tab này';
     } else {
       textSpan.textContent = 'Chia đôi tab (Split)';
       splitItem.title = 'Chia đôi màn hình terminal của tab này';
     }
+    splitItem.classList.toggle('is-disabled', isTargetItselfSplit);
+    splitItem.setAttribute('aria-disabled', isTargetItselfSplit ? 'true' : 'false');
   }
 
   // Only one of sleep/wake applies to a given tab; the inapplicable one is
@@ -2949,6 +3084,27 @@ function showContextMenu(e, sessionId) {
         ? `Đặt nhóm: ${currentCategory}...`
         : 'Đặt nhóm (Set category)...';
     }
+  }
+  // A TUI keeps no scrollback to offer (its alternate buffer is not history), so the
+  // honest affordance is the retained capture read as text: labelled lossy because the
+  // control codes are stripped rather than emulated.
+  const transcriptItem = contextMenu.querySelector('.context-item[data-action="transcript"]');
+  if (transcriptItem) {
+    const label = transcriptItem.querySelector('span:last-child');
+    const isLossyOpen = Boolean(transcriptPreviewSessionId) && transcriptPreviewSessionId === sessionId;
+    // A sleeping tab already shows its retained transcript, and there is no live pane
+    // to return to until the session is awake.
+    const sleepViewShown = isSleeping && sessionId === activeId;
+    transcriptItem.classList.toggle('is-disabled', sleepViewShown);
+    transcriptItem.setAttribute('aria-disabled', sleepViewShown ? 'true' : 'false');
+    if (label) {
+      label.textContent = isLossyOpen ? 'Quay lại terminal (Live)' : 'Xem bản ghi (Lossy)...';
+    }
+    transcriptItem.title = isLossyOpen
+      ? 'Đóng bản ghi văn bản và quay lại terminal đang chạy'
+      : (sleepViewShown
+        ? 'Phiên đang ngủ đã hiển thị bản ghi của nó'
+        : 'Đọc transcript dạng văn bản (đã lược bỏ mã điều khiển)');
   }
 
   contextMenu.style.display = 'flex';
@@ -3002,17 +3158,11 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
     } else if (action === 'split') {
       if (!targetId || !api) return;
       const targetSession = sessions.find((x) => x.id === targetId);
+      // A split is closed the way a tab is closed (✕ / "Đóng tab này"): splitting a
+      // split is not an operation this menu can mean.
+      if (targetSession?.splitOf) return;
       const isTargetSplit = Boolean(targetSession?.splitSessionId);
-      if (targetId !== activeId) {
-        activeId = targetId;
-        tabsEl.querySelectorAll('.terminal-tab-wrap').forEach((el) => {
-          el.classList.toggle('active', el.getAttribute('data-session-id') === activeId);
-        });
-        syncTerminalPool(sessions, activeId);
-        if (!isPopoutMode) {
-          api?.switchTerminal(targetId);
-        }
-      }
+      activateTabLocally(targetId);
       if (!isTargetSplit) {
         const mainItem = terminalPool.get(targetId);
         const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
@@ -3039,17 +3189,52 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
       const wrap = tabsEl.querySelector(`.terminal-tab-wrap[data-session-id="${targetId}"]`);
       const anchor = wrap?.querySelector('.terminal-tab-affinity-badge') || wrap || item;
       showCategoryPicker(targetId, anchor);
+    } else if (action === 'transcript') {
+      if (transcriptPreviewSessionId === targetId) {
+        closeTranscriptPreview();
+      } else if (!(isSessionSleeping(targetId) && targetId === activeId)) {
+        // The view replaces the active pane, so a background tab's transcript is asked
+        // for by selecting that tab first.
+        transcriptPreviewSessionId = targetId;
+        if (targetId === activeId) syncTerminalPool(sessions, activeId);
+        else activateTabLocally(targetId);
+      }
     } else if (action === 'close') {
-      api?.closeTerminal(targetId);
+      // `closeSession` owns base sessions; a split is released through the split API,
+      // which accepts the split id as its target.
+      if (sessions.find((x) => x.id === targetId)?.splitOf) api?.unsplitTerminal?.(targetId);
+      else api?.closeTerminal(targetId);
     } else if (action === 'close-others') {
+      const parentId = sessions.find((x) => x.id === targetId)?.splitOf || '';
       for (const s of sessions) {
-        if (s.id !== targetId) {
-          api?.closeTerminal(s.id);
-        }
+        // A split cannot outlive its parent, so the parent (and the siblings sharing
+        // its pane) stay while a split target is the one being kept.
+        if (s.id === targetId || (parentId && (s.id === parentId || s.splitOf === parentId))) continue;
+        if (s.splitOf) api?.unsplitTerminal?.(s.id);
+        else api?.closeTerminal(s.id);
       }
     }
   });
 });
+
+/**
+ * Select a tab in the renderer and in main. Panes are deliberately left to whatever
+ * follows: the main process keeps the active session base-scoped, so a split resolves to
+ * the parent that owns it, and the pushed session state owns which split is mounted.
+ */
+function activateTabLocally(targetId) {
+  if (!targetId) return;
+  const resolvedId = findSession(targetId)?.splitOf || targetId;
+  if (resolvedId === activeId) return;
+  activeId = resolvedId;
+  tabsEl.querySelectorAll('.terminal-tab-wrap').forEach((el) => {
+    el.classList.toggle('active', el.getAttribute('data-session-id') === activeId);
+  });
+  syncTerminalPool(sessions, activeId);
+  if (!isPopoutMode) {
+    api?.switchTerminal(targetId);
+  }
+}
 
 function startInlineRename(sessionId, tabWrapEl, titleSpanEl) {
   if (tabWrapEl.classList.contains('renaming')) return;
@@ -3272,6 +3457,18 @@ function updateTabActivityUi(sessionId) {
 }
 
 /**
+ * A split row's tooltip names the tab it splits. The parent's name is live, so the
+ * lookup happens per render rather than being baked in when the row is created: a
+ * renamed parent has to show its new name in the child's tooltip.
+ */
+function splitGlyphTitle(session) {
+  const parent = session && session.splitOf ? findSession(session.splitOf) : null;
+  return (parent && parent.name)
+    ? `Pane chia đôi của "${parent.name}"`
+    : 'Pane chia đôi';
+}
+
+/**
  * Create-or-update the tab wrap for one session. Extracted from `renderTabs` so
  * the grouping pass can order wraps after every one of them exists.
  */
@@ -3342,6 +3539,13 @@ function ensureTerminalTabWrap(s, currentWraps) {
     titleSpan.className = 'terminal-tab-title';
     titleSpan.textContent = s.name;
 
+    // A split row is drawn one level in (CSS) and carries this glyph, so "Terminal
+    // split-1" reads as a pane of the tab above it instead of a tab of its own.
+    const splitGlyph = document.createElement('span');
+    splitGlyph.className = 'terminal-tab-split-glyph';
+    splitGlyph.textContent = '⤷';
+    splitGlyph.title = splitGlyphTitle(s);
+
     const beacon = document.createElement('span');
     beacon.className = 'terminal-tab-status-beacon';
 
@@ -3360,25 +3564,23 @@ function ensureTerminalTabWrap(s, currentWraps) {
       showAffinityPicker(s.id, affinityBadge);
     };
 
-    b.append(icon, titleSpan, affinityBadge, beacon);
+    b.append(icon, splitGlyph, titleSpan, affinityBadge, beacon);
     b.title = `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`;
 
     b.onclick = () => {
       if (wrap.classList.contains('renaming')) return;
       if (s.id !== activeId) {
-        activeId = s.id;
-        tabsEl.querySelectorAll('.terminal-tab-wrap').forEach((el) => {
-          el.classList.toggle('active', el.getAttribute('data-session-id') === activeId);
-        });
+        activateTabLocally(s.id);
+        // A split is shown where a split lives: in the lower pane of the parent it
+        // belongs to, because the main process keeps the active session base-scoped and
+        // resolves a split to its parent.
         const targetSession = sessions.find((item) => item.id === s.id) || s;
-        if (targetSession.splitSessionId) {
+        if (targetSession.splitOf) {
+          mountSplit(targetSession.id, targetSession.buffer, targetSession.snapshotThroughSeq || 0);
+        } else if (targetSession.splitSessionId) {
           mountSplit(targetSession.splitSessionId, targetSession.splitBuffer, targetSession.splitSnapshotThroughSeq || 0);
         } else {
           unmountSplit();
-        }
-        syncTerminalPool(sessions, activeId);
-        if (!isPopoutMode) {
-          api?.switchTerminal(s.id);
         }
         fitCurrentTerminal();
       }
@@ -3400,10 +3602,13 @@ function ensureTerminalTabWrap(s, currentWraps) {
     close.type = 'button';
     close.className = 'terminal-tab-close';
     close.innerHTML = `<svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>`;
-    close.title = 'Đóng terminal';
+    close.title = s.splitOf ? 'Đóng pane chia đôi' : 'Đóng terminal';
     close.onclick = (e) => {
       e.stopPropagation();
-      api.closeTerminal(s.id);
+      // A split is not a base session: closing it goes through the split API, which
+      // takes the split id directly.
+      if (s.splitOf) api.unsplitTerminal?.(s.id);
+      else api.closeTerminal(s.id);
     };
 
     wrap.append(b, close);
@@ -3443,6 +3648,13 @@ function ensureTerminalTabWrap(s, currentWraps) {
       }
     }
     wrap.querySelector('.terminal-tab')?.setAttribute('title', `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`);
+    // The glyph is created with the wrap, but the parent's name is live: a renamed
+    // parent has to show up in the child's tooltip, not the name it had at creation.
+    const splitGlyph = wrap.querySelector('.terminal-tab-split-glyph');
+    if (splitGlyph) {
+      const glyphTitle = splitGlyphTitle(s);
+      if (splitGlyph.title !== glyphTitle) splitGlyph.title = glyphTitle;
+    }
   }
   return wrap;
 }
@@ -3471,16 +3683,22 @@ function ensureCategoryHeader(group) {
     const label = document.createElement('span');
     label.className = 'terminal-tab-category-label';
 
-    const count = document.createElement('span');
-    count.className = 'terminal-tab-category-count';
+    // The `*` marker lives beside the name rather than inside it: the label must stay
+    // exactly the group name the user typed, and a marker folded into that text would
+    // leak into rename, search and the session's stored category.
+    const star = document.createElement('span');
+    star.className = 'terminal-tab-category-star';
+    star.textContent = '*';
+    star.title = 'Nhóm đã được đánh dấu *';
 
-    // Renaming and dropping are different rights, so they get different guards.
-    // Neither bucket can be renamed: the catch-all has no name to change, and the sleep
-    // bucket's name is a state, not a category. Dropping is the opposite — releasing a
-    // tab onto the catch-all is precisely how a tab leaves its group, so only the sleep
-    // bucket refuses drops, because "file this tab under a state" is not an operation
-    // that exists.
-    const canRename = group.key !== UNCATEGORIZED_CATEGORY && group.key !== SLEEPING_CATEGORY;
+    // Marking, colouring and reordering are the same right as renaming, so they share
+    // one guard: neither derived bucket can be renamed — the catch-all has no name to
+    // change, and the sleep bucket's name is a state, not a category — and neither can
+    // be marked, coloured or moved for the same reason. Dropping is the opposite —
+    // releasing a tab onto the catch-all is precisely how a tab leaves its group — so
+    // only the sleep bucket refuses drops, because "file this tab under a state" is not
+    // an operation that exists.
+    const canManage = group.key !== UNCATEGORIZED_CATEGORY && group.key !== SLEEPING_CATEGORY;
     const canAcceptDrop = group.key !== SLEEPING_CATEGORY;
 
     // A rename affordance owned by the header itself: renaming a group is its own
@@ -3498,9 +3716,23 @@ function ensureCategoryHeader(group) {
       if (key && key !== UNCATEGORIZED_CATEGORY) beginRenameCategory(key);
     };
 
-    header.append(toggle, label);
-    if (canRename) header.append(rename);
-    header.append(count);
+    // The occasional group operations (mark, colour, order) sit behind one menu instead
+    // of three more icon buttons: the sidebar column is 220px wide by default, and the
+    // header already carries a toggle, a label, a pencil and a count-free right edge.
+    const menu = document.createElement('button');
+    menu.type = 'button';
+    menu.className = 'terminal-tab-category-menu';
+    menu.textContent = '⋮';
+    menu.title = 'Sắp xếp, đổi màu, đánh dấu * cho nhóm';
+    menu.setAttribute('aria-label', 'Sắp xếp, đổi màu, đánh dấu * cho nhóm');
+    menu.onclick = (e) => {
+      e.stopPropagation();
+      const key = header.getAttribute('data-category');
+      if (key) showCategoryMenu(key, menu);
+    };
+
+    header.append(toggle, star, label);
+    if (canManage) header.append(rename, menu);
     header.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleCategoryCollapsed(group.key);
@@ -3550,17 +3782,24 @@ function ensureCategoryHeader(group) {
 
   const label = header.querySelector('.terminal-tab-category-label');
   if (label && label.textContent !== group.label) label.textContent = group.label;
-  const count = header.querySelector('.terminal-tab-category-count');
-  const countText = String(group.items.length);
-  if (count && count.textContent !== countText) count.textContent = countText;
+  // The group colour has to be visible in the layout the user actually works in. The
+  // horizontal chip cannot carry it in the sidebar, so the header name does: an
+  // uncoloured group falls back to the muted header CSS, and the derived palette gives
+  // every real group a stable colour before the user picks one.
+  if (label) {
+    const labelColor = group.color || '';
+    if (label.style.color !== labelColor) label.style.color = labelColor;
+  }
+  // The marker is a header class, so the `*` element is created once and the render
+  // path only flips its visibility. It is a plain marker, not an ordering: the group
+  // list stays wherever the user put it.
+  header.classList.toggle('is-starred', starredCategories.has(group.key));
 
   // While a filter is applied every surviving group is shown open: a collapsed group
   // hiding the very match the user just searched for would look like a failed search.
   const isCollapsed = collapsedCategories.has(group.key) && !tabSearchActive;
   header.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
-  header.title = isCollapsed
-    ? `Mở nhóm ${group.label} (${group.items.length} tab)`
-    : `Thu gọn nhóm ${group.label} (${group.items.length} tab)`;
+  header.title = isCollapsed ? `Mở nhóm ${group.label}` : `Thu gọn nhóm ${group.label}`;
   return header;
 }
 
@@ -3569,6 +3808,172 @@ function toggleCategoryCollapsed(key) {
   else collapsedCategories.add(key);
   persistTerminalTabPrefs();
   renderTabs();
+}
+
+/** Real, user-manageable category keys, in the order the sidebar paints them. */
+function displayCategoryOrder() {
+  const out = [];
+  const seen = new Set();
+  const add = (key) => {
+    if (!key || key === UNCATEGORIZED_CATEGORY || key === SLEEPING_CATEGORY) return;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(key);
+  };
+  // `categoryOrder` is the sticky display order the grouping sorts by; the two loops
+  // after it are defensive, so a key that somehow has no slot yet still counts and can
+  // still be moved instead of silently dropping out of the menu.
+  for (const key of categoryOrder) add(key);
+  for (const key of terminalCategories) add(key);
+  for (const s of (Array.isArray(sessions) ? sessions : [])) add(categoryKeyOf(s));
+  return out;
+}
+
+/** Flip the `*` marker on one category. A marker only — never a re-order. */
+function toggleCategoryStar(key) {
+  if (!key || key === UNCATEGORIZED_CATEGORY || key === SLEEPING_CATEGORY) return;
+  if (starredCategories.has(key)) starredCategories.delete(key);
+  else starredCategories.add(key);
+  renderTabs();
+  persistTerminalTabPrefs();
+}
+
+/** Set (or, with `null`, reset) the chip colour of one category. */
+function setCategoryColor(key, color) {
+  if (!key || key === UNCATEGORIZED_CATEGORY || key === SLEEPING_CATEGORY) return;
+  if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) categoryColors[key] = color;
+  else delete categoryColors[key];
+  renderTabs();
+  persistTerminalTabPrefs();
+}
+
+/**
+ * Move one category by `delta` slots and persist the result.
+ *
+ * The moved order is written back into `terminalCategories`, which is the list main
+ * stores — the sticky `categoryOrder` is a render-time convenience that dies with the
+ * process, so an order that only lived there would not survive a restart. A group that
+ * existed only as a value on some tab is materialised into that list by the same write:
+ * a group the user just rearranged is a group the user is managing.
+ */
+function moveCategory(key, delta) {
+  const order = displayCategoryOrder();
+  const from = order.indexOf(key);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= order.length) return;
+  order.splice(to, 0, order.splice(from, 1)[0]);
+  terminalCategories = order.slice();
+  categoryOrder.length = 0;
+  for (const name of order) categoryOrder.push(name);
+  // The catch-all keeps a trailing slot, so a group created later still lands with the
+  // real groups rather than below the "no group" bucket.
+  categoryOrder.push(UNCATEGORIZED_CATEGORY);
+  renderTabs();
+  persistTerminalTabPrefs();
+}
+
+/**
+ * The group-level menu: mark with `*`, pick a colour, move the group. Follows the
+ * `showCategoryPicker` conventions — same popover element, same anchor positioning,
+ * same click-outside dismissal — so only one such surface can ever be open.
+ */
+function showCategoryMenu(key, anchorEl) {
+  const popover = document.getElementById('categoryPickerPopover');
+  if (!popover) return;
+  if (!key || key === UNCATEGORIZED_CATEGORY || key === SLEEPING_CATEGORY) return;
+
+  popover.innerHTML = '';
+  // A group-level surface, so a leftover per-session binding must not linger.
+  popover.removeAttribute('data-active-session-id');
+
+  const header = document.createElement('div');
+  header.className = 'terminal-category-picker-header';
+  header.textContent = `Nhóm "${categoryLabelOf(key)}"`;
+  popover.appendChild(header);
+
+  const isStarred = starredCategories.has(key);
+  const starItem = document.createElement('div');
+  starItem.className = `terminal-category-picker-item${isStarred ? ' active' : ''}`;
+  starItem.textContent = isStarred ? '✕ Bỏ đánh dấu *' : '* Đánh dấu nhóm';
+  starItem.title = isStarred
+    ? 'Bỏ dấu * khỏi nhóm này'
+    : 'Đánh dấu * nhóm này (chỉ là dấu, không đổi thứ tự)';
+  starItem.onclick = (ev) => {
+    ev.stopPropagation();
+    popover.style.display = 'none';
+    toggleCategoryStar(key);
+  };
+  popover.appendChild(starItem);
+
+  const swatchLabel = document.createElement('div');
+  swatchLabel.className = 'terminal-category-picker-hint';
+  swatchLabel.textContent = 'Màu nhóm';
+  popover.appendChild(swatchLabel);
+
+  const swatches = document.createElement('div');
+  swatches.className = 'terminal-category-swatches';
+  const currentColor = categoryColors[key];
+  const auto = document.createElement('button');
+  auto.type = 'button';
+  // "Tự động" paints the colour the name derives on its own, so resetting is a visible
+  // choice rather than a blind one.
+  auto.className = `terminal-category-swatch auto${currentColor ? '' : ' active'}`;
+  auto.style.background = derivedCategoryColorOf(key);
+  auto.textContent = 'Tự động';
+  auto.title = 'Màu suy ra từ tên nhóm';
+  auto.onclick = (ev) => {
+    ev.stopPropagation();
+    popover.style.display = 'none';
+    setCategoryColor(key, null);
+  };
+  swatches.appendChild(auto);
+  CATEGORY_CHIP_COLORS.forEach((color) => {
+    const swatch = document.createElement('button');
+    swatch.type = 'button';
+    swatch.className = `terminal-category-swatch${currentColor === color ? ' active' : ''}`;
+    swatch.style.background = color;
+    swatch.title = color;
+    swatch.setAttribute('aria-label', `Đặt màu nhóm ${color}`);
+    swatch.onclick = (ev) => {
+      ev.stopPropagation();
+      popover.style.display = 'none';
+      setCategoryColor(key, color);
+    };
+    swatches.appendChild(swatch);
+  });
+  popover.appendChild(swatches);
+
+  const order = displayCategoryOrder();
+  const at = order.indexOf(key);
+  const addMove = (label, delta, enabled) => {
+    const item = document.createElement('div');
+    item.className = `terminal-category-picker-item${enabled ? '' : ' is-disabled'}`;
+    item.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    item.textContent = label;
+    if (enabled) {
+      item.onclick = (ev) => {
+        ev.stopPropagation();
+        popover.style.display = 'none';
+        moveCategory(key, delta);
+      };
+    }
+    popover.appendChild(item);
+  };
+  addMove('↑ Chuyển lên', -1, at > 0);
+  addMove('↓ Chuyển xuống', 1, at !== -1 && at < order.length - 1);
+
+  const rect = anchorEl.getBoundingClientRect();
+  popover.style.display = 'block';
+  popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 240, rect.left))}px`;
+  popover.style.top = `${rect.bottom + 4}px`;
+
+  const closeHandler = (e) => {
+    if (!popover.contains(e.target) && e.target !== anchorEl) {
+      popover.style.display = 'none';
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeHandler), 10);
 }
 
 /**
@@ -3692,6 +4097,10 @@ function beginRenameCategory(key) {
         // Delete: the group disappears and its tabs fall back to uncategorised.
         terminalCategories = terminalCategories.filter((name) => name !== key);
         collapsedCategories.delete(key);
+        // A colour and a marker belong to the group, so they leave with it. A stale
+        // entry would repaint a group that later reuses the same name.
+        delete categoryColors[key];
+        starredCategories.delete(key);
         for (const s of affected) applyCategoryToSession(s.id, '', null);
       } else {
         // A rename can collide with an existing group; de-dupe keeps a single header.
@@ -3708,6 +4117,17 @@ function beginRenameCategory(key) {
         if (collapsedCategories.has(key)) {
           collapsedCategories.delete(key);
           collapsedCategories.add(value);
+        }
+        // The colour and the marker belong to the group, so they follow the name. A
+        // rename that merges into an existing group keeps the survivor's own colour
+        // rather than overwriting a choice the user already made for it.
+        if (categoryColors[key]) {
+          if (!categoryColors[value]) categoryColors[value] = categoryColors[key];
+          delete categoryColors[key];
+        }
+        if (starredCategories.has(key)) {
+          starredCategories.delete(key);
+          starredCategories.add(value);
         }
         for (const s of affected) applyCategoryToSession(s.id, value, null);
       }
@@ -3833,6 +4253,48 @@ function ensureSearchEmptyState() {
   return tabSearchEmptyEl;
 }
 
+/**
+ * Order one group's sessions so a split pane renders directly under the tab it belongs
+ * to. A split is a separate session with its own row, so leaving it wherever main's list
+ * happens to put it is what makes a split read as a second tab the user never opened. A
+ * split whose parent is in another group (or already closed) keeps its own slot rather
+ * than being hidden: that row is the only way to reach and close the pane.
+ */
+function orderGroupItems(items) {
+  const byId = new Map();
+  for (const s of items) byId.set(s.id, s);
+  const childrenByParent = new Map();
+  const roots = [];
+  for (const s of items) {
+    const parentId = (s && typeof s.splitOf === 'string') ? s.splitOf : '';
+    if (parentId && parentId !== s.id && byId.has(parentId)) {
+      const list = childrenByParent.get(parentId);
+      if (list) list.push(s);
+      else childrenByParent.set(parentId, [s]);
+    } else {
+      roots.push(s);
+    }
+  }
+  if (roots.length === items.length) return items;
+  const out = [];
+  for (const s of roots) {
+    out.push(s);
+    const children = childrenByParent.get(s.id);
+    if (children) {
+      for (const child of children) out.push(child);
+    }
+  }
+  // Defensive: a session that somehow is neither a root nor a known parent's child
+  // still has a row. A pane the sidebar drops is a pane that cannot be closed.
+  if (out.length !== items.length) {
+    const emitted = new Set(out.map((s) => s.id));
+    for (const s of items) {
+      if (!emitted.has(s.id)) out.push(s);
+    }
+  }
+  return out;
+}
+
 function reorderTabChildren(ordered) {
   if (!tabsEl) return;
   // One pinned row instead of two loose buttons: the search field and both create
@@ -3935,9 +4397,13 @@ function renderTabs() {
       if (header) ordered.push(header);
     }
     const isCollapsed = isSidebarLayout && collapsedCategories.has(group.key) && !tabSearchActive;
-    for (const s of group.items) {
+    for (const s of orderGroupItems(group.items)) {
       const wrap = ensureTerminalTabWrap(s, currentWraps);
       wrap.classList.toggle('is-sleeping', s.state === 'sleeping');
+      // A split pane keeps its row — it is how the pane is focused and closed — but it
+      // is drawn as a child of the tab it splits, not as a peer the user has to tell
+      // apart from a real tab.
+      wrap.classList.toggle('is-split-pane', Boolean(s.splitOf));
       wrap.classList.toggle('is-category-collapsed', isCollapsed);
       applyCategoryChip(wrap, group, isSidebarLayout);
       updateTabActivityUi(s.id);
@@ -3999,15 +4465,29 @@ api?.onTerminalSession((state) => {
   }
   const activeSession = sessions.find((s) => s.id === activeId);
   const switchedTabs = prevActiveId !== activeId;
-  if (activeSession?.splitSessionId) {
-    if (switchedTabs && splitId === activeSession.splitSessionId && splitTerm) {
+  // `splitSessionId` names only the first split a parent owns, so a split the user
+  // opened by its own tab stays mounted under its parent; its entry carries that
+  // split's tail, where the parent's `splitBuffer` only describes the first.
+  const mountedSplitSurvives = Boolean(activeSession) && Boolean(splitId) && Boolean(splitTerm)
+    && sessions.some((s) => s.id === splitId && s.splitOf === activeSession.id);
+  const splitToMount = activeSession?.splitSessionId
+    ? (mountedSplitSurvives ? splitId : activeSession.splitSessionId)
+    : '';
+  if (splitToMount) {
+    const splitEntry = sessions.find((s) => s.id === splitToMount);
+    const isFirstSplit = splitToMount === activeSession.splitSessionId;
+    if (switchedTabs && splitId === splitToMount && splitTerm) {
       // Same split survives a tab switch: re-hydrate from the authoritative
       // transcript (getFullBuffer) rather than trusting the cached splitBuffer.
       atomicHydrateSplitPane(splitId);
     } else {
-      mountSplit(activeSession.splitSessionId, activeSession.splitBuffer, activeSession.splitSnapshotThroughSeq || 0);
+      mountSplit(
+        splitToMount,
+        splitEntry ? splitEntry.buffer : (isFirstSplit ? activeSession.splitBuffer : undefined),
+        splitEntry?.snapshotThroughSeq || (isFirstSplit ? (activeSession.splitSnapshotThroughSeq || 0) : 0),
+      );
     }
-  } else if (!activeSession || !activeSession.splitSessionId) {
+  } else {
     unmountSplit();
   }
   renderTabs();
@@ -4124,6 +4604,8 @@ async function bootstrapTerminalState() {
     // flash. The main process already validated and clamped these values.
     applyCollapsedCategories(s?.terminalTabPrefs?.collapsedCategories);
     applyCategories(s?.terminalTabPrefs?.categories);
+    applyCategoryColors(s?.terminalTabPrefs?.categoryColors);
+    applyStarredCategories(s?.terminalTabPrefs?.starredCategories);
     applyTerminalTabLayout(s?.terminalTabPrefs?.layout, s?.terminalTabPrefs?.sidebarWidth);
   } catch {}
   try {
@@ -4182,7 +4664,7 @@ function fitCurrentTerminal() {
         if (didResize) {
           item.term.refresh(0, item.term.rows - 1);
         }
-        if (!item.isUserScrolledUp) {
+        if (!item.isUserScrolledUp && viewportAtBottom(item.term)) {
           item.term.scrollToBottom();
         }
       } catch {} finally {

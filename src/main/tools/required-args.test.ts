@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { findMissingRequiredArgs, assertRequiredArgs } from './required-args.js';
+import { findMissingRequiredArgs, assertRequiredArgs, checkRequiredArgs } from './required-args.js';
 
 /**
  * These cases pin the contract that the live bridge was measured to violate: all three
@@ -49,6 +49,80 @@ describe('findMissingRequiredArgs', () => {
 
   it('reports every missing field in schema order', () => {
     assert.deepEqual(findMissingRequiredArgs({ required: ['width', 'height'] }, {}), ['width', 'height']);
+  });
+});
+
+/**
+ * `oneOf` covers argument forms a flat `required` list cannot express - a capability that
+ * accepts `expression` OR `expressionFile` advertises
+ * `oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }]` and the gate
+ * must pass whichever form the caller chose, refuse a call that satisfied neither, and
+ * stay out of the way when several forms are supplied at once (which combination is legal
+ * is the capability's domain decision, not the gate's).
+ */
+describe('oneOf required alternatives', () => {
+  const schema = { oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }] };
+
+  it('passes when the first advertised form is fully supplied', () => {
+    assert.equal(checkRequiredArgs('anti.browser.evaluate', schema, { expression: 'document.title' }), undefined);
+    assert.doesNotThrow(() => assertRequiredArgs('anti.browser.evaluate', schema, { expression: 'document.title' }));
+  });
+
+  it('passes when the second advertised form is fully supplied', () => {
+    assert.equal(checkRequiredArgs('anti.browser.evaluate', schema, { expressionFile: 'scripts/probe.js' }), undefined);
+    assert.doesNotThrow(() => assertRequiredArgs('anti.browser.evaluate', schema, { expressionFile: 'scripts/probe.js' }));
+  });
+
+  it('refuses a call that satisfied neither form, naming both alternatives', () => {
+    const refusal = checkRequiredArgs('anti.browser.evaluate', schema, {});
+    assert.ok(refusal);
+    assert.deepEqual(refusal.missing, []);
+    assert.deepEqual(refusal.unsatisfiedAlternatives, [['expression'], ['expressionFile']]);
+    assert.match(refusal.message, /expression/);
+    assert.match(refusal.message, /expressionFile/);
+    assert.throws(
+      () => assertRequiredArgs('anti.browser.evaluate', schema, {}),
+      (err: unknown) => {
+        const e = err as { code?: string; message: string };
+        assert.equal(e.code, 'INVALID_ARGUMENT');
+        assert.match(e.message, /anti\.browser\.evaluate/);
+        assert.match(e.message, /expression/);
+        assert.match(e.message, /expressionFile/);
+        return true;
+      }
+    );
+  });
+
+  it('passes when both forms are supplied, leaving the combination to the capability', () => {
+    assert.equal(
+      checkRequiredArgs('anti.browser.evaluate', schema, { expression: '1', expressionFile: 'scripts/probe.js' }),
+      undefined
+    );
+    assert.doesNotThrow(() =>
+      assertRequiredArgs('anti.browser.evaluate', schema, { expression: '1', expressionFile: 'scripts/probe.js' })
+    );
+  });
+
+  it('still enforces the flat required list alongside a satisfied oneOf', () => {
+    const combined = { required: ['tabId'], oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }] };
+    const refusal = checkRequiredArgs('anti.browser.evaluate', combined, { expression: '1' });
+    assert.ok(refusal);
+    assert.deepEqual(refusal.missing, ['tabId']);
+    assert.deepEqual(refusal.unsatisfiedAlternatives, []);
+  });
+
+  it('still enforces the oneOf alongside a satisfied flat required list', () => {
+    const combined = { required: ['tabId'], oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }] };
+    const refusal = checkRequiredArgs('anti.browser.evaluate', combined, { tabId: 'tab-1' });
+    assert.ok(refusal);
+    assert.deepEqual(refusal.missing, []);
+    assert.deepEqual(refusal.unsatisfiedAlternatives, [['expression'], ['expressionFile']]);
+  });
+
+  it('treats a blank-string member of a form as unsupplied', () => {
+    const refusal = checkRequiredArgs('anti.browser.evaluate', schema, { expression: '   ' });
+    assert.ok(refusal);
+    assert.deepEqual(refusal.unsatisfiedAlternatives, [['expression'], ['expressionFile']]);
   });
 });
 

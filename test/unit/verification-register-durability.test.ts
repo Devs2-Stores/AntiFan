@@ -17,20 +17,28 @@ import { IssueRegister } from '../../src/main/session/issue-register';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 
 const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+const originalRegisterDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
 const createdRoots: string[] = [];
 
 /**
  * A data root no register instance is bound to yet: the env var, the location
  * cache and the singleton are reset together, so a test can stand in for a
- * second process.
+ * second process. The register-dir override is cleared as well — a leaked
+ * value would point these fixtures at a live register.
  */
 function useFreshDataRoot(prefix: string): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   createdRoots.push(root);
   (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
   process.env.ANTIFAN_DATA_ROOT = root;
+  delete process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
   StorageLocations.resetCache();
   return root;
+}
+
+/** A second singleton bound to the same root — the stand-in for a peer process. */
+function resetSingleton(): void {
+  (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
 }
 
 function registerPath(root: string): string {
@@ -69,10 +77,52 @@ after(() => {
   (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
   if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
   else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+  if (originalRegisterDir === undefined) delete process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
+  else process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = originalRegisterDir;
   StorageLocations.resetCache();
   for (const root of createdRoots) fs.rmSync(root, { recursive: true, force: true });
 });
 
+function issuePath(root: string): string {
+  return path.join(root, 'issues', 'issue-register.jsonl');
+}
+
+/** Write an issue register file the way a *different* process would have left it. */
+function seedIssues(root: string, ids: string[]): void {
+  const file = issuePath(root);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const lines = ids.map((id) =>
+    JSON.stringify({
+      id,
+      toolName: 'test.probe',
+      errorMessage: `issue ${id}`,
+      severity: 'P2',
+      status: 'OPEN',
+      timestamp: 1,
+      timeFormatted: new Date(1).toISOString(),
+    })
+  );
+  fs.writeFileSync(file, lines.join('\n') + '\n', 'utf8');
+}
+
+/** The issue ids actually present in the file — the register's own truth. */
+function onDiskIssueIds(root: string): string[] {
+  return fs
+    .readFileSync(issuePath(root), 'utf8')
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line).id as string);
+}
+
+/** One issue record's status as the file knows it. */
+function onDiskIssueStatus(root: string, id: string): string | undefined {
+  return fs
+    .readFileSync(issuePath(root), 'utf8')
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line))
+    .find((rec) => rec.id === id)?.status;
+}
 describe('verification register durability', () => {
   test('a live instance sees records another process wrote after it started', () => {
     const root = useFreshDataRoot('antifan-register-live-');
@@ -239,5 +289,83 @@ describe('verification register durability', () => {
       'the duplicate lines collapse to one record per id'
     );
     assert.strictEqual(register.getVerification('seed-1')?.verdict, 'VERIFIED');
+  });
+
+  test('a stale subset cannot shrink the register', () => {
+    const root = useFreshDataRoot('antifan-register-shrink-');
+    const register = IssueRegister.getInstance();
+    seedRegister(root, ['seed-1', 'seed-2', 'seed-3']);
+
+    // The caller's set is a strict subset of what the file holds — the shape a
+    // stale mutation path would hand the writer. The merge must keep every id
+    // the file already knows; the register can never shrink.
+    const writer = register as unknown as {
+      rewriteVerificationsFile(records: unknown[]): void;
+    };
+    const seed1 = register.getVerification('seed-1');
+    assert.ok(seed1);
+    writer.rewriteVerificationsFile([seed1]);
+
+    assert.deepStrictEqual(
+      onDiskIds(root).sort(),
+      ['seed-1', 'seed-2', 'seed-3'],
+      'a subset write merges by id instead of shrinking the register'
+    );
+  });
+
+  test('a mutation survives a re-read from a fresh singleton', () => {
+    const root = useFreshDataRoot('antifan-register-fresh-');
+    const register = IssueRegister.getInstance();
+    seedRegister(root, ['seed-1', 'seed-2']);
+
+    register.updateVerificationVerdict('seed-1', 'REJECTED');
+
+    resetSingleton();
+    const fresh = IssueRegister.getInstance();
+    assert.strictEqual(
+      fresh.getVerification('seed-1')?.verdict,
+      'REJECTED',
+      'a fresh process sees the verdict the previous one persisted'
+    );
+    assert.strictEqual(fresh.listVerifications().length, 2);
+  });
+
+  test('issue mutations merge with a peer process instead of clobbering it', () => {
+    const root = useFreshDataRoot('antifan-issue-merge-');
+    seedIssues(root, ['ISS-Z', 'ISS-W']);
+
+    // Process B binds first and keeps running with the copy it loaded at
+    // construction; process A starts later and writes through the same file.
+    const registerB = IssueRegister.getInstance();
+    resetSingleton();
+    const registerA = IssueRegister.getInstance();
+
+    registerA.resolve('ISS-Z', 'resolved by process A');
+    registerA.record({
+      id: 'ISS-X',
+      toolName: 'test.probe',
+      errorMessage: 'written by process A',
+    });
+
+    // B's rewrite must reconcile with the file: A's new record survives, and
+    // A's mutation of ISS-Z is not rolled back by B's stale copy of it.
+    registerB.resolve('ISS-W', 'resolved by process B');
+    registerB.record({
+      id: 'ISS-Y',
+      toolName: 'test.probe',
+      errorMessage: 'written by process B',
+    });
+
+    assert.deepStrictEqual(
+      onDiskIssueIds(root).sort(),
+      ['ISS-W', 'ISS-X', 'ISS-Y', 'ISS-Z'],
+      "a peer's append survives another process's rewrite"
+    );
+    assert.strictEqual(
+      onDiskIssueStatus(root, 'ISS-Z'),
+      'RESOLVED',
+      "a stale copy cannot clobber a peer's newer mutation"
+    );
+    assert.strictEqual(onDiskIssueStatus(root, 'ISS-W'), 'RESOLVED');
   });
 });

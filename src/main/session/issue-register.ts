@@ -294,6 +294,7 @@ function durabilityFailure(message: string): Error {
 
 /** An unreadable register is an error, never an empty register. */
 function registerReadFailure(filePath: string, cause: unknown): Error {
+  if (cause instanceof Error && cause.name === 'REGISTER_READ_FAILED') return cause;
   const failure = new Error(
     `Verification register is unreadable (${filePath}): ${String(cause)}`
   );
@@ -405,19 +406,56 @@ export class IssueRegister {
   }
 
   /**
+   * Issue mutation entry point: adopt the file's current content before a
+   * mutation is applied, so the mutation acts on the register's truth rather
+   * than on the copy loaded at construction and a peer's newer write is never
+   * rolled back. Records the file knows are reconciled onto the live objects —
+   * a caller holding a returned record keeps observing its later mutations —
+   * and records only this view knows (a pending append) are left in place.
+   */
+  private readIssuesForMutation(): IssueRecord[] {
+    const byId = new Map(this.issues.map((record) => [record.id, record]));
+    for (const record of this.readIssuesFromDisk()) {
+      const existing = byId.get(record.id);
+      if (existing) Object.assign(existing, record);
+      else this.issues.push(record);
+    }
+    return this.issues;
+  }
+
+  /**
+   * Cache key for the register file: size + mtime. A missing file is an empty
+   * register (`null`); any other stat failure means the file cannot be
+   * accounted for, which is an error, never an empty register.
+   */
+  private verificationsFileKey(): string | null {
+    try {
+      const stat = fs.statSync(this.verificationsPath);
+      return `${stat.size}:${stat.mtimeMs}`;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+      throw registerReadFailure(this.verificationsPath, err);
+    }
+  }
+
+  /** Byte length of the register file; 0 when the file does not exist. */
+  private verificationsFileBytes(): number {
+    try {
+      return fs.statSync(this.verificationsPath).size;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return 0;
+      throw registerReadFailure(this.verificationsPath, err);
+    }
+  }
+
+  /**
    * Read every record from the register file. A missing file is an empty
    * register; a file that cannot be read is an error, never an empty register.
    * Unparseable lines are skipped and counted, because a line the parser rejects
    * is a diagnostic signal rather than an absence of records.
    */
   private readVerificationsFromDisk(force = false): VerificationRecord[] {
-    let key: string | null = null;
-    try {
-      const stat = fs.statSync(this.verificationsPath);
-      key = `${stat.size}:${stat.mtimeMs}`;
-    } catch {
-      key = null;
-    }
+    const key = this.verificationsFileKey();
     if (key === null) {
       this.verificationsCache = { key: 'absent', records: [] };
       return [];
@@ -481,6 +519,7 @@ export class IssueRegister {
       evidenceRefs?: string[];
     }
   ): IssueRecord {
+    this.readIssuesForMutation();
     const now = Date.now();
 
     // Deduplicate identical toolName + errorMessage on record
@@ -659,6 +698,7 @@ export class IssueRegister {
   }
 
   public markResolved(id: string, evidenceRef?: string | string[], notes?: string): boolean {
+    this.readIssuesForMutation();
     const item = this.issues.find((i) => i.id === id);
     if (!item) return false;
     item.status = 'RESOLVED';
@@ -686,6 +726,7 @@ export class IssueRegister {
     evidenceRef?: string | string[],
     notes?: string
   ): { resolvedCount: number; resolvedIds: string[] } {
+    this.readIssuesForMutation();
     const resolvedIds: string[] = [];
     let toResolve: IssueRecord[] = [];
 
@@ -748,6 +789,7 @@ export class IssueRegister {
     to: IssueStatus,
     opts?: IssueTransitionOptions
   ): IssueRecord {
+    this.readIssuesForMutation();
     const item = this.issues.find((i) => i.id === id);
     if (!item) {
       if (opts?.throwOnError === false) return undefined as unknown as IssueRecord;
@@ -783,13 +825,16 @@ export class IssueRegister {
     updates: IssueUpdateInput,
     opts?: { forceTransition?: boolean }
   ): IssueRecord {
-    const item = this.issues.find((i) => i.id === id);
+    this.readIssuesForMutation();
+    let item = this.issues.find((i) => i.id === id);
     if (!item) {
       throw new Error(`Issue with ID '${id}' was not found in register.`);
     }
 
     if (updates.status && updates.status !== item.status) {
-      this.transitionIssue(id, updates.status, {
+      // transitionIssue re-reads the register, so the record it returns is the
+      // live object the remaining updates must be applied to.
+      item = this.transitionIssue(id, updates.status, {
         force: opts?.forceTransition,
         notes: updates.notes,
       });
@@ -835,6 +880,7 @@ export class IssueRegister {
       reflectVerdict?: boolean;
     }
   ): IssueRecord {
+    this.readIssuesForMutation();
     const issue = this.issues.find((i) => i.id === issueId);
     if (!issue) {
       throw new Error(`Issue with ID '${issueId}' was not found in register.`);
@@ -884,6 +930,7 @@ export class IssueRegister {
     issueId: string,
     semantics: QaSemanticsInput
   ): IssueRecord {
+    this.readIssuesForMutation();
     const issue = this.issues.find((i) => i.id === issueId);
     if (!issue) {
       throw new Error(`Issue with ID '${issueId}' was not found in register.`);
@@ -941,6 +988,7 @@ export class IssueRegister {
       stalemateState: entry.stalemateState || 'ACTIVE',
     };
 
+    this.readIssuesForMutation();
     const targetIssueId = entry.linkedIssueId || this.issues.find((i) => i.claimId === fullRecord.id)?.id;
     if (targetIssueId) {
       const linkedIssue = this.issues.find((i) => i.id === targetIssueId);
@@ -1058,6 +1106,7 @@ export class IssueRegister {
           ? 'EXEMPTION_WAIVED'
           : 'ACTIVE';
     }
+    this.readIssuesForMutation();
     const linkedIssue = this.issues.find(
       (i) => (item.linkedIssueId && i.id === item.linkedIssueId) || i.claimId === id
     );
@@ -1092,12 +1141,7 @@ export class IssueRegister {
    * `DURABILITY_FAILED` and leaves the file byte-identical.
    */
   private rewriteVerificationsFile(records: VerificationRecord[]): void {
-    let existingBytes = 0;
-    try {
-      existingBytes = fs.statSync(this.verificationsPath).size;
-    } catch {
-      existingBytes = 0;
-    }
+    const existingBytes = this.verificationsFileBytes();
     if (records.length === 0 && existingBytes > 0) {
       throw durabilityFailure(
         `refusing to overwrite a ${existingBytes}-byte verification register with 0 records`

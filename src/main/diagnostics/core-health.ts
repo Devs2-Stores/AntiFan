@@ -13,6 +13,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { IssueRegister, type IssueRecord } from '../session/issue-register';
 import { ProcessRegistry } from '../process/process-registry';
+import { getMcpDispatchService, type McpDispatchService } from './mcp-dispatch-service';
+import type { McpDispatchAccount } from './mcp-dispatch-accounting';
 
 export type CoreHealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE' | 'UNKNOWN';
 
@@ -23,6 +25,12 @@ export interface CoreHealthCheck {
   affected: string[];
   evidenceRefs: string[];
   detail?: string;
+  /**
+   * Whether this check may decide the snapshot's overall status. Defaults to
+   * true; informational surfaces (usage counters, reported-only signals) set it
+   * false so they are rendered without ever capping the panel below HEALTHY.
+   */
+  gating?: boolean;
 }
 
 /**
@@ -145,7 +153,6 @@ export interface CoreHealthState {
   rootCauses: RootCauseState;
   regressions: RegressionState;
 }
-
 export interface CoreHealthServiceOptions {
   /** Absolute path to scripts/antifan-core.cjs. Defaults to repo-root resolution. */
   scriptPath?: string;
@@ -155,6 +162,13 @@ export interface CoreHealthServiceOptions {
   projectRoots?: string[];
   /** Injectable runner for tests: (command, arg) => parsed JSON. Throw = unavailable. */
   runCli?: (command: string, arg?: string) => unknown;
+  /**
+   * Injectable dispatch-accounting reader for tests. `null` disables the usage
+   * line entirely; when omitted the production singleton is used — except under
+   * `runCli`, where the default is no reader so unit tests never touch the live
+   * invocation store.
+   */
+  mcpDispatch?: Pick<McpDispatchService, 'getState' | 'clearCache'> | null;
   /** Injectable issue register for tests. */
   issueRegister?: Pick<IssueRegister, 'list' | 'summarizeOpen'>;
   /** Per-spawn timeout in ms. */
@@ -175,9 +189,9 @@ interface HealthCliResult {
   audit: Record<string, unknown>;
   decay: { stale?: Array<{ claimId?: string }>; aging?: Array<{ claimId?: string }>; cutoff?: string };
   gates: Record<string, { passed?: boolean; detail?: string; gateId?: string }>;
+  knowledgeGaps?: { gaps?: Array<{ platform?: string; kind?: string; activeClaims?: number; freshClaims?: number; unresolvedConflicts?: number }> };
   uncertainty: { level?: string; reason?: string };
 }
-
 const STATUS_RANK: Record<CoreHealthStatus, number> = {
   UNAVAILABLE: 3,
   DEGRADED: 2,
@@ -186,17 +200,24 @@ const STATUS_RANK: Record<CoreHealthStatus, number> = {
 };
 
 function worstOf(checks: CoreHealthCheck[]): Pick<CoreHealthSnapshot, 'status' | 'reasonCode' | 'affected' | 'evidenceRefs'> {
+  // Only gating checks decide the overall status: informational surfaces
+  // (usage counters, reported-only signals) render alongside the gates but
+  // must never cap the panel below HEALTHY.
+  const gating = checks.filter((c) => c.gating !== false);
   let worst: CoreHealthCheck | undefined;
-  for (const c of checks) {
+  for (const c of gating) {
     if (!worst || STATUS_RANK[c.status] > STATUS_RANK[worst.status]) worst = c;
   }
   if (!worst || worst.status === 'HEALTHY') {
     return { status: 'HEALTHY', reasonCode: 'ALL_GATES_PASSED', affected: [], evidenceRefs: checks.flatMap((c) => c.evidenceRefs) };
   }
+  // Every failed check at the decisive severity is named — reporting only the
+  // first one in literal order masks whichever other gates failed alongside it.
+  const decisive = gating.filter((c) => c.status === worst.status);
   return {
     status: worst.status,
-    reasonCode: worst.reasonCode,
-    affected: [...new Set(checks.filter((c) => c.status !== 'HEALTHY').flatMap((c) => c.affected))].slice(0, 50),
+    reasonCode: decisive.map((c) => c.reasonCode).join('+'),
+    affected: [...new Set(decisive.flatMap((c) => c.affected))].slice(0, 50),
     evidenceRefs: checks.flatMap((c) => c.evidenceRefs),
   };
 }
@@ -270,6 +291,7 @@ export class CoreHealthService {
   private readonly cacheTtlMs: number;
   private readonly runner?: (command: string, arg?: string) => unknown;
   private readonly issues: Pick<IssueRegister, 'list' | 'summarizeOpen'>;
+  private readonly mcpDispatch: Pick<McpDispatchService, 'getState' | 'clearCache'> | null;
   private readonly cliCache = new Map<string, { value: unknown; expiresAt: number }>();
   private readonly cliInFlight = new Map<string, Promise<unknown>>();
 
@@ -281,6 +303,12 @@ export class CoreHealthService {
     this.cacheTtlMs = options.cacheTtlMs ?? 5_000;
     this.runner = options.runCli;
     this.issues = options.issueRegister ?? IssueRegister.getInstance();
+    // The dispatch reader defaults to the production singleton, but never under
+    // `runCli`: a test that injects the CLI runner must not also reach the live
+    // invocation store. `null` disables the usage line explicitly.
+    this.mcpDispatch = options.mcpDispatch !== undefined
+      ? options.mcpDispatch
+      : options.runCli ? null : getMcpDispatchService();
   }
 
   /** Run one CLI command; rejects on any failure (caller maps to UNAVAILABLE).
@@ -366,9 +394,11 @@ export class CoreHealthService {
     }
   }
 
-  /** Invalidate all cached CLI results (e.g. on manual refresh). */
+  /** Invalidate all cached CLI results (e.g. on manual refresh). The dispatch
+   * memo is dropped with them so a refresh re-measures the usage line too. */
   public clearCache(): void {
     this.cliCache.clear();
+    this.mcpDispatch?.clearCache?.();
   }
 
   private unavailable<T extends { status: CoreHealthStatus; reasonCode: string; affected: string[]; evidenceRefs: string[] }>(
@@ -383,10 +413,18 @@ export class CoreHealthService {
   // ---- item 11/12: Core Health service + snapshot ---------------------------
 
   async getSnapshot(): Promise<CoreHealthSnapshot> {
+    // The usage line reads the dispatcher/invocation-ledger aggregate — the same
+    // envelope `accounting:mcp-dispatch` produces — never a client-side tally.
+    // It is fetched alongside the health CLI so the two reads overlap; a reader
+    // failure degrades only the usage check, never the snapshot.
+    const dispatchPromise: Promise<McpDispatchAccount | null> = this.mcpDispatch
+      ? this.mcpDispatch.getState().catch(() => null)
+      : Promise.resolve(null);
     let health: HealthCliResult;
     try {
       health = await this.cli<HealthCliResult>('health');
     } catch (err) {
+      await dispatchPromise;
       return {
         status: 'UNAVAILABLE',
         reasonCode: 'CORE_UNAVAILABLE',
@@ -397,7 +435,7 @@ export class CoreHealthService {
       };
     }
 
-    const stats = health.stats ?? {};
+    const stats: Record<string, number> = { ...(health.stats ?? {}) };
     const gates = health.gates ?? {};
 
     const checks: CoreHealthCheck[] = [];
@@ -452,13 +490,85 @@ export class CoreHealthService {
       unknownWhen: (d) => d === 'no regression run',
     }));
 
+    checks.push(gateCheck('core.principles', gates.principles, { failCode: 'PRINCIPLE_INVARIANT_VIOLATION' }));
+
+    // `connected` is surfaced, not gated: adjudication evidence is written with
+    // entryId=null, so promoted claims never raise the count and a gate on it
+    // would fail closed forever on a healthy store. The number is reported so
+    // the audit's connectivity is readable without pretending it is a verdict.
+    const connected = typeof health.audit?.connected === 'number' ? health.audit.connected : null;
+    checks.push({
+      name: 'core.connected',
+      status: connected === null ? 'UNKNOWN' : 'HEALTHY',
+      reasonCode: connected === null ? 'CONNECTED_UNREPORTED' : 'CONNECTED_REPORTED',
+      affected: [],
+      evidenceRefs: ['cli:health'],
+      detail: connected === null
+        ? 'audit did not report connected artifacts'
+        : `${connected} artifacts connected to claims via evidence (reported, not gated: adjudication evidence carries entryId=null)`,
+      gating: false,
+    });
+
+    // The largest store signal reaches a check: per-platform knowledge gaps
+    // (NO_EVIDENCE / STALE / CONFLICTED) are reported so a platform with zero
+    // claims is visible on the panel. Reported, not gated — a gap is a coverage
+    // fact, not a store defect.
+    const gapRows = health.knowledgeGaps?.gaps ?? [];
+    const openGaps = gapRows.filter((g) => g.kind && g.kind !== 'NONE');
+    checks.push({
+      name: 'core.knowledge_gaps',
+      status: openGaps.length > 0 ? 'UNKNOWN' : 'HEALTHY',
+      reasonCode: openGaps.length > 0 ? 'KNOWLEDGE_GAPS' : 'NO_KNOWLEDGE_GAPS',
+      affected: openGaps.slice(0, 5).map((g) => `${g.platform ?? '?'}:${g.kind}`),
+      evidenceRefs: ['cli:health'],
+      detail: openGaps.length > 0
+        ? `${openGaps.length} platform gap(s): ${openGaps.slice(0, 5).map((g) => `${g.platform ?? '?'} ${g.kind}`).join(', ')}`
+        : 'no platform knowledge gaps',
+      gating: false,
+    });
+
+    // One per-MCP usage line, sourced from the dispatcher/invocation-ledger
+    // aggregate (the same envelope `accounting:mcp-dispatch` produces). Never a
+    // client-side tally, never a second counter — and never gating, so a usage
+    // report cannot decide the store's health.
+    const dispatch = await dispatchPromise;
+    if (dispatch && dispatch.status === 'MEASURED') {
+      const calls = dispatch.reconciliation?.classifiedKeys
+        ?? (dispatch.rows ?? []).reduce((n, r) => n + (typeof r.calls === 'number' ? r.calls : 0), 0);
+      stats.mcpDispatchCalls = calls;
+      checks.push({
+        name: 'mcp.dispatch',
+        status: 'HEALTHY',
+        reasonCode: 'DISPATCH_MEASURED',
+        affected: [],
+        evidenceRefs: ['mcp-dispatch:aggregate'],
+        detail: `${calls} dispatch call(s) across ${(dispatch.rows ?? []).length} name(s) — ledger aggregate as of ${dispatch.asOf}`,
+        gating: false,
+      });
+    } else {
+      checks.push({
+        name: 'mcp.dispatch',
+        status: 'UNKNOWN',
+        reasonCode: dispatch ? `DISPATCH_${dispatch.reasonCode}` : 'DISPATCH_UNMEASURED',
+        affected: [],
+        evidenceRefs: ['mcp-dispatch:aggregate'],
+        detail: dispatch
+          ? `dispatch accounting unmeasured: ${dispatch.reasonCode}`
+          : 'dispatch accounting unavailable',
+        gating: false,
+      });
+    }
+
     const uncertainty = health.uncertainty ?? {};
     if (uncertainty.level === 'CONFLICTED') {
       checks.push({ name: 'core.uncertainty', status: 'DEGRADED', reasonCode: 'CONFLICTED_CLAIMS', affected: [uncertainty.reason ?? 'conflicted'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
     } else if (uncertainty.level === 'UNKNOWN') {
-      checks.push({ name: 'core.uncertainty', status: 'UNKNOWN', reasonCode: 'INSUFFICIENT_EVIDENCE', affected: [uncertainty.reason ?? 'unknown'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
+      // Uncertainty is per-task/claim by construction; the corpus-wide level is
+      // UNKNOWN by design, so it is reported without acting as a ceiling — a
+      // blocking UNKNOWN here would cap the panel below HEALTHY forever.
+      checks.push({ name: 'core.uncertainty', status: 'UNKNOWN', reasonCode: 'INSUFFICIENT_EVIDENCE', affected: [uncertainty.reason ?? 'unknown'], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason, gating: false });
     } else {
-      checks.push({ name: 'core.uncertainty', status: 'HEALTHY', reasonCode: uncertainty.level || 'SUPPORTED', affected: [], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason });
+      checks.push({ name: 'core.uncertainty', status: 'HEALTHY', reasonCode: uncertainty.level || 'SUPPORTED', affected: [], evidenceRefs: ['cli:uncertainty'], detail: uncertainty.reason, gating: false });
     }
 
     const open = this.issues.list({ status: 'OPEN' });
@@ -650,7 +760,12 @@ export class CoreHealthService {
       } else {
         state.status = 'UNKNOWN';
         state.reasonCode = 'NO_TASK_RUNS';
-        state.affected = ['no task_runs rows in the Core store'];
+        // The read surface predates any producer: super-core declares no task_runs
+        // DDL or writer, so an absent table means the producer never landed — a
+        // different gap from a present-but-empty table, and the surface names which.
+        state.affected = state.taskRunsTable
+          ? ['task_runs table is present but empty — no run has been recorded yet']
+          : ['task_runs table is absent from the Core store — no producer exists to write it'];
       }
       return state;
     } catch (err) {
@@ -729,14 +844,15 @@ export class CoreHealthService {
   }
 
   // ---- item 29: Core regression UI ----------------------------------------------
-  // The replay engine is owned by another workstream. The CLI reports
-  // replayEngineAvailable; until it lands this surface reports UNKNOWN with
-  // REPLAY_ENGINE_NOT_IMPLEMENTED — never PASS on an empty table.
+  // The replay engine exists (Core.replayRegression), so the verdict comes from
+  // the rows themselves: a regression only counts as passed when a replay
+  // produced the verdict — replayResult without replayedAt is an asserted
+  // value, not an observed one, and never reads as HEALTHY.
 
   async getRegressions(): Promise<RegressionState> {
     const state: RegressionState = {
       status: 'UNKNOWN',
-      reasonCode: 'REPLAY_ENGINE_NOT_IMPLEMENTED',
+      reasonCode: 'NO_REGRESSION_RUNS',
       affected: [],
       evidenceRefs: ['cli:regressions'],
       replayEngineAvailable: false,
@@ -746,12 +862,6 @@ export class CoreHealthService {
       const out = await this.cli<{ replayEngineAvailable?: boolean; rows?: Array<Record<string, unknown>> }>('regressions');
       state.replayEngineAvailable = Boolean(out.replayEngineAvailable);
       state.rows = out.rows ?? [];
-      if (!state.replayEngineAvailable) {
-        state.status = 'UNKNOWN';
-        state.reasonCode = 'REPLAY_ENGINE_NOT_IMPLEMENTED';
-        state.affected = ['replay engine not present in packages/super-core — recorded rows shown read-only'];
-        return state;
-      }
       if (state.rows.length === 0) {
         state.status = 'UNKNOWN';
         state.reasonCode = 'NO_REGRESSION_RUNS';
@@ -759,8 +869,9 @@ export class CoreHealthService {
       }
       const last = state.rows[0];
       const lastResult = last && typeof last.replayResult === 'string' ? last.replayResult : undefined;
+      const lastReplayedAt = last && typeof last.replayedAt === 'string' ? last.replayedAt : undefined;
       const lastId = last && typeof last.regressionId === 'string' ? last.regressionId : 'latest regression';
-      if (lastResult === 'PASS') {
+      if (lastResult === 'PASS' && lastReplayedAt != null) {
         state.status = 'HEALTHY';
         state.reasonCode = 'LAST_REPLAY_PASSED';
       } else {

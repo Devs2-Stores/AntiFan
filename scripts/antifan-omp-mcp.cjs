@@ -7,6 +7,15 @@ const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
+// Definition row shape: [name, description, properties, required?, oneOf?,
+// ambientTargetField?]. The sixth element names the advertised field that
+// selects the tab the capability acts on; when it is present, an omitted value
+// is filled from the session's bound tab at invoke time (see ambientTargetFieldFor
+// and the injection in invoke()). A field that predicates over stored records
+// rather than naming the tab to act on — anti.verification.list's tabId filter —
+// must stay undeclared so no ambient value is ever injected into it. The
+// compile-time gate (check-mcp-budget-dominance.mjs) verifies every declared
+// row against the app capability catalogue.
 const definitions = [
   ['anti.browser.tabs.list', 'List tabs in the live AntiFan Desktop Browser GUI (every tab in the window by default; pass all: false to list only the tabs this session owns). Primary browser tool for theme development and live tab management.', { all: { type: 'boolean', default: true, description: 'List every tab in the browser window (default). Pass false to restrict the list to the tabs this session owns.' } }],
   ['anti.browser.tabs.create', 'Open a new tab in live AntiFan Desktop Browser GUI without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' } }],
@@ -14,23 +23,23 @@ const definitions = [
   ['anti.browser.tabs.close', 'Close a tab in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.rebind_target', 'Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.set_automation_target', 'Set the primary automation target tab for this session (authority rotation via CAS).', { tabId: { type: 'string' } }, ['tabId']],
-  ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' } }, ['url']],
-  ['anti.browser.reload', 'Reload active or background tab in live AntiFan Desktop Browser GUI.', { tabId: { type: 'string' } }],
-  ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' } }],
-  ['anti.screenshot.full_page', 'Capture canonical PNG full-page evidence (entire document scroll height) and stage it under the evidence lease.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png'] }, quality: { type: 'number' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' } }],
-  ['anti.reference.capture', 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, screenshot: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } }],
-  ['anti.browser.set_viewport', 'Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height']],
-  ['anti.browser.get_viewport', 'Get the bound tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }],
-  ['anti.agent.cursor.click', 'Move visual Agent Cursor and click an element in live AntiFan Desktop tab without stealing visual focus.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.agent.cursor.move', 'Move visible Agent Cursor without clicking in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.agent.cursor.type', 'Move visual Agent Cursor and type into an input element in live AntiFan Desktop tab without stealing visual focus.', { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['text']],
-  ['anti.agent.cursor.scroll', 'Scroll active or background tab using visual Agent Cursor in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, deltaY: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.agent.cursor.hover', 'Move visual Agent Cursor to hover over an element in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.agent.cursor.highlight', 'Highlight a DOM element with visual Agent Cursor overlay in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.agent.cursor.clear', 'Clear all active Agent Cursor overlays in live AntiFan Desktop tab.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['browser_find', 'Search the accessibility snapshot of the current page for text, pattern, query, or a regular expression.', { text: { type: 'string' }, pattern: { type: 'string' }, query: { type: 'string' }, regex: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, maxMatches: { type: 'number' } }],
-  ['browser_press_key', 'Send native keyboard key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Control+a) to the active tab', { key: { type: 'string' }, tabId: { type: 'string' } }, ['key']],
+  ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' } }, ['url'], [], 'tabId'],
+  ['anti.browser.reload', 'Reload active or background tab in live AntiFan Desktop Browser GUI.', { tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' } }, [], [], 'tabId'],
+  ['anti.screenshot.full_page', 'Capture canonical PNG full-page evidence (entire document scroll height) and stage it under the evidence lease.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png'] }, quality: { type: 'number' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' } }, [], [], 'tabId'],
+  ['anti.reference.capture', 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, screenshot: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } }, [], [], 'tabId'],
+  ['anti.browser.set_viewport', 'Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
+  ['anti.browser.get_viewport', 'Get the bound tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['anti.agent.cursor.click', 'Move visual Agent Cursor and click an element in live AntiFan Desktop tab without stealing visual focus.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.agent.cursor.move', 'Move visible Agent Cursor without clicking in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.agent.cursor.type', 'Move visual Agent Cursor and type into an input element in live AntiFan Desktop tab without stealing visual focus.', { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['text'], [], 'tabId'],
+  ['anti.agent.cursor.scroll', 'Scroll active or background tab using visual Agent Cursor in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, deltaY: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.agent.cursor.hover', 'Move visual Agent Cursor to hover over an element in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.agent.cursor.highlight', 'Highlight a DOM element with visual Agent Cursor overlay in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.agent.cursor.clear', 'Clear all active Agent Cursor overlays in live AntiFan Desktop tab.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['browser_find', 'Search the accessibility snapshot of the current page for text, pattern, query, or a regular expression.', { text: { type: 'string' }, pattern: { type: 'string' }, query: { type: 'string' }, regex: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, maxMatches: { type: 'number' } }, [], [], 'tabId'],
+  ['browser_press_key', 'Send native keyboard key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Control+a) to the active tab', { key: { type: 'string' }, tabId: { type: 'string' } }, ['key'], [], 'tabId'],
   // Tier-2 device surface: the physical phone, driven directly over WebDriverAgent. These rows are
   // advertised under their catalogue names, so dispatch is unchanged and no routing row is needed.
   ['device.list', 'List iOS devices attached to this host (live enumeration over the USB multiplexer). Tier-2 surface: the real phone, not a Chromium pane.', {}],
@@ -43,42 +52,43 @@ const definitions = [
   ['device.swipe', 'Swipe on the device panel with a native gesture; momentum scrolling is produced by the device and nothing is emulated.', { x1: { type: 'number' }, y1: { type: 'number' }, x2: { type: 'number' }, y2: { type: 'number' }, durationMs: { type: 'number' } }, ['x1', 'y1', 'x2', 'y2']],
   ['device.type', 'Type text through the native keyboard into the currently focused field (tap the input first; WebDriverAgent types into the active element).', { text: { type: 'string' } }, ['text']],
   ['device.wait', "Wait on the real device: 'timeout' sleeps; 'page_loaded'/'stable' sample frames until rendering stops changing. That is a rendering heuristic, not a load or network-idle guarantee.", { type: { type: 'string', enum: ['timeout', 'page_loaded', 'stable'] }, value: { type: 'number', description: "Milliseconds for type 'timeout'" }, timeoutMs: { type: 'number' } }, ['type']],
-  ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } }],
-  ['theme.debug_bundle', 'Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }],
-  ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }],
-  ['theme.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }],
-  ['storefront.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }],
-  ['anti.theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).', { operation: { type: 'string', enum: ['apply', 'clear'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation', 'id']],
-  ['theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).', { operation: { type: 'string', enum: ['apply', 'clear'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation', 'id']],
-  ['anti.agent.file_upload', 'Upload local files into a file input element in live AntiFan Desktop tab without native file dialogs.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths']],
-  ['anti.agent.drop', 'Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths']],
-  ['anti.agent.drag', 'Drag a control (price slider, range handle, drag-to-reorder row) from one element/coordinate to another with a bounded interpolated pointer gesture. A press-and-release at the destination alone does not move a slider library.', { fromRef: { type: 'string', description: 'Origin semantic ref (@e1) from a snapshot' }, fromSelector: { type: 'string', description: 'Origin CSS selector' }, fromX: { type: 'number' }, fromY: { type: 'number' }, toRef: { type: 'string', description: 'Destination semantic ref (@e1)' }, toSelector: { type: 'string', description: 'Destination CSS selector' }, toX: { type: 'number' }, toY: { type: 'number' }, steps: { type: 'number', description: 'Interpolated pointer-move steps, clamped to 4..20 (default 10)' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.inspect.snapshot', 'Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, viewportOnly: { type: 'boolean' } }],
-  ['anti.browser.evaluate', 'Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set.', { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)' } }, ['expression']],
-  ['anti.browser.evaluate_frame', 'Execute JavaScript inside a child frame selected by frameUrl substring.', { expression: { type: 'string' }, frameUrl: { type: 'string', minLength: 1 }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['expression', 'frameUrl']],
+  ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } }, [], [], 'tabId'],
+  ['theme.debug_bundle', 'Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['theme.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['storefront.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['anti.theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).', { operation: { type: 'string', enum: ['apply', 'clear'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation', 'id'], [], 'tabId'],
+  ['theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).', { operation: { type: 'string', enum: ['apply', 'clear'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation', 'id'], [], 'tabId'],
+  ['anti.agent.file_upload', 'Upload local files into a file input element in live AntiFan Desktop tab without native file dialogs.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths'], [], 'tabId'],
+  ['anti.agent.drop', 'Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths'], [], 'tabId'],
+  ['anti.agent.drag', 'Drag a control (price slider, range handle, drag-to-reorder row) from one element/coordinate to another with a bounded interpolated pointer gesture. A press-and-release at the destination alone does not move a slider library.', { fromRef: { type: 'string', description: 'Origin semantic ref (@e1) from a snapshot' }, fromSelector: { type: 'string', description: 'Origin CSS selector' }, fromX: { type: 'number' }, fromY: { type: 'number' }, toRef: { type: 'string', description: 'Destination semantic ref (@e1)' }, toSelector: { type: 'string', description: 'Destination CSS selector' }, toX: { type: 'number' }, toY: { type: 'number' }, steps: { type: 'number', description: 'Interpolated pointer-move steps, clamped to 4..20 (default 10)' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.inspect.snapshot', 'Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, viewportOnly: { type: 'boolean' } }, [], [], 'tabId'],
+  ['anti.browser.evaluate', 'Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set.', { expression: { type: 'string' }, expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)' } }, [], [{ required: ['expression'] }, { required: ['expressionFile'] }], 'tabId'],
+  ['anti.browser.evaluate_frame', 'Execute JavaScript inside a child frame selected by frameUrl substring.', { expression: { type: 'string' }, expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' }, frameUrl: { type: 'string', minLength: 1 }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['frameUrl'], [{ required: ['expression'] }, { required: ['expressionFile'] }], 'tabId'],
   ['anti.telemetry.record_fallback', 'Record sanitized fallback telemetry when invoking Playwright after an AntiFan capability failure.', { primaryTool: { type: 'string' }, fallbackTool: { type: 'string' }, fallbackResult: { type: 'string', enum: ['SUCCESS', 'FAILED', 'SKIPPED'] }, sessionId: { type: 'string' }, targetUrl: { type: 'string' }, errorCode: { type: 'string' }, errorMessage: { type: 'string' }, durationMs: { type: 'number' }, notes: { type: 'string' } }, ['primaryTool', 'fallbackTool', 'fallbackResult']],
-  ['anti.inspect.styles', 'Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector).', { selector: { type: 'string' }, ref: { type: 'string' }, properties: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.inspect.region', 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.', { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.trace.interaction', 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.', { action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] }, selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, deltaY: { type: 'number' }, settleMs: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['action']],
-  ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, baselineRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, selector: { type: 'string' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, maskSelectors: { type: 'array', items: { type: 'string' } }, maskOptionalSelectors: { type: 'array', items: { type: 'string' } }, normalizeScroll: { type: 'boolean' }, fullPage: { type: 'boolean', description: 'Capture and compare entire document scroll height' }, useDefaultWidgetMasks: { type: 'boolean' }, leaseToken: { type: 'string' }, trackedSelectors: { type: 'array', items: { type: 'string' } }, heightTolerance: { type: 'number' }, allowHeightDrift: { type: 'boolean' }, maxGeometryDeltaPx: { type: 'number' }, expectedUrl: { type: 'string' }, expectedTargetUrl: { type: 'string' }, expectedBaselineUrl: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }],
-  ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector']],
+  ['anti.inspect.styles', 'Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector).', { selector: { type: 'string' }, ref: { type: 'string' }, properties: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.inspect.region', 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.', { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.trace.interaction', 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.', { action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] }, selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, deltaY: { type: 'number' }, settleMs: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['action'], [], 'tabId'],
+  ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, baselineRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, selector: { type: 'string' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, maskSelectors: { type: 'array', items: { type: 'string' } }, maskOptionalSelectors: { type: 'array', items: { type: 'string' } }, normalizeScroll: { type: 'boolean' }, fullPage: { type: 'boolean', description: 'Capture and compare entire document scroll height' }, useDefaultWidgetMasks: { type: 'boolean' }, leaseToken: { type: 'string' }, trackedSelectors: { type: 'array', items: { type: 'string' } }, heightTolerance: { type: 'number' }, allowHeightDrift: { type: 'boolean' }, maxGeometryDeltaPx: { type: 'number' }, expectedUrl: { type: 'string' }, expectedTargetUrl: { type: 'string' }, expectedBaselineUrl: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }, [], [], 'tabId'],
+  ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector'], [], 'tabId'],
   ['anti.spec.validate_gate', 'Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation.', { specTabId: { type: 'string' }, targetTabId: { type: 'string' }, tolerance: { type: 'number' } }],
-  ['anti.agent.sequence', 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards.', { actions: { type: 'array', items: { type: 'object' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stopOnError: { type: 'boolean' } }, ['actions']],
+  ['anti.agent.sequence', 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards.', { actions: { type: 'array', items: { type: 'object' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stopOnError: { type: 'boolean' } }, ['actions'], [], 'tabId'],
   ['anti.artifact.read', 'Read an authorized artifact by ID with bounded chunk size (clamped to max 32KB per frame).', { artifactId: { type: 'string' }, offset: { type: 'number' }, limit: { type: 'number' } }, ['artifactId']],
   ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
-  ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height']],
-  ['browser.get-viewport', 'Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }],
+  ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
+  ['browser.get-viewport', 'Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, or legacy condition states', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation (or legacy aliases)' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['condition'], [], 'tabId'],
   ['file.read', 'Read a file relative to the authoritative workspace root.', { path: { type: 'string' }, maxBytes: { type: 'number' } }, ['path']],
   ['file.write', 'Write a file relative to the authoritative workspace root with boundary enforcement.', { path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']],
-  ['anti.theme.resolve_element', 'Map a live DOM element to bounded, correlated local theme source candidates.', { selector: { type: 'string' }, ref: { type: 'string' }, workspaceRoot: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.inspect.matched_styles', 'Inspect live CDP matched CSS and classify active versus overridden declarations.', { nodeId: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stylesheetUrlMap: { type: 'object' } }],
-  ['anti.inspect.responsive_matrix', 'Probe document and target overflow at the five standard responsive widths.', { selector: { type: 'string' }, tabId: { type: 'string' } }],
+  ['anti.theme.resolve_element', 'Map a live DOM element to bounded, correlated local theme source candidates.', { selector: { type: 'string' }, ref: { type: 'string' }, workspaceRoot: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['anti.inspect.matched_styles', 'Inspect live CDP matched CSS and classify active versus overridden declarations.', { nodeId: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stylesheetUrlMap: { type: 'object' } }, [], [], 'tabId'],
+  ['anti.inspect.responsive_matrix', 'Probe document and target overflow at the five standard responsive widths.', { selector: { type: 'string' }, tabId: { type: 'string' } }, [], [], 'tabId'],
   ['anti.verification.record_claim', 'Record a live verification claim as UNVERIFIED with explicit proof obligations.', { claim: { type: 'string' }, category: { type: 'string', enum: ['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM', 'VISUAL'] }, actor: { type: 'string', enum: ['agent', 'user'] }, tabId: { type: 'string' }, selector: { type: 'string' }, expectedHeight: { type: 'number' }, expectedSections: { type: 'number' }, tolerance: { type: 'number' }, proofObligations: { type: 'array', maxItems: 50, items: { type: 'object', properties: { id: { type: 'string' }, metric: { type: 'string', description: 'Obligation metric identifier (required)' }, tolerance: { type: 'number' }, critical: { type: 'boolean' }, expected: {} }, required: ['metric'] } }, linkedIssueId: { type: 'string' } }, ['claim', 'tabId', 'category']],
   ['anti.verification.verify_claim', 'Evaluate a recorded claim against fresh live browser evidence and persist an authoritative receipt.', { claimId: { type: 'string' }, witnessObservation: { type: 'string' }, semanticFailureObservation: { type: 'string' } }, ['claimId']],
-  ['anti.theme.export_clean', 'Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath']],
-  ['anti.browser.dump_dom', 'Stream clean or raw page DOM directly to a workspace file with zero MCP transport truncation and Windows-safe atomic writes.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath']],
+  ['anti.theme.export_clean', 'Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath'], [], 'tabId'],
+  ['anti.browser.dump_dom', 'Stream clean or raw page DOM directly to a workspace file with zero MCP transport truncation and Windows-safe atomic writes.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true } }, ['outputPath'], [], 'tabId'],
   ['anti.verification.list', 'List recorded verification claims and their current verdicts.', { verdict: { type: 'string', enum: ['VERIFIED', 'PARTIAL', 'REJECTED', 'INCONCLUSIVE', 'UNVERIFIED'] }, actor: { type: 'string', enum: ['agent', 'user'] }, tabId: { type: 'string' }, stalemateState: { type: 'string', enum: ['ACTIVE', 'STALEMATE', 'EXEMPTION_WAIVED'] }, limit: { type: 'number' } }],
   ['core.query', 'Query the local Super Core evidence store: anchored claims filtered by text/platform/unit/kind. Platform filter excludes untagged claims unless includeGlobal.', { text: { type: 'string' }, platform: { type: 'string' }, unitId: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, kind: { type: 'string' }, limit: { type: 'number' }, includeGlobal: { type: 'boolean' } }],
   ['core.context_pack', 'Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope. Packs dedupe on (task, platform, sessionId).', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, ['task']],
@@ -113,8 +123,8 @@ const definitions = [
   ['core.classify_uncertainty', 'Classify uncertainty level for a claim or task.', { claimId: { type: 'string' }, task: { type: 'string' } }],
   // v4: Knowledge Decay
   ['core.decay_check', 'Check for stale/aging claims beyond a threshold.', { staleDays: { type: 'number' } }],
-  // v4: Corpus Audit
-  ['core.corpus_audit', 'Run a corpus completion audit and record the result.', {}],
+  ['core.corpus_audit', 'Run a corpus completion audit (read-only evaluation).', {}],
+  ['core.candidates', 'List adjudication candidates (default PENDING).', { status: { type: 'string' }, limit: { type: 'number' } }],
   ['core.knowledge_gaps', 'Classify per-platform knowledge gaps: NO_EVIDENCE (never had claims), STALE (claims exist, none fresh), CONFLICTED (claims + unresolved conflicts), NONE.', { staleDays: { type: 'number' } }],
   // v4: Phase Gates
   ['core.check_phase_gate', 'Check a phase gate (coverage, evidence, conflict, temporal, promotion, regression).', { phase: { type: 'string' }, gate: { type: 'string' } }, ['phase', 'gate']],
@@ -150,6 +160,14 @@ const definitions = [
   // v4: Enriched Context Pack & Receipt
   ['core.context_pack_v2', 'Build an enriched Context Pack: claims + rules + historical cases + pitfalls + workarounds + recommended pattern + uncertainty + confidence.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, ['task']],
   ['core.receipt_v2', 'Issue an enriched Decision Receipt: evidence revisions + why + historical cases + risks + alternatives + uncertainty + confidence.', { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' }, platform: { type: 'string' } }, ['task', 'recommendation']],
+  // Terminal PTY sessions: registered under their own names, so dispatch is
+  // unchanged and no routing row is needed.
+  ['terminal.write', 'Write raw input text to an active PTY terminal session. Writing to a SLEEPING session wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true', { sessionId: { type: 'string', description: 'Target terminal session ID' }, input: { type: 'string', description: 'Data/commands to write into PTY stdin' } }, ['sessionId', 'input']],
+  ['terminal.resize', 'Resize terminal rows and columns for an active PTY session', { sessionId: { type: 'string', description: 'Target terminal session ID' }, cols: { type: 'number', description: 'Terminal columns' }, rows: { type: 'number', description: 'Terminal rows' } }, ['sessionId', 'cols', 'rows']],
+  ['terminal.wait', 'Wait for output-match pattern, process exit, or silence on a terminal session. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it', { sessionId: { type: 'string', description: 'Terminal session ID' }, condition: { type: 'string', enum: ['output-match', 'exit', 'silence'] }, pattern: { type: 'string', description: 'Regex pattern for output-match' }, sessionGeneration: { type: 'number', description: 'Expected session incarnation' }, afterSeq: { type: 'number', description: 'Sequence cursor' }, silenceMs: { type: 'number', description: 'Silence duration threshold in milliseconds' }, timeoutMs: { type: 'number', description: 'Wait deadline in milliseconds' } }, ['sessionId', 'condition']],
+  ['terminal.list', 'List active terminal sessions with bounded wire summary and incarnation metadata', { paged: { type: 'boolean', description: 'Whether to page buffers according to wire budget' } }],
+  ['terminal.create', 'Create a new base or split terminal PTY session', { cwd: { type: 'string' }, parentId: { type: 'string' }, initialCols: { type: 'number' }, initialRows: { type: 'number' } }],
+  ['terminal.close', 'Close a terminal session and safely terminate its process tree', { sessionId: { type: 'string', description: 'Session ID to close' }, isSplit: { type: 'boolean', description: 'Whether target is a split session' } }, ['sessionId']],
 ];
 
 let currentAuthorityRevision = null;
@@ -170,6 +188,17 @@ function recordBoundTab(tabId) {
   boundTabOverride = { tabId: clean };
   if (clean) process.env.ANTIFAN_BOUND_TAB_ID = clean;
   else delete process.env.ANTIFAN_BOUND_TAB_ID;
+}
+
+// The ambient bound-tab default is opt-in per advertised row: only a capability
+// whose definition declares an ambient target field (row element 5) receives
+// the session's bound tab when the caller omits that field. Rows that declare
+// no ambient field — including filter-shaped fields like anti.verification.list's
+// tabId — are dispatched exactly as called.
+function ambientTargetFieldFor(method) {
+  const row = definitions.find(([defName]) => defName === method);
+  const field = row && row[5];
+  return typeof field === 'string' && field.length > 0 ? field : undefined;
 }
 
 function resolveBridgeCandidates() {
@@ -510,9 +539,10 @@ const CORE_DISPATCH = Object.freeze({
   'core.find_similar': ['findSimilar', (p) => [p], false],
   'core.classify_uncertainty': ['classifyUncertainty', (p) => [p], false],
   'core.decay_check': ['decayCheck', (p) => [p], false],
-  'core.corpus_audit': ['corpusAudit', () => [], true],
+  'core.corpus_audit': ['corpusAudit', () => [], false],
+  'core.candidates': ['candidates', (p) => [p], false],
   'core.knowledge_gaps': ['knowledgeGaps', (p) => [p], false],
-  'core.check_phase_gate': ['checkPhaseGate', (p) => [p.phase, p.gate], true],
+  'core.check_phase_gate': ['checkPhaseGate', (p) => [p.phase, p.gate], false],
   'core.resolve_conflict': ['resolveConflict', (p) => [p], true],
   'core.record_regression': ['recordRegression', (p) => [p], true],
   'core.replay_regression': ['replayRegression', (p) => [p.regressionId], true],
@@ -2108,7 +2138,8 @@ async function invoke(method, params = {}, callerRequestId) {
   }
   // Required-field contract is enforced before any dispatch (bridge or local):
   // the advertised schema is a promise published by this surface.
-  const declaredRequired = (definitions.find(([defName]) => defName === method) || [])[3] || [];
+  const advertisedDef = definitions.find(([defName]) => defName === method) || [];
+  const declaredRequired = advertisedDef[3] || [];
   const missingRequiredEarly = declaredRequired.filter((field) => {
     const value = params[field];
     if (value === undefined || value === null) return true;
@@ -2122,6 +2153,34 @@ async function invoke(method, params = {}, callerRequestId) {
         `Supply ${missingRequiredEarly.length === 1 ? 'the field' : 'the fields'} explicitly and retry.`,
       details: { capability: method, missing: missingRequiredEarly },
     }));
+  }
+  // Mutually exclusive argument forms (`oneOf: [{ required: [...] }, ...]`): the
+  // flat list above cannot express "one of these shapes", so a definition may
+  // carry the groups as a fifth element. The call is accepted when at least one
+  // group's members are all present with usable values; supplying members of
+  // several groups at once still passes here, because which combination is
+  // legal is the capability's own refusal to make.
+  const declaredOneOf = advertisedDef[4];
+  if (Array.isArray(declaredOneOf) && declaredOneOf.length > 0) {
+    const usable = (field) => {
+      const value = params[field];
+      return !(value === undefined || value === null || (typeof value === 'string' && value.trim() === ''));
+    };
+    const satisfied = declaredOneOf.some((group) => {
+      const members = group && Array.isArray(group.required) ? group.required : [];
+      return members.length > 0 && members.every(usable);
+    });
+    if (!satisfied) {
+      const forms = declaredOneOf
+        .map((group) => (group && Array.isArray(group.required) ? group.required.join(' + ') : ''))
+        .filter((form) => form.length > 0);
+      throw new Error(JSON.stringify({
+        code: 'INVALID_ARGUMENT',
+        message: `Capability '${method}' requires one of: ${forms.join(' | ')}. ` +
+          'None of the advertised argument forms was fully supplied, so the call is refused rather than dispatched with an ambiguous payload.',
+        details: { capability: method, oneOf: forms },
+      }));
+    }
   }
   // Local core.* capabilities: the Super Core evidence store is a local SQLite
   // database, not a bridge capability. Handle in-process BEFORE the bootstrap
@@ -2200,9 +2259,15 @@ async function invoke(method, params = {}, callerRequestId) {
   // strings are real values; only absent, null and blank count as omitted.
   // Reaching here means every required field is genuinely present, so the
   // convenience default below can only ever apply to a tool whose schema keeps
-  // tabId optional.
-  if (!effectiveParams.tabId && boundTabId) {
-    effectiveParams.tabId = boundTabId;
+  // the field optional. The default is opt-in per advertised row: only a
+  // capability that declares an ambient target field (row element 5) receives
+  // the bound tab. A field that predicates over stored records instead of
+  // naming the tab to act on — anti.verification.list's tabId filter — declares
+  // no ambient field, so an omitted value stays omitted and the call is
+  // dispatched unscoped.
+  const ambientTargetField = ambientTargetFieldFor(method);
+  if (ambientTargetField && !effectiveParams[ambientTargetField] && boundTabId) {
+    effectiveParams[ambientTargetField] = boundTabId;
   }
   if (mapped === 'artifact.read') {
     const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
@@ -2245,8 +2310,12 @@ async function invoke(method, params = {}, callerRequestId) {
             // the default keeps naming a dead tab, and every later call that omits tabId
             // is refused as an unknown target. A close with no replacement clears the
             // default instead of fabricating one, so the next call rides the authority.
+            // The comparison re-resolves the default at response time rather than reusing
+            // the invoke-head snapshot: a switch/rebind/open that settled while this close
+            // was in flight already recorded a newer decision, and replaying this close's
+            // failover over it would resurrect a stale binding.
             const closedTabId = typeof data.tabId === 'string' ? data.tabId : '';
-            if (closedTabId && closedTabId === boundTabId) {
+            if (closedTabId && closedTabId === resolveBoundTabId(currentBoot.tabId)) {
               recordBoundTab(data.failoverTabId);
             }
           }
@@ -2464,10 +2533,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     ? definitions.filter(([name]) => isCapabilityPermitted(name, allowedCaps, forbiddenCaps))
     : definitions;
   return {
-    tools: filteredDefs.map(([name, description, properties, required]) => ({
+    tools: filteredDefs.map(([name, description, properties, required, oneOf]) => ({
       name,
       description,
-      inputSchema: { type: 'object', properties, ...(required ? { required } : {}) },
+      inputSchema: {
+        type: 'object',
+        properties,
+        ...(required && required.length > 0 ? { required } : {}),
+        ...(Array.isArray(oneOf) && oneOf.length > 0 ? { oneOf } : {}),
+      },
     })),
   };
 });
@@ -2642,6 +2716,7 @@ module.exports = {
   invoke,
   invokeCore,
   DEFAULT_CLIENT_TIMEOUT_MS,
+  ambientTargetFieldFor,
 };
 
 function shutdown() {

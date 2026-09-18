@@ -630,6 +630,16 @@ export class Core {
     return { adjudicationId: adjId, candidateId: opts.candidateId, decision: opts.decision, authority: opts.authority, scope };
   }
 
+  // The read path for the adjudication queue: PENDING candidates were only
+  // reachable out of band, so nothing could list what adjudicate() would act
+  // on. Read-only; status defaults to PENDING because that is the queue.
+  candidates(opts?: { status?: string; limit?: number }) {
+    const where = opts?.status ? 'WHERE status = ?' : "WHERE status = 'PENDING'";
+    const args = opts?.status ? [opts.status] : [];
+    const limit = Math.max(1, Math.min(opts?.limit ?? 200, 1000));
+    return this.db.prepare(`SELECT * FROM candidates ${where} ORDER BY createdAt ASC LIMIT ?`).all(...args as never[], limit);
+  }
+
   // ---- releases / rollback ---------------------------------------------------
   snapshot(note?: string) {
     const releaseId = `rel-${uuid()}`;
@@ -923,8 +933,11 @@ export class Core {
     return { stale, aging, cutoff };
   }
 
-  // `record: false` computes the audit without appending a `corpus_audit` row —
-  // the same reasoning as checkPhaseGate: only a real audit run should persist.
+  // `record: true` appends a `corpus_audit` row; every other call computes the
+  // audit without persisting it. Recording is opt-in, never the default: the
+  // MCP surface invokes this method with no options at all, so a record-by-
+  // default posture would append a row on every read — the same defect class
+  // as a health poll that grows the store. Only a real audit run should persist.
   corpusAudit(opts: { record?: boolean } = {}) {
     const s = this.stats();
     const disp = this.db.prepare('SELECT disposition, COUNT(*) AS n FROM artifacts GROUP BY disposition').all() as Array<{ disposition: string; n: number }>;
@@ -939,20 +952,28 @@ export class Core {
     const connected = (this.db.prepare('SELECT COUNT(DISTINCT entryId) AS n FROM evidence WHERE entryId IS NOT NULL').get() as { n: number }).n;
     const unresolved = (this.db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE state = 'UNRESOLVED'").get() as { n: number }).n;
     const rules = (this.db.prepare("SELECT COUNT(*) AS n FROM claims WHERE kind IN ('RULE','CONSTRAINT')").get() as { n: number }).n;
+    // The blocked-reason histogram is the only surface that can print WHY the
+    // blocked artifacts are blocked: the count alone was stored for every audit
+    // while the reasons themselves had no read path. NULL/empty reasons are
+    // bucketed as '(none)' so the histogram reconciles with `blocked`.
+    const blockedReasons: Record<string, number> = {};
+    for (const r of this.db.prepare("SELECT reason, COUNT(*) AS n FROM artifacts WHERE disposition = 'BLOCKED' GROUP BY reason").all() as Array<{ reason: string | null; n: number }>) {
+      blockedReasons[r.reason && r.reason !== '' ? r.reason : '(none)'] = r.n;
+    }
     // coveragePct = claim-yield: share of discovered artifacts that produced
     // claims. A corpus where most artifacts yield nothing reports a low number —
     // never masked as 100% (§3, §50).
     const coveragePct = discovered > 0 ? Math.round((extracted / discovered) * 1000) / 10 : 0;
     const processedPct = discovered > 0 ? Math.round(((analyzed + (byDisp['EXCLUDED'] ?? 0)) / discovered) * 1000) / 10 : 0;
-    const reasonsJson = JSON.stringify({ byDisposition: byDisp, blockedReasonless, pending });
+    const reasonsJson = JSON.stringify({ byDisposition: byDisp, blockedReasonless, blockedReasons, pending });
     const auditId = `audit-${uuid()}`;
     const pendingCands = (this.db.prepare("SELECT COUNT(*) AS n FROM candidates WHERE status = 'PENDING'").get() as { n: number }).n;
-    const recorded = opts.record !== false;
+    const recorded = opts.record === true;
     if (recorded) {
       this.db.prepare('INSERT INTO corpus_audit(auditId,artifactsDiscovered,artifactsRead,artifactsAnalyzed,artifactsClassified,artifactsConnected,artifactsExtracted,blocked,reasonsJson,unresolved,coveragePct,rulesGenerated,candidatesPending,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
         .run(auditId, discovered, analyzed, analyzed, analyzed, connected, extracted, blocked, reasonsJson, unresolved, coveragePct, rules, pendingCands, now());
     }
-    return { auditId: recorded ? auditId : null, artifacts: discovered, claims: s.claims, analyzed, extracted, connected, blocked, blockedReasonless, pending, unresolved, coveragePct, processedPct, candidatesPending: pendingCands };
+    return { auditId: recorded ? auditId : null, artifacts: discovered, claims: s.claims, analyzed, extracted, connected, blocked, blockedReasonless, blockedReasons, pending, unresolved, coveragePct, processedPct, candidatesPending: pendingCands };
   }
 
   // ---- v4: Knowledge-gap classification (R7, item 30) ---------------------------
@@ -994,10 +1015,10 @@ export class Core {
   }
 
   // ---- v4: Phase Gates (§51) ---------------------------------------------------
-  // `record: false` evaluates the gate without writing a `phase_gates` row.
-  // Gate rows are evidence of a real gate run; a UI surface that re-evaluates on
-  // every refresh must not append them, or the table fills with pseudo-phase rows
-  // and grows without bound.
+  // `record: true` persists a `phase_gates` row; every other call evaluates the
+  // gate without writing. Recording is opt-in, never the default: the MCP
+  // surface invokes this method with no options, so a record-by-default posture
+  // appends a row on every read and the table fills with pseudo-phase rows.
   checkPhaseGate(phase: string, gate: string, opts: { record?: boolean } = {}) {
     const gateId = `gate-${uuid()}`;
     let passed = 0;
@@ -1040,11 +1061,33 @@ export class Core {
         : lastReg.replayResult == null ? 'last regression recorded but never replayed'
         : lastReg.replayedAt == null ? `last regression asserts ${lastReg.replayResult} with no replay — not adjudicated`
         : `last regression: ${lastReg.replayResult} at ${lastReg.replayedAt}`;
+    } else if (gate === 'principles') {
+      // Principles carry no evidence rows, so the claims' evidence gate cannot
+      // see them. Their invariant is the pair a principle must hold to be
+      // load-bearing: a unique normalized statement (dedupe) and an anchor
+      // (source or derivedFrom). A corpus that stores the same principle ten
+      // times, or a principle with no provenance, fails this gate — the same
+      // fail-closed posture as `evidence`.
+      const rows = this.db.prepare('SELECT statement, source, derivedFrom FROM principles').all() as Array<{ statement: string | null; source: string | null; derivedFrom: string | null }>;
+      const seen = new Set<string>();
+      let duplicates = 0;
+      let unanchored = 0;
+      for (const r of rows) {
+        const normalized = (r.statement ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+        if (normalized.length > 0) {
+          if (seen.has(normalized)) duplicates += 1;
+          else seen.add(normalized);
+        }
+        const anchored = (r.source != null && r.source !== '') || (r.derivedFrom != null && r.derivedFrom !== '');
+        if (!anchored) unanchored += 1;
+      }
+      passed = duplicates === 0 && unanchored === 0 ? 1 : 0;
+      detail = `${duplicates} duplicate normalized statement(s), ${unanchored} unanchored principle(s) (of ${rows.length})`;
     } else {
       passed = 0;
       detail = `unknown gate '${gate}' — fail closed`;
     }
-    const recorded = opts.record !== false;
+    const recorded = opts.record === true;
     if (recorded) {
       this.db.prepare('INSERT INTO phase_gates(gateId,phase,gate,passed,detail,checkedAt) VALUES (?,?,?,?,?,?)')
         .run(gateId, phase, gate, passed, detail, now());
@@ -1061,8 +1104,8 @@ export class Core {
   //
   // `status` is three-valued rather than a percentage. An empty store cannot
   // support a judgement, so it reports UNKNOWN instead of a flattering score,
-  // and DEGRADED names the first failing gate in a stable order so the reason is
-  // reproducible rather than the last gate that happened to run.
+  // and DEGRADED names every failing gate in a stable order — a single named
+  // gate would mask whichever other gates failed alongside it.
   health(opts: { staleDays?: number } = {}) {
     const gate = (name: string) => this.checkPhaseGate('health-surface', name, { record: false });
     const stats = this.stats();
@@ -1074,18 +1117,29 @@ export class Core {
       temporal: gate('temporal'),
       promotion: gate('promotion'),
       regression: gate('regression'),
+      principles: gate('principles'),
     };
     const empty = stats.artifacts === 0 && stats.claims === 0;
-    const failed = Object.entries(gates).find(([, g]) => !g.passed);
-    const status = empty ? 'UNKNOWN' : failed ? 'DEGRADED' : 'HEALTHY';
-    const reasonCode = empty ? 'EMPTY_STORE' : failed ? `GATE_${failed[0].toUpperCase()}_FAILED` : 'ALL_GATES_PASS';
+    const failedGates = Object.entries(gates).filter(([, g]) => !g.passed).map(([name]) => name);
+    const status = empty ? 'UNKNOWN' : failedGates.length > 0 ? 'DEGRADED' : 'HEALTHY';
+    const reasonCode = empty
+      ? 'EMPTY_STORE'
+      : failedGates.length > 0
+        ? failedGates.map((name) => `GATE_${name.toUpperCase()}_FAILED`).join('+')
+        : 'ALL_GATES_PASSED';
     return {
       status,
       reasonCode,
+      failedGates,
       stats,
       audit,
       decay: this.decayCheck(opts.staleDays ? { staleDays: opts.staleDays } : undefined),
       gates,
+      // The largest store signal reaches the health surface: per-platform gap
+      // classification (NO_EVIDENCE / STALE / CONFLICTED / NONE) computed from
+      // the same store, so a platform with zero claims is visible here instead
+      // of only through a dedicated call nobody makes.
+      knowledgeGaps: this.knowledgeGaps(opts.staleDays ? { staleDays: opts.staleDays } : undefined),
       // Uncertainty is scoped to a task or claim by construction. Classifying the
       // corpus-wide newest rows and presenting that as a health signal answers a
       // question nobody asked, so the missing scope is named instead.

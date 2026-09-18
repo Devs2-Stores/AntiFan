@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
+import { inspect } from 'node:util';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import {
   ClientInvocationIntent,
@@ -19,6 +20,34 @@ import {
 import { CapabilityCatalogue } from './capability-catalogue';
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { InvocationLedger } from '../session/invocation-ledger';
+import { safeErrorText } from './browser-capabilities';
+
+/**
+ * Renders a thrown value into a human-readable relay message. Order:
+ *   1. a string `.message` carried by the thrown value (typed errors, including
+ *      plain-object throws that still name their failure);
+ *   2. `Error.message` verbatim — an interpreter error raised by the agent's own
+ *      expression must reach the caller unmodified;
+ *   3. `String(err)` for primitives and objects with a meaningful toString;
+ *   4. `util.inspect` when the string form is the content-free '[object Object]',
+ *      so a plain-object throw still relays its shape instead of nothing.
+ */
+function relayErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const message = err.message;
+    if (typeof message === 'string' && message.length > 0) return message;
+  }
+  if (err instanceof Error) return typeof err.message === 'string' && err.message ? err.message : err.name;
+  const text = safeErrorText(err);
+  if (text === '[object Object]' || text === 'UNKNOWN_ERROR') {
+    try {
+      return inspect(err, { depth: 3, breakLength: 200 });
+    } catch {
+      return text;
+    }
+  }
+  return text;
+}
 
 type EffectMarker = 'not-started' | 'effect-started' | 'effect-committed';
 type EffectAcknowledgement = 'no-effect' | 'effect-possible' | 'effect-committed';
@@ -242,8 +271,8 @@ export class CapabilityTransportAdapter {
         requestId: intent.requestId,
         invocationId: makeControlPlaneId('invocation'),
         error: {
-          code: typed.code || 'AUTHENTICATION_DENIED',
-          message: typed.message || String(err),
+          code: typeof typed.code === 'string' && typed.code ? typed.code : 'AUTHENTICATION_DENIED',
+          message: relayErrorMessage(err),
           details: typed.details,
         },
       };
@@ -357,8 +386,8 @@ export class CapabilityTransportAdapter {
           requestId: intent.requestId,
           invocationId,
           error: {
-            code: typed.code || 'LEDGER_CLAIM_FAILED',
-            message: typed.message || String(err),
+            code: typeof typed.code === 'string' && typed.code ? typed.code : 'LEDGER_CLAIM_FAILED',
+            message: relayErrorMessage(err),
             details: typed.details,
           },
         };
@@ -376,8 +405,8 @@ export class CapabilityTransportAdapter {
         requestId: intent.requestId,
         invocationId,
         error: {
-          code: typed.code || 'UNAUTHENTICATED',
-          message: typed.message || String(err),
+          code: typeof typed.code === 'string' && typed.code ? typed.code : 'UNAUTHENTICATED',
+          message: relayErrorMessage(err),
           details: typed.details,
         },
       };
@@ -452,8 +481,8 @@ export class CapabilityTransportAdapter {
           requestId: intent.requestId,
           invocationId,
           error: {
-            code: typed.code || 'LEDGER_CLAIM_FAILED',
-            message: typed.message || String(err),
+            code: typeof typed.code === 'string' && typed.code ? typed.code : 'LEDGER_CLAIM_FAILED',
+            message: relayErrorMessage(err),
             details: typed.details,
           },
         };
@@ -491,8 +520,8 @@ export class CapabilityTransportAdapter {
           requestId: intent.requestId,
           invocationId,
           error: {
-            code: typed.code || 'DURABILITY_FAILED',
-            message: typed.message || String(err),
+            code: typeof typed.code === 'string' && typed.code ? typed.code : 'DURABILITY_FAILED',
+            message: relayErrorMessage(err),
             details: typed.details,
           },
         };
@@ -831,7 +860,10 @@ export class CapabilityTransportAdapter {
           const closedCanonicalId = typeof resObj.tabId === 'string' && resObj.tabId.trim().length > 0
             ? resObj.tabId.trim()
             : undefined;
-          const boundTabId = authority.browserTarget?.tabId;
+          // The port nominates failoverTabId against the same post-heal target it
+          // was dispatched with (authContext.browserTarget); the pre-heal authority
+          // snapshot would veto a rotation the record already moved past.
+          const boundTabId = authContext.browserTarget?.tabId;
           const isBoundTabClosed = Boolean(closedCanonicalId && boundTabId && closedCanonicalId === boundTabId);
           const failoverCandidate = typeof resObj.failoverTabId === 'string' ? resObj.failoverTabId.trim() : '';
           if (
@@ -842,7 +874,19 @@ export class CapabilityTransportAdapter {
             !failoverCandidate.startsWith('@') &&
             failoverCandidate !== closedCanonicalId
           ) {
-            const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, failoverCandidate);
+            // CAS on the closed tab: a record that rotated elsewhere since this
+            // dispatch resolved its target is left alone rather than hijacked.
+            // The CAS path requires a generation, so measure the failover tab
+            // live and fall back to the record's last known generation.
+            const failoverDocGen = this.catalogue.getDocumentGeneration?.(failoverCandidate);
+            const newRev = await this.attachmentRegistry.updateAttachmentTab(
+              authority.attachmentId,
+              failoverCandidate,
+              typeof failoverDocGen === 'number' && Number.isFinite(failoverDocGen) && failoverDocGen > 0
+                ? failoverDocGen
+                : (authority.browserTarget?.documentGeneration ?? record.documentGeneration ?? 1),
+              { expectedTabId: closedCanonicalId }
+            );
             if (newRev) replacementAuthorityRevision = newRev;
           }
         }
@@ -1011,6 +1055,8 @@ export class CapabilityTransportAdapter {
     control: ExecutionControlImpl
   ): { state: 'failed' | 'interrupted' | 'unknown'; code: string; message: string; details?: unknown } {
     const typed = err as { code?: string; message?: string; name?: string; details?: unknown };
+    const typedCode = typeof typed?.code === 'string' && typed.code ? typed.code : undefined;
+    const typedMessage = typeof typed?.message === 'string' && typed.message ? typed.message : undefined;
     const isTransportAbort = control.signal.aborted;
     const isAbort =
       isTransportAbort ||
@@ -1030,31 +1076,31 @@ export class CapabilityTransportAdapter {
         return {
           state: effectsStarted ? 'unknown' : 'interrupted',
           code: 'EXECUTION_TIMEOUT',
-          message: typed?.message || 'Execution exceeded its policy execution budget and was aborted',
+          message: typedMessage || 'Execution exceeded its policy execution budget and was aborted',
           details: typed?.details,
         };
       }
       if (ack === 'no-effect' || (isTransportAbort && effectStage === 'not-started') || (policy?.effect === 'read' && effectStage === 'not-started')) {
         return {
           state: 'interrupted',
-          code: typed?.code || 'ABORTED',
-          message: typed?.message || 'Execution was aborted before effects were committed',
+          code: typedCode || 'ABORTED',
+          message: typedMessage || 'Execution was aborted before effects were committed',
           details: typed?.details,
         };
       }
       if (!isTransportAbort && effectStage === 'not-started') {
         return {
           state: 'failed',
-          code: typed?.code || 'ABORTED',
-          message: typed?.message || 'Execution failed with unrequested internal abort',
+          code: typedCode || 'ABORTED',
+          message: typedMessage || 'Execution failed with unrequested internal abort',
           details: typed?.details,
         };
       }
       return {
         state: 'unknown',
-        code: typed?.code || 'ABORTED',
+        code: typedCode || 'ABORTED',
         message: 'Execution was aborted with indeterminate effect state',
-        details: typed?.details ?? (typed?.message ? { cause: typed.message } : undefined),
+        details: typed?.details ?? (typedMessage ? { cause: typedMessage } : undefined),
       };
     }
 
@@ -1065,8 +1111,8 @@ export class CapabilityTransportAdapter {
       const effectsStarted = control.effectStage !== 'not-started' || control.cancellationAck === 'effect-possible';
       return {
         state: effectsStarted ? 'unknown' : 'failed',
-        code: typed?.code || 'EXECUTION_TIMEOUT',
-        message: typed?.message || (effectsStarted ? 'Execution timed out with indeterminate effect state' : 'Execution timed out'),
+        code: typedCode || 'EXECUTION_TIMEOUT',
+        message: typedMessage || (effectsStarted ? 'Execution timed out with indeterminate effect state' : 'Execution timed out'),
         details: typed?.details,
       };
     }
@@ -1075,15 +1121,15 @@ export class CapabilityTransportAdapter {
       return {
         state: 'unknown',
         code: 'EXECUTION_UNKNOWN',
-        message: typed?.message || 'Execution ended in unknown state',
+        message: typedMessage || 'Execution ended in unknown state',
         details: typed?.details,
       };
     }
 
     return {
       state: 'failed',
-      code: typed?.code || 'CAPABILITY_ERROR',
-      message: typed?.message || (err instanceof Error ? err.message : String(err)),
+      code: typedCode || 'CAPABILITY_ERROR',
+      message: relayErrorMessage(err),
       details: typed?.details,
     };
   }

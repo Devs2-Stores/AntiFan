@@ -21,6 +21,7 @@
 //   pack-detail <packId>   pack + its claims + receipts
 //   case-detail <caseId>   case + its candidates
 //   replay <regressionId>  re-execute a recorded regression's checks against live state
+//   candidates '{"status":"PENDING"}'  adjudication queue rows (read-only)
 //   observe '{"source":"...","kind":"...","payload":{}}'  raw observation into the learning loop
 
 const path = require('node:path');
@@ -67,20 +68,21 @@ async function main() {
     case 'similar': out = core.findSimilar(parse(arg)); break;
     case 'uncertainty': out = core.classifyUncertainty(parse(arg)); break;
     case 'decay': out = core.decayCheck(parse(arg)); break;
-    case 'audit': out = core.corpusAudit(); break;
+    case 'audit': out = core.corpusAudit({ record: true }); break;
     case 'gate': {
       // Read-only by default. This command doubles as the only way to inspect a single
       // gate, and an inspection must not grow the store — the same rule `health` follows.
       // An unannounced write into whatever store the working directory implies is how a
       // probe appended rows to the live store, so the default is an evaluation and the
       // caller is told what it did not persist. A real run opts in with {"record":true};
-      // the MCP surface keeps the recording default for its programmatic runs.
+      // the store itself records only on that explicit opt-in, so the MCP surface —
+      // which passes no record flag — evaluates without appending.
       const gateArgs = parse(arg);
       const record = gateArgs.record === true;
       if (!record) {
         console.error('note: gate evaluated read-only, nothing persisted — pass {"record":true} to record it');
       }
-      out = core.checkPhaseGate(gateArgs.phase, gateArgs.gate, record ? {} : { record: false });
+      out = core.checkPhaseGate(gateArgs.phase, gateArgs.gate, record ? { record: true } : { record: false });
       break;
     }
     case 'resolve-conflict': out = core.resolveConflict(parse(arg)); break;
@@ -145,6 +147,13 @@ async function main() {
       if (!kase) { out = { error: 'CASE_NOT_FOUND', caseId: arg }; break; }
       const candidates = core.db.prepare('SELECT * FROM candidates WHERE caseId = ?').all(arg);
       out = { case: kase, candidates };
+      break;
+    }
+    case 'candidates': {
+      // Read-only list surface for the adjudication queue (same pattern as
+      // `regressions`/`task-runs` above): PENDING rows were reachable only out
+      // of band, so nothing could enumerate what `adjudicate` would act on.
+      out = core.candidates(parse(arg));
       break;
     }
     case 'health': {

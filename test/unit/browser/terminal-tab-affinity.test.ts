@@ -215,6 +215,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     // 1. When isolated to tab-lemon: ONLY tab-lemon is returned
     const isolatedTabs = port.listTabs({
       target: { tabId: 'tab-lemon', documentGeneration: 1, projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1 },
+      scope: 'session',
     }) as any[];
     assert.strictEqual(isolatedTabs.length, 1);
     assert.strictEqual(isolatedTabs[0].id, 'tab-lemon');
@@ -237,8 +238,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     const boundTarget: BrowserTarget = { tabId: 'tab-agent-offscreen', documentGeneration: 1, projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1 };
 
     // The session owns an agent tab the visible strip cannot describe; the user's
-    // tabs are not this session's to list, because it cannot act on them.
-    assert.deepStrictEqual(port.listTabs({ target: boundTarget }), []);
+    assert.deepStrictEqual(port.listTabs({ target: boundTarget, scope: 'session' }), []);
 
     // Asking for the whole window is explicit, not a fallback.
     assert.deepStrictEqual(port.listTabs({}), [
@@ -363,7 +363,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     // Attempting 11th tab: throws POLICY_DENIED
     assert.throws(
       () => port.openTab({ url: 'http://localhost:3010' }, { target: boundTarget }),
-      (err: any) => err.code === 'POLICY_DENIED' && err.message.includes('maximum 10 tabs')
+      (err: any) => err.code === 'POLICY_DENIED' && err.message.includes('10/10')
     );
   });
 
@@ -394,7 +394,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     };
     const port = new BrowserControlPort(mockHost as any);
     const boundTarget = { tabId: 'tab-live', projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1, documentGeneration: 1 } as any;
-    const res = port.listTabs({ target: boundTarget }) as any[];
+    const res = port.listTabs({ target: boundTarget, scope: 'session' }) as any[];
 
     assert.strictEqual(res.length, 2);
     assert.strictEqual(res[0].id, 'tab-live');

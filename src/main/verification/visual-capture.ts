@@ -859,6 +859,149 @@ export interface CaptureViewportTransaction {
 }
 
 /**
+ * Identity of the capture policy that produced a receipt. It changes whenever a
+ * change to the capture pipeline invalidates previously stored pixels — the
+ * freeze covering WAAPI/CSS/SMIL animation classes is such a change — and a
+ * receipt is comparable only with a baseline recorded under the same identity.
+ * A record that declares none was written before this identity existed and is
+ * not comparable with a current capture; compare refuses that boundary instead
+ * of diffing across it.
+ */
+export const CAPTURE_RECEIPT_POLICY_IDENTITY = 'capture-freeze-classes-v1';
+
+/** Per-class census the freeze primitive classified for one capture. */
+export interface CaptureFreezeCounts {
+  media: number;
+  css: number;
+  waapi: number;
+  smil: number;
+}
+
+/**
+ * What the media freeze measured for one raster: the class census it consumed,
+ * the handles it paused, and how many it restored afterwards.
+ *
+ * `isMediaFrozen` is a measurement of THIS capture, not a claim: it is true only
+ * when the freeze covered every motion class the census found. It is derived by
+ * `deriveCaptureFreezeMeasurement` and never set by hand, so a boolean can never
+ * travel without the counts that justify it.
+ */
+export interface CaptureFreezeMeasurement {
+  counts: CaptureFreezeCounts;
+  /** Class names the census actually observed (e.g. 'Animation', 'CSSAnimation', 'video'). */
+  classes: string[];
+  /** Animation/media handles this capture paused; the release path restores exactly these. */
+  pausedHandles: number;
+  /** Those handles confirmed restored on the release path. */
+  restoredHandles: number;
+  /** Derived: every motion class the census found was paused for this raster. */
+  isMediaFrozen: boolean;
+}
+
+/** Raw classification the media-freeze primitive returns (shared cross-owner interface). */
+export interface CaptureFreezeClassification {
+  counts?: Partial<CaptureFreezeCounts>;
+  classes?: string[];
+  pausedHandles?: number;
+  restoredHandles?: number;
+}
+
+const freezeCount = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+
+/** A motion count is usable when it is a finite non-negative number (or absent: no motion of that class). */
+const isUsableMotionCount = (value: unknown): boolean =>
+  value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0);
+
+/** The decisive coverage number: it must be a real reading, not a coerced one. */
+const isUsableHandleCount = (value: unknown): boolean =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+/**
+ * Normalize the freeze primitive's classification into the receipt measurement
+ * and derive `isMediaFrozen` from the observed counts. A classification that is
+ * not a well-formed measurement — absent, non-object, a non-numeric or negative
+ * count, or no usable `pausedHandles` — can never read as a frozen raster: the
+ * verdict is `false` unless the counts justify it. `restoredHandles` is
+ * evidence, not part of the verdict, because the freeze is measured at raster
+ * time and restoration happens afterwards. `counts` must be the motion census
+ * the freeze attempted to cover (playing media, running/infinite animations,
+ * active SMIL), not a count of elements that were already still.
+ */
+export function deriveCaptureFreezeMeasurement(
+  raw: CaptureFreezeClassification | null | undefined
+): CaptureFreezeMeasurement {
+  const rawCounts = raw && typeof raw === 'object' && raw.counts && typeof raw.counts === 'object'
+    ? raw.counts
+    : undefined;
+  const rawPausedHandles = raw && typeof raw === 'object' ? raw.pausedHandles : undefined;
+  const measured = rawCounts !== undefined
+    && isUsableMotionCount(rawCounts.media)
+    && isUsableMotionCount(rawCounts.css)
+    && isUsableMotionCount(rawCounts.waapi)
+    && isUsableMotionCount(rawCounts.smil)
+    && isUsableHandleCount(rawPausedHandles);
+  const counts: CaptureFreezeCounts = {
+    media: freezeCount(rawCounts?.media),
+    css: freezeCount(rawCounts?.css),
+    waapi: freezeCount(rawCounts?.waapi),
+    smil: freezeCount(rawCounts?.smil),
+  };
+  const observedMotion = counts.media + counts.css + counts.waapi + counts.smil;
+  const pausedHandles = freezeCount(rawPausedHandles);
+  const restoredHandles = freezeCount(raw?.restoredHandles);
+  const classes = Array.isArray(raw?.classes)
+    ? Array.from(new Set(raw.classes.filter((c): c is string => typeof c === 'string' && c.length > 0))).sort()
+    : [];
+  return {
+    counts,
+    classes,
+    pausedHandles,
+    restoredHandles,
+    // Every motion class the census saw was covered by a pause, so the raster
+    // cannot be receiving frames from a running animation. A measured page with
+    // no motion at all (nothing observed, nothing paused) is frozen by this
+    // measure, which is why the comparison is `>=` rather than a handle count —
+    // but an unmeasured classification stays false.
+    isMediaFrozen: measured && pausedHandles >= observedMotion,
+  };
+}
+
+/**
+ * The capture policy identity a record declares; `undefined` when it declares
+ * none, which reads as "recorded before the identity existed".
+ */
+export function capturePolicyIdentityOf(
+  record: { capturePolicy?: string } | null | undefined
+): string | undefined {
+  const value = record?.capturePolicy;
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+const describeCapturePolicyIdentity = (identity: string | undefined): string =>
+  identity ? `'${identity}'` : 'unversioned (recorded before the capture policy identity existed)';
+
+/**
+ * Compare the capture policy identity of a baseline and a target. Equal
+ * identities — including two records that both predate the identity — are
+ * comparable; anything else is a cross-policy comparison, where a pixel diff
+ * would report a pipeline change as a content change, so it must be refused
+ * with both identities named.
+ */
+export function compareCapturePolicyIdentity(
+  baseline: { capturePolicy?: string } | null | undefined,
+  target: { capturePolicy?: string } | null | undefined
+): { comparable: boolean; reason?: string } {
+  const baselinePolicy = capturePolicyIdentityOf(baseline);
+  const targetPolicy = capturePolicyIdentityOf(target);
+  if (baselinePolicy === targetPolicy) return { comparable: true };
+  return {
+    comparable: false,
+    reason: `Capture policy identity mismatch: baseline is ${describeCapturePolicyIdentity(baselinePolicy)} and target is ${describeCapturePolicyIdentity(targetPolicy)}; pixels captured under different capture policies are not comparable`,
+  };
+}
+
+/**
  * Canonical verification capture envelope returned by CDP Page.captureScreenshot.
  */
 export interface VerificationCaptureEnvelope {
@@ -893,6 +1036,14 @@ export interface VerificationCaptureEnvelope {
    * cannot distinguish a clean document from one the gate admitted by tolerance.
    */
   settle?: CaptureSettleWarnings;
+  /**
+   * The freeze this capture ran, as measured: the per-class motion census, the
+   * handles paused for the raster, and what was restored afterwards. Present
+   * when a freeze ran for this raster; absent when none did. The frozen verdict
+   * is `mediaFreeze.isMediaFrozen`, derived from these counts — never a bare
+   * boolean asserted without them.
+   */
+  mediaFreeze?: CaptureFreezeMeasurement;
 }
 
 /**
@@ -907,6 +1058,12 @@ export interface VerificationCaptureReceipt {
   rasterSize: { width: number; height: number };
   captureMode: CaptureMode;
   timestamp: number;
+  /**
+   * The capture policy identity that produced this receipt. Absent reads as
+   * unversioned — recorded before the identity existed — and compare refuses to
+   * diff such a record against one stamped with a different policy.
+   */
+  capturePolicy?: string;
   viewportTransaction?: CaptureViewportTransaction;
   expectedUrl?: string | null;
   expectationMarker?: 'URL_EXPECTATION_MISSING';
@@ -927,6 +1084,12 @@ export interface VerificationCaptureReceipt {
    * or late layout movement instead of assuming a quiet document.
    */
   settle?: CaptureSettleWarnings;
+  /**
+   * The freeze measured for this raster (see `CaptureFreezeMeasurement`). The
+   * receipt carries the census with the verdict so a consumer can tell a page
+   * that was genuinely frozen from one whose motion classes were never covered.
+   */
+  mediaFreeze?: CaptureFreezeMeasurement;
 }
 
 export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): VerificationCaptureReceipt {
@@ -939,6 +1102,7 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     rasterSize: { width: env.rasterSize.width, height: env.rasterSize.height },
     captureMode: env.captureMode,
     timestamp: env.timestamp,
+    capturePolicy: CAPTURE_RECEIPT_POLICY_IDENTITY,
     ...(env.viewportTransaction ? { viewportTransaction: env.viewportTransaction } : {}),
     expectedUrl: env.expectedUrl ?? null,
     ...(env.expectationMarker ? { expectationMarker: env.expectationMarker } : {}),
@@ -947,6 +1111,7 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     ...(env.prewarm ? { prewarm: env.prewarm } : {}),
     ...(env.prewarmError ? { prewarmError: env.prewarmError } : {}),
     ...(env.settle ? { settle: env.settle } : {}),
+    ...(env.mediaFreeze ? { mediaFreeze: env.mediaFreeze } : {}),
   };
 }
 
@@ -1320,6 +1485,14 @@ export function checkCaptureStateCompatibility(
 ): { compatible: boolean; reason?: string } {
   if (!target || !baseline) {
     return { compatible: false, reason: 'Capture receipt is missing or undefined' };
+  }
+  // A capture policy change invalidates stored pixels, so a receipt recorded
+  // under a different policy (or before the identity existed) is not comparable:
+  // the diff would report a pipeline change as a content change. Refuse first,
+  // naming both identities, and never diff across the boundary.
+  const policy = compareCapturePolicyIdentity(baseline, target);
+  if (!policy.comparable) {
+    return { compatible: false, reason: policy.reason };
   }
   if (typeof target.backend !== 'string' || typeof baseline.backend !== 'string' || target.backend !== baseline.backend) {
     return {

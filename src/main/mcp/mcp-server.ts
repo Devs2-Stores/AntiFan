@@ -16,7 +16,7 @@ import { CapabilityError, AuthenticatedCapabilityContext, ClientInvocationIntent
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { envelope } from './result-envelope';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
-import { findMissingRequiredArgs } from '../tools/required-args';
+import { checkRequiredArgs } from '../tools/required-args';
 export interface BoundAttachmentSession {
   attachmentId: string;
   attachmentSecret: string;
@@ -717,18 +717,20 @@ export class AntiFanMcpServer {
     // acted on a tab the caller never named. Authority and credential checks stay ahead of
     // this on purpose, so they keep reporting their own codes.
     const advertisedSchema = await this.advertisedInputSchema(toolName);
-    const missingRequired = findMissingRequiredArgs(advertisedSchema, a);
-    if (missingRequired.length > 0) {
+    const requiredArgsRefusal = checkRequiredArgs(toolName, advertisedSchema, a);
+    if (requiredArgsRefusal) {
       return {
         isError: true,
         content: [{
           type: 'text',
           text: JSON.stringify({
             code: 'INVALID_ARGUMENT',
-            message: `Capability '${toolName}' requires ${missingRequired.join(', ')}, and this call supplied no usable value for ${missingRequired.length === 1 ? 'it' : 'them'}. ` +
-              'The argument is refused rather than defaulted from session state, because a default would act on a target the caller never named. ' +
-              `Supply ${missingRequired.length === 1 ? 'the field' : 'the fields'} explicitly and retry.`,
-            details: { capability: toolName, missing: missingRequired },
+            message: requiredArgsRefusal.message,
+            details: {
+              capability: toolName,
+              missing: requiredArgsRefusal.missing,
+              unsatisfiedAlternatives: requiredArgsRefusal.unsatisfiedAlternatives,
+            },
           }),
         }],
       };
