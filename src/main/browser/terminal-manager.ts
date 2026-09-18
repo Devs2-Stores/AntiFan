@@ -213,6 +213,7 @@ export class SessionRecord {
   public restoredTail?: string;
   public pendingClearScreen?: boolean;
   public altScreen?: boolean;
+  public altScreenScanTail?: string;
   public inputLineBuffer?: string;
   public category?: string;
   public sleptAt?: number;
@@ -385,6 +386,12 @@ export const CLEAR_SCREEN_COMMAND_RE = /^\s*(?:cls|clear|clear-host)\s*$/i;
 // Same-clock ack-latency stamps are kept per session; the cap bounds memory for
 // sequences that are never acked (subscriber closed, chunks gated downstream).
 const MAX_EMIT_TIME_STAMPS_PER_SESSION = 256;
+// The alternate-screen switches a PTY stream reports as text. Named here so the
+// chunk-boundary scan and its test read the same spellings, and the retained tail
+// (`length - 1`) is derived from them instead of a hand-copied 7.
+export const ALT_SCREEN_ON_SEQ = '\x1b[?1049h';
+export const ALT_SCREEN_OFF_SEQ = '\x1b[?1049l';
+export const ALT_SCREEN_SEQ_LENGTH = ALT_SCREEN_ON_SEQ.length;
 // waitTerminal output-match scans only the transcript tail: a full 4MB regex
 // scan on every wait call stalls the main thread for a match that virtually
 // always lives in recent output.
@@ -1346,10 +1353,18 @@ export class TerminalManager extends EventEmitter {
   private appendData(s: Session, data: string, dataBytes = Buffer.byteLength(data, 'utf8')): void {
     if (s.disposed) return;
     // Track the alternate screen buffer so full-screen TUIs (vim/htop/less)
-    // are never mistaken for a clear-screen repaint.
-    if (data.includes('\x1b[?1049')) {
-      if (data.includes('\x1b[?1049h')) s.altScreen = true;
-      if (data.includes('\x1b[?1049l')) s.altScreen = false;
+    // are never mistaken for a clear-screen repaint. ConPTY splits chunks mid
+    // sequence (`…\x1b[?10` then `49h…`), so the scan runs over the previous
+    // chunk's tail plus this one, and the longest sequence minus one byte is
+    // retained. The last escape seen wins when both appear in one chunk: leaving
+    // the alternate screen is what a viewer must observe, and a stale `true`
+    // would silence the next clear-screen repaint.
+    const altScan = (s.altScreenScanTail || '') + data;
+    s.altScreenScanTail = altScan.slice(-(ALT_SCREEN_SEQ_LENGTH - 1));
+    if (altScan.includes('\x1b[?1049')) {
+      const entered = altScan.lastIndexOf(ALT_SCREEN_ON_SEQ);
+      const left = altScan.lastIndexOf(ALT_SCREEN_OFF_SEQ);
+      if (entered >= 0 || left >= 0) s.altScreen = entered > left;
     }
     if (s.pendingClearScreen && !s.altScreen) {
       // The shell is repainting after cls/clear/Ctrl+L: drop the transcript and
@@ -1820,6 +1835,7 @@ export class TerminalManager extends EventEmitter {
     // would wipe the folded transcript on the first chunk after the wake.
     s.pendingClearScreen = false;
     s.altScreen = false;
+    s.altScreenScanTail = undefined;
     s.inputLineBuffer = '';
     s.state = 'sleeping';
     s.sleptAt = Date.now();
