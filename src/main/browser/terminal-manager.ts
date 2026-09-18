@@ -1370,6 +1370,15 @@ export class TerminalManager extends EventEmitter {
       // The shell is repainting after cls/clear/Ctrl+L: drop the transcript and
       // the retained journal, and tell renderers to wipe scrollback too. The
       // seq counter stays monotonic — the renderer's lastRenderedSeq depends on it.
+      //
+      // The guard reads the state this instant, and that is deliberate: a chunk
+      // that ends mid-sequence has not entered the alternate screen yet, and a
+      // clear issued at the prompt applies to the chunk that arrives rather than
+      // waiting for a sequence to finish. Deferring it to the end of the alternate
+      // screen would turn a prompt-issued clear into a wipe of the full-screen
+      // program's own output, which is the opposite of what the keystroke asked
+      // for. Only a clear issued *while* the alternate screen is active is held
+      // back, because there the program owns the screen and repaints it itself.
       s.buffer = '';
       s.bufferBytes = 0;
       s.restoredTail = undefined;

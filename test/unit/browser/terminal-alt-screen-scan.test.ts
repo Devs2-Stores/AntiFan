@@ -169,4 +169,35 @@ describe('Alternate screen tracking across chunks', () => {
     assert.ok(session.buffer.includes('prompt$ '), 'the repainting chunk survives the wipe');
     assert.strictEqual(session.pendingClearScreen, false);
   });
+
+  it('applies a prompt-issued clear on the chunk that arrives, even when it ends the enter sequence mid-way', () => {
+    const id = tm.createSession('E:/Work/project');
+    const session = record(id);
+    const pty = latestPty();
+
+    pty.emitData('legacy transcript\r\n');
+
+    // Ctrl+L at the prompt, then the program's enter sequence arrives cut mid-way in
+    // the very next chunk. A chunk that ends mid-sequence has not entered the
+    // alternate screen yet, and the clear applies here anyway: the transcript it
+    // drops is the one the keystroke asked to drop. Holding it back until the
+    // alternate screen ends would defer a prompt-issued clear past the whole
+    // session and then destroy the full-screen program's own output instead — the
+    // deferred variant fails the first two assertions below.
+    tm.write('\x0c');
+    pty.emitData('\x1b[H\x1b[2Jprompt$ vim\r\n\x1b[?104');
+    assert.strictEqual(session.buffer.startsWith('\x1b[3J'), true, 'the prompt-issued clear is applied to this chunk');
+    assert.strictEqual(session.buffer.includes('legacy transcript'), false, 'the pre-clear transcript is dropped');
+    assert.strictEqual(session.pendingClearScreen, false, 'the clear is spent here, not carried into the full-screen session');
+
+    pty.emitData('9h\x1b[2Jvim');
+    assert.strictEqual(session.altScreen, true, 'the split enter sequence is still recognized once it completes');
+
+    // vim quits: no second wipe follows it, so the screen it painted is still there.
+    pty.emitData('\x1b[?1049l\r\nback at the prompt$ ');
+    assert.strictEqual(session.altScreen, false);
+    assert.strictEqual(session.buffer.split('\x1b[3J').length, 2, 'the clear was applied exactly once, not again on exit');
+    assert.ok(session.buffer.includes('back at the prompt$ '), 'the exit repaint is not wiped by a stale clear');
+    assert.ok(session.buffer.includes('vim'), 'the full-screen output is still readable after it exits');
+  });
 });
