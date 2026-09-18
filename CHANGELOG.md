@@ -30,6 +30,11 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - **Sửa**: `check-plans.mjs` trả mã lỗi khi không tìm thấy plan nào thay vì báo xanh.
 - **Bằng chứng**: chính lần chạy ship này — `npm test` → **14/14 làn xanh**, `PIPELINE_EXIT=0`.
 
+### Hạ tầng test — Mỗi làn có ngân sách thời gian: làn treo báo đỏ thay vì chặn cả pipeline
+- **Vấn đề**: `runLane` gọi `spawnSync` **không có timeout** — một làn giữ handle rò rỉ (`test:e2e:strict` chạy không `--test-force-exit`, hoặc smoke Electron) treo vô hạn; người gọi không phân biệt được "chậm" với "treo", và `npm test` không bao giờ trả về.
+- **Sửa**: ngân sách theo làn (mặc định 8 phút; `smoke:terminal` 15, `test:e2e:strict` 10, `test:probes` 20; `--lane-timeout-ms` ghi đè toàn bộ), hết hạn thì kill **cả cây tiến trình** — `taskkill /PID <pid> /T /F` trên Windows vì tiến trình trực tiếp là `cmd.exe` (kill mỗi nó sẽ bỏ rơi npm/node/vitest), nhóm tiến trình `detached` + `kill(-pid)` trên POSIX — rồi summary ghi `timeout: true` kèm note `killed process tree (lane-timeout)` và exit code vẫn 1.
+- **Bằng chứng**: `node --check` OK; `test:main --lane-timeout-ms 4000` → `test:main  failed  9.1s  killed process tree (lane-timeout)`, `PIPELINE_EXIT=1`, và `Get-CimInstance Win32_Process` không còn tiến trình `test/main` nào sót lại; đường bình thường `test:canary test:integration` → `PIPELINE_EXIT=0`; bộ mặc định trên runner mới: `npm test` → **14/14 làn xanh**, `PIPELINE_EXIT=0`, wall time 235.7 s (`audit 2.9s · plans:check 0.9s · compile 4.6s · test:canary 22.5s · test:fast 37.0s · test:site-clone 10.7s · test:integration 1.3s · test:main 73.8s · test:e2e:strict 62.0s · smoke:terminal 10.5s · test:terminal-transport 2.5s · test:terminal-rename 1.6s · test:mcp-dispatch-hub 2.6s · test:toolbar-qa-hub 2.7s`).
+
 ### Sửa lỗi — Ghi record của goal runner sống sót qua lock tạm thời trên Windows
 - **Vấn đề**: `writeRecordAtomic` đổi tên file tạm lên file đích ngay lập tức; antivirus/indexer giữ handle trong vài chục ms và Windows trả `EPERM`/`EACCES`/`EBUSY`, làm lần chạy goal đứt ở bước ghi record dù không có lỗi logic nào.
 - **Sửa**: `scripts/lib/atomic-record.mjs` retry đúng nhóm lỗi đó theo backoff 10→500 ms (ngân sách ~1.1 s) rồi mới ném lỗi thật.

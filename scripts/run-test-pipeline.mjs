@@ -16,7 +16,7 @@
  *
  * With no lane named, the default test set runs (including static gates audit and plans:check).
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
 
 const STATIC_LANES = ['audit', 'plans:check'];
@@ -52,13 +52,52 @@ const NON_COMPILE_LANES = new Set(['compile', 'test:canary', ...STATIC_LANES]);
 const COMPILE_DEPENDENT = new Set(
   [...KNOWN_LANES].filter((lane) => !NON_COMPILE_LANES.has(lane))
 );
+
+// Every lane is bounded: `spawnSync` without a timeout let a lane that leaks a handle (an Electron
+// smoke, or `test:e2e:strict`, which runs without `--test-force-exit`) block the whole pipeline
+// forever, and the caller had no way to tell a hung lane from a slow one. Budgets leave ~4x headroom
+// over the slowest measured lane (02:11 report: test:main 104.4 s, test:fast 65.5 s).
+const DEFAULT_LANE_TIMEOUT_MS = 8 * 60_000;
+const LANE_TIMEOUT_MS = new Map([
+  ['smoke:terminal', 15 * 60_000],
+  ['test:e2e:strict', 10 * 60_000],
+  ['test:probes', 20 * 60_000],
+]);
+
+// Windows spawns `cmd.exe` as the direct child (shell: true), so killing only that pid orphans
+// npm/node/vitest underneath it - exactly the leaked processes that would poison the next lane.
+function killTree(pid) {
+  if (typeof pid !== 'number') return;
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    return;
+  }
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // The lane already exited between the timeout firing and the kill - nothing left to reap.
+    }
+  }
+}
 function parseArgs(argv) {
-  const options = { lanes: [], json: false, verify: false, noCompile: false, help: false };
-  for (const arg of argv) {
+  const options = { lanes: [], json: false, verify: false, noCompile: false, help: false, laneTimeoutMs: null };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
     if (arg === '--json') options.json = true;
     else if (arg === '--verify') options.verify = true;
     else if (arg === '--no-compile') options.noCompile = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
+    else if (arg === '--lane-timeout-ms') {
+      const raw = argv[++i];
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new Error(`--lane-timeout-ms needs a positive integer, got '${raw}'`);
+      }
+      options.laneTimeoutMs = parsed;
+    }
     else if (arg.startsWith('--')) throw new Error(`Unknown argument '${arg}'`);
     else if (!KNOWN_LANES.has(arg)) throw new Error(`Unknown lane '${arg}' (known: ${[...KNOWN_LANES].sort().join(', ')})`);
     else options.lanes.push(arg);
@@ -85,29 +124,50 @@ function parseArgs(argv) {
   return options;
 }
 
-function runLane(lane) {
+function runLane(lane, timeoutMs) {
   const startedAt = Date.now();
-  const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', lane], {
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
+  return new Promise((resolve) => {
+    const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', lane], {
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+      // A POSIX process group lets the timeout kill the whole lane, not just its first process.
+      detached: process.platform !== 'win32',
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(child.pid);
+    }, timeoutMs);
+    const finish = (status, signal) => {
+      clearTimeout(timer);
+      resolve({
+        lane,
+        status: status === null ? 1 : status,
+        signal: signal ?? null,
+        timedOut,
+        ms: Date.now() - startedAt,
+      });
+    };
+    child.on('close', (code, signal) => finish(code, signal));
+    child.on('error', () => finish(1, null));
   });
-  return {
-    lane,
-    status: result.status === null ? 1 : result.status,
-    signal: result.signal ?? null,
-    ms: Date.now() - startedAt,
-  };
 }
 
-function main(argv) {
+async function main(argv) {
   const options = parseArgs(argv);
   if (options.help) {
     process.stdout.write(`Usage:
-  node scripts/run-test-pipeline.mjs [lane ...] [--json] [--no-compile]
+  node scripts/run-test-pipeline.mjs [lane ...] [--json] [--no-compile] [--lane-timeout-ms <n>]
   node scripts/run-test-pipeline.mjs --verify
 
 Lanes that read the build get the 'compile' lane prepended. Calling a lane directly through
 npm run <lane> skips that step and tests whatever .compiled currently holds.
+
+Every lane is bounded (default ${DEFAULT_LANE_TIMEOUT_MS / 60_000} min; ${
+      [...LANE_TIMEOUT_MS].map(([lane, ms]) => `${lane} ${ms / 60_000} min`).join(', ')
+    }) and a timed-out lane has its
+process tree killed, so a hung lane reports red instead of blocking the run. --lane-timeout-ms
+overrides the budget for every lane (use it to prove the bound, or to buy room for a slow machine).
 
 Known lanes:
   ${[...KNOWN_LANES].sort().join(', ')}
@@ -122,8 +182,9 @@ Known lanes:
       results.push({ lane, status: null, skipped: true, ms: 0 });
       continue;
     }
+    const timeoutMs = options.laneTimeoutMs ?? LANE_TIMEOUT_MS.get(lane) ?? DEFAULT_LANE_TIMEOUT_MS;
     if (!options.json) process.stdout.write(`\n===== ${lane} =====\n`);
-    const result = runLane(lane);
+    const result = await runLane(lane, timeoutMs);
     results.push(result);
     if (lane === 'compile' && result.status !== 0) compileFailed = true;
   }
@@ -135,6 +196,7 @@ Known lanes:
       status: entry.skipped ? 'skipped' : entry.status === 0 ? 'passed' : 'failed',
       ms: entry.ms,
       ...(entry.signal ? { signal: entry.signal } : {}),
+      ...(entry.timedOut ? { timeout: true } : {}),
     })),
     failed: failed.map((entry) => entry.lane),
     skipped: results.filter((entry) => entry.skipped).map((entry) => entry.lane),
@@ -146,7 +208,8 @@ Known lanes:
     const width = Math.max(...summary.lanes.map((entry) => entry.lane.length), 4);
     process.stdout.write('\n===== pipeline summary =====\n');
     for (const entry of summary.lanes) {
-      process.stdout.write(`${entry.lane.padEnd(width)}  ${entry.status.padEnd(7)}  ${(entry.ms / 1000).toFixed(1)}s\n`);
+      const note = entry.timeout ? '  killed process tree (lane-timeout)' : '';
+      process.stdout.write(`${entry.lane.padEnd(width)}  ${entry.status.padEnd(7)}  ${(entry.ms / 1000).toFixed(1)}s${note}\n`);
     }
     process.stdout.write(
       failed.length === 0 && summary.skipped.length === 0
@@ -159,7 +222,7 @@ Known lanes:
 }
 
 try {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 } catch (error) {
   process.stderr.write(`run-test-pipeline: ${error.message}\n`);
   process.exitCode = 2;
