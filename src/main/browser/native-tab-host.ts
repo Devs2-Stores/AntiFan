@@ -5891,12 +5891,14 @@ export class NativeTabHost extends EventEmitter {
    */
   private listTerminalSessionIds(): string[] {
     const tm = TerminalManager.getInstance();
-    const ids: string[] = [];
+    const ids = new Set<string>();
     for (const s of tm.listSessions()) {
-      ids.push(s.id);
-      if (s.splitSessionId) ids.push(s.splitSessionId);
+      ids.add(s.id);
+      // A split is projected as its own entry by listSessions, so it is usually
+      // already in the set; the base entry naming it again must not double it.
+      if (s.splitSessionId) ids.add(s.splitSessionId);
     }
-    return ids;
+    return [...ids];
   }
 
   /**
@@ -6447,20 +6449,31 @@ export class NativeTabHost extends EventEmitter {
 
   /**
    * Releases one tab's slot in a session's pool — the rebind-away counterpart of
-   * adoption. When the session is terminal-backed the affinity entry is the
-   * authoritative record, so the release delegates to removeManagedTab; ad-hoc
-   * pools (keyed by a bound tab id) have no entry and are pruned directly.
+   * adoption. A terminal-id caller hands the whole ownership record back, so the
+   * affinity entry is consulted first and the release delegates to
+   * removeManagedTab; every other caller names the tab it let go and only the
+   * pool membership is released, leaving the terminal's affinity entry (the
+   * badge and the access check) intact.
+   *
+   * The caller knows the tab, not the key its pool happens to carry. A tab seated
+   * through `createTab({ terminalSessionId })` or adopted by a terminal lives in a
+   * pool keyed by that terminal id, so a key-only delete is a silent no-op: the
+   * slot stayed counted after a rebind-away and the next `openTab` refused with
+   * POLICY_DENIED against a tab the session had already given up. The tab is
+   * therefore released from every pool that holds it — the same by-value lookup
+   * `adoptChildTab` and `getManagedTabIds` already resolve pools with, so the
+   * release can never disagree with the reader about which pool owns a tab.
    */
   public releaseSessionTab(sessionId: string, tabId: string): boolean {
     if (!sessionId || !tabId) return false;
     if (this.terminalAgentAffinity && this.resolveTerminalAffinityKey(sessionId)) {
       return this.removeManagedTab(sessionId, tabId);
     }
-    const pool = this.sessionTabPools?.get(sessionId);
-    if (!pool) return false;
-    const released = pool.delete(tabId);
-    if (pool.size === 0) {
-      this.sessionTabPools.delete(sessionId);
+    if (!this.sessionTabPools) return false;
+    let released = false;
+    for (const [poolKey, pool] of Array.from(this.sessionTabPools.entries())) {
+      if (pool.delete(tabId)) released = true;
+      if (pool.size === 0) this.sessionTabPools.delete(poolKey);
     }
     return released;
   }
