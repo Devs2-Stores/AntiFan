@@ -118,14 +118,19 @@ describe('nested invocation cancellation', () => {
 
     catalogue.register({
       name: PARENT_TIMEOUT,
-      description: 'Dispatches one hanging child; its own budget is 150ms',
+      description: 'Dispatches one hanging child; its own budget expires while the child is in flight',
       risk: 'write',
       requiresBrowserTarget: false,
       inputSchema: { type: 'object', properties: {} },
       policy: basePolicy({
         effect: 'idempotent-write',
         risk: 'write',
-        timeoutMs: 150,
+        // The scenario is "the parent deadline aborts an in-flight child", so the only
+        // requirement is that the child dispatch lands before the budget expires. A tight
+        // budget measured wall-clock scheduling instead: under the lane's parallel file
+        // execution the handler was still awaiting its turn at 150ms, so the child was never
+        // dispatched and the test failed on load rather than on behavior.
+        timeoutMs: 1_500,
       }),
       execute: async (_params, rawContext) => {
         const context = rawContext as AuthenticatedCapabilityContext;
@@ -229,7 +234,9 @@ describe('nested invocation cancellation', () => {
       policy: basePolicy({
         effect: 'idempotent-write',
         risk: 'write',
-        timeoutMs: 120,
+        // Same headroom as the sibling case: the handler has to be running when its own
+        // deadline fires, and that is a scheduling fact, not the behavior under test.
+        timeoutMs: 1_200,
       }),
       execute: async (_params, rawContext) => {
         const context = rawContext as AuthenticatedCapabilityContext;

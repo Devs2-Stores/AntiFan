@@ -1,10 +1,16 @@
 /**
- * AntiFan Terminal Transport Sync & Invariant Certification (Real Electron Runtime)
+ * AntiFan Terminal Renderer Journal Delivery & Transport Sync Invariant Certification (Real Electron Runtime)
  *
  * Uses:
  * - Real compiled TerminalManager & SessionDeliveryJournal in Electron Main
  * - Real standalone.html, standalone-preload.js, and standalone.js in BrowserWindow
  * - Real IPC communication over ipcRenderer/ipcMain
+ *
+ * Note on test boundary:
+ * Data delivery gates are exercised through synthetic `feedAndStoreChunk` and direct IPC
+ * delivery (`win.webContents.send`), certifying the renderer SessionDeliveryJournal sync protocol,
+ * gap healing, honest degradation, and coalesced ACK tracking in Electron Main.
+ * This test does NOT exercise a live node-pty/ConPTY stream or PTY backpressure (certified separately).
  *
  * Exercises all 5 Core Transport Gates:
  * 1. GATE-B: Sequence Gap Healing (drops chunk 2..9 in transit, journal provides delta, settles at 10)
@@ -49,7 +55,10 @@ const sessionId = 'test-transport-session-real';
 let win = null;
 let ackEventCount = 0;
 
-// Set up real session in TerminalManager
+// Set up session record with stub PTY handle in TerminalManager.
+// Boundary note: The PTY handle uses no-op callbacks (onData, write, kill) because
+// delivery gates are driven via feedAndStoreChunk into the real SessionDeliveryJournal,
+// certifying renderer sync and journal invariants rather than live node-pty buffering.
 const privates = tm;
 const realSession = {
   id: sessionId,
@@ -113,11 +122,6 @@ function feedAndStoreChunk(data) {
   };
 }
 
-function deliverChunk(chunk) {
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('antifan:terminal:data', chunk);
-  }
-}
 
 app.whenReady().then(async () => {
   // Wire real TerminalManager handlers
@@ -199,7 +203,7 @@ app.whenReady().then(async () => {
     // =======================================================
     console.log('[E2E Certification] Testing GATE-B: Sequence Gap Healing (Real Journal)...');
 
-    // Chunks 1..10 are produced by PTY
+    // Chunks 1..10 are injected via feedAndStoreChunk (exercising journal delivery and gap healing)
     const chunk1 = feedAndStoreChunk('Line 1\r\n');
     const droppedChunks = [];
     for (let i = 2; i <= 9; i++) {

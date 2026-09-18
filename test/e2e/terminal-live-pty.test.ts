@@ -33,6 +33,7 @@ interface LivePtyHandle {
   pid: number;
   cols: number;
   rows: number;
+  kill?: (signal?: string) => void;
 }
 
 interface LiveSessionRecord {
@@ -73,19 +74,17 @@ function processAlive(pid: number): boolean {
 function processParents(): Map<number, number> {
   const parents = new Map<number, number>();
   if (process.platform !== 'win32') return parents;
-  let out = '';
-  try {
-    out = execFileSync(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId)|$($_.ParentProcessId)" }'],
-      { encoding: 'utf8', timeout: 15_000 },
-    );
-  } catch {
-    return parents;
-  }
+  const out = execFileSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId)|$($_.ParentProcessId)" }'],
+    { encoding: 'utf8', timeout: READY_TIMEOUT_MS },
+  );
   for (const line of out.split(/\r?\n/)) {
     const match = /^(\d+)\|(\d+)$/.exec(line.trim());
     if (match) parents.set(Number(match[1]), Number(match[2]));
+  }
+  if (parents.size === 0) {
+    throw new Error('processParents: Win32_Process query returned an empty process table');
   }
   return parents;
 }
@@ -111,6 +110,7 @@ describe('Live PTY smoke (real shell through the shipped TerminalManager)', () =
   let privates: TerminalManagerPrivates;
   let previousDataRoot: string | undefined;
   let previousConfigDir: string | undefined;
+  const trackedPids = new Set<number>();
 
   before(() => {
     previousDataRoot = process.env.ANTIFAN_DATA_ROOT;
@@ -123,11 +123,34 @@ describe('Live PTY smoke (real shell through the shipped TerminalManager)', () =
     privates = tm as unknown as TerminalManagerPrivates;
   });
 
-  after(() => {
+  after(async () => {
+    try {
+      await tm?.kill();
+    } catch {}
     for (const session of privates.sessions.values()) {
-      session.pty = null;
+      const pty = session.pty;
+      if (pty) {
+        try {
+          pty.kill?.();
+        } catch {}
+        if (typeof pty.pid === 'number' && pty.pid > 0) {
+          trackedPids.add(pty.pid);
+        }
+        session.pty = null;
+      }
     }
     privates.sessions.clear();
+    for (const pid of trackedPids) {
+      if (processAlive(pid)) {
+        try {
+          if (process.platform === 'win32') {
+            execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+          } else {
+            process.kill(pid, 'SIGKILL');
+          }
+        } catch {}
+      }
+    }
     if (previousDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
     else process.env.ANTIFAN_DATA_ROOT = previousDataRoot;
     if (previousConfigDir === undefined) delete process.env.ANTIFAN_CONFIG_DIR;
@@ -155,6 +178,7 @@ describe('Live PTY smoke (real shell through the shipped TerminalManager)', () =
       assert.ok(session.pty, 'the spawned shell handle must be bound to its record');
       const shellPid = session.pty.pid;
       assert.ok(shellPid > 0, 'the live shell must expose its pid');
+      trackedPids.add(shellPid);
 
       await waitFor(() => output.length > 0, 'the shell banner/first prompt', READY_TIMEOUT_MS);
 
@@ -175,7 +199,12 @@ describe('Live PTY smoke (real shell through the shipped TerminalManager)', () =
       assert.strictEqual(tm.getStats().runningPtyCount, 1, 'a live shell must be counted as a running PTY');
 
       // The console host belongs to this shell; track it before teardown so its exit is asserted too.
-      tracked = [shellPid, ...descendantsOf(shellPid, processParents())];
+      const parents = processParents();
+      if (process.platform === 'win32') {
+        assert.ok(parents.size > 0, 'processParents must return a non-empty process table on Windows');
+      }
+      tracked = [shellPid, ...descendantsOf(shellPid, parents)];
+      for (const pid of tracked) trackedPids.add(pid);
       assert.ok(tracked.length >= 1, 'the shell must be tracked for teardown');
 
       const kill = tm.kill();

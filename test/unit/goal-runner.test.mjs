@@ -38,6 +38,29 @@ function isAlive(pid) {
   }
 }
 
+function isChildDead(child) {
+  if (!child) return false;
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  if (typeof child.pid === 'number' && !isAlive(child.pid)) return true;
+  return false;
+}
+
+function captureStderr(child, limit = 64 * 1024) {
+  let buf = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    if (buf.length < limit) {
+      buf += chunk;
+      if (buf.length > limit) {
+        buf = buf.slice(0, limit) + '\n...[stderr truncated]';
+      }
+    }
+  });
+  const get = () => buf;
+  child.getStderr = get;
+  return get;
+}
+
 // Two kinds of wait, because they time different things. `waitFor` bounds an
 // OS-level state change (a process dying, a record appearing) that the host's
 // scheduling decides, so it takes a calendar budget. `waitForProgress` bounds a
@@ -68,13 +91,30 @@ async function waitFor(cond, { timeoutMs = 60_000, stepMs = 50 } = {}) {
 // true`) while the same case runs in 4s when the box is idle. Failing that as if
 // the runner had wedged would re-introduce exactly the machine measurement this
 // helper exists to remove, so a live runner spends the hard budget instead.
-async function waitForProgress(dir, cond, { stallMs = 16_000, hardMs = 120_000, stepMs = 50 } = {}) {
+async function waitForProgress(dir, cond, options = {}) {
+  const opts = (options && typeof options === 'object' && 'pid' in options && 'exitCode' in options)
+    ? { child: options }
+    : (options || {});
+  const { child = null, stallMs = 16_000, hardMs = 120_000, stepMs = 50 } = opts;
   const deadline = Date.now() + hardMs;
   let entries = readWorklog(dir).length;
   let advancedAt = Date.now();
   let stalledMs = 0;
   while (Date.now() < deadline) {
     if (cond()) return { ok: true };
+
+    if (child && isChildDead(child)) {
+      if (cond()) return { ok: true };
+      return {
+        ok: false,
+        dead: true,
+        stalled: true,
+        stalledMs: Date.now() - advancedAt,
+        exitCode: child.exitCode,
+        signalCode: child.signalCode,
+      };
+    }
+
     const now = readWorklog(dir).length;
     if (now !== entries) {
       entries = now;
@@ -82,8 +122,8 @@ async function waitForProgress(dir, cond, { stallMs = 16_000, hardMs = 120_000, 
     } else if (Date.now() - advancedAt > stallMs) {
       stalledMs = Date.now() - advancedAt;
       const lock = readRunnerMutex(dir);
-      const alive = lock?.pid ? isAlive(lock.pid) : null;
-      if (alive === false) return { ok: false, stalled: true, stalledMs };
+      const alive = child ? !isChildDead(child) : (lock?.pid ? isAlive(lock.pid) : false);
+      if (!alive) return { ok: false, stalled: true, stalledMs };
     }
     await sleep(stepMs);
   }
@@ -92,7 +132,7 @@ async function waitForProgress(dir, cond, { stallMs = 16_000, hardMs = 120_000, 
 
 // What a failed wait needs to explain itself: where the run stopped, whether its
 // pulse was still landing, and whether the process was even alive.
-function describeRun(dir) {
+function describeRun(dir, extra = null) {
   const log = readWorklog(dir);
   const last = log
     .slice(-3)
@@ -103,7 +143,38 @@ function describeRun(dir) {
     .join(' ');
   const lock = readRunnerMutex(dir);
   const verdicts = readRecord(checkpointPath(dir))?.ladder?.map((u) => u.verdict ?? 'pending') ?? null;
-  return `entries=${log.length} verdicts=${JSON.stringify(verdicts)} heartbeatAgeMs=${heartbeatAgeMs(dir) ?? 'none'} runnerAlive=${lock?.pid ? isAlive(lock.pid) : 'no-lock'} last=[${last}]`;
+
+  let child = null;
+  let stderr = null;
+  if (extra) {
+    if (typeof extra === 'object' && 'pid' in extra && 'exitCode' in extra) {
+      child = extra;
+    } else if (typeof extra === 'object') {
+      child = extra.child ?? null;
+      stderr = extra.stderr ?? null;
+    } else if (typeof extra === 'string') {
+      stderr = extra;
+    }
+  }
+  if (!stderr && child && typeof child.getStderr === 'function') {
+    stderr = child.getStderr();
+  }
+
+  let runnerAlive;
+  if (child) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      runnerAlive = `dead(exit=${child.exitCode}${child.signalCode ? `,signal=${child.signalCode}` : ''})`;
+    } else if (typeof child.pid === 'number') {
+      runnerAlive = isAlive(child.pid) ? 'true' : 'false';
+    } else {
+      runnerAlive = lock?.pid ? String(isAlive(lock.pid)) : 'no-lock';
+    }
+  } else {
+    runnerAlive = lock?.pid ? String(isAlive(lock.pid)) : 'no-lock';
+  }
+
+  const errSnippet = stderr && stderr.trim() ? ` stderr=[${stderr.trim()}]` : '';
+  return `entries=${log.length} verdicts=${JSON.stringify(verdicts)} heartbeatAgeMs=${heartbeatAgeMs(dir) ?? 'none'} runnerAlive=${runnerAlive} last=[${last}]${errSnippet}`;
 }
 
 function spawnNode(args, env = {}) {
@@ -153,23 +224,32 @@ describe('goal runner kill/resume', () => {
   it('loses at most one unit of work when killed mid-phase', async () => {
     const dir = makeDir('antifan-goal-kill-');
     let child = null;
+    let child2 = null;
     try {
       child = spawnNode([RUNNER, dir, '--ladder', LADDER_FIXTURE, '--heartbeat-ms', '30000'], {
         GOAL_FIXTURE_UNITS: '6',
         GOAL_FIXTURE_UNIT_MS: '400',
       });
-      child.stderr.on('data', () => {});
+      const childStderr = captureStderr(child);
 
       // Wait until two units have actually completed, then hard-kill mid-run.
-      const twoDone = await waitForProgress(dir, () => {
-        const cp = readRecord(checkpointPath(dir));
-        return cp && cp.ladder.filter((u) => u.verdict === 'PASS').length >= 2;
-      });
+      const twoDone = await waitForProgress(
+        dir,
+        () => {
+          const cp = readRecord(checkpointPath(dir));
+          return cp && cp.ladder.filter((u) => u.verdict === 'PASS').length >= 2;
+        },
+        { child },
+      );
       assert.ok(
         twoDone.ok,
         `runner never completed two units (${
-          twoDone.stalled ? `stalled ${twoDone.stalledMs}ms and exhausted the hard budget` : 'hard budget exhausted'
-        }): ${describeRun(dir)}`,
+          twoDone.dead
+            ? `runner process died (${twoDone.stalledMs}ms)`
+            : twoDone.stalled
+              ? `stalled ${twoDone.stalledMs}ms and exhausted the hard budget`
+              : 'hard budget exhausted'
+        }): ${describeRun(dir, { child, stderr: childStderr() })}`,
       );
 
       // Hard-kill the whole tree — the same thing the supervisor does, so the
@@ -182,19 +262,19 @@ describe('goal runner kill/resume', () => {
       assert.ok(passedBeforeKill.length >= 2, 'checkpoint lost the completed units');
 
       // Resume: a new runner process over the same dir.
-      const child2 = spawnNode([RUNNER, dir, '--ladder', LADDER_FIXTURE, '--heartbeat-ms', '30000'], {
+      child2 = spawnNode([RUNNER, dir, '--ladder', LADDER_FIXTURE, '--heartbeat-ms', '30000'], {
         GOAL_FIXTURE_UNITS: '6',
         GOAL_FIXTURE_UNIT_MS: '400',
       });
-      child2.stderr.on('data', () => {});
+      const child2Stderr = captureStderr(child2);
       // Bounded: an unbounded `once('exit')` would hang the whole lane if the
       // resumed runner wedged, and a hang names nothing.
       const exited = await waitFor(() => child2.exitCode !== null || child2.signalCode !== null, { timeoutMs: 120_000 });
-      assert.ok(exited, `resumed runner never exited: ${describeRun(dir)}`);
+      assert.ok(exited, `resumed runner never exited: ${describeRun(dir, { child: child2, stderr: child2Stderr() })}`);
       assert.strictEqual(
         child2.exitCode,
         0,
-        `resumed runner did not exit cleanly (code=${child2.exitCode} signal=${child2.signalCode})`,
+        `resumed runner did not exit cleanly (code=${child2.exitCode} signal=${child2.signalCode}) stderr=[${child2Stderr()}]`,
       );
 
       const worklog = readWorklog(dir);
@@ -219,6 +299,7 @@ describe('goal runner kill/resume', () => {
       assert.strictEqual(summary.status, 'completed');
     } finally {
       if (child && isAlive(child.pid)) killTree(child.pid);
+      if (child2 && isAlive(child2.pid)) killTree(child2.pid);
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

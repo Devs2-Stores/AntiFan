@@ -119,7 +119,12 @@ app.whenReady().then(async () => {
     const level = hasParams ? event.level : legacyArgs[0];
     if (level === 3 || (typeof msg === 'string' && (msg.includes('Error:') || msg.includes('Uncaught ')))) {
       if (!msg.includes('Insecure Content-Security-Policy')) {
-        rendererErrors.push(msg);
+        // Name the site in the failure: an error reported without a source is a lane that
+        // cannot be triaged, and these come from a minified vendor bundle.
+        const sourceId = hasParams ? event.sourceId : legacyArgs[4];
+        const lineNumber = hasParams ? event.lineNumber : legacyArgs[3];
+        const site = typeof sourceId === 'string' && sourceId ? ` [${sourceId}:${Number.isFinite(lineNumber) ? lineNumber : 0}]` : '';
+        rendererErrors.push(`${msg}${site}`);
       }
     }
   });
@@ -135,6 +140,16 @@ app.whenReady().then(async () => {
   await win.loadFile(htmlPath, { query: { mode: 'popout' } });
 
   console.log('[SMOKE-RECOVERY] Page loaded without initial push. Running assertions...');
+
+  // Install a rejection listener before any interaction: the vendor error site is minified, so
+  // the only way to name the xterm call path is the stack captured here.
+  await win.webContents.executeJavaScript(`
+    window.__rejectionTraces = [];
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = event.reason;
+      window.__rejectionTraces.push(reason && reason.stack ? String(reason.stack) : String(reason));
+    }); true;
+  `);
 
   try {
     const result = await win.webContents.executeJavaScript(`
@@ -234,6 +249,10 @@ app.whenReady().then(async () => {
     console.log('[E2E PASS] Test 4: Successfully recovered from empty state via #btnNewTerminal (+)');
 
     // Test 5: Verify zero unhandled errors in renderer
+    // Attach the captured rejection stacks before this assertion so a minified vendor
+    // error names its xterm call path instead of only xterm.js:1.
+    const rejectionTraces = await win.webContents.executeJavaScript('window.__rejectionTraces || []');
+    rendererErrors.push(...rejectionTraces.map((t) => `stack: ${t}`));
     assert.strictEqual(rendererErrors.length, 0, `Renderer must have 0 errors, got: ${JSON.stringify(rendererErrors)}`);
     console.log('[E2E PASS] Test 5: Zero renderer console errors or uncaught exceptions during execution');
 

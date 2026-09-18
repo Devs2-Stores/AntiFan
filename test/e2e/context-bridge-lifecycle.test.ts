@@ -155,7 +155,10 @@ class McpBridgeClient {
     });
   }
 
-  sendRequest<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 20_000): Promise<T> {
+  // The lane runs this file beside live Electron suites, and the MCP server child this test
+  // spawns has to finish `initialize` under that load. A 20s bound measured machine
+  // saturation, not the bridge: raise it to a bound that still fails a genuine hang.
+  sendRequest<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 60_000): Promise<T> {
     const id = this.nextId++;
     const { promise, resolve, reject } = Promise.withResolvers<JsonRpcResponse<T>>();
     // A pending request must bound itself: without this timer the promise only ever

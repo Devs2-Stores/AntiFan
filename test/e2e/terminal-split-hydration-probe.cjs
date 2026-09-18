@@ -115,11 +115,20 @@ app.whenReady().then(async () => {
     win = new BrowserWindow({
       width: 1024,
       height: 768,
-      show: false,
+      show: true,
+      opacity: 0,
       webPreferences: {
         preload: path.resolve(__dirname, '../../.compiled/src/preload/standalone-preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
+        // The production preload pulls in shared contracts, which a sandboxed preload cannot
+        // require. Every real window hosting this preload sets sandbox: false; without it the
+        // preload dies silently and the renderer sees no api at all.
+        sandbox: false,
+        // The checks below read forced layout on a window that is never focused. A renderer
+        // whose lifecycle is suspended (hidden or occluded window) keeps serving the previous
+        // used values, so keep it live while staying invisible.
+        backgroundThrottling: false,
       },
     });
 
@@ -235,7 +244,7 @@ app.whenReady().then(async () => {
       const btn = document.getElementById('btnSplitTerminal') || document.getElementById('btnSplitVertical');
       if (!btn) throw new Error('Split button #btnSplitTerminal not found in DOM');
       if (btn.disabled) throw new Error('Split button #btnSplitTerminal is disabled');
-      if (!activeId) throw new Error('activeId is empty, split action cannot proceed');
+      if (!activeId) throw new Error('activeId is empty, split action cannot proceed — ' + JSON.stringify({ sessions: sessions.length, ids: sessions.map((s) => s.id).slice(0, 4), initialPushReceived, splitId, poolSize: terminalPool.size }));
       
       let phantomObservedDuringRace = false;
       const poller = setInterval(() => {

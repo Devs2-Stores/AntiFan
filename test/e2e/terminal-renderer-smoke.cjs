@@ -20,7 +20,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const reportsDir = path.join(__dirname, '..', '..', 'plans', '260827-1345-production-cutover-release-hardening', 'reports', 'smoke');
+const reportsDir = path.join(__dirname, '..', '..', 'plans', 'reports');
 fs.mkdirSync(reportsDir, { recursive: true });
 const logFile = path.join(reportsDir, 'terminal-renderer-smoke.log');
 const logStream = fs.createWriteStream(logFile, { flags: 'w' });
@@ -198,6 +198,18 @@ app.whenReady().then(async () => {
   ipcMain.handle('antifan:test:emit-data', (_e, { sessionId, data, seq }) => {
     if (win && !win.isDestroyed()) {
       const eventSeq = typeof seq === 'number' ? seq : ++monotonicSeq;
+      // The backend is the single writer of the transcript: a chunk is in the session's retained
+      // buffer before it is broadcast, which is what lets a hidden pane skip painting and rehydrate
+      // on activation without losing the tail. A mock that only broadcasts models a producer whose
+      // own transcript forgets what it sent, and the hidden-pane design then looks like data loss.
+      const target = mockSessions.find((s) => s.id === sessionId);
+      if (target) {
+        const throughSeq = typeof target.snapshotThroughSeq === 'number' ? target.snapshotThroughSeq : 0;
+        if (eventSeq > throughSeq) {
+          target.buffer = (target.buffer || '') + data;
+          target.snapshotThroughSeq = eventSeq;
+        }
+      }
       win.webContents.send('antifan:terminal:data', { sessionId, data, seq: eventSeq });
     }
     return true;
@@ -243,18 +255,29 @@ app.whenReady().then(async () => {
   win = new BrowserWindow({
     width: 1000,
     height: 700,
-    show: false,
+    show: true,
+    opacity: 0,
     webPreferences: {
       preload: path.resolve(__dirname, './e2e-combined-preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      // The assertions below measure forced layout (offsetHeight) on a window that is never
+      // shown. Chromium suspends the rendering lifecycle for a throttled hidden window, so
+      // style-attribute writes on an already-rendered subtree keep reporting the previous
+      // used values. Turning throttling off keeps the renderer's geometry live.
+      backgroundThrottling: false,
     },
   });
 
   win.webContents.on('console-message', (event, ...legacyArgs) => {
     const hasParams = event && typeof event === 'object' && ('message' in event || 'level' in event);
     const msg = hasParams ? event.message : (typeof legacyArgs[1] === 'string' ? legacyArgs[1] : (typeof legacyArgs[0] === 'string' ? legacyArgs[0] : String(legacyArgs[1] ?? legacyArgs[0] ?? event)));
-    console.log('[RENDERER-CONSOLE]', msg);
+    // "Uncaught TypeError" alone does not say where it threw; the event carries the originating
+    // file and line, which is the only actionable detail when the throw is inside a dependency.
+    const where = hasParams && (event.sourceId || typeof event.lineNumber === 'number')
+      ? ` (${event.sourceId || 'unknown source'}:${typeof event.lineNumber === 'number' ? event.lineNumber : '?'})`
+      : '';
+    console.log('[RENDERER-CONSOLE]', `${msg}${where}`);
   });
 
   win.webContents.on('did-finish-load', () => {
@@ -271,6 +294,13 @@ app.whenReady().then(async () => {
     (async () => {
       const helper = window.antifanTestHelper;
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      // An uncaught throw from inside a dependency reports its own file and line only, so log the
+      // stack here: without it there is no way to tell which of this suite's steps provoked it.
+      window.addEventListener('error', (e) => {
+        const detail = (e.error && e.error.stack) || e.message || 'unknown error';
+        console.log('[SMOKE-ERROR-STACK]', String(detail).split('\\n').slice(0, 6).join(' | '));
+      });
 
       try {
         console.log('[SMOKE-RUNNER] Starting in-renderer assertions...');
@@ -293,7 +323,13 @@ app.whenReady().then(async () => {
         }
         console.log('[SMOKE-RUNNER] Step 1 PASS: Session 1 geometry full size (' + s1Rect.width + 'x' + s1Rect.height + ')');
 
-        // Step 1b: Verify Tab Strip DOM order (all tabs precede btnNewTerminal)
+        // Step 1b: Verify Tab Strip DOM order. The create action rides the strip's
+        // sticky toolbar, which leads the strip, and every tab follows it. The button
+        // used to be the strip's last child; the tab search field moved it into a
+        // leading toolbar row (standalone.js: tabToolbar.append(searchField,
+        // btnNewTerminal, btnNewCategory) then insertBefore(tabToolbar, firstChild)),
+        // so the pinned order is toolbar-first - the action must still never be
+        // pushed out of reach by a long tab list.
         const tabsContainer = document.getElementById('terminalTabs');
         const newTermBtn = document.getElementById('btnNewTerminal');
         if (!tabsContainer) throw new Error('#terminalTabs container missing');
@@ -301,15 +337,18 @@ app.whenReady().then(async () => {
         const tabWraps = Array.from(tabsContainer.querySelectorAll('.terminal-tab-wrap'));
         if (tabWraps.length < 3) throw new Error('Expected at least 3 terminal tabs in DOM, found ' + tabWraps.length);
         const children = Array.from(tabsContainer.children);
-        const newBtnIndex = children.indexOf(newTermBtn);
-        if (newBtnIndex === -1) throw new Error('#btnNewTerminal not found in #terminalTabs children');
+        const toolbarIndex = children.findIndex((el) => el.classList && el.classList.contains('terminal-tab-toolbar'));
+        if (toolbarIndex === -1) throw new Error('#terminalTabs must carry a .terminal-tab-toolbar row');
+        const toolbar = children[toolbarIndex];
+        if (!toolbar.contains(newTermBtn)) throw new Error('#btnNewTerminal must live inside the strip toolbar');
+        if (toolbarIndex !== 0) throw new Error('.terminal-tab-toolbar must be the first child of the strip (index ' + toolbarIndex + ')');
         for (const wrap of tabWraps) {
           const wrapIndex = children.indexOf(wrap);
-          if (wrapIndex >= newBtnIndex) {
-            throw new Error('Tab ' + wrap.getAttribute('data-session-id') + ' (index ' + wrapIndex + ') placed after action buttons (index ' + newBtnIndex + ')');
+          if (wrapIndex <= toolbarIndex) {
+            throw new Error('Tab ' + wrap.getAttribute('data-session-id') + ' (index ' + wrapIndex + ') must follow the action toolbar (index ' + toolbarIndex + ')');
           }
         }
-        console.log('[SMOKE-RUNNER] Step 1b PASS: All ' + tabWraps.length + ' terminal tabs correctly precede action buttons in tab strip DOM hierarchy');
+        console.log('[SMOKE-RUNNER] Step 1b PASS: All ' + tabWraps.length + ' terminal tabs follow the leading action toolbar that holds #btnNewTerminal');
 
         // Step 2: Buffer and scroll position on Session 1
         for (let i = 0; i < 60; i++) {
@@ -483,8 +522,11 @@ app.whenReady().then(async () => {
 
         // Step 6: Background streaming to Session 1 + switch back
         const s1BackgroundChunk = '⚡ [S1-BACKGROUND-CHUNK] Live streaming data received by Session 1 while other session was active\\r\\n';
+        const readVp = (phase) => ({ phase, y: s1Item.term.buffer.active.viewportY, base: s1Item.term.buffer.active.baseY, saved: s1Item.savedViewportY, up: s1Item.isUserScrolledUp, active: s1Item.paneEl.classList.contains('active') });
+        window.__smokeVp = [readVp('pre-emit')];
         await helper.emitData('session-1', s1BackgroundChunk);
         await sleep(100);
+        window.__smokeVp.push(readVp('post-emit'));
 
         const s1TabBtn = document.querySelector('.terminal-tab-wrap[data-session-id="session-1"] .terminal-tab');
         if (s1TabBtn) s1TabBtn.click();
@@ -505,8 +547,9 @@ app.whenReady().then(async () => {
         if (!s1Received) throw new Error('Session 1 did not receive background streaming data');
 
         const restoredViewportY = s1Item.term.buffer.active.viewportY;
+        window.__smokeVp.push(readVp('post-switch'));
         if (Math.abs(restoredViewportY - 42) > 1) {
-          throw new Error(\`Session 1 scroll jump detected! Expected viewportY ~42, got \${restoredViewportY}\`);
+          throw new Error('Session 1 scroll jump detected! Expected viewportY ~42, got ' + restoredViewportY + ' trace=' + JSON.stringify(window.__smokeVp));
         }
         console.log('[SMOKE-RUNNER] Step 6 PASS: Session 1 restored with exact scroll position preserved (viewportY = ' + restoredViewportY + ')');
 
@@ -623,7 +666,6 @@ app.whenReady().then(async () => {
         if (Math.abs(draggedRatio - 0.35) > 0.01) {
           throw new Error('Dragged ratio expected exact ~0.35 (within 0.01), got ' + draggedRatio.toFixed(3));
         }
-
 
         // Switch to Session 2 and back to Session 1 -> dragged ratio must be preserved
         const s2TabBtnSplit = document.querySelector('.terminal-tab-wrap[data-session-id="session-2"] .terminal-tab');

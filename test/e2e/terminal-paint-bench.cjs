@@ -1,14 +1,25 @@
 /**
  * AntiFan Terminal Paint Pipeline Benchmark (Real Electron Runtime)
  *
- * Harness shape cloned from test/e2e/terminal-transport-sync.cjs:
+ * Execution Role:
+ * - Standalone / on-demand performance benchmark (invoked via Electron directly:
+ *   `node scripts/run-electron.cjs test/e2e/terminal-paint-bench.cjs` or
+ *   `npm run benchmark:terminal-paint`).
+ * - NOT an automated CI correctness gate in `scripts/run-test-pipeline.mjs` or `npm test`.
+ * - Informational measurement role: Gathers throughput and latency percentiles (p50/p95/mean)
+ *   across paint stages T1-T4, outputs `plans/reports/terminal-paint-bench.json`,
+ *   and exits 0 on successful telemetry capture (`verdict: 'MEASURED'`). Fixed
+ *   threshold assertions are deliberately omitted here to prevent hardware-dependent
+ *   flakiness in CI; threshold regression evaluation is conducted against the report artifact.
+ *
+ * Harness Architecture (cloned from test/e2e/terminal-transport-sync.cjs):
  * - Real compiled TerminalManager & SessionDeliveryJournal in Electron Main
  * - Real standalone.html, standalone-preload.js, and standalone.js in BrowserWindow
  * - Real IPC delivery over webContents.send('antifan:terminal:data')
  *
- * Difference: instead of a fake PTY burst for correctness gates, this streams
- * chunks for PAINT_BENCH_DURATION_MS (default 60s) and reads the renderer
- * telemetry hook pinned for Phase 1:
+ * Telemetry Contract:
+ * Instead of a fake PTY burst for correctness gates, this streams chunks for
+ * PAINT_BENCH_DURATION_MS (default 60s) and reads the renderer telemetry hook:
  *
  *   window.__antifanTerminalBench = {
  *     record(stage: 'T1'|'T2'|'T3'|'T4', extra?): void,
@@ -19,9 +30,8 @@
  *   T1 = onTerminalData receipt, T2 = queueWrite entry,
  *   T3 = onPostWrite parse complete, T4 = next rAF paint.
  *
- * The hook lives in src/renderer/standalone.js (sibling-owned). If it is absent
- * the run reports NOT_INSTALLED and exits 1 — a missing hook is a failed
- * prerequisite, never a TypeError.
+ * The hook lives in src/renderer/standalone.js. If it is absent the run reports
+ * NOT_INSTALLED and exits 1 — a missing hook is a failed prerequisite, never a TypeError.
  *
  * Report: plans/reports/terminal-paint-bench.json
  */
@@ -334,6 +344,10 @@ app.whenReady().then(async () => {
       parseToPaint: stageStats(deltas.parseToPaint),
       ipcToPaint: stageStats(deltas.ipcToPaint),
     };
+    // Execution role: informational benchmark probe. Exits 0 on successful telemetry
+    // capture (verdict: MEASURED). Hard latency/throughput regression thresholds are
+    // intentionally evaluated out-of-band against the JSON report artifact to avoid
+    // environment-dependent CI flakiness across varied developer/CI hardware.
     report.verdict = 'MEASURED';
 
     const fmt = (s) => (s.count === 0 ? 'n/a' : `p50=${s.p50.toFixed(2)}ms p95=${s.p95.toFixed(2)}ms mean=${s.mean.toFixed(2)}ms n=${s.count}`);
@@ -348,6 +362,7 @@ app.whenReady().then(async () => {
     console.log(`[PaintBench] drained=${drained} report=${reportFile}`);
     console.log('======================================================\n');
 
+    // Informational benchmark exits 0 on successful telemetry collection.
     finish(0);
   } catch (err) {
     console.error('[PaintBench] FAILED', err);
