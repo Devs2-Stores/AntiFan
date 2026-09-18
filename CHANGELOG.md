@@ -6,6 +6,39 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Tính năng — Terminal daemon P0: host tách rời giữ session sống qua lần restart GUI
+- **Mục tiêu P0**: sau khi restart/recompile GUI, mọi terminal session còn nguyên shell process, cwd, scrollback và tiến trình con đang chạy.
+- **Nền tảng đã kiểm chứng**: `src/main/browser/terminal-manager.ts` không import Electron (duyệt closure: 8 file, 0 import) nên daemon chạy lại đúng `TerminalManager` trong runtime headless thay vì viết lại tầng PTY — `src/main/terminal-daemon/` gồm `protocol.ts`, `daemon-entry.ts`, `daemon-spawner.ts` (các chế độ `attached | detached | wmi | in-process`) và `daemon-client.ts` + `DaemonTerminalProxy`.
+- **Stage + đo**: `scripts/stage-daemon-host.mjs` stage bundle theo phiên bản; 5 probe P0 chạy qua một wrapper pin data root tạm (`scripts/run-daemon-probes.mjs`, lane `test:probes`) để không đo nhầm thứ đang staged trên máy.
+- **Bất biến mới (phát hiện bằng probe)**: không được coi "đã tạo PTY" hay "đã có output" là sẵn sàng nhận input — ConPTY nuốt input ghi trong cửa sổ chưa đọc stdin và banner PowerShell phát ra **trước** prompt, nên host gate theo prompt quan sát được.
+- **Bằng chứng**: host survival (relay đã chết, host + shell còn sống, `ticks 22→28`), reattach 21/21, staged-host RPC authenticate + prompt-gated input, coverage 33/33 method · 38 live call. Báo cáo tách hai làn: làn shipping vẫn `mode=in-process` (daemon không boot) — nhánh daemon mới chỉ được chứng minh ở làn probe pin, không gộp thành một câu "e2e passed".
+
+### Sửa lỗi — Đóng pane/split khi đang hydrate để lại unhandled rejection từ xterm
+- **Triệu chứng**: `Uncaught (in promise) TypeError: Cannot read properties of undefined (reading 'dimensions')` — đỏ tiêu chí "0 renderer error" của `terminal-renderer-smoke` (Test 5).
+- **Nguyên nhân**: `atomicHydrateSplitPane` kiểm epoch sau `await`, nhưng nhánh đóng split (`splitSessionState.id=''` … `splitTerm = null`) không tăng epoch; đuôi continuation không kiểm lại rồi gọi `splitTerm.reset()` (ngoài `try/catch`) và `viewportAtBottom(null)` trả `true` → `splitTerm.scrollToBottom()` trên `null`.
+- **Sửa**: nhánh đóng tăng `splitSessionState.hydrationEpoch` (cùng hợp đồng với `releaseTerminalPane`), đuôi continuation thoát khi `!splitTerm || epoch lệch`; đường item đã có `item.released` + epoch từ trước.
+- **Bằng chứng**: `npm test` lane `smoke:terminal` xanh (Test 5 pass), split-hydration probe `CONFIRMED_ALL_FIXES_VERIFIED`; dòng còn lại trong log là `Uncaught TypeError` **đồng bộ** trong `_sync` của xterm — khác lớp lỗi, không có frame repo.
+
+### Bảo mật — Bootstrap secret của MCP proxy đi qua pipe thay vì environment block
+- **Vấn đề**: payload bootstrap (mang bridge secret) truyền qua biến môi trường; khối env đọc được bởi mọi tiến trình cùng user.
+- **Sửa**: `antifan-omp-mcp.cjs` đọc payload từ dòng đầu của stdin **trước khi** transport chạm stdin (đọc byte-by-byte; chỉ nhận payload thật sự trỏ tới bridge endpoint, frame JSON-RPC hợp lệ được `unshift` trả lại nguyên vẹn); client nội bộ ghi payload qua stdin và xoá các biến bootstrap kế thừa từ shell để không retarget nhầm session; kênh env vẫn giữ cho client ngoài repo (Codex/harness) vì tiến trình con của họ nằm ngoài tầm với stdin.
+- **Kèm theo**: timeout mặc định 30 s cho mỗi request của client (có override từng call), reject toàn bộ pending khi stdout JSON hỏng hoặc tiến trình lỗi.
+- **Bằng chứng**: `test:fast` xanh (`antifan-mcp-client`, `mcp-dispatch-payload-gate`, `omp-mcp-adapter`); lane e2e xanh với `mcp-industrial-overhaul`.
+
+### Hạ tầng test — `npm test` chạy 14 làn: gate tĩnh vào bộ mặc định, graduate `test:e2e:strict`, thêm làn terminal
+- **Sửa**: `run-test-pipeline.mjs` chạy cả gate tĩnh (`audit`, `plans:check`) trong bộ mặc định, tự chèn lane `compile` trước làn cần build (`--no-compile` để tắt, `--help` để in danh sách làn), đưa `smoke:terminal` và `test:probes` vào `KNOWN_LANES`; `test:unit` bó hẹp về unit (tách khỏi integration/benchmark) và `test:e2e` chạy `--test-concurrency=1`.
+- **Sửa**: `check-plans.mjs` trả mã lỗi khi không tìm thấy plan nào thay vì báo xanh.
+- **Bằng chứng**: chính lần chạy ship này — `npm test` → **14/14 làn xanh**, `PIPELINE_EXIT=0`.
+
+### Sửa lỗi — Ghi record của goal runner sống sót qua lock tạm thời trên Windows
+- **Vấn đề**: `writeRecordAtomic` đổi tên file tạm lên file đích ngay lập tức; antivirus/indexer giữ handle trong vài chục ms và Windows trả `EPERM`/`EACCES`/`EBUSY`, làm lần chạy goal đứt ở bước ghi record dù không có lỗi logic nào.
+- **Sửa**: `scripts/lib/atomic-record.mjs` retry đúng nhóm lỗi đó theo backoff 10→500 ms (ngân sách ~1.1 s) rồi mới ném lỗi thật.
+- **Bằng chứng**: lane `test:unit` (unit của goal runner đi qua cùng đường ghi record) xanh trong `npm test` 14/14 làn.
+
+### Sửa test — Lane e2e/terminal chứng minh teardown, watchdog và cái chết của tiến trình con
+- **Sửa**: `terminal-rename-space` dựng `TerminalManager`/`SessionRecord` thật (có kiểm chứng persistence trên đĩa) + watchdog 60 s thay vì trạng thái giả; `test/unit/goal-runner.test.mjs` theo dõi tiến trình con (`isChildDead`) và khẳng định **stderr được giữ lại** thay vì bị nuốt, để lỗi con hiện ra trong báo cáo thay vì đổ cho timeout; `test/main/nested-cancellation.test.ts` nới ngân sách 150/120 ms → 1_500/1_200 ms vì bản cũ đo lịch chạy song song của lane chứ không đo hành vi hủy; các smoke/probe terminal chặn throttle cửa sổ Chromium và siết biên thời gian.
+- **Bằng chứng**: `npm test` — `test:e2e:strict`, `test:terminal-rename`, `smoke:terminal` xanh; audit đối kháng (5 ứng viên + 1 verifier) ghi tại `plans/260919-0130-terminal-daemon-and-throughput/reports/260919-0405-ultra-verifier-audit.md`.
+
 ### Sửa lỗi — Context pack chứa bản sao của cùng một câu claim
 - **Triệu chứng**: pack Core bơm vào mỗi prompt lặp claim. Đo trên 5 pack gần nhất: 75 slot chỉ chứa 46 câu khác nhau (29 slot là bản sao); pack của phiên `ak:debug` là 15 slot / **2 câu**.
 - **Nguyên nhân**: `claimId = sha1(unitId + statement + anchor đầu tiên)` (`plans/260914-1248-work-root-sequential-evidence-scout/tools/deep-analyze-unit.mjs:44`) nên cùng một câu trích từ nhiều unit — một rule boilerplate nằm trong N skill, thêm bản copy trong worktree — sinh ra N claim khác nhau; `contextPack()` lấy top-N theo điểm và không gộp câu trùng.
