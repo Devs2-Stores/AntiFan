@@ -600,7 +600,15 @@ export class CapabilityCatalogue {
       const canonicalTargetId = this.options.resolveTabId ? this.options.resolveTabId(reqTabId) : reqTabId;
 
       if (!canonicalTargetId || typeof canonicalTargetId !== 'string' || canonicalTargetId.trim().length === 0) {
-        throw new CapabilityError('TARGET_MISMATCH', `Unknown browser target: ${reqTabId}`);
+        // The id names no live tab. A caller that defaulted to an id the desktop handed
+        // it (the MCP proxy mirrors the authority's tab) holds a stale default, so the
+        // refusal names the live target it can retarget onto; the code stays the
+        // fail-closed mismatch the explicit-foreign-id contract pins.
+        throw new CapabilityError(
+          'TARGET_MISMATCH',
+          `Unknown browser target: ${reqTabId}. This session's live target is '${context.browserTarget.tabId}'; rebind with anti.browser.rebind_target.`,
+          { requestedTabId: reqTabId, liveTabId: context.browserTarget.tabId, rebindTool: 'anti.browser.rebind_target' }
+        );
       }
       const canonicalId = canonicalTargetId.trim();
 

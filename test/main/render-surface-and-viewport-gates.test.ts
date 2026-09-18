@@ -154,8 +154,57 @@ describe('Render-surface precondition (no laid-out surface)', () => {
     assert.deepStrictEqual(
       reading.probeError,
       { code: 'CDP_TIMEOUT', message: 'CDP command Runtime.evaluate timed out after 3000ms' },
-      'a probe that threw must be reported by name: a caller cannot tell a busy target from a tab that cannot render otherwise'
+        'a probe that threw must be reported by name: a caller cannot tell a busy target from a tab that cannot render otherwise'
     );
+  });
+
+  it('refuses a page inventory on a 0x0 tab with NO_RENDER_SURFACE and never dispatches the scan', async () => {
+    const { host, calls } = buildHost({ surface: { vw: 0, vh: 0 } });
+    const port = new BrowserControlPort(host);
+    const before = calls.eval;
+
+    await assert.rejects(
+      () => port.pageInventory(TARGET, { tabId: 'tab-b' }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'NO_RENDER_SURFACE');
+        assert.match(err.message, /anti\.inspect\.page_inventory/);
+        return true;
+      }
+    );
+    assert.strictEqual(calls.eval, before, 'an inventory of a document nobody laid out must not be dispatched');
+  });
+
+  it('reports an unmeasured viewport height as 0 in the degraded run instead of a plausible constant', async () => {
+    const { host } = buildHost({
+      surface: { vw: 0, vh: 0 },
+      // The renderer answered with no viewport reading at all: the shape a fabricated height
+      // used to make indistinguishable from a measured one.
+      evalJs: async () => ({ scrollHeight: 0, sections: [] }),
+    });
+    const port = new BrowserControlPort(host);
+
+    const inv = await port.pageInventory(TARGET, { tabId: 'tab-b', allowDegradedSurface: true });
+    assert.strictEqual(inv.viewportHeight, 0, 'an unmeasured viewport height must stay unmeasured');
+    assert.strictEqual(inv.scrollHeight, 0);
+    assert.deepStrictEqual(inv.sections, []);
+  });
+
+  it('keeps the measured reading when the tab has a real surface', async () => {
+    const { host } = buildHost({
+      evalJs: async () => ({
+        scrollHeight: 6941,
+        viewportHeight: 900,
+        sections: [{ index: 0, id: 'hero', tag: 'section', selector: 'section.hero', y: 0, height: 964, group: 'main-content' }],
+      }),
+    });
+    const port = new BrowserControlPort(host);
+
+    const inv = await port.pageInventory(TARGET, { tabId: 'tab-b' });
+    assert.strictEqual(inv.scrollHeight, 6941);
+    assert.strictEqual(inv.viewportHeight, 900);
+    assert.strictEqual(inv.sections.length, 1);
+    assert.strictEqual(inv.sections[0]?.group, 'main-content');
   });
 });
 

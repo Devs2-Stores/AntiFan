@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
-import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserTarget, CapabilityRequestContext } from '../../src/shared/control-plane-contracts';
 import { ArtifactStore } from '../../src/main/tools/artifact-store';
@@ -230,6 +230,106 @@ describe('Theme QA MCP Capabilities', () => {
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('layout overflow measurement gate', () => {
+    const realOverflow = {
+      viewport: { name: 'active', width: 1440, height: 900 },
+      measured: true,
+      hasOverflow: true,
+      deltaX: 120,
+      scrollWidth: 1560,
+      clientWidth: 1440,
+      culprits: [{ selector: 'div#wide', tagName: 'div', deltaX: 120 }],
+    };
+    const unmeasuredOverflow = {
+      viewport: { name: 'active', width: 1440, height: 900 },
+      measured: false,
+      unmeasuredReason: 'the scanned tab has no laid-out CSS viewport (documentElement.clientWidth=0, window.innerWidth=1440); horizontal overflow was not measured',
+      hasOverflow: false,
+      deltaX: 0,
+      scrollWidth: 5000,
+      clientWidth: 1440,
+      culprits: [],
+    };
+
+    const scriptedHost = (overflowPayload: unknown, offscreenSurface = false) => {
+      const state = { overflowEvalCalls: 0 };
+      const host: BrowserHostPort = {
+        getTabList: () => [{ id: 'tab-1', url: 'https://shop.example.com/' }],
+        navigate: () => true,
+        reload: () => true,
+        getDom: async () => '<html><body><main>Storefront</main></body></html>',
+        captureScreenshot: async () => Buffer.from('png').toString('base64'),
+        evalJs: async (expression: string) => {
+          if (expression.includes('rawDeltaX') || expression.includes('deadband')) {
+            state.overflowEvalCalls++;
+            return overflowPayload;
+          }
+          if (expression.includes('data-template')) return { template: 'product', sections: [] };
+          if (expression.includes('performance.getEntriesByType')) return { observedRequests: [], forms: [], contracts: { add: false, change: false, read: true } };
+          return {};
+        },
+      };
+      if (offscreenSurface) {
+        host.readRenderSurface = async () => ({ vw: 0, vh: 0, layoutWidth: 0, layoutHeight: 0, dpr: 1, scrollX: 0, scrollY: 0, docH: 0, readyState: 'complete', hidden: false });
+        host.isTabOffscreen = () => true;
+      }
+      return { host, state };
+    };
+
+    const dispatchBundle = async (host: BrowserHostPort): Promise<{ overflow: { measured: boolean; unmeasuredReason?: string; hasOverflow: boolean; deltaX: number; culprits: unknown[] }; evidenceGaps: string[] }> => {
+      const catalogue = new CapabilityCatalogue(defaultOptions);
+      registerBrowserCapabilities(catalogue, new BrowserControlPort(host));
+      return (await catalogue.dispatch('theme.debug_bundle', { tabId: 'tab-1' }, makeBoundContext())) as {
+        overflow: { measured: boolean; unmeasuredReason?: string; hasOverflow: boolean; deltaX: number; culprits: unknown[] };
+        evidenceGaps: string[];
+      };
+    };
+
+    it('never reports an overflow for a tab whose surface measured 0x0, and never evaluates the scan there', async () => {
+      const { host, state } = scriptedHost({ ...realOverflow, viewport: { name: 'active', width: 0, height: 0 }, deltaX: 5000, scrollWidth: 5000, clientWidth: 0 }, true);
+      const bundle = await dispatchBundle(host);
+
+      assert.strictEqual(state.overflowEvalCalls, 0, 'An unmeasurable surface must be refused before the scan runs');
+      assert.strictEqual(bundle.overflow.measured, false);
+      assert.strictEqual(bundle.overflow.hasOverflow, false, 'A refused surface must not surface as an overflow finding');
+      assert.strictEqual(bundle.overflow.deltaX, 0);
+      assert.strictEqual(bundle.overflow.culprits.length, 0);
+      assert.ok(
+        bundle.evidenceGaps.some((gap) => gap.includes('Layout overflow not measured') && gap.includes('no laid-out surface')),
+        `expected a render-surface evidence gap, got ${JSON.stringify(bundle.evidenceGaps)}`
+      );
+    });
+
+    it('turns the scan unmeasured marker into an evidence gap, and still reports a measured overflow', async () => {
+      const unmeasuredBundle = await dispatchBundle(scriptedHost(unmeasuredOverflow).host);
+      assert.strictEqual(unmeasuredBundle.overflow.measured, false);
+      assert.strictEqual(unmeasuredBundle.overflow.hasOverflow, false);
+      assert.strictEqual(unmeasuredBundle.overflow.culprits.length, 0);
+      assert.strictEqual(unmeasuredBundle.overflow.unmeasuredReason, unmeasuredOverflow.unmeasuredReason);
+      assert.ok(
+        unmeasuredBundle.evidenceGaps.some((gap) => gap.includes('Layout overflow not measured') && gap.includes('no laid-out CSS viewport')),
+        `expected the scan reason in the gaps, got ${JSON.stringify(unmeasuredBundle.evidenceGaps)}`
+      );
+
+      const measuredBundle = await dispatchBundle(scriptedHost(realOverflow).host);
+      assert.strictEqual(measuredBundle.overflow.measured, true);
+      assert.strictEqual(measuredBundle.overflow.hasOverflow, true);
+      assert.strictEqual(measuredBundle.overflow.deltaX, 120);
+      assert.strictEqual(measuredBundle.overflow.culprits.length, 1);
+      assert.deepStrictEqual(measuredBundle.evidenceGaps, [], 'A real measurement adds no evidence gap');
+    });
+
+    it('withholds a legacy payload that carries no positive viewport width', async () => {
+      const bundle = await dispatchBundle(scriptedHost({ hasOverflow: true, deltaX: 5000, scrollWidth: 5000, culprits: [{ selector: 'div#wide' }] }).host);
+
+      assert.strictEqual(bundle.overflow.measured, false);
+      assert.strictEqual(bundle.overflow.hasOverflow, false);
+      assert.strictEqual(bundle.overflow.culprits.length, 0);
+      assert.strictEqual(bundle.evidenceGaps.length, 1);
+      assert.ok(bundle.evidenceGaps[0]?.includes('no usable viewport measurement'));
     });
   });
 });

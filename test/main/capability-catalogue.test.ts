@@ -10,6 +10,7 @@ import { registerBrowserCapabilities, legacyContext } from '../../src/main/tools
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 import { AntiFanMcpServer, buildMcpToolList } from '../../src/main/mcp/mcp-server';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
+import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { DEVICE_PRESETS } from '../../src/main/browser/device-presets';
 import { CapabilityError, issueRuntimeLease, makeControlPlaneId, BrowserTarget, AuthenticatedCapabilityContext, CapabilityRequestContext } from '../../src/shared/control-plane-contracts';
 import { verificationCaptureEnvelope } from './verification-capture-fixture';
@@ -1229,6 +1230,78 @@ describe('Capability catalogue', () => {
     assert.strictEqual(mismatchRes.isError, true, 'Non-existent target tab must fail closed');
     const errPayload = JSON.parse(mismatchRes.content[0]?.text || '{}');
     assert.strictEqual(errPayload.code, 'TARGET_MISMATCH', 'Target mismatch must yield exact TARGET_MISMATCH code');
+  });
+
+  it('surfaces a stale ambient-default TARGET_MISMATCH refusal with the live target and retarget details', async () => {
+    let domReads = 0;
+    const mockHost = {
+      getTabList: () => [
+        { id: 'tab-live', url: 'https://example.com/live' },
+        { id: 'tab-other', url: 'https://example.com/other' },
+      ],
+      getActiveTabId: () => 'tab-live',
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => {
+        domReads += 1;
+        return '<html><body>live</body></html>';
+      },
+      captureScreenshot: async () => '',
+      evalJs: async () => null,
+    };
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id: string) => (id === 'tab-live' || id === 'tab-other' ? id : undefined),
+      getDocumentGeneration: () => 1,
+    });
+    const browser = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, browser);
+    const registry = new AttachmentRegistry();
+    // NativeTabHost carries private state, so the mock reaches the MCP boundary structurally.
+    const server = new AntiFanMcpServer(mockHost as unknown as NativeTabHost, false, new CapabilityTransportAdapter(catalogue, registry));
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      grant: 'write',
+      tabId: 'tab-live',
+      backendId: 'codex',
+      browserTarget: { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-live', browserEpoch: 1, documentGeneration: 1 },
+    });
+    server.setBoundSession({
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+    });
+
+    // A proxy default that outlived its tab arrives as an explicit id naming no live tab.
+    // The refusal is the input to the proxy's ambient-default heal, so its details are the
+    // contract: the refused id, the live target to retarget onto, and the rebind tool.
+    const refused = await server.callTool('anti.inspect.dom', { tabId: 'tab-closed-default' });
+    assert.strictEqual(refused.isError, true, 'An id naming no live tab must fail closed');
+    const payload = JSON.parse(refused.content[0]?.text || '{}');
+    assert.strictEqual(payload.code, 'TARGET_MISMATCH');
+    assert.match(payload.message, /live target is 'tab-live'/, 'Refusal must name the live target');
+    assert.ok(payload.details, 'Refusal must carry typed retarget details');
+    assert.strictEqual(payload.details.requestedTabId, 'tab-closed-default');
+    assert.strictEqual(payload.details.liveTabId, 'tab-live');
+    assert.strictEqual(payload.details.rebindTool, 'anti.browser.rebind_target');
+    assert.strictEqual(domReads, 0, 'A refused target must not execute the capability');
+
+    // Positive control: the live id still executes, so the zero above is a refusal signal
+    // rather than an unwired mock.
+    const liveCall = await server.callTool('anti.inspect.dom', { tabId: 'tab-live' });
+    assert.strictEqual(liveCall.isError, undefined, 'The live target must remain usable');
+    assert.strictEqual(domReads, 1, 'The live target must reach the host');
   });
 
   it('rejects caller credential smuggling in arguments and converges deterministically on retry with InvocationLedger', async () => {

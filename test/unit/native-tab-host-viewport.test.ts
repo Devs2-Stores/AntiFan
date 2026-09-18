@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
-import { issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
+import { CapabilityError, issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
 import { NativeTabHost, NativeTabRecord } from '../../src/main/browser/native-tab-host';
 import { DEVICE_PRESETS, getPresetCornerRadius } from '../../src/main/browser/device-presets';
 import { AntiFanTab } from '../../src/shared/contracts';
@@ -40,14 +40,26 @@ interface EmulationParams {
   scale?: number;
 }
 
+interface TestWindowShape {
+  isDestroyed: () => boolean;
+  getContentBounds: () => { x: number; y: number; width: number; height: number };
+}
+
+// Deliberately not the 1440x900 the background viewport path used to invent, so a box
+// derived from this window can never be mistaken for the fabricated default.
+const WINDOW_CONTENT_BOX = { x: 0, y: 0, width: 1280, height: 800 };
+
 interface TestHostShape {
   tabs: Map<string, NativeTabRecord>;
   activeTabId: string;
   defaultUserAgent: string;
+  window?: TestWindowShape;
   emulationCalls: EmulationParams[];
   disabledEmulationCount: number;
   updateLayoutCallCount: number;
   updateLayout: () => void;
+  getToolbarHeight: () => number;
+  applyTabDeviceEmulation: (tab: NativeTabRecord, availableWidth: number, availableHeight: number, toolbarHeight: number) => void;
   safeEnableDeviceEmulation: (wc: unknown, params: EmulationParams) => void;
   safeDisableDeviceEmulation: (wc: unknown) => void;
   setSafeUserAgent: (wc: unknown, ua: string) => void;
@@ -99,6 +111,13 @@ function createTestHost(): TestHostShape {
   host.tabs = new Map<string, NativeTabRecord>();
   host.activeTabId = 'tab-1';
   host.defaultUserAgent = 'MockDesktopUA';
+  // A window the host can measure, without a contentView: these cases exercise the
+  // emulation path, so an attach-and-lay-out pass (owned by the capture describe) must
+  // not run behind them.
+  host.window = {
+    isDestroyed: () => false,
+    getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }),
+  };
   host.emulationCalls = [];
   host.disabledEmulationCount = 0;
   host.updateLayoutCallCount = 0;
@@ -527,6 +546,89 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(evalCall?.params.returnByValue, false);
     assert.ok(typeof evalCall?.params.expression === 'string' && evalCall.params.expression.includes('resolveTraversalPath(desc.path)'));
   });
+
+  it('refuses a background viewport when the window cannot name a content box, and applies it when the window can', async () => {
+    const host = createTestHost();
+    host.activeTabId = 'tab-1';
+    const backgroundTab = createTestTabRecord('tab-bg');
+    host.tabs.set('tab-bg', backgroundTab);
+
+    const TOOLBAR_HEIGHT = 68;
+    host.getToolbarHeight = () => TOOLBAR_HEIGHT;
+
+    // A refused request must leave no geometry behind, so the view records every box it is
+    // given and the emulation records the box it is handed.
+    const appliedBounds: Array<{ x: number; y: number; width: number; height: number }> = [];
+    backgroundTab.view = {
+      webContents: {
+        isDestroyed: () => false,
+        setZoomFactor: (_factor: number) => {},
+        insertCSS: async (_css: string) => '',
+      },
+      setBounds: (rect: { x: number; y: number; width: number; height: number }) => {
+        appliedBounds.push({ ...rect });
+      },
+      setBackgroundColor: (_color: string) => {},
+    } as unknown as NativeTabRecord['view'];
+
+    const emulationBoxes: Array<{ width: number; height: number; toolbarHeight: number }> = [];
+    // applyTabDeviceEmulation is private, so the prototype is reached through a named
+    // alias: the box it is handed is the only place the fabricated default ever showed.
+    const prototypeWithEmulation = NativeTabHost.prototype as unknown as {
+      applyTabDeviceEmulation: (tab: NativeTabRecord, availableWidth: number, availableHeight: number, toolbarHeight: number) => void;
+    };
+    host.applyTabDeviceEmulation = (tabRecord, availableWidth, availableHeight, toolbarHeight) => {
+      emulationBoxes.push({ width: availableWidth, height: availableHeight, toolbarHeight });
+      prototypeWithEmulation.applyTabDeviceEmulation.call(host, tabRecord, availableWidth, availableHeight, toolbarHeight);
+    };
+
+    const unusableWindows: Array<{ label: string; window: TestWindowShape | undefined }> = [
+      { label: 'no window at all', window: undefined },
+      { label: 'destroyed window', window: { isDestroyed: () => true, getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }) } },
+      { label: 'minimized window reporting 0x0', window: { isDestroyed: () => false, getContentBounds: () => ({ x: 0, y: 0, width: 0, height: 0 }) } },
+      { label: 'window shorter than its toolbar', window: { isDestroyed: () => false, getContentBounds: () => ({ x: 0, y: 0, width: WINDOW_CONTENT_BOX.width, height: TOOLBAR_HEIGHT - 10 }) } },
+    ];
+
+    for (const unusable of unusableWindows) {
+      host.window = unusable.window;
+      await assert.rejects(
+        () => host.setViewportSize({ width: 390, height: 844, tabId: 'tab-bg' }),
+        (error: unknown) => {
+          assert.ok(error instanceof CapabilityError, `${unusable.label}: the refusal must be typed`);
+          assert.strictEqual(error.code, 'VIEWPORT_NOT_APPLIED', `${unusable.label}: the requested viewport was not applied`);
+          assert.deepStrictEqual(error.details, {
+            tabId: 'tab-bg',
+            expectedWidth: 390,
+            expectedHeight: 844,
+            operation: 'setViewport',
+            cause: 'window-unmeasurable',
+          });
+          return true;
+        }
+      );
+    }
+    assert.deepStrictEqual(emulationBoxes, [], 'No emulation may be laid out against a box the window never named');
+    assert.deepStrictEqual(appliedBounds, [], 'A refused viewport must leave no geometry behind');
+    assert.strictEqual(host.broadcastCount, 0, 'A refused viewport must not be announced as applied');
+
+    // The same call with a window that can name its box applies the requested viewport,
+    // laid out in that measured box instead of the 1440x900 default.
+    host.window = { isDestroyed: () => false, getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }) };
+    assert.strictEqual(await host.setViewportSize({ width: 411, height: 866, mobile: true, tabId: 'tab-bg' }), true);
+    assert.deepStrictEqual(
+      emulationBoxes,
+      [{ width: WINDOW_CONTENT_BOX.width, height: WINDOW_CONTENT_BOX.height - TOOLBAR_HEIGHT, toolbarHeight: TOOLBAR_HEIGHT }],
+      'The emulation box must be the box the window actually gives the tab'
+    );
+    assert.deepStrictEqual(backgroundTab.customViewport, { width: 411, height: 866, mobile: true, deviceScaleFactor: 2 });
+    assert.deepStrictEqual(host.emulationCalls[0]?.screenSize, { width: 411, height: 866 }, 'The requested viewport is what the tab emulates');
+    assert.deepStrictEqual(
+      appliedBounds,
+      [{ x: Math.floor((WINDOW_CONTENT_BOX.width - 411) / 2), y: TOOLBAR_HEIGHT, width: 411, height: 866 }],
+      'A background tab renders exactly at the requested viewport, inside the measured box'
+    );
+    assert.strictEqual(host.broadcastCount, 1, 'An applied background viewport must broadcast');
+  });
 });
 
 describe('Render-surface probe geometry', () => {
@@ -631,5 +733,443 @@ describe('Render-surface probe geometry', () => {
 
     assert.strictEqual(surface.vw, 1440);
     assert.strictEqual(attachCalls.length, 0, 'An offscreen tab renders offscreen and must not enter the view tree');
+  });
+});
+
+describe('Attach-for-capture pane layout', () => {
+  interface PaneBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }
+
+  interface RecordingPaneView {
+    webContents: {
+      isDestroyed: () => boolean;
+      setZoomFactor: (factor: number) => void;
+    };
+    setBounds: (rect: PaneBounds) => void;
+    getBounds: () => PaneBounds;
+    setBackgroundColor: (color: string) => void;
+  }
+
+  interface AttachHostShape {
+    tabs: Map<string, NativeTabRecord>;
+    activeTabId: string;
+    defaultUserAgent: string;
+    isSidebarOpen: boolean;
+    sidebarWidth: number;
+    tabByWebContents: WeakMap<object, { tabId: string; tab: NativeTabRecord }>;
+    window: {
+      isDestroyed: () => boolean;
+      getContentBounds: () => PaneBounds;
+      contentView: {
+        children: unknown[];
+        addChildView: (view: unknown, index?: number) => void;
+        removeChildView: (view: unknown) => void;
+      };
+    };
+    getToolbarHeight: () => number;
+    applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
+    applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
+    safeDisableDeviceEmulation: (wc: unknown, view?: unknown) => void;
+    setSafeUserAgent: (wc: unknown, ua: string) => void;
+    runWithAttachedTabView: <T>(view: unknown, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
+    isTabViewAttached: (view: unknown) => boolean;
+  }
+
+  // Deliberately not the 1200x800 the capture path used to invent, so a pane box
+  // derived from the real window can never be mistaken for the fabricated one.
+  const WINDOW_BOUNDS: PaneBounds = { x: 0, y: 0, width: 1366, height: 768 };
+  const TOOLBAR_HEIGHT = 90;
+  const SIDEBAR_WIDTH = 380;
+
+  function createRecordingPaneView(initialBounds: PaneBounds): {
+    view: RecordingPaneView;
+    setBoundsCalls: PaneBounds[];
+    currentBounds: () => PaneBounds;
+  } {
+    const state = { bounds: { ...initialBounds } };
+    const setBoundsCalls: PaneBounds[] = [];
+    const view: RecordingPaneView = {
+      webContents: {
+        isDestroyed: () => false,
+        setZoomFactor: (_factor: number) => {},
+      },
+      setBounds: (rect: PaneBounds) => {
+        setBoundsCalls.push({ ...rect });
+        state.bounds = { ...rect };
+      },
+      getBounds: () => ({ ...state.bounds }),
+      setBackgroundColor: (_color: string) => {},
+    };
+    return { view, setBoundsCalls, currentBounds: () => view.getBounds() };
+  }
+
+  function createAttachHost(params: {
+    tab: NativeTabRecord;
+    view: RecordingPaneView;
+    preAttached: boolean;
+    sidebarOpen: boolean;
+  }): AttachHostShape {
+    const host = Object.create(NativeTabHost.prototype) as AttachHostShape;
+    const children: unknown[] = params.preAttached ? [params.view] : [];
+    host.tabs = new Map([[params.tab.state.id, params.tab]]);
+    // Only the tab the user is looking at keeps its view in the window, so the
+    // pre-attached case is the visible tab and the capture target is background.
+    host.activeTabId = params.preAttached ? params.tab.state.id : 'tab-other';
+    host.defaultUserAgent = 'MockDesktopUA';
+    host.isSidebarOpen = params.sidebarOpen;
+    host.sidebarWidth = SIDEBAR_WIDTH;
+    host.tabByWebContents = new WeakMap<object, { tabId: string; tab: NativeTabRecord }>([
+      [params.view.webContents, { tabId: params.tab.state.id, tab: params.tab }],
+    ]);
+    host.window = {
+      isDestroyed: () => false,
+      getContentBounds: () => ({ ...WINDOW_BOUNDS }),
+      contentView: {
+        children,
+        addChildView: (view: unknown, index?: number) => {
+          children.splice(typeof index === 'number' ? index : children.length, 0, view);
+        },
+        removeChildView: (view: unknown) => {
+          const at = children.indexOf(view);
+          if (at >= 0) children.splice(at, 1);
+        },
+      },
+    };
+    host.getToolbarHeight = () => TOOLBAR_HEIGHT;
+    host.applyDeviceCornerClipping = (_wc: unknown, _radius: number) => {};
+    host.applyCdpTouchEmulation = (_wc: unknown, _enabled: boolean) => Promise.resolve();
+    host.safeDisableDeviceEmulation = (_wc: unknown, _view?: unknown) => {};
+    host.setSafeUserAgent = (_wc: unknown, _ua: string) => {};
+    return host;
+  }
+
+  it('lays a helper-attached pane out with the window geometry and leaves an already-presented view untouched', async () => {
+    const layoutCases = [
+      { label: 'sidebar closed', sidebarOpen: false, paneWidth: WINDOW_BOUNDS.width },
+      { label: 'sidebar open', sidebarOpen: true, paneWidth: WINDOW_BOUNDS.width - SIDEBAR_WIDTH },
+    ];
+
+    for (const layoutCase of layoutCases) {
+      const tab = createTestTabRecord('tab-bg');
+      // A view that was never presented has no size at all — the case the helper exists for.
+      const pane = createRecordingPaneView({ x: 0, y: 0, width: 0, height: 0 });
+      tab.view = pane.view as unknown as NativeTabRecord['view'];
+      const host = createAttachHost({ tab, view: pane.view, preAttached: false, sidebarOpen: layoutCase.sidebarOpen });
+      const expectedBox: PaneBounds = {
+        x: 0,
+        y: TOOLBAR_HEIGHT,
+        width: layoutCase.paneWidth,
+        height: WINDOW_BOUNDS.height - TOOLBAR_HEIGHT,
+      };
+
+      let attachedDuringAction = false;
+      let boundsDuringAction: PaneBounds | undefined;
+      const result = await host.runWithAttachedTabView(pane.view, async () => {
+        attachedDuringAction = host.isTabViewAttached(pane.view);
+        boundsDuringAction = pane.currentBounds();
+        return 'ok';
+      });
+
+      assert.strictEqual(result, 'ok');
+      assert.strictEqual(attachedDuringAction, true, `${layoutCase.label}: the action must run with the pane on screen`);
+      assert.deepStrictEqual(boundsDuringAction, expectedBox, `${layoutCase.label}: the pane must be measurable before the action runs`);
+      assert.deepStrictEqual(pane.setBoundsCalls, [expectedBox], `${layoutCase.label}: the pane box must be the window's own geometry`);
+    }
+
+    // The visible tab's own view is already presenting; a capture of it must not relayout it.
+    const presentedTab = createTestTabRecord('tab-visible');
+    const presentedBox: PaneBounds = {
+      x: 0,
+      y: TOOLBAR_HEIGHT,
+      width: WINDOW_BOUNDS.width - SIDEBAR_WIDTH,
+      height: WINDOW_BOUNDS.height - TOOLBAR_HEIGHT,
+    };
+    const presentedPane = createRecordingPaneView(presentedBox);
+    presentedTab.view = presentedPane.view as unknown as NativeTabRecord['view'];
+    const attachedHost = createAttachHost({ tab: presentedTab, view: presentedPane.view, preAttached: true, sidebarOpen: true });
+    const childrenBefore = [...attachedHost.window.contentView.children];
+
+    const attachedResult = await attachedHost.runWithAttachedTabView(presentedPane.view, async () => 'ok');
+
+    assert.strictEqual(attachedResult, 'ok');
+    assert.deepStrictEqual(presentedPane.setBoundsCalls, [], 'An already-presented view must not be laid out again');
+    assert.deepStrictEqual(presentedPane.currentBounds(), presentedBox, 'The presented box must survive the capture unchanged');
+    assert.deepStrictEqual(attachedHost.window.contentView.children, childrenBefore, 'A view the helper did not attach must not be detached either');
+  });
+});
+
+describe('Responsive sweep surface', () => {
+  interface BreakpointReading {
+    name: string;
+    width: number;
+    height: number;
+    mobile: boolean;
+    clientWidth?: number;
+    scrollWidth?: number;
+    documentOverflowX?: boolean;
+    hasHorizontalOverflow?: boolean;
+  }
+
+  interface EmulatedBox {
+    width: number;
+    height: number;
+  }
+
+  interface EmulationCall {
+    width: number;
+    height: number;
+    attached: boolean;
+  }
+
+  interface SweepWebContents {
+    isDestroyed: () => boolean;
+    setZoomFactor: (factor: number) => void;
+    insertCSS: (css: string) => Promise<string>;
+    invalidate: () => void;
+    enableDeviceEmulation: (params: EmulationParams) => void;
+    disableDeviceEmulation: () => void;
+    executeJavaScript: (script: string) => Promise<Record<string, unknown>>;
+  }
+
+  interface SweepView {
+    webContents: SweepWebContents;
+    setBounds: (rect: { x: number; y: number; width: number; height: number }) => void;
+    setBackgroundColor: (color: string) => void;
+  }
+
+  interface SweepWindow {
+    isDestroyed: () => boolean;
+    getContentBounds: () => { x: number; y: number; width: number; height: number };
+    contentView: {
+      children: unknown[];
+      addChildView: (view: unknown, index?: number) => void;
+      removeChildView: (view: unknown) => void;
+    };
+  }
+
+  interface SweepHost {
+    tabs: Map<string, NativeTabRecord>;
+    activeTabId: string;
+    defaultUserAgent: string;
+    emulatedWebContents: WeakSet<Electron.WebContents>;
+    isSidebarOpen: boolean;
+    sidebarWidth: number;
+    window: SweepWindow;
+    tabByWebContents: WeakMap<object, { tabId: string; tab: NativeTabRecord }>;
+    getToolbarHeight: () => number;
+    applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
+    applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
+    setSafeUserAgent: (wc: unknown, ua: string) => void;
+    updateLayout: () => void;
+    runResponsiveCheck: (params?: { tabId?: string; selector?: string }) => Promise<Record<string, unknown>>;
+  }
+
+  interface SweepHarness {
+    host: SweepHost;
+    view: SweepView;
+    activeView: SweepView;
+    emulationCalls: EmulationCall[];
+    attachedDuringReadings: boolean[];
+    children: () => unknown[];
+    childrenDuringFirstReading: () => unknown[];
+    liveEmulation: () => EmulatedBox | null;
+    disableCount: () => number;
+    updateLayoutCount: () => number;
+  }
+
+  // Deliberately not the 1440x900 the background viewport path once invented, so a box
+  // derived from this window can never be mistaken for a fabricated default.
+  const WINDOW_BOX = { x: 0, y: 0, width: 1280, height: 800 };
+  const TOOLBAR_HEIGHT = 68;
+  // A page a little wider than the narrowest breakpoint: it overflows 320 and fits every
+  // viewport above it. A reading taken against a detached zero-width box reports overflow
+  // at all five, so this page is what tells a real measurement from a refused one.
+  const PAGE_CONTENT_WIDTH = 330;
+  const BREAKPOINT_IDS = ['mobile-small', 'mobile-standard', 'tablet-portrait', 'tablet-landscape', 'desktop-laptop'];
+  const BREAKPOINT_WIDTHS = [320, 375, 768, 1024, 1440];
+
+  function createSweepHarness(): SweepHarness {
+    const children: unknown[] = [];
+    const emulationCalls: EmulationCall[] = [];
+    const attachedDuringReadings: boolean[] = [];
+    let liveEmulation: EmulatedBox | null = null;
+    let disableCount = 0;
+    let updateLayoutCount = 0;
+    let childrenDuringFirstReading: unknown[] = [];
+
+    // The reading is the document's own answer, so the stub computes it the way the page
+    // script does: against whatever emulation the tab actually carries at that moment.
+    const view: SweepView = {
+      webContents: {
+        isDestroyed: () => false,
+        setZoomFactor: (_factor: number) => {},
+        insertCSS: async (_css: string) => '',
+        invalidate: () => {},
+        enableDeviceEmulation: (params: EmulationParams) => {
+          const box = params.viewSize ? { width: params.viewSize.width, height: params.viewSize.height } : null;
+          liveEmulation = box;
+          emulationCalls.push({ width: box ? box.width : 0, height: box ? box.height : 0, attached: children.includes(view) });
+        },
+        disableDeviceEmulation: () => {
+          disableCount += 1;
+          liveEmulation = null;
+        },
+        executeJavaScript: async (_script: string) => {
+          const clientWidth = liveEmulation ? liveEmulation.width : 0;
+          const clientHeight = liveEmulation ? liveEmulation.height : 0;
+          const scrollWidth = Math.max(PAGE_CONTENT_WIDTH, clientWidth);
+          const documentOverflowX = scrollWidth > clientWidth + 1;
+          attachedDuringReadings.push(children.includes(view));
+          if (attachedDuringReadings.length === 1) {
+            childrenDuringFirstReading = [...children];
+          }
+          return {
+            scrollWidth,
+            clientWidth,
+            scrollHeight: clientHeight,
+            clientHeight,
+            documentOverflowX,
+            hasHorizontalOverflow: documentOverflowX,
+            targetOverflowX: false,
+            target: null,
+            hasViewportMeta: false,
+            viewportContent: null,
+          };
+        },
+      },
+      setBounds: (_rect: { x: number; y: number; width: number; height: number }) => {},
+      setBackgroundColor: (_color: string) => {},
+    };
+
+    const activeView: SweepView = {
+      webContents: {
+        isDestroyed: () => false,
+        setZoomFactor: (_factor: number) => {},
+        insertCSS: async (_css: string) => '',
+        invalidate: () => {},
+        enableDeviceEmulation: (_params: EmulationParams) => {},
+        disableDeviceEmulation: () => {},
+        executeJavaScript: async (_script: string) => ({}),
+      },
+      setBounds: (_rect: { x: number; y: number; width: number; height: number }) => {},
+      setBackgroundColor: (_color: string) => {},
+    };
+
+    // Only the tab the user is looking at keeps its view in the window; the sweep target
+    // is a background tab and starts outside it.
+    children.push(activeView);
+
+    const host = Object.create(NativeTabHost.prototype) as unknown as SweepHost;
+    host.tabs = new Map<string, NativeTabRecord>();
+    host.activeTabId = 'tab-active';
+    host.defaultUserAgent = 'MockDesktopUA';
+    // The real emulation guards read this bookkeeping, so the harness keeps it real: the
+    // sweep's emulation only lands if the tab's view genuinely has a surface.
+    host.emulatedWebContents = new WeakSet<Electron.WebContents>();
+    host.isSidebarOpen = false;
+    host.sidebarWidth = 0;
+    host.window = {
+      isDestroyed: () => false,
+      getContentBounds: () => ({ ...WINDOW_BOX }),
+      contentView: {
+        children,
+        addChildView: (child: unknown, index?: number) => {
+          children.splice(typeof index === 'number' ? index : children.length, 0, child);
+        },
+        removeChildView: (child: unknown) => {
+          const at = children.indexOf(child);
+          if (at >= 0) children.splice(at, 1);
+        },
+      },
+    };
+    host.tabByWebContents = new WeakMap<object, { tabId: string; tab: NativeTabRecord }>();
+    host.getToolbarHeight = () => TOOLBAR_HEIGHT;
+    host.applyDeviceCornerClipping = (_wc: unknown, _radius: number) => {};
+    host.applyCdpTouchEmulation = (_wc: unknown, _enabled: boolean) => Promise.resolve();
+    host.setSafeUserAgent = (_wc: unknown, _ua: string) => {};
+    host.updateLayout = () => {
+      updateLayoutCount += 1;
+    };
+
+    return {
+      host,
+      view,
+      activeView,
+      emulationCalls,
+      attachedDuringReadings,
+      children: () => children,
+      childrenDuringFirstReading: () => childrenDuringFirstReading,
+      liveEmulation: () => liveEmulation,
+      disableCount: () => disableCount,
+      updateLayoutCount: () => updateLayoutCount,
+    };
+  }
+
+  it('measures every breakpoint of a background tab against the emulated width instead of a detached zero-width box', async () => {
+    const harness = createSweepHarness();
+    const host = harness.host;
+    const backgroundTab = createTestTabRecord('tab-bg');
+    backgroundTab.view = harness.view as unknown as NativeTabRecord['view'];
+    const activeTab = createTestTabRecord('tab-active');
+    activeTab.view = harness.activeView as unknown as NativeTabRecord['view'];
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.tabByWebContents.set(harness.view.webContents, { tabId: 'tab-bg', tab: backgroundTab });
+
+    const payload = await host.runResponsiveCheck({ tabId: 'tab-bg' });
+    const readings = payload.breakpoints as Record<string, BreakpointReading>;
+
+    assert.strictEqual(payload.ok, true);
+    assert.deepStrictEqual(
+      harness.emulationCalls.map((call) => call.width),
+      BREAKPOINT_WIDTHS,
+      'Every standard breakpoint must be emulated, in order'
+    );
+    assert.deepStrictEqual(
+      harness.emulationCalls.map((call) => call.attached),
+      [true, true, true, true, true],
+      'An emulation applied to a view with no surface measures nothing but the refusal'
+    );
+
+    for (let index = 0; index < BREAKPOINT_IDS.length; index += 1) {
+      const id = BREAKPOINT_IDS[index]!;
+      const width = BREAKPOINT_WIDTHS[index]!;
+      const reading = readings[id];
+      assert.ok(reading, `${id} must report a reading`);
+      assert.strictEqual(reading.clientWidth, width, `${id}: the document must lay out at the emulated width`);
+      assert.strictEqual(
+        reading.scrollWidth,
+        Math.max(PAGE_CONTENT_WIDTH, width),
+        `${id}: the document must be measured against the emulated viewport`
+      );
+      assert.strictEqual(reading.width, width, `${id}: the reported breakpoint is the one that was probed`);
+    }
+
+    // The page overflows the narrowest breakpoint alone; a detached zero-width box would
+    // report this document as overflowing all five.
+    assert.strictEqual(readings['mobile-small']?.hasHorizontalOverflow, true, 'A page wider than 320px must overflow it');
+    for (const id of BREAKPOINT_IDS.slice(1)) {
+      assert.strictEqual(readings[id]?.hasHorizontalOverflow, false, `${id}: a page that fits must not be reported as overflowing`);
+    }
+    assert.strictEqual(readings['mobile-small']?.documentOverflowX, true, 'documentOverflowX stays the document-level signal it always was');
+
+    // The sweep borrows the window for a real surface, never for the user's attention.
+    assert.deepStrictEqual(harness.attachedDuringReadings, [true, true, true, true, true], 'Every reading must be taken with the tab view on screen');
+    assert.strictEqual(host.activeTabId, 'tab-active', 'The sweep must not activate the background tab');
+    const childrenDuringReading = harness.childrenDuringFirstReading();
+    const sweepIndex = childrenDuringReading.indexOf(harness.view);
+    const activeIndex = childrenDuringReading.indexOf(harness.activeView);
+    assert.ok(sweepIndex >= 0 && activeIndex > sweepIndex, 'The temporary attach must sit behind the visible tab, not in its place');
+    assert.deepStrictEqual(harness.children(), [harness.activeView], 'The window keeps the visible tab once the sweep returns');
+
+    // The tab's own state comes back: the emulation is undone where it landed, and the
+    // prior layout is restored through the path the visible-tab case always used.
+    assert.strictEqual(harness.liveEmulation(), null, 'No breakpoint emulation may survive the sweep');
+    assert.strictEqual(harness.disableCount(), 1, 'Undoing the emulation must reach the tab instead of being refused by a detached view');
+    assert.strictEqual(harness.updateLayoutCount(), 1, 'The tab is handed back to its prior layout exactly as before');
   });
 });

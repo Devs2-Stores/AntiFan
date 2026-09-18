@@ -854,4 +854,87 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       );
     }
   });
+
+  it('15. Layout overflow without a measurable viewport is an evidence gap, never a reported overflow', async () => {
+    const wideCulprit = { tagName: 'div', id: 'wide', className: '', selector: 'div#wide', deltaX: 5000, boundingBox: { x: 0, y: 0, width: 5000, height: 400, right: 5000 } };
+    const collapsedReason = 'the scanned tab has no laid-out CSS viewport (documentElement.clientWidth=0, window.innerWidth=0); horizontal overflow was not measured';
+
+    const adjudications: Array<{ label: string; payload: unknown; gap: string }> = [
+      {
+        label: 'marker-less payload claiming overflow against a 0 width',
+        payload: { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: true, deltaX: 5000, scrollWidth: 5000, clientWidth: 0, culprits: [wideCulprit] },
+        gap: 'did not return valid measurement object',
+      },
+      {
+        label: 'scan marker on a collapsed 0 CSS px viewport',
+        payload: { viewport: { name: 'active', width: 0, height: 0 }, measured: false, unmeasuredReason: collapsedReason, hasOverflow: false, deltaX: 0, scrollWidth: 5000, clientWidth: 0, culprits: [] },
+        gap: 'Layout overflow not measured',
+      },
+      {
+        label: 'payload that computed a delta yet declares itself unmeasured',
+        payload: { viewport: { name: 'desktop', width: 1440, height: 900 }, measured: false, unmeasuredReason: collapsedReason, hasOverflow: true, deltaX: 120, scrollWidth: 1560, clientWidth: 1440, culprits: [wideCulprit] },
+        gap: 'Layout overflow not measured',
+      },
+    ];
+
+    for (const [index, entry] of adjudications.entries()) {
+      const ports = createMockPorts({
+        eval: async (_target: BrowserTarget, script: string) => {
+          if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX') || script.includes('LayoutOverflowEngine')) {
+            return entry.payload;
+          }
+          return {};
+        },
+      });
+      const workflow = new ThemeQaWorkflow(ports);
+      const report = await workflow.validate({
+        runId: `run-layout-unmeasured-${index}`,
+        attemptId: `att-layout-unmeasured-${index}`,
+        workspaceRoot: 'E:/Work/test-theme',
+        target: makeTarget(1),
+      });
+
+      assert.strictEqual(report.findings?.overflow.hasOverflow, false, `${entry.label}: must not report overflow`);
+      assert.strictEqual(report.findings?.overflow.measured, false, `${entry.label}: measurement must be withheld`);
+      assert.strictEqual(report.findings?.overflow.culprits.length, 0, `${entry.label}: must not attribute culprits`);
+      assert.strictEqual(report.checklist.overflow, true, `${entry.label}: overflow checklist must stay unfailed`);
+      assert.ok(
+        !report.findings?.differential?.introducedRegressions.some((issue) => issue.category === 'overflow'),
+        `${entry.label}: no overflow issue item may be emitted`
+      );
+      assert.ok(
+        report.findings?.evidenceGaps?.some((g) => g.includes(entry.gap)),
+        `${entry.label}: expected gap '${entry.gap}', got ${JSON.stringify(report.findings?.evidenceGaps)}`
+      );
+      assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE', `${entry.label}: must fail closed as INCONCLUSIVE`);
+    }
+
+    // Positive control: the same shape of measurement on a real viewport still reports overflow.
+    const realCulprit = { tagName: 'div', id: 'wide', className: '', selector: 'div#wide', deltaX: 120, boundingBox: { x: 0, y: 0, width: 1560, height: 400, right: 1560 } };
+    const realPorts = createMockPorts({
+      eval: async (_target: BrowserTarget, script: string) => {
+        if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX') || script.includes('LayoutOverflowEngine')) {
+          return { viewport: { name: 'desktop', width: 1440, height: 900 }, measured: true, hasOverflow: true, deltaX: 120, scrollWidth: 1560, clientWidth: 1440, culprits: [realCulprit] };
+        }
+        return {};
+      },
+    });
+    const realReport = await new ThemeQaWorkflow(realPorts).validate({
+      runId: 'run-layout-measured',
+      attemptId: 'att-layout-measured',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+
+    assert.strictEqual(realReport.findings?.overflow.measured, true);
+    assert.strictEqual(realReport.findings?.overflow.hasOverflow, true);
+    assert.deepStrictEqual(realReport.findings?.overflow.culprits.map((c) => c.selector), ['div#wide']);
+    assert.strictEqual(realReport.findings?.overflow.deltaX, 120);
+    assert.strictEqual(realReport.checklist.overflow, false);
+    assert.strictEqual(realReport.summary.passed, false);
+    assert.ok(
+      !realReport.findings?.evidenceGaps?.some((g) => g.includes('Layout overflow')),
+      'A real measurement must never be reported as a layout overflow evidence gap'
+    );
+  });
 });

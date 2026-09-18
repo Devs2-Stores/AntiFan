@@ -3,6 +3,7 @@ import * as assert from 'node:assert';
 import { EventEmitter } from 'node:events';
 import { BrowserActionRegistry } from '../../src/main/browser/browser-action-registry';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { CapabilityError } from '../../src/shared/control-plane-contracts';
 import type { AntiFanTab } from '../../src/shared/contracts';
 class MockTabHost extends EventEmitter {
   private tabs = [{ id: 'tab-1', url: 'https://google.com', title: 'Google', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 }];
@@ -174,5 +175,25 @@ describe('BrowserActionRegistry (Extensibility Phase 1)', () => {
     });
     assert.strictEqual(trajRes.success, true);
     assert.strictEqual(trajRes.executedSteps, 2);
+  });
+
+  it('fails typed instead of returning an empty imageBase64 when the capture is empty', async () => {
+    const mockHost = new MockTabHost();
+    const registry = new BrowserActionRegistry(mockHost as unknown as NativeTabHost);
+
+    const capturedBase64 = 'captured-png-base64';
+    mockHost.captureScreenshot = async () => capturedBase64;
+    const okResult = await registry.execute('antifan.captureScreenshot', { tabId: 'tab-1', paneId: 'desktop' });
+    assert.strictEqual(okResult.imageBase64, capturedBase64, 'a non-empty capture must pass through unchanged');
+
+    mockHost.captureScreenshot = async () => '';
+    await assert.rejects(
+      () => registry.execute('antifan.captureScreenshot'),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError, 'a 0-byte capture must fail with a typed CapabilityError');
+        assert.strictEqual(err.code, 'TARGET_STALE');
+        return true;
+      }
+    );
   });
 });

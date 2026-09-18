@@ -991,6 +991,55 @@ interface CssMetrics {
   sy: number;
 }
 
+/**
+ * Mask-projection geometry for one compare side, in CSS pixels. `documentHeight`
+ * is 0 when the document height was never measured; the capture-space builder
+ * reads that as unknown and falls back to the x scale, which is the scale a
+ * full-page capture rasterizes the document with.
+ */
+export interface ProjectionViewport {
+  width: number;
+  height: number;
+  documentHeight: number;
+}
+
+/**
+ * A surfaced measurement, or undefined: this codebase reports an unmeasured
+ * value as 0 (a degenerate viewport, a document height that was never read), so
+ * only a positive finite number counts as a reading.
+ */
+function measuredPx(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * Resolve one side's projection viewport from measurements that exist for that
+ * side — the live `readSideMetrics()` reading, or the capture envelope's measured
+ * CSS viewport. A side with neither resolves to null and its masks then fail
+ * closed through the mask ledger (MASK_RESOLUTION_FAILED); nothing here invents a
+ * size, because a mask placed in a space no surface ever had both reports
+ * regressions that are not there and hides the ones that are.
+ *
+ * `peerViewport` counts as a measurement of the same viewport only when the pair
+ * already passed the same-viewport gate — checkCaptureStateCompatibility() for a
+ * comparison tab, BaselineAuthority.verifyCaptureCompatibility() for a promoted
+ * baseline — so callers pass it only after that gate admitted the pair.
+ *
+ * The raster dimensions are deliberately not a source: they are device pixels,
+ * and the raster-to-CSS scale is exactly the quantity a missing CSS viewport
+ * leaves unmeasured.
+ */
+export function resolveProjectionViewport(args: {
+  metrics: CssMetrics | null;
+  envelopeViewport?: { width?: number; height?: number } | null;
+  peerViewport?: { width?: number; height?: number } | null;
+}): ProjectionViewport | null {
+  const width = measuredPx(args.metrics?.vw) ?? measuredPx(args.envelopeViewport?.width) ?? measuredPx(args.peerViewport?.width);
+  const height = measuredPx(args.metrics?.vh) ?? measuredPx(args.envelopeViewport?.height) ?? measuredPx(args.peerViewport?.height);
+  if (width === undefined || height === undefined) return null;
+  return { width, height, documentHeight: measuredPx(args.metrics?.dh) ?? 0 };
+}
+
 /** Bounds for every resource-holding await inside the compare transaction. */
 const EVAL_BOUND_MS = 10_000;
 const SETTLE_BOUND_MS = 25_000;
@@ -1526,6 +1575,34 @@ function buildReversibleNormalizationRestoreScript(txnId: string): string {
   })()`;
 }
 
+/**
+ * Structural inventory of one tab's document, as the renderer's own reading
+ * reported it. `viewportHeight` is that reading verbatim: `0` means the
+ * renderer reported no viewport (or reported none at all), never a plausible
+ * substitute — a fabricated height made an unrendered tab indistinguishable
+ * from a measured one in everything downstream of this payload.
+ */
+interface PageInventoryResult {
+  scrollHeight: number;
+  viewportHeight: number;
+  sections: Array<{ index: number; id?: string; tag: string; selector: string; y: number; height: number; group: string; heading?: string }>;
+  tabId: string;
+}
+
+/** A spec-gate side whose document could not be measured, with the port's typed cause. */
+interface UnmeasuredInventory {
+  side: 'spec' | 'target';
+  tabId: string;
+  code: string;
+  message: string;
+  /** The probe's own details: observed geometry, readyState, classified cause. */
+  surface?: Record<string, unknown>;
+}
+
+type GateInventoryOutcome =
+  | { ok: true; inventory: PageInventoryResult }
+  | { ok: false; failure: UnmeasuredInventory };
+
 export class BrowserControlPort {
   public readonly passivePool = new PassiveExecutionPool();
   public readonly waitRegistry = new WaitRegistry();
@@ -1538,11 +1615,15 @@ export class BrowserControlPort {
    * Tabs whose media a capture in flight has frozen, and how many captures hold
    * that freeze. Ownership is counted per tab rather than per call so a nested or
    * concurrent capture on the same tab joins the freeze an outer capture took and
-   * cannot unfreeze media that capture is still rasterizing. The freeze receipt
-   * rides on the same record so the last owner's release can stamp the restored
-   * count onto the evidence every owner already reported.
+   * cannot unfreeze media that capture is still rasterizing. `ready` is shared so
+   * a concurrent capture does not report an empty census merely because the first
+   * freeze command has not settled yet.
    */
-  private readonly mediaFreezeOwners = new Map<string, { count: number; freeze: MediaFreezeReceipt | null }>();
+  private readonly mediaFreezeOwners = new Map<string, {
+    count: number;
+    freeze: MediaFreezeReceipt | null;
+    ready: Promise<MediaFreezeReceipt | null>;
+  }>();
   /**
    * Last geometry this session verified per tab. The surface probe reads
    * innerWidth/innerHeight, so a zero reading means the tab's view lost its
@@ -2145,7 +2226,11 @@ export class BrowserControlPort {
     // host that cannot evaluate in the page cannot freeze or unfreeze anything.
     if (typeof this.host.evalJs !== 'function') return null;
     const held = this.mediaFreezeOwners.get(tabId);
-    const owner: { count: number; freeze: MediaFreezeReceipt | null } = held ?? { count: 0, freeze: null };
+    const owner: {
+      count: number;
+      freeze: MediaFreezeReceipt | null;
+      ready: Promise<MediaFreezeReceipt | null>;
+    } = held ?? { count: 0, freeze: null, ready: Promise.resolve(null) };
     owner.count += 1;
     this.mediaFreezeOwners.set(tabId, owner);
     const release = async (): Promise<void> => {
@@ -2186,21 +2271,29 @@ export class BrowserControlPort {
         console.warn(`[browser-port] Media unfreeze on tab ${tabId} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
-    if (held) return { release, freeze: owner.freeze };
+    if (held) {
+      // Join the in-flight freeze instead of projecting the record before its
+      // census arrives. Keep this wait bounded: an unresponsive target must not
+      // turn a capture into an unbounded wait or fabricate a frozen result.
+      const joinedFreeze = await raceWithTimeout(owner.ready, MEDIA_FREEZE_BOUND_MS, () => null);
+      return { release, freeze: joinedFreeze ?? owner.freeze };
+    }
     // The freeze is a local operation (pause media, inject one stylesheet), so it
     // answers in milliseconds or the target is not answering at all. The wait is
     // bounded anyway: this step runs inside the same request budget as the capture
     // it precedes, and it must never consume the capture's own bound.
+    const freezePromise = this.freezeMedia(target, { freeze: true, normalizeSliders: true }, tabId, paneId).then(
+      (res) => {
+        owner.freeze = res;
+        return res;
+      },
+      () => null
+    );
+    owner.ready = freezePromise;
     let attempt: 'applied' | 'failed' | 'pending';
     try {
       attempt = await raceWithTimeout<'applied' | 'failed' | 'pending'>(
-        this.freezeMedia(target, { freeze: true, normalizeSliders: true }, tabId, paneId).then(
-          (res) => {
-            owner.freeze = res;
-            return 'applied' as const;
-          },
-          () => 'failed' as const
-        ),
+        freezePromise.then((res) => res ? 'applied' as const : 'failed' as const),
         MEDIA_FREEZE_BOUND_MS,
         () => 'pending' as const
       );
@@ -2213,8 +2306,8 @@ export class BrowserControlPort {
       return null;
     }
     // `pending` still owns the release: the freeze may land late, and the release
-    // is dispatched after it on the same target, so FIFO CDP ordering restores the
-    // page instead of leaving it frozen. Un-freezing an unfrozen page is a no-op.
+    // is dispatched after it on the same target, so FIFO CDP ordering restores
+    // the page instead of leaving it frozen. Un-freezing an unfrozen page is a no-op.
     if (attempt === 'pending') {
       console.warn(`[browser-port] Media freeze on tab ${tabId} did not confirm within ${MEDIA_FREEZE_BOUND_MS}ms; capture continues`);
     }
@@ -5771,12 +5864,17 @@ export class BrowserControlPort {
     return { ok: true, envelope, buffer, receipt, artifact };
   }
 
-  /** Structural parity probe for one side, bounded by the remaining budget. */
+  /**
+   * Structural parity probe for one side, bounded by the remaining budget. The
+   * bundle's viewport is the side's measured projection viewport; 0 marks a
+   * viewport that was never measured, which is the honest reading for a probe
+   * whose element rectangles do not depend on it.
+   */
   private async resolveStructuralMetrics(
     txn: CompareTransaction,
-    args: { tabId: string; params: VisualCompareParams; metrics: CssMetrics | null }
+    args: { tabId: string; params: VisualCompareParams; viewport: ProjectionViewport | null }
   ): Promise<VisualRegionBundle | undefined> {
-    const { tabId, params, metrics } = args;
+    const { tabId, params, viewport } = args;
     if (typeof this.host.evalJs !== 'function') return undefined;
     try {
       const rootSel = params.selector || 'body';
@@ -5793,7 +5891,7 @@ export class BrowserControlPort {
       if (!Array.isArray(raw) || (raw.length === 0 && !(trackedList && trackedList.length > 0))) return undefined;
       return normalizeVisualRegions(
         raw as RawElementSensoryData[],
-        { width: metrics ? metrics.vw : 1200, height: metrics ? metrics.vh : 800 },
+        { width: viewport ? viewport.width : 0, height: viewport ? viewport.height : 0 },
         1
       );
     } catch {
@@ -6448,17 +6546,30 @@ export class BrowserControlPort {
         }
       }
 
-      // Per-side measured spaces (captured-CSS-width denominator, per-axis scale)
-      const targetVw = targetMetrics?.vw || curEnvelope.cssViewport?.width || curDims?.width || 1200;
-      const targetVh = targetMetrics?.vh || curEnvelope.cssViewport?.height || curDims?.height || 800;
-      const targetDh = targetMetrics?.dh || targetVh;
+      // Per-side measured spaces (captured-CSS-width denominator, per-axis scale).
+      // This pair already passed the capture-state gate above, so a side that lacks
+      // its own viewport reading may take the peer's verified-equal one; a side with
+      // no reading at all yields no denominator, and the mask ledger fails its masks
+      // closed (MASK_RESOLUTION_FAILED) instead of placing them in an invented space.
+      const targetProjection = resolveProjectionViewport({
+        metrics: targetMetrics,
+        envelopeViewport: curEnvelope.cssViewport,
+        peerViewport: compCapture?.cssViewport,
+      });
+      const compProjection = compTabTarget
+        ? resolveProjectionViewport({
+            metrics: compMetrics,
+            envelopeViewport: compCapture?.cssViewport,
+            peerViewport: curEnvelope.cssViewport,
+          })
+        : null;
       const targetSpace = curDims
         ? visualCaptureSpaceFromMeasured({
             pngWidth: curDims.width,
             pngHeight: curDims.height,
-            cssViewportWidth: targetVw,
-            cssViewportHeight: targetVh,
-            cssDocumentHeight: targetDh,
+            cssViewportWidth: targetProjection ? targetProjection.width : 0,
+            cssViewportHeight: targetProjection ? targetProjection.height : 0,
+            cssDocumentHeight: targetProjection ? targetProjection.documentHeight : 0,
             scrollX: targetMetrics?.sx || 0,
             scrollY: targetMetrics?.sy || 0,
             fullPage: Boolean(params.fullPage),
@@ -6470,16 +6581,13 @@ export class BrowserControlPort {
         : emptyMaskLedgerResult();
       let compMask = emptyMaskLedgerResult();
       if (compTabTarget) {
-        const compVw = compMetrics?.vw || compCapture?.cssViewport?.width || baseDims?.width || 1200;
-        const compVh = compMetrics?.vh || compCapture?.cssViewport?.height || baseDims?.height || 800;
-        const compDh = compMetrics?.dh || compVh;
         const compSpace = baseDims
           ? visualCaptureSpaceFromMeasured({
               pngWidth: baseDims.width,
               pngHeight: baseDims.height,
-              cssViewportWidth: compVw,
-              cssViewportHeight: compVh,
-              cssDocumentHeight: compDh,
+              cssViewportWidth: compProjection ? compProjection.width : 0,
+              cssViewportHeight: compProjection ? compProjection.height : 0,
+              cssDocumentHeight: compProjection ? compProjection.documentHeight : 0,
               scrollX: compMetrics?.sx || 0,
               scrollY: compMetrics?.sy || 0,
               fullPage: Boolean(params.fullPage),
@@ -6497,9 +6605,9 @@ export class BrowserControlPort {
       const diffResult = computePixelDiff(curBuffer, baselineBuffer, tolerance, maskBoxes);
 
       let structuralMetrics: VisualStructuralMetrics | undefined = undefined;
-      const targetRegions = await this.resolveStructuralMetrics(txn, { tabId, params, metrics: targetMetrics });
+      const targetRegions = await this.resolveStructuralMetrics(txn, { tabId, params, viewport: targetProjection });
       if (targetRegions && compTabTarget) {
-        const compRegions = await this.resolveStructuralMetrics(txn, { tabId: compTabTarget, params, metrics: compMetrics });
+        const compRegions = await this.resolveStructuralMetrics(txn, { tabId: compTabTarget, params, viewport: compProjection });
         if (compRegions) {
           const hasTracked = Array.isArray(params.trackedSelectors);
           const trackedList = hasTracked
@@ -6792,12 +6900,20 @@ export class BrowserControlPort {
   }
   async pageInventory(
     target: BrowserTarget,
-    params: { tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    params: { tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean } = {},
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile'
-  ): Promise<{ scrollHeight: number; viewportHeight: number; sections: Array<{ index: number; id?: string; tag: string; selector: string; y: number; height: number; group: string; heading?: string }>; tabId: string }> {
+  ): Promise<PageInventoryResult> {
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
     const effectivePane = paneId || params.paneId || 'desktop';
+    // An inventory of a document the renderer never laid out is not a measurement: every
+    // rect reads 0, so the scan would report an empty page for a tab that is merely
+    // unrendered, and the caller would have no way to tell the two apart. The gate runs
+    // before the script is dispatched (the same seam the other bounded render operations
+    // use), and the probe seam's own degraded run — taken when the surface cannot be
+    // probed at all — stays available behind `allowDegradedSurface`. A degraded run only
+    // runs the scan; it never invents numbers for it.
+    await this.assertRenderSurface(tabId, effectivePane, 'anti.inspect.page_inventory', params.allowDegradedSurface === true);
     return this.passivePool.execute(tabId, async () => {
       const script = `(() => {
         const scrollHeight = Math.max(
@@ -6874,10 +6990,13 @@ export class BrowserControlPort {
         const sections = rawSections.map((s, idx) => ({ index: idx, ...s }));
         return { scrollHeight, viewportHeight, sections };
       })()`;
-      const res = (await this.host.evalJs(script, tabId, effectivePane)) as { scrollHeight?: number; viewportHeight?: number; sections?: Array<any> } | undefined;
+      const res = (await this.host.evalJs(script, tabId, effectivePane)) as Partial<PageInventoryResult> | undefined;
       return {
         scrollHeight: res?.scrollHeight || 0,
-        viewportHeight: res?.viewportHeight || 1006,
+        // The renderer's reading, never a plausible constant. An unmeasured height that
+        // silently became a number a viewport could plausibly have is what let a tab with
+        // no layout surface pass as a short document.
+        viewportHeight: res?.viewportHeight || 0,
         sections: res?.sections || [],
         tabId,
       };
@@ -6946,6 +7065,32 @@ export class BrowserControlPort {
       match: allMatch,
     };
   }
+  /**
+   * Inventory one side of the spec gate, turning an unmeasurable tab into the port's typed
+   * refusal instead of an inventory nobody measured. Only that refusal is absorbed: a
+   * drain, a stale target or an abort is not a statement about the document, so every other
+   * failure keeps the path it already had.
+   */
+  private async gateInventory(target: BrowserTarget, tabId: string, side: 'spec' | 'target'): Promise<GateInventoryOutcome> {
+    try {
+      return { ok: true, inventory: await this.pageInventory(target, { tabId }) };
+    } catch (err) {
+      // `unknown` narrowed by the comparison: only the render-surface refusal is absorbed.
+      const code: unknown = err instanceof Error && 'code' in err ? err.code : undefined;
+      if (code !== 'NO_RENDER_SURFACE') throw err;
+      const surface = err instanceof CapabilityError && err.details ? err.details : undefined;
+      return {
+        ok: false,
+        failure: {
+          side,
+          tabId,
+          code,
+          message: err instanceof Error ? err.message : String(err),
+          ...(surface ? { surface } : {}),
+        },
+      };
+    }
+  }
   async validateSpecGate(
     target: BrowserTarget,
     params: { specTabId?: string; targetTabId?: string; tolerance?: number } = {},
@@ -6959,53 +7104,79 @@ export class BrowserControlPort {
     const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
     const checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> = {};
     let criticalCount = 0;
-    const specInv = await this.pageInventory(target, { tabId: specTabId });
-    const targetInv = await this.pageInventory(target, { tabId: targetTabId });
-    if (targetInv.sections.length === 0 || specInv.sections.length === 0) {
-      checklist.structuralSections = {
+    const specOutcome = await this.gateInventory(target, specTabId, 'spec');
+    const targetOutcome = await this.gateInventory(target, targetTabId, 'target');
+    const specInv = specOutcome.ok ? specOutcome.inventory : undefined;
+    const targetInv = targetOutcome.ok ? targetOutcome.inventory : undefined;
+    if (!specInv || !targetInv) {
+      // A side that could not be measured has no inventory to compare, and reporting its
+      // absence as a 0-section / 0px document named the wrong cause. The gate states the
+      // typed refusal instead — code, probe geometry and classified cause — and evaluates
+      // nothing that would have needed a document it never measured.
+      const failures = [specOutcome, targetOutcome].flatMap((outcome) => (outcome.ok ? [] : [outcome.failure]));
+      checklist.renderSurface = {
         status: 'FAIL',
-        message: `Invalid section count: target has ${targetInv.sections.length} sections, spec has ${specInv.sections.length} sections`,
-        details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
-      };
-      criticalCount++;
-    } else if (specInv.sections.length < targetInv.sections.length) {
-      checklist.structuralSections = {
-        status: 'FAIL',
-        message: `Spec missing sections: spec has ${specInv.sections.length} sections vs target ${targetInv.sections.length}`,
-        details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
-      };
-      criticalCount++;
-    } else {
-      checklist.structuralSections = {
-        status: 'PASS',
-        message: `Section count parity passed: ${specInv.sections.length} sections`,
-        details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
-      };
-    }
-    if (targetInv.scrollHeight <= 0 || specInv.scrollHeight <= 0) {
-      checklist.heightParity = {
-        status: 'FAIL',
-        message: `Invalid height measurement: target height is ${targetInv.scrollHeight}px, spec height is ${specInv.scrollHeight}px`,
-        details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, tolerance },
+        message: `Render surface unavailable: ${failures.map((f) => `${f.side} tab '${f.tabId}' (${f.code}): ${f.message}`).join('; ')}`,
+        details: {
+          failures: failures.map((f) => ({
+            side: f.side,
+            tabId: f.tabId,
+            code: f.code,
+            message: f.message,
+            ...(f.surface ? { surface: f.surface } : {}),
+          })),
+        },
       };
       criticalCount++;
     } else {
-      const maxDelta = (tolerance > 0 ? tolerance : 5.0) / 100;
-      const heightDelta = Math.abs(specInv.scrollHeight - targetInv.scrollHeight) / targetInv.scrollHeight;
-      const EPSILON = 1e-6;
-      if (heightDelta - maxDelta > EPSILON) {
-        checklist.heightParity = {
+      // Both documents were measured, so the parity checks below are statements about the
+      // documents themselves.
+      if (targetInv.sections.length === 0 || specInv.sections.length === 0) {
+        checklist.structuralSections = {
           status: 'FAIL',
-          message: `Height mismatch delta ${(heightDelta * 100).toFixed(1)}% exceeds ${tolerance}% threshold (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
-          details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+          message: `Invalid section count: target has ${targetInv.sections.length} sections, spec has ${specInv.sections.length} sections`,
+          details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
+        };
+        criticalCount++;
+      } else if (specInv.sections.length < targetInv.sections.length) {
+        checklist.structuralSections = {
+          status: 'FAIL',
+          message: `Spec missing sections: spec has ${specInv.sections.length} sections vs target ${targetInv.sections.length}`,
+          details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
         };
         criticalCount++;
       } else {
-        checklist.heightParity = {
+        checklist.structuralSections = {
           status: 'PASS',
-          message: `Height parity passed: delta ${(heightDelta * 100).toFixed(1)}% <= ${tolerance}% (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
-          details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+          message: `Section count parity passed: ${specInv.sections.length} sections`,
+          details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
         };
+      }
+      if (targetInv.scrollHeight <= 0 || specInv.scrollHeight <= 0) {
+        checklist.heightParity = {
+          status: 'FAIL',
+          message: `Invalid height measurement: target height is ${targetInv.scrollHeight}px, spec height is ${specInv.scrollHeight}px`,
+          details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, tolerance },
+        };
+        criticalCount++;
+      } else {
+        const maxDelta = (tolerance > 0 ? tolerance : 5.0) / 100;
+        const heightDelta = Math.abs(specInv.scrollHeight - targetInv.scrollHeight) / targetInv.scrollHeight;
+        const EPSILON = 1e-6;
+        if (heightDelta - maxDelta > EPSILON) {
+          checklist.heightParity = {
+            status: 'FAIL',
+            message: `Height mismatch delta ${(heightDelta * 100).toFixed(1)}% exceeds ${tolerance}% threshold (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
+            details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+          };
+          criticalCount++;
+        } else {
+          checklist.heightParity = {
+            status: 'PASS',
+            message: `Height parity passed: delta ${(heightDelta * 100).toFixed(1)}% <= ${tolerance}% (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
+            details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+          };
+        }
       }
     }
     const diag = this.diagnostics(specTabId);

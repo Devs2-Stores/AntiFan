@@ -49,7 +49,7 @@ import { LocalSessionVault, isTrustedSessionVaultSender } from './local-session-
 import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
-import { TerminalManager, type TerminalManagerStats } from './terminal-manager';
+import { TerminalManager, selectAnnotationTargets, type TerminalManagerStats } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
@@ -431,6 +431,25 @@ export interface TerminalAgentAffinityInfo {
   url?: string;
 }
 
+/**
+ * One terminal's agent ownership record: the tabs it may address, the tab its agent
+ * is bound to, and the per-tab bookkeeping the badge and lineage queries read.
+ */
+type TerminalAgentAffinityEntry = {
+  tabId: string;
+  primaryTabId: string;
+  managedTabIds: Set<string>;
+  lineage?: Map<string, {
+    tabId: string;
+    parentTabId?: string;
+    source: 'agent_spawned' | 'native_window_open' | 'user_attached';
+    createdAt: number;
+  }>;
+  lastUrls?: Map<string, string>;
+  lastUrl?: string;
+  closedAt?: number;
+};
+
 export class NativeTabHost extends EventEmitter {
   private window: BrowserWindow;
   private toolbarView: WebContentsView;
@@ -489,20 +508,7 @@ export class NativeTabHost extends EventEmitter {
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private automationTabId: string | null = null;
-  private terminalAgentAffinity = new Map<string, {
-    tabId: string;
-    primaryTabId: string;
-    managedTabIds: Set<string>;
-    lineage?: Map<string, {
-      tabId: string;
-      parentTabId?: string;
-      source: 'agent_spawned' | 'native_window_open' | 'user_attached';
-      createdAt: number;
-    }>;
-    lastUrls?: Map<string, string>;
-    lastUrl?: string;
-    closedAt?: number;
-  }>();
+  private terminalAgentAffinity = new Map<string, TerminalAgentAffinityEntry>();
   private readonly sessionTabPools = new Map<string, Set<string>>();
   /**
    * Pool anchor of each recently closed tab (bounded). Closing a tab removes it from
@@ -640,6 +646,7 @@ export class NativeTabHost extends EventEmitter {
         createTab: (url, activate) => this.createTab(url, activate),
         withTabAgentWorking: (tabId, action) => this.withTabAgentWorking(tabId, action),
         runWithAttachedTabView: (view, action, isMobile) => this.runWithAttachedTabView(view, action, isMobile),
+        getTabContentBounds: (tabId, paneId) => this.getTabContentBounds(tabId, paneId),
         switchTab: (tabId) => this.switchTab(tabId),
         getSemanticDocumentGeneration: (tabId, paneId) => this.getSemanticDocumentGeneration(tabId, paneId),
         getLegacyDocumentGeneration: (tabId) => (this.getDocumentGeneration ? this.getDocumentGeneration(tabId) : (this.documentGenerations?.get(tabId) || 0)),
@@ -3036,6 +3043,7 @@ export class NativeTabHost extends EventEmitter {
       const wasAttached = this.isTabViewAttached(view);
       if (!wasAttached) {
         this.attachTabView(view, isMobile);
+        this.layOutDetachedView(view);
       }
       this.temporaryViewAttachCounts.set(view, { count: 1, attachedByHelper: !wasAttached });
     } else {
@@ -3064,6 +3072,60 @@ export class NativeTabHost extends EventEmitter {
         }
       }
     }
+  }
+
+  /**
+   * Lay out a pane view the attach-for-capture helper just put on screen. A view that
+   * was never presented has no size, so its document lays out against a zero-width box
+   * and every reading taken through the temporary attach — the render-surface probe,
+   * evaluate, the capture raster — measures 0x0 on a tab that can do the work. The
+   * attach is only worth anything if the surface it presents is the one the window
+   * would present, so the pane is laid out exactly as activation lays it out (device
+   * presets, split frames and all) instead of being handed an invented size.
+   */
+  private layOutDetachedView(view: WebContentsView | null | undefined): void {
+    if (!view || !view.webContents) return;
+    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || typeof this.window.getContentBounds !== 'function') return;
+    const indexed = this.tabByWebContents?.get(view.webContents);
+    if (!indexed) return;
+    const { width, height } = this.window.getContentBounds();
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) return;
+    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
+    const toolbarHeight = this.getToolbarHeight();
+    const availableHeight = Math.max(0, height - toolbarHeight);
+    if (availableWidth < 1 || availableHeight < 1) return;
+    this.applyTabDeviceEmulation(indexed.tab, availableWidth, availableHeight, toolbarHeight);
+  }
+
+  /**
+   * The box the window gives a pane's view: the fluid area, or the pane's own frame in
+   * split review. `undefined` when the window cannot name a real size, because a caller
+   * that asked for geometry must refuse on that answer rather than invent one.
+   */
+  public getTabContentBounds(tabId: string, paneId?: SplitPaneId): { width: number; height: number } | undefined {
+    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || typeof this.window.getContentBounds !== 'function') {
+      return undefined;
+    }
+    const { width, height } = this.window.getContentBounds();
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) return undefined;
+    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
+    const toolbarHeight = this.getToolbarHeight();
+    const availableHeight = Math.max(0, height - toolbarHeight);
+    if (availableWidth < 1 || availableHeight < 1) return undefined;
+
+    const tab = this.tabs?.get(tabId);
+    if (tab?.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      const splitLayout = calculateSplitLayout(
+        { width: availableWidth, height: availableHeight, yOffset: toolbarHeight },
+        tab.state.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET,
+        tab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET,
+        tab.state.zoomFactor || 1.0
+      );
+      const pane = paneId === 'mobile' ? splitLayout.mobile : splitLayout.desktop;
+      if (!Number.isFinite(pane.width) || !Number.isFinite(pane.height) || pane.width < 1 || pane.height < 1) return undefined;
+      return { width: Math.round(pane.width), height: Math.round(pane.height) };
+    }
+    return { width: Math.round(availableWidth), height: Math.round(availableHeight) };
   }
 
   public attachTabView(view: WebContentsView | null | undefined, isMobile = false): void {
@@ -3758,7 +3820,7 @@ export class NativeTabHost extends EventEmitter {
         const tabSessionId = this.getTabTerminalSession(id);
         const termContextData: Record<string, unknown> = {
           tabId: id,
-          sessions: tm.listSessions(),
+          sessions: selectAnnotationTargets(tm.listSessions()),
           selectedSessionId: tm.getActiveSessionId(),
         };
         if (tabSessionId !== undefined) {
@@ -5907,16 +5969,20 @@ export class NativeTabHost extends EventEmitter {
    * when it is unset or names a session that no longer exists — never overwrite a
    * live different choice (including an explicit 'auto'). A terminalId that does
    * not name a live session is never written.
+   *
+   * A split pane owns its browser tab through the affinity map and never through
+   * this field: the field is read by the annotation "send to" picker, which offers
+   * base running sessions only, so a pane value there would be hidden from the user
+   * while still deciding where a prompt goes.
    */
   private claimTabTerminalSession(tab: NativeTabRecord | undefined, terminalId: string): void {
     if (!tab || !terminalId) return;
     const tm = TerminalManager.getInstance();
     // getSession is the liveness oracle: listSessions() composes per-session
     // transcripts and dereferences s.buffer — far too heavy for a membership
-    // check. A split pane is a live, independent terminal session, so it is a
-    // claimable target like any base session.
+    // check.
     const target = tm.getSession(terminalId);
-    if (!target) return;
+    if (!target || target.splitOf) return;
     const current = tab.state.terminalSessionId;
     if (!current) {
       tab.state.terminalSessionId = terminalId;
@@ -5962,9 +6028,49 @@ export class NativeTabHost extends EventEmitter {
     this.claimTabTerminalSession(tab, terminalId);
     this.sessionTabPools.set(terminalId, new Set(managedTabIds));
     for (const mId of managedTabIds) {
+      this.evictTabFromOtherOwners(mId, terminalId);
       this.claimTabTerminalSession(this.tabs?.get(mId), terminalId);
     }
     return true;
+  }
+
+  /**
+   * Seats one tab in one ownership record and nowhere else: a tab has a single
+   * owning session, so seating it anywhere evicts it from every other pool and
+   * affinity entry.
+   *
+   * Without this rule two owners can hold the same tab — the user's adopt action
+   * seats a tab into a second terminal while the affinity map and the pool of the
+   * first terminal still name it. Both quota gates then read the tab through
+   * whichever pool `getManagedTabIds` resolves first, so releasing the slot for one
+   * owner silently shrinks the other's counted set, and a capability aimed at the
+   * surviving owner is refused with TARGET_MISMATCH for a tab that is still open.
+   * The affinity entry is a third reader — `adoptChildTab`'s cap and the authority
+   * scan behind `isTabAllowedForPrimary`/`isTerminalAllowedForTab` — so a copy left
+   * there keeps counting a slot the session gave up and keeps authorising a tab it
+   * no longer drives.
+   *
+   * A pool keyed by the tab itself is its own anchored set (the tab is a member and
+   * the quota reader returns that pool for it), so it keeps counting the tab; an
+   * entry bound to that same tab is that ownership, not a competing one.
+   */
+  private evictTabFromOtherOwners(tabId: string, ownerKey: string): void {
+    if (!tabId) return;
+    if (this.sessionTabPools) {
+      for (const [poolKey, pool] of Array.from(this.sessionTabPools.entries())) {
+        if (poolKey === ownerKey || poolKey === tabId) continue;
+        if (!pool.delete(tabId)) continue;
+        if (pool.size === 0) this.sessionTabPools.delete(poolKey);
+      }
+    }
+    if (!this.terminalAgentAffinity) return;
+    for (const [entryKey, entry] of Array.from(this.terminalAgentAffinity.entries())) {
+      if (entryKey.split('@')[0] === ownerKey || entry.primaryTabId === ownerKey) continue;
+      if (!this.detachTabFromAffinityEntry(entry, tabId)) continue;
+      // The entry owns nothing now, so it is deleted exactly as the unbind path
+      // deletes it: no reader has to special-case an empty ownership record.
+      if (entry.managedTabIds.size === 0) this.terminalAgentAffinity.delete(entryKey);
+    }
   }
 
   /**
@@ -5990,6 +6096,7 @@ export class NativeTabHost extends EventEmitter {
       return false;
     }
     pool.add(childTabId);
+    this.evictTabFromOtherOwners(childTabId, sessionId);
     const tab = this.tabs.get(childTabId);
     if (tab) {
       // Ad-hoc pools are keyed by a tabId, not a terminal session — writing that
@@ -6399,15 +6506,48 @@ export class NativeTabHost extends EventEmitter {
     }
     return undefined;
   }
+  /**
+   * Detaches one tab from one affinity entry: drops it from the managed set along
+   * with its recorded URL and lineage, and re-points the primary at a surviving
+   * live tab. A re-point is not a tombstone — the entry keeps owning whatever else
+   * it holds — so `closedAt` is written only when nothing live is left.
+   *
+   * Returns whether the tab was a managed member, which is what the release paths
+   * report: a primary pointer can name a tab the managed set no longer holds (the
+   * wake path re-points at the pool's first live tab), and re-pointing it is
+   * bookkeeping rather than a freed slot.
+   */
+  private detachTabFromAffinityEntry(entry: TerminalAgentAffinityEntry, tabId: string): boolean {
+    const wasManaged = entry.managedTabIds?.has(tabId) === true;
+    entry.managedTabIds?.delete(tabId);
+    entry.lastUrls?.delete(tabId);
+    entry.lineage?.delete(tabId);
+    if (entry.primaryTabId === tabId) {
+      let nextPrimary: string | undefined;
+      for (const id of entry.managedTabIds) {
+        if (this.hasTab(id)) {
+          nextPrimary = id;
+          break;
+        }
+      }
+      if (nextPrimary) {
+        entry.primaryTabId = nextPrimary;
+        entry.tabId = nextPrimary;
+        entry.lastUrl = entry.lastUrls?.get(nextPrimary) || '';
+      } else {
+        entry.closedAt = Date.now();
+      }
+    }
+    return wasManaged;
+  }
+
   public removeManagedTab(terminalId: string, tabId: string, generation?: number | string): boolean {
     if (!this.terminalAgentAffinity || !terminalId || !tabId) return false;
     const entryKey = this.resolveTerminalAffinityKey(terminalId, generation);
     const entry = entryKey ? this.terminalAgentAffinity.get(entryKey) : undefined;
     if (!entry) return false;
 
-    entry.managedTabIds.delete(tabId);
-    if (entry.lastUrls) entry.lastUrls.delete(tabId);
-    if (entry.lineage) entry.lineage.delete(tabId);
+    this.detachTabFromAffinityEntry(entry, tabId);
     const tab = this.tabs?.get(tabId);
     if (tab && tab.state.terminalSessionId === terminalId) {
       tab.state.terminalSessionId = undefined;
@@ -6427,48 +6567,62 @@ export class NativeTabHost extends EventEmitter {
       // tab-close (tombstoneTerminalAgentAffinity), not for unbinding.
       // `entry` came from `entryKey`, so a resolved entry always has a key.
       if (entryKey) this.terminalAgentAffinity.delete(entryKey);
-    } else if (entry.primaryTabId === tabId) {
-      let nextPrimary: string | undefined;
-      for (const id of entry.managedTabIds) {
-        if (this.hasTab(id)) {
-          nextPrimary = id;
-          break;
-        }
-      }
-      if (nextPrimary) {
-        entry.primaryTabId = nextPrimary;
-        entry.tabId = nextPrimary;
-        entry.lastUrl = entry.lastUrls?.get(nextPrimary) || '';
-      } else {
-        entry.closedAt = Date.now();
-      }
     }
     this.broadcastState();
     return true;
   }
 
   /**
-   * Releases one tab's slot in a session's pool — the rebind-away counterpart of
-   * adoption. A terminal-id caller hands the whole ownership record back, so the
-   * affinity entry is consulted first and the release delegates to
-   * removeManagedTab; every other caller names the tab it let go and only the
-   * pool membership is released, leaving the terminal's affinity entry (the
-   * badge and the access check) intact.
+   * Releases one tab's slot in a session — the rebind-away counterpart of adoption.
+   * A terminal-id caller hands the whole ownership record back, so the affinity
+   * entry is consulted first and the release delegates to removeManagedTab; every
+   * other caller names the tab it let go by value.
    *
    * The caller knows the tab, not the key its pool happens to carry. A tab seated
    * through `createTab({ terminalSessionId })` or adopted by a terminal lives in a
    * pool keyed by that terminal id, so a key-only delete is a silent no-op: the
    * slot stayed counted after a rebind-away and the next `openTab` refused with
-   * POLICY_DENIED against a tab the session had already given up. The tab is
-   * therefore released from every pool that holds it — the same by-value lookup
-   * `adoptChildTab` and `getManagedTabIds` already resolve pools with, so the
-   * release can never disagree with the reader about which pool owns a tab.
+   * POLICY_DENIED against a tab the session had already given up.
    */
   public releaseSessionTab(sessionId: string, tabId: string): boolean {
     if (!sessionId || !tabId) return false;
     if (this.terminalAgentAffinity && this.resolveTerminalAffinityKey(sessionId)) {
       return this.removeManagedTab(sessionId, tabId);
     }
+    return this.releaseTabFromEveryOwner(tabId);
+  }
+
+  /**
+   * Frees one tab from every record that counts it against a session.
+   *
+   * Two containers answer "tabs this session holds": the pool, read first by
+   * `getManagedTabIds`/`getManagedTabIdsForBoundTab` and by the `openTab` quota gate,
+   * and the affinity entry's managed set, read directly by `adoptChildTab`'s cap and as
+   * the readers' fallback. Both are resolved by value — a pool is keyed by whichever
+   * owner seated the tab (a terminal id, or the tab itself for an ad-hoc pool) — and a
+   * release that updates only one of them leaves the other refusing an operation
+   * against a slot the session has already given up.
+   */
+  private releaseTabFromEveryOwner(tabId: string): boolean {
+    let released = false;
+    if (this.terminalAgentAffinity) {
+      for (const entry of Array.from(this.terminalAgentAffinity.values())) {
+        if (this.detachTabFromAffinityEntry(entry, tabId)) released = true;
+      }
+    }
+    return this.releaseTabFromEveryPool(tabId) || released;
+  }
+
+  /**
+   * Frees one tab from every pool that holds it.
+   *
+   * A pool is keyed by whichever owner seated the tab — a terminal id for a tab
+   * adopted into a session, the tab itself for an ad-hoc pool — so the caller's
+   * identifier is resolved by value exactly as `adoptChildTab` and both quota
+   * readers resolve it. That shared rule is what keeps a release from disagreeing
+   * with the readers about which pool owns a tab.
+   */
+  private releaseTabFromEveryPool(tabId: string): boolean {
     if (!this.sessionTabPools) return false;
     let released = false;
     for (const [poolKey, pool] of Array.from(this.sessionTabPools.entries())) {
@@ -6479,14 +6633,20 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
-   * Releases every slot a session holds — the session-end counterpart of
-   * adoption. Terminal-backed sessions drop their affinity entries and pool via
-   * the same path rebind uses; ad-hoc pools are deleted outright. Member tabs
-   * are released, never closed.
+   * Releases every slot one identifier holds — the session-end counterpart of
+   * adoption, for the callers that know the bound tab rather than the pool key.
+   *
+   * Two identifiers reach this through the same entry point: a terminal id (drop
+   * the affinity keys and the pool outright) and a tab id (the attachment
+   * registry's dispose path, which names the tab it is letting go). A key-only
+   * delete answers the second caller with a silent no-op — the adopting terminal's
+   * pool kept counting a slot the session had already given up — so the by-value
+   * release runs for both. Member tabs are released, never closed.
    */
   public releaseSessionTabPool(sessionId: string): boolean {
     if (!sessionId) return false;
-    return this.dropTerminalAffinityEntries(sessionId);
+    const dropped = this.dropTerminalAffinityEntries(sessionId);
+    return this.releaseTabFromEveryOwner(sessionId) || dropped;
   }
 
   /**
@@ -7683,7 +7843,14 @@ export class NativeTabHost extends EventEmitter {
     const results: Record<string, unknown> = {};
     const targetSelector = opts.selector ? JSON.stringify(opts.selector) : 'null';
 
-    try {
+    // Every breakpoint below emulates a size and then reads that size back through the
+    // document. A background tab's view sits outside the window, so the emulation is
+    // refused for want of a platform surface and the page keeps laying out against a
+    // detached, zero-width box: every reading then claims the document overflows, at
+    // every breakpoint, for every page. Run the sweep inside a temporary in-place
+    // attach — behind the active tab's view, released when the call returns — so each
+    // measurement describes a real surface without the tab ever becoming the visible one.
+    const sweepBreakpoints = async (): Promise<void> => {
       for (const bp of testBreakpoints) {
         this.safeEnableDeviceEmulation(wc, {
           screenPosition: bp.mobile ? 'mobile' : 'desktop',
@@ -7760,16 +7927,25 @@ export class NativeTabHost extends EventEmitter {
           ...(typeof evaluation === 'object' && evaluation !== null ? evaluation : {}),
         };
       }
-    } finally {
+    };
+
+    await this.runWithAttachedTabView(tab.view, async () => {
       try {
-        this.safeDisableDeviceEmulation(wc, tab.view);
-        if (previousPreset && previousPreset !== 'responsive') {
-          this.setDevicePreset(targetId, previousPreset);
-        } else {
-          this.updateLayout();
-        }
-      } catch {}
-    }
+        await sweepBreakpoints();
+      } finally {
+        // The emulation this sweep applied is undone while the view still holds the
+        // surface that let it land, and the tab is handed back to its own preset through
+        // the same restoration the visible-tab path always used.
+        try {
+          this.safeDisableDeviceEmulation(wc, tab.view);
+          if (previousPreset && previousPreset !== 'responsive') {
+            this.setDevicePreset(targetId, previousPreset);
+          } else {
+            this.updateLayout();
+          }
+        } catch {}
+      }
+    }, false);
 
     return {
       ok: true,
@@ -7903,12 +8079,27 @@ export class NativeTabHost extends EventEmitter {
     if (targetId === this.activeTabId) {
       this.updateLayout();
     } else {
-      const bounds = this.window && typeof this.window.getContentBounds === 'function'
+      // A background tab is emulated outside the visible layout, so the box its document
+      // is laid out against has to be measured from the window itself. A window that
+      // cannot name one — absent, destroyed, or reporting a non-positive box as a
+      // minimized window does — has no geometry to lay the emulation out in: refuse the
+      // request instead of applying it to an invented 1440x900 or to a 0x0 box.
+      const contentBounds = this.window && (typeof this.window.isDestroyed !== 'function' || !this.window.isDestroyed()) && typeof this.window.getContentBounds === 'function'
         ? this.window.getContentBounds()
-        : { width: 1440, height: 900 };
+        : undefined;
       const toolbarHeight = typeof this.getToolbarHeight === 'function' ? this.getToolbarHeight() : 40;
-      const availableWidth = this.isSidebarOpen ? Math.max(400, bounds.width - this.sidebarWidth) : bounds.width;
-      const availableHeight = Math.max(0, bounds.height - toolbarHeight);
+      const availableWidth = contentBounds
+        ? (this.isSidebarOpen ? Math.max(400, contentBounds.width - this.sidebarWidth) : contentBounds.width)
+        : 0;
+      const availableHeight = contentBounds ? Math.max(0, contentBounds.height - toolbarHeight) : 0;
+      if (!contentBounds || !Number.isFinite(contentBounds.width) || !Number.isFinite(contentBounds.height)
+        || contentBounds.width < 1 || contentBounds.height < 1 || availableWidth < 1 || availableHeight < 1) {
+        throw new CapabilityError(
+          'VIEWPORT_NOT_APPLIED',
+          `Cannot apply a ${w}x${h} viewport to background tab '${targetId}': the window cannot report a usable content box`,
+          { tabId: targetId, expectedWidth: w, expectedHeight: h, operation: 'setViewport', cause: 'window-unmeasurable' }
+        );
+      }
       // A view that was never attached has no compositor surface, so an emulation
       // applied to it has no widget to be measured against: the document lays out
       // against a zero-width box and every later probe, evaluation and capture on the

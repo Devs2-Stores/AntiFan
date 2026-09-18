@@ -1171,10 +1171,17 @@ export class BridgeServer {
         try {
           const imgBase64 = await this.tabHost.captureScreenshot();
           const imgBuf = Buffer.from(imgBase64, 'base64');
-          const headers: Record<string, string> = { 'Content-Type': 'image/png' };
-          if (isAllowedOrigin) headers['Access-Control-Allow-Origin'] = rawOrigin;
-          res.writeHead(200, headers);
-          res.end(imgBuf);
+          if (imgBuf.length === 0) {
+            // A target with no live compositor surface yields an empty capture. Answering 200
+            // with a 0-byte body would be indistinguishable from a real image for the caller.
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'TARGET_STALE', message: 'Failed to capture a non-empty screenshot: the target has no live compositor surface' }));
+          } else {
+            const headers: Record<string, string> = { 'Content-Type': 'image/png' };
+            if (isAllowedOrigin) headers['Access-Control-Allow-Origin'] = rawOrigin;
+            res.writeHead(200, headers);
+            res.end(imgBuf);
+          }
         } catch {
           res.writeHead(500);
           res.end('Failed to capture screenshot');
@@ -2581,6 +2588,13 @@ export class BridgeServer {
         case 'captureScreenshot':
         case 'antifan.captureScreenshot': {
           const imageBase64 = await this.tabHost.captureScreenshot(p.tabId, p.paneId);
+          if (!imageBase64 || imageBase64.length === 0) {
+            // A target with no live compositor surface yields an empty capture; reporting it as
+            // a successful capture would hand clients a 0-byte image.
+            const message = 'Failed to capture a non-empty screenshot: the target has no live compositor surface';
+            respond(false, { code: 'TARGET_STALE', message }, `TARGET_STALE: ${message}`);
+            break;
+          }
           respond(true, { imageBase64 });
           break;
         }

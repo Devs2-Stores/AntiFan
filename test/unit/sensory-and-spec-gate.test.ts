@@ -418,6 +418,19 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
       assert.strictEqual(res.sections[2]?.group, 'footer-group');
       assert.strictEqual(res.sections[2]?.y, 6097);
     });
+
+    test('keeps an unmeasured viewport height unmeasured instead of substituting a plausible viewport', async () => {
+      const host = createMockHost({
+        // No render-surface probe on this host, and a reading that carries no viewport at
+        // all: the two absences that used to become a fabricated 1006 in the payload.
+        evalJs: async () => ({ scrollHeight: 0, sections: [] }),
+      });
+      const port = new BrowserControlPort(host);
+
+      const res = await port.pageInventory(dummyTarget, { tabId: '@storefront' });
+      assert.strictEqual(res.viewportHeight, 0);
+      assert.ok(!JSON.stringify(res).includes('1006'), 'no payload may carry a fabricated viewport height');
+    });
   });
 
   describe('styleDiff', () => {
@@ -568,6 +581,77 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
       assert.strictEqual(res.checklist['structuralSections']?.status, 'FAIL');
       assert.strictEqual(res.checklist['heightParity']?.status, 'FAIL');
       assert.ok(res.checklist['structuralSections']?.message.includes('Invalid section count'));
+      assert.ok(res.checklist['heightParity']?.message.includes('Invalid height measurement'));
+    });
+
+    test('names the render-surface refusal when the target tab was never laid out', async () => {
+      const host = createMockHost({
+        // tab-2 (spec) renders; tab-1 (target) reports a 0x0 surface.
+        readRenderSurface: async (tabId?: string) => (tabId === 'tab-2'
+          ? { vw: 1440, vh: 900, dpr: 1, scrollX: 0, scrollY: 0, docH: 6941, readyState: 'complete', hidden: false }
+          : { vw: 0, vh: 0, dpr: 1, scrollX: 0, scrollY: 0, docH: 0, readyState: 'complete', hidden: true }),
+        evalJs: async (_expr: string, tabId?: string) => (tabId === 'tab-2'
+          ? { scrollHeight: 6941, viewportHeight: 900, sections: [{ index: 0 }, { index: 1 }, { index: 2 }] }
+          : { scrollHeight: 0, viewportHeight: 0, sections: [] }),
+        getDiagnostics: () => ({ console: [], failures: [] }),
+      });
+      const port = new BrowserControlPort(host);
+
+      const res = await port.validateSpecGate(dummyTarget, { specTabId: 'tab-2', targetTabId: 'tab-1' });
+
+      assert.strictEqual(res.passed, false);
+      const renderSurface = res.checklist['renderSurface'];
+      assert.ok(renderSurface, 'the gate must name the surface it could not measure');
+      assert.strictEqual(renderSurface.status, 'FAIL');
+      assert.ok(renderSurface.message.includes('NO_RENDER_SURFACE'), 'the message must carry the typed code');
+      const details: unknown = renderSurface.details;
+      assert.ok(details && typeof details === 'object' && 'failures' in details);
+      const failures: unknown = details.failures;
+      assert.ok(Array.isArray(failures));
+      const failure: unknown = failures[0];
+      assert.ok(failure && typeof failure === 'object');
+      assert.ok('code' in failure && failure.code === 'NO_RENDER_SURFACE', 'assert the code, not the message');
+      assert.ok('side' in failure && failure.side === 'target');
+      assert.ok('tabId' in failure && failure.tabId === 'tab-1');
+      // A document nobody measured has no section count and no height to compare, so the
+      // gate must not report the absence as one.
+      assert.strictEqual(res.checklist['structuralSections'], undefined);
+      assert.strictEqual(res.checklist['heightParity'], undefined);
+      const payload = JSON.stringify(res);
+      assert.ok(!payload.includes('Invalid height measurement'), 'an unlaid-out tab is not a 0px document');
+      assert.ok(!payload.includes('1006'));
+    });
+
+    test('still names a short document when the surface itself measured', async () => {
+      const host = createMockHost({
+        readRenderSurface: async () => ({ vw: 1440, vh: 900, dpr: 1, scrollX: 0, scrollY: 0, docH: 120, readyState: 'complete', hidden: false }),
+        evalJs: async (_expr: string, tabId?: string) => (tabId === 'tab-1'
+          ? { scrollHeight: 120, viewportHeight: 900, sections: [{ index: 0 }] }
+          : { scrollHeight: 6941, viewportHeight: 900, sections: [{ index: 0 }] }),
+        getDiagnostics: () => ({ console: [], failures: [] }),
+      });
+      const port = new BrowserControlPort(host);
+
+      const res = await port.validateSpecGate(dummyTarget, { specTabId: 'tab-2', targetTabId: 'tab-1' });
+      assert.strictEqual(res.passed, false);
+      assert.strictEqual(res.checklist['renderSurface'], undefined);
+      assert.strictEqual(res.checklist['heightParity']?.status, 'FAIL');
+      assert.ok(res.checklist['heightParity']?.message.includes('Height mismatch delta'));
+    });
+
+    test('still names an empty document when it was measured', async () => {
+      const host = createMockHost({
+        readRenderSurface: async () => ({ vw: 1440, vh: 900, dpr: 1, scrollX: 0, scrollY: 0, docH: 0, readyState: 'complete', hidden: false }),
+        evalJs: async (_expr: string, tabId?: string) => (tabId === 'tab-1'
+          ? { scrollHeight: 0, viewportHeight: 900, sections: [] }
+          : { scrollHeight: 6941, viewportHeight: 900, sections: [{ index: 0 }] }),
+        getDiagnostics: () => ({ console: [], failures: [] }),
+      });
+      const port = new BrowserControlPort(host);
+
+      const res = await port.validateSpecGate(dummyTarget, { specTabId: 'tab-2', targetTabId: 'tab-1' });
+      assert.strictEqual(res.passed, false);
+      assert.strictEqual(res.checklist['renderSurface'], undefined);
       assert.ok(res.checklist['heightParity']?.message.includes('Invalid height measurement'));
     });
   });

@@ -27,6 +27,13 @@ export interface ViewportOverflowResult {
     width: number;
     height: number;
   };
+  /**
+   * False when the scanned tab had no laid-out CSS viewport to measure. `deltaX`
+   * is then 0 because nothing was measured, not because nothing overflows.
+   */
+  measured: boolean;
+  /** Present only alongside `measured: false`. */
+  unmeasuredReason?: string;
   hasOverflow: boolean;
   deltaX: number;
   scrollWidth: number;
@@ -48,7 +55,11 @@ export class LayoutOverflowEngine {
 
       const scrollWidth = Math.max(doc.scrollWidth, body ? body.scrollWidth : 0);
       const clientWidth = doc.clientWidth || window.innerWidth;
-      const rawDeltaX = scrollWidth - clientWidth;
+      // The documentElement content box is the compositor-surface signal: an offscreen
+      // or unrendered tab lays out against a zero-width box, so neither it nor the
+      // window width masking it may anchor a delta.
+      const measured = Number.isFinite(doc.clientWidth) && doc.clientWidth > 0 && Number.isFinite(scrollWidth);
+      const rawDeltaX = measured ? scrollWidth - clientWidth : 0;
       const deltaX = rawDeltaX > deadband ? rawDeltaX : 0;
 
       const culprits = [];
@@ -136,6 +147,10 @@ export class LayoutOverflowEngine {
           width: window.innerWidth,
           height: window.innerHeight
         },
+        measured,
+        ...(measured
+          ? {}
+          : { unmeasuredReason: 'the scanned tab has no laid-out CSS viewport (documentElement.clientWidth=' + doc.clientWidth + ', window.innerWidth=' + window.innerWidth + '); horizontal overflow was not measured' }),
         hasOverflow: deltaX > 0,
         deltaX: Math.round(deltaX * 10) / 10,
         scrollWidth,
@@ -143,6 +158,24 @@ export class LayoutOverflowEngine {
         culprits
       };
     })()`;
+  }
+
+  /**
+   * Marker reader for every consumer of the payload. Only an explicit
+   * `measured: false` declares the surface unmeasurable, so a payload that
+   * predates the marker is never mistaken for an unmeasured one.
+   */
+  public static readUnmeasuredReason(payload: unknown): string | undefined {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return undefined;
+    }
+    const obj = payload as Record<string, unknown>;
+    if (obj.measured !== false) {
+      return undefined;
+    }
+    return typeof obj.unmeasuredReason === 'string' && obj.unmeasuredReason.trim().length > 0
+      ? obj.unmeasuredReason
+      : 'the scanned tab reported no measurable CSS viewport';
   }
 
   /**

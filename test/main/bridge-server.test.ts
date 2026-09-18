@@ -855,6 +855,81 @@ describe('Phase 4: Grant Revocation, Rotation Invalidation & LAN Binding', () =>
     assert.strictEqual(server.isLanOptIn(), true, 'opt-in must be readable');
     server.dispose();
   });
+
+  it('answers an empty screenshot capture with a non-2xx TARGET_STALE failure instead of a 0-byte 200', async () => {
+    const mockHost = new MockTabHost();
+    const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0, false);
+    const port = await server.start();
+    const authHeaders = { Authorization: `Bearer ${server.getToken()}` };
+    try {
+      const pngBytes = Buffer.from('antifan-screenshot-bytes', 'utf8');
+      mockHost.captureScreenshot = async () => pngBytes.toString('base64');
+      const okRes = await fetch(`http://127.0.0.1:${port}/api/screenshot`, { headers: authHeaders });
+      assert.strictEqual(okRes.status, 200, 'a non-empty capture must still succeed');
+      assert.strictEqual(okRes.headers.get('content-type'), 'image/png');
+      assert.deepStrictEqual(
+        Buffer.from(await okRes.arrayBuffer()),
+        pngBytes,
+        'the captured image must pass through byte-for-byte'
+      );
+
+      mockHost.captureScreenshot = async () => '';
+      const emptyRes = await fetch(`http://127.0.0.1:${port}/api/screenshot`, { headers: authHeaders });
+      assert.ok(emptyRes.status >= 400, 'a 0-byte capture must not be reported as a successful capture');
+      assert.strictEqual(emptyRes.status, 503);
+      const payload = (await emptyRes.json()) as { error?: string; message?: string };
+      assert.strictEqual(payload.error, 'TARGET_STALE');
+      assert.ok(payload.message && payload.message.length > 0, 'the failure must carry a human-readable message');
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('reports an empty screenshot capture over RPC as a typed TARGET_STALE failure', async () => {
+    const mockHost = new MockTabHost();
+    const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0, false);
+    const port = await server.start();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${server.getToken()}` },
+    });
+    type ScreenshotReply = {
+      id?: string;
+      success?: boolean;
+      data?: { imageBase64?: string; code?: string; message?: string };
+      error?: string;
+    };
+    try {
+      await new Promise<void>((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+      const pending = new Map<string, (reply: ScreenshotReply) => void>();
+      ws.on('message', (data) => {
+        const parsed = JSON.parse(data.toString()) as ScreenshotReply;
+        if (typeof parsed.id !== 'string') return;
+        const resolvePending = pending.get(parsed.id);
+        if (!resolvePending) return;
+        pending.delete(parsed.id);
+        resolvePending(parsed);
+      });
+      const call = (id: string) => new Promise<ScreenshotReply>((resolve) => {
+        pending.set(id, resolve);
+        ws.send(JSON.stringify({ id, method: 'antifan.captureScreenshot' }));
+      });
+
+      const pngBase64 = Buffer.from('antifan-rpc-screenshot', 'utf8').toString('base64');
+      mockHost.captureScreenshot = async () => pngBase64;
+      const okReply = await call('shot-ok');
+      assert.strictEqual(okReply.success, true, 'a non-empty capture must still succeed');
+      assert.strictEqual(okReply.data?.imageBase64, pngBase64, 'the captured image must pass through unchanged');
+
+      mockHost.captureScreenshot = async () => '';
+      const emptyReply = await call('shot-empty');
+      assert.strictEqual(emptyReply.success, false, 'a 0-byte capture must not be reported as a successful capture');
+      assert.strictEqual(emptyReply.data?.code, 'TARGET_STALE');
+      assert.ok(emptyReply.error?.startsWith('TARGET_STALE:'), `expected a TARGET_STALE error, got ${String(emptyReply.error)}`);
+    } finally {
+      ws.close();
+      server.dispose();
+    }
+  });
 });
 
 describe('Bridge discovery & pairing queue isolation from the live data root', () => {

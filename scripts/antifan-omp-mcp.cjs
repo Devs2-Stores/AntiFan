@@ -2128,6 +2128,22 @@ async function ensureDispatchSocket(bootstrap) {
   return dispatchConnecting;
 }
 
+/**
+ * The live target a refusal names for an ambient tab id THIS proxy injected, or null
+ * when the refusal is not a stale default. The desktop reports a tab that no longer
+ * exists as an unknown target and carries the session's live target alongside it, so
+ * the retarget keys on that shape rather than on the error code: a refusal from a
+ * different guard, or one aimed at an id the caller chose, is left alone.
+ */
+function retargetableAmbientTabId(err, injectedAmbientTabId, ambientTargetField) {
+  if (!ambientTargetField || !injectedAmbientTabId) return null;
+  const details = err && typeof err === 'object' && err.details && typeof err.details === 'object' ? err.details : null;
+  const requested = details && typeof details.requestedTabId === 'string' ? details.requestedTabId : '';
+  const live = details && typeof details.liveTabId === 'string' ? details.liveTabId : '';
+  if (requested !== injectedAmbientTabId || !live || live === requested) return null;
+  return live;
+}
+
 async function invoke(method, params = {}, callerRequestId) {
   const allowedCaps = resolveAllowedCapabilities();
   const forbiddenCaps = resolveForbiddenCapabilities();
@@ -2244,8 +2260,9 @@ async function invoke(method, params = {}, callerRequestId) {
   // Invocation identity is minted ONCE per logical call, outside the retryable
   // dispatch function: an eligible transport retry resends the same
   // requestId/idempotencyKey and therefore joins the original ledger entry
-  // instead of minting a new invocation.
-  const identity = resolveInvocationIdentity(callerRequestId, params);
+  // instead of minting a new invocation. A retarget retry is not a transport
+  // retry — see the catch below — so it re-mints instead of joining.
+  let identity = resolveInvocationIdentity(callerRequestId, params);
   // Transport-only arguments are consumed here and never forwarded to the
   // capability. The remaining params are frozen for the life of the invocation so
   // a retry stays digest-identical to the original (the ledger joins on digest).
@@ -2266,9 +2283,13 @@ async function invoke(method, params = {}, callerRequestId) {
   // no ambient field, so an omitted value stays omitted and the call is
   // dispatched unscoped.
   const ambientTargetField = ambientTargetFieldFor(method);
+  const ambientTargetSuppliedByCaller = Boolean(ambientTargetField && effectiveParams[ambientTargetField]);
   if (ambientTargetField && !effectiveParams[ambientTargetField] && boundTabId) {
     effectiveParams[ambientTargetField] = boundTabId;
   }
+  const injectedAmbientTabId = ambientTargetField && !ambientTargetSuppliedByCaller && typeof effectiveParams[ambientTargetField] === 'string'
+    ? effectiveParams[ambientTargetField]
+    : null;
   if (mapped === 'artifact.read') {
     const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
     effectiveParams.limit = Math.min(rawLimit, 32768); // Bounded chunk size: <= 32 KiB per frame
@@ -2360,6 +2381,20 @@ async function invoke(method, params = {}, callerRequestId) {
   try {
     return await sendDispatch(bootstrap);
   } catch (err) {
+    const liveTarget = retargetableAmbientTabId(err, injectedAmbientTabId, ambientTargetField);
+    if (liveTarget) {
+      // The desktop raises this refusal at target resolution, before the capability
+      // body runs, so re-aiming it at the live target it named cannot double-execute
+      // anything. Only the id THIS proxy injected is retargeted; an id the caller
+      // passed explicitly stays the caller's own business. The invocation identity is
+      // re-minted because the refused attempt is terminal: resending its key would
+      // join the refusal instead of dispatching.
+      process.stderr.write(`[AntiFan MCP] Bound tab '${injectedAmbientTabId}' is no longer live; retargeting '${mapped}' to '${liveTarget}'\n`);
+      recordBoundTab(liveTarget);
+      effectiveParams[ambientTargetField] = liveTarget;
+      identity = resolveInvocationIdentity(undefined, {});
+      return await sendDispatch(bootstrap);
+    }
     // Only connection/auth faults may retry; operation timeouts never do.
     if (!isRetryableTransportError(err)) throw err;
     const errStr = String(err?.message || err);

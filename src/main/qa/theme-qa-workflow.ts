@@ -187,6 +187,12 @@ function isValidViewportOverflowResult(res: unknown): res is ViewportOverflowRes
     return false;
   }
   const obj = res as Record<string, unknown>;
+  if (obj.measured === false) {
+    return false;
+  }
+  if ('measured' in obj && typeof obj.measured !== 'boolean') {
+    return false;
+  }
   if (typeof obj.hasOverflow !== 'boolean') {
     return false;
   }
@@ -196,7 +202,7 @@ function isValidViewportOverflowResult(res: unknown): res is ViewportOverflowRes
   if (typeof obj.scrollWidth !== 'number' || !Number.isFinite(obj.scrollWidth) || obj.scrollWidth < 0) {
     return false;
   }
-  if (typeof obj.clientWidth !== 'number' || !Number.isFinite(obj.clientWidth) || obj.clientWidth < 0) {
+  if (typeof obj.clientWidth !== 'number' || !Number.isFinite(obj.clientWidth) || obj.clientWidth <= 0) {
     return false;
   }
   if (!obj.viewport || typeof obj.viewport !== 'object' || Array.isArray(obj.viewport)) {
@@ -664,6 +670,8 @@ export class ThemeQaWorkflow {
     // 6. Layout Overflow Engine (RT-06 sub-pixel deadband & RT-04 container limiting)
     let overflowResult: ViewportOverflowResult = {
       viewport: { name: 'desktop', width: 1440, height: 900 },
+      measured: false,
+      unmeasuredReason: 'No layout overflow measurement was obtained from the scanned tab',
       hasOverflow: false,
       deltaX: 0,
       scrollWidth: 1440,
@@ -679,9 +687,14 @@ export class ThemeQaWorkflow {
         overflowResult = evalRes;
       } else {
         // Unlike the other scanners there is no in-process HTML fallback for layout geometry:
-        // a malformed response leaves no measurement evidence, so FAIL closed instead of
-        // certifying PASS from the placeholder default.
-        evidenceGaps.push('Layout overflow scanner did not return valid measurement object');
+        // a malformed or unmeasured response leaves no measurement evidence, so FAIL closed
+        // instead of certifying PASS from the placeholder default.
+        const unmeasuredReason = LayoutOverflowEngine.readUnmeasuredReason(evalRes);
+        evidenceGaps.push(
+          unmeasuredReason
+            ? `Layout overflow not measured: ${unmeasuredReason}`
+            : 'Layout overflow scanner did not return valid measurement object'
+        );
       }
     } catch (error) {
       rethrowTargetLifecycleError(error);
@@ -728,11 +741,14 @@ export class ThemeQaWorkflow {
                 width: vpWidth,
                 height: typeof first.height === 'number' ? first.height : overflowResult.viewport.height,
               },
+              measured: true,
               hasOverflow: true,
               deltaX: typeof first.scrollWidth === 'number' && typeof first.clientWidth === 'number' ? Math.max(0, first.scrollWidth - first.clientWidth) : overflowResult.deltaX,
               scrollWidth: typeof first.scrollWidth === 'number' ? first.scrollWidth : overflowResult.scrollWidth,
               clientWidth: typeof first.clientWidth === 'number' ? first.clientWidth : overflowResult.clientWidth,
             };
+            // The sweep measured this viewport, so the placeholder's reason is stale.
+            delete overflowResult.unmeasuredReason;
           }
         }
       } catch (error) {

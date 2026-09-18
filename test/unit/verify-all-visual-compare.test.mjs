@@ -1,10 +1,11 @@
-import { after, describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { createRequire } from 'node:module';
 
 import {
   MANDATORY_VIEWPORTS,
@@ -16,6 +17,12 @@ import {
   runVerification,
   tallyVerdicts,
 } from '../../scripts/verify-all-visual-compare.mjs';
+
+// The compare path under test is the compiled port artifact; every lane that runs
+// this file compiles first (`test:fast`, `test:unit` and `test` are compile-gated),
+// and `.compiled/src` imports are already the convention in this directory.
+import { BrowserControlPort, resolveProjectionViewport } from '../../.compiled/src/main/tools/browser-control-port.js';
+import { materializeRasterMasks, visualCaptureSpaceFromMeasured } from '../../.compiled/src/main/verification/visual-capture.js';
 
 const tempDirs = [];
 
@@ -531,5 +538,307 @@ describe('Output isolation and immutable historical reports', () => {
     // Check that historical root reports are untouched
     assert.equal(fs.readFileSync(histJsonPath, 'utf8'), '{"historical": true}');
     assert.equal(fs.readFileSync(histMdPath, 'utf8'), '# Historical Report');
+  });
+});
+
+// ── Mask projection geometry: measured, or refused — never invented ──────────
+//
+// executeVisualCompareAttempt() used to project every dynamic mask through
+// `metrics.vw || capture.cssViewport.width || rasterWidth || 1200` (height the
+// same, plus `documentHeight || viewportHeight`). A side whose live CSS metrics
+// read had timed out, or reported vw <= 0, therefore entered the mask ledger
+// with a coordinate space no surface ever had: masks landed on the wrong pixels,
+// which reports regressions that are not there and hides the ones that are.
+//
+// The compare path now resolves each side's projection viewport from
+// measurements that exist for that side (resolveProjectionViewport) and hands
+// the mask ledger 0 when none does, so the ledger's existing typed refusal
+// (MASK_RESOLUTION_FAILED) stands in place of fabricated geometry. An unmeasured
+// document height is reported as 0, which the capture-space builder reads as
+// "fall back to the x scale" — the scale a full-page capture rasterizes the
+// document with — instead of being substituted with the viewport height.
+//
+// Reachability, per the code path: the mask block runs after the capture-state
+// gate, which refuses a pair whose measured CSS viewports are degenerate or
+// differ, and each side then holds the envelope of a capture that already
+// happened. The 1200x800 default was consequently only reachable by bypassing
+// that gate, while the document-height substitution was reachable on any
+// full-page compare whose live metrics read failed — the end-to-end case below
+// pins that one.
+
+const require = createRequire(import.meta.url);
+
+const ROUTE_URL = 'https://store.example.com/product';
+const RASTER = { width: 400, height: 1200 };
+// A real full-page capture: the document (1200 CSS px) is taller than the
+// viewport it was captured in (300 CSS px), at dpr 1 and zoom 1.
+const CSS_VIEWPORT = { width: 400, height: 300 };
+const DOCUMENT_HEIGHT = 1200;
+// The fixture mask, viewport-relative as the mask query reads it (scrolled to
+// the top, so document-relative and viewport-relative coincide).
+const MASK_BOX = { x: 0, y: 600, width: 400, height: 100 };
+const BASE_COLOR = [10, 20, 30, 255];
+const BAND_COLOR = [250, 5, 5, 255];
+
+/** Raster buffer (base64) -> the bitmap and size the stubbed nativeImage reports. */
+const rasterBitmaps = new Map();
+
+function buildRasterBitmap({ width, height, base, band }) {
+  const bitmap = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const inBand = Boolean(band) && y >= band.fromY && y < band.toY;
+    const color = inBand ? band.color : base;
+    for (let x = 0; x < width; x++) {
+      const at = (y * width + x) * 4;
+      bitmap[at] = color[0];
+      bitmap[at + 1] = color[1];
+      bitmap[at + 2] = color[2];
+      bitmap[at + 3] = color[3] ?? 255;
+    }
+  }
+  return bitmap;
+}
+
+/**
+ * Two rasters that differ ONLY inside MASK_BOX, so a projection that places the
+ * mask anywhere else publishes the masked difference as a regression.
+ */
+function buildProjectionFixture() {
+  const targetPng = createTestPng({ width: RASTER.width, height: RASTER.height, color: BASE_COLOR });
+  const baselinePng = createTestPng({
+    width: RASTER.width,
+    height: RASTER.height,
+    pattern: (x, y) => (y >= MASK_BOX.y && y < MASK_BOX.y + MASK_BOX.height ? BAND_COLOR : BASE_COLOR),
+  });
+  rasterBitmaps.set(targetPng.toString('base64'), {
+    width: RASTER.width,
+    height: RASTER.height,
+    bitmap: buildRasterBitmap({ width: RASTER.width, height: RASTER.height, base: BASE_COLOR }),
+  });
+  rasterBitmaps.set(baselinePng.toString('base64'), {
+    width: RASTER.width,
+    height: RASTER.height,
+    bitmap: buildRasterBitmap({
+      width: RASTER.width,
+      height: RASTER.height,
+      base: BASE_COLOR,
+      band: { fromY: MASK_BOX.y, toY: MASK_BOX.y + MASK_BOX.height, color: BAND_COLOR },
+    }),
+  });
+  return { targetPng, baselinePng };
+}
+
+/** Host adapter for the compare path: two mock tabs, one declared route, per-tab rasters. */
+function buildProjectionHost(opts) {
+  const { rasters, viewport, documentHeight, maskBoxes } = opts;
+  return {
+    hasTab: () => true,
+    getTabList: () => [{ id: 'tab-a' }, { id: 'tab-b' }],
+    getTabUrl: () => ROUTE_URL,
+    evalJs: async (script, tabId) => {
+      if (script.includes('__antifan_compare_txn__')) {
+        return script.includes('alreadyRestored')
+          ? { restored: true, alreadyRestored: true, failed: 0 }
+          : { applied: true, alreadyApplied: true, recorded: 0 };
+      }
+      if (script.includes('el.remove')) return true;
+      if (script.includes('document.fonts.ready')) return true;
+      if (script.includes('img.decode')) return { settled: true, brokenImages: [] };
+      if (script.includes('requestAnimationFrame')) return true;
+      // The fixture withholds the live CSS metrics read: readSideMetrics() maps a
+      // vw <= 0 payload — and a timed-out read — to null, which is the audited input.
+      if (script.includes('window.innerWidth')) return { vw: 0, vh: 0, dh: 0, sx: 0, sy: 0 };
+      if (script.includes('r.width <= 0')) return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+      if (script.includes('root.children')) return [];
+      if (script.includes('const selectors =')) return [{ selector: '.banner', error: null, boxes: maskBoxes }];
+      return null;
+    },
+    captureVerificationScreenshot: async (rect, tabId) => ({
+      data: rasters[tabId].toString('base64'),
+      backend: 'cdp',
+      dpr: 1,
+      zoom: 1,
+      cssViewport: { width: viewport.width, height: viewport.height },
+      cssCaptureSize: { width: viewport.width, height: documentHeight },
+      rasterSize: { width: RASTER.width, height: RASTER.height },
+      captureMode: 'full-page',
+      timestamp: Date.now(),
+    }),
+    getBrowserEpoch: () => 1,
+    getDocumentGeneration: () => 1,
+    getMutationRevision: () => 1,
+    isTargetDraining: () => false,
+    getNetworkTracker: () => ({
+      isAttached: () => true,
+      awaitQuiescence: async () => ({ settled: true, durationMs: 5, timedOut: false }),
+    }),
+  };
+}
+
+const projectionTarget = {
+  tabId: 'tab-a',
+  documentGeneration: 1,
+  projectId: 'test-proj',
+  workspaceId: 'test-ws',
+  runtimeId: 'test-rt',
+  browserEpoch: 1,
+};
+
+const projectionParams = {
+  comparisonTabId: 'tab-b',
+  fullPage: true,
+  maskSelectors: ['.banner'],
+  useDefaultWidgetMasks: false,
+  expectedTargetUrl: ROUTE_URL,
+  expectedBaselineUrl: ROUTE_URL,
+};
+
+describe('visualCompare mask projection geometry is measured or refused, never invented', () => {
+  let electronEntry;
+  let electronExportsBackup;
+
+  // computePixelDiff reads pixels through Electron's nativeImage. Under plain node
+  // the `electron` package resolves to a path string, so the diff path throws.
+  // Preload the (cheap, path-exporting) real entry, then replace its exports with
+  // the fixture's raster registry for the duration of this suite.
+  before(() => {
+    const resolved = require.resolve('electron');
+    electronEntry = require.cache[resolved];
+    if (!electronEntry) {
+      require(resolved);
+      electronEntry = require.cache[resolved];
+    }
+    if (!electronEntry) throw new Error('electron module cache entry unavailable; the pixel diff cannot be exercised');
+    electronExportsBackup = electronEntry.exports;
+    electronEntry.exports = {
+      nativeImage: {
+        createFromBuffer: (buf) => {
+          const entry = rasterBitmaps.get(buf.toString('base64'));
+          if (!entry) throw new Error('fixture registered no bitmap for this raster buffer');
+          return {
+            getSize: () => ({ width: entry.width, height: entry.height }),
+            isEmpty: () => false,
+            getBitmap: () => entry.bitmap,
+          };
+        },
+      },
+    };
+  });
+
+  after(() => {
+    if (electronEntry && electronExportsBackup !== undefined) {
+      electronEntry.exports = electronExportsBackup;
+    }
+  });
+
+  it('an unmeasurable side yields no projection viewport and never 1200x800 mask geometry', () => {
+    // The audited input: no live metrics reading, an envelope viewport that was
+    // never measured (0, not "unknown"), and no peer to take a reading from.
+    const unmeasured = resolveProjectionViewport({
+      metrics: null,
+      envelopeViewport: { width: 0, height: 0 },
+      peerViewport: null,
+    });
+    assert.equal(unmeasured, null, 'an unmeasurable side must resolve to no viewport, not to 1200x800');
+
+    // Without a measurement the capture space gets no denominator and the mask
+    // ledger refuses with its own typed error, so the mask is never placed.
+    const maskEntry = { selector: '.banner', required: true, status: 'resolved', cssBoxes: [MASK_BOX] };
+    const unmeasuredSpace = visualCaptureSpaceFromMeasured({
+      pngWidth: RASTER.width,
+      pngHeight: RASTER.height,
+      cssViewportWidth: unmeasured ? unmeasured.width : 0,
+      cssViewportHeight: unmeasured ? unmeasured.height : 0,
+      cssDocumentHeight: unmeasured ? unmeasured.documentHeight : 0,
+      fullPage: true,
+    });
+    assert.throws(
+      () => materializeRasterMasks([maskEntry], unmeasuredSpace, RASTER.width, RASTER.height),
+      (err) => err && err.name === 'MaskResolutionError' && err.status === 'MASK_RESOLUTION_FAILED' && /positive capture scale/.test(err.message),
+      'an unmeasured side must fail closed through the mask ledger'
+    );
+
+    // Measurements that do exist are used as they are: the side's own envelope
+    // viewport, the peer's already-verified-equal one, and a measured document
+    // height carried through untouched (never substituted with the viewport height).
+    assert.deepEqual(
+      resolveProjectionViewport({ metrics: null, envelopeViewport: CSS_VIEWPORT, peerViewport: null }),
+      { width: 400, height: 300, documentHeight: 0 }
+    );
+    assert.deepEqual(
+      resolveProjectionViewport({ metrics: null, envelopeViewport: null, peerViewport: { width: 390, height: 844 } }),
+      { width: 390, height: 844, documentHeight: 0 }
+    );
+    assert.deepEqual(
+      resolveProjectionViewport({
+        metrics: { vw: 390, vh: 844, dh: 5321, sx: 0, sy: 0 },
+        envelopeViewport: null,
+        peerViewport: null,
+      }),
+      { width: 390, height: 844, documentHeight: 5321 }
+    );
+
+    // With those measurements the mask covers the same pixels the surface did:
+    // rows 600..699 of the 400x1200 raster, 40000 of 480000 pixels.
+    const measured = resolveProjectionViewport({ metrics: null, envelopeViewport: CSS_VIEWPORT, peerViewport: null });
+    const measuredSpace = visualCaptureSpaceFromMeasured({
+      pngWidth: RASTER.width,
+      pngHeight: RASTER.height,
+      cssViewportWidth: measured.width,
+      cssViewportHeight: measured.height,
+      cssDocumentHeight: measured.documentHeight,
+      fullPage: true,
+    });
+    const ledger = materializeRasterMasks([maskEntry], measuredSpace, RASTER.width, RASTER.height);
+    assert.deepEqual(ledger.maskBoxes, [MASK_BOX]);
+    assert.equal(ledger.maskedAreaRatio, (MASK_BOX.width * MASK_BOX.height) / (RASTER.width * RASTER.height));
+  });
+
+  it('projects a full-page mask from the measured viewport when the live metrics read fails', async () => {
+    const { targetPng, baselinePng } = buildProjectionFixture();
+    const host = buildProjectionHost({
+      rasters: { 'tab-a': targetPng, 'tab-b': baselinePng },
+      viewport: CSS_VIEWPORT,
+      documentHeight: DOCUMENT_HEIGHT,
+      maskBoxes: [MASK_BOX],
+    });
+    const port = new BrowserControlPort(host, undefined);
+
+    const result = await port.visualCompare(projectionTarget, 'run-mask-projection', 'att-mask-projection', projectionParams);
+
+    // The fixture differs only inside the mask. Projecting the viewport height as
+    // the document height would place the box at rows 2400..2799, outside the
+    // raster: nothing masked, and the 40000 masked pixels (8.33% of 480000) would
+    // publish as a regression. The same fixture through the measured space masks
+    // exactly those rows, so a clean PASS proves the geometry came from the
+    // measured viewport.
+    assert.equal(result.status, 'PASS');
+    assert.equal(result.match, true);
+    assert.equal(result.mismatchPercentage, 0);
+    assert.equal(result.maskResolution.status, 'ok');
+    assert.equal(result.maskResolution.target.maskedAreaRatio, (MASK_BOX.width * MASK_BOX.height) / (RASTER.width * RASTER.height));
+    assert.equal(result.maskResolution.baseline.maskedAreaRatio, (MASK_BOX.width * MASK_BOX.height) / (RASTER.width * RASTER.height));
+  });
+
+  it('refuses a pair whose capture state names no viewport before any mask is projected', async () => {
+    const { targetPng, baselinePng } = buildProjectionFixture();
+    const host = buildProjectionHost({
+      rasters: { 'tab-a': targetPng, 'tab-b': baselinePng },
+      viewport: { width: 0, height: 0 },
+      documentHeight: DOCUMENT_HEIGHT,
+      maskBoxes: [MASK_BOX],
+    });
+    const port = new BrowserControlPort(host, undefined);
+
+    const result = await port.visualCompare(projectionTarget, 'run-mask-projection-none', 'att-mask-projection-none', projectionParams);
+
+    // Neither side names a viewport, so the pair is refused by the capture-state
+    // gate before the mask block: with no measurement to project through, no
+    // geometry is produced at all (and none is invented).
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'INCONCLUSIVE');
+    assert.equal(result.match, false);
+    assert.match(String(result.reason), /viewport/i);
+    assert.equal(result.maskResolution.maskedAreaRatio, 0);
   });
 });

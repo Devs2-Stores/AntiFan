@@ -14,7 +14,7 @@ import { RULER_SCRIPT } from './ruler';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { dispatchAnnotationToTerminal, stripDeliveryMode } from './annotation-dispatch';
 import { AnnotationManager } from '../bridge/annotation-manager';
-import { TerminalManager } from './terminal-manager';
+import { TerminalManager, selectAnnotationTargets } from './terminal-manager';
 import type { NativeTabRecord } from './native-tab-host';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
 import {
@@ -71,6 +71,18 @@ const NATIVE_VIEWPORT_RASTER_BOUND_MS = 4_000;
  */
 const NO_SURFACE_CAPTURE_PROBE_BOUND_MS = 8_000;
 
+/**
+ * A render surface is measured only when the probe found a viewport: a view with no
+ * compositor surface lays its document out against a zero-width box and reports 0x0,
+ * which is the absence of a measurement, never a geometry of 0x0. Every decision that
+ * consumes a surface — a capture's geometry, a restore baseline, a restore reading —
+ * must refuse on one instead of treating it as a real size.
+ */
+function hasMeasuredSurface(snapshot: RenderSurfaceSnapshot | undefined): snapshot is RenderSurfaceSnapshot {
+  if (!snapshot) return false;
+  return Number.isFinite(snapshot.vw) && Number.isFinite(snapshot.vh) && snapshot.vw >= 1 && snapshot.vh >= 1;
+}
+
 export interface TabDevToolsContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
   getTabRecord: (tabId: string) => NativeTabRecord | undefined;
@@ -87,6 +99,7 @@ export interface TabDevToolsContext {
   createTab: (url?: string, activate?: boolean) => string;
   withTabAgentWorking: <T>(tabId: string, action: () => Promise<T>) => Promise<T>;
   runWithAttachedTabView?: <T>(view: Electron.WebContentsView | null | undefined, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
+  getTabContentBounds?: (tabId: string, paneId?: SplitPaneId) => { width: number; height: number } | undefined;
   switchTab?: (tabId: string) => boolean;
   getSemanticDocumentGeneration?: (tabId: string, paneId?: SplitPaneId) => number;
   getLegacyDocumentGeneration?: (tabId: string) => number;
@@ -398,7 +411,7 @@ export class TabDevToolsHost {
     const tabSessionId = this.ctx.getTabTerminalSession(activeTabId);
     const termContextData: Record<string, unknown> = {
       tabId: activeTabId,
-      sessions: tm.listSessions(),
+      sessions: selectAnnotationTargets(tm.listSessions()),
       selectedSessionId: activeSessionId,
     };
     if (tabSessionId !== undefined) {
@@ -1147,6 +1160,21 @@ export class TabDevToolsHost {
   }
 
   /**
+   * A capture rasterizes the pane view it runs through, so a view with no size is a
+   * surface the tab never had: give it the box the window gives that pane. A host that
+   * cannot name real geometry leaves the view untouched — the capture path then reports
+   * the unmeasurable surface instead of rasterizing an invented one.
+   */
+  private ensurePaneViewBounds(view: Electron.WebContentsView | null | undefined, tabId: string, paneId?: SplitPaneId): void {
+    if (!view || typeof view.getBounds !== 'function' || typeof view.setBounds !== 'function') return;
+    const bounds = view.getBounds();
+    if (bounds && bounds.width > 0 && bounds.height > 0) return;
+    const content = this.ctx.getTabContentBounds ? this.ctx.getTabContentBounds(tabId, paneId) : undefined;
+    if (!content || content.width < 1 || content.height < 1) return;
+    view.setBounds({ x: 0, y: 0, width: content.width, height: content.height });
+  }
+
+  /**
    * Document scroll height in CSS pixels for full-page capture. Fails closed:
    * an unavailable height must never degrade into a viewport-only capture
    * mislabeled as full-page evidence.
@@ -1571,13 +1599,8 @@ export class TabDevToolsHost {
       if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
         targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
       }
-    } else if (targetPaneView && typeof targetPaneView.getBounds === 'function') {
-      const bounds = targetPaneView.getBounds();
-      if (!bounds || bounds.width === 0 || bounds.height === 0) {
-        const ctxAny = this.ctx as unknown as { getTabContentBounds?: (id: string, pane?: SplitPaneId) => { width: number; height: number } };
-        const mainBounds = ctxAny.getTabContentBounds ? ctxAny.getTabContentBounds(targetId, effectivePane) : { width: 1200, height: 800 };
-        targetPaneView.setBounds({ x: 0, y: 0, width: mainBounds.width || 1200, height: mainBounds.height || 800 });
-      }
+    } else {
+      this.ensurePaneViewBounds(targetPaneView, targetId, effectivePane);
     }
     const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
     const rawQuality = typeof options?.quality === 'number' ? options.quality : 80;
@@ -1864,22 +1887,21 @@ export class TabDevToolsHost {
       );
     }
     const boundMs = Math.min(60_000, Math.max(1, options?.timeoutMs ?? 60_000));
-    // Baseline for the geometry transaction below: a capture that rasterizes
-    // beyond the viewport moves the tab's layout viewport, and the caller is
-    // entitled to find the tab where it left it.
-    const surfaceBefore = await this.probeRenderSurface(wc, RENDER_SURFACE_PROBE_BOUND_MS);
+    // Baseline for the geometry transaction below: a capture that rasterizes beyond
+    // the viewport moves the tab's layout viewport, and the caller is entitled to find
+    // the tab where it left it. It is the capture's own pre-raster reading, taken
+    // inside the temporary attach for a background target because a reading taken
+    // while the view is detached reports 0x0 there — and a 0x0 baseline both restores
+    // into a fabricated 1x1 viewport and certifies a restore against any later
+    // unmeasured reading.
+    let surfaceBefore: RenderSurfaceSnapshot | undefined;
     const geometryTouched = mode !== 'viewport';
     if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
       if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
         targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
       }
-    } else if (targetPaneView && typeof targetPaneView.getBounds === 'function') {
-      const bounds = targetPaneView.getBounds();
-      if (!bounds || bounds.width === 0 || bounds.height === 0) {
-        const ctxAny = this.ctx as unknown as { getTabContentBounds?: (id: string, pane?: SplitPaneId) => { width: number; height: number } };
-        const mainBounds = ctxAny.getTabContentBounds ? ctxAny.getTabContentBounds(targetId, effectivePane) : { width: 1200, height: 800 };
-        targetPaneView.setBounds({ x: 0, y: 0, width: mainBounds.width || 1200, height: mainBounds.height || 800 });
-      }
+    } else {
+      this.ensurePaneViewBounds(targetPaneView, targetId, effectivePane);
     }
 
     // A verification capture never foregrounds the target: the visible tab belongs to
@@ -1892,6 +1914,7 @@ export class TabDevToolsHost {
 
     let captureEnvelope: VerificationCaptureEnvelope | undefined;
     let captureError: Error | undefined;
+    let viewportTransaction: CaptureViewportTransaction | undefined;
     let lastPrewarmReceipt: ScrollPrewarmReceipt | undefined;
     let prewarmFailure: string | undefined;
     let lastQuiescence: PreCaptureQuiescenceResult | undefined;
@@ -1924,12 +1947,19 @@ export class TabDevToolsHost {
               `Render-surface probe on tab '${targetId}' pane '${effectivePane}' failed: ${err instanceof Error ? err.message : String(err)}`
             );
           }
+          // Kept as an explicit comparison rather than the shared predicate: a type
+          // predicate narrows the degenerate branch to `never`, and the refusal needs
+          // the measured values to name why the surface cannot be captured.
           if (!Number.isFinite(surface.vw) || !Number.isFinite(surface.vh) || surface.vw < 1 || surface.vh < 1) {
             throw new CaptureError(
               'NO_RENDER_SURFACE',
               `Tab '${targetId}' pane '${effectivePane}' has no renderable surface: it reports ${surface.vw}x${surface.vh} CSS px (readyState '${surface.readyState}', hidden ${surface.hidden}, cause ${classifyRenderSurfaceCause(surface)}). Size the tab with anti.browser.set_viewport or navigate it to a real page before capturing.`
             );
           }
+          // The geometry baseline is this reading: it is the surface the capture is
+          // about to rasterize, measured where the view is presented, so the restore
+          // compares against a viewport that really existed.
+          surfaceBefore = surface;
           // A window that is not on screen keeps a measurable layout viewport but
           // its compositor never produces a beyond-viewport raster:
           // Page.captureScreenshot with captureBeyondViewport then waits out the
@@ -2230,7 +2260,16 @@ export class TabDevToolsHost {
                 await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); if (typeof requestAnimationFrame === "function") { requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
                 await delay(120);
               } catch {}
-              return await captureAction();
+              try {
+                return await captureAction();
+              } finally {
+                // The pane presents a measurable surface only while it is attached
+                // (`layOutDetachedView` sized it above), so the restore runs — and
+                // proves itself by re-measuring — on the same presented surface the
+                // baseline was read from. After the release the reading would be a
+                // detached view's 0x0, which proves nothing about the restore.
+                if (geometryTouched) viewportTransaction = await this.restoreCapturedGeometry(wc, targetId, effectivePane, surfaceBefore);
+              }
             },
             isMobile
           );
@@ -2272,30 +2311,15 @@ export class TabDevToolsHost {
         console.warn('[tab-devtools-host] Layout restore failed in captureVerificationScreenshot finally:', err);
       }
     }
-    const transportDraining = this.isWebContentsDraining(wc);
-    const viewportTransaction = geometryTouched
-      ? transportDraining
-        ? {
-            before: {
-              width: surfaceBefore.vw,
-              height: surfaceBefore.vh,
-              scrollX: surfaceBefore.scrollX,
-              scrollY: surfaceBefore.scrollY,
-            },
-            after: null,
-            restored: false,
-            attempts: 0,
-            deferred: true,
-          }
-        : await this.applyGeometryRestore({
-            wc,
-            targetId,
-            effectivePane,
-            targetPaneView,
-            customViewport: target.customViewport,
-            before: surfaceBefore,
-          })
-      : undefined;
+    // The restore and its verification run where the surface is real: inside the
+    // temporary attach for a background target (above), directly for a foreground
+    // or offscreen one. A geometry-touching capture that measured no baseline has
+    // nothing to restore against, so it reports no transaction at all instead of
+    // clamping an invented 1x1 viewport or certifying two unmeasured readings as
+    // restored.
+    if (geometryTouched && !viewportTransaction) {
+      viewportTransaction = await this.restoreCapturedGeometry(wc, targetId, effectivePane, surfaceBefore);
+    }
     if (viewportTransaction && !viewportTransaction.restored && !viewportTransaction.deferred) {
       // A moved layout viewport is a state hazard, so it outranks the original
       // capture outcome: evidence captured on a surface we could not restore
@@ -2357,6 +2381,48 @@ export class TabDevToolsHost {
   }
 
   /**
+   * Restores the layout geometry a clip/full-page capture moved, on the surface that
+   * capture measured its baseline on: the caller runs this while that surface is
+   * presented (inside the temporary attach for a background target), so the
+   * re-measure that proves the restore reads the same surface the baseline described.
+   *
+   * A capture that never measured a baseline has nothing to restore against, so the
+   * restore is skipped deliberately and no transaction is reported — the alternative
+   * would be restoring to an invented 1x1 viewport. `undefined` therefore means "no
+   * transaction to report", never "restored".
+   *
+   * A draining transport cannot carry the restore commands, so the transaction is
+   * reported as deferred for the caller to reapply after the drain.
+   */
+  private async restoreCapturedGeometry(
+    wc: Electron.WebContents,
+    tabId: string,
+    pane: SplitPaneId | undefined,
+    before: RenderSurfaceSnapshot | undefined
+  ): Promise<CaptureViewportTransaction | undefined> {
+    if (!hasMeasuredSurface(before)) return undefined;
+    if (this.isWebContentsDraining(wc)) {
+      return {
+        before: { width: before.vw, height: before.vh, scrollX: before.scrollX, scrollY: before.scrollY },
+        after: null,
+        restored: false,
+        attempts: 0,
+        deferred: true,
+      };
+    }
+    const target = this.ctx.getTabRecord(tabId);
+    if (!target) return undefined;
+    return await this.applyGeometryRestore({
+      wc,
+      targetId: tabId,
+      effectivePane: pane,
+      targetPaneView: pane === 'mobile' ? target.mobileView || target.view : target.view,
+      customViewport: target.customViewport,
+      before,
+    });
+  }
+
+  /**
    * Puts the tab's layout viewport and scroll offset back where the capture found
    * them, then proves it by re-measuring. Two bounded attempts: the first restores
    * the tab's own emulation state, the second forces the measured geometry back.
@@ -2370,6 +2436,14 @@ export class TabDevToolsHost {
     customViewport: { width: number; height: number } | undefined;
     before: RenderSurfaceSnapshot;
   }): Promise<CaptureViewportTransaction> {
+    // A baseline that was never measured cannot be restored to: the forced second
+    // attempt would clamp it into a fabricated 1x1 override, and the comparison would
+    // then pass against any degenerate reading. Refuse instead, claiming no
+    // expectation and no restoration, so the caller treats the geometry as unproven
+    // rather than restored.
+    if (!hasMeasuredSurface(args.before)) {
+      return { before: null, after: null, restored: false, attempts: 0 };
+    }
     const before = {
       width: args.before.vw,
       height: args.before.vh,
@@ -2422,14 +2496,21 @@ export class TabDevToolsHost {
           },
           bound
         ).catch(() => {});
-        after = await this.probeRenderSurface(args.wc, bound);
-        if (Math.abs(after.vw - before.width) <= 1 && Math.abs(after.vh - before.height) <= 1) {
-          return {
-            before,
-            after: { width: after.vw, height: after.vh, scrollX: after.scrollX, scrollY: after.scrollY },
-            restored: true,
-            attempts,
-          };
+        const reading = await this.probeRenderSurface(args.wc, bound);
+        // Only a reading taken on a presented surface describes the viewport: a
+        // detached view reports 0x0, which is no measurement at all and can neither
+        // prove nor disprove the restore, so it is never compared. `after` keeps the
+        // last reading that was actually taken.
+        if (hasMeasuredSurface(reading)) {
+          after = reading;
+          if (Math.abs(reading.vw - before.width) <= 1 && Math.abs(reading.vh - before.height) <= 1) {
+            return {
+              before,
+              after: { width: reading.vw, height: reading.vh, scrollX: reading.scrollX, scrollY: reading.scrollY },
+              restored: true,
+              attempts,
+            };
+          }
         }
       } catch {
         // A failed restore attempt is retried once with the measured geometry;

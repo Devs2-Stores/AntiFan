@@ -4,6 +4,7 @@
  */
 import { NativeTabHost } from './native-tab-host';
 import { AntiFanBridgeStatus } from '../../shared/contracts';
+import { CapabilityError } from '../../shared/control-plane-contracts';
 
 export interface ActionDefinition<TParams = Record<string, any>, TResult = any> {
   name: string;
@@ -294,6 +295,11 @@ export class BrowserActionRegistry {
       },
       handler: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
         const imageBase64 = await tabHost.captureScreenshot(undefined, params?.tabId, params?.paneId);
+        if (!imageBase64 || imageBase64.length === 0) {
+          // A target with no live compositor surface yields an empty capture; a successful
+          // action result carrying it would hand callers an image that cannot be decoded.
+          throw new CapabilityError('TARGET_STALE', 'Failed to capture a non-empty screenshot: the target has no live compositor surface');
+        }
         return { imageBase64 };
       },
     });

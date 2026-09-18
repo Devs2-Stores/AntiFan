@@ -18,6 +18,14 @@
  * cache re-reads the dead id on the next call; the default has to be *cleared*
  * rather than re-derived.
  *
+ * A default can also go stale without any of those operations: another client
+ * rotates the session, or the tab dies behind the proxy's back. The desktop then
+ * refuses the injected id as an unknown target — carrying the live target in the
+ * refusal — so the proxy retargets onto it and retries once instead of surfacing
+ * a failure the session would have to re-pair out of. An id the caller passed
+ * explicitly, and a refusal that does not name a different live target, are left
+ * to surface unchanged.
+ *
  * The proxy under test is the real one shipped in this repo, driven over stdio
  * MCP against a mock bridge that scripts the capability responses. No AntiFan
  * Desktop instance is contacted: the bootstrap is pinned to the mock port and
@@ -34,6 +42,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 const PROXY_SCRIPT = path.resolve(process.cwd(), 'scripts', 'antifan-omp-mcp.cjs');
 const BOOTSTRAP_TAB_ID = 'tab-anchor';
 const CREATED_TAB_ID = 'tab-child';
+const LIVE_TAB_ID = 'tab-live';
+const CALLER_TAB_ID = 'tab-caller';
 
 /** Ambient inputs that would let the proxy leave this mock and talk to a real desktop. */
 const DISCOVERY_ENV_KEYS = [
@@ -55,10 +65,31 @@ interface DispatchFrame {
   params: Record<string, unknown>;
 }
 
+interface MockFailureResult {
+  __antiFanMockFailure: true;
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Scripts a refusal on the wire exactly as the bridge reports one: `data` carries the
+ * typed code and its details, `error` the rendered `CODE: message` text.
+ */
+function mockFailure(code: string, message: string, details?: Record<string, unknown>): MockFailureResult {
+  return { __antiFanMockFailure: true, code, message, details };
+}
+
+function isMockFailure(value: unknown): value is MockFailureResult {
+  return typeof value === 'object' && value !== null && '__antiFanMockFailure' in value && value.__antiFanMockFailure === true;
+}
+
 interface Harness {
   callTool: (mcpId: number, name: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
   /** The most recent dispatch frame the proxy sent for `capability`. */
   lastDispatch: (capability: string) => DispatchFrame;
+  /** Every dispatch frame the proxy sent for `capability`, in order. */
+  dispatches: (capability: string) => DispatchFrame[];
   stderrText: () => string;
   dispose: () => void;
 }
@@ -113,6 +144,17 @@ async function startHarness(respond: (capability: string, params: Record<string,
         frames.push({ capability, params });
         const data = respond(capability, params);
         if (data === undefined) return;
+        if (isMockFailure(data)) {
+          ws.send(
+            JSON.stringify({
+              id: message.id,
+              success: false,
+              error: `${data.code}: ${data.message}`,
+              data: { code: data.code, message: data.message, details: data.details },
+            })
+          );
+          return;
+        }
         ws.send(JSON.stringify({ id: message.id, success: true, data }));
         return;
       }
@@ -202,6 +244,7 @@ async function startHarness(respond: (capability: string, params: Record<string,
       assert.ok(frame, `the proxy must have dispatched '${capability}' (saw: ${frames.map((f) => f.capability).join(', ')})`);
       return frame;
     },
+    dispatches: (capability: string) => frames.filter((entry) => entry.capability === capability),
     stderrText: () => stderrBuffer,
     dispose: () => {
       try { child.kill(); } catch {}
@@ -222,6 +265,13 @@ async function probeBoundTab(harness: Harness, mcpId: number, tabId: string | un
     tabId,
     `an omitted tabId must ride ${tabId === undefined ? 'the authority (no injected id)' : `'${tabId}'`}: ${harness.stderrText()}`
   );
+}
+
+/** A failed tool call is reported as `result.isError === true`, with the text in `result.content`. */
+function toolCallFailed(response: Record<string, unknown>): boolean {
+  const result = 'result' in response ? response.result : undefined;
+  if (typeof result !== 'object' || result === null || !('isError' in result)) return false;
+  return result.isError === true;
 }
 
 describe('MCP proxy bound-tab default follows the authority', () => {
@@ -278,6 +328,57 @@ describe('MCP proxy bound-tab default follows the authority', () => {
       await probeBoundTab(harness, 1, BOOTSTRAP_TAB_ID);
       await harness.callTool(2, 'anti.browser.tabs.close', { tabId: 'tab-unrelated' });
       await probeBoundTab(harness, 3, BOOTSTRAP_TAB_ID);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('5. a refusal naming the live target retargets an injected default and adopts it', async () => {
+    let refused = false;
+    const harness = await startHarness((capability) => {
+      if (capability !== 'browser.dom' || refused) return {};
+      refused = true;
+      return mockFailure('TARGET_MISMATCH', `Unknown browser target: ${BOOTSTRAP_TAB_ID}`, {
+        requestedTabId: BOOTSTRAP_TAB_ID,
+        liveTabId: LIVE_TAB_ID,
+        rebindTool: 'anti.browser.rebind_target',
+      });
+    });
+    try {
+      const response = await harness.callTool(1, 'anti.inspect.dom', {});
+      assert.equal(toolCallFailed(response), false, `the retargeted call must succeed: ${harness.stderrText()}`);
+      const attempts = harness.dispatches('browser.dom');
+      assert.equal(attempts.length, 2, `the refusal must be retried exactly once: ${harness.stderrText()}`);
+      const [first, second] = attempts;
+      assert.ok(first, 'the first attempt must be recorded');
+      assert.ok(second, 'the retry must be recorded');
+      assert.equal(first.params.tabId, BOOTSTRAP_TAB_ID, 'the first attempt rode the stale default');
+      assert.equal(second.params.tabId, LIVE_TAB_ID, 'the retry must be aimed at the live target the refusal named');
+      // The adopted target is what the next omitted-tabId call rides.
+      await probeBoundTab(harness, 2, LIVE_TAB_ID);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('6. a refusal that names a live target for an id the caller chose is not retargeted', async () => {
+    const harness = await startHarness((capability) =>
+      capability === 'browser.dom'
+        ? mockFailure('TARGET_MISMATCH', `Unknown browser target: ${CALLER_TAB_ID}`, {
+            requestedTabId: CALLER_TAB_ID,
+            liveTabId: BOOTSTRAP_TAB_ID,
+            rebindTool: 'anti.browser.rebind_target',
+          })
+        : {}
+    );
+    try {
+      const response = await harness.callTool(1, 'anti.inspect.dom', { tabId: CALLER_TAB_ID });
+      assert.equal(toolCallFailed(response), true, `a caller-chosen target must surface its refusal: ${harness.stderrText()}`);
+      assert.equal(
+        harness.dispatches('browser.dom').length,
+        1,
+        `a caller-chosen target must be executed exactly once: ${harness.stderrText()}`
+      );
     } finally {
       harness.dispose();
     }

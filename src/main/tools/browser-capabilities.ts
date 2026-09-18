@@ -1875,8 +1875,37 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       }
       const platform = PlatformDetector.detect(undefined, undefined, rawHtml);
       const liquid = LiquidErrorScanner.scanHtmlString(rawHtml);
-      let overflow: { hasOverflow: boolean; deltaX: number; culprits: unknown[] } = { hasOverflow: false, deltaX: 0, culprits: [] };
-      try { const evalOverflow = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId); if (evalOverflow && typeof evalOverflow === 'object' && 'hasOverflow' in evalOverflow) { const casted = evalOverflow as { hasOverflow: boolean; deltaX: number; culprits?: unknown[] }; overflow = { hasOverflow: casted.hasOverflow, deltaX: casted.deltaX, culprits: casted.culprits || [] }; } } catch {}
+      const evidenceGaps: string[] = [];
+      let overflow: { measured: boolean; unmeasuredReason?: string; hasOverflow: boolean; deltaX: number; culprits: unknown[] } = {
+        measured: false,
+        unmeasuredReason: 'Layout overflow scan did not run',
+        hasOverflow: false,
+        deltaX: 0,
+        culprits: [],
+      };
+      const markOverflowUnmeasured = (reason: string): void => {
+        overflow = { measured: false, unmeasuredReason: reason, hasOverflow: false, deltaX: 0, culprits: [] };
+        evidenceGaps.push(`Layout overflow not measured: ${reason}`);
+      };
+      try {
+        const evalOverflow = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId, undefined, { requireRenderSurface: true });
+        const record = evalOverflow && typeof evalOverflow === 'object' && !Array.isArray(evalOverflow)
+          ? (evalOverflow as Record<string, unknown>)
+          : undefined;
+        const measured = record !== undefined
+          && record.measured !== false
+          && typeof record.clientWidth === 'number' && Number.isFinite(record.clientWidth) && record.clientWidth > 0
+          && typeof record.hasOverflow === 'boolean'
+          && typeof record.deltaX === 'number' && Number.isFinite(record.deltaX) && record.deltaX >= 0
+          && Array.isArray(record.culprits);
+        if (record && measured) {
+          overflow = { measured: true, hasOverflow: record.hasOverflow as boolean, deltaX: record.deltaX as number, culprits: record.culprits as unknown[] };
+        } else {
+          markOverflowUnmeasured(LayoutOverflowEngine.readUnmeasuredReason(evalOverflow) ?? 'the scanned tab returned no usable viewport measurement');
+        }
+      } catch (error) {
+        markOverflowUnmeasured(error instanceof Error ? error.message : String(error));
+      }
       let hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform);
       try { const evalHs = await browser.eval(target, HsGateRules.getBrowserEvaluationScript(platform.platform), params.tabId); if (evalHs && typeof evalHs === 'object' && 'passed' in evalHs) hsRules = evalHs as HsEvaluationResult; } catch {}
       let templateHierarchy: unknown = { template: undefined, sections: [] };
@@ -1886,7 +1915,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       const effectiveTarget = params.tabId && typeof params.tabId === 'string' && params.tabId.trim().length > 0 && params.tabId.trim() !== target?.tabId
         ? { ...target, tabId: params.tabId.trim() }
         : target;
-      return { target: effectiveTarget, platform, templateHierarchy, liquid, overflow, cartTelemetry, hsRules, timestamp: Date.now() };
+      return { target: effectiveTarget, platform, templateHierarchy, liquid, overflow, cartTelemetry, hsRules, evidenceGaps, timestamp: Date.now() };
     },
   });
 
@@ -2975,7 +3004,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'anti.inspect.page_inventory',
-    description: 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter)',
+    description: 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter). Refuses a tab with no laid-out surface unless allowDegradedSurface is set.',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
@@ -2984,9 +3013,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out, so every measured height is 0)' },
       },
     },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean }, context) =>
       browser.pageInventory(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
   });
   catalogue.register({
@@ -3000,9 +3030,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out, so every measured height is 0)' },
       },
     },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean }, context) =>
       browser.pageInventory(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
   });
 

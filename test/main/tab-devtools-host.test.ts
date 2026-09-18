@@ -1228,4 +1228,126 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(capturePageCalls, 2);
     assert.ok(third.bytes && third.bytes.length > 0);
   });
+
+  it('27. a background capture restores geometry against the surface it measured, never a detached pre-attach 0x0', async () => {
+    const { ctx, tabs } = createMockContext();
+    ctx.createTab('https://example.com/bg');
+    const tab2 = tabs.get('tab-2')!;
+
+    // The window presents the target's view only for the duration of the
+    // attach-for-capture helper, and a view nobody presents has no compositor
+    // surface: the probe reports 0x0 for it, exactly as the live renderer does.
+    // The helper refcounts (a nested attach — the settle evaluation — keeps the
+    // view presented), so the mock counts depth the same way.
+    let presented = false;
+    let attachDepth = 0;
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>): Promise<T> => {
+      attachDepth += 1;
+      presented = true;
+      try {
+        return await action();
+      } finally {
+        attachDepth -= 1;
+        presented = attachDepth > 0;
+      }
+    };
+
+    const devTools = new TabDevToolsHost(ctx);
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    // Named handle for the private transport seam, the way cases 22-25 stub internals.
+    const devToolsInternals = devTools as unknown as {
+      sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown>;
+    };
+    devToolsInternals.sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      const expression =
+        params && typeof params === 'object' && 'expression' in params && typeof params.expression === 'string'
+          ? params.expression
+          : '';
+      if (method === 'Runtime.evaluate') {
+        if (expression.includes('devicePixelRatio')) {
+          return {
+            result: {
+              value: presented
+                ? { dpr: 2, vw: 4, vh: 3, readyState: 'complete' }
+                : { dpr: 2, vw: 0, vh: 0, readyState: 'complete' },
+            },
+          };
+        }
+        return { result: { value: undefined } };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: makePng(8, 6).toString('base64') };
+      }
+      return {};
+    };
+
+    // Never-attached background target: must capture, and must not fail on a restore
+    // it could not have proven (CAPTURE_VIEWPORT_NOT_RESTORED) nor report one that
+    // never happened.
+    const envelope = await devTools.captureVerificationScreenshot({ x: 0, y: 0, width: 4, height: 3 }, 'tab-2', 'desktop');
+    assert.strictEqual(envelope.backend, 'cdp');
+    assert.strictEqual(envelope.captureMode, 'clip');
+    assert.strictEqual(envelope.dpr, 2);
+    assert.deepStrictEqual(envelope.rasterSize, { width: 8, height: 6 });
+
+    // Both readings belong to the presented surface the capture measured (4x3 at dpr
+    // 2); a detached 0x0 pair is not a measurement and can never read as restored.
+    const transaction = envelope.viewportTransaction;
+    assert.ok(transaction, 'A clip capture must report the geometry transaction it ran');
+    assert.deepStrictEqual(transaction.before, { width: 4, height: 3, scrollX: 0, scrollY: 0 });
+    assert.deepStrictEqual(transaction.after, { width: 4, height: 3, scrollX: 0, scrollY: 0 });
+    assert.strictEqual(transaction.restored, true);
+
+    // The post-drain recovery path hands over whatever baseline it had, and a capture
+    // that could not measure one arrives as an empty geometry, never a size. Restoring
+    // against that would clamp it into a fabricated device-metrics override.
+    const commandsBefore = cdpCommands.length;
+    const refused = await devTools.reapplyTabGeometry('tab-2', 'desktop', { width: Number.NaN, height: Number.NaN, scrollX: 0, scrollY: 0 });
+    assert.strictEqual(refused.restored, false);
+    assert.strictEqual(refused.attempts, 0);
+    assert.strictEqual(refused.before, null);
+    assert.strictEqual(refused.after, null);
+    assert.strictEqual(
+      cdpCommands.slice(commandsBefore).some((c) => c.method === 'Emulation.setDeviceMetricsOverride'),
+      false,
+      'An unmeasured baseline must never become a fabricated device-metrics override'
+    );
+  });
+
+  it('28. a geometry-moving capture that cannot measure a baseline skips the restore instead of inventing one', async () => {
+    const { ctx } = createMockContext();
+    ctx.createTab('https://example.com/no-layout');
+    const devTools = new TabDevToolsHost(ctx);
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    const devToolsInternals = devTools as unknown as {
+      sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown>;
+    };
+    // A target with no layout viewport of its own: every reading reports 0x0, so no
+    // capture of it can ever establish the baseline a restore would be compared against.
+    devToolsInternals.sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      const expression =
+        params && typeof params === 'object' && 'expression' in params && typeof params.expression === 'string'
+          ? params.expression
+          : '';
+      if (method === 'Runtime.evaluate' && expression.includes('devicePixelRatio')) {
+        return { result: { value: { dpr: 1, vw: 0, vh: 0, readyState: 'complete' } } };
+      }
+      return {};
+    };
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop', { fullPage: true }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'NO_RENDER_SURFACE'
+    );
+
+    // Full-page moves the layout viewport, so a measured baseline would have been
+    // restored here; with nothing measured there is nothing to restore against, and
+    // writing replacement geometry from a 0x0 pair is the invented 1x1 viewport.
+    const geometryWrites = cdpCommands.filter(
+      (c) => c.method === 'Emulation.clearDeviceMetricsOverride' || c.method === 'Emulation.setDeviceMetricsOverride'
+    );
+    assert.deepStrictEqual(geometryWrites, [], 'A capture that never measured a surface must not write replacement geometry for it');
+  });
 });
