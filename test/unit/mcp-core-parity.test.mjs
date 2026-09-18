@@ -91,8 +91,21 @@ test('core.health is callable through MCP dispatch and reports a reason code', a
   assert.ok(['HEALTHY', 'DEGRADED', 'UNKNOWN'].includes(result.status), `unexpected health status ${result.status}`);
   // A degraded or unmeasured store must never carry the all-pass reason code;
   // that pairing is how a health surface launders a problem into a green light.
-  if (result.status !== 'HEALTHY') {
-    assert.notEqual(result.reasonCode, 'ALL_GATES_PASS', 'a non-healthy status must not report the all-pass reason code');
+  // The code is asserted against what the store emits today AND against the
+  // composition it must satisfy for a degraded store, so a rename can only make
+  // this guard stale, never silently unreachable.
+  if (result.status === 'DEGRADED') {
+    assert.ok(
+      Array.isArray(result.failedGates) && result.failedGates.length > 0,
+      `a degraded store must name the gates that failed (got ${JSON.stringify(result.failedGates)})`
+    );
+    assert.strictEqual(
+      result.reasonCode,
+      result.failedGates.map((name) => `GATE_${String(name).toUpperCase()}_FAILED`).join('+'),
+      'a degraded reason code must name every failed gate, not a subset'
+    );
+  } else if (result.status !== 'HEALTHY') {
+    assert.notEqual(result.reasonCode, 'ALL_GATES_PASSED', 'a non-healthy status must not report the all-pass reason code');
   }
   assert.ok(result.gates && typeof result.gates === 'object', 'health must carry the gate results it summarised');
 });

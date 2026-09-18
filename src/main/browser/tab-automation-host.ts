@@ -1288,6 +1288,11 @@ export class TabAutomationHost {
             break;
           }
           case 'wait': {
+            // Bounds one step, not the gate: the viewport gate admits a whole
+            // sequence for `VIEWPORT_GATE_ADMISSION_BUDGET_MS` (30s), so a step
+            // that may hold the window for its own convenience is clamped an
+            // order below it. Without this, a single wait could advertise the
+            // entire admission budget to the steps queued behind it.
             const waitMs = Math.max(1, Math.min(10000, action.waitMs || 100));
             await new Promise((resolve) => setTimeout(resolve, waitMs));
             stepSuccess = true;

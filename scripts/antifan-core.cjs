@@ -162,9 +162,10 @@ async function main() {
       // reason-coded status) lives in the store so the CLI and the MCP surface
       // cannot report different health for the same database. Gate and audit
       // evaluation is recorded nowhere on this path — the Core Health UI re-runs
-      // it on every open, and a read path must not grow the store. A real gate run
-      // records explicitly: the MCP surface does, and `gate` here requires
-      // {"record":true}.
+      // it on every open, and a read path must not grow the store. The MCP surface
+      // is read-only here too (`core.corpus_audit` and `core.check_phase_gate`
+      // dispatch with `record:false`); only an explicit run records, and `audit`
+      // and `gate` require {"record":true} to do it.
       out = core.health(staleDays ? { staleDays } : {});
       break;
     }
