@@ -460,6 +460,13 @@ function groupSessionsByCategory(list) {
  */
 function releaseTerminalPane(id, item) {
   if (!item) return;
+  // Async work started while the pane was live (activate-time refits, settle timers, in-flight
+  // hydration) holds this item directly, so disposal needs a flag: without it those paths call
+  // into a dead xterm and throw.
+  item.released = true;
+  // The hydration continuation re-reads this epoch after every await, so bumping it here retires
+  // work already in flight even along a path that only checks the epoch.
+  item.hydrationEpoch = (item.hydrationEpoch || 0) + 1;
   try {
     if (item.writeTarget && window.globalTerminalWriteDispatcher) {
       window.globalTerminalWriteDispatcher.cancel(item.writeTarget);
@@ -1671,7 +1678,7 @@ async function resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq
 }
 
 async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq) {
-  if (!item || !item.term) return;
+  if (!item || !item.term || item.released) return;
   item.hydrationEpoch += 1;
   const currentEpoch = item.hydrationEpoch;
   item.activeHydratingEpoch = currentEpoch;
@@ -1679,7 +1686,7 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
   try {
     const { snapshot, snapshotSeq } = await resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq);
 
-    if (item.hydrationEpoch !== currentEpoch) return;
+    if (item.released || item.hydrationEpoch !== currentEpoch) return;
 
     try {
       if (item.writeTarget && window.globalTerminalWriteDispatcher) {
@@ -1705,7 +1712,7 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
     item.lastRenderedSeq = snapshotSeq || 0;
 
     while (item.liveQueue.length > 0) {
-      if (item.hydrationEpoch !== currentEpoch) return;
+      if (item.released || item.hydrationEpoch !== currentEpoch) return;
       const batch = item.liveQueue.splice(0, item.liveQueue.length);
       const pending = batch
         .filter((entry) => entry.epoch === currentEpoch && chunkEndSeq(entry) > item.lastRenderedSeq)
@@ -1733,7 +1740,11 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
       await flushRun();
     }
 
-    if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active') && viewportAtBottom(item.term)) {
+    if (item.isUserScrolledUp) {
+      // Rehydration resets the buffer and rewrites the snapshot, which lands the viewport on the
+      // live edge; the reader's line was recorded when the pane lost focus, so put it back.
+      restoreSavedViewport(item);
+    } else if (!item.released && item.paneEl && item.paneEl.classList.contains('active') && viewportAtBottom(item.term)) {
       item.term.scrollToBottom();
     }
   } finally {
@@ -1807,6 +1818,7 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
       await flushRun();
     }
 
+    if (!splitTerm || splitSessionState.hydrationEpoch !== currentEpoch) return;
     if (!isSplitUserScrolledUp && viewportAtBottom(splitTerm)) {
       splitTerm.scrollToBottom();
     }
@@ -1955,17 +1967,33 @@ function viewportAtBottom(term) {
  * what keeps a TUI redraw from yanking a reader back to the newest frame.
  */
 function recordViewportReadPosition(item, term) {
+  if (item.released) return;
   const activeBuf = term?.buffer?.active;
   if (!activeBuf) return;
+  // Hydration resets the buffer and replays the snapshot, so every scroll event inside that
+  // window reports the live edge; classifying one would clear the recorded line before the
+  // hydrate restore can put it back.
+  if (item.activeHydratingEpoch != null) return;
+  // An empty buffer cannot say where the reader is: hydration resets it to 0/0 for a frame,
+  // and reading that as "at the live edge" would discard the recorded line mid-restore.
+  if (activeBuf.baseY === 0 && activeBuf.length === 0) return;
   if (activeBuf.viewportY >= activeBuf.baseY) {
     item.isUserScrolledUp = false;
     item.savedViewportY = null;
-    item.savedDistanceToBottom = 0;
   } else {
     item.isUserScrolledUp = true;
     item.savedViewportY = activeBuf.viewportY;
-    item.savedDistanceToBottom = Math.max(0, activeBuf.baseY - activeBuf.viewportY);
   }
+}
+
+// Restoring the recorded line is the whole point of keeping it: a refit or a rehydration that
+// leaves the viewport on the live edge makes the next check read the pane as bottom-anchored and
+// discard the reader's place for good.
+function restoreSavedViewport(item) {
+  if (item.released) return;
+  const activeBuf = item.term?.buffer?.active;
+  if (!activeBuf || typeof item.savedViewportY !== 'number') return;
+  item.term.scrollToLine(Math.max(0, Math.min(item.savedViewportY, activeBuf.baseY)));
 }
 
 function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthoritative = false) {
@@ -2052,7 +2080,6 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
     writeTarget: null,
     savedViewportY: null,
     isUserScrolledUp: false,
-    savedDistanceToBottom: 0,
     isProgrammaticScroll: false,
     needsRehydrate: false,
   };
@@ -2150,6 +2177,7 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
       }
       const doRefit = () => {
         try {
+          if (item.released) return;
           const propose = item.fit.proposeDimensions();
           if (propose && propose.cols >= MIN_TERMINAL_COLS && propose.rows >= MIN_TERMINAL_ROWS && item.paneEl.clientWidth > 50) {
             if (item.term.cols !== propose.cols || item.term.rows !== propose.rows) {
@@ -2160,19 +2188,32 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
           item.term.refresh(0, item.term.rows - 1);
           const activeBuf = item.term.buffer?.active;
           if (activeBuf) {
-            if (!viewportAtBottom(item.term)) {
-              // The viewport is not at the bottom: the user is reading scrollback (or a
-              // TUI redraw left them above the live edge), so a refit restores where
-              // they were reading instead of pinning them to the newest frame.
-              if (item.savedDistanceToBottom > 0) {
-                item.term.scrollToLine(Math.max(0, activeBuf.baseY - item.savedDistanceToBottom));
+            // Hydration resets the buffer, so a buffer that cannot even reach the recorded line
+            // (no scrollback yet) says nothing about where the reader is. Classifying it as "at
+            // the live edge" cleared the recorded line during activation and left the pane
+            // pinned to the newest frame; leave the memory alone and let the hydrate restore
+            // (or the settle pass below) put the line back.
+            const bufferInFlight = item.activeHydratingEpoch != null
+              || (activeBuf.baseY === 0 && typeof item.savedViewportY === 'number');
+            if (!bufferInFlight) {
+              // A refit or a rehydration can land the pane on the live edge before the fit
+              // settles, so a bottom reading here is not evidence the reader returned there:
+              // the recorded line is theirs. Only the reader clears it, by scrolling back to
+              // the bottom (recordViewportReadPosition runs on that scroll and on switch-away).
+              if (typeof item.savedViewportY === 'number' && activeBuf.viewportY >= activeBuf.baseY) {
+                restoreSavedViewport(item);
               }
-              item.isUserScrolledUp = true;
-            } else {
-              item.isUserScrolledUp = false;
-              item.savedViewportY = null;
-              item.savedDistanceToBottom = 0;
-              item.term.scrollToBottom();
+              if (!viewportAtBottom(item.term)) {
+                // The viewport is not at the bottom: the user is reading scrollback (or a
+                // TUI redraw left them above the live edge), so a refit restores the line
+                // they were reading instead of pinning them to the newest frame.
+                restoreSavedViewport(item);
+                item.isUserScrolledUp = true;
+              } else {
+                item.isUserScrolledUp = false;
+                item.savedViewportY = null;
+                item.term.scrollToBottom();
+              }
             }
           }
         } catch {}
@@ -2181,10 +2222,23 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
       scheduleFitTerminal(60);
       requestAnimationFrame(() => {
         doRefit();
-        setTimeout(() => {
-          item.isProgrammaticScroll = false;
-        }, 50);
       });
+      // The activate-time fit fires again on its own schedule, and xterm re-anchors the
+      // viewport while it reflows. That reflow is not the reader returning to the live edge,
+      // so suppression has to outlive it, and the recorded line has to be put back once the
+      // layout settles — otherwise the reflow's scroll event reads the pane as bottom-anchored
+      // and discards the reader's place for good.
+      setTimeout(() => {
+        if (item.released) return;
+        item.isProgrammaticScroll = false;
+        if (!item.paneEl.classList.contains('active')) return;
+        if (typeof item.savedViewportY !== 'number') return;
+        const settledBuf = item.term?.buffer?.active;
+        if (settledBuf && settledBuf.viewportY >= settledBuf.baseY) {
+          restoreSavedViewport(item);
+          item.isUserScrolledUp = true;
+        }
+      }, 120);
       if (justBecameActive) {
         focusMainPane();
       }
@@ -2452,6 +2506,9 @@ function unmountSplit() {
   isSplitUserScrolledUp = false;
   isSplitProgrammaticScroll = false;
   splitSessionState.id = '';
+  // Same contract as releaseTerminalPane: an in-flight hydration re-reads this epoch after every
+  // await, so bumping it here is what stops a closed split's continuation from touching splitTerm.
+  splitSessionState.hydrationEpoch += 1;
   splitSessionState.activeHydratingEpoch = null;
   splitSessionState.liveQueue = [];
   splitSessionState.lastRenderedSeq = 0;
