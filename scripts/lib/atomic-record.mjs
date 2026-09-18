@@ -63,8 +63,30 @@ export function writeRecordAtomic(filePath, value) {
   } finally {
     fs.closeSync(fd);
   }
-  fs.renameSync(tmp, target);
+  renameWithRetry(tmp, target);
   return target;
+}
+
+// Windows renames onto an existing file fail transiently with EPERM/EACCES/EBUSY while a
+// scanner, indexer or shortly-lived reader still holds a handle on either name — a checkpoint
+// write must ride that out instead of failing the run. The total budget is ~1.1s; a lock that
+// outlives it is real and must surface. Temp-file residue from a failed rename is pruned later.
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const RENAME_RETRY_DELAYS_MS = [10, 20, 40, 80, 160, 320, 500];
+
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function renameWithRetry(tmp, target) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(tmp, target);
+      return;
+    } catch (err) {
+      const retryable = err && RENAME_RETRY_CODES.has(err.code);
+      if (!retryable || attempt >= RENAME_RETRY_DELAYS_MS.length) throw err;
+      sleepSync(RENAME_RETRY_DELAYS_MS[attempt]);
+    }
+  }
 }
 
 /** Parse a record, returning null when it is absent or unreadable. */
