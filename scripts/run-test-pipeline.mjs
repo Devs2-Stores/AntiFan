@@ -11,43 +11,77 @@
  * run against a stale build, so they are reported as skipped instead.
  *
  * Usage:
- *   node scripts/run-test-pipeline.mjs [lane ...] [--json]
+ *   node scripts/run-test-pipeline.mjs [lane ...] [--json] [--no-compile]
  *   node scripts/run-test-pipeline.mjs --verify
  *
- * With no lane named, the default test set runs. `--verify` prepends the static gates.
+ * With no lane named, the default test set runs (including static gates audit and plans:check).
  */
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 
 const STATIC_LANES = ['audit', 'plans:check'];
 const TEST_LANES = [
+  ...STATIC_LANES,
   'compile',
   'test:canary',
   'test:fast',
   'test:site-clone',
   'test:integration',
   'test:main',
-  'test:e2e',
+  // The e2e lane runs without --test-force-exit: with the suite's watchdogs and teardown paths
+  // verified (this lane passed 6/6 with no forced exit), the truth lane is the gate. The
+  // force-exit variant stays available as `test:e2e` for local iteration.
+  'test:e2e:strict',
+  'smoke:terminal',
   'test:terminal-transport',
   'test:terminal-rename',
   'test:mcp-dispatch-hub',
   'test:toolbar-qa-hub',
 ];
-// `test:e2e:strict` is the same glob without --test-force-exit: it is the truth lane
-// for leaked handles, but it stays opt-in until the suite watchdogs are proven.
-const KNOWN_LANES = new Set([...STATIC_LANES, ...TEST_LANES, 'test:unit', 'test:e2e:strict']);
-const COMPILE_DEPENDENT = new Set(TEST_LANES.filter((lane) => lane !== 'compile'));
-
+// 'test:probes' stays opt-in: it stages a daemon bundle and spawns detached hosts, which is heavier
+// than every other lane. Its wrapper pins a throwaway data root, so the lane no longer depends on
+// whatever happens to be staged on the machine.
+const KNOWN_LANES = new Set([
+  ...STATIC_LANES,
+  ...TEST_LANES,
+  'test:unit',
+  'test:e2e',
+  'test:probes',
+]);
+const NON_COMPILE_LANES = new Set(['compile', 'test:canary', ...STATIC_LANES]);
+const COMPILE_DEPENDENT = new Set(
+  [...KNOWN_LANES].filter((lane) => !NON_COMPILE_LANES.has(lane))
+);
 function parseArgs(argv) {
-  const options = { lanes: [], json: false, verify: false };
+  const options = { lanes: [], json: false, verify: false, noCompile: false, help: false };
   for (const arg of argv) {
     if (arg === '--json') options.json = true;
     else if (arg === '--verify') options.verify = true;
+    else if (arg === '--no-compile') options.noCompile = true;
+    else if (arg === '--help' || arg === '-h') options.help = true;
     else if (arg.startsWith('--')) throw new Error(`Unknown argument '${arg}'`);
     else if (!KNOWN_LANES.has(arg)) throw new Error(`Unknown lane '${arg}' (known: ${[...KNOWN_LANES].sort().join(', ')})`);
     else options.lanes.push(arg);
   }
-  if (options.lanes.length === 0) options.lanes = [...(options.verify ? STATIC_LANES : []), ...TEST_LANES];
+  if (options.help) return options;
+
+  if (options.lanes.length === 0) {
+    options.lanes = [...TEST_LANES];
+  } else if (options.verify) {
+    for (const staticLane of [...STATIC_LANES].reverse()) {
+      if (!options.lanes.includes(staticLane)) {
+        options.lanes.unshift(staticLane);
+      }
+    }
+  }
+
+  if (options.noCompile) {
+    options.lanes = options.lanes.filter((lane) => lane !== 'compile');
+  } else if (!options.lanes.includes('compile') && options.lanes.some((lane) => COMPILE_DEPENDENT.has(lane))) {
+    const firstDepIdx = options.lanes.findIndex((lane) => COMPILE_DEPENDENT.has(lane));
+    options.lanes.splice(firstDepIdx, 0, 'compile');
+  }
+
   return options;
 }
 
@@ -67,6 +101,19 @@ function runLane(lane) {
 
 function main(argv) {
   const options = parseArgs(argv);
+  if (options.help) {
+    process.stdout.write(`Usage:
+  node scripts/run-test-pipeline.mjs [lane ...] [--json] [--no-compile]
+  node scripts/run-test-pipeline.mjs --verify
+
+Lanes that read the build get the 'compile' lane prepended. Calling a lane directly through
+npm run <lane> skips that step and tests whatever .compiled currently holds.
+
+Known lanes:
+  ${[...KNOWN_LANES].sort().join(', ')}
+`);
+    return 0;
+  }
   const results = [];
   let compileFailed = false;
 

@@ -128,9 +128,12 @@ function main(argv) {
     for (const entry of unknown) {
       process.stdout.write(`unknown status ${JSON.stringify(entry.status)} in ${entry.file}\n`);
     }
+    if (files.length === 0) {
+      process.stdout.write(`no plan files found under ${options.root}\n`);
+    }
   }
 
-  return unknown.length === 0 && missingFrontmatter.length === 0 ? 0 : 1;
+  return files.length > 0 && unknown.length === 0 && missingFrontmatter.length === 0 ? 0 : 1;
 }
 
 try {
