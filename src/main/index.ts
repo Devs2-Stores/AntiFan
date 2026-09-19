@@ -260,12 +260,98 @@ if (!gotTheLock) {
 const ownsElectronInstance = app.hasSingleInstanceLock();
 const benchmarkStopEventLoop = startEventLoopDelayMonitor();
 recordBenchmark({ surface: 'startup', name: 'bootstrap' });
+/**
+ * Process-type aggregation hides which process actually grew: every renderer is
+ * reported as `Tab`, so a window-chrome leak and a page-renderer leak look
+ * identical. The per-process rows below keep the PID and attach the role of every
+ * WebContents living in that process, which is what makes a memory series
+ * attributable (chrome view vs a named tab) instead of anonymous.
+ *
+ * Two Electron behaviours shape this: `WebContentsView`-backed pages report type
+ * `window`, the same type as app chrome, and every `file://` view is one site, so
+ * the toolbar, the terminal sidebar and the backdrop share a single renderer
+ * process. The app views are therefore named by file and joined when they share a
+ * process, rather than being resolved to one arbitrary winner.
+ */
+function describeLiveWebContentsRoles(): Map<number, { role: string; url: string }> {
+  const collected = new Map<number, { roles: string[]; url: string }>();
+  const windowWcId = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : null;
+  const push = (wc: Electron.WebContents, label: string) => {
+    let pid = 0;
+    try {
+      pid = wc.getOSProcessId();
+    } catch {
+      return;
+    }
+    if (!pid) return;
+    const entry = collected.get(pid) ?? { roles: [], url: '' };
+    if (!entry.roles.includes(label) && entry.roles.length < 4) entry.roles.push(label);
+    if (!entry.url) {
+      try {
+        entry.url = wc.getURL().slice(0, 160);
+      } catch {}
+    }
+    collected.set(pid, entry);
+  };
+  if (tabHost) {
+    for (const tab of tabHost.getTabList()) {
+      for (const pane of ['desktop', 'mobile'] as const) {
+        const wc = tabHost.getTabWebContents(tab.id, pane);
+        if (!wc || wc.isDestroyed()) continue;
+        const offscreen = tabHost.isTabOffscreen(tab.id) ? ':offscreen' : '';
+        push(wc, `tab:${tab.id.slice(0, 8)}${pane === 'mobile' ? ':mobile' : ''}${offscreen}`);
+      }
+    }
+  }
+  for (const wc of webContents.getAllWebContents()) {
+    if (wc.isDestroyed()) continue;
+    if (windowWcId !== null && wc.id === windowWcId) {
+      push(wc, 'window');
+      continue;
+    }
+    let already = false;
+    let pid = 0;
+    try {
+      pid = wc.getOSProcessId();
+      already = pid > 0 && (collected.get(pid)?.roles.length ?? 0) > 0;
+    } catch {
+      continue;
+    }
+    if (!pid) continue;
+    // A renderer process can host several WebContents (`process-per-site` plus the
+    // renderer process limit). A pid already named as a tab page or as the window
+    // keeps that name — it is the more specific one. A pid that only carries app
+    // chrome views still admits this one, because every `file://` view is one site
+    // and the toolbar, the terminal sidebar and the backdrop normally share a single
+    // renderer: dropping the later views would label the shared process after
+    // whichever view happened to be enumerated first.
+    if (already) {
+      const existingRoles = collected.get(pid)?.roles ?? [];
+      const namedAsTabOrWindow = existingRoles.some((role) => role.startsWith('tab:') || role === 'window');
+      if (namedAsTabOrWindow) continue;
+    }
+    let label = `other:${wc.getType()}`;
+    try {
+      const file = path.basename(new URL(wc.getURL()).pathname).replace(/\.html?$/i, '');
+      if (file && file !== 'blank' && !wc.getURL().startsWith('data:')) label = `chrome:${file}`;
+    } catch {}
+    push(wc, label);
+  }
+  const roles = new Map<number, { role: string; url: string }>();
+  for (const [pid, entry] of collected) {
+    roles.set(pid, { role: entry.roles.join('+') || 'unresolved', url: entry.url });
+  }
+  return roles;
+}
+
 /** Samples Electron app metrics per process type; benchmark mode only. */
-function recordProcessMetrics(label: string): void {
+function recordProcessMetrics(label: string, withPerProcess = false): void {
   if (!isBenchmarkEnabled()) return;
   try {
+    const roles = withPerProcess ? describeLiveWebContentsRoles() : null;
+    const appMetrics = app.getAppMetrics();
     const byType: Record<string, { processes: number; workingSetKB: number; privateBytesKB: number }> = {};
-    for (const metric of app.getAppMetrics()) {
+    for (const metric of appMetrics) {
       const key = metric.type || 'Unknown';
       const agg = byType[key] ?? (byType[key] = { processes: 0, workingSetKB: 0, privateBytesKB: 0 });
       agg.processes += 1;
@@ -274,8 +360,43 @@ function recordProcessMetrics(label: string): void {
     }
     const breakdown: Record<string, unknown> = {};
     for (const [type, agg] of Object.entries(byType)) breakdown[type] = agg;
-    recordBenchmark({ surface: 'process', name: label, extra: { breakdown, mainRssKB: process.memoryUsage().rss / 1024 } });
+    recordBenchmark({
+      surface: 'process',
+      name: label,
+      extra: {
+        breakdown,
+        processes: roles
+          ? appMetrics.map((metric) => ({
+              pid: metric.pid,
+              type: metric.type,
+              workingSetKB: metric.memory?.workingSetSize ?? 0,
+              privateBytesKB: metric.memory?.privateBytes ?? 0,
+              role: roles.get(metric.pid)?.role ?? '',
+              url: roles.get(metric.pid)?.url ?? '',
+            }))
+          : undefined,
+        mainRssKB: process.memoryUsage().rss / 1024,
+      },
+    });
   } catch {}
+}
+
+/**
+ * A soak can run for hours; sampling only at first paint and shutdown leaves the
+ * growth between them unobserved per process. One sample per minute, benchmark
+ * mode only.
+ */
+const PROCESS_METRICS_INTERVAL_MS = 60_000;
+let processMetricsTimer: NodeJS.Timeout | null = null;
+function startProcessMetricsSampling(): void {
+  if (!isBenchmarkEnabled() || processMetricsTimer) return;
+  processMetricsTimer = setInterval(() => recordProcessMetrics('periodic', true), PROCESS_METRICS_INTERVAL_MS);
+  processMetricsTimer.unref?.();
+}
+function stopProcessMetricsSampling(): void {
+  if (!processMetricsTimer) return;
+  clearInterval(processMetricsTimer);
+  processMetricsTimer = null;
 }
 
 async function createWindow(): Promise<void> {
@@ -382,6 +503,7 @@ async function createWindow(): Promise<void> {
     mainWindow.focus();
     recordBenchmark({ surface: 'startup', name: 'firstVisible' });
     recordProcessMetrics('afterFirstVisible');
+    startProcessMetricsSampling();
   };
   mainWindow.once('ready-to-show', showMainWindow);
   showFallbackTimer = setTimeout(showMainWindow, 300);
@@ -843,7 +965,8 @@ app.on('will-quit', () => {
   profileLease = null;
   benchmarkStopEventLoop?.();
   recordBenchmark({ surface: 'startup', name: 'shutdown' });
-  recordProcessMetrics('atShutdown');
+  stopProcessMetricsSampling();
+  recordProcessMetrics('atShutdown', true);
 });
 
 let isSignalExiting = false;

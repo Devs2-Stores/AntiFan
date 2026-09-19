@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-19",
+  "updatedAt": "2026-09-20",
   "note": "Machine-checkable closure ledger. Every row carries a predicate that returns true when the defect is PRESENT at HEAD. `node scripts/check-bottlenecks.mjs` fails when a row marked `closed` still fires (REOPENED), when a row marked `open` no longer fires (FIXED_UNRECORDED), or when a row marked `refuted` fires (REFUTED_BUT_PRESENT). Rows here replace the prose findings list: a claim that cannot be machine-checked is a row with `kind: \"manual\"`, which is re-verified rather than trusted. Never delete a `refuted` row — it is what stops a dead finding from being re-derived.",
   "rows": [
     {
@@ -582,60 +582,130 @@
       }
     },
     {
-        "id": "B35",
-        "group": "durability",
-        "title": "`markResolved` / `reconcile` / `resolve` set `RESOLVED` directly, bypassing `LEGAL_ISSUE_TRANSITIONS`",
-        "severity": "P2",
-        "status": "open",
-        "evidence": "src/main/session/issue-register.ts:700-722 (`markResolved`) and :724-763 (`reconcile`) assign `item.status = 'RESOLVED'` and rewrite the file; `resolve()` (:695-698) delegates to `markResolved`. The legal-transition table (`LEGAL_ISSUE_TRANSITIONS`, :68) is enforced only inside `transitionIssue` (:787, check at :801) and its caller (:837). So a row sitting in a terminal state — `DUPLICATE`, `WONT_FIX`, `BYPASSED` — can be flipped back to RESOLVED by any of the three bypassing mutators without the table permitting it. Recorded from the 2026-09-19 Core Issue audit (report section 5, Group C).",
-        "predicate": {
-            "kind": "manual",
-            "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
-            "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
-            "reVerifyWith": "grep every assignment to `item.status` in issue-register.ts; close when each goes through `transitionIssue` or the bypass is documented as intended"
-        }
+      "id": "B35",
+      "group": "durability",
+      "title": "`markResolved` / `reconcile` / `resolve` set `RESOLVED` directly, bypassing `LEGAL_ISSUE_TRANSITIONS`",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "src/main/session/issue-register.ts:700-722 (`markResolved`) and :724-763 (`reconcile`) assign `item.status = 'RESOLVED'` and rewrite the file; `resolve()` (:695-698) delegates to `markResolved`. The legal-transition table (`LEGAL_ISSUE_TRANSITIONS`, :68) is enforced only inside `transitionIssue` (:787, check at :801) and its caller (:837). So a row sitting in a terminal state — `DUPLICATE`, `WONT_FIX`, `BYPASSED` — can be flipped back to RESOLVED by any of the three bypassing mutators without the table permitting it. Recorded from the 2026-09-19 Core Issue audit (report section 5, Group C).",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+        "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+        "reVerifyWith": "grep every assignment to `item.status` in issue-register.ts; close when each goes through `transitionIssue` or the bypass is documented as intended"
+      }
     },
     {
-        "id": "B36",
-        "group": "hygiene",
-        "title": "Test suites write into the live issue register, so 87 of its 91 OPEN rows are seeded fixtures",
-        "severity": "P2",
-        "status": "open",
-        "evidence": "E:\\Work\\.antifan-data\\issues\\issue-register.jsonl holds 279 records (OPEN 91, RESOLVED 125, BYPASSED 63) and no record carries `issueClass`. 87 of the 91 OPEN rows are fixture literals from test/unit/semantic-aliasing-and-issue-register.test.ts:95-115 — 63 each of 'Trusted Type violation on docs.google.com', 'Temporary network glitch', 'Element obscured by modal overlay', plus 51 'Layout parity discrepancy in hero section' and 16 each of the drawer/cart strings — timestamped 2026-09-03…09-05. The register directory is env-overridable (`registerDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR || antifanDir`, src/main/session/issue-register.ts:341-351) but no suite sets it, so real signal and fixture noise share one file. Recorded from the 2026-09-19 Core Issue audit (report section 5, Group C).",
-        "predicate": {
-            "kind": "manual",
-            "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
-            "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
-            "reVerifyWith": "count fixture-literal duplicates among the live register's OPEN rows; close when the suites point ANTIFAN_VERIFICATION_REGISTER_DIR at a temp dir and the seeded rows are purged or classified"
-        }
+      "id": "B36",
+      "group": "hygiene",
+      "title": "Test suites write into the live issue register, so 87 of its 91 OPEN rows are seeded fixtures",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "E:\\Work\\.antifan-data\\issues\\issue-register.jsonl holds 279 records (OPEN 91, RESOLVED 125, BYPASSED 63) and no record carries `issueClass`. 87 of the 91 OPEN rows are fixture literals from test/unit/semantic-aliasing-and-issue-register.test.ts:95-115 — 63 each of 'Trusted Type violation on docs.google.com', 'Temporary network glitch', 'Element obscured by modal overlay', plus 51 'Layout parity discrepancy in hero section' and 16 each of the drawer/cart strings — timestamped 2026-09-03…09-05. The register directory is env-overridable (`registerDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR || antifanDir`, src/main/session/issue-register.ts:341-351) but no suite sets it, so real signal and fixture noise share one file. Recorded from the 2026-09-19 Core Issue audit (report section 5, Group C).",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+        "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+        "reVerifyWith": "count fixture-literal duplicates among the live register's OPEN rows; close when the suites point ANTIFAN_VERIFICATION_REGISTER_DIR at a temp dir and the seeded rows are purged or classified"
+      }
     },
     {
-        "id": "B37",
-        "group": "durability",
-        "title": "The 2026-09-18 `gpu-process` P0 fault (`electron.exe+0x897d241`) is unattributed and unowned",
-        "severity": "P1",
-        "status": "open",
-        "evidence": "The 4 P0 `runtime.process` rows written by crash-report-intake.ts:104-160 from real Crashpad dumps. Three browser-process `STATUS_ACCESS_VIOLATION` `read of 0x0` faults (`electron.exe+0x684d7a8` @ 2026-09-16 and 2026-09-17, `+0x27340e3` @ 2026-09-16) are mitigated at HEAD by inspection: `safeEnableDeviceEmulation` returns early when `!this.isTabViewAttached(view)` (src/main/browser/native-tab-host.ts:709-736). The 2026-09-18 `gpu-process` fault at `+0x897d241` is not addressed by that guard, cannot be re-symbolized here (no Chromium PDB symbol server), and carries no accepted-with-fallback disposition — so it reads as an open P0 with no owner. Recorded from the 2026-09-19 Core Issue audit (report section 6, item 5).",
-        "predicate": {
-            "kind": "manual",
-            "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
-            "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
-            "reVerifyWith": "re-symbolize the 2026-09-18 dump against a Chromium PDB set, or record an explicit accepted-with-fallback disposition on the intake row"
-        }
+      "id": "B37",
+      "group": "durability",
+      "title": "The 2026-09-18 `gpu-process` P0 fault (`electron.exe+0x897d241`) is unattributed and unowned",
+      "severity": "P1",
+      "status": "open",
+      "evidence": "The 4 P0 `runtime.process` rows written by crash-report-intake.ts:104-160 from real Crashpad dumps. Three browser-process `STATUS_ACCESS_VIOLATION` `read of 0x0` faults (`electron.exe+0x684d7a8` @ 2026-09-16 and 2026-09-17, `+0x27340e3` @ 2026-09-16) are mitigated at HEAD by inspection: `safeEnableDeviceEmulation` returns early when `!this.isTabViewAttached(view)` (src/main/browser/native-tab-host.ts:709-736). The 2026-09-18 `gpu-process` fault at `+0x897d241` is not addressed by that guard, cannot be re-symbolized here (no Chromium PDB symbol server), and carries no accepted-with-fallback disposition — so it reads as an open P0 with no owner. Recorded from the 2026-09-19 Core Issue audit (report section 6, item 5).",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+        "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+        "reVerifyWith": "re-symbolize the 2026-09-18 dump against a Chromium PDB set, or record an explicit accepted-with-fallback disposition on the intake row"
+      }
     },
     {
-        "id": "B38",
-        "group": "gate",
-        "title": "The capture-timeout census counts a paused-but-buffered element as playing, and offers a remedy that cannot clear its own predicate",
-        "severity": "P2",
-        "status": "open",
-        "evidence": "CAPTURE_TIMEOUT_PROBE_EXPRESSION (src/main/tools/browser-control-port.ts:1198-1204) counts an element as playing when `el.paused === false || el.readyState > 2`, so a paused video that finished buffering reads as playing; it surfaces as `N playing media element(s)` (push at :2388) with `Remedy: anti.media.freeze(tabId)`. Observed live 2026-09-19: the two videos were `{readyState: 4, paused: true}` while the error claimed '2 playing media element(s) (video x2)', and anti.media.freeze pauses media — it never lowers readyState, so it cannot clear the predicate it is offered for. With the media removed from the DOM the same capture still timed out, with no diagnosis clause at all, while the real condition was a tab whose view had no compositor surface (`attached: false` while the toolbar showed it as the active tab; frames and lazy images resumed once the tab was re-presented). Recorded from the 2026-09-19 Core Issue audit (report section 9).",
-        "predicate": {
-            "kind": "manual",
-            "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
-            "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
-            "reVerifyWith": "take the live capture-timeout message on a stalled tab; close when `playing` counts only `paused === false`, a distinct `buffered` count exists, the freeze remedy is attached only to the former, and a clean census names the no-compositor-surface cause"
-        }
+      "id": "B38",
+      "group": "gate",
+      "title": "The capture-timeout census counts a paused-but-buffered element as playing, and offers a remedy that cannot clear its own predicate",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "CAPTURE_TIMEOUT_PROBE_EXPRESSION (src/main/tools/browser-control-port.ts:1198-1204) counts an element as playing when `el.paused === false || el.readyState > 2`, so a paused video that finished buffering reads as playing; it surfaces as `N playing media element(s)` (push at :2388) with `Remedy: anti.media.freeze(tabId)`. Observed live 2026-09-19: the two videos were `{readyState: 4, paused: true}` while the error claimed '2 playing media element(s) (video x2)', and anti.media.freeze pauses media — it never lowers readyState, so it cannot clear the predicate it is offered for. With the media removed from the DOM the same capture still timed out, with no diagnosis clause at all, while the real condition was a tab whose view had no compositor surface (`attached: false` while the toolbar showed it as the active tab; frames and lazy images resumed once the tab was re-presented). Recorded from the 2026-09-19 Core Issue audit (report section 9).",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+        "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+        "reVerifyWith": "take the live capture-timeout message on a stalled tab; close when `playing` counts only `paused === false`, a distinct `buffered` count exists, the freeze remedy is attached only to the former, and a clean census names the no-compositor-surface cause"
+      }
+    },
+    {
+      "id": "B39",
+      "group": "gate",
+      "title": "The soak's per-process slope and ranking are denominated in working set while the same record already emits a committed-private delta",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "scripts/benchmark-real-soak-8h.cjs:405 passes `'mb'` (working set) to `calculateSlope` and :422 sorts `slopes` by that result, while the same record collects `privateMb` at :397 and emits `deltaPrivateMB` at :418. Measured on the 2026-09-20 4 h run, same five app-owned renderer pids, same 8-minute workload window, two series from the same frames: working set reads +1.0874 MB/min (731.50 -> 742.64, sd 3.84, range 11.90) and committed private reads -0.1775 MB/min (267.02 -> 267.05, sd 2.49, range 9.06). So `worstProcessSlopeMBPerMin` and `worstProcessRole` — the fields that name which process grew — are denominated in shared-page movement, and a gate series cannot be fixed by a threshold while the instrument measures the wrong quantity. Found by the 4 h soak diagnostic; see plans/260920-0100-soak-4h-workflow-performance.",
+      "predicate": {
+        "kind": "file-regex",
+        "file": "scripts/benchmark-real-soak-8h.cjs",
+        "pattern": "appPrivateMaxSlopeMBPerMin",
+        "negate": true
+      },
+      "closedBy": "`calculatePerProcessSlopes` now fits both currencies per process and the payload names the growing process in committed private bytes: each `slopes[]` row carries `slopePrivateMBPerMin` beside the working-set `slopeMBPerMin` (both from the same frames), `privateRanked` is sorted by the private slope, and the payload emits `appPrivateMaxSlopeMBPerMin` / `appPrivateMaxRole` / `appPrivateMaxUrl` / `appPrivateMaxPid` plus the window the slope was fitted to (`processSlopeWindowStart` / `processSlopeWindowEnd`). Criterion 2 gates that maximum, so the gate series is no longer denominated in shared-page movement, which was the defect: the two series disagree on the same frames, so no threshold could have fixed it. The working-set ranking is kept as a diagnostic and is labeled as such in the payload comment and in the terminal verdict (`Fastest-Growing Process (working set)`); no threshold moved and no gate was relaxed.",
+      "reVerifyWith": "re-derive the private slope for the payload's `appPrivateMaxPid` from the per-process samples and assert it matches `appPrivateMaxSlopeMBPerMin` over the same window; assert a payload with no workload samples reports null and fails criterion 2 rather than passing as flat",
+      "lastVerifiedBy": "AK soak-4h workflow-performance session (2026-09-20) — harness instrument fixes; `node scripts/check-bottlenecks.mjs` green",
+      "updatedAt": "2026-09-20"
+    },
+    {
+      "id": "B40",
+      "group": "gate",
+      "title": "The soak's process walk follows parent pid with no ownership test, so foreign Electron processes enter every gate series",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "`collectProcessTree` (scripts/benchmark-real-soak-8h.cjs:233-254) pushes every child of a pid unconditionally and `classifyProcess` labels type only, so nothing in the walk tests ownership. Measured live on the 4 h run tree (root 28216): 26 processes / 2065.1 MB total, of which 11 processes / 526.4 MB were Zalo.exe + ZaloCall + ZaloCap — inside the tree only because Windows reported their parent as pid 11704, the soak app's own crashpad handler, whose real child had exited and whose pid was recycled. That walk drives `totalWorkingSetMB`, `byType` and therefore every gate series (`activeWorkingSetMB`, `activeRendererWorkingSetMB`, `rendererActiveSlopeMBPerMin`), while the app's own telemetry stream carried 8 pids, all app-owned. The 2 h baseline's walk reported renderer count 5 in every sample — exactly the app's own count — so the contamination is run-dependent, which is why it cannot be absorbed by a threshold.",
+      "predicate": {
+        "kind": "file-regex",
+        "file": "scripts/benchmark-real-soak-8h.cjs",
+        "pattern": "byParent\\.get\\(pid\\) \\|\\| \\[\\]\\) \\{\\s*stack\\.push\\(Number\\(child\\.ProcessId\\)\\)"
+      },
+      "closedBy": "`collectProcessTree(allProcesses, rootPid, markers)` takes an ownership test and returns `{ tree, refused }`. An edge is accepted only when the child's command line names this run's project root or data root — matched after normalizing separators, and bounded by a following separator or space so the sibling `AntiFan-wt-mobile-plane-gates` path cannot match — or when the child is one of the PTY host executables the terminal spawns. Every refusal is recorded in the sample as `refusedProcessCount` / `refusedProcessWorkingSetMB` / `refusedProcessNames`, aggregated into the payload, and printed by the terminal verdict, so a wrong refusal is visible instead of silently shrinking the measured footprint. Both path markers are normalized to forward slashes because the harness spawns with a forward-slash data root while Electron reports backslashes in child command lines.",
+      "reVerifyWith": "run with an unrelated Electron app open and assert `refusedProcessCount > 0` with that app's names, that every app-owned pid from the app's own telemetry stream is still inside the walk, and that a run in a sibling worktree directory is not adopted by the project-root marker",
+      "lastVerifiedBy": "AK soak-4h workflow-performance session (2026-09-20) — harness instrument fixes; `node scripts/check-bottlenecks.mjs` green",
+      "updatedAt": "2026-09-20"
+    },
+    {
+      "id": "B41",
+      "group": "gate",
+      "title": "Criterion 2 gates the renderer sum, which cannot name the growing process and can hide one above the same threshold",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "`evaluateFreezeVerdict` (scripts/benchmark-real-soak-8h.cjs:163) compares `rendererSlope`, bound at :156 to `metrics.rendererActiveSlopeMBPerMin` — the least-squares slope of the summed renderer working set — against `FREEZE_SLO.rendererSlopeMBPerMin`. The per-process series that could name a growing member is reported only as attribution (`perProcessSlopes`, `worstProcessSlopeMBPerMin`, :550-556) and gates nothing. Measured on the 4 h run: the app Tab sum read +0.14 MB/min over the window while the single growing process inside it (pid 33800, the four fixture pages that share one renderer) read +0.17 — both above the 0.15 threshold's neighbourhood, on the same frames, with only one of the two numbers deciding the verdict. Found by the 4 h soak diagnostic; see plans/260920-0100-soak-4h-workflow-performance.",
+      "predicate": {
+        "kind": "file-regex",
+        "file": "scripts/benchmark-real-soak-8h.cjs",
+        "pattern": "privateSlopeOk = privateSlopeMeasured && appPrivateSlope <= FREEZE_SLO\\.rendererSlopeMBPerMin",
+        "negate": true
+      },
+      "closedBy": "`evaluateFreezeVerdict` adds `privateSlopeOk` as a third condition of `slopeOk`: the app-owned per-process maximum in committed private bytes must be at or below the renderer bound, and the series must exist (`privateSlopeMeasured`). The existing renderer-sum condition is kept, so the change is strictly additive — a run cannot pass by adding a flat process to a sum that a growing one sits inside. The verdict carries `privateSlopeSloSatisfied` / `privateSlopeMeasured` and the FAILED line names the condition, so which of the three slope conditions decided a verdict is readable from the artifact.",
+      "reVerifyWith": "evaluate a synthetic payload whose renderer sum is flat but whose per-process private maximum exceeds the bound and assert `slopeOk` is false; evaluate one whose `appPrivateMaxSlopeMBPerMin` is null and assert the same",
+      "lastVerifiedBy": "AK soak-4h workflow-performance session (2026-09-20) — harness instrument fixes; `node scripts/check-bottlenecks.mjs` green",
+      "updatedAt": "2026-09-20"
+    },
+    {
+      "id": "B42",
+      "group": "gate",
+      "title": "The switch-latency gate accumulates warmup and workload while the memory gates are workload-scoped",
+      "severity": "P2",
+      "status": "closed",
+      "evidence": "`evaluateFreezeVerdict` (scripts/benchmark-real-soak-8h.cjs:154-165) reads `metrics.switchLatencyMs`, whose quantiles are taken over every non-recovery switch (:534), while the memory gates read `label === 'workload'` samples only (:530-531, :535-536). Measured on the 4 h run at 178 workload frames: 2 of the 10 slowest switches are warmup and 8 are workload, with a workload max of 50.976 ms against the 35 ms threshold — so the tail is steady-state, not a startup artifact: it is also global, with every one of the six destinations reaching 38-51 ms at a similar rate and a p95 of 15.65 ms across all six, against a 2 h baseline whose fastest switch was 3.09 ms. A gate that mixes phases cannot say which of those two facts decides it.",
+      "predicate": {
+        "kind": "file-regex",
+        "file": "scripts/benchmark-real-soak-8h.cjs",
+        "pattern": "const switchMax = metrics\\.switchLatencyMs\\?\\.max \\|\\| 0;"
+      },
+      "closedBy": "Switch latency is phase-scoped where the gate reads it: `switchLatencyMs` is now the quantile set over `phase === 'workload'` switches, `switchLatencyWarmupMs` over warmup, and `switchLatencyAllPhasesMs` keeps the previous all-phase reading on the same artifact so the two can be compared without cross-run inference. The gate additionally requires a non-empty workload series (`switchLatencyWorkloadCount > 0`) and reads absent quantiles as `Infinity`, so an empty series fails closed instead of passing on the old `|| 0` fallback. The terminal verdict prints workload, warmup and all-phases side by side.",
+      "reVerifyWith": "assert a payload with an empty workload switch series fails `latencyOk`, and that `switchLatencyAllPhasesMs` reproduces the pre-change reading on a run whose warmup and workload distributions differ",
+      "lastVerifiedBy": "AK soak-4h workflow-performance session (2026-09-20) — harness instrument fixes; `node scripts/check-bottlenecks.mjs` green",
+      "updatedAt": "2026-09-20"
     }
   ]
 }
