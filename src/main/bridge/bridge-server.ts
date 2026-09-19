@@ -2541,6 +2541,13 @@ export class BridgeServer {
             }
           }
           const targetId = p.sessionId || tm.getActiveSessionId();
+          if (mobileGrant) {
+            const mobileOwnsSession = targetId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
+            if (!mobileOwnsSession) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+              break;
+            }
+          }
           const closed = await tm.closeSession(targetId);
           respond(closed, { closed, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
           break;
@@ -2561,6 +2568,13 @@ export class BridgeServer {
             }
           }
           const targetId = p.id || p.sessionId || tm.getActiveSessionId();
+          if (mobileGrant) {
+            const mobileOwnsSession = targetId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
+            if (!mobileOwnsSession) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+              break;
+            }
+          }
           const renamed = tm.renameSession(targetId, p.name || '');
           respond(renamed, { renamed, sessions: tm.listSessions() });
           break;
@@ -2568,6 +2582,14 @@ export class BridgeServer {
         case 'terminalRestart':
         case 'antifan.terminalRestart': {
           const tm = TerminalManager.getInstance();
+          if (mobileGrant) {
+            const effectiveSessionId = p.sessionId || tm.getActiveSessionId();
+            const mobileOwnsSession = effectiveSessionId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
+            if (!mobileOwnsSession) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+              break;
+            }
+          }
           await tm.restart(p.cwd);
           respond(true, { restarted: true });
           break;
@@ -2576,6 +2598,14 @@ export class BridgeServer {
         case 'terminalResize':
         case 'antifan.terminalResize': {
           const tm = TerminalManager.getInstance();
+          if (mobileGrant) {
+            const effectiveSessionId = p.sessionId || tm.getActiveSessionId();
+            const mobileOwnsSession = effectiveSessionId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
+            if (!mobileOwnsSession) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+              break;
+            }
+          }
           const cols = Number(p.cols) || 80;
           const rows = Number(p.rows) || 24;
           if (p.sessionId) {
