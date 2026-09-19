@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-17",
+  "updatedAt": "2026-09-19",
   "note": "Machine-checkable closure ledger. Every row carries a predicate that returns true when the defect is PRESENT at HEAD. `node scripts/check-bottlenecks.mjs` fails when a row marked `closed` still fires (REOPENED), when a row marked `open` no longer fires (FIXED_UNRECORDED), or when a row marked `refuted` fires (REFUTED_BUT_PRESENT). Rows here replace the prose findings list: a claim that cannot be machine-checked is a row with `kind: \"manual\"`, which is re-verified rather than trusted. Never delete a `refuted` row — it is what stops a dead finding from being re-derived.",
   "rows": [
     {
@@ -306,41 +306,43 @@
       "group": "theme-qa",
       "title": "The canary settle gate counts childList records, so a long-running carousel can starve it",
       "severity": "P1",
-      "status": "open",
-      "evidence": "canary-settle.mjs SETTLE_DOM_EXPR sums addedNodes+removedNodes and requires quietFor >= 1500ms inside a 9000ms budget; a per-second carousel never sees a 1500ms quiet window",
+      "status": "closed",
+      "evidence": "Closed 2026-09-19: the verdict is composeSettleVerdict({ freezeOk, images, visual, state }) = mediaFrozen && fontsSettled && imagesSettled && visualStable && renderStateStable (scripts/lib/settle-contract.mjs:29-37, called at .canary/tools/canary-settle.mjs:598). The childList observer still runs, but its counts are recorded evidence only and never a gate input (canary-settle.mjs:12, 108-117, 606), so a per-second carousel can no longer starve the settle verdict.",
+      "closedBy": "gate inputs reduced to the five settled components; raw DOM churn downgraded to evidence",
       "predicate": {
-        "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
-        "lastVerifiedBy": "session measurements",
-        "reVerifyWith": "run the 15-page canary against a page with a periodic animation and inspect the settle predicate's decision record"
-      }
+        "kind": "file-absent-regex",
+        "file": ".canary/tools/canary-settle.mjs",
+        "pattern": "composeSettleVerdict\\(\\{ freezeOk, images, visual, state \\}\\)"
+      },
+      "reVerifyWith": "if this reopens, read what reaches composeSettleVerdict: a churn/childList count among the gate inputs means the starvation predicate is back"
     },
     {
       "id": "B20",
       "group": "theme-qa",
-      "title": "Full-page capture is capped at 16384px, so taller pages degrade to a tiled composite",
+      "title": "Full-page capture refuses above 16384 px; the recorded 'degrades to a tiled composite' never existed in the capture path",
       "severity": "P2",
-      "status": "open",
-      "evidence": "CDP full-page capture ceiling; tile composition runs on the main thread",
+      "status": "closed",
+      "evidence": "Closed 2026-09-19: CAPTURE_MAX_DIMENSION = 16384 (src/main/verification/visual-capture.ts:703) and the over-ceiling path throws a typed error naming the requested region instead of degrading (src/main/browser/tab-devtools-host.ts:2043-2051, 2131-2135). No tiled-composite or main-thread composition helper exists in the capture path (grepped tile/tiled across src/main/browser + src/main/verification: every hit is 'Turnstile' or 'volatile' outside it). The 16 384 px limit is a capability ceiling; a tiled capture would be a feature row, not this defect.",
+      "closedBy": "over-ceiling capture refuses with a typed error (CAPTURE_MAX_DIMENSION) rather than degrading",
       "predicate": {
-        "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
-        "lastVerifiedBy": "session measurements",
-        "reVerifyWith": "capture a page taller than 16384 CSS px and check the composite for seam artefacts"
-      }
+        "kind": "file-absent-regex",
+        "file": "src/main/browser/tab-devtools-host.ts",
+        "pattern": "outside the supported 1"
+      },
+      "reVerifyWith": "capture a page taller than 16384 CSS px: a refusal is correct; a stitched or upscaled image means a tiled composite was introduced"
     },
     {
       "id": "B21",
       "group": "hygiene",
-      "title": "Repository root is a dumping ground: 57 .png, 14 .md, plus scratch scripts and logs",
+      "title": "Repository root is a dumping ground: 92 .tmp-* entries, 3 .diff files and 12 loose reports (the .png pile the row described is down to 1)",
       "severity": "P3",
       "status": "open",
-      "evidence": "root listing: 14 .md, 57 .png, 1 .docx, 2 .log, 1 .cjs, 5 .json, 1 .js, 1 .vbs, 1 .txt",
+      "evidence": "Recounted 2026-09-19 at HEAD: 121 root entries — 1 *.png, 14 *.md (12 of them historical reports that belong under reports/), 92 .tmp-* entries, 3 *.diff, 0 *.log. The purge needs an owner decision (which .tmp-* files are evidence), so the row stays open rather than being silently declared clean.",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
-        "lastVerifiedBy": "root inventory count",
-        "reVerifyWith": "recount root extensions and compare"
+        "lastVerifiedAt": "2026-09-19T16:56:20.000Z",
+        "lastVerifiedBy": "AK ultra audit root recount, re-verified 2026-09-19T16:56:20.000Z",
+        "reVerifyWith": "recount root extensions; close only after .tmp-* and *.diff are purged and the 12 historical reports are moved under reports/"
       }
     },
     {
@@ -390,11 +392,11 @@
       "group": "refuted",
       "title": "REFUTED: the canary settle gate can never pass, so theme QA is structurally impossible",
       "status": "refuted",
-      "evidence": "a baseline capture under .canary/15-pages/page-02-brands/evidence/1440.json recorded structuralMutations: 0 and passed. The predicate is fragile, not impossible (see B19).",
+      "evidence": "a baseline capture under .canary/15-pages/page-02-brands/evidence/1440.json recorded structuralMutations: 0 and passed. The predicate is fragile, not impossible (see B19). Re-verified 2026-09-19: with B19 closed the gate reads only the five settled components, so raw churn cannot invalidate it at all.",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
-        "lastVerifiedBy": "baseline evidence inspection"
+        "lastVerifiedAt": "2026-09-19T00:00:00.000Z",
+        "lastVerifiedBy": "baseline evidence inspection + B19 closure re-read"
       }
     },
     {
@@ -402,11 +404,11 @@
       "group": "refuted",
       "title": "REFUTED: `webSecurity` must stay enabled or the app cannot render third-party HTTP storefronts",
       "status": "refuted",
-      "evidence": "no measurement supports the claim; the local-only threat model and the rendered-storefront requirement are separate concerns and were conflated in the report.",
+      "evidence": "no measurement supports the claim; the local-only threat model and the rendered-storefront requirement are separate concerns and were conflated in the report. Re-verified 2026-09-19: getSecureWebPreferences keeps webSecurity: true (src/main/security/security-policy.ts:133) and every tab view is created through it (src/main/browser/native-tab-host.ts:4284, 4445, 5280), so enabling it is the deliberate default rather than a requirement the refuted claim asserts.",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
-        "lastVerifiedBy": "report rebuttal pass"
+        "lastVerifiedAt": "2026-09-19T00:00:00.000Z",
+        "lastVerifiedBy": "security-policy + tab-view call-site re-read"
       }
     },
     {
@@ -456,14 +458,16 @@
       "group": "mcp",
       "title": "20 anti.* routing rows redirect a name the catalogue already registers; every remaining row is proven behaviour-preserving, and a row that diverges from its registration is caught by test",
       "severity": "P2",
-      "status": "open",
+      "status": "closed",
       "evidence": "Measured sweep 2026-09-16: `node scripts/check-mcp-budget-dominance.mjs` reports 20 shadowing rows at HEAD (anti.browser.tabs.create/.activate/.close, anti.browser.navigate/.reload/.set_viewport/.get_viewport, anti.inspect.dom/.styles/.region/.page_inventory, anti.agent.cursor.* (7), anti.agent.sequence, anti.trace.interaction). Per-row evidence gathered by invoking each registration and each routing target through a recording port: 19 of 20 bind the same port method with the same required set and risk class, so for those rows the routing row substitutes no semantics and its removal would be behaviour-preserving. The 20th diverged and was a real defect: anti.agent.cursor.move advertised 'move' but its registration bound agentHover while the routing row sent it to browser.agent-move (agentMove), so the two paths disagreed and the advertised name hovered or moved depending on which path ran; the registration now binds agentMove. The invariant is asserted per row by test/unit/mcp-core-parity.test.mjs ('every shadowing routing row agrees with its registration on the port method'). Rows are NOT retired: retiring a redundant row is a wire-name change that still needs its own behaviour proof, and 2 rows (anti.browser.tabs.create, anti.agent.sequence) advertise schemas that differ from their target's, so removal would also move payload validation.",
+      "closedBy": "Re-verified 2026-09-19: the single divergent row (anti.agent.cursor.move advertised 'move' while its registration bound agentHover) is fixed, the parity suite is green (10/10, 0 divergent rows), and the 19 behaviour-preserving rows plus 2 schema-differing rows make what remains alias retirement — a backlog item, not a correctness defect",
       "predicate": {
-        "kind": "manual",
-        "lastVerifiedAt": "2026-09-16T00:00:00.000Z",
-        "lastVerifiedBy": "controller sweep: 20 rows measured via recording-port probe, 1 divergence fixed",
-        "reVerifyWith": "run `node scripts/check-mcp-budget-dominance.mjs` for the shadow count and `node --test test/unit/mcp-core-parity.test.mjs` for the per-row port-method agreement; retire a row only after an omp-mcp-adapter case proves the dispatched-name change is behaviour-preserving"
-      }
+        "kind": "script-matches",
+        "script": "compile",
+        "pattern": "check-mcp-budget-dominance",
+        "negate": true
+      },
+      "reVerifyWith": "run `node scripts/check-mcp-budget-dominance.mjs` for the shadow count and `node --test test/unit/mcp-core-parity.test.mjs` for the per-row port-method agreement; retire a row only after an omp-mcp-adapter case proves the dispatched-name change is behaviour-preserving. If this reopens, the compile chain lost the dominance check"
     },
     {
       "id": "B30",
@@ -540,17 +544,98 @@
     {
       "id": "B33",
       "group": "mcp",
-      "title": "`canonicalJsonStringify`'s array branch renders an `undefined`/`null` element as an empty slot, so a frame persisted with `null` inside an array never re-hashes to its recorded checksum",
+      "title": "The ledger hashed each frame before serializing it, so a frame carrying an `undefined` array slot recorded a checksum its own persisted bytes could not reproduce",
+      "severity": "P2",
+      "status": "closed",
+      "evidence": "Mechanism corrected 2026-09-19: the diverging value is `undefined`, not `null`. canonicalJsonStringify renders an `undefined` array slot as an empty one through Array.prototype.join (src/shared/control-plane-contracts.ts:508-511 — left unchanged on purpose, because computeFrameChecksumNullArrayVariant depends on that rendering to attribute legacy rows), while JSON.stringify writes `null` into the persisted line; a literal `null` slot re-hashes correctly (5 live frames prove it). The defect was the order of operations: appendFrameUnlocked and compactPartitionUnlocked hashed the in-memory record and then persisted a different value, so strict re-derivation failed on the writer's own bytes and invocation-ledger.ts:190-202 → :260-271 quarantined the whole partition, stranding every intact frame in it. The live store (E:\\Work\\.antifan-data\\control-plane-v2\\invocations) holds 8 such .quarantine-* partitions beside 4 live ones, the newest quarantined 2026-09-19 and the oldest 2026-09-07.",
+      "closedBy": "computePersistedFrameChecksum hashes JSON.parse(JSON.stringify(frame)) — the shape a reader reconstructs — at both write sites (invocation-ledger.ts appendFrameUnlocked and compactPartitionUnlocked); regression test 'A frame carrying an `undefined` array slot replays instead of quarantining its partition' (test/main/invocation-ledger.test.ts) fails before the change and passes after, and the checksum unit suite is unchanged and green",
+      "predicate": {
+        "kind": "any-of",
+        "predicates": [
+          {
+            "kind": "file-regex",
+            "file": "src/main/session/invocation-ledger.ts",
+            "pattern": "calculatedChecksum = computeFrameChecksum\\(rest\\)"
+          },
+          {
+            "kind": "file-regex",
+            "file": "src/main/session/invocation-ledger.ts",
+            "pattern": "const calc = computeFrameChecksum\\(rest\\)"
+          }
+        ]
+      },
+      "reVerifyWith": "if this reopens the writer went back to hashing the in-memory record: assert a frame carrying an `undefined` array slot reproduces its recorded checksum from the persisted line, and that the next boot admits the partition instead of quarantining it",
+      "updatedAt": "2026-09-19"
+    },
+    {
+      "id": "B34",
+      "group": "durability",
+      "title": "8 invocation-ledger partitions sit quarantined in the live store and nothing re-reads them",
       "severity": "P2",
       "status": "open",
-      "evidence": "src/shared/control-plane-contracts.ts:506-517 — the array branch is `[${val.map(canonicalJsonStringify).join(',')}]` (:510-511), and Array.prototype.join renders an undefined/null element as an empty slot, while the ledger's append path persists the frame through JSON.stringify so a null array element is written as `null` (src/main/session/invocation-ledger.ts:802). Re-deriving the checksum therefore fails strict `sha256(canonicalJsonStringify(frame minus checksum)) === checksum` for any such frame, and because the ledger quarantines a whole partition on its first bad frame (invocation-ledger.ts:190-202 → :260-271) the remaining frames of that partition are stranded rather than read: a dated read-only pass on 2026-09-17 measured 7 strict-invalid frames and 247 strict-valid frames carried by the same quarantined files, and no number here is a constant (every reader run re-derives its own). The MCP dispatch accounting reader reports this as the frozen diagnostic reason `writer-canonicalization-array-slot`, a sub-reason of a line that already failed strict, never an admission. Registered as the follow-up recorded by plans/260917-0341-mcp-dispatch-accounting/plan.md:40 and :213, where the repair is out of scope because the same helper backs canonicalDigest (:518-520) and therefore policy and param digests, so the blast radius is repo-wide.",
+      "evidence": "Counted 2026-09-19: E:\\Work\\.antifan-data\\control-plane-v2\\invocations holds 8 <attachmentId>.jsonl.quarantine-<epochms> partitions beside 4 live partitions. Each was renamed whole because one row failed the strict comparison (invocation-ledger.ts:190-202 → :260-271), so every intact frame inside is unreadable by the accounting reader. The writer defect that produced them is fixed at HEAD (B33), but the files themselves are untouched: nothing in the ledger re-reads a quarantine file, and deciding between re-admission and keeping them as evidence is a data-ownership call, so the row stays open.",
       "predicate": {
-        "kind": "file-regex",
-        "file": "src/shared/control-plane-contracts.ts",
-        "pattern": "val\\.map\\(\\(item\\) => canonicalJsonStringify\\(item\\)\\)\\.join\\(','\\)"
-      },
-      "reVerifyWith": "assert the array branch distinguishes an absent element from a null one (a slot marker, or one rendering shared by the writer and the reader) and that strict sha256(canonicalJsonStringify(frame minus checksum)) still equals the recorded checksum for a frame carrying null inside an array; the behavioural half belongs in a unit test, not in this registry",
-      "updatedAt": "2026-09-17"
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-19T16:56:20.000Z",
+        "lastVerifiedBy": "AK ultra audit — direct directory count 8 quarantine / 4 live, re-verified 2026-09-19T16:56:20.000Z",
+        "reVerifyWith": "count *.quarantine-* under the data root's invocations/ dir; close only after each partition is re-admitted with a named sub-reason (computeFrameChecksumNullArrayVariant attributes the legacy empty-slot rows) or explicitly retained as evidence"
+      }
+    },
+    {
+        "id": "B35",
+        "group": "durability",
+        "title": "`markResolved` / `reconcile` / `resolve` set `RESOLVED` directly, bypassing `LEGAL_ISSUE_TRANSITIONS`",
+        "severity": "P2",
+        "status": "open",
+        "evidence": "src/main/session/issue-register.ts:700-722 (`markResolved`) and :724-763 (`reconcile`) assign `item.status = 'RESOLVED'` and rewrite the file; `resolve()` (:695-698) delegates to `markResolved`. The legal-transition table (`LEGAL_ISSUE_TRANSITIONS`, :68) is enforced only inside `transitionIssue` (:787, check at :801) and its caller (:837). So a row sitting in a terminal state — `DUPLICATE`, `WONT_FIX`, `BYPASSED` — can be flipped back to RESOLVED by any of the three bypassing mutators without the table permitting it. Recorded from the 2026-09-19 Core Issue audit (report section 5, Group C).",
+        "predicate": {
+            "kind": "manual",
+            "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+            "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+            "reVerifyWith": "grep every assignment to `item.status` in issue-register.ts; close when each goes through `transitionIssue` or the bypass is documented as intended"
+        }
+    },
+    {
+        "id": "B36",
+        "group": "hygiene",
+        "title": "Test suites write into the live issue register, so 87 of its 91 OPEN rows are seeded fixtures",
+        "severity": "P2",
+        "status": "open",
+        "evidence": "E:\\Work\\.antifan-data\\issues\\issue-register.jsonl holds 279 records (OPEN 91, RESOLVED 125, BYPASSED 63) and no record carries `issueClass`. 87 of the 91 OPEN rows are fixture literals from test/unit/semantic-aliasing-and-issue-register.test.ts:95-115 — 63 each of 'Trusted Type violation on docs.google.com', 'Temporary network glitch', 'Element obscured by modal overlay', plus 51 'Layout parity discrepancy in hero section' and 16 each of the drawer/cart strings — timestamped 2026-09-03…09-05. The register directory is env-overridable (`registerDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR || antifanDir`, src/main/session/issue-register.ts:341-351) but no suite sets it, so real signal and fixture noise share one file. Recorded from the 2026-09-19 Core Issue audit (report section 5, Group C).",
+        "predicate": {
+            "kind": "manual",
+            "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+            "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+            "reVerifyWith": "count fixture-literal duplicates among the live register's OPEN rows; close when the suites point ANTIFAN_VERIFICATION_REGISTER_DIR at a temp dir and the seeded rows are purged or classified"
+        }
+    },
+    {
+        "id": "B37",
+        "group": "durability",
+        "title": "The 2026-09-18 `gpu-process` P0 fault (`electron.exe+0x897d241`) is unattributed and unowned",
+        "severity": "P1",
+        "status": "open",
+        "evidence": "The 4 P0 `runtime.process` rows written by crash-report-intake.ts:104-160 from real Crashpad dumps. Three browser-process `STATUS_ACCESS_VIOLATION` `read of 0x0` faults (`electron.exe+0x684d7a8` @ 2026-09-16 and 2026-09-17, `+0x27340e3` @ 2026-09-16) are mitigated at HEAD by inspection: `safeEnableDeviceEmulation` returns early when `!this.isTabViewAttached(view)` (src/main/browser/native-tab-host.ts:709-736). The 2026-09-18 `gpu-process` fault at `+0x897d241` is not addressed by that guard, cannot be re-symbolized here (no Chromium PDB symbol server), and carries no accepted-with-fallback disposition — so it reads as an open P0 with no owner. Recorded from the 2026-09-19 Core Issue audit (report section 6, item 5).",
+        "predicate": {
+            "kind": "manual",
+            "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+            "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+            "reVerifyWith": "re-symbolize the 2026-09-18 dump against a Chromium PDB set, or record an explicit accepted-with-fallback disposition on the intake row"
+        }
+    },
+    {
+        "id": "B38",
+        "group": "gate",
+        "title": "The capture-timeout census counts a paused-but-buffered element as playing, and offers a remedy that cannot clear its own predicate",
+        "severity": "P2",
+        "status": "open",
+        "evidence": "CAPTURE_TIMEOUT_PROBE_EXPRESSION (src/main/tools/browser-control-port.ts:1198-1204) counts an element as playing when `el.paused === false || el.readyState > 2`, so a paused video that finished buffering reads as playing; it surfaces as `N playing media element(s)` (push at :2388) with `Remedy: anti.media.freeze(tabId)`. Observed live 2026-09-19: the two videos were `{readyState: 4, paused: true}` while the error claimed '2 playing media element(s) (video x2)', and anti.media.freeze pauses media — it never lowers readyState, so it cannot clear the predicate it is offered for. With the media removed from the DOM the same capture still timed out, with no diagnosis clause at all, while the real condition was a tab whose view had no compositor surface (`attached: false` while the toolbar showed it as the active tab; frames and lazy images resumed once the tab was re-presented). Recorded from the 2026-09-19 Core Issue audit (report section 9).",
+        "predicate": {
+            "kind": "manual",
+            "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+            "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+            "reVerifyWith": "take the live capture-timeout message on a stalled tab; close when `playing` counts only `paused === false`, a distinct `buffered` count exists, the freeze remedy is attached only to the former, and a clean census names the no-compositor-surface cause"
+        }
     }
   ]
 }
