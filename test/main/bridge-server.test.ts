@@ -843,6 +843,30 @@ describe('Phase 4: Grant Revocation, Rotation Invalidation & LAN Binding', () =>
     server.dispose();
   });
 
+  it('honors an injected master token only in benchmark mode', () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const injected = 'benchmark-injected-master-token-0001';
+    const previousBenchmark = process.env.ANTIFAN_BENCHMARK;
+    const previousToken = process.env.ANTIFAN_BRIDGE_TOKEN;
+    try {
+      process.env.ANTIFAN_BENCHMARK = '1';
+      process.env.ANTIFAN_BRIDGE_TOKEN = injected;
+      const benchmarkServer = new BridgeServer(mockHost, 0, false);
+      assert.strictEqual(benchmarkServer.getToken(), injected, 'a harness-owned benchmark instance must serve the injected token');
+      benchmarkServer.dispose();
+
+      delete process.env.ANTIFAN_BENCHMARK;
+      const productionServer = new BridgeServer(mockHost, 0, false);
+      assert.notStrictEqual(productionServer.getToken(), injected, 'a production instance must never accept an injected token');
+      productionServer.dispose();
+    } finally {
+      if (previousBenchmark === undefined) delete process.env.ANTIFAN_BENCHMARK;
+      else process.env.ANTIFAN_BENCHMARK = previousBenchmark;
+      if (previousToken === undefined) delete process.env.ANTIFAN_BRIDGE_TOKEN;
+      else process.env.ANTIFAN_BRIDGE_TOKEN = previousToken;
+    }
+  });
+
   it('LAN access is forbidden by default and permitted after opt-in rebind', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0);

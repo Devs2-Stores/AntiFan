@@ -6,6 +6,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa lỗi — Soak thật không điều khiển được app: Bridge đóng socket vì token rỗng, cả run chỉ đo một app đứng yên
+- **Triệu chứng**: `benchmark-real-soak-8h.cjs` dừng sau 44 giây với `RPC timeout for antifan.openTab` rồi `WebSocket is not open`, verdict `FAILED — Execution Error: WebSocket is not open`; không tab, terminal hay workload nào được tạo, nên mọi số RAM/latency đều `null`.
+- **Nguyên nhân**: `BridgeServer` mint master token bằng `randomUUID()` và `setupWssEvents` đóng socket `4001` khi `clientToken !== this.token`, trong khi harness gửi `Authorization: Bearer ${process.env.ANTIFAN_BRIDGE_TOKEN || ''}` — token rỗng. Không có kênh nào lấy được token thật: `persistBridgeInfo()` cố ý chỉ ghi metadata không bí mật, còn harness tự khai `TODO(phase4): requires token injection`.
+- **Sửa**: `BridgeServer.resolveMasterToken()` chỉ nhận `ANTIFAN_BRIDGE_TOKEN` khi `ANTIFAN_BENCHMARK=1` và token dài ≥ 16 ký tự; dùng cho cả khởi tạo lẫn `rotateToken()`. Harness mint token một lần, truyền vào env tiến trình con và dùng đúng token đó cho client WS — không ghi ra đĩa. Run production không set cờ benchmark nên không bao giờ nhận token inject.
+- **Bằng chứng**: `test/main/bridge-server.test.js` 26/26, thêm ca "honors an injected master token only in benchmark mode" (benchmark nhận token inject, production thì không); soak preflight 2.5 phút `PASSED` với 6 tab + terminal thật (RAM p50 `1534.77 MB`, tab switch p95 `15.486 ms`, orphan `0`), trong khi trước khi sửa cùng cấu hình chỉ chạy được 44 giây rồi `FAILED`.
+
 ### Tính năng — Terminal daemon P0: host tách rời giữ session sống qua lần restart GUI
 - **Mục tiêu P0**: sau khi restart/recompile GUI, mọi terminal session còn nguyên shell process, cwd, scrollback và tiến trình con đang chạy.
 - **Nền tảng đã kiểm chứng**: `src/main/browser/terminal-manager.ts` không import Electron (duyệt closure: 8 file, 0 import) nên daemon chạy lại đúng `TerminalManager` trong runtime headless thay vì viết lại tầng PTY — `src/main/terminal-daemon/` gồm `protocol.ts`, `daemon-entry.ts`, `daemon-spawner.ts` (các chế độ `attached | detached | wmi | in-process`) và `daemon-client.ts` + `DaemonTerminalProxy`.

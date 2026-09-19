@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-// TODO(phase4): requires token injection; no longer reads master token from bridge.json
+// The child app accepts an injected master token only when ANTIFAN_BENCHMARK=1, so this harness mints
+// the token and passes it to the isolated instance it owns; nothing is read from or written to disk.
+
+const { randomUUID } = require('node:crypto');
 
 function redactCreds(val) {
   const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
@@ -594,9 +597,11 @@ async function main() {
 
   try {
     // 2. Launch Production Electron Runtime
+    const soakBridgeToken = process.env.ANTIFAN_BRIDGE_TOKEN || randomUUID();
     const env = {
       ...process.env,
       ANTIFAN_BENCHMARK: '1',
+      ANTIFAN_BRIDGE_TOKEN: soakBridgeToken,
       ANTIFAN_DATA_ROOT: soakDataDir,
       ANTIFAN_USER_DATA: path.join(soakDataDir, 'Profile'),
       ANTIFAN_CONFIG_DIR: configDir,
@@ -637,7 +642,7 @@ async function main() {
         try {
           bridge = JSON.parse(fs.readFileSync(bridgePath, 'utf8'));
           if (bridge.port) {
-            bridge.token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
+            bridge.token = soakBridgeToken;
             break;
           }
         } catch {}

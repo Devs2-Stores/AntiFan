@@ -224,7 +224,7 @@ export class BridgeServer {
   private isDev: boolean = false;
   private port: number = 20129;
   private host: string = '127.0.0.1';
-  private token: string = randomUUID();
+  private token: string = this.resolveMasterToken();
   private bridgeInfoPath: string;
   private readonly capabilityTransport?: CapabilityTransportAdapter;
   private readonly runtimeBindingProvider?: () => RuntimeBinding;
@@ -330,7 +330,7 @@ export class BridgeServer {
     this.controlPlaneRuntime = controlPlane;
   }
   public async rotateToken(): Promise<string> {
-    this.token = randomUUID();
+    this.token = this.resolveMasterToken();
 
     // Terminate existing master-token WebSocket connections while preserving attachment-scoped clients
     for (const client of Array.from(this.clients)) {
@@ -356,6 +356,12 @@ export class BridgeServer {
     // invalidation above is already visible to non-awaiting callers.
     await this.persistBridgeInfo();
     return this.token;
+  }
+
+  private resolveMasterToken(): string {
+    const injected = process.env.ANTIFAN_BENCHMARK === '1' ? process.env.ANTIFAN_BRIDGE_TOKEN : undefined;
+    if (typeof injected === 'string' && injected.length >= 16) return injected;
+    return randomUUID();
   }
 
   public revokeMobileGrant(token: string): boolean {
