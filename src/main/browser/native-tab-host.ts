@@ -222,12 +222,28 @@ html, body {
  * regions show this app's own chrome (the window is `#080c14`, the frame backdrop
  * `#060910`) and CDP captures return transparent bands that composite as black.
  *
- * `:where()` keeps the specificity at zero, so any background a site does declare
- * still wins: this only fills in what nothing else paints.
+ * The fill has to sit below every piece of page content, and it must not be a
+ * background on the root element. An author background on `html` stops the canvas
+ * from adopting `body`'s background, which moves `body`'s own background into the
+ * in-flow block pass of the painting order — above every negative `z-index`
+ * descendant. Shopify OS 2.0 "Horizon" themes paint each section's color scheme
+ * with exactly that pattern (`.section-background { position: absolute;
+ * z-index: -2 }`), so backgrounding the root renders those sections, and all text
+ * colored against them, as blank white while Chrome paints them correctly.
+ *
+ * A pseudo-element of the root is a child box of the root stacking context, not a
+ * background of the root element, so propagation stays intact. `:where()` holds
+ * specificity at zero and the layer is pinned to the most negative `z-index` CSS
+ * can express, so any background a page declares paints over this fill.
  */
 export const DEFAULT_CANVAS_CSS = `
-:where(html) {
+:where(html)::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2147483647;
   background-color: #ffffff;
+  pointer-events: none;
 }
 `;
 
@@ -3888,7 +3904,9 @@ export class NativeTabHost extends EventEmitter {
       this.injectAutoJsonViewer(wc);
       // Every pane, every preset: pages rely on the user agent's default canvas, and
       // without it this app's dark chrome shows through whatever the page leaves
-      // unpainted (and every capture of that area comes back transparent).
+      // unpainted (and every capture of that area comes back transparent). The fill
+      // stays below all content and never backgrounds the root element — see
+      // DEFAULT_CANVAS_CSS for why that distinction decides how the page renders.
       wc.insertCSS(DEFAULT_CANVAS_CSS).catch(() => {});
       // Idempotent layout and clipping synchronization on page load
       const isMobilePane = paneId === 'mobile' || Boolean(DEVICE_PRESETS.find((p) => p.id === state.devicePresetId)?.mobile);
