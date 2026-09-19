@@ -62,25 +62,55 @@ export function computeFrameChecksum(frame: Omit<InvocationRecord, 'checksum'>):
 }
 
 /**
+ * The checksum the **writer** must record: the hash of the value a reader will reconstruct from
+ * the persisted line, not of the record as it exists in memory.
+ *
+ * ## Why the writer cannot hash the in-memory object
+ *
+ * {@link computeFrameChecksum} is evaluated after `JSON.parse(line)`, so it always sees the JSON
+ * shape. The in-memory record is not that shape: `JSON.stringify` writes `null` for an
+ * `undefined` array slot and an ISO string for a `Date`, while the canonicalizer renders that slot
+ * as an empty one and an object-like non-record (a `Date`) as `{}`. Hashing before serialization
+ * therefore recorded a checksum that the writer's own bytes could not reproduce, so the next boot
+ * quarantined the entire partition around the row (`invocation-ledger.ts:197-203` → `:260-271`)
+ * and stranded every intact frame beside it.
+ *
+ * Running the record through `JSON.parse(JSON.stringify(...))` hands the hash *the* persisted
+ * shape by construction, so writer and reader cannot drift apart as rendering rules change. It is
+ * not a second definition of the format: {@link computeFrameChecksum} stays the only hash, and
+ * this function only decides which value it is given.
+ *
+ * Records are JSON by contract — the ledger persists `JSON.stringify(frame)` — so the round trip
+ * adds no failure mode the append did not already have.
+ */
+export function computePersistedFrameChecksum(frame: Omit<InvocationRecord, 'checksum'>): string {
+  const persistedShape = JSON.parse(JSON.stringify(frame)) as Omit<InvocationRecord, 'checksum'>;
+  return computeFrameChecksum(persistedShape);
+}
+
+/**
  * Diagnostic variant of {@link computeFrameChecksum}: the same hash over the same
  * canonicalizer, with `null`s **inside arrays** mapped to `undefined` first.
  *
  * ## Why it exists — and why it must never gate an admission
  *
- * The writer hashes the **in-memory** record, then serializes it. Where an array slot holds
- * `undefined`, `canonicalJsonStringify` renders that slot as an empty string through
- * `Array.prototype.join` (`src/shared/control-plane-contracts.ts:510-511` via `:508`), while
- * `JSON.stringify` writes `null` into the persisted line (`invocation-ledger.ts:802`). A frame
- * that went through that path therefore cannot reproduce its own recorded checksum from the
- * bytes on disk — which is why the ledger has already quarantined the whole partition around
- * it (`:199-202` → `:260-271`), stranding every intact frame in that file.
+ * A writer that hashes the **in-memory** record before serializing it — what this ledger did
+ * before {@link computePersistedFrameChecksum} existed — records a checksum its own bytes cannot
+ * reproduce: where an array slot holds `undefined`, `canonicalJsonStringify` renders that slot as
+ * an empty one through `Array.prototype.join` (`src/shared/control-plane-contracts.ts:510-511`
+ * via `:508`), while `JSON.stringify` writes `null` into the persisted line. Such a partition was
+ * quarantined on the next boot (`:199-202` → `:260-271`), stranding every intact frame in it.
  *
- * This variant is a **sub-reason for a line that has already failed the strict comparison**,
- * never a normalization applied before hashing. The counterexample is measured, not
- * hypothetical: 5 frames in the live store contain arrays of literal `null` — they **pass**
- * strict (the in-memory value really was `null`) while **failing** this variant. Normalizing
- * before hashing would flip those 5 valid frames to `CHECKSUM_MISMATCH`, so the strict result
- * is computed first and alone decides admission.
+ * {@link computePersistedFrameChecksum} removes the cause for every new frame. This variant
+ * therefore serves the rows that were already written that way: it names *why* an old line fails,
+ * so an operator reading a quarantine report can tell "empty array slot" from "corrupted row".
+ *
+ * It is a **sub-reason for a line that has already failed the strict comparison**, never a
+ * normalization applied before hashing. The counterexample is measured, not hypothetical: 5
+ * frames in the live store contain arrays of literal `null` — they **pass** strict (the in-memory
+ * value really was `null`) while **failing** this variant. Normalizing before hashing would flip
+ * those 5 valid frames to `CHECKSUM_MISMATCH`, so the strict result is computed first and alone
+ * decides admission.
  *
  * Only array slots are converted. A `null` **object property** is rendered as `"null"` by the
  * canonicalizer and is therefore left untouched: mapping it to `undefined` would drop the key

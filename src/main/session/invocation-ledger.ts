@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_MAX_INVOCATION_FRAME_BYTES,
   computeFrameChecksum,
+  computePersistedFrameChecksum,
   splitFrameLines,
 } from './invocation-frame-checksum';
 // The persisted-format contract (hash, byte ceiling, line boundary) lives in the seam module
@@ -797,7 +798,10 @@ export class InvocationLedger {
     await this.ensurePartitionDir(dir);
 
     const { checksum, ...rest } = record;
-    const calculatedChecksum = computeFrameChecksum(rest);
+    // Hash the shape the reader will reconstruct from the line, never the in-memory record:
+    // JSON.stringify normalizes an `undefined` array slot to `null`, so hashing before
+    // serialization recorded a checksum this very file could not reproduce.
+    const calculatedChecksum = computePersistedFrameChecksum(rest);
     const frameWithChecksum: InvocationRecord = {
       ...rest,
       checksum: calculatedChecksum,
@@ -835,7 +839,8 @@ export class InvocationLedger {
     try {
       const rows = records.map((rec) => {
         const { checksum, ...rest } = rec;
-        const calc = computeFrameChecksum(rest);
+        // Same rule as the append path: the rewritten row must verify against its own bytes.
+        const calc = computePersistedFrameChecksum(rest);
         const row = JSON.stringify({ ...rest, checksum: calc });
         if (Buffer.byteLength(row, 'utf8') + 1 > this.maxFrameBytes) {
           throw new CapabilityError('DURABILITY_FAILED', `Invocation frame exceeds ${this.maxFrameBytes} byte persistence limit`);

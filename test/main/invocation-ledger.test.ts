@@ -3,7 +3,8 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { InvocationLedger } from '../../src/main/session/invocation-ledger';
+import { InvocationLedger, type InvocationRecord } from '../../src/main/session/invocation-ledger';
+import { computeFrameChecksum } from '../../src/main/session/invocation-frame-checksum';
 import {
   CapabilityError,
   ClientInvocationIntent,
@@ -640,5 +641,107 @@ describe('InvocationLedger - Main Serialization & Deduplication', () => {
   it('15. Shutdown settlement is a no-op when nothing is in flight', async () => {
     const settlement = await ledger.settleInFlightForShutdown('app quit with no in-flight work');
     assert.deepStrictEqual(settlement, { pending: 0, settled: 0, skipped: 0, failed: 0 });
+  });
+
+  it('16. A frame carrying an `undefined` array slot replays instead of quarantining its partition', async () => {
+    const attachmentId = makeControlPlaneId('attachment');
+    const partitionPath = path.join(tmpDir, 'invocations', `${attachmentId}.jsonl`);
+    const authority = createMockAuthority(attachmentId, 'run-1', 'att-1');
+    const intent: ClientInvocationIntent = {
+      requestId: 'req-undef-1',
+      idempotencyKey: 'idem-undef-1',
+      attachmentId,
+      attachmentSecret: 'sec-1',
+      authorityRevision: 'rev-test-1',
+      name: 'test.action',
+      params: { index: 1 },
+    };
+
+    const claim = await ledger.claimOrObserve(intent, authority, 'digest', 1, 'public');
+    // `[undefined]` is what spreading an optional element produces in memory; the persisted line
+    // holds `[null]`, because that is what JSON.stringify writes. Hashing the in-memory record
+    // recorded a checksum those bytes could not reproduce, so the next boot quarantined the whole
+    // partition — every intact frame in it — around that one row.
+    await ledger.settle(claim.invocationId, 'completed', { items: [undefined] });
+
+    const lines = fs
+      .readFileSync(partitionPath, 'utf8')
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim().length > 0);
+    assert.ok(lines.length >= 2, 'the claim and the settle were both persisted');
+    assert.ok(
+      lines.some((line) => line.includes('"items":[null]')),
+      'the undefined slot reached the line as null'
+    );
+    for (const line of lines) {
+      const frame = JSON.parse(line) as InvocationRecord & { checksum: string };
+      const { checksum, ...rest } = frame;
+      assert.strictEqual(
+        computeFrameChecksum(rest),
+        checksum,
+        'the persisted bytes reproduce their recorded checksum'
+      );
+    }
+
+    // Replay sees the bytes alone. It runs in its own data root so no other ledger instance holds
+    // this file — two live ledgers on one partition would race on the compaction rename.
+    const replayRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ledger-replay-'));
+    try {
+      fs.mkdirSync(path.join(replayRoot, 'invocations'), { recursive: true });
+      fs.copyFileSync(partitionPath, path.join(replayRoot, 'invocations', path.basename(partitionPath)));
+      const replayed = new InvocationLedger({ dataRoot: replayRoot });
+      await replayed.initialize();
+      assert.deepStrictEqual(
+        fs.readdirSync(path.join(replayRoot, 'invocations')).filter((entry) => entry.includes('.quarantine-')),
+        [],
+        'no partition was quarantined'
+      );
+      const replayClaim = await replayed.claimOrObserve(intent, authority, 'digest', 1, 'public');
+      assert.strictEqual(replayClaim.kind, 'replay', 'the settled invocation replays from disk');
+      assert.deepStrictEqual(replayClaim.record?.result, { items: [null] });
+    } finally {
+      fs.rmSync(replayRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('17. Compaction rewrites frames through the persisted shape, so a coalesced row still verifies', async () => {
+    const attachmentId = makeControlPlaneId('attachment');
+    const partitionPath = path.join(tmpDir, 'invocations', `${attachmentId}.jsonl`);
+    const authority = createMockAuthority(attachmentId, 'run-1', 'att-1');
+    const compacting = new InvocationLedger({ dataRoot: tmpDir, maxHotRecordsPerPartition: 2 });
+    await compacting.initialize();
+
+    const intent: ClientInvocationIntent = {
+      requestId: 'req-compact-1',
+      idempotencyKey: 'idem-compact-1',
+      attachmentId,
+      attachmentSecret: 'sec-1',
+      authorityRevision: 'rev-test-1',
+      name: 'test.action',
+      params: { index: 1 },
+    };
+    const claim = await compacting.claimOrObserve(intent, authority, 'digest', 1, 'public');
+    await compacting.settle(claim.invocationId, 'completed', { items: [undefined] });
+
+    // settle() queues compaction without awaiting it; joining the queue keeps this deterministic.
+    await compacting.compactPartition(attachmentId);
+
+    const rows = fs
+      .readFileSync(partitionPath, 'utf8')
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim().length > 0);
+    assert.strictEqual(rows.length, 1, 'the claim and the settle coalesced into one row');
+    for (const row of rows) {
+      const frame = JSON.parse(row) as InvocationRecord & { checksum: string };
+      const { checksum, ...rest } = frame;
+      assert.strictEqual(
+        computeFrameChecksum(rest),
+        checksum,
+        'the coalesced row reproduces its recorded checksum'
+      );
+      assert.deepStrictEqual(frame.result, { items: [null] });
+    }
   });
 });
