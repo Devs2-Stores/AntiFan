@@ -2421,11 +2421,15 @@ export class BridgeServer {
           if (typeof p.text === 'string') {
             const tm = TerminalManager.getInstance();
             if (p.sessionId) {
-              // Phase 2 (step 6): an attachment-bound caller may only write to a
-              // terminal it owns. Enforced below via auto-owned resolution.
-              const verified = this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
-              if (!verified) {
-                respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment does not own the target terminal session');
+              // Scoped callers (agent attachment, mobile grant) may only write to
+              // a terminal they own; a master-token socket is unscoped and
+              // addresses any session explicitly.
+              const attachmentOwnsSession = !boundAttachmentId
+                || this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
+              const mobileOwnsSession = !mobileGrant
+                || (mobileGrant.sessionId === p.sessionId && mobileGrant.allowedScopes.includes('terminal.input'));
+              if (!attachmentOwnsSession || !mobileOwnsSession) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
                 break;
               }
               tm.writeTo(p.sessionId, p.text);
@@ -2466,9 +2470,14 @@ export class BridgeServer {
           if (typeof sequence === 'string') {
             const tm = TerminalManager.getInstance();
             if (p.sessionId) {
-              const verified = this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
-              if (!verified) {
-                respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment does not own the target terminal session');
+              // Same plane resolution as terminalInput: only scoped callers
+              // (agent attachment, mobile grant) are ownership-gated.
+              const attachmentOwnsSession = !boundAttachmentId
+                || this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
+              const mobileOwnsSession = !mobileGrant
+                || (mobileGrant.sessionId === p.sessionId && mobileGrant.allowedScopes.includes('terminal.input'));
+              if (!attachmentOwnsSession || !mobileOwnsSession) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
                 break;
               }
               tm.writeTo(p.sessionId, sequence);

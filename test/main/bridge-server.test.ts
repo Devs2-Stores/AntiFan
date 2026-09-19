@@ -10,6 +10,7 @@ import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { spawn } from 'node:child_process';
 import { BridgeServer, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
+import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
@@ -1154,6 +1155,120 @@ describe('Bridge discovery & pairing queue isolation from the live data root', (
       if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
       if (prevProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prevProfile;
       try { fs.rmSync(home, { recursive: true, force: true }); } catch {}
+    }
+  });
+});
+
+type TerminalWriteSurface = {
+  writeTo: (sessionId: string, input: string) => void;
+  write: (input: string) => void;
+};
+
+type MobileGrantSurface = {
+  mobileGrants: Map<string, MobileSessionGrant>;
+};
+
+describe('Bridge terminal write planes', () => {
+  it('resolves a terminal session per caller plane: master, mobile grant, and attachment ownership', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const registry = new AttachmentRegistry();
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = { runtimeId: makeControlPlaneId('binding'), projectId, workspaceId, token: 'tok-terminal-write', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };
+    const { launch } = await registry.issueAttachment(makeControlPlaneId('run'), makeControlPlaneId('attempt'), projectId, workspaceId, {
+      backendId: 'omp',
+      lease,
+      leaseToken: lease.token,
+      grant: 'write',
+      tabId: 'tab-1',
+    });
+
+    const terminalManager = TerminalManager.getInstance();
+    const tm = terminalManager as unknown as TerminalWriteSurface;
+    const originalWriteTo = tm.writeTo.bind(terminalManager);
+    const originalWrite = tm.write.bind(terminalManager);
+    const writes: Array<{ sessionId?: string; input: string }> = [];
+    tm.writeTo = (sessionId: string, input: string) => { writes.push({ sessionId, input }); };
+    tm.write = (input: string) => { writes.push({ input }); };
+
+    const server = new BridgeServer(mockHost, 0, false, undefined, undefined, registry);
+    const sockets: WebSocket[] = [];
+    const open = async (headers: Record<string, string>) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${server.getPort()}`, { headers });
+      sockets.push(socket);
+      await new Promise<void>((resolve, reject) => { socket.on('open', resolve); socket.on('error', reject); });
+      return socket;
+    };
+    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string }>((resolve) => {
+      const onMessage = (raw: unknown) => {
+        let frame: unknown;
+        try { frame = JSON.parse(String(raw)); } catch { return; }
+        if (typeof frame !== 'object' || frame === null || !('id' in frame) || frame.id !== id) return;
+        socket.off('message', onMessage);
+        resolve({
+          success: 'success' in frame && frame.success === true,
+          error: 'error' in frame && typeof frame.error === 'string' ? frame.error : undefined,
+        });
+      };
+      socket.on('message', onMessage);
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+
+    try {
+      await server.start();
+      const master = await open({ Authorization: `Bearer ${server.getToken()}` });
+      const attachment = await open({ 'x-antifan-attachment-secret': launch.secret });
+
+      // Master-token sockets are unscoped: an explicit sessionId addresses that session.
+      const masterWrite = await call(master, 'term-master-write', 'antifan.terminalInput', { sessionId: 'session-alpha', text: 'echo alpha\r' });
+      assert.strictEqual(masterWrite.success, true, masterWrite.error);
+      assert.deepStrictEqual(writes[writes.length - 1], { sessionId: 'session-alpha', input: 'echo alpha\r' });
+
+      const masterKey = await call(master, 'term-master-key', 'antifan.terminalSendKey', { sessionId: 'session-alpha', key: 'enter' });
+      assert.strictEqual(masterKey.success, true, masterKey.error);
+      assert.deepStrictEqual(writes[writes.length - 1], { sessionId: 'session-alpha', input: '\r' });
+
+      // Without a sessionId a master socket keeps writing to the active session.
+      const masterActive = await call(master, 'term-master-active', 'antifan.terminalInput', { text: 'echo active\r' });
+      assert.strictEqual(masterActive.success, true, masterActive.error);
+      assert.deepStrictEqual(writes[writes.length - 1], { input: 'echo active\r' });
+
+      // Attachment sockets cannot reach the legacy terminal RPCs at all: the agent
+      // plane writes through antifan.capability.dispatch, which runs its own
+      // ownership gate. Refused writes must never reach a terminal.
+      const foreign = await call(attachment, 'term-attach-foreign', 'antifan.terminalInput', { sessionId: 'session-alpha', text: 'echo refused\r' });
+      assert.strictEqual(foreign.success, false);
+      assert.match(foreign.error || '', /Forbidden: Attachment-authenticated connections/);
+      assert.strictEqual(writes.some((entry) => entry.input.includes('refused')), false, 'Refused writes must never reach the terminal');
+
+      // A mobile grant carries its own terminal session, advertised as terminal.input scope.
+      const grant: MobileSessionGrant = {
+        grantToken: 'grant-terminal-write',
+        sessionId: 'session-mobile',
+        clientClass: 'mobile',
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        revoked: false,
+        allowedScopes: ['terminal.sync', 'terminal.input', 'tabs.view'],
+      };
+      // The pairing flow mints grants over HTTP; injecting the record keeps this
+      // test on the socket plane without a pairing round-trip.
+      const grantSurface = server as unknown as MobileGrantSurface;
+      grantSurface.mobileGrants.set(grant.grantToken, grant);
+      const mobile = await open({ Authorization: `Bearer ${grant.grantToken}` });
+
+      const mobileOwn = await call(mobile, 'term-mobile-own', 'antifan.terminalInput', { sessionId: 'session-mobile', text: 'echo mobile\r' });
+      assert.strictEqual(mobileOwn.success, true, mobileOwn.error);
+      assert.deepStrictEqual(writes[writes.length - 1], { sessionId: 'session-mobile', input: 'echo mobile\r' });
+
+      const mobileForeign = await call(mobile, 'term-mobile-foreign', 'antifan.terminalInput', { sessionId: 'session-alpha', text: 'echo refused\r' });
+      assert.strictEqual(mobileForeign.success, false);
+      assert.match(mobileForeign.error || '', /TERMINAL_FORBIDDEN/);
+    } finally {
+      tm.writeTo = originalWriteTo;
+      tm.write = originalWrite;
+      for (const socket of sockets) { try { socket.close(); } catch {} }
+      server.dispose();
     }
   });
 });
