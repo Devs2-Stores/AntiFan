@@ -41,6 +41,11 @@ const hasSleepIcon = (wrap: FakeElement): boolean => {
   return Boolean(icon && /terminal-tab-sleep-icon/.test(icon.innerHTML));
 };
 
+const hasWaitingPulse = (wrap: FakeElement): boolean => {
+  const icon = wrap.querySelector('.terminal-tab-icon');
+  return Boolean(icon && /terminal-tab-waiting-pulse/.test(icon.innerHTML) && icon.innerHTML.includes('?'));
+};
+
 /** Replace the renderer's live session list the way a `session` broadcast does. */
 function seed(harness: StandaloneHarness, list: unknown[], active: string): void {
   harness.setSessions(list);
@@ -159,5 +164,66 @@ describe('Renderer terminal tab activity', () => {
       true,
       'sleeping tab must retain sleep icon',
     );
+  });
+
+  it('shows question mark waiting pulse when terminal requests user answer and clears on resolve', async () => {
+    const harness = loadStandalone();
+    await flush();
+
+    const list = [
+      { id: 's1', name: 'Active', state: 'running' },
+      { id: 's2', name: 'Agent Tab', state: 'running' },
+    ];
+    seed(harness, list, 's1');
+    harness.renderTabs();
+
+    const wrapS2 = wrapFor(harness, 's2');
+    assert.strictEqual(wrapS2.classList.contains('is-waiting'), false);
+    assert.strictEqual(hasWaitingPulse(wrapS2), false);
+
+    // 1. Emit OSC wait sequence
+    harness.emitData({
+      sessionId: 's2',
+      data: '\x1b]777;antifan;wait=1;Do%20you%20want%20to%20proceed%3F\x07',
+      seq: 1,
+      generation: 1,
+    });
+    await flush();
+
+    assert.strictEqual(wrapS2.classList.contains('is-waiting'), true, 'tab must have is-waiting class');
+    assert.strictEqual(hasWaitingPulse(wrapS2), true, 'tab icon must show pulsing question mark ?');
+    assert.strictEqual(
+      wrapS2.querySelector('.terminal-tab-status-beacon')?.className,
+      'terminal-tab-status-beacon waiting',
+    );
+
+    // 2. Emit clear wait sequence
+    harness.emitData({
+      sessionId: 's2',
+      data: '\x1b]777;antifan;wait=0\x07',
+      seq: 2,
+      generation: 1,
+    });
+    await flush();
+
+    assert.strictEqual(wrapS2.classList.contains('is-waiting'), false, 'is-waiting must be cleared');
+    assert.strictEqual(hasWaitingPulse(wrapS2), false, 'waiting pulse must be removed');
+
+    // 3. Emit OSC split across two chunk boundaries
+    harness.emitData({
+      sessionId: 's2',
+      data: 'Some preamble...\x1b]777;anti',
+      seq: 3,
+      generation: 1,
+    });
+    await flush();
+    harness.emitData({
+      sessionId: 's2',
+      data: 'fan;wait=1;Split%20chunk\x07',
+      seq: 4,
+      generation: 1,
+    });
+    await flush();
+    assert.strictEqual(wrapS2.classList.contains('is-waiting'), true, 'split OSC must still trigger waiting');
   });
 });

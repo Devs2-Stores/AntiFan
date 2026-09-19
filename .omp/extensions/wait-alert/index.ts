@@ -274,11 +274,17 @@ export default function antifanWaitAlertExtension(pi: WaitAlertAPI): void {
         // The panel may have already exited on its own lifetime.
       }
     }
+    try {
+      process.stdout.write("\x1b]777;antifan;wait=0\x07");
+    } catch {}
     log({ event: "wait-cleared", resolvedBy, reason: active.reason, repeats: active.repeats });
     active = null;
   };
 
   const beginWait = (ctx: WaitAlertContext, reason: string, detail: string): void => {
+    try {
+      process.stdout.write(`\x1b]777;antifan;wait=1;${encodeURIComponent(reason)}\x07`);
+    } catch {}
     if (!settings.enabled) return;
     if (active) {
       cancel(ctx, active.timer);

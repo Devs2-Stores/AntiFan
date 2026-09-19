@@ -535,6 +535,11 @@ function flushDeferredWakeInput() {
 /** Single funnel for pane input so "typing wakes a sleeping session" is total. */
 function sendTerminalInputFor(sessionId, data) {
   if (!sessionId || !data) return;
+  const act = sessionActivity.get(sessionId);
+  if (act && act.isWaiting) {
+    act.isWaiting = false;
+    updateTabActivityUi(sessionId);
+  }
   if (isSessionSleeping(sessionId)) {
     // The pane is released for a sleeping session; if a keystroke still reaches
     // one (sleep raced the last paint) it is an explicit wake request.
@@ -2605,6 +2610,11 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
 
   splitTerm.onData((data) => {
     if (!splitId) return;
+    const act = sessionActivity.get(splitId);
+    if (act && act.isWaiting) {
+      act.isWaiting = false;
+      updateTabActivityUi(splitId);
+    }
     // A session can fall asleep while still mounted in the split pane; a keystroke
     // is then a wake request rather than input to a released PTY. The awake path
     // keeps its direct forward.
@@ -3403,6 +3413,15 @@ const sessionActivityThrottle = new Map();
 
 function notifySessionActivity(sessionId, data) {
   if (!sessionId || !data || typeof data !== 'string') return;
+
+  // State control sequences bypass the stream throttle immediately
+  const actPreview = sessionActivity.get(sessionId);
+  const tailPreview = actPreview?.tail || '';
+  if (data.includes('\x1b]777;antifan;') || data.includes('\x1b]1337;antifan_wait=') || (tailPreview + data).includes('\x1b]777;antifan;')) {
+    classifySessionActivity(sessionId, data);
+    return;
+  }
+
   const now = Date.now();
   let th = sessionActivityThrottle.get(sessionId);
   if (!th) {
@@ -3432,6 +3451,34 @@ function notifySessionActivity(sessionId, data) {
 function classifySessionActivity(sessionId, data) {
   if (!sessionId || !data || typeof data !== 'string') return;
 
+  let act = sessionActivity.get(sessionId);
+  if (!act) {
+    act = { isStreaming: false, isAi: false, isWaiting: false, isCompleted: false, idleTimer: null, doneTimer: null, tail: '' };
+    sessionActivity.set(sessionId, act);
+  }
+
+  const combined = (act.tail || '') + data;
+  act.tail = data.length > 64 ? data.slice(-64) : combined.slice(-64);
+
+  // Fast-path: Explicit OSC sequence from wait-alert or AntiFan agents
+  const wait1Idx = Math.max(combined.lastIndexOf('\x1b]777;antifan;wait=1'), combined.lastIndexOf('\x1b]1337;antifan_wait=1'));
+  const wait0Idx = Math.max(combined.lastIndexOf('\x1b]777;antifan;wait=0'), combined.lastIndexOf('\x1b]1337;antifan_wait=0'));
+  if (wait0Idx !== -1 && wait0Idx > wait1Idx) {
+    act.tail = '';
+    act.isWaiting = false;
+    updateTabActivityUi(sessionId);
+    return;
+  }
+  if (wait1Idx !== -1 && wait1Idx > wait0Idx) {
+    act.tail = '';
+    clearTimeout(act.idleTimer);
+    clearTimeout(act.doneTimer);
+    act.isWaiting = true;
+    act.isStreaming = false;
+    act.isCompleted = false;
+    updateTabActivityUi(sessionId);
+    return;
+  }
   // Filter out ANSI sequences
   const clean = data.replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '').trim();
   if (!clean) return; // Pure cursor movements, clear lines, redraws
@@ -3443,13 +3490,6 @@ function classifySessionActivity(sessionId, data) {
   if (/^Windows\s+PowerShell/i.test(clean)) return;
   if (/^Copyright\s+\(C\)\s+Microsoft/i.test(clean)) return;
   if (/^Install the latest PowerShell/i.test(clean)) return;
-
-  let act = sessionActivity.get(sessionId);
-  if (!act) {
-    act = { isStreaming: false, isAi: false, isCompleted: false, idleTimer: null, doneTimer: null };
-    sessionActivity.set(sessionId, act);
-  }
-
   // Detect AI patterns, progress bars, or active execution
   const isAiIndicator = (
     /Claude|Codex|OpenCode|DeepSeek|Gemini|Qwen|Kimi|ChatGPT|Thinking\.\.\.|Streaming\.\.\.|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|\[in_progress\]|\[task\]|Agent|Evaluating|Generating/i.test(data)
@@ -3457,6 +3497,29 @@ function classifySessionActivity(sessionId, data) {
 
   if (isAiIndicator) {
     act.isAi = true;
+  }
+
+  // Detect if output stopped at an interactive prompt waiting for user answer
+  const isWaitPrompt = (
+    /(?:\(y\/n\)|\(Y\/n\)|\(y\/N\)|\(Y\/N\)|\[y\/n\]|\[Y\/n\]|\[y\/N\]|\[Y\/N\])\s*$/i.test(clean) ||
+    (act.isAi && (
+      /(?:Do you want to proceed|Waiting for user input|waiting for approval|Press any key|Enter your choice|chờ bạn trả lời|câu trả lời|\bAllow once\b|\bAllow always\b|\bDeny\b)/i.test(clean) ||
+      (/\?\s*$/.test(clean) && clean.length < 240)
+    ))
+  );
+  if (isWaitPrompt) {
+    clearTimeout(act.idleTimer);
+    clearTimeout(act.doneTimer);
+    act.isWaiting = true;
+    act.isStreaming = false;
+    act.isCompleted = false;
+    updateTabActivityUi(sessionId);
+    return;
+  }
+
+  // If streaming output resumed, clear waiting
+  if (act.isWaiting) {
+    act.isWaiting = false;
   }
 
   clearTimeout(act.idleTimer);
@@ -3484,19 +3547,6 @@ function classifySessionActivity(sessionId, data) {
   }, 1000);
 }
 
-function microLuffySvg(state) {
-  if (state === 'streaming') {
-    return `<svg class="micro-luffy" width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="8" r="4.5" fill="#fcd5b5" stroke="#18181b" stroke-width="0.8"/><ellipse cx="7" cy="4.5" rx="6" ry="2" fill="#eab308" stroke="#18181b" stroke-width="0.8"/><rect x="2" y="4.5" width="10" height="1" fill="#dc2626"/><circle cx="5.5" cy="7.5" r="0.8" fill="#18181b"/><circle cx="8.5" cy="7.5" r="0.8" fill="#18181b"/><path d="M5.5 10.2 Q7 11.5 8.5 10.2" stroke="#dc2626" stroke-width="0.8" stroke-linecap="round"/></svg>`;
-  }
-  if (state === 'completed') {
-    return `<svg class="micro-luffy" width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="8" r="4.5" fill="#fcd5b5" stroke="#18181b" stroke-width="0.8"/><ellipse cx="7" cy="4.5" rx="6" ry="2" fill="#eab308" stroke="#18181b" stroke-width="0.8"/><rect x="2" y="4.5" width="10" height="1" fill="#dc2626"/><path d="M4.5 8 Q5.5 7 6.5 8" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/><path d="M7.5 8 Q8.5 7 9.5 8" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/><path d="M5 9.5 Q7 12 9 9.5 Z" fill="#ffffff" stroke="#18181b" stroke-width="0.6"/></svg>`;
-  }
-  if (state === 'sleeping') {
-    return `<svg class="micro-luffy" width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="8" r="4.5" fill="#fcd5b5" stroke="#18181b" stroke-width="0.8"/><ellipse cx="7" cy="4.5" rx="6" ry="2" fill="#eab308" stroke="#18181b" stroke-width="0.8"/><rect x="2" y="4.5" width="10" height="1" fill="#dc2626"/><line x1="4.8" y1="8" x2="6.2" y2="8" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/><line x1="7.8" y1="8" x2="9.2" y2="8" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/><circle cx="9.5" cy="7" r="1.5" fill="#a78bfa" stroke="#e0e7ff" stroke-width="0.4" opacity="0.85"/></svg>`;
-  }
-  return `<svg class="micro-luffy" width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="8" r="4.5" fill="#fcd5b5" stroke="#18181b" stroke-width="0.8"/><ellipse cx="7" cy="4.5" rx="6" ry="2" fill="#eab308" stroke="#18181b" stroke-width="0.8"/><rect x="2" y="4.5" width="10" height="1" fill="#dc2626"/><circle cx="5.5" cy="8" r="0.7" fill="#18181b"/><circle cx="8.5" cy="8" r="0.7" fill="#18181b"/><path d="M6 10 Q7 11 8 10" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/></svg>`;
-}
-
 function updateTabActivityUi(sessionId) {
   const wrap = tabsEl?.querySelector(`.terminal-tab-wrap[data-session-id="${sessionId}"]`);
   if (!wrap) return;
@@ -3508,21 +3558,32 @@ function updateTabActivityUi(sessionId) {
   // Sleep is the terminal presentation state: a sleeping tab shows 💤 and must
   // not be repainted as streaming by a stale activity timer.
   if (isSessionSleeping(sessionId)) {
-    wrap.classList.remove('is-streaming', 'is-completed');
+    wrap.classList.remove('is-streaming', 'is-completed', 'is-waiting');
     if (iconEl) {
       iconEl.innerHTML = `<span class="terminal-tab-sleep-icon" title="Phiên đang ngủ. Gõ phím để đánh thức" aria-label="Đang ngủ">${iconSvg(ICON_MOON, 11)}</span>`;
     }
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon sleeping';
       beaconEl.title = '💤 Đang ngủ (PTY đã giải phóng)';
-      beaconEl.innerHTML = microLuffySvg('sleeping');
+      beaconEl.innerHTML = '';
     }
     return;
   }
 
-  if (act?.isStreaming) {
+  if (act?.isWaiting) {
+    wrap.classList.remove('is-streaming', 'is-completed');
+    wrap.classList.add('is-waiting');
+    if (iconEl) {
+      iconEl.innerHTML = `<span class="terminal-tab-waiting-pulse" title="❓ Đang chờ câu trả lời / phê duyệt của bạn...">?</span>`;
+    }
+    if (beaconEl) {
+      beaconEl.className = 'terminal-tab-status-beacon waiting';
+      beaconEl.title = '❓ Đang chờ câu trả lời';
+      beaconEl.innerHTML = '';
+    }
+  } else if (act?.isStreaming) {
+    wrap.classList.remove('is-waiting', 'is-completed');
     wrap.classList.add('is-streaming');
-    wrap.classList.remove('is-completed');
     if (iconEl) {
       if (act.isAi) {
         iconEl.innerHTML = `<span class="terminal-tab-ai-pulse" title="⚡ AI Agent đang thực thi / phản hồi...">⚡</span>`;
@@ -3533,10 +3594,10 @@ function updateTabActivityUi(sessionId) {
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon streaming';
       beaconEl.title = act.isAi ? '⚡ AI đang phản hồi...' : 'Đang xử lý...';
-      beaconEl.innerHTML = microLuffySvg('streaming');
+      beaconEl.innerHTML = '';
     }
   } else if (act?.isCompleted) {
-    wrap.classList.remove('is-streaming');
+    wrap.classList.remove('is-waiting', 'is-streaming');
     wrap.classList.add('is-completed');
     if (iconEl) {
       iconEl.innerHTML = `<span style="color:#10b981;font-weight:bold;font-size:11px;" title="Thực thi hoàn tất">✓</span>`;
@@ -3544,18 +3605,17 @@ function updateTabActivityUi(sessionId) {
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon completed';
       beaconEl.title = '✓ Hoàn tất';
-      beaconEl.innerHTML = microLuffySvg('completed');
+      beaconEl.innerHTML = '';
     }
   } else {
-    wrap.classList.remove('is-streaming');
-    wrap.classList.remove('is-completed');
+    wrap.classList.remove('is-waiting', 'is-streaming', 'is-completed');
     if (iconEl) {
       iconEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 5 8 8 4 11"/><line x1="9" y1="11" x2="13" y2="11"/></svg>`;
     }
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon';
-      beaconEl.title = 'Luffy Mascot';
-      beaconEl.innerHTML = microLuffySvg('idle');
+      beaconEl.title = '';
+      beaconEl.innerHTML = '';
     }
   }
 }
@@ -3671,7 +3731,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
 
     const beacon = document.createElement('span');
     beacon.className = 'terminal-tab-status-beacon';
-    beacon.innerHTML = microLuffySvg(isSessionSleeping(s.id) ? 'sleeping' : 'idle');
+    if (isSessionSleeping(s.id)) beacon.classList.add('sleeping');
 
     // Affinity is inherited, never owned by a pane: a split's shell reports its parent's
     // session id, so a badge on a pane row could only ever read "chưa gán" and its picker

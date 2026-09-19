@@ -155,83 +155,33 @@ function Invoke-TaskbarFlash {
   }
 }
 
-function New-LuffyAvatarBitmap {
+function New-QuestionBadgeBitmap {
   param([int]$Size = 56)
   $bmp = New-Object System.Drawing.Bitmap($Size, $Size)
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
   $g.Clear([System.Drawing.Color]::Transparent)
 
-  [float]$scale = [float]$Size / 100.0
-
-  $skinBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(252, 213, 181))
-  $hatBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(234, 179, 8))
-  $rimBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(220, 38, 38))
-  $hairBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(24, 24, 27))
-  $blackBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::Black)
-  $signBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(244, 244, 245))
-  $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(24, 24, 27), [float][Math]::Max(1.0, 1.5 * $scale))
+  $bgBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(40, 245, 158, 11))
+  $borderPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(245, 158, 11), 2.0)
+  $qBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(251, 191, 36))
+  [float]$fontSize = [Math]::Max(14.0, [float]($Size * 0.48))
+  $qFont = New-Object System.Drawing.Font('Segoe UI', $fontSize, [System.Drawing.FontStyle]::Bold)
+  $sf = New-Object System.Drawing.StringFormat
+  $sf.Alignment = [System.Drawing.StringAlignment]::Center
+  $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
 
   try {
-    # Head
-    $g.FillEllipse($skinBrush, [float](25 * $scale), [float](20 * $scale), [float](50 * $scale), [float](50 * $scale))
-    $g.DrawEllipse($pen, [float](25 * $scale), [float](20 * $scale), [float](50 * $scale), [float](50 * $scale))
-
-    # Hair tufts
-    $g.FillEllipse($hairBrush, [float](23 * $scale), [float](28 * $scale), [float](16 * $scale), [float](16 * $scale))
-    $g.FillEllipse($hairBrush, [float](61 * $scale), [float](28 * $scale), [float](16 * $scale), [float](16 * $scale))
-
-    # Straw Hat Dome
-    $g.FillPie($hatBrush, [float](18 * $scale), [float](2 * $scale), [float](64 * $scale), [float](50 * $scale), 180, 180)
-    $g.DrawArc($pen, [float](18 * $scale), [float](2 * $scale), [float](64 * $scale), [float](50 * $scale), 180, 180)
-
-    # Hat Red Ribbon
-    $g.FillRectangle($rimBrush, [float](14 * $scale), [float](23 * $scale), [float](72 * $scale), [float](6 * $scale))
-    $g.DrawRectangle($pen, [float](14 * $scale), [float](23 * $scale), [float](72 * $scale), [float](6 * $scale))
-
-    # Eyes
-    $g.FillEllipse($blackBrush, [float](40 * $scale), [float](40 * $scale), [float](4 * $scale), [float](5 * $scale))
-    $g.FillEllipse($blackBrush, [float](56 * $scale), [float](40 * $scale), [float](4 * $scale), [float](5 * $scale))
-
-    # Scar under left eye
-    $scarPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(180, 80, 60), [float][Math]::Max(1.0, 1.2 * $scale))
-    $g.DrawLine($scarPen, [float](38 * $scale), [float](48 * $scale), [float](43 * $scale), [float](48 * $scale))
-    $g.DrawLine($scarPen, [float](41 * $scale), [float](46 * $scale), [float](41 * $scale), [float](50 * $scale))
-    $scarPen.Dispose()
-
-    # Mouth (smile)
-    $g.DrawArc($pen, [float](44 * $scale), [float](48 * $scale), [float](12 * $scale), [float](10 * $scale), 20, 140)
-
-    # Sign / Board with "?"
-    $g.FillRectangle($signBrush, [float](18 * $scale), [float](62 * $scale), [float](64 * $scale), [float](32 * $scale))
-    $g.DrawRectangle($pen, [float](18 * $scale), [float](62 * $scale), [float](64 * $scale), [float](32 * $scale))
-
-    # Hands holding sign
-    $g.FillEllipse($skinBrush, [float](13 * $scale), [float](68 * $scale), [float](10 * $scale), [float](16 * $scale))
-    $g.DrawEllipse($pen, [float](13 * $scale), [float](68 * $scale), [float](10 * $scale), [float](16 * $scale))
-    $g.FillEllipse($skinBrush, [float](77 * $scale), [float](68 * $scale), [float](10 * $scale), [float](16 * $scale))
-    $g.DrawEllipse($pen, [float](77 * $scale), [float](68 * $scale), [float](10 * $scale), [float](16 * $scale))
-
-    # "?" on sign
-    [float]$fontSize = [Math]::Max(8.0, 15.0 * $scale)
-    $qFont = New-Object System.Drawing.Font('Segoe UI', $fontSize, [System.Drawing.FontStyle]::Bold)
-    $qBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(220, 38, 38))
-    $sf = New-Object System.Drawing.StringFormat
-    $sf.Alignment = [System.Drawing.StringAlignment]::Center
-    $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $rect = New-Object System.Drawing.RectangleF([float](18 * $scale), [float](62 * $scale), [float](64 * $scale), [float](32 * $scale))
+    $rect = New-Object System.Drawing.RectangleF(3, 3, $Size - 6, $Size - 6)
+    $g.FillEllipse($bgBrush, $rect)
+    $g.DrawEllipse($borderPen, $rect)
     $g.DrawString('?', $qFont, $qBrush, $rect, $sf)
-    $qFont.Dispose()
-    $qBrush.Dispose()
-    $sf.Dispose()
   } finally {
-    $skinBrush.Dispose()
-    $hatBrush.Dispose()
-    $rimBrush.Dispose()
-    $hairBrush.Dispose()
-    $blackBrush.Dispose()
-    $signBrush.Dispose()
-    $pen.Dispose()
+    $bgBrush.Dispose()
+    $borderPen.Dispose()
+    $qBrush.Dispose()
+    $qFont.Dispose()
+    $sf.Dispose()
     $g.Dispose()
   }
 
@@ -296,8 +246,8 @@ function Show-AlertPanel {
     $form.Left = $area.Right - $panelWidth - 20
     $form.Top = $area.Bottom - $panelHeight - 20
 
-    # Mascot Avatar
-    $avatarBmp = New-LuffyAvatarBitmap -Size 60
+    # Question Badge Icon
+    $avatarBmp = New-QuestionBadgeBitmap -Size 60
     $picAvatar = New-Object System.Windows.Forms.PictureBox
     $picAvatar.Size = New-Object System.Drawing.Size(60, 60)
     $picAvatar.Location = New-Object System.Drawing.Point(14, 20)
@@ -308,7 +258,7 @@ function Show-AlertPanel {
 
     # Heading (Amber Gold)
     $heading = New-Object System.Windows.Forms.Label
-    $heading.Text = 'LUFFY: THUYEN TRUONG OI!'
+    $heading.Text = 'DOI CAU TRA LOI CUA BAN'
     $heading.Location = New-Object System.Drawing.Point(82, 12)
     $heading.Size = New-Object System.Drawing.Size(284, 18)
     $heading.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
