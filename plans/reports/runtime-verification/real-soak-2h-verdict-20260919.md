@@ -58,8 +58,9 @@ PID 40468 (`electron.exe --production`, tạo 08:24:13) là **main process của
 Base `9134ed37` → `080c9cba` (gate 4 handler lifecycle/resize/restart) → `f4e78ae0` (gate input/sendKey khi thiếu `sessionId`, align thứ tự `p.id || p.sessionId` ở dispatch, test fail-closed).
 
 - `node --test .compiled/test/main/bridge-server.test.js` → **29/29 pass** (block `Bridge terminal write planes`: 3/3, gồm ca "refuses every terminal method for a grant with no terminal session bound (fail-closed)").
-- `npm run compile` trả exit 2 **không liên quan nhánh**: lỗi ở `scripts/probes/sapo-boundary-probe.ts` thiếu `packages/site-clone/dist/index.js` — thư mục `dist` là build output không được track, có trong cây chính (`true`) nhưng không có trong worktree mới checkout (`false`); tsc vẫn emit và toàn bộ test chạy được.
-- Nhánh chưa merge; worktree review: `E:/Work/apps/AntiFan-wt-mobile-plane-gates`.
+- Các file nhánh chạm emit sạch và toàn bộ 29 test bridge pass; `tsc` toàn dự án trả exit 2 **chỉ trong worktree** vì thiếu build output không được track: `scripts/probes/sapo-boundary-probe.ts` báo TS2307/TS7006 khi không có `packages/site-clone/dist` — thư mục này tồn tại trong cây chính (`existsSync true`) và không do nhánh này gây ra.
+- Sau khi merge (`d27a944a`): `npm run compile` trên main **exit 0** (emit-integrity 395 file, extension bundle OK) và bridge suite **29/29 pass** — caveat trên được chứng minh là hiện tượng của riêng worktree.
+- Đã merge vào `main` tại `d27a944a`; worktree gốc còn trên đĩa: `E:/Work/apps/AntiFan-wt-mobile-plane-gates`.
 
 ## 7. Việc còn lại (đề xuất, chưa làm)
 
