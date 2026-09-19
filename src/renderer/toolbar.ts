@@ -2433,6 +2433,40 @@ function computeBookmarksSignature(bookmarks: Array<{ id?: string; title?: strin
   return sig;
 }
 
+/**
+ * Child refs of one tab element, resolved once per element.
+ *
+ * The strip re-renders on every state broadcast and its signature includes `title`,
+ * so a retitling page drives this at up to 5 Hz; before the cache, each pass re-queried
+ * seven children per tab with attribute/class selectors (~210 DOM queries/s on a six-tab
+ * strip). A WeakMap keeps the refs with the element, so a closed tab's entry dies with it.
+ */
+interface TabElementRefs {
+  indexBadge: HTMLElement | null;
+  spinner: HTMLElement | null;
+  icon: HTMLImageElement | null;
+  statusDot: HTMLElement | null;
+  titleSpan: HTMLElement | null;
+  audioBtn: HTMLElement | null;
+  agentBadge: HTMLElement | null;
+}
+
+const tabRefsCache = new WeakMap<HTMLElement, TabElementRefs>();
+
+function cacheTabRefs(tabEl: HTMLElement): TabElementRefs {
+  const refs: TabElementRefs = {
+    indexBadge: tabEl.querySelector<HTMLElement>('.tab-index-badge'),
+    spinner: tabEl.querySelector<HTMLElement>('.tab-spinner'),
+    icon: tabEl.querySelector<HTMLImageElement>('.tab-icon'),
+    statusDot: tabEl.querySelector<HTMLElement>('.tab-status-dot'),
+    titleSpan: tabEl.querySelector<HTMLElement>('.tab-title'),
+    audioBtn: tabEl.querySelector<HTMLElement>('.tab-audio-btn'),
+    agentBadge: tabEl.querySelector<HTMLElement>('.tab-agent-badge'),
+  };
+  tabRefsCache.set(tabEl, refs);
+  return refs;
+}
+
 function renderTabs() {
   if (!tabList) return;
   lastTabsSignature = computeTabsSignature(currentTabs, activeTabId);
@@ -2447,9 +2481,20 @@ function renderTabs() {
     }
   });
 
+  // One pass over the surviving children replaces a per-tab attribute query: the
+  // strip re-renders on every broadcast, so that lookup ran for every tab each time.
+  const tabElById = new Map<string, HTMLElement>();
+  for (const child of Array.from(tabList.children)) {
+    const tabId = child.getAttribute('data-tab-id');
+    if (tabId) tabElById.set(tabId, child as HTMLElement);
+  }
+
   // 2. Update or insert tabs
   currentTabs.forEach((tab, index) => {
-    let tabEl = tabList.querySelector(`[data-tab-id="${tab.id}"]`) as HTMLElement;
+    // The condition below guarantees an element: every current tab is either already in
+    // the map or created and appended in this iteration. The assertion keeps the type
+    // the previous per-tab `querySelector(...) as HTMLElement` gave its closures.
+    let tabEl = tabElById.get(tab.id) as HTMLElement;
     const isActive = tab.id === activeTabId;
 
     if (!tabEl) {
@@ -2598,17 +2643,18 @@ function renderTabs() {
     }
     tabEl.setAttribute('tabindex', isActive ? '0' : '-1');
     // Update Spinner & Icon
-    const indexBadge = tabEl.querySelector('.tab-index-badge') as HTMLElement;
+    const refs = tabRefsCache.get(tabEl) || cacheTabRefs(tabEl);
+    const indexBadge = refs.indexBadge;
     if (indexBadge) {
       indexBadge.textContent = `#${index + 1}`;
       indexBadge.title = `Tab #${index + 1} (ID: ${tab.id}) - Nhấp chuột phải để sao chép cho Agent`;
     }
-    const spinner = tabEl.querySelector('.tab-spinner') as HTMLElement;
-    const icon = tabEl.querySelector('.tab-icon') as HTMLImageElement;
-    const statusDot = tabEl.querySelector('.tab-status-dot') as HTMLElement;
-    const titleSpan = tabEl.querySelector('.tab-title') as HTMLElement;
-    const audioBtn = tabEl.querySelector('.tab-audio-btn') as HTMLElement;
-    const agentBadge = tabEl.querySelector('.tab-agent-badge') as HTMLElement;
+    const spinner = refs.spinner;
+    const icon = refs.icon;
+    const statusDot = refs.statusDot;
+    const titleSpan = refs.titleSpan;
+    const audioBtn = refs.audioBtn;
+    const agentBadge = refs.agentBadge;
     if (agentBadge) {
       agentBadge.style.display = isAgentControlled ? 'inline-flex' : 'none';
       if (isAgentWorking) {
@@ -3098,9 +3144,15 @@ function renderPhoneStatus(status: ToolbarPhoneStatus | null | undefined) {
     phoneStatusText.textContent = `${displayName} (Muxer Offline)`;
   }
 
-  // Always re-render, including on disconnect: returning early on the hidden badge left an open panel
-  // showing "🟢 Đã kết nối" for a phone that had already been unplugged.
-  renderPhoneModalContent(status || null);
+  // The badge above is cheap and always applies. The panel body is a full HTML
+  // parse plus a subtree rebuild, and the state broadcast calls this on every push:
+  // while the panel is closed that parse was invisible work five times a second. A
+  // panel that IS on screen still re-renders, including on disconnect, so an open
+  // panel can never keep showing "🟢 Đã kết nối" for a phone that was unplugged —
+  // and openPhoneStatusModal() renders once more before it shows.
+  if (phoneStatusOverlay?.style.display === 'flex') {
+    renderPhoneModalContent(status || null);
+  }
 }
 
 function renderPhoneModalContent(status: ToolbarPhoneStatus | null) {
@@ -3220,14 +3272,36 @@ if (btnToggleSidebar) btnToggleSidebar.addEventListener('click', () => getApi()?
 if (btnPopoutTerminal) btnPopoutTerminal.addEventListener('click', () => getApi()?.popoutTerminal?.());
 // (btnRuler/btnDevTools/btnCaptureFullPage listeners removed — elements never existed.)
 
+let lastChromeProfilesSignature = '';
+
+/**
+ * The dropdown is rebuilt from `availableChromeProfiles` plus the active profile,
+ * and those two are its whole input. The state broadcast calls this on every push
+ * (up to 5 Hz), so without a value signature the same subtree and its handlers were
+ * reparsed and replaced while the dropdown was closed — thousands of throwaway
+ * nodes and closures per hour for a menu nobody had opened.
+ */
+function computeChromeProfilesSignature(profiles: any[], activeId: string): string {
+  let sig = `${activeId}:${profiles.length}`;
+  for (let i = 0; i < profiles.length; i++) {
+    const p = profiles[i];
+    if (p) sig += `;${p.id || ''},${p.name || ''}`;
+  }
+  return sig;
+}
+
 function renderChromeProfiles() {
   if (profileName) {
-    profileName.textContent = activeProfileInfo?.name || 'Default';
+    const nextProfileName = activeProfileInfo?.name || 'Default';
+    if (profileName.textContent !== nextProfileName) profileName.textContent = nextProfileName;
   }
-  if (profileAvatar) {
+  if (profileAvatar && profileAvatar.textContent !== '👤') {
     profileAvatar.textContent = '👤';
   }
   if (!profileDropdownList) return;
+  const signature = computeChromeProfilesSignature(availableChromeProfiles || [], activeProfileInfo?.id || '');
+  if (signature === lastChromeProfilesSignature) return;
+  lastChromeProfilesSignature = signature;
   profileDropdownList.innerHTML = '';
 
   availableChromeProfiles.forEach((p) => {

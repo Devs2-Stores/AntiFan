@@ -448,7 +448,7 @@ export interface StandaloneHarness {
   getActiveId(): string;
   renderTabs: () => void;
   syncTerminalPool: (allSessions: unknown[], currentActiveId: string, snapshot?: string, snapshotThroughSeq?: number) => void;
-  updateAffinityBadges: () => Promise<void>;
+  updateAffinityBadges: (deliveredTabs?: unknown[]) => Promise<void>;
   /** The read-only transcript preview mounted for a sleeping active session. */
   sleepPreview(): FakeElement | null;
   showCategoryPicker: (sessionId: string, anchorEl: FakeElement) => void;

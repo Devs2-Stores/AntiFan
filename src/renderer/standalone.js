@@ -2707,7 +2707,7 @@ if (splitButton) {
     }
   };
 }
-async function updateAffinityBadges() {
+async function updateAffinityBadges(deliveredTabs) {
   if (!api?.getTerminalAffinities || !api?.getTabs) return;
   const setBadgeState = (badge, cls, text, tip) => {
     if (badge.className !== cls) badge.className = cls;
@@ -2717,7 +2717,16 @@ async function updateAffinityBadges() {
   try {
     // One round-trip for every badge: the per-id loop was N+1 IPC calls on every
     // tab render, and each generation-less lookup cost an O(E) prefix scan.
-    const [tabs, affinities] = await Promise.all([api.getTabs(), api.getTerminalAffinities()]);
+    // A caller that already holds the broadcast's list hands it in: that list is
+    // `getTabList()` verbatim and the RPC payload is a projection of the same
+    // source, so re-fetching bought nothing and cost a second `invoke` per
+    // broadcast — ~106,800 over one 4 h soak, each allocating a correlation
+    // entry, a promise and a deserialized array on the main thread that every
+    // switch, bridge RPC and terminal fanout also runs on.
+    const [tabs, affinities] = await Promise.all([
+      Array.isArray(deliveredTabs) ? Promise.resolve(deliveredTabs) : api.getTabs(),
+      api.getTerminalAffinities(),
+    ]);
     const tabsMap = new Map((tabs || []).map((t) => [t.id, t]));
     const affinityMap = (affinities && typeof affinities === 'object') ? affinities : {};
     const badges = document.querySelectorAll('.terminal-tab-affinity-badge');
@@ -4683,7 +4692,7 @@ api?.onTerminalSession((state) => {
   flushDeferredWakeInput();
 });
 api?.onTabsUpdated?.(async (tabs) => {
-  updateAffinityBadges();
+  updateAffinityBadges(tabs);
   const popover = document.getElementById('affinityPickerPopover');
   if (popover && popover.style.display === 'block') {
     const currentSid = popover.getAttribute('data-active-session-id') || activeId;
