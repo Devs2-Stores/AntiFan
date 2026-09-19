@@ -430,15 +430,128 @@
       </div>
     </div>
     <div class="theme-qa-overlay" id="themeQaOverlay" style="display:none;">
-      <div class="theme-qa-modal" role="dialog" aria-modal="true" aria-labelledby="themeQaModalTitle">
-        <div class="theme-qa-modal-header">
-          <strong id="themeQaModalTitle">Theme QA Summary</strong>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <button id="btnThemeQaRerun" class="btn-theme-qa" style="padding:2px 8px;font-size:11px;" title="Re-run QA Validation">🔄 Re-run</button>
+      <div class="theme-qa-modal theme-studio-modal" role="dialog" aria-modal="true" aria-labelledby="themeStudioTitle">
+        <!-- Cockpit Header -->
+        <div class="theme-qa-modal-header theme-studio-header">
+          <div class="theme-studio-header-left">
+            <div class="theme-studio-badge-icon">🎨</div>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <strong id="themeStudioTitle" class="theme-studio-title">AntiFan Theme Studio &amp; QA Cockpit</strong>
+                <span class="theme-pill theme-pill-platform" id="themePlatformBadge">Theme</span>
+                <span class="theme-pill theme-pill-verdict" id="themeHealthPill">READY</span>
+              </div>
+              <div class="theme-studio-subtitle">Quản lý tiến độ 5 chặng, checklist nghiệm thu A-Z &amp; chẩn đoán live storefront</div>
+            </div>
+          </div>
+          <div class="theme-studio-header-right">
+            <div class="theme-studio-progress-box">
+              <div class="theme-progress-text">
+                <span>Tiến độ:</span>
+                <strong id="themeChecklistProgressVal">0/0 (0%)</strong>
+              </div>
+              <div class="theme-progress-track">
+                <div class="theme-progress-fill" id="themeChecklistProgressBar" style="width: 0%;"></div>
+              </div>
+            </div>
+            <button id="btnThemeQaRerun" class="btn-theme-qa" style="padding:2px 10px;font-size:11px;" title="Re-run QA Validation">🔄 Scan Live</button>
+            <button id="btnThemeChecklistReset" class="btn-theme-action" style="padding:2px 8px;font-size:11px;" title="Đặt lại checklist mặc định">↺ Reset</button>
             <button class="shortcuts-close" id="themeQaClose" aria-label="Close Theme QA summary">&times;</button>
           </div>
         </div>
-        <div class="theme-qa-modal-body" id="themeQaSummary">No validation has been run.</div>
+
+        <!-- Navigation Tabs -->
+        <div class="theme-studio-nav">
+          <button class="theme-studio-nav-tab active" id="tabNavThemeChecklist">
+            <span>📋</span>
+            <span>Lộ Trình &amp; Checklist (5 Chặng)</span>
+            <span class="theme-nav-badge" id="badgeThemeChecklist">0/28</span>
+          </button>
+          <button class="theme-studio-nav-tab" id="tabNavThemeFindings">
+            <span>🧪</span>
+            <span>Live Storefront QA</span>
+            <span class="theme-nav-badge" id="badgeThemeFindings">0 Issues</span>
+          </button>
+        </div>
+
+        <!-- Tab Body Container -->
+        <div class="theme-studio-body">
+          <!-- TAB 1: ROADMAP & CHECKLIST -->
+          <div class="theme-studio-tab-content" id="themeTabChecklist">
+            <div class="theme-checklist-toolbar">
+              <div class="theme-phase-filters" id="themePhaseFilters">
+                <button class="phase-filter-btn active" data-phase="all">Tất cả (5 Chặng)</button>
+                <button class="phase-filter-btn" data-phase="phase-1">Chặng 1: Móng</button>
+                <button class="phase-filter-btn" data-phase="phase-2">Chặng 2: Máy mua hàng</button>
+                <button class="phase-filter-btn" data-phase="phase-3">Chặng 3: Vỏ &amp; Menu</button>
+                <button class="phase-filter-btn" data-phase="phase-4">Chặng 4: Mặt tiền</button>
+                <button class="phase-filter-btn" data-phase="phase-5">Chặng 5: QA &amp; Cấu hình</button>
+              </div>
+              <div class="theme-checklist-search">
+                <input type="text" id="themeChecklistSearch" placeholder="Tìm kiếm module hoặc mã..." autocomplete="off" />
+              </div>
+            </div>
+
+            <!-- List of Sections / Modules Container -->
+            <div class="theme-checklist-scroll" id="themeChecklistList">
+              <!-- Rendered dynamically by JavaScript -->
+            </div>
+          </div>
+
+          <!-- TAB 2: LIVE QA FINDINGS DASHBOARD -->
+          <div class="theme-studio-tab-content" id="themeTabFindings" style="display:none;">
+            <!-- Viewport Quick Switcher & Metrics -->
+            <div class="theme-qa-metrics-bar">
+              <div class="theme-qa-status-pill" id="themeQaOverallStatus">
+                <span class="status-dot"></span>
+                <span id="themeQaOverallStatusText">Chưa chạy kiểm tra</span>
+              </div>
+              <div class="theme-qa-quick-viewports">
+                <span class="quick-vp-label">Thử nhanh Viewport:</span>
+                <button class="btn-vp-quick" data-preset="phone-iphonese" title="iPhone SE (375px)">📱 375px</button>
+                <button class="btn-vp-quick" data-preset="tablet-768" title="iPad (768px)">📱 768px</button>
+                <button class="btn-vp-quick" data-preset="laptop-1440" title="Laptop (1440px)">💻 1440px</button>
+                <button class="btn-vp-quick" data-preset="desktop-fhd" title="Desktop FHD (1920px)">🖥️ 1920px</button>
+                <button class="btn-vp-quick" data-preset="responsive" title="Fluid Responsive">🔄 Fluid</button>
+              </div>
+            </div>
+
+            <!-- Finding categories summary counters -->
+            <div class="theme-qa-stats-grid" id="themeQaStatsGrid">
+              <div class="qa-stat-card critical" id="statCardLiquid">
+                <div class="stat-num" id="statCountLiquid">0</div>
+                <div class="stat-lbl">Liquid Errors</div>
+              </div>
+              <div class="qa-stat-card warning" id="statCardOverflow">
+                <div class="stat-num" id="statCountOverflow">0</div>
+                <div class="stat-lbl">Layout Overflow</div>
+              </div>
+              <div class="qa-stat-card warning" id="statCardAssets">
+                <div class="stat-num" id="statCountAssets">0</div>
+                <div class="stat-lbl">Broken Assets</div>
+              </div>
+              <div class="qa-stat-card info" id="statCardHs">
+                <div class="stat-num" id="statCountHs">0</div>
+                <div class="stat-lbl">HS Convert Rules</div>
+              </div>
+              <div class="qa-stat-card info" id="statCardDiagnostics">
+                <div class="stat-num" id="statCountDiagnostics">0</div>
+                <div class="stat-lbl">Diagnostics</div>
+              </div>
+            </div>
+
+            <!-- Dynamic Findings List Container -->
+            <div class="theme-qa-findings-list" id="themeQaFindingsList">
+              <div class="qa-empty-state">
+                <div class="qa-empty-icon">🧪</div>
+                <div>Bấm <strong>"Scan Live"</strong> để quét toàn bộ mã nguồn Liquid, vỡ viền responsive và lỗi tài nguyên trên storefront tab.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hidden Raw Summary for test backward compatibility -->
+        <div id="themeQaSummary" style="display:none;" aria-hidden="true">No validation has been run.</div>
       </div>
     </div>
     <!-- WORKFLOW & MCP HUB MODAL -->

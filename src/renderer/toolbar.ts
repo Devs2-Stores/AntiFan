@@ -260,6 +260,361 @@ function renderThemeQa(state: ThemeQaState, report?: Record<string, unknown>) {
     btnThemeQa.disabled = false;
   }
 }
+interface ThemeChecklistItem {
+  id: string;
+  code: string;
+  name: string;
+  desc: string;
+  phase: 'phase-1' | 'phase-2' | 'phase-3' | 'phase-4' | 'phase-5';
+  pathHint?: string;
+  done: boolean;
+}
+
+const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
+  // CHẶNG 1: KHUNG XƯƠNG
+  { id: 'glb-01', code: 'GLB-01', name: 'Layout & Reset CSS', desc: 'Biến màu sắc, font chữ, container chuẩn, theme.liquid', phase: 'phase-1', pathHint: '/', done: false },
+  { id: 'glb-02', code: 'GLB-02', name: 'Kho Icon SVG', desc: 'Snippet SVG icons: giỏ hàng, search, user, tim, close', phase: 'phase-1', pathHint: '/', done: false },
+  { id: 'glb-03', code: 'GLB-03', name: 'SEO & Meta Tags', desc: 'Thẻ meta title, description, canonical, OG image', phase: 'phase-1', pathHint: '/', done: false },
+
+  // CHẶNG 2: MÁY MUA HÀNG
+  { id: 'pdp-01', code: 'PDP-01', name: 'Thẻ sản phẩm (product-card)', desc: 'Ảnh 2 hover, giá, sale badge, xử lý hết hàng / liên hệ', phase: 'phase-2', pathHint: '/collections/all', done: false },
+  { id: 'pdp-02', code: 'PDP-02', name: 'Product Gallery & Zoom', desc: 'Gallery ảnh to + thumbnail + đổi màu nhảy ảnh variant', phase: 'phase-2', pathHint: '/products', done: false },
+  { id: 'pdp-03', code: 'PDP-03', name: 'Khối Mua Hàng & Swatch', desc: 'Variant swatch màu/size, số lượng, Mua ngay, Thêm giỏ', phase: 'phase-2', pathHint: '/products', done: false },
+  { id: 'pdp-04', code: 'PDP-04', name: 'Tabs nội dung SP & Sticky ATC', desc: 'Mô tả, thông số, thanh mua hàng dính đáy khi cuộn', phase: 'phase-2', pathHint: '/products', done: false },
+  { id: 'pdp-05', code: 'PDP-05', name: 'Quickview Modal', desc: 'Xem nhanh sản phẩm: slider ảnh, swatch, thêm giỏ', phase: 'phase-2', pathHint: '/', done: false },
+  { id: 'crt-01', code: 'CRT-01', name: 'AJAX Cart Drawer', desc: 'Thêm/bớt/xóa món, cập nhật giá tiền và số lượng tức thì', phase: 'phase-2', pathHint: '/cart', done: false },
+  { id: 'crt-02', code: 'CRT-02', name: 'Trạng thái Empty Cart', desc: 'Giỏ hàng trống báo đúng câu chữ + nút Tiếp tục mua sắm', phase: 'phase-2', pathHint: '/cart', done: false },
+
+  // CHẶNG 3: VỎ BỌC & ĐIỀU HƯỚNG
+  { id: 'hdr-01', code: 'HDR-01', name: 'Header & Mega Menu', desc: 'Logo, menu đa cấp 1-2-3, bubble count giỏ hàng', phase: 'phase-3', pathHint: '/', done: false },
+  { id: 'hdr-02', code: 'HDR-02', name: 'Mobile Menu Drawer', desc: 'Menu mobile đồng bộ desktop, nút hamburger, scroll mượt', phase: 'phase-3', pathHint: '/', done: false },
+  { id: 'hdr-03', code: 'HDR-03', name: 'Smart Search Popup', desc: 'Gợi ý sản phẩm, xử lý từ khóa ngắn < 2 ký tự, zero result', phase: 'phase-3', pathHint: '/search', done: false },
+  { id: 'ftr-01', code: 'FTR-01', name: 'Footer & Newsletter', desc: 'Cột link, thông tin shop, form đăng ký mail validate AJAX', phase: 'phase-3', pathHint: '/', done: false },
+  { id: 'col-01', code: 'COL-01', name: 'Bộ lọc sản phẩm (Filter)', desc: 'Lọc theo giá, màu, size, thương hiệu; reset được bộ lọc', phase: 'phase-3', pathHint: '/collections/all', done: false },
+  { id: 'col-02', code: 'COL-02', name: 'Product Grid & Phân trang', desc: 'Lưới sản phẩm đều khung, phân trang số hoặc xem thêm', phase: 'phase-3', pathHint: '/collections/all', done: false },
+
+  // CHẶNG 4: MẶT TIỀN & VỆ TINH
+  { id: 'hom-01', code: 'HOM-01', name: 'Hero Banner Slider', desc: 'Banner chính chạy 2 chiều, không vỡ trước khi init slide', phase: 'phase-4', pathHint: '/', done: false },
+  { id: 'hom-02', code: 'HOM-02', name: 'Danh mục nổi bật Grid', desc: 'Icon/Ảnh danh mục, tỷ lệ ảnh đồng bộ, không méo', phase: 'phase-4', pathHint: '/', done: false },
+  { id: 'hom-03', code: 'HOM-03', name: 'Flash Sale Countdown', desc: 'Đồng hồ đếm ngược, thanh tiến độ bán, hết hạn tự ẩn', phase: 'phase-4', pathHint: '/', done: false },
+  { id: 'hom-04', code: 'HOM-04', name: 'Tabs sản phẩm trang chủ', desc: 'Chuyển tab mượt mà, bỏ chọn danh mục không vỡ khung', phase: 'phase-4', pathHint: '/', done: false },
+  { id: 'hom-05', code: 'HOM-05', name: 'Tin tức & Đối tác', desc: 'Blog carousel mới nhất, slider logo đối tác', phase: 'phase-4', pathHint: '/', done: false },
+  { id: 'blg-01', code: 'BLG-01', name: 'Blog list & Article detail', desc: 'Danh sách bài viết, chi tiết bài, mục lục, bình luận', phase: 'phase-4', pathHint: '/blogs/news', done: false },
+  { id: 'pag-01', code: 'PAG-01', name: 'Trang liên hệ (Contact)', desc: 'Form liên hệ validate trước khi gửi + bản đồ', phase: 'phase-4', pathHint: '/pages/lien-he', done: false },
+  { id: 'acc-01', code: 'ACC-01', name: 'Tài khoản & Đổi mật khẩu', desc: 'Đăng nhập, đăng ký, quên MK, đổi MK (không thiếu đổi MK)', phase: 'phase-4', pathHint: '/account/login', done: false },
+  { id: 'acc-02', code: 'ACC-02', name: 'Lịch sử đơn hàng & Sổ địa chỉ', desc: 'Trang orders không crash Liquid, thêm/sửa/xóa địa chỉ', phase: 'phase-4', pathHint: '/account/orders', done: false },
+  { id: 'sys-01', code: 'SYS-01', name: 'Trang 404 & Tìm kiếm', desc: 'Giao diện 404 có style, kết quả tìm kiếm đúng từ khóa', phase: 'phase-4', pathHint: '/404', done: false },
+
+  // CHẶNG 5: CẤU HÌNH & QA
+  { id: 'set-01', code: 'SET-01', name: 'Theme Settings Schema', desc: 'Đổi setting ăn ngoài giao diện 100%, ghi kích thước khuyên dùng', phase: 'phase-5', pathHint: '/', done: false },
+  { id: 'qa-01', code: 'QA-01', name: '3 Bài Test Diệt Bug', desc: 'Empty-state sạch, 375px không scroll ngang, Console sạch 100%', phase: 'phase-5', pathHint: '/', done: false },
+];
+
+const THEME_CHECKLIST_STORAGE_KEY = 'antifan_theme_checklist_state_v1';
+let themeChecklist: ThemeChecklistItem[] = [];
+let activePhaseFilter: string = 'all';
+let checklistSearchQuery: string = '';
+let activeThemeStudioTab: 'checklist' | 'findings' = 'checklist';
+
+function loadThemeChecklist(): ThemeChecklistItem[] {
+  try {
+    const raw = localStorage.getItem(THEME_CHECKLIST_STORAGE_KEY);
+    if (!raw) return DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+    const saved = JSON.parse(raw) as Record<string, boolean>;
+    return DEFAULT_THEME_CHECKLIST.map((item) => ({
+      ...item,
+      done: Boolean(saved[item.id]),
+    }));
+  } catch {
+    return DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+  }
+}
+
+function saveThemeChecklist(items: ThemeChecklistItem[]) {
+  try {
+    const record: Record<string, boolean> = {};
+    for (const item of items) {
+      if (item.done) record[item.id] = true;
+    }
+    localStorage.setItem(THEME_CHECKLIST_STORAGE_KEY, JSON.stringify(record));
+  } catch (err) {
+    console.warn('[ThemeStudio] Failed to save checklist state:', err);
+  }
+}
+
+const PHASE_TITLES: Record<string, string> = {
+  'phase-1': 'Chặng 1: Móng & Khung Xương (Layout, Reset CSS, Icons)',
+  'phase-2': 'Chặng 2: Máy Mua Hàng (PDP, Swatch, Gallery, Cart Drawer)',
+  'phase-3': 'Chặng 3: Vỏ Bọc & Điều Hướng (Header, Menu, Footer, Filter)',
+  'phase-4': 'Chặng 4: Mặt Tiền & Vệ Tinh (Trang Chủ, Blog, Account, 404)',
+  'phase-5': 'Chặng 5: Cấu Hình & Tự Kiểm QA (Settings, Empty State, 375px)',
+};
+
+function renderThemeStudioChecklist() {
+  const container = document.getElementById('themeChecklistList');
+  const progressVal = document.getElementById('themeChecklistProgressVal');
+  const progressBar = document.getElementById('themeChecklistProgressBar') as HTMLElement | null;
+  const badgeNav = document.getElementById('badgeThemeChecklist');
+  if (!container) return;
+
+  if (themeChecklist.length === 0) {
+    themeChecklist = loadThemeChecklist();
+  }
+
+  const total = themeChecklist.length;
+  const doneCount = themeChecklist.filter((it) => it.done).length;
+  const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+
+  if (progressVal) progressVal.textContent = `${doneCount}/${total} (${percent}%)`;
+  if (progressBar) progressBar.style.width = `${percent}%`;
+  if (badgeNav) badgeNav.textContent = `${doneCount}/${total}`;
+
+  // Group items by phase
+  const phases = ['phase-1', 'phase-2', 'phase-3', 'phase-4', 'phase-5'];
+  container.innerHTML = '';
+
+  const q = checklistSearchQuery.trim().toLowerCase();
+
+  phases.forEach((phaseKey) => {
+    if (activePhaseFilter !== 'all' && activePhaseFilter !== phaseKey) return;
+
+    let phaseItems = themeChecklist.filter((it) => it.phase === phaseKey);
+    if (q) {
+      phaseItems = phaseItems.filter(
+        (it) => it.name.toLowerCase().includes(q) || it.code.toLowerCase().includes(q) || it.desc.toLowerCase().includes(q)
+      );
+    }
+    if (phaseItems.length === 0 && q) return;
+
+    const phaseDone = phaseItems.filter((it) => it.done).length;
+    const phaseTotal = phaseItems.length;
+
+    const card = document.createElement('div');
+    card.className = 'theme-phase-card';
+
+    const header = document.createElement('div');
+    header.className = 'theme-phase-header';
+    header.innerHTML = `
+      <div class="theme-phase-header-title">
+        <span class="theme-phase-badge">${phaseKey.toUpperCase().replace('-', ' ')}</span>
+        <span>${PHASE_TITLES[phaseKey] || phaseKey}</span>
+      </div>
+      <div class="theme-phase-progress-pill">${phaseDone}/${phaseTotal} Xong</div>
+    `;
+
+    const itemsBox = document.createElement('div');
+    itemsBox.className = 'theme-phase-items';
+
+    phaseItems.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = `theme-item-row${item.done ? ' is-done' : ''}`;
+
+      const left = document.createElement('div');
+      left.className = 'theme-item-left';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'theme-item-checkbox';
+      cb.checked = item.done;
+      cb.addEventListener('change', () => {
+        item.done = cb.checked;
+        saveThemeChecklist(themeChecklist);
+        renderThemeStudioChecklist();
+      });
+
+      const codeTag = document.createElement('span');
+      codeTag.className = 'theme-item-code';
+      codeTag.textContent = item.code;
+
+      const info = document.createElement('div');
+      info.className = 'theme-item-info';
+      info.innerHTML = `
+        <div class="theme-item-name">${item.name}</div>
+        <div class="theme-item-desc">${item.desc}</div>
+      `;
+
+      left.append(cb, codeTag, info);
+
+      const right = document.createElement('div');
+      right.className = 'theme-item-right';
+
+      const statusTag = document.createElement('span');
+      statusTag.className = `theme-status-tag ${item.done ? 'done' : 'backlog'}`;
+      statusTag.textContent = item.done ? 'Done' : 'Backlog';
+      right.appendChild(statusTag);
+
+      if (item.pathHint) {
+        const btnNav = document.createElement('button');
+        btnNav.className = 'theme-btn-nav';
+        btnNav.title = `Mở đường dẫn ${item.pathHint}`;
+        btnNav.textContent = '↗ Xem';
+        btnNav.addEventListener('click', (e) => {
+          e.stopPropagation();
+          getApi()?.navigate(item.pathHint!);
+          showToolbarToast(`Điều hướng đến ${item.pathHint}`);
+        });
+        right.appendChild(btnNav);
+      }
+
+      row.append(left, right);
+      itemsBox.appendChild(row);
+    });
+
+    card.append(header, itemsBox);
+    container.appendChild(card);
+  });
+}
+
+function renderThemeStudioFindings(report?: Record<string, unknown>) {
+  const listEl = document.getElementById('themeQaFindingsList');
+  const overallStatusPill = document.getElementById('themeQaOverallStatus');
+  const overallStatusText = document.getElementById('themeQaOverallStatusText');
+  const badgeFindings = document.getElementById('badgeThemeFindings');
+  const platformBadge = document.getElementById('themePlatformBadge');
+  const healthPill = document.getElementById('themeHealthPill');
+
+  const statLiquid = document.getElementById('statCountLiquid');
+  const statOverflow = document.getElementById('statCountOverflow');
+  const statAssets = document.getElementById('statCountAssets');
+  const statHs = document.getElementById('statCountHs');
+  const statDiag = document.getElementById('statCountDiagnostics');
+
+  if (!listEl) return;
+
+  const rep = report || (lastThemeQaReport || themeQaState.report) as Record<string, unknown> | undefined;
+  const findings = rep?.findings as Record<string, unknown> | undefined;
+  const summary = rep?.summary as Record<string, unknown> | undefined;
+  const platform = findings?.platform as Record<string, unknown> | undefined;
+
+  const liquid = findings?.liquid as { errors?: Array<{ message?: string }> } | undefined;
+  const overflow = findings?.overflow as { culprits?: Array<{ selector?: string }> } | undefined;
+  const assets = findings?.assets as { brokenAssets?: Array<{ url?: string; src?: string }> } | undefined;
+  const hsRules = findings?.hsRules as { totalViolations?: number; violations?: Array<{ ruleId?: string; message?: string }> } | undefined;
+  const diagnosticIssues = findings?.diagnosticIssues as Array<{ kind?: string; message?: string; origin?: string }> | undefined;
+  const diagnosticWarnings = findings?.diagnosticWarnings as Array<{ kind?: string; message?: string; origin?: string }> | undefined;
+
+  const liquidCount = liquid?.errors?.length || 0;
+  const overflowCount = overflow?.culprits?.length || 0;
+  const assetsCount = assets?.brokenAssets?.length || 0;
+  const hsCount = hsRules?.totalViolations || 0;
+  const diagCount = (diagnosticIssues?.length || 0) + (diagnosticWarnings?.length || 0);
+  const totalIssues = summary?.totalIssues ?? (liquidCount + overflowCount + assetsCount + hsCount + diagCount);
+
+  if (platformBadge) platformBadge.textContent = typeof platform?.platform === 'string' ? platform.platform.toUpperCase() : 'THEME';
+  if (statLiquid) statLiquid.textContent = String(liquidCount);
+  if (statOverflow) statOverflow.textContent = String(overflowCount);
+  if (statAssets) statAssets.textContent = String(assetsCount);
+  if (statHs) statHs.textContent = String(hsCount);
+  if (statDiag) statDiag.textContent = String(diagCount);
+
+  if (badgeFindings) badgeFindings.textContent = `${totalIssues} Issues`;
+
+  if (summary) {
+    const passed = Boolean(summary.passed);
+    if (healthPill) {
+      healthPill.textContent = passed ? 'PASSED' : 'FAILED';
+      healthPill.classList.toggle('fail', !passed);
+    }
+    if (overallStatusPill && overallStatusText) {
+      overallStatusPill.classList.toggle('pass', passed);
+      overallStatusPill.classList.toggle('fail', !passed);
+      overallStatusText.textContent = passed
+        ? 'STOREFRONT SẠCH (0 Critical Issues)'
+        : `PHÁT HIỆN ${totalIssues} LỖI CẦN XỬ LÝ`;
+    }
+  }
+
+  listEl.innerHTML = '';
+
+  const allCards: Array<{ category: 'critical' | 'warning' | 'info'; title: string; desc: string; selector?: string }> = [];
+
+  (liquid?.errors || []).forEach((item) => {
+    allCards.push({ category: 'critical', title: 'LIQUID SYNTAX ERROR', desc: item.message || 'Lỗi cú pháp Liquid' });
+  });
+  (overflow?.culprits || []).forEach((item) => {
+    allCards.push({
+      category: 'warning',
+      title: 'LAYOUT OVERFLOW (TRÀN CHIỀU NGANG)',
+      desc: `Phần tử gây tràn màn hình: ${item.selector || 'Chưa rõ selector'}`,
+      selector: item.selector,
+    });
+  });
+  (assets?.brokenAssets || []).forEach((item) => {
+    allCards.push({ category: 'warning', title: 'BROKEN ASSET (404)', desc: item.url || item.src || 'Tài nguyên ảnh/script bị hỏng' });
+  });
+  (hsRules?.violations || []).forEach((item) => {
+    allCards.push({ category: 'info', title: `HS RULE [${item.ruleId || 'RULE'}]`, desc: item.message || '' });
+  });
+  (diagnosticIssues || []).forEach((item) => {
+    allCards.push({
+      category: 'critical',
+      title: `CONSOLE ERROR [${item.kind || 'issue'}]`,
+      desc: `${item.message || ''}${item.origin ? ` (${item.origin})` : ''}`,
+    });
+  });
+  (diagnosticWarnings || []).forEach((item) => {
+    allCards.push({
+      category: 'info',
+      title: `DIAGNOSTIC WARNING [${item.kind || 'warning'}]`,
+      desc: `${item.message || ''}${item.origin ? ` (${item.origin})` : ''}`,
+    });
+  });
+
+  if (allCards.length === 0) {
+    listEl.innerHTML = `
+      <div class="qa-empty-state">
+        <div class="qa-empty-icon">${summary?.passed ? '✅' : '🧪'}</div>
+        <div>${summary?.passed ? 'Tuyệt vời! Không phát hiện lỗi Liquid, lỗi tràn viền hay tài nguyên hỏng trên trang này.' : 'Bấm <strong>"Scan Live"</strong> để bắt đầu kiểm tra giao diện Storefront.'}</div>
+      </div>
+    `;
+    return;
+  }
+
+  allCards.forEach((cardData) => {
+    const card = document.createElement('div');
+    card.className = `qa-finding-card ${cardData.category}`;
+
+    const content = document.createElement('div');
+    content.className = 'qa-finding-content';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'qa-finding-title-row';
+    titleRow.innerHTML = `
+      <span class="qa-finding-badge ${cardData.category}">${cardData.category}</span>
+      <span class="qa-finding-signature">${cardData.title}</span>
+    `;
+
+    const msg = document.createElement('div');
+    msg.className = 'qa-finding-msg';
+    msg.textContent = cardData.desc;
+
+    content.append(titleRow, msg);
+
+    if (cardData.selector) {
+      const target = document.createElement('div');
+      target.className = 'qa-finding-target';
+      target.textContent = cardData.selector;
+      content.appendChild(target);
+    }
+
+    card.appendChild(content);
+
+    if (cardData.selector) {
+      const btnInspect = document.createElement('button');
+      btnInspect.className = 'btn-highlight-dom';
+      btnInspect.title = 'Sao chép selector và soi phần tử';
+      btnInspect.textContent = '🎯 Soi DOM';
+      btnInspect.addEventListener('click', () => {
+        navigator.clipboard?.writeText(cardData.selector!);
+        showToolbarToast(`Đã sao chép selector: <code>${cardData.selector}</code>`);
+      });
+      card.appendChild(btnInspect);
+    }
+
+    listEl.appendChild(card);
+  });
+}
+
 function openThemeQaSummary() {
   if (!themeQaOverlay || !themeQaSummary) return;
   const report = (lastThemeQaReport || themeQaState.report) as Record<string, unknown> | undefined;
@@ -290,7 +645,14 @@ function openThemeQaSummary() {
     ...(diagnosticIssues || []).map((item) => `[Diagnostics Critical] [${item.kind || 'issue'}] ${item.message || ''}${item.origin ? ` (${item.origin})` : ''}`),
     ...(diagnosticWarnings || []).map((item) => `[Diagnostics Warning] [${item.kind || 'warning'}] ${item.message || ''}${item.origin ? ` (${item.origin})` : ''}`),
   ] : [themeQaState.error || 'No validation has been run.'];
+
+  // Keep hidden raw text updated for automated test suites
   themeQaSummary.textContent = lines.join('\n');
+
+  // Render rich Cockpit UI
+  renderThemeStudioChecklist();
+  renderThemeStudioFindings(report);
+
   themeQaOverlay.style.display = 'flex';
   acquireOverlay('theme-qa');
 }
@@ -2167,6 +2529,65 @@ btnThemeQaRerun?.addEventListener('click', async () => {
 });
 themeQaClose?.addEventListener('click', () => { if (themeQaOverlay) themeQaOverlay.style.display = 'none'; releaseOverlay('theme-qa'); });
 themeQaOverlay?.addEventListener('click', (event) => { if (event.target === themeQaOverlay) { themeQaOverlay.style.display = 'none'; releaseOverlay('theme-qa'); } });
+
+// Theme Studio Cockpit Event Listeners
+const tabNavThemeChecklist = document.getElementById('tabNavThemeChecklist');
+const tabNavThemeFindings = document.getElementById('tabNavThemeFindings');
+const themeTabChecklist = document.getElementById('themeTabChecklist');
+const themeTabFindings = document.getElementById('themeTabFindings');
+
+tabNavThemeChecklist?.addEventListener('click', () => {
+  tabNavThemeChecklist.classList.add('active');
+  tabNavThemeFindings?.classList.remove('active');
+  if (themeTabChecklist) themeTabChecklist.style.display = 'flex';
+  if (themeTabFindings) themeTabFindings.style.display = 'none';
+  renderThemeStudioChecklist();
+});
+
+tabNavThemeFindings?.addEventListener('click', () => {
+  tabNavThemeFindings.classList.add('active');
+  tabNavThemeChecklist?.classList.remove('active');
+  if (themeTabFindings) themeTabFindings.style.display = 'flex';
+  if (themeTabChecklist) themeTabChecklist.style.display = 'none';
+  renderThemeStudioFindings();
+});
+
+const phaseFilterBtns = document.querySelectorAll('.phase-filter-btn');
+phaseFilterBtns.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    phaseFilterBtns.forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    activePhaseFilter = btn.getAttribute('data-phase') || 'all';
+    renderThemeStudioChecklist();
+  });
+});
+
+const themeChecklistSearch = document.getElementById('themeChecklistSearch') as HTMLInputElement | null;
+themeChecklistSearch?.addEventListener('input', () => {
+  checklistSearchQuery = themeChecklistSearch.value;
+  renderThemeStudioChecklist();
+});
+
+const btnThemeChecklistReset = document.getElementById('btnThemeChecklistReset');
+btnThemeChecklistReset?.addEventListener('click', () => {
+  if (confirm('Bạn có chắc muốn đặt lại toàn bộ checklist về trạng thái chưa làm?')) {
+    localStorage.removeItem(THEME_CHECKLIST_STORAGE_KEY);
+    themeChecklist = DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+    renderThemeStudioChecklist();
+    showToolbarToast('Đã đặt lại checklist');
+  }
+});
+
+const btnVpQuicks = document.querySelectorAll('.btn-vp-quick');
+btnVpQuicks.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const preset = btn.getAttribute('data-preset');
+    if (preset) {
+      getApi()?.setDevicePreset(preset);
+      showToolbarToast(`Chuyển Viewport: ${preset}`);
+    }
+  });
+});
 
 /**
  * True once this renderer session has actually seen an attached phone.
