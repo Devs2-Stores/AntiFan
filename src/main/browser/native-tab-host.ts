@@ -3039,6 +3039,53 @@ export class NativeTabHost extends EventEmitter {
     if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return false;
     return Array.isArray(this.window.contentView.children) && this.window.contentView.children.includes(view);
   }
+
+  /**
+   * Every detach path runs on the single-threaded main loop, but the transactions that
+   * move views span `await`s: a temporary attach-for-capture, another session's
+   * activation, or a renderer crash can land between one transaction's attach and the
+   * next check, and the presented tab's view then sits outside `contentView.children`.
+   * A view outside the window has no compositor surface, so its renderer receives no
+   * BeginFrame: the DOM stays alive and fully styled while the pane paints nothing but
+   * the window background (the reported "trang" page that heals the moment the tab is
+   * activated again). Re-assert the invariant after every view-stack mutation rather
+   * than trusting whichever transaction ran last.
+   */
+  public reassertPresentedView(): void {
+    if (this.isDisposed) return;
+    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
+    // Guarded by their own fields: several tests build a host without running field
+    // initializers, and a re-assert on such a host must be a no-op, not a TypeError.
+    const activeTab = this.activeTabId && this.tabs ? this.tabs.get(this.activeTabId) : null;
+    if (!activeTab || !activeTab.view || !activeTab.view.webContents || activeTab.state.offscreen === true) return;
+    const wc = activeTab.view.webContents;
+    if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) return;
+    if (!this.isTabViewAttached(activeTab.view)) {
+      this.attachTabView(activeTab.view, false);
+      // The view never had a surface while it was outside the window, so the window has
+      // to lay it out before its renderer can commit a frame.
+      this.layOutDetachedView(activeTab.view);
+      recordLifecycleEvent('tabhost.presentedViewReattached', { tabId: this.activeTabId });
+    }
+    if (activeTab.state.splitMode && activeTab.mobileView?.webContents && !activeTab.mobileView.webContents.isDestroyed() && !this.isTabViewAttached(activeTab.mobileView)) {
+      this.attachTabView(activeTab.mobileView, true);
+    }
+    this.enforceZOrder();
+    try { wc.invalidate(); } catch {}
+  }
+
+  /**
+   * A view an in-flight attach-for-capture operation is holding. The detach sweeps must
+   * leave it alone: removing it mid-flight both invalidates the measurement the caller
+   * attached it for and, once that caller releases, can strip the view the window was
+   * presenting.
+   */
+  private isTemporarilyAttachedView(view: WebContentsView | null | undefined): boolean {
+    if (!view || !this.temporaryViewAttachCounts) return false;
+    const state = this.temporaryViewAttachCounts.get(view);
+    return Boolean(state && state.count > 0);
+  }
+
   public async runWithAttachedTabView<T>(view: WebContentsView | null | undefined, action: () => Promise<T>, isMobile = false): Promise<T> {
     if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) {
       return action();
@@ -3084,10 +3131,12 @@ export class NativeTabHost extends EventEmitter {
                 this.window.contentView.removeChildView(view);
               }
             } catch {}
-            if (activeTab?.view?.webContents && !activeTab.view.webContents.isDestroyed() && typeof activeTab.view.webContents.invalidate === 'function') {
-              try { activeTab.view.webContents.invalidate(); } catch {}
-            }
           }
+          // Releasing a temporary attach must not leave the presented tab outside the
+          // window. The release used to invalidate the active view only, and an invalidate
+          // on a detached view repaints nothing, so the pane stayed blank until something
+          // else happened to activate that tab again.
+          this.reassertPresentedView();
         }
       }
     }
@@ -4342,7 +4391,12 @@ export class NativeTabHost extends EventEmitter {
       const targetId = this.resolveTargetTabId(tabId) || tabId;
       const target = this.tabs.get(targetId);
       if (!target) return false;
-      if (target.state.offscreen === true || target.state.ephemeral === true) return false;
+      if (target.state.offscreen === true || target.state.ephemeral === true) {
+        // Refusing to present an agent-plane tab must not also leave the window with no
+        // view at all when an earlier transaction took the presented one away.
+        this.reassertPresentedView();
+        return false;
+      }
       const switchStartMs = performance.now();
 
       // Guard against destroyed WebContents/WebContentsView or crashed renderer
@@ -4444,10 +4498,13 @@ export class NativeTabHost extends EventEmitter {
       if (this.window && !this.window.isDestroyed() && this.window.contentView) {
         for (const [id, tab] of this.tabs.entries()) {
           if (id !== targetId) {
-            if (tab.view && this.window.contentView.children.includes(tab.view)) {
+            // A view an in-flight attach-for-capture call is holding stays put: detaching
+            // it here breaks that caller's measurement, and its release then decides the
+            // visible stack from a picture of it that is already stale.
+            if (tab.view && !this.isTemporarilyAttachedView(tab.view) && this.window.contentView.children.includes(tab.view)) {
               try { this.window.contentView.removeChildView(tab.view); } catch {}
             }
-            if (tab.mobileView && this.window.contentView.children.includes(tab.mobileView)) {
+            if (tab.mobileView && !this.isTemporarilyAttachedView(tab.mobileView) && this.window.contentView.children.includes(tab.mobileView)) {
               try { this.window.contentView.removeChildView(tab.mobileView); } catch {}
             }
           }
@@ -4512,6 +4569,7 @@ export class NativeTabHost extends EventEmitter {
       if (target.mobileView?.webContents && !target.mobileView.webContents.isDestroyed()) {
         try { target.mobileView.webContents.invalidate(); } catch {}
       }
+      this.reassertPresentedView();
       if (isBenchmarkEnabled()) {
         recordBenchmark({ surface: 'tabs', name: 'switched', value: performance.now() - switchStartMs, extra: { attachedViews: this.countAttachedViews() } });
       }
@@ -4528,6 +4586,9 @@ export class NativeTabHost extends EventEmitter {
         this.updateLayout();
         this.broadcastState();
       } catch {}
+      // A switch that failed still owes the window a presented view: whatever is active
+      // now beats an empty pane.
+      try { this.reassertPresentedView(); } catch {}
       return false;
     }
   }
@@ -4720,6 +4781,9 @@ export class NativeTabHost extends EventEmitter {
     } else {
       this.broadcastState();
     }
+    // Closing the presented tab picks a new one (or creates one); if that pick refuses
+    // or fails the window would otherwise keep showing nothing at all.
+    this.reassertPresentedView();
     recordBenchmark({ surface: 'tabs', name: 'closed', extra: { attachedViews: this.countAttachedViews() } });
     return true;
   }

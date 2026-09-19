@@ -1,0 +1,195 @@
+import { describe, it } from 'node:test';
+import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { NativeTabHost, NativeTabRecord } from '../../src/main/browser/native-tab-host';
+import { AntiFanTab } from '../../src/shared/contracts';
+
+/**
+ * Every tab transaction - a switch, a close, a refused activation, the release of an
+ * attach-for-capture - has to leave the window presenting something. The window has
+ * exactly one pane that shows a tab, so a transaction that takes the presented view out
+ * and then returns without putting it back leaves a blank window until the user happens
+ * to activate that tab again. These tests pin that invariant at the two points where it
+ * used to break: a refused activation on a window that is already empty, and a switch
+ * running while a capture holds another tab's view on screen.
+ */
+
+// The host journals presentation changes into the runtime the live app writes to. A unit
+// run must not append to the user's journal, so the journal is redirected to a temp root
+// before the first event is recorded (the journal resolves its path on first write).
+const RUNTIME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-tabhost-runtime-'));
+process.env.ANTIFAN_RUNTIME_DIR = RUNTIME_DIR;
+
+// Deliberately not the 1440x900 the background viewport path is known to invent, so a box
+// derived from this window can never be mistaken for a fabricated default.
+const WINDOW_CONTENT_BOX = { x: 0, y: 0, width: 1280, height: 800 };
+const TOOLBAR_HEIGHT = 90;
+const SIDEBAR_WIDTH = 380;
+
+interface PaneBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface RecordedTab {
+  tab: NativeTabRecord;
+  setBoundsCalls: PaneBounds[];
+  currentBounds: () => PaneBounds;
+  invalidateCalls: number;
+}
+
+interface PresentedHost {
+  host: any;
+  children: unknown[];
+  emulationCalls: Array<{ tabId: string; availableWidth: number; availableHeight: number; toolbarHeight: number }>;
+}
+
+function createTestTab(id: string, overrides: Partial<AntiFanTab> = {}): RecordedTab {
+  const state: AntiFanTab = {
+    id,
+    url: 'https://store.example.com',
+    title: 'Store',
+    isLoading: false,
+    canGoBack: false,
+    canGoForward: false,
+    zoomFactor: 1.0,
+    ...overrides,
+  };
+
+  const bounds: PaneBounds = { x: 0, y: 0, width: 0, height: 0 };
+  const setBoundsCalls: PaneBounds[] = [];
+  const recorder = { invalidateCalls: 0 };
+
+  const webContents = {
+    isDestroyed: () => false,
+    isCrashed: () => false,
+    getURL: () => state.url,
+    setZoomFactor: (_factor: number) => {},
+    insertCSS: async (_css: string) => '',
+    invalidate: () => {
+      recorder.invalidateCalls += 1;
+    },
+    focus: () => {},
+    setBackgroundThrottling: (_enabled: boolean) => {},
+    executeJavaScript: async (_script: string) => undefined,
+    loadURL: async (_url: string) => undefined,
+  };
+
+  const view = {
+    webContents,
+    setBounds: (rect: PaneBounds) => {
+      setBoundsCalls.push({ ...rect });
+      Object.assign(bounds, rect);
+    },
+    getBounds: () => ({ ...bounds }),
+    setBackgroundColor: (_color: string) => {},
+  };
+
+  const tab = { state, view } as unknown as NativeTabRecord;
+  return {
+    tab,
+    setBoundsCalls,
+    currentBounds: () => ({ ...bounds }),
+    get invalidateCalls() {
+      return recorder.invalidateCalls;
+    },
+  };
+}
+
+function createPresentedHost(params: { tabs: RecordedTab[]; activeTabId: string; attached: unknown[] }): PresentedHost {
+  const children: unknown[] = [...params.attached];
+  const host: any = Object.create(NativeTabHost.prototype);
+  host.isDisposed = false;
+  host.tabs = new Map(params.tabs.map((recorded) => [recorded.tab.state.id, recorded.tab]));
+  host.activeTabId = params.activeTabId;
+  host.defaultUserAgent = 'MockDesktopUA';
+  host.isSidebarOpen = false;
+  host.sidebarWidth = SIDEBAR_WIDTH;
+  host.temporaryViewAttachCounts = new WeakMap();
+  host.tabByWebContents = new WeakMap(
+    params.tabs.map((recorded) => [recorded.tab.view.webContents, { tabId: recorded.tab.state.id, tab: recorded.tab }])
+  );
+  host.window = {
+    isDestroyed: () => false,
+    getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }),
+    contentView: {
+      children,
+      addChildView: (view: unknown, index?: number) => {
+        const at = typeof index === 'number' ? Math.max(0, Math.min(index, children.length)) : children.length;
+        children.splice(at, 0, view);
+      },
+      removeChildView: (view: unknown) => {
+        const at = children.indexOf(view);
+        if (at >= 0) children.splice(at, 1);
+      },
+    },
+  };
+  host.getToolbarHeight = () => TOOLBAR_HEIGHT;
+  // Device emulation is the layout path activation uses - it is what sizes the pane's
+  // view for the window. The box arithmetic itself is covered by the pane-layout suite;
+  // what matters here is that a re-attached view is handed to it at all.
+  const emulationCalls: Array<{ tabId: string; availableWidth: number; availableHeight: number; toolbarHeight: number }> = [];
+  host.applyTabDeviceEmulation = (tab: NativeTabRecord, availableWidth: number, availableHeight: number, toolbarHeight: number) => {
+    emulationCalls.push({ tabId: tab.state.id, availableWidth, availableHeight, toolbarHeight });
+  };
+  host.updateLayout = () => {};
+  host.broadcastState = () => {};
+  host.applyTabThrottling = () => {};
+  host.setSafeUserAgent = () => {};
+  host.setupTabWebContentsEvents = () => {};
+  host.destroyOwnedWebContents = () => {};
+  host.schedulePersist = () => {};
+  return { host, children, emulationCalls };
+}
+
+describe('Presented view invariant', () => {
+  it('refusing to present an agent-plane tab re-attaches the presented view instead of leaving the window empty', () => {
+    const presented = createTestTab('tab-visible');
+    const agentTab = createTestTab('tab-agent', { offscreen: true });
+    // The window is already empty: the state an earlier transaction in this codebase
+    // used to leave behind, and the one the refusal path has to be able to recover from.
+    const { host, children, emulationCalls } = createPresentedHost({
+      tabs: [presented, agentTab],
+      activeTabId: 'tab-visible',
+      attached: [],
+    });
+
+    assert.strictEqual(host.switchTab('tab-agent'), false, 'an offscreen tab must never be presented');
+    assert.deepStrictEqual(children, [presented.tab.view], 'the presented tab must be back on screen after the refusal');
+    assert.deepStrictEqual(
+      emulationCalls,
+      [{ tabId: 'tab-visible', availableWidth: WINDOW_CONTENT_BOX.width, availableHeight: WINDOW_CONTENT_BOX.height - TOOLBAR_HEIGHT, toolbarHeight: TOOLBAR_HEIGHT }],
+      'a view returning to a window it never had a surface in must be sized for that window'
+    );
+    assert.strictEqual(presented.invalidateCalls, 1, 'the view must be repainted once it is back in the window');
+    const journal = fs.readFileSync(path.join(RUNTIME_DIR, 'logs', 'main.log'), 'utf8');
+    assert.ok(
+      journal.includes('"event":"tabhost.presentedViewReattached"') && journal.includes('"tabId":"tab-visible"'),
+      'the re-attach must be recorded in the runtime the host resolved, not appended to the live app journal'
+    );
+  });
+
+  it('a switch made while a capture holds another tab keeps that tab on screen and leaves the window as it found it', async () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host, children } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+
+    let attachedDuringSwitch = false;
+    await host.runWithAttachedTabView(background.tab.view, async () => {
+      assert.strictEqual(host.isTabViewAttached(background.tab.view), true, 'the helper must put the pane on screen before the action runs');
+      host.switchTab('tab-visible');
+      attachedDuringSwitch = host.isTabViewAttached(background.tab.view);
+    });
+
+    assert.strictEqual(attachedDuringSwitch, true, 'the detach sweep must not take away a view an in-flight capture is holding');
+    assert.deepStrictEqual(children, [presented.tab.view], 'releasing the capture must hand the window back to the presented tab only');
+  });
+});
