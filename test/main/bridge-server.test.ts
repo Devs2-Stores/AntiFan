@@ -1162,6 +1162,12 @@ describe('Bridge discovery & pairing queue isolation from the live data root', (
 type TerminalWriteSurface = {
   writeTo: (sessionId: string, input: string) => void;
   write: (input: string) => void;
+  closeSession: (id: string) => Promise<boolean>;
+  renameSession: (id: string, name: string) => boolean;
+  resizeTo: (id: string, cols: number, rows: number) => void;
+  resize: (cols: number, rows: number) => void;
+  restart: (cwd?: string) => Promise<void>;
+  getActiveSessionId: () => string;
 };
 
 type MobileGrantSurface = {
@@ -1267,6 +1273,265 @@ describe('Bridge terminal write planes', () => {
     } finally {
       tm.writeTo = originalWriteTo;
       tm.write = originalWrite;
+      for (const socket of sockets) { try { socket.close(); } catch {} }
+      server.dispose();
+    }
+  });
+
+  it('gates session lifecycle, resize, and restart per caller plane', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0, false);
+    const sockets: WebSocket[] = [];
+    const open = async (headers: Record<string, string>) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${server.getPort()}`, { headers });
+      sockets.push(socket);
+      await new Promise<void>((resolve, reject) => { socket.on('open', resolve); socket.on('error', reject); });
+      return socket;
+    };
+    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string }>((resolve) => {
+      const onMessage = (raw: unknown) => {
+        let frame: unknown;
+        try { frame = JSON.parse(String(raw)); } catch { return; }
+        if (typeof frame !== 'object' || frame === null || !('id' in frame) || frame.id !== id) return;
+        socket.off('message', onMessage);
+        resolve({
+          success: 'success' in frame && frame.success === true,
+          error: 'error' in frame && typeof frame.error === 'string' ? frame.error : undefined,
+        });
+      };
+      socket.on('message', onMessage);
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+
+    const terminalManager = TerminalManager.getInstance();
+    const tm = terminalManager as unknown as TerminalWriteSurface;
+    const originalCloseSession = tm.closeSession.bind(terminalManager);
+    const originalRenameSession = tm.renameSession.bind(terminalManager);
+    const originalResizeTo = tm.resizeTo.bind(terminalManager);
+    const originalResize = tm.resize.bind(terminalManager);
+    const originalRestart = tm.restart.bind(terminalManager);
+    const originalGetActiveSessionId = tm.getActiveSessionId.bind(terminalManager);
+
+    const closed: string[] = [];
+    const renamed: Array<{ id: string; name: string }> = [];
+    const resizedTo: Array<{ id: string; cols: number; rows: number }> = [];
+    const resized: Array<{ cols: number; rows: number }> = [];
+    const restarts: Array<{ cwd?: string }> = [];
+    let stubbedActiveSessionId = 'session-stubbed-active';
+
+    tm.closeSession = async (id: string) => { closed.push(id); return true; };
+    tm.renameSession = (id: string, name: string) => { renamed.push({ id, name }); return true; };
+    tm.resizeTo = (id: string, cols: number, rows: number) => { resizedTo.push({ id, cols, rows }); };
+    tm.resize = (cols: number, rows: number) => { resized.push({ cols, rows }); };
+    tm.restart = async (cwd?: string) => { restarts.push({ cwd }); };
+    tm.getActiveSessionId = () => stubbedActiveSessionId;
+
+    try {
+      await server.start();
+      const master = await open({ Authorization: `Bearer ${server.getToken()}` });
+
+      // 1. Master: close, rename, resize, restart with an explicit session id succeed
+      // and reach the patched TerminalManager methods with that session id.
+      const masterClose = await call(master, 'term-master-close', 'antifan.terminalCloseSession', { sessionId: 'session-alpha' });
+      assert.strictEqual(masterClose.success, true, masterClose.error);
+      assert.strictEqual(closed[closed.length - 1], 'session-alpha');
+
+      const masterRename = await call(master, 'term-master-rename', 'antifan.terminalRenameSession', { sessionId: 'session-alpha', name: 'Alpha shell' });
+      assert.strictEqual(masterRename.success, true, masterRename.error);
+      assert.deepStrictEqual(renamed[renamed.length - 1], { id: 'session-alpha', name: 'Alpha shell' });
+
+      const masterResize = await call(master, 'term-master-resize', 'antifan.terminalResize', { sessionId: 'session-alpha', cols: 120, rows: 30 });
+      assert.strictEqual(masterResize.success, true, masterResize.error);
+      assert.deepStrictEqual(resizedTo[resizedTo.length - 1], { id: 'session-alpha', cols: 120, rows: 30 });
+
+      const masterRestart = await call(master, 'term-master-restart', 'antifan.terminalRestart', { sessionId: 'session-alpha' });
+      assert.strictEqual(masterRestart.success, true, masterRestart.error);
+      assert.strictEqual(restarts.length, 1);
+
+      // 2. Mobile grant: issued for session-mobile with terminal.input scope
+      const grant: MobileSessionGrant = {
+        grantToken: 'grant-terminal-ops',
+        sessionId: 'session-mobile',
+        clientClass: 'mobile',
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        revoked: false,
+        allowedScopes: ['terminal.sync', 'terminal.input', 'tabs.view'],
+      };
+      const grantSurface = server as unknown as MobileGrantSurface;
+      grantSurface.mobileGrants.set(grant.grantToken, grant);
+      const mobile = await open({ Authorization: `Bearer ${grant.grantToken}` });
+
+      // Mobile grant: the same four calls succeed for the session the grant was issued for
+      const mobileClose = await call(mobile, 'term-mobile-close', 'antifan.terminalCloseSession', { sessionId: 'session-mobile' });
+      assert.strictEqual(mobileClose.success, true, mobileClose.error);
+      assert.strictEqual(closed[closed.length - 1], 'session-mobile');
+
+      const mobileRename = await call(mobile, 'term-mobile-rename', 'antifan.terminalRenameSession', { sessionId: 'session-mobile', name: 'Mobile shell' });
+      assert.strictEqual(mobileRename.success, true, mobileRename.error);
+      assert.deepStrictEqual(renamed[renamed.length - 1], { id: 'session-mobile', name: 'Mobile shell' });
+
+      const mobileResize = await call(mobile, 'term-mobile-resize', 'antifan.terminalResize', { sessionId: 'session-mobile', cols: 80, rows: 24 });
+      assert.strictEqual(mobileResize.success, true, mobileResize.error);
+      assert.deepStrictEqual(resizedTo[resizedTo.length - 1], { id: 'session-mobile', cols: 80, rows: 24 });
+
+      const mobileRestart = await call(mobile, 'term-mobile-restart', 'antifan.terminalRestart', { sessionId: 'session-mobile' });
+      assert.strictEqual(mobileRestart.success, true, mobileRestart.error);
+      assert.strictEqual(restarts.length, 2);
+
+      // 3. Mobile grant with a foreign session id: all four refused with TERMINAL_FORBIDDEN
+      const foreignClose = await call(mobile, 'term-foreign-close', 'antifan.terminalCloseSession', { sessionId: 'session-foreign' });
+      assert.strictEqual(foreignClose.success, false);
+      assert.match(foreignClose.error || '', /TERMINAL_FORBIDDEN/);
+
+      const foreignRename = await call(mobile, 'term-foreign-rename', 'antifan.terminalRenameSession', { sessionId: 'session-foreign', name: 'Stolen' });
+      assert.strictEqual(foreignRename.success, false);
+      assert.match(foreignRename.error || '', /TERMINAL_FORBIDDEN/);
+
+      const foreignResize = await call(mobile, 'term-foreign-resize', 'antifan.terminalResize', { sessionId: 'session-foreign', cols: 80, rows: 24 });
+      assert.strictEqual(foreignResize.success, false);
+      assert.match(foreignResize.error || '', /TERMINAL_FORBIDDEN/);
+
+      const foreignRestart = await call(mobile, 'term-foreign-restart', 'antifan.terminalRestart', { sessionId: 'session-foreign' });
+      assert.strictEqual(foreignRestart.success, false);
+      assert.match(foreignRestart.error || '', /TERMINAL_FORBIDDEN/);
+
+      // 4. Mobile grant with no session id while stubbed active session is not its granted session:
+      // resize and restart are refused
+      stubbedActiveSessionId = 'session-stubbed-active';
+      const noSessionResize = await call(mobile, 'term-nosess-resize', 'antifan.terminalResize', { cols: 80, rows: 24 });
+      assert.strictEqual(noSessionResize.success, false);
+      assert.match(noSessionResize.error || '', /TERMINAL_FORBIDDEN/);
+
+      const noSessionRestart = await call(mobile, 'term-nosess-restart', 'antifan.terminalRestart', {});
+      assert.strictEqual(noSessionRestart.success, false);
+      assert.match(noSessionRestart.error || '', /TERMINAL_FORBIDDEN/);
+
+      // Refused calls must never reach the underlying TerminalManager methods
+      assert.strictEqual(closed.includes('session-foreign'), false, 'foreign session close must not reach TerminalManager');
+      assert.strictEqual(renamed.some((r) => r.id === 'session-foreign'), false, 'foreign session rename must not reach TerminalManager');
+      assert.strictEqual(resizedTo.some((r) => r.id === 'session-foreign'), false, 'foreign session resizeTo must not reach TerminalManager');
+      assert.strictEqual(resized.length, 0, 'resize without sessionId must not reach TerminalManager when refused');
+      assert.strictEqual(restarts.length, 2, 'restart calls must not reach TerminalManager when refused');
+    } finally {
+      tm.closeSession = originalCloseSession;
+      tm.renameSession = originalRenameSession;
+      tm.resizeTo = originalResizeTo;
+      tm.resize = originalResize;
+      tm.restart = originalRestart;
+      tm.getActiveSessionId = originalGetActiveSessionId;
+      for (const socket of sockets) { try { socket.close(); } catch {} }
+      server.dispose();
+    }
+  });
+
+  it('refuses every terminal method for a grant with no terminal session bound (fail-closed)', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0, false);
+    const sockets: WebSocket[] = [];
+    const open = async (headers: Record<string, string>) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${server.getPort()}`, { headers });
+      sockets.push(socket);
+      await new Promise<void>((resolve, reject) => { socket.on('open', resolve); socket.on('error', reject); });
+      return socket;
+    };
+    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string }>((resolve) => {
+      const onMessage = (raw: unknown) => {
+        let frame: unknown;
+        try { frame = JSON.parse(String(raw)); } catch { return; }
+        if (typeof frame !== 'object' || frame === null || !('id' in frame) || frame.id !== id) return;
+        socket.off('message', onMessage);
+        resolve({
+          success: 'success' in frame && frame.success === true,
+          error: 'error' in frame && typeof frame.error === 'string' ? frame.error : undefined,
+        });
+      };
+      socket.on('message', onMessage);
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+
+    const terminalManager = TerminalManager.getInstance();
+    const tm = terminalManager as unknown as TerminalWriteSurface;
+    const originalWriteTo = tm.writeTo.bind(terminalManager);
+    const originalWrite = tm.write.bind(terminalManager);
+    const originalCloseSession = tm.closeSession.bind(terminalManager);
+    const originalRenameSession = tm.renameSession.bind(terminalManager);
+    const originalResizeTo = tm.resizeTo.bind(terminalManager);
+    const originalResize = tm.resize.bind(terminalManager);
+    const originalRestart = tm.restart.bind(terminalManager);
+    const originalGetActiveSessionId = tm.getActiveSessionId.bind(terminalManager);
+
+    const writes: Array<{ sessionId?: string; input: string }> = [];
+    const closed: string[] = [];
+    const renamed: Array<{ id: string; name: string }> = [];
+    const resizedTo: Array<{ id: string; cols: number; rows: number }> = [];
+    const resized: Array<{ cols: number; rows: number }> = [];
+    const restarts: Array<{ cwd?: string }> = [];
+    const stubbedActiveSessionId = 'terminal-1';
+
+    tm.writeTo = (sessionId: string, input: string) => { writes.push({ sessionId, input }); };
+    tm.write = (input: string) => { writes.push({ input }); };
+    tm.closeSession = async (id: string) => { closed.push(id); return true; };
+    tm.renameSession = (id: string, name: string) => { renamed.push({ id, name }); return true; };
+    tm.resizeTo = (id: string, cols: number, rows: number) => { resizedTo.push({ id, cols, rows }); };
+    tm.resize = (cols: number, rows: number) => { resized.push({ cols, rows }); };
+    tm.restart = async (cwd?: string) => { restarts.push({ cwd }); };
+    tm.getActiveSessionId = () => stubbedActiveSessionId;
+
+    try {
+      await server.start();
+      const grant: MobileSessionGrant = {
+        grantToken: 'grant-unbound-prod',
+        sessionId: makeControlPlaneId('session'),
+        clientClass: 'mobile',
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        revoked: false,
+        allowedScopes: ['terminal.sync', 'terminal.input', 'tabs.view'],
+      };
+      const grantSurface = server as unknown as MobileGrantSurface;
+      grantSurface.mobileGrants.set(grant.grantToken, grant);
+      const mobile = await open({ Authorization: `Bearer ${grant.grantToken}` });
+
+      const inputRes = await call(mobile, 'fail-closed-input', 'antifan.terminalInput', { text: 'echo fail\r' });
+      assert.strictEqual(inputRes.success, false);
+      assert.match(inputRes.error || '', /TERMINAL_FORBIDDEN/);
+
+      const sendKeyRes = await call(mobile, 'fail-closed-key', 'antifan.terminalSendKey', { key: 'enter' });
+      assert.strictEqual(sendKeyRes.success, false);
+      assert.match(sendKeyRes.error || '', /TERMINAL_FORBIDDEN/);
+
+      const closeRes = await call(mobile, 'fail-closed-close', 'antifan.terminalCloseSession', {});
+      assert.strictEqual(closeRes.success, false);
+      assert.match(closeRes.error || '', /TERMINAL_FORBIDDEN/);
+
+      const renameRes = await call(mobile, 'fail-closed-rename', 'antifan.terminalRenameSession', { name: 'Refused' });
+      assert.strictEqual(renameRes.success, false);
+      assert.match(renameRes.error || '', /TERMINAL_FORBIDDEN/);
+
+      const resizeRes = await call(mobile, 'fail-closed-resize', 'antifan.terminalResize', { cols: 80, rows: 24 });
+      assert.strictEqual(resizeRes.success, false);
+      assert.match(resizeRes.error || '', /TERMINAL_FORBIDDEN/);
+
+      const restartRes = await call(mobile, 'fail-closed-restart', 'antifan.terminalRestart', {});
+      assert.strictEqual(restartRes.success, false);
+      assert.match(restartRes.error || '', /TERMINAL_FORBIDDEN/);
+
+      assert.strictEqual(writes.length, 0);
+      assert.strictEqual(closed.length, 0);
+      assert.strictEqual(renamed.length, 0);
+      assert.strictEqual(resizedTo.length, 0);
+      assert.strictEqual(resized.length, 0);
+      assert.strictEqual(restarts.length, 0);
+    } finally {
+      tm.writeTo = originalWriteTo;
+      tm.write = originalWrite;
+      tm.closeSession = originalCloseSession;
+      tm.renameSession = originalRenameSession;
+      tm.resizeTo = originalResizeTo;
+      tm.resize = originalResize;
+      tm.restart = originalRestart;
+      tm.getActiveSessionId = originalGetActiveSessionId;
       for (const socket of sockets) { try { socket.close(); } catch {} }
       server.dispose();
     }
