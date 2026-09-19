@@ -6,6 +6,19 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa lỗi — Bridge terminal: quyền sở hữu session phân giải theo đúng plane gọi
+- **Triệu chứng**: `antifan.terminalInput`/`terminalSendKey` chỉ kiểm tra ownership cho attachment; mobile grant không có `sessionId` rơi thẳng vào `tm.write(...)` — gõ được vào shell đang active của user. Cùng lớp lỗ đó ở `terminalCloseSession`, `terminalRenameSession`, `terminalResize`, `terminalRestart`: mobile grant đóng/đổi tên/resize/restart được session bất kỳ, kể cả shell đang dùng.
+- **Nguyên nhân**: quy tắc "scoped caller chỉ chạm session của mình" mới áp cho attachment; nhánh mobile không tồn tại, và gate affinity ở dispatch resolve `p.sessionId || p.id` ngược với `p.id || p.sessionId` mà handler rename dùng.
+- **Sửa**: mọi RPC terminal phân giải theo plane — master token không scope (địa chỉ session tường minh), mobile grant chỉ `grant.sessionId` + scope `terminal.input`, attachment giữ `terminalWriteForAttachment`; từ chối bằng `TERMINAL_FORBIDDEN`. Dispatch gate dùng đúng thứ tự `p.id || p.sessionId`.
+- **Kèm theo (nhánh `fix/mobile-terminal-plane-gates`, chưa merge)**: mở rộng gate cho 4 handler vòng đời + resize/restart, gate nhánh input/sendKey khi thiếu `sessionId`, và một ca test ghi nhận hiện trạng fail-closed (grant mang control-plane id chưa nối terminal session nào).
+- **Bằng chứng**: `test/main/bridge-server.test.js` 29/29 (3 ca plane: write resolution, lifecycle/resize/restart, fail-closed cho grant chưa bind); soak thật: `bursts` 0 trên 71 mẫu trước fix → 180 bursts + 784 `terminalEvents` sau fix.
+
+### Xác minh runtime — Soak 2h post-fix: `FAILED` ở renderer slope và switch latency max
+- **Cấu hình**: `SOAK_DURATION_MINUTES=120` (warmup 30 / workload 60 / recovery 30), profile `.antifan-soak-8h`, 6 tab + terminal thật, 122 mẫu, 0 phút máy sleep.
+- **Kết quả**: `FAILED` — `slopeOk: false` (renderer 0.208 MB/min > SLO 0.15, total 0.124 ≤ 0.35), `latencyOk: false` (switch max 42.112 ms > 35 ms, p50 4.97 / p95 6.82); `memoryOk` (peak active 1549.71 ≤ 1600), `processOk` (orphan 0), `executionOk`, `teardownOk` (6/6 tab + terminal đóng sạch) đều true.
+- **Phân tích**: creep nằm trọn ở renderer (browser −0.110, gpu +0.019, utility −0.001; renderer 717.16 → 727.28 MB) và không phẳng lại khi bỏ 20 phút đầu (last-40 0.235 / last-20 0.194) ⇒ tăng liên tục chứ không phải nhiễu mở cửa sổ; partial 4h trước fix cũng trượt gate renderer (0.263) ⇒ tái lập được, không phải hệ quả của fix bridge.
+- **Bằng chứng**: `plans/reports/runtime-verification/real-soak-2h-verdict-20260919.md`, `real-soak-2h.json`, `real-soak-2h-checkpoint.json`; hai đường dẫn `real-soak-8h*` được khôi phục nguyên trạng bản Sep-4.
+
 ### Sửa lỗi — Soak thật không điều khiển được app: Bridge đóng socket vì token rỗng, cả run chỉ đo một app đứng yên
 - **Triệu chứng**: `benchmark-real-soak-8h.cjs` dừng sau 44 giây với `RPC timeout for antifan.openTab` rồi `WebSocket is not open`, verdict `FAILED — Execution Error: WebSocket is not open`; không tab, terminal hay workload nào được tạo, nên mọi số RAM/latency đều `null`.
 - **Nguyên nhân**: `BridgeServer` mint master token bằng `randomUUID()` và `setupWssEvents` đóng socket `4001` khi `clientToken !== this.token`, trong khi harness gửi `Authorization: Bearer ${process.env.ANTIFAN_BRIDGE_TOKEN || ''}` — token rỗng. Không có kênh nào lấy được token thật: `persistBridgeInfo()` cố ý chỉ ghi metadata không bí mật, còn harness tự khai `TODO(phase4): requires token injection`.
