@@ -130,12 +130,24 @@ async function syncCookies() {
         });
       });
 
-      if (syncResult && syncResult.success) {
+      if (syncResult && syncResult.success && syncResult.count > 0) {
         showMessage(
           'success',
           `✅ Đã đồng bộ thành công ${syncResult.count.toLocaleString()} cookies của tab hiện tại sang AntiFan!`
         );
         setStatus('connected', 'AntiFan Online (Đã đồng bộ)');
+        return;
+      } else if (syncResult && syncResult.success) {
+        // The bridge accepted the request but wrote no cookie: the tab holds
+        // nothing in scope, or every cookie it holds sits outside the receiver
+        // allowlist. Rendered as success, this is the state users described as
+        // "sometimes it syncs, sometimes it does not".
+        const attempted = Number.isFinite(syncResult.attempted) ? syncResult.attempted : 0;
+        showMessage(
+          'error',
+          `⚠️ Chưa có cookie nào được nạp vào AntiFan (đã thử ${attempted.toLocaleString()} cookie của tab hiện tại). Trang này có thể chưa đăng nhập, hoặc không thuộc nhóm hỗ trợ (Google, Haravan, Sapo, Shopify). Hãy mở trang đã đăng nhập rồi đồng bộ lại.`
+        );
+        setStatus('disconnected', 'AntiFan Online (0 cookie nạp)');
         return;
       } else {
         const errMsg = syncResult?.error || 'Không thể đồng bộ';

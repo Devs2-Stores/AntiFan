@@ -46,6 +46,33 @@ describe('runCapsuleToProfileMigration', () => {
     assert.ok(deps.__writeTargets.every((t) => t === 'persist:profile-a'));
   });
 
+  it('maps an already-prefixed capsule key to the resolver-reachable profile partition', async () => {
+    // The on-disk directory for an isolated capsule is `capsule-capsule-<id>`;
+    // writing to `persist:profile-capsule-capsule-<id>` copied cookies into a jar
+    // no resolver can name. The migrated target must be the partition a real tab
+    // would derive for that profile id.
+    const id = '4f9c1b2e-77aa-4c6f-9d10-8b2c5e0a1f33';
+    const deps = makeDeps({
+      listLegacyPartitionKeys: () => [`capsule-capsule-${id}`],
+      readCookies: async (partition) =>
+        partition === `persist:capsule-capsule-${id}`
+          ? [{ domain: '.example.com', path: '/', secure: true, httpOnly: true, name: 'sid', value: 'x' }]
+          : [],
+    });
+    const res = await runCapsuleToProfileMigration(deps);
+    assert.strictEqual(res.migrated, 1);
+    assert.deepStrictEqual([...new Set(deps.__writeTargets)], [`persist:profile-${id}`]);
+    assert.strictEqual(res.markerReady, true);
+  });
+
+  it('skips a key that carries no profile id instead of writing an unnameable partition', async () => {
+    const deps = makeDeps({ listLegacyPartitionKeys: () => ['capsule-', 'capsule-capsule-'] });
+    const res = await runCapsuleToProfileMigration(deps);
+    assert.deepStrictEqual(deps.__writeTargets, []);
+    assert.strictEqual(res.migrated, 0);
+    assert.strictEqual(res.markerReady, true);
+  });
+
   it('leaves the marker unset when a single cookie write fails (partial copy recorded)', async () => {
     const deps = makeDeps({
       writeCookie: async (target, c) => {

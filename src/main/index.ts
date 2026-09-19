@@ -32,6 +32,8 @@ import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
 import { configureBrowserSessionPartition } from './browser/browser-session-partition';
+import { pruneDeadStores } from './browser/dead-store-cleaner';
+import { ChromeProfileSyncManager } from './browser/chrome-profile-sync';
 import { LocalIpcServer } from './native-messaging/local-ipc-server';
 import { installNativeHost, COMPANION_EXTENSION_ID } from './native-messaging/manifest-installer';
 import { chromeSessionUserAgent } from './browser/google-auth-identity';
@@ -194,7 +196,16 @@ try { fs.mkdirSync(chromiumCachePath, { recursive: true }); } catch {}
 app.setPath('userData', persistentUserData);
 app.setPath('sessionData', persistentUserData);
 app.setPath('cache', chromiumCachePath);
-app.commandLine.appendSwitch('disk-cache-dir', StorageLocations.getNetworkCacheDir());
+// No `--disk-cache-dir`: measured at 0 bytes since it was added — the sessions
+// that actually serve traffic are partition sessions, and each partition keeps
+// its own `Cache` directory under <userData>/Partitions/<name>/Cache, which the
+// switch never redirected. That per-partition cache is what the app pays for:
+// measured 168–171 MB on the live jar while `--disk-cache-size` was set to
+// 128 MB, so the switch is NOT the bound on it — Chromium evicts those backends
+// on its own policy. The switches below stay because they do bind the
+// default-session caches, and `Profile/Cache` (the default session's HTTP cache,
+// stale since tabs moved onto explicit partitions) is reclaimed by the
+// housekeeping pass whenever a launch finds it unheld.
 app.commandLine.appendSwitch('gpu-cache-dir', StorageLocations.getGpuCacheDir());
 app.name = 'AntiFan Browser Desktop';
 nativeTheme.themeSource = 'system';
@@ -525,7 +536,15 @@ async function createWindow(): Promise<void> {
   // One-time migration of legacy capsule partitions to the unified profile
   // partitions (persist:capsule-* -> persist:profile-*). Marker-gated and
   // local-only; never touches a Chrome profile.
-  void tabHost
+  //
+  // The reclaim pass below is chained behind this promise, never run beside it:
+  // reading a partition opens its cookie database, which holds the partition
+  // directory open for the life of the process, so a reclaim racing the read
+  // either fails on a locked directory or — worse — deletes the very store the
+  // migration is copying from. Chained, the reclaim sees a settled disk: the
+  // stores the migration just read are deferred to the next launch, and by then
+  // the done marker makes the migration a no-op, so nothing holds them.
+  const legacyMigration = tabHost
     .migrateLegacyCapsuleToProfile()
     .then((res) => {
       if (res.migrated > 0) {
@@ -533,6 +552,51 @@ async function createWindow(): Promise<void> {
       }
     })
     .catch((err) => console.warn('[antifan] Capsule->profile migration failed:', err));
+
+  /** Reclaims Chromium state nothing can reach, once the migration has settled. */
+  const reclaimDeadStores = () => {
+    // Runs after the tab list exists so every live partition (offscreen
+    // included) vetoes its own deletion; dry-run first so the exact inventory is
+    // journaled before a single byte is removed.
+    const host = tabHost!;
+    try {
+      // Every partition a tab currently owns, plus every partition the profile
+      // resolver can derive for a real Chrome profile. The second half matters
+      // because a Chrome profile directory may legitimately be named
+      // `capsule-<something>`: its derived partition lands in the same namespace
+      // the dead-store pattern matches, and only this list can tell them apart.
+      const derivableProfiles: string[] = [];
+      try {
+        for (const profile of ChromeProfileSyncManager.getInstance().getAvailableProfiles()) {
+          if (!profile?.id) continue;
+          derivableProfiles.push(host.getSharedProfilePartition('clean', false, profile.id));
+          derivableProfiles.push(host.getSharedProfilePartition('native', false, profile.id));
+        }
+      } catch (err) {
+        console.warn('[antifan] Chrome profile enumeration for housekeeping failed:', err);
+      }
+      const cleanupTargets = {
+        profileDir: persistentUserData,
+        configDir: StorageLocations.getConfigDir(),
+        livePartitions: [...host.getLivePartitionNames(), ...derivableProfiles],
+      };
+      const planned = pruneDeadStores({ ...cleanupTargets, dryRun: true });
+      recordLifecycleEvent('housekeeping.deadStores.planned', { ...planned });
+      const applied = pruneDeadStores(cleanupTargets);
+      recordLifecycleEvent('housekeeping.deadStores.applied', { ...applied });
+      if (applied.deletedPartitions.length > 0 || applied.deletedFiles.length > 0) {
+        console.log(
+          `[antifan] Reclaimed ${(applied.reclaimedBytes / (1024 * 1024)).toFixed(1)} MB: ` +
+          `${applied.deletedPartitions.length} dead partitions, ${applied.deletedFiles.length} orphan files` +
+          (applied.skippedPartitions.length > 0 ? ` (${applied.skippedPartitions.length} skipped: live)` : '') +
+          (applied.deferredPaths.length > 0 ? ` (${applied.deferredPaths.length} deferred: in use)` : '')
+        );
+      }
+    } catch (err) {
+      console.warn('[antifan] Dead-store housekeeping failed:', err);
+    }
+  };
+  void legacyMigration.then(reclaimDeadStores);
   // Start Bridge Server + Native Messaging IPC past first paint. The
   // BridgeServer constructor pays synchronous icacls/powershell DACL spawns
   // (~4s on Windows) for the pairing queue, and start() pays more for
@@ -633,18 +697,20 @@ app.whenReady().then(async () => {
   recordBenchmark({ surface: 'startup', name: 'ready' });
   try {
     profileLease = new ProfileOwnership().acquire(persistentUserData);
-    // Journal the predecessor's verdict BEFORE it can be overwritten: acquire()
-    // writes cleanShutdown:false unconditionally (profile-ownership.ts:299-305), so
-    // the on-disk marker is this boot's state, never a verdict about the last one.
+    // Journal the predecessor's verdict from `priorRecovery`, the snapshot taken
+    // before acquire() overwrote the marker: `recovery.cleanShutdown` is this
+    // boot's own state (always false here), so reading it would log a permanent
+    // lie about the previous run.
     recordLifecycleEvent('boot.profile', {
       leasePid: profileLease.info.pid,
       leaseStartedAt: profileLease.info.startedAt,
-      prevCleanShutdown: profileLease.recovery.cleanShutdown,
-      prevLastCleanShutdownAt: profileLease.recovery.lastCleanShutdownAt,
-      prevSafeStartRecommended: profileLease.recovery.safeStartRecommended,
+      prevCleanShutdown: profileLease.priorRecovery.cleanShutdown,
+      prevLastCleanShutdownAt: profileLease.priorRecovery.lastCleanShutdownAt,
+      prevStartedAt: profileLease.priorRecovery.startedAt,
+      prevSafeStartRecommended: profileLease.priorRecovery.safeStartRecommended,
       lifecycleLog: getLifecycleLogPath(),
     });
-    if (profileLease.recovery.safeStartRecommended) {
+    if (!profileLease.priorRecovery.cleanShutdown) {
       console.warn('[antifan] Previous shutdown was unclean; restoring the active tab only (safe start).');
     }
   } catch (error) {

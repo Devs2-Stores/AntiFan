@@ -16,6 +16,7 @@ import {
   __resetExtensionStateForTesting,
   type BridgeAuth,
 } from '../../src/extension/background';
+import { SCOPE_PROFILES } from '../../src/extension/domain-scoper';
 import type { NativeTabHost } from '../../src/main/browser/native-tab-host';
 
 class MockCookieStore {
@@ -596,6 +597,68 @@ test('Companion Pipeline: ExtensionSessionGrant enforces least authority, capabi
     assert.strictEqual(expiredRes.status, 401);
     const expiredData = (await expiredRes.json()) as Record<string, unknown>;
     assert.strictEqual(expiredData.error, 'EXPIRED_GRANT');
+  } finally {
+    server.dispose();
+  }
+});
+
+test('Companion Pipeline: default grant reaches every domain the companion extension is scoped to send', async () => {
+  // The companion extracts according to SCOPE_PROFILES, but the bridge can only
+  // write what its own allowlist covers. When the two lists drift apart the
+  // receiver drops the extra domains and still answers 200 with every counter at
+  // zero — the state in which Google logins never arrived while the popup
+  // reported a successful sync. This test drives the real import route once per
+  // scope pattern, so it fails on drift without duplicating the matcher.
+  const host = new MockTabHost();
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+  const targetPartition = 'persist:profile-default';
+
+  try {
+    const scopeEntries = Object.entries(SCOPE_PROFILES).flatMap(([profile, patterns]) =>
+      patterns.map((pattern) => ({
+        profile,
+        // /(^|\.)accounts\.google\.com$/ -> ".accounts.google.com"
+        host: `.${pattern.source.replace('(^|\\.)', '').replace(/\\\./g, '.').replace(/\$$/, '')}`,
+      }))
+    );
+    assert.ok(scopeEntries.length >= 12, `expected the companion scope to be populated, saw ${scopeEntries.length} patterns`);
+
+    const cookies = scopeEntries.map((entry, index) => ({
+      name: `scoped_${index}`,
+      value: 'v',
+      domain: entry.host,
+      path: '/',
+    }));
+    cookies.push({ name: 'out_of_scope', value: 'v', domain: '.evil.test', path: '/' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/cookies/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${server.issueExtensionGrant(targetPartition).grantToken}`,
+      },
+      body: JSON.stringify({ targetPartition, cookies }),
+    });
+    assert.strictEqual(res.status, 200);
+    const data = (await res.json()) as Record<string, unknown>;
+
+    const landedHosts = new Set(
+      (await host.session.cookies.get({})).map((c) => {
+        const hostValue = typeof c.domain === 'string' ? c.domain : new URL(String(c.url)).hostname;
+        return hostValue.startsWith('.') ? hostValue.slice(1) : hostValue;
+      })
+    );
+    const missing = scopeEntries.filter((entry) => !landedHosts.has(entry.host.slice(1)));
+    assert.deepStrictEqual(
+      missing,
+      [],
+      `default grant dropped companion-scoped domains (add them to DEFAULT_EXTENSION_ALLOWED_DOMAINS): ${JSON.stringify(missing)}`
+    );
+    assert.strictEqual(data.importedCount, scopeEntries.length);
+    assert.strictEqual(data.totalReceived, scopeEntries.length + 1);
+    assert.strictEqual(data.filteredCount, 1, 'the out-of-scope cookie must be reported as filtered, never silently dropped');
+    assert.strictEqual(landedHosts.has('evil.test'), false, 'allowlist must stay a least-privilege boundary');
   } finally {
     server.dispose();
   }

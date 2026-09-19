@@ -153,7 +153,7 @@ function killChrome(pid) {
         async remove() {},
       },
     };
-    const result = await LocalSessionVault.getInstance().importFromLiveChromeCDP(stubSession, CDP_PORT);
+    const result = await LocalSessionVault.getInstance().importFromLiveChromeCDP(stubSession, CDP_PORT, path.join(tmpDir, 'profile'));
     check('CDP hydration success', result.success === true, result.message);
     check('imported >= 1 cookie', result.count >= 1, `count=${result.count}`);
 

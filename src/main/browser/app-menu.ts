@@ -192,7 +192,7 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
               return;
             }
             manager.activeProfileId = p.id;
-            const res = await manager.syncProfile(p.id, tabHost?.getSharedProfileSession('clean', p.id));
+            const res = await manager.syncProfile(p.id, tabHost?.resolveTargetProfileSession(p.id));
             const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
             if (bm.length > 0 && tabHost) {
               tabHost.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
@@ -210,30 +210,40 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
     {
       label: '💾 Sao lưu Session Vault (Export JSON)',
       click: async () => {
-        const targetSession = tabHost?.getActiveTabSession();
+        const targetSession = tabHost?.resolveTargetProfileSession();
         if (!targetSession) return;
         const res = await LocalSessionVault.getInstance().exportVaultToFile(targetSession);
+        const googleAuth = res.googleAuthCount ?? 0;
         dialog.showMessageBox(mainWindow, {
           type: res.success ? 'info' : 'error',
           title: 'Session Vault Backup',
           message: res.success
-            ? `Đã sao lưu thành công ${res.count} cookies vào:\n${res.filePath}`
+            ? `Đã sao lưu thành công ${res.count} cookies từ ${res.targetJar} vào:\n${res.filePath}`
             : `Lỗi sao lưu: ${res.error}`,
+          detail:
+            res.success && googleAuth === 0
+              ? '⚠️ Bản sao lưu không chứa cookie đăng nhập Google (SID/HSID/SSID/…). Khôi phục lại sẽ không tự đăng nhập Google — hãy đồng bộ qua 🧩 Tiện ích AntiFan Companion ngay khi Chrome đang đăng nhập.'
+              : undefined,
         });
       },
     },
     {
       label: '📥 Khôi phục Session Vault (Import JSON)',
       click: async () => {
-        const targetSession = tabHost?.getActiveTabSession();
+        const targetSession = tabHost?.resolveTargetProfileSession();
         if (!targetSession) return;
         const res = await LocalSessionVault.getInstance().importVaultFromFile(targetSession);
+        const googleAuth = res.googleAuthCount ?? 0;
+        const missingGoogleAuth = res.success && googleAuth === 0;
         dialog.showMessageBox(mainWindow, {
-          type: res.success ? 'info' : 'warning',
+          type: res.success ? (missingGoogleAuth ? 'warning' : 'info') : 'warning',
           title: 'Session Vault Restore',
           message: res.success
-            ? `Đã nạp thành công ${res.importedCount} cookies vào phiên làm việc!`
+            ? `Đã nạp thành công ${res.importedCount} cookies vào ${res.targetJar}!`
             : `Lỗi nạp: ${res.error || 'Không tìm thấy file session-vault.json'}`,
+          detail: missingGoogleAuth
+            ? '⚠️ Không có cookie đăng nhập Google nào trong file này (chỉ có cookie phụ/thống kê), nên Google vẫn sẽ ở trạng thái chưa đăng nhập. Hãy đồng bộ qua 🧩 Tiện ích AntiFan Companion khi Chrome đang đăng nhập.'
+            : undefined,
         });
       },
     },

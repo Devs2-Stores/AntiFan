@@ -491,8 +491,17 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
             isCookieInScope(c, enabledProfiles, activeHost)
           );
 
-          await dispatchDeltaSync({ upserted: targetCookies, removed: [] });
-          sendResponse({ success: true, count: targetCookies.length, host: activeHost });
+          // Report what the bridge actually accepted, never what we attempted:
+          // the receiver drops out-of-scope domains and reports them as
+          // `filteredCount`, so echoing `targetCookies.length` here announced a
+          // successful sync for batches that landed nothing at all.
+          const dispatched = await dispatchDeltaSync({ upserted: targetCookies, removed: [] });
+          sendResponse({
+            success: dispatched.success,
+            count: dispatched.count,
+            attempted: targetCookies.length,
+            error: dispatched.error,
+          });
         } catch (err: any) {
           sendResponse({ success: false, error: err.message });
         }

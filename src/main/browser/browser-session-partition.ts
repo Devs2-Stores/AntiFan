@@ -1,9 +1,47 @@
 import { session, Session } from 'electron';
 import { setupClientHintsOverride } from './google-auth-identity';
+import { armCookieDurability } from './cookie-durability';
 export type BrowserSessionUserAgentMode = 'clean' | 'native';
 
 const configuredPartitions = new Set<string>();
 const userAgentModeBySession = new WeakMap<Session, BrowserSessionUserAgentMode>();
+/** Partition name each configured session was created from — Electron exposes no reverse lookup. */
+const partitionBySession = new WeakMap<Session, string>();
+
+/**
+ * Partition name a configured session belongs to. Returns '' for sessions this
+ * process never configured (a bare `session.defaultSession` or a test double),
+ * so callers can distinguish "durable profile jar" from "unknown".
+ */
+export function getBrowserSessionPartition(sess: Session): string {
+  return sess ? partitionBySession.get(sess) ?? '' : '';
+}
+
+/**
+ * True when the session cannot persist to disk: its partition is an in-memory
+ * `ephemeral-*` jar, or Electron reports the session itself as non-persistent.
+ * Credential writes must never target these — the write "succeeds" and then
+ * vanishes with the process.
+ */
+export function isEphemeralSession(sess: Session): boolean {
+  if (!sess) return true;
+  if (getBrowserSessionPartition(sess).startsWith('ephemeral-')) return true;
+  return typeof sess.isPersistent === 'function' ? !sess.isPersistent() : false;
+}
+
+/**
+ * True when the session's partition is a capsule (per-workspace) jar:
+ * `persist:capsule-*` in either user-agent mode. Capsule jars do persist, but
+ * they are workspace-scoped — the shared profile session never reads them, so a
+ * credential write there survives as a cookie the next launch's profile sync
+ * cannot see. Profile-level credential operations must target
+ * `persist:profile-*` only.
+ */
+export function isCapsuleSession(sess: Session): boolean {
+  const partition = getBrowserSessionPartition(sess);
+  if (!partition) return false;
+  return partition.replace(/^persist:/, '').startsWith('capsule-');
+}
 
 /**
  * Deterministically derives an isolated Electron session partition name
@@ -85,6 +123,14 @@ export function configureBrowserSessionPartition(
 ): Session {
   const sess = partition ? session.fromPartition(partition) : session.defaultSession;
   setBrowserSessionUserAgentMode(sess, mode);
+  if (partition) {
+    partitionBySession.set(sess, partition);
+    // Durable profile jars get durable cookie commits; in-memory jars are
+    // disposable by definition and the default session is Electron-managed.
+    if (partition.startsWith('persist:')) {
+      armCookieDurability(sess);
+    }
+  }
 
   if (partition && configuredPartitions.has(partition)) {
     return sess;

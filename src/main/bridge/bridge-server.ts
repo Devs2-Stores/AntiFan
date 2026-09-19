@@ -37,7 +37,30 @@ import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../b
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 export const OFFICIAL_COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
 
+/**
+ * Least-privilege receiver allowlist for companion-extension cookie import.
+ *
+ * This is the receiver boundary: a cookie whose domain is not covered here is
+ * dropped before it reaches the Electron jar, even when the companion extension
+ * was explicitly scoped to send it. It must therefore cover every profile the
+ * extension can extract (`SCOPE_PROFILES` in `src/extension/domain-scoper.ts`),
+ * or the sync silently no-ops while `/api/cookies/import` still answers 200 —
+ * the exact failure that hid every Google login from AntiFan.
+ *
+ * Kept hand-maintained on purpose: this is a security boundary, so widening the
+ * grant from the sender's declared scope must stay an explicit, reviewable
+ * change rather than an automatic derivation.
+ * `test/main/extension-companion-pipeline.test.ts` fails if the two lists drift.
+ */
 export const DEFAULT_EXTENSION_ALLOWED_DOMAINS: string[] = [
+  // Extension profile `google` — accounts, YouTube, Google-served assets.
+  // `accounts.google.com` is covered by the `google.com` suffix rule.
+  'google.com',
+  'youtube.com',
+  'googleusercontent.com',
+  'gstatic.com',
+  'google.com.vn',
+  // Extension profile `ecommerce` plus the CDN hosts those storefronts serve.
   'haravan.com',
   'myharavan.com',
   'hstatic.net',
@@ -45,9 +68,11 @@ export const DEFAULT_EXTENSION_ALLOWED_DOMAINS: string[] = [
   'mysapo.net',
   'mysapo.vn',
   'bizwebvietnam.net',
+  'bizweb.vn',
   'dktcdn.net',
   'shopify.com',
   'myshopify.com',
+  'shopifycloud.com',
 ];
 
 export interface ExtensionSessionGrant {
@@ -1485,7 +1510,6 @@ export class BridgeServer {
             let importedCount = 0;
             let skippedCount = 0;
             let failedCount = 0;
-
             const persistSession = data.persistSessionCookies !== false;
             const candidateCookies = verifiedExtensionGrant
               ? (verifiedExtensionGrant.allowedDomains && verifiedExtensionGrant.allowedDomains.length > 0
@@ -1498,6 +1522,11 @@ export class BridgeServer {
                     })
                   : [])
               : rawCookies;
+            // Cookies the grant's allowlist removed before the import loop are
+            // reported, never silently discarded: a response carrying only
+            // `totalReceived` and zeroed counters is indistinguishable from a
+            // successful empty sync, which is how a scope mismatch stays hidden.
+            const filteredCount = rawCookies.length - candidateCookies.length;
             for (const cookie of candidateCookies) {
               const setDetails = extensionCookieImportSetDetails(cookie, { persistSessionCookies: persistSession });
               if (!setDetails) {
@@ -1523,6 +1552,7 @@ export class BridgeServer {
               removedCount: 0,
               skippedCount,
               failedCount,
+              filteredCount,
               totalReceived: rawCookies.length,
               targetTabId: resolvedTargetTabId ?? (data.tabId || 'unspecified'),
               targetPartition: requestedPartition || (resolvedTargetTabId ? `tab:${resolvedTargetTabId}` : 'unspecified'),

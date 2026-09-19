@@ -95,7 +95,16 @@ export async function runCapsuleToProfileMigration(deps: CapsuleMigrationDeps): 
   const legacyPartitions: string[] = [];
   for (const key of candidateKeys) {
     const legacy = `persist:${key}`;
-    const target = `persist:${key.replace(/^capsule-/, 'profile-')}`;
+    // Strip every redundant `capsule-` prefix: the on-disk directory for an
+    // isolated capsule is already named `capsule-capsule-<id>`, and the previous
+    // single-prefix replace produced `persist:profile-capsule-capsule-<id>` — a
+    // namespace no resolver can ever name, so 25k copied cookies were written
+    // into a jar no tab could open. Mapping to `persist:profile-<id>` keeps the
+    // single-prefix contract (`capsule-a` -> `profile-a`, the shape the pure
+    // test pins) and makes the multi-prefix form reachable.
+    const cleanKey = key.replace(/^(capsule-)+/, '');
+    if (cleanKey.length === 0) continue;
+    const target = `persist:profile-${cleanKey}`;
     if (legacy === target) continue;
     try {
       const cookies = await deps.readCookies(legacy);

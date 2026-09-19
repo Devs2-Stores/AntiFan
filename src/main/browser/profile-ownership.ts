@@ -22,6 +22,13 @@ export interface ProfileLease {
   readonly owner: boolean;
   readonly info: ProfileLeaseInfo;
   readonly recovery: ProfileRecoveryState;
+  /**
+   * The predecessor's verdict, captured before this boot overwrote the marker.
+   * `recovery.cleanShutdown` is always `false` at acquire time — it describes
+   * THIS run — so any statement about how the previous run ended must read
+   * this field instead.
+   */
+  readonly priorRecovery: ProfileRecoveryState;
   markReady(): void;
   markCleanShutdown(): void;
   release(): void;
@@ -324,6 +331,7 @@ export class ProfileOwnership {
       owner: true,
       info,
       recovery: startedRecovery,
+      priorRecovery: recovery,
       markReady: () => {
         this.writeRecovery(recoveryPath, { ...startedRecovery, safeStartRecommended: startedRecovery.safeStartRecommended });
       },

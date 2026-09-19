@@ -1299,7 +1299,11 @@ export class NativeTabHost extends EventEmitter {
     LocalSessionVault.getInstance().registerIpcHandlers(
       (_event?: unknown, payload?: unknown) => {
         const options = (payload && typeof payload === 'object') ? (payload as Record<string, unknown>) : undefined;
-        // Explicit tabId requested: ensure authority and return that tab's session
+        // Explicit tabId requested: ensure authority and return that tab's session.
+        // An in-memory ephemeral tab is refused outright — writing credentials there
+        // "succeeds" and then evaporates with the tab, which is exactly the failure
+        // this resolver exists to prevent. Capsule tabs are durable and isolated, so
+        // an authorized agent may still target them explicitly.
         if (typeof options?.tabId === 'string' && options.tabId.length > 0) {
           const tabId = options.tabId;
           const tab = this.tabs.get(tabId);
@@ -1310,10 +1314,13 @@ export class NativeTabHost extends EventEmitter {
           if (isAgent && senderInfo.tabId !== tabId) {
             return null;
           }
+          if (tab.state.ephemeral === true || (tab.state.partition || '').startsWith('ephemeral-')) {
+            return null;
+          }
           return this.getTabSession(tabId);
         }
         if (typeof options?.profileId === 'string' && options.profileId.length > 0) {
-          return this.getSharedProfileSession('clean', options.profileId);
+          return this.resolveTargetProfileSession(options.profileId);
         }
         if (typeof options?.partition === 'string' && options.partition.length > 0) {
           if (this.isValidCapsulePartition(options.partition)) {
@@ -1323,7 +1330,7 @@ export class NativeTabHost extends EventEmitter {
         }
         // Non-ambient target: hydration/vault operations target the shared profile session,
         // never implicitly reading or mutating the user's focused tab without explicit authority
-        return this.getSharedProfileSession('clean');
+        return this.resolveTargetProfileSession();
       },
       {
         validateSender: (event: unknown): boolean => {
@@ -1416,9 +1423,10 @@ export class NativeTabHost extends EventEmitter {
       // Partition unification: cookies always hydrate the shared profile
       // partition (persist:profile-*), never a workspace capsule session, so
       // regular tabs and imports stay on one stable cookie store per profile.
-      // Select the profile FIRST: getSharedProfileSession() derives the
-      // partition from activeProfileId, so syncing 'Profile 1' must target
-      // persist:profile-profile-1, never the previously active profile.
+      // Select the profile FIRST: the partition is derived from the explicit
+      // profileId, so syncing 'Profile 1' must target
+      // persist:profile-profile-1, never the previously active profile and
+      // never the tab the user happens to have focused.
       const manager = ChromeProfileSyncManager.getInstance();
       // Validate BEFORE mutating global state or deriving a partition: a
       // missing profile must leave activeProfileId and partitions untouched.
@@ -1426,7 +1434,7 @@ export class NativeTabHost extends EventEmitter {
         return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: `Profile '${profileId}' not found.` };
       }
       manager.activeProfileId = profileId;
-      const targetSession = this.getSharedProfileSession('clean', profileId);
+      const targetSession = this.resolveTargetProfileSession(profileId);
       const res = await manager.syncProfile(profileId, targetSession);
       const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(profileId);
       if (bm && bm.length > 0) {
@@ -2892,7 +2900,7 @@ export class NativeTabHost extends EventEmitter {
       ? chromeProfiles.map((p) => ({
           label: `Sync: ${p.name} (${p.id})`,
           click: async () => {
-            const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, this.getActiveTabSession());
+            const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, this.resolveTargetProfileSession(p.id));
             const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
             if (bm.length > 0) {
               this.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
@@ -3440,6 +3448,22 @@ export class NativeTabHost extends EventEmitter {
       console.warn('[native-tab-host] Failed to clear initial navigation history:', err);
     }
   }
+  /**
+   * Every partition currently referenced by a tab, offscreen and ephemeral tabs
+   * included, plus `'default'` when a tab runs without an explicit partition.
+   * `getTabList()` deliberately projects only the user's tab strip, so a
+   * lifecycle consumer (housekeeping, cleanup) that asks this question must read
+   * the tab map instead — an offscreen tab still owns its jar.
+   */
+  public getLivePartitionNames(): string[] {
+    const names = new Set<string>();
+    for (const tab of this.tabs.values()) {
+      const partition = tab.state.partition;
+      names.add(partition && partition.length > 0 ? partition : 'default');
+    }
+    return Array.from(names);
+  }
+
   public getTabSession(tabId: string): Electron.Session | null {
     const tab = this.tabs.get(tabId);
     if (!tab) return null;
@@ -3450,14 +3474,6 @@ export class NativeTabHost extends EventEmitter {
       return session.fromPartition(tab.state.partition);
     }
     return session.defaultSession;
-  }
-
-  public getActiveTabSession(): Electron.Session {
-    if (this.activeTabId) {
-      const activeSes = this.getTabSession(this.activeTabId);
-      if (activeSes) return activeSes;
-    }
-    return this.getSharedProfileSession();
   }
 
   public isValidCapsulePartition(partition: string): boolean {
@@ -3527,6 +3543,28 @@ export class NativeTabHost extends EventEmitter {
 
   public getSharedProfileSession(userAgentMode: BrowserSessionUserAgentMode = 'clean', profileId?: string): Electron.Session {
     const partition = this.getSharedProfilePartition(userAgentMode, false, profileId);
+    configureBrowserSessionPartition(partition, userAgentMode);
+    return session.fromPartition(partition);
+  }
+
+  /**
+   * The single authoritative resolver for every profile-level credential
+   * operation: Chrome profile sync, Session Vault export/import and extension
+   * hydration. It is deliberately NON-AMBIENT: the focused tab never
+   * participates, so a focused ephemeral (in-memory) or isolated capsule tab
+   * can never silently receive a profile credential write as a side effect.
+   * Fail-closed: the resolved partition must be a durable shared-profile
+   * partition, otherwise this throws instead of writing into a jar that dies
+   * with the tab.
+   */
+  public resolveTargetProfileSession(
+    profileId?: string,
+    userAgentMode: BrowserSessionUserAgentMode = 'clean'
+  ): Electron.Session {
+    const partition = this.getSharedProfilePartition(userAgentMode, false, profileId);
+    if (!partition.startsWith('persist:profile-')) {
+      throw new Error(`TARGET_SESSION_INVALID: refusing non-durable profile target (${partition})`);
+    }
     configureBrowserSessionPartition(partition, userAgentMode);
     return session.fromPartition(partition);
   }

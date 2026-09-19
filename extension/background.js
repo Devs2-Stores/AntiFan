@@ -1336,8 +1336,13 @@
             const targetCookies = allCookies.filter(
               (c) => isCookieInScope(c, enabledProfiles, activeHost)
             );
-            await dispatchDeltaSync({ upserted: targetCookies, removed: [] });
-            sendResponse({ success: true, count: targetCookies.length, host: activeHost });
+            const dispatched = await dispatchDeltaSync({ upserted: targetCookies, removed: [] });
+            sendResponse({
+              success: dispatched.success,
+              count: dispatched.count,
+              attempted: targetCookies.length,
+              error: dispatched.error
+            });
           } catch (err) {
             sendResponse({ success: false, error: err.message });
           }

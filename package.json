@@ -79,6 +79,11 @@
     "smoke:phone-ui": "npm run compile && node scripts/run-electron.cjs scripts/smoke-phone-ui.cjs",
     "probe:device": "node scripts/probe-iphone-hardware.mjs",
     "smoke:omp-closed-loop": "node scripts/smoke-omp-closed-loop.cjs",
+    "inventory:dead-stores": "npm run compile && node scripts/inventory-dead-stores.cjs",
+    "prune:dead-stores": "npm run compile && node scripts/prune-dead-stores.cjs",
+    "smoke:cookie-durability": "npm run compile && node scripts/smoke-cookie-hardkill-durability.cjs",
+    "smoke:dead-stores": "npm run compile && node scripts/smoke-dead-store-housekeeping.cjs",
+    "smoke:boot-housekeeping": "npm run compile && node scripts/smoke-boot-housekeeping.cjs",
     "soak:omp": "node scripts/run-omp-soak.cjs"
   },
   "dependencies": {

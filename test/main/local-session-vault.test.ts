@@ -125,13 +125,75 @@ describe('LocalSessionVault & Shared Profile Persistence Suite', () => {
     }
   });
 
-  it('imports empty cookie array with success true and zero count', async () => {
+  it('rejects an empty cookie array instead of reporting a successful no-op import', async () => {
+    // Pre-fix this returned `success: true` with zero cookies, which is how a
+    // bundled "sync" looked successful while nothing had been written.
     const mockSession = new MockElectronSession();
     const vault = LocalSessionVault.getInstance();
     const res = await vault.importVaultFromJson(mockSession as any, []);
-    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.success, false);
     assert.strictEqual(res.importedCount, 0);
     assert.strictEqual(res.failedCount, 0);
+    assert.ok(res.error && res.error.startsWith('EMPTY_IMPORT_REJECTED'), `error was '${res.error}'`);
+    assert.ok(res.targetJar.length > 0, 'every refusal must name the jar it refused to touch');
+    assert.strictEqual(mockSession.cookies.flushed, false, 'a refused import must not touch the store');
+  });
+
+  it('rejects credential operations against a non-durable (ephemeral) jar', async () => {
+    const ephemeralSession = new MockElectronSession();
+    // Non-persistent is what an in-memory jar reports: the write would be
+    // accepted and then vanish with the process.
+    (ephemeralSession as unknown as { isPersistent: () => boolean }).isPersistent = () => false;
+    await ephemeralSession.cookies.set({ name: 'seed', value: 'v', domain: '.example.com', path: '/' });
+
+    const vault = LocalSessionVault.getInstance();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-ephemeral-'));
+    const tempFile = path.join(tempDir, 'ephemeral-vault.json');
+    try {
+      const exportRes = await vault.exportVaultToFile(ephemeralSession as any, tempFile);
+      assert.strictEqual(exportRes.success, false);
+      assert.ok(exportRes.error?.startsWith('EPHEMERAL_TARGET_REJECTED'), `error was '${exportRes.error}'`);
+      assert.strictEqual(fs.existsSync(tempFile), false, 'a refused export must not write a file');
+
+      const importRes = await vault.importVaultFromJson(ephemeralSession as any, [
+        { name: 'a', value: 'b', domain: '.example.com', path: '/' },
+      ]);
+      assert.strictEqual(importRes.success, false);
+      assert.ok(importRes.error?.startsWith('EPHEMERAL_TARGET_REJECTED'), `error was '${importRes.error}'`);
+      assert.strictEqual(importRes.importedCount, 0);
+
+      const cdpRes = await vault.importFromLiveChromeCDP(ephemeralSession as any, 9222);
+      assert.strictEqual(cdpRes.success, false);
+      assert.ok(cdpRes.message.startsWith('EPHEMERAL_TARGET_REJECTED'), `message was '${cdpRes.message}'`);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an export that would overwrite the vault with an empty store', async () => {
+    const emptySession = new MockElectronSession();
+    const vault = LocalSessionVault.getInstance();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-empty-'));
+    const tempFile = path.join(tempDir, 'existing-vault.json');
+    fs.writeFileSync(tempFile, JSON.stringify([{ name: 'keep', value: 'me' }]), 'utf8');
+    try {
+      const res = await vault.exportVaultToFile(emptySession as any, tempFile);
+      assert.strictEqual(res.success, false);
+      assert.ok(res.error?.startsWith('EMPTY_STORE_REJECTED'), `error was '${res.error}'`);
+      assert.strictEqual(fs.readFileSync(tempFile, 'utf8'), JSON.stringify([{ name: 'keep', value: 'me' }]), 'the last good backup must survive');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports ZERO_COOKIES_IMPORTED when every record in a non-empty source is rejected', async () => {
+    const mockSession = new MockElectronSession();
+    const vault = LocalSessionVault.getInstance();
+    const res = await vault.importVaultFromJson(mockSession as any, [{ noNameField: true }, 'not-an-object', 7] as unknown as VaultCookie[]);
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.importedCount, 0);
+    assert.strictEqual(res.failedCount, 3);
+    assert.ok(res.error?.startsWith('ZERO_COOKIES_IMPORTED'), `error was '${res.error}'`);
   });
 
   it('correctly maps CDP cookie expires and title-case sameSite None to no_restriction', async () => {
@@ -197,5 +259,40 @@ describe('LocalSessionVault & Shared Profile Persistence Suite', () => {
     assert.strictEqual(isTrustedSessionVaultSender({}), false);
     // null event: fail-closed.
     assert.strictEqual(isTrustedSessionVaultSender(null), false);
+  });
+
+  it('reports Google sign-in cookie presence on export so a jar of tracking cookies is not mistaken for a login', async () => {
+    const mockSession = new MockElectronSession();
+    // One sign-in credential plus cookies that say nothing about auth.
+    await mockSession.cookies.set({ name: 'SID', value: 'sid', domain: '.google.com', path: '/' });
+    await mockSession.cookies.set({ name: 'NID', value: 'nid', domain: '.google.com', path: '/' });
+    await mockSession.cookies.set({ name: 'SID', value: 'impostor', domain: '.notgoogle.com', path: '/' });
+    await mockSession.cookies.set({ name: 'haravan_session', value: 's', domain: '.myharavan.com', path: '/' });
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-google-auth-'));
+    const tempFile = path.join(tempDir, 'session-vault.json');
+    try {
+      const res = await LocalSessionVault.getInstance().exportVaultToFile(mockSession as any, tempFile);
+      assert.strictEqual(res.success, true);
+      assert.strictEqual(res.count, 4);
+      assert.strictEqual(res.googleAuthCount, 1, 'only SID@.google.com is a Google sign-in credential');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('counts only real Google sign-in cookies when importing a vault', async () => {
+    const mockSession = new MockElectronSession();
+    const res = await LocalSessionVault.getInstance().importVaultFromJson(mockSession as any, [
+      { name: '__Secure-1PSID', value: 'v', domain: '.google.com', path: '/' },
+      { name: 'LOGIN_INFO', value: 'v', domain: '.youtube.com', path: '/' },
+      { name: 'SID', value: 'v', domain: '.google.com.evil.test', path: '/' },
+      { name: 'OTZ', value: 'v', domain: '.google.com', path: '/' },
+      { name: 'SSID', value: 'v', domain: '.google.com.vn', path: '/' },
+    ]);
+
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.importedCount, 5);
+    assert.strictEqual(res.googleAuthCount, 3, 'PSID + LOGIN_INFO + SSID@google.com.vn are auth; OTZ and a lookalike host are not');
   });
 });

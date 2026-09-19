@@ -10,7 +10,12 @@ export interface TabContextMenuHostDelegate {
   getWindow(): BrowserWindow;
   getActiveTabId(): string;
   getActiveTab(): { url?: string; id?: string } | null | undefined;
-  getActiveTabSession(): Electron.Session | undefined;
+  /**
+   * Profile-level credential target: always the durable shared-profile
+   * partition, never the focused tab (an ephemeral or capsule tab must never
+   * receive a profile sync as a side effect of focus).
+   */
+  resolveTargetProfileSession(profileId?: string): Electron.Session;
   startInspect(): void;
   toggleInspect(): boolean;
   toggleFontFinder(): void;
@@ -269,7 +274,7 @@ export class TabContextMenuBuilder {
         ? chromeProfiles.map((p) => ({
             label: `Sync: ${p.name} (${p.id})`,
             click: async () => {
-              const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, this.host.getActiveTabSession());
+              const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, this.host.resolveTargetProfileSession(p.id));
               this.host.onProfileSynced?.();
               dialog.showMessageBox(win, {
                 type: res.success ? 'info' : 'warning',

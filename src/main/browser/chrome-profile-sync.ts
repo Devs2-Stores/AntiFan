@@ -489,21 +489,19 @@ export class ChromeProfileSyncManager {
       if (!reachable) {
         return { count: 0, message: 'Chrome headless CDP không phản hồi (hết thời gian chờ).' };
       }
-      const res = await LocalSessionVault.getInstance().importFromLiveChromeCDP(targetSession, port);
+      const res = await LocalSessionVault.getInstance().importFromLiveChromeCDP(targetSession, port, tempDir);
       if (!res.success) {
-        return { count: 0, message: res.message };
-      }
-      if (res.count === 0) {
-        // Chrome 2025+ Windows: real profiles (and any profile created by the
-        // regular Chrome UI) encrypt cookies with App-Bound Encryption v20.
-        // The keys do NOT follow a profile clone, so getAllCookies returns 0
-        // even though the Cookies DB is full. Verify always happens on a
-        // standalone profile so a seeded/smoke profile still works; a real
-        // user profile cannot be read through the owned clone at all.
-        return {
-          count: 0,
-          message: 'Chrome trả 0 cookies — profile được mã hoá bằng App-Bound Encryption (v20), bản clone không đọc được (cơ chế chống sao chép cookies của Chrome). Hãy dùng 💾 Sao lưu / 📥 Khôi phục Session Vault.',
-        };
+        // A zero-cookie answer is the signature of a profile that cannot be read
+        // from outside the browser, not of a failed transfer: a real Chrome
+        // profile encrypts cookies with App-Bound Encryption v20, whose key does
+        // not follow a profile clone, and Chrome 136+ refuses to enable
+        // `--remote-debugging-port` against a standard user-data-dir outright.
+        // A profile with no signed-in session, or one under an enterprise policy
+        // that blocks remote debugging, answers with the same zero.
+        const hint = res.message.includes('EMPTY_IMPORT_REJECTED')
+          ? ' Chrome trả 0 cookies — hai nguyên nhân thường gặp nhất: App-Bound Encryption v20 (key mã hoá không theo bản clone) và Chrome 136+ chặn remote-debugging trên user-data-dir mặc định. Cũng có thể profile chưa đăng nhập gì, hoặc Chrome bị policy chặn remote debugging. Đường chắc chắn: 🧩 Tiện ích AntiFan Companion trên Chrome (mở tab đã đăng nhập → bấm "Đồng bộ ngay sang AntiFan"), hoặc 💾 Sao lưu / 📥 Khôi phục Session Vault.'
+          : '';
+        return { count: 0, message: `${res.message}${hint}` };
       }
       return { count: res.count, message: '' };
     } catch (err: unknown) {
