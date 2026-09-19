@@ -499,6 +499,19 @@ describe('Renderer bulk affinity badges', () => {
     harness.api.getTabs = async () => [{ id: 'tab-9', title: 'Docs', url: 'https://example.com' }];
     await harness.updateAffinityBadges();
     assert.match(wrapFor(harness, 'a2').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '', /Docs/);
+
+    // The tab broadcast already carries the list, so the caller that holds it hands it in.
+    // The two sources are given different titles: a badge reading the delivered one proves
+    // the argument is used, and the call count proves the list is not fetched a second time
+    // on the main thread that every switch, bridge RPC and terminal fanout also runs on.
+    const delivered = [{ id: 'tab-9', title: 'Delivered', url: 'https://example.com' }];
+    harness.api.getTabs = async () => [{ id: 'tab-9', title: 'Refetched', url: 'https://example.com' }];
+    const fetchesBefore = countCalls(harness, 'getTabs');
+    await harness.updateAffinityBadges(delivered);
+    assert.strictEqual(countCalls(harness, 'getTabs'), fetchesBefore, 'a delivered tab list must not be re-fetched');
+    const deliveredBadge = wrapFor(harness, 'a2').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '';
+    assert.match(deliveredBadge, /Delivered/, 'the delivered list is what decorates the badge');
+    assert.doesNotMatch(deliveredBadge, /Refetched/, 'the badge must not read a re-fetched list');
   });
 });
 
