@@ -1956,7 +1956,7 @@ export class BridgeServer {
         }
 
         // Prevent mobile client from operating on agent-owned terminal sessions
-        const targetSessionId = typeof p.sessionId === 'string' ? p.sessionId : (typeof p.id === 'string' ? p.id : undefined);
+        const targetSessionId = typeof p.id === 'string' ? p.id : (typeof p.sessionId === 'string' ? p.sessionId : undefined);
         const effectiveTerminalId = targetSessionId || (cleanMethod.startsWith('terminal') ? TerminalManager.getInstance().getActiveSessionId() : undefined);
         if (effectiveTerminalId && typeof this.tabHost.getTerminalAgentAffinity === 'function') {
           const aff = this.tabHost.getTerminalAgentAffinity(effectiveTerminalId);
@@ -2438,6 +2438,14 @@ export class BridgeServer {
               // Reject with TERMINAL_FORBIDDEN unless a sessionId is required.
               respond(false, undefined, 'TERMINAL_FORBIDDEN: terminalSessionId is required for attachment input');
               break;
+            } else if (mobileGrant) {
+              const effectiveSessionId = tm.getActiveSessionId();
+              const mobileOwnsSession = effectiveSessionId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
+              if (!mobileOwnsSession) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+                break;
+              }
+              tm.write(p.text);
             } else {
               tm.write(p.text);
             }
@@ -2484,6 +2492,14 @@ export class BridgeServer {
             } else if (boundAttachmentId) {
               respond(false, undefined, 'TERMINAL_FORBIDDEN: terminalSessionId is required for attachment key input');
               break;
+            } else if (mobileGrant) {
+              const effectiveSessionId = tm.getActiveSessionId();
+              const mobileOwnsSession = effectiveSessionId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
+              if (!mobileOwnsSession) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+                break;
+              }
+              tm.write(sequence);
             } else {
               tm.write(sequence);
             }
