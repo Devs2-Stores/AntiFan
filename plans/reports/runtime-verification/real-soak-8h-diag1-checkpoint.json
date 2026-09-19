@@ -1,0 +1,2934 @@
+{
+  "status": "in-progress",
+  "startedAt": "2026-09-19T17:30:44.374Z",
+  "finishedAt": "2026-09-19T17:40:55.790Z",
+  "config": {
+    "totalMinutes": 14,
+    "warmupMinutes": 3,
+    "workloadMinutes": 8,
+    "recoveryMinutes": 3,
+    "switchIntervalMs": 750,
+    "burstIntervalMs": 10000,
+    "burstLines": 600,
+    "tabRounds": 1,
+    "sampleIntervalSeconds": 15,
+    "reportTag": "diag1"
+  },
+  "rootPid": 46620,
+  "fixturePort": 53397,
+  "stats": {
+    "requestCount": 8,
+    "openedTabs": 6,
+    "switches": 697,
+    "bursts": 60,
+    "reloads": 5,
+    "terminalEventsCount": 349,
+    "totalSamples": 41,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": 10,
+    "teardownTelemetry": {
+      "tabsToClose": 0,
+      "tabsClosedSuccess": 0,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": false,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": 7.376,
+      "p50": 9.665,
+      "p95": 12.276,
+      "max": 43.904
+    },
+    "activeWorkingSetMB": {
+      "min": 1453.74,
+      "p50": 1495.92,
+      "p95": 1534.6,
+      "max": 1556.34
+    },
+    "activeRendererWorkingSetMB": {
+      "min": 694.11,
+      "p50": 717.83,
+      "p95": 721.5,
+      "max": 722.43
+    },
+    "overallActiveSlopeMBPerMin": -6.428443,
+    "overallActiveSlopeMBPerHour": -385.7066,
+    "rendererActiveSlopeMBPerMin": -3.616518,
+    "rendererActiveSlopeMBPerHour": -216.9911,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": 1441.82,
+    "postWarmupMB": 1479.25,
+    "finalActiveMB": 1482.73,
+    "recoveredMB": null,
+    "processSeriesSampleCount": 10,
+    "perProcessSlopes": [
+      {
+        "pid": 17004,
+        "type": "Utility",
+        "role": "",
+        "url": "",
+        "samples": 6,
+        "firstWorkingSetMB": 112.65,
+        "lastWorkingSetMB": 112.55,
+        "deltaWorkingSetMB": -0.1,
+        "firstPrivateMB": 14.49,
+        "lastPrivateMB": 14.49,
+        "deltaPrivateMB": 0,
+        "slopeMBPerMin": -0.0211
+      },
+      {
+        "pid": 46128,
+        "type": "GPU",
+        "role": "",
+        "url": "",
+        "samples": 6,
+        "firstWorkingSetMB": 166.18,
+        "lastWorkingSetMB": 165.46,
+        "deltaWorkingSetMB": -0.72,
+        "firstPrivateMB": 119.7,
+        "lastPrivateMB": 129.79,
+        "deltaPrivateMB": 10.09,
+        "slopeMBPerMin": -0.1731
+      },
+      {
+        "pid": 46220,
+        "type": "Tab",
+        "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+        "url": "http://127.0.0.1:53397/store-home",
+        "samples": 6,
+        "firstWorkingSetMB": 128.51,
+        "lastWorkingSetMB": 127.34,
+        "deltaWorkingSetMB": -1.17,
+        "firstPrivateMB": 31.47,
+        "lastPrivateMB": 31.79,
+        "deltaPrivateMB": 0.32,
+        "slopeMBPerMin": -0.2585
+      },
+      {
+        "pid": 28884,
+        "type": "Tab",
+        "role": "tab:3820dfc1",
+        "url": "https://example.com/",
+        "samples": 6,
+        "firstWorkingSetMB": 123.38,
+        "lastWorkingSetMB": 121.73,
+        "deltaWorkingSetMB": -1.65,
+        "firstPrivateMB": 28.42,
+        "lastPrivateMB": 28.43,
+        "deltaPrivateMB": 0.01,
+        "slopeMBPerMin": -0.3002
+      },
+      {
+        "pid": 46620,
+        "type": "Browser",
+        "role": "",
+        "url": "",
+        "samples": 6,
+        "firstWorkingSetMB": 252.3,
+        "lastWorkingSetMB": 229.75,
+        "deltaWorkingSetMB": -22.55,
+        "firstPrivateMB": 184.54,
+        "lastPrivateMB": 164.13,
+        "deltaPrivateMB": -20.41,
+        "slopeMBPerMin": -0.3264
+      },
+      {
+        "pid": 28996,
+        "type": "Tab",
+        "role": "chrome:standalone",
+        "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+        "samples": 6,
+        "firstWorkingSetMB": 153.4,
+        "lastWorkingSetMB": 150.68,
+        "deltaWorkingSetMB": -2.72,
+        "firstPrivateMB": 56.71,
+        "lastPrivateMB": 59.07,
+        "deltaPrivateMB": 2.36,
+        "slopeMBPerMin": -0.3303
+      },
+      {
+        "pid": 41860,
+        "type": "Tab",
+        "role": "tab:d566fe5a",
+        "url": "https://www.google.com/",
+        "samples": 6,
+        "firstWorkingSetMB": 159.98,
+        "lastWorkingSetMB": 156.7,
+        "deltaWorkingSetMB": -3.28,
+        "firstPrivateMB": 64.43,
+        "lastPrivateMB": 64.43,
+        "deltaPrivateMB": 0,
+        "slopeMBPerMin": -0.6082
+      },
+      {
+        "pid": 17136,
+        "type": "Tab",
+        "role": "tab:7f2ca177",
+        "url": "https://www.wikipedia.org/",
+        "samples": 6,
+        "firstWorkingSetMB": 149.16,
+        "lastWorkingSetMB": 138.23,
+        "deltaWorkingSetMB": -10.93,
+        "firstPrivateMB": 43.25,
+        "lastPrivateMB": 45.95,
+        "deltaPrivateMB": 2.7,
+        "slopeMBPerMin": -1.8761
+      }
+    ],
+    "worstProcessSlopeMBPerMin": -0.0211,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": 17004,
+    "slowSwitchSamples": [
+      {
+        "at": 1789839529792,
+        "ms": 43.904,
+        "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+      },
+      {
+        "at": 1789839509960,
+        "ms": 37.999,
+        "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+      },
+      {
+        "at": 1789839135051,
+        "ms": 36.753,
+        "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+      },
+      {
+        "at": 1789839315031,
+        "ms": 35.686,
+        "tabId": "3c2f0913-95a5-4abc-bfed-8c8c057b4a43"
+      },
+      {
+        "at": 1789839408837,
+        "ms": 35.551,
+        "tabId": "3820dfc1-0771-4492-a192-b3f88284f8aa"
+      },
+      {
+        "at": 1789839159872,
+        "ms": 35.169,
+        "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+      },
+      {
+        "at": 1789839461063,
+        "ms": 34.812,
+        "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+      },
+      {
+        "at": 1789839096833,
+        "ms": 31.389,
+        "tabId": "3820dfc1-0771-4492-a192-b3f88284f8aa"
+      },
+      {
+        "at": 1789839355719,
+        "ms": 27.819,
+        "tabId": "3820dfc1-0771-4492-a192-b3f88284f8aa"
+      },
+      {
+        "at": 1789839178870,
+        "ms": 27.051,
+        "tabId": "0241279b-c727-44d3-af66-ab83f30b24c1"
+      }
+    ],
+    "slopeSloSatisfied": true,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": false,
+    "orphanSloSatisfied": false,
+    "executionSloSatisfied": true,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [
+    {
+      "at": 1789839055762,
+      "activeAt": 1789839055762,
+      "label": "warmup",
+      "totalWorkingSetMB": 1441.82,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 198.25
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 268.05
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 711.45
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 113.52
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 150.55
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839057681,
+      "activeAt": 1789839057681,
+      "label": "warmup",
+      "totalWorkingSetMB": 1477.43,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 226.78
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 275.34
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 710
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 113.52
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 151.79
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839072513,
+      "activeAt": 1789839072513,
+      "label": "warmup",
+      "totalWorkingSetMB": 1481.95,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 208.05
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 279.26
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 715.7
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 113.54
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.4
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839087838,
+      "activeAt": 1789839087838,
+      "label": "warmup",
+      "totalWorkingSetMB": 1472.43,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 201.68
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 279.61
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 712.92
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 113.41
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 164.8
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839102645,
+      "activeAt": 1789839102645,
+      "label": "warmup",
+      "totalWorkingSetMB": 1477.87,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 203.33
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 279.86
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 716.05
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 113.41
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.22
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839117619,
+      "activeAt": 1789839117619,
+      "label": "warmup",
+      "totalWorkingSetMB": 1475.07,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 201.95
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 279.91
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 715.85
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.68
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 164.68
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839132640,
+      "activeAt": 1789839132640,
+      "label": "warmup",
+      "totalWorkingSetMB": 1473.35,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 203.74
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 275.22
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 716.04
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.68
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.68
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839147749,
+      "activeAt": 1789839147749,
+      "label": "warmup",
+      "totalWorkingSetMB": 1471.43,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 204.21
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.82
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 715
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.68
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.72
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839162729,
+      "activeAt": 1789839162729,
+      "label": "warmup",
+      "totalWorkingSetMB": 1474.03,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 205.45
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.67
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 716.55
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.68
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.69
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839177978,
+      "activeAt": 1789839177978,
+      "label": "warmup",
+      "totalWorkingSetMB": 1472.75,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 205.46
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.68
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 714.98
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.63
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.01
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839193090,
+      "activeAt": 1789839193090,
+      "label": "warmup",
+      "totalWorkingSetMB": 1489.04,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 219.54
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.73
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 717.11
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.61
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.06
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839208174,
+      "activeAt": 1789839208174,
+      "label": "warmup",
+      "totalWorkingSetMB": 1495.95,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 229.09
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.8
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 714.39
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.61
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.05
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839223114,
+      "activeAt": 1789839223114,
+      "label": "warmup",
+      "totalWorkingSetMB": 1479.25,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 209.51
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.83
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 717.25
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.62
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.05
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839238215,
+      "activeAt": 1789839238215,
+      "label": "workload",
+      "totalWorkingSetMB": 1489.07,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 215.77
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.84
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 720.87
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.62
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.97
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839253193,
+      "activeAt": 1789839253193,
+      "label": "workload",
+      "totalWorkingSetMB": 1493.13,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 221.7
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.85
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 718.82
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.62
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.14
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839268221,
+      "activeAt": 1789839268221,
+      "label": "workload",
+      "totalWorkingSetMB": 1510.79,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 238.36
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.86
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 719.74
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.65
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.18
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839283234,
+      "activeAt": 1789839283234,
+      "label": "workload",
+      "totalWorkingSetMB": 1512.48,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 245.68
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.91
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 714.14
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.65
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.11
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839298264,
+      "activeAt": 1789839298264,
+      "label": "workload",
+      "totalWorkingSetMB": 1529.42,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 260.55
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.93
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 716.23
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.64
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.06
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839313284,
+      "activeAt": 1789839313284,
+      "label": "workload",
+      "totalWorkingSetMB": 1534.6,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 266.5
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.89
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 715.39
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.64
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.17
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839328456,
+      "activeAt": 1789839328456,
+      "label": "workload",
+      "totalWorkingSetMB": 1556.34,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 285.16
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.93
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 718.4
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.66
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.19
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839343606,
+      "activeAt": 1789839343606,
+      "label": "workload",
+      "totalWorkingSetMB": 1484.73,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 211.04
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.91
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 720.87
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.64
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.27
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839358743,
+      "activeAt": 1789839358743,
+      "label": "workload",
+      "totalWorkingSetMB": 1495.9,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 225
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.13
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 717.83
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.66
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.29
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839373771,
+      "activeAt": 1789839373771,
+      "label": "workload",
+      "totalWorkingSetMB": 1503.6,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 230.91
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.32
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 719.44
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.66
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.27
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839388779,
+      "activeAt": 1789839388779,
+      "label": "workload",
+      "totalWorkingSetMB": 1519.41,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 248.43
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.33
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 717.93
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.64
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.09
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839403883,
+      "activeAt": 1789839403883,
+      "label": "workload",
+      "totalWorkingSetMB": 1529.16,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 256.34
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.37
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 719.69
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.64
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.11
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839418843,
+      "activeAt": 1789839418843,
+      "label": "workload",
+      "totalWorkingSetMB": 1485.68,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 212.51
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.55
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 719.85
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.73
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.04
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839433917,
+      "activeAt": 1789839433917,
+      "label": "workload",
+      "totalWorkingSetMB": 1493.32,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 218.42
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.59
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 721.5
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.73
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.08
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839448946,
+      "activeAt": 1789839448946,
+      "label": "workload",
+      "totalWorkingSetMB": 1508.18,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 236.17
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.55
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 718.7
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.73
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.03
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839464104,
+      "activeAt": 1789839464104,
+      "label": "workload",
+      "totalWorkingSetMB": 1518.6,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 244.57
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.5
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 720.77
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.73
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.04
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839479255,
+      "activeAt": 1789839479255,
+      "label": "workload",
+      "totalWorkingSetMB": 1490.55,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 214.82
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.51
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 722.43
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.73
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 166.07
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839494230,
+      "activeAt": 1789839494230,
+      "label": "workload",
+      "totalWorkingSetMB": 1476.8,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 218.17
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.18
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 707.61
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.58
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.27
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839509061,
+      "activeAt": 1789839509061,
+      "label": "workload",
+      "totalWorkingSetMB": 1499.37,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 236.29
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.19
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 711.85
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.59
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.45
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839524213,
+      "activeAt": 1789839524213,
+      "label": "workload",
+      "totalWorkingSetMB": 1503.61,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 242.75
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.17
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 709.66
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.48
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839539227,
+      "activeAt": 1789839539227,
+      "label": "workload",
+      "totalWorkingSetMB": 1519.45,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 258.29
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.14
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 709.97
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.49
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839554328,
+      "activeAt": 1789839554328,
+      "label": "workload",
+      "totalWorkingSetMB": 1453.74,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 205.72
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.15
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 696.94
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.38
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839569359,
+      "activeAt": 1789839569359,
+      "label": "workload",
+      "totalWorkingSetMB": 1467.96,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 221.69
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.16
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 695.16
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.39
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839584480,
+      "activeAt": 1789839584480,
+      "label": "workload",
+      "totalWorkingSetMB": 1474.9,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 229.62
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.2
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 694.11
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.41
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839599460,
+      "activeAt": 1789839599460,
+      "label": "workload",
+      "totalWorkingSetMB": 1495.92,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 246.31
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.17
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 698.45
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.56
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.43
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839614603,
+      "activeAt": 1789839614603,
+      "label": "workload",
+      "totalWorkingSetMB": 1455.81,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 204.94
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.22
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 699.69
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.56
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.4
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839629605,
+      "activeAt": 1789839629605,
+      "label": "workload",
+      "totalWorkingSetMB": 1472.24,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 223.03
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.22
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 698.03
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.41
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    },
+    {
+      "at": 1789839644647,
+      "activeAt": 1789839644647,
+      "label": "workload",
+      "totalWorkingSetMB": 1482.73,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 231.49
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.26
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 700.05
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.37
+        }
+      },
+      "pids": [
+        46620,
+        43760,
+        45352,
+        31056,
+        17136,
+        28884,
+        46220,
+        47728,
+        45196,
+        11968,
+        41860,
+        28996,
+        17004,
+        46128,
+        45376
+      ]
+    }
+  ],
+  "processSeries": [
+    {
+      "at": 1789839105394,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 201.55,
+          "privateBytesMB": 132.58
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 164.91,
+          "privateBytesMB": 121.57
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.71,
+          "privateBytesMB": 14.66
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 156.7,
+          "privateBytesMB": 60.36
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 159.98,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 127.34,
+          "privateBytesMB": 29.8
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 123.4,
+          "privateBytesMB": 28.54
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 149.38,
+          "privateBytesMB": 43.46
+        }
+      ]
+    },
+    {
+      "at": 1789839165395,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 205.09,
+          "privateBytesMB": 135.73
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 165.99,
+          "privateBytesMB": 120.06
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.68,
+          "privateBytesMB": 14.63
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 158.55,
+          "privateBytesMB": 62.02
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 159.98,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 127.19,
+          "privateBytesMB": 29.72
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 123.37,
+          "privateBytesMB": 28.45
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 148.41,
+          "privateBytesMB": 42.53
+        }
+      ]
+    },
+    {
+      "at": 1789839225397,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 207.04,
+          "privateBytesMB": 137.95
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 166.08,
+          "privateBytesMB": 122.29
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.61,
+          "privateBytesMB": 14.5
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 157.02,
+          "privateBytesMB": 60.4
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 159.98,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 127.86,
+          "privateBytesMB": 30.4
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 123.35,
+          "privateBytesMB": 28.41
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 148.86,
+          "privateBytesMB": 43.01
+        }
+      ]
+    },
+    {
+      "at": 1789839285399,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 252.3,
+          "privateBytesMB": 184.54
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 166.18,
+          "privateBytesMB": 119.7
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.65,
+          "privateBytesMB": 14.49
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 153.4,
+          "privateBytesMB": 56.71
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 159.98,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 128.51,
+          "privateBytesMB": 31.47
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 123.38,
+          "privateBytesMB": 28.42
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 149.16,
+          "privateBytesMB": 43.25
+        }
+      ]
+    },
+    {
+      "at": 1789839345411,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 217.2,
+          "privateBytesMB": 149.26
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 166.31,
+          "privateBytesMB": 128.14
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.66,
+          "privateBytesMB": 14.49
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 153.35,
+          "privateBytesMB": 57.04
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 159.98,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 129.96,
+          "privateBytesMB": 32.59
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 123.4,
+          "privateBytesMB": 28.42
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 149.84,
+          "privateBytesMB": 44.07
+        }
+      ]
+    },
+    {
+      "at": 1789839405414,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 199.61,
+          "privateBytesMB": 130.75
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 166.19,
+          "privateBytesMB": 134.17
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.64,
+          "privateBytesMB": 14.46
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 156.37,
+          "privateBytesMB": 59.83
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 159.98,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 128.99,
+          "privateBytesMB": 31.58
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 123.43,
+          "privateBytesMB": 28.42
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 151.18,
+          "privateBytesMB": 45.42
+        }
+      ]
+    },
+    {
+      "at": 1789839465419,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 204.36,
+          "privateBytesMB": 136.01
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 166.07,
+          "privateBytesMB": 128.48
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.73,
+          "privateBytesMB": 14.56
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 156.34,
+          "privateBytesMB": 59.71
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 159.98,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 129.45,
+          "privateBytesMB": 31.82
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 123.45,
+          "privateBytesMB": 28.42
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 151.8,
+          "privateBytesMB": 46.02
+        }
+      ]
+    },
+    {
+      "at": 1789839525430,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 249.39,
+          "privateBytesMB": 183.19
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 165.53,
+          "privateBytesMB": 128.51
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.55,
+          "privateBytesMB": 14.49
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 154.04,
+          "privateBytesMB": 58.56
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 158.35,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 128.74,
+          "privateBytesMB": 32.45
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 122.64,
+          "privateBytesMB": 28.43
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 145.96,
+          "privateBytesMB": 45.91
+        }
+      ]
+    },
+    {
+      "at": 1789839585445,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 229.75,
+          "privateBytesMB": 164.13
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 165.46,
+          "privateBytesMB": 129.79
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.55,
+          "privateBytesMB": 14.49
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 150.68,
+          "privateBytesMB": 59.07
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 156.7,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 127.34,
+          "privateBytesMB": 31.79
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 121.73,
+          "privateBytesMB": 28.43
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 138.23,
+          "privateBytesMB": 45.95
+        }
+      ]
+    },
+    {
+      "at": 1789839645450,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 46620,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 232.79,
+          "privateBytesMB": 167.16
+        },
+        {
+          "pid": 46128,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 165.41,
+          "privateBytesMB": 117.84
+        },
+        {
+          "pid": 17004,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.58,
+          "privateBytesMB": 14.53
+        },
+        {
+          "pid": 28996,
+          "type": "Tab",
+          "role": "chrome:standalone",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 153.79,
+          "privateBytesMB": 62.15
+        },
+        {
+          "pid": 41860,
+          "type": "Tab",
+          "role": "tab:d566fe5a",
+          "url": "https://www.google.com/",
+          "workingSetMB": 156.7,
+          "privateBytesMB": 64.43
+        },
+        {
+          "pid": 46220,
+          "type": "Tab",
+          "role": "tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913",
+          "url": "http://127.0.0.1:53397/store-home",
+          "workingSetMB": 127.57,
+          "privateBytesMB": 31.74
+        },
+        {
+          "pid": 28884,
+          "type": "Tab",
+          "role": "tab:3820dfc1",
+          "url": "https://example.com/",
+          "workingSetMB": 123,
+          "privateBytesMB": 28.77
+        },
+        {
+          "pid": 17136,
+          "type": "Tab",
+          "role": "tab:7f2ca177",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 139.11,
+          "privateBytesMB": 46.01
+        }
+      ]
+    }
+  ],
+  "slowSwitchSamples": [
+    {
+      "at": 1789839529792,
+      "ms": 43.904,
+      "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+    },
+    {
+      "at": 1789839509960,
+      "ms": 37.999,
+      "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+    },
+    {
+      "at": 1789839135051,
+      "ms": 36.753,
+      "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+    },
+    {
+      "at": 1789839315031,
+      "ms": 35.686,
+      "tabId": "3c2f0913-95a5-4abc-bfed-8c8c057b4a43"
+    },
+    {
+      "at": 1789839408837,
+      "ms": 35.551,
+      "tabId": "3820dfc1-0771-4492-a192-b3f88284f8aa"
+    },
+    {
+      "at": 1789839159872,
+      "ms": 35.169,
+      "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+    },
+    {
+      "at": 1789839461063,
+      "ms": 34.812,
+      "tabId": "7f2ca177-68ec-4bfe-b00e-588b5c137f68"
+    },
+    {
+      "at": 1789839096833,
+      "ms": 31.389,
+      "tabId": "3820dfc1-0771-4492-a192-b3f88284f8aa"
+    },
+    {
+      "at": 1789839355719,
+      "ms": 27.819,
+      "tabId": "3820dfc1-0771-4492-a192-b3f88284f8aa"
+    },
+    {
+      "at": 1789839178870,
+      "ms": 27.051,
+      "tabId": "0241279b-c727-44d3-af66-ab83f30b24c1"
+    }
+  ],
+  "stderrTail": [
+    "[index] Terminal Host Daemon unavailable (no staged daemon bundle (run scripts/stage-daemon-host.mjs)); falling back to in-process TerminalManager",
+    "(node:46620) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+    "(Use `electron --trace-warnings ...` to show where the warning was created)"
+  ],
+  "stdoutBenchmarkTail": [
+    "[antifan-benchmark] {\"surface\":\"process\",\"name\":\"periodic\",\"extra\":{\"breakdown\":{\"Browser\":{\"processes\":1,\"workingSetKB\":238372,\"privateBytesKB\":171176},\"GPU\":{\"processes\":1,\"workingSetKB\":169376,\"privateBytesKB\":120672},\"Utility\":{\"processes\":1,\"workingSetKB\":115280,\"privateBytesKB\":14880},\"Tab\":{\"processes\":5,\"workingSetKB\":716968,\"privateBytesKB\":238696}},\"processes\":[{\"pid\":46620,\"type\":\"Browser\",\"workingSetKB\":238372,\"privateBytesKB\":171176,\"role\":\"\",\"url\":\"\"},{\"pid\":46128,\"type\":\"GPU\",\"workingSetKB\":169376,\"privateBytesKB\":120672,\"role\":\"\",\"url\":\"\"},{\"pid\":17004,\"type\":\"Utility\",\"workingSetKB\":115280,\"privateBytesKB\":14880,\"role\":\"\",\"url\":\"\"},{\"pid\":28996,\"type\":\"Tab\",\"workingSetKB\":157476,\"privateBytesKB\":63644,\"role\":\"chrome:standalone\",\"url\":\"file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html\"},{\"pid\":41860,\"type\":\"Tab\",\"workingSetKB\":160460,\"privateBytesKB\":65976,\"role\":\"tab:d566fe5a\",\"url\":\"https://www.google.com/\"},{\"pid\":46220,\"type\":\"Tab\",\"workingSetKB\":130632,\"privateBytesKB\":32500,\"role\":\"tab:d8c3430e+tab:960dc749+tab:0241279b+tab:3c2f0913\",\"url\":\"http://127.0.0.1:53397/store-home\"},{\"pid\":28884,\"type\":\"Tab\",\"workingSetKB\":125956,\"privateBytesKB\":29464,\"role\":\"tab:3820dfc1\",\"url\":\"https://example.com/\"},{\"pid\":17136,\"type\":\"Tab\",\"workingSetKB\":142444,\"privateBytesKB\":47112,\"role\":\"tab:7f2ca177\",\"url\":\"https://www.wikipedia.org/\"}],\"mainRssKB\":238372},\"ts\":\"2026-09-19T17:40:45.450Z\",\"nowMs\":600978.9313}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1267999999690801,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:45.516Z\",\"nowMs\":601044.9519}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.75179999996908,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:45.517Z\",\"nowMs\":601045.3407}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.14169999992009252,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:46.282Z\",\"nowMs\":601810.6435}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.497900000074878,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:46.282Z\",\"nowMs\":601810.9721}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.13060000003315508,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:47.067Z\",\"nowMs\":602596.0861}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":9.12659999995958,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:47.068Z\",\"nowMs\":602596.3376}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.12430000002495944,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:47.831Z\",\"nowMs\":603359.2157}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":7.642700000084005,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:47.831Z\",\"nowMs\":603359.4432}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.14599999994970858,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:48.675Z\",\"nowMs\":604203.6906}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":9.586899999994785,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:48.675Z\",\"nowMs\":604203.952}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.18290000001434237,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:49.466Z\",\"nowMs\":604995.1442}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":10.334399999934249,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:49.467Z\",\"nowMs\":604995.5409}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1195999999763444,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:50.241Z\",\"nowMs\":605769.2909}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":9.8173999999417,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:50.241Z\",\"nowMs\":605769.8052}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":237,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":349,\"totalBytes\":337283},\"ts\":\"2026-09-19T17:40:50.390Z\",\"nowMs\":605919.0566}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-19T17:40:50.390Z\",\"nowMs\":605919.1325}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.08710000000428408,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":463},\"ts\":\"2026-09-19T17:40:50.391Z\",\"nowMs\":605919.2415}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":639,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":350,\"totalBytes\":337922},\"ts\":\"2026-09-19T17:40:50.510Z\",\"nowMs\":606038.3063}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.08620000001974404,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":1309},\"ts\":\"2026-09-19T17:40:50.510Z\",\"nowMs\":606038.4723}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-19T17:40:50.514Z\",\"nowMs\":606043.0737}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":2420,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":351,\"totalBytes\":340342},\"ts\":\"2026-09-19T17:40:50.552Z\",\"nowMs\":606080.5175}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.08110000006854534,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":4420},\"ts\":\"2026-09-19T17:40:50.552Z\",\"nowMs\":606080.6713}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-19T17:40:50.557Z\",\"nowMs\":606085.6037}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":2316,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":352,\"totalBytes\":342658},\"ts\":\"2026-09-19T17:40:50.593Z\",\"nowMs\":606122.1656}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.0779999999795109,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":4205},\"ts\":\"2026-09-19T17:40:50.594Z\",\"nowMs\":606122.314}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-19T17:40:50.605Z\",\"nowMs\":606134.0445}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1300999999511987,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:51.079Z\",\"nowMs\":606607.5356}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":7.747899999958463,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:51.079Z\",\"nowMs\":606607.7808}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.13229999993927777,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:51.928Z\",\"nowMs\":607456.8795}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.960699999937788,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:51.928Z\",\"nowMs\":607457.166}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.13260000001173466,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:52.719Z\",\"nowMs\":608247.7271}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":9.474400000064634,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:52.719Z\",\"nowMs\":608248.0227}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.123299999977462,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:53.472Z\",\"nowMs\":609000.2008}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":7.361700000008568,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:53.472Z\",\"nowMs\":609000.4423}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.12770000007003546,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:54.237Z\",\"nowMs\":609766.0303}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.650800000061281,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:54.238Z\",\"nowMs\":609766.3409}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.12569999997504056,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:55.005Z\",\"nowMs\":610533.4347}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":9.35530000005383,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:55.005Z\",\"nowMs\":610533.8175}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2695000000530854,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-19T17:40:55.788Z\",\"nowMs\":611316.4663}"
+  ]
+}
