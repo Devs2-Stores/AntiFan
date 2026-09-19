@@ -26,6 +26,8 @@ import { WorkspaceCapsuleManager } from './project/workspace-capsule';
 import { NativeTabHost } from './browser/native-tab-host';
 import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, redactCredentials } from './bridge/bridge-server';
 import { TerminalManager } from './browser/terminal-manager';
+import { ensureDaemon } from './terminal-daemon/daemon-spawner';
+import { DaemonTerminalProxy } from './terminal-daemon/daemon-client';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
@@ -298,10 +300,29 @@ async function createWindow(): Promise<void> {
   windowStateManager.manage(mainWindow);
   recordBenchmark({ surface: 'startup', name: 'windowCtor' });
 
-  // Canonical single TerminalManager: this is the one instance shared by UI IPC,
-  // Bridge, NativeTabHost, control-plane capabilities, and theme transactions.
-  // TerminalManager.getInstance() returns this instance (private constructor, no
-  // second owner can be spawned); the control plane receives it explicitly below.
+  // Bring up or re-attach to the detached terminal host daemon so GUI restarts
+  // never kill live agent sessions or shell processes.
+  if (process.env.ANTIFAN_USE_TERMINAL_DAEMON !== '0') {
+    try {
+      const spawnResult = await ensureDaemon();
+      if (spawnResult.handle) {
+        const proxy = new DaemonTerminalProxy({
+          port: spawnResult.handle.port,
+          token: spawnResult.handle.token,
+        });
+        await proxy.connect();
+        TerminalManager.setInstance(proxy as unknown as TerminalManager);
+        console.log(`[index] Terminal Host Daemon connected (mode=${spawnResult.mode}, pid=${spawnResult.handle.pid}, port=${spawnResult.handle.port})`);
+      } else {
+        console.warn(`[index] Terminal Host Daemon unavailable (${spawnResult.reason || 'unknown'}); falling back to in-process TerminalManager`);
+      }
+    } catch (err) {
+      console.warn('[index] Failed to initialize Terminal Host Daemon, falling back to in-process:', err);
+    }
+  }
+
+  // Canonical single TerminalManager / DaemonTerminalProxy instance shared across
+  // UI IPC, Bridge, NativeTabHost, control-plane capabilities, and theme transactions.
   const terminalManager = TerminalManager.getInstance();
   tabHost = new NativeTabHost(mainWindow, capsuleManager || undefined);
   recordBenchmark({ surface: 'startup', name: 'tabHostCtor' });

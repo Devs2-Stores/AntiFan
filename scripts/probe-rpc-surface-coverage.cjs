@@ -285,6 +285,7 @@ async function main() {
     }
     await record('reorderSessions', () => proxy.reorderSessions([mainId]));
     await record('persistSync', () => proxy.persistSync());
+    await record('setBridgeEndpoint', () => proxy.setBridgeEndpoint({ port: 1234, host: '127.0.0.1', pid: 1 }));
 
     // Mutating calls run on a throwaway session so the probe never removes the session it is
     // standing on, and the host is left holding exactly what it started with.

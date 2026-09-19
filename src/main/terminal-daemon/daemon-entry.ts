@@ -421,6 +421,15 @@ function main(): void {
           case HOST_METHOD.getSessionState:
             respond(true, tm.getSessionState());
             break;
+          case HOST_METHOD.setBridgeEndpoint: {
+            if (p.endpoint && typeof p.endpoint === 'object') {
+              tm.setBridgeEndpoint(p.endpoint as { port: number; host: string; pid: number });
+            } else {
+              tm.setBridgeEndpoint(null);
+            }
+            respond(true, { ok: true });
+            break;
+          }
 
           case HOST_METHOD.getSubscribers:
             // Raw passthrough, like every sibling handler: TerminalManager.getSubscribers() returns

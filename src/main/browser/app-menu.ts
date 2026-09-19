@@ -270,6 +270,20 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           click: () => tabHost?.captureScreenshot(),
         },
         { type: 'separator' },
+        {
+          label: 'Thoát hoàn toàn (Dừng cả GUI và Terminal Host)',
+          click: async () => {
+            try {
+              const tm: unknown = TerminalManager.getInstance();
+              if (tm && typeof tm === 'object' && 'shutdownHost' in tm && typeof tm.shutdownHost === 'function') {
+                await (tm.shutdownHost as () => Promise<void>)();
+              } else if (tm && typeof tm === 'object' && 'dispose' in tm && typeof tm.dispose === 'function') {
+                await (tm.dispose as () => Promise<void>)();
+              }
+            } catch {}
+            app.quit();
+          },
+        },
         isMac ? { role: 'close' } : { role: 'quit', label: 'Exit' },
       ],
     },

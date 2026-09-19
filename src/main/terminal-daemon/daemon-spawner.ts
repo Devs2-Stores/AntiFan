@@ -25,7 +25,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import WebSocket from 'ws';
-
+import { StorageLocations } from '../config/storage-locations';
 const HOST = '127.0.0.1';
 const HANDSHAKE_TIMEOUT_MS = 15000;
 const HEALTH_TIMEOUT_MS = 5000;
@@ -74,7 +74,15 @@ function alive(pid: number): boolean {
 }
 
 function dataRoot(): string {
-  return process.env.ANTIFAN_DATA_ROOT || path.join(process.env.LOCALAPPDATA || process.cwd(), 'antifan-data');
+  if (process.env.ANTIFAN_DATA_ROOT) return path.resolve(process.env.ANTIFAN_DATA_ROOT);
+  try {
+    return StorageLocations.getDataRoot();
+  } catch {
+    for (const candidate of ['E:\\Work\\.antifan-data', 'E:\\.antifan-data', 'D:\\Work\\.antifan-data']) {
+      if (fs.existsSync(path.dirname(candidate))) return candidate;
+    }
+    return path.join(process.env.LOCALAPPDATA || process.cwd(), 'antifan-data');
+  }
 }
 
 function hostRoot(): string {

@@ -12,6 +12,7 @@ import {
   classifyTaskIntent,
   getInitialTerminalState,
 } from '../../shared/annotation-prompt';
+import { PlatformDetector } from '../qa/scanners/platform-detector';
 
 export const ACTIVE_CSS_PROPERTIES: Record<string, true> = {
   display: true,
@@ -102,6 +103,34 @@ export interface AnnotationPayload {
   boxModel?: Record<string, any>;
   parentLayout?: Record<string, any>;
   siblingSemantics?: any[];
+  actionChip?: string;
+}
+function buildRecommendedSkillsSection(platform: string, userComment: string, actionChip?: string): string {
+  const isDirect = actionChip === 'direct' || /\[⚡?\s*direct[- ]?edit\]/i.test(userComment) || /sửa trực tiếp|không tra core|skip core|tắt core/i.test(userComment);
+  const isSpeed = actionChip === 'speed' || /\[🚀?\s*pagespeed\]/i.test(userComment) || /pagespeed|tối ưu speed|tối ưu tốc độ|cwv|lcp|cls/i.test(userComment);
+  const skills: string[] = [];
+  let primaryThemeSkill = '';
+  if (platform === 'haravan') {
+    primaryThemeSkill = 'skill://haravan-theme';
+    skills.push('skill://haravan-theme');
+  } else if (platform === 'shopify') {
+    primaryThemeSkill = 'skill://shopify-theme';
+    skills.push('skill://shopify-theme');
+  } else if (platform === 'sapo') {
+    primaryThemeSkill = 'skill://sapo-theme';
+    skills.push('skill://sapo-theme');
+  }
+  if (isDirect) {
+    skills.push('skill://anti-direct');
+  }
+  if (isSpeed) {
+    skills.push('skill://pagespeed');
+  }
+  if (skills.length === 0) return '';
+  return `## 🎯 Recommended Skills & Agent Directives
+- **Platform Identified**: ${platform !== 'unknown' ? platform.toUpperCase() : 'Generic Storefront'}
+${skills.map((s) => `- **Recommended Skill**: \`${s}\``).join('\n')}
+${isDirect ? '- **Direct Mode Armed**: Inspect & edit code directly without retrieving historical Core context packs (`skill://anti-direct`).\n' : ''}${isSpeed ? '- **Performance Focus**: Analyze and optimize Core Web Vitals (LCP, CLS, TBT) per `skill://pagespeed`.\n' : ''}${primaryThemeSkill ? `- **Platform Standards**: Adhere to Liquid patterns, asset directories, and schema conventions in \`${primaryThemeSkill}\`.\n` : ''}`;
 }
 
 export class AnnotationManager {
@@ -321,6 +350,8 @@ ${stylesList.map(([key, value]) => `${safe(key, 100)}: ${safe(value, 500)};`).jo
 
       const detailedFileContent = `${evidenceEnvelope}
 ${buildAgentTaskHeader(userComment)}
+
+${buildRecommendedSkillsSection(PlatformDetector.detect(payload.workspaceDir, payload.url, payload.outerHTML).platform, userComment, typeof payload.actionChip === 'string' ? payload.actionChip : undefined)}
 
 ## Captured element evidence [Visual Mode: Element SnapDOM Capture]
 - Annotation ID: ${annotationId}

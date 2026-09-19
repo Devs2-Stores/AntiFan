@@ -854,6 +854,61 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     termRow.appendChild(termLabel);
     termRow.appendChild(termSelect);
+    // Quick Action Chips row for skill routing
+    const chipRow = document.createElement('div');
+    chipRow.id = 'antifanChipRow';
+    chipRow.style.cssText = 'display:flex;align-items:center;gap:5px;overflow-x:auto;padding:1px 0;box-sizing:border-box;scrollbar-width:none;';
+
+    let activeActionChip = null;
+    const actionChips = [
+      { id: 'theme', label: '🎨 Sửa Theme', tag: '[🎨Theme-Fix]', title: 'Áp dụng quy chuẩn theme platform (Haravan/Shopify/Sapo)' },
+      { id: 'direct', label: '⚡ Direct Edit', tag: '[⚡Direct-Edit]', title: 'Sửa trực tiếp, bỏ qua tra Core context (anti-direct)' },
+      { id: 'speed', label: '🚀 PageSpeed', tag: '[🚀PageSpeed]', title: 'Tối ưu Core Web Vitals & pagespeed' },
+    ];
+
+    actionChips.forEach((c) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = c.label;
+      btn.title = c.title;
+      btn.style.cssText = 'background:#0f172a;color:#94a3b8;border:1px solid #1e293b;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all 0.15s ease;line-height:1.2;';
+
+      btn.onclick = (e) => {
+        if (e) {
+          e.stopPropagation();
+          e.preventDefault();
+        }
+        const isCurrentlyActive = activeActionChip === c.id;
+        chipRow.querySelectorAll('button').forEach((b) => {
+          b.style.background = '#0f172a';
+          b.style.color = '#94a3b8';
+          b.style.borderColor = '#1e293b';
+        });
+
+        actionChips.forEach((other) => {
+          textarea.value = textarea.value.replace(other.tag + ' ', '').replace(other.tag, '');
+        });
+
+        if (isCurrentlyActive) {
+          activeActionChip = null;
+        } else {
+          activeActionChip = c.id;
+          btn.style.background = '#0284c7';
+          btn.style.color = '#ffffff';
+          btn.style.borderColor = '#38bdf8';
+
+          const QUEUE_PREFIX = '/queue ';
+          let val = textarea.value.trim();
+          if (val.startsWith(QUEUE_PREFIX)) {
+            val = val.substring(QUEUE_PREFIX.length).trim();
+          }
+          textarea.value = QUEUE_PREFIX + c.tag + ' ' + val;
+        }
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      };
+      chipRow.appendChild(btn);
+    });
     const textarea = document.createElement('textarea');
     textarea.placeholder = 'Mô tả / yêu cầu sửa...';
     textarea.style.cssText = 'width:100%;height:58px;min-height:58px;max-height:200px;background:#060a11;border:1px solid #263b50;border-radius:4px;color:#f8fafc;padding:8px;font-size:11.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box;line-height:1.4;overflow-y:auto;';
@@ -905,6 +960,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     footer.innerHTML = '<button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button>';
     modal.appendChild(header);
     modal.appendChild(termRow);
+    modal.appendChild(chipRow);
     modal.appendChild(textarea);
     modal.appendChild(previewContainer);
     modal.appendChild(statusMsg);
@@ -1236,6 +1292,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             }
             return chosen;
           })(),
+          actionChip: activeActionChip || undefined,
           attachedImages: attachedImages.slice(0, 6),
           rect: {
             x: Math.round(freshRect.left + window.scrollX),
@@ -1321,6 +1378,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             targetSessionId: termSelect ? termSelect.value : undefined,
             attachedImages: attachedImages.slice(0, 6),
             timestamp: Date.now(),
+            actionChip: activeActionChip || undefined,
           });
         } catch {}
       }

@@ -50,6 +50,7 @@ export const HOST_METHOD = {
   getSubscribers: 'terminalGetSubscribers',
   persistSync: 'terminalPersistSync',
   hostPing: 'terminalHostPing',
+  setBridgeEndpoint: 'terminalSetBridgeEndpoint',
   /**
    * Kills every PTY and exits the host. This exists for one caller only: the explicit
    * "quit everything" menu action. It must never be wired to GUI shutdown — surviving GUI shutdown

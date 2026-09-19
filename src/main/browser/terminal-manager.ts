@@ -597,7 +597,7 @@ export function safeSliceTailJsonBounded(str: string, maxJsonBytes: number): str
   return result;
 }
 export class TerminalManager extends EventEmitter {
-  private static instance: TerminalManager | undefined;
+  private static instance: TerminalManager | any | undefined;
   private static constructionCount = 0;
   private sessions = new Map<string, Session>();
   private sessionGenerations = new Map<string, number>();
@@ -935,6 +935,7 @@ export class TerminalManager extends EventEmitter {
   }
 
   public static getInstance(): TerminalManager { return this.instance ??= new TerminalManager(); }
+  public static setInstance(inst: TerminalManager | any): void { this.instance = inst; }
   public setCwd(cwd: string): void { this.currentCwd = cwd; }
   /**
    * Pin every PTY spawned by this instance to this instance's own bridge endpoint.
@@ -2301,7 +2302,7 @@ export class TerminalManager extends EventEmitter {
   public getActiveSessionId(): string {
     return this.activeSessionId;
   }
-  public getSession(id: string) {
+  public getSession(id: string, _opts?: { includeBuffer?: boolean }) {
     return this.sessions.get(id);
   }
 

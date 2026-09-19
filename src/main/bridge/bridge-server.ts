@@ -1731,13 +1731,7 @@ export class BridgeServer {
           initActiveTabId = this.tabHost.getActiveTabId();
         }
         if (verifiedMobileGrant.allowedScopes.includes('terminal.sync')) {
-          initTerminalSessions = tm.listSessions().filter(s => {
-            if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
-              const aff = this.tabHost.getTerminalAgentAffinity(s.id);
-              return !aff || aff.status !== 'alive';
-            }
-            return true;
-          });
+          initTerminalSessions = this.userPlaneSessions(tm.listSessions());
           const activeId = tm.getActiveSessionId();
           initActiveTerminalSessionId = initTerminalSessions.some(s => s.id === activeId)
             ? activeId
@@ -1747,13 +1741,7 @@ export class BridgeServer {
         // User plane Bridge client (IDE companion): only user-plane tabs and user-plane terminals
         initTabs = this.tabHost.getTabList();
         initActiveTabId = this.tabHost.getActiveTabId();
-        initTerminalSessions = tm.listSessions().filter(s => {
-          if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
-            const aff = this.tabHost.getTerminalAgentAffinity(s.id);
-            return !aff || aff.status !== 'alive';
-          }
-          return true;
-        });
+        initTerminalSessions = this.userPlaneSessions(tm.listSessions());
         const activeId = tm.getActiveSessionId();
         initActiveTerminalSessionId = initTerminalSessions.some(s => s.id === activeId)
           ? activeId
@@ -1955,15 +1943,22 @@ export class BridgeServer {
           return;
         }
 
-        // Prevent mobile client from operating on agent-owned terminal sessions
+        // Prevent mobile client from operating on agent-owned terminal sessions. Only methods
+        // that target a session fall back to the active one: listing and session creation stay
+        // reachable so the companion can render (and extend) the user-plane session list.
         const targetSessionId = typeof p.id === 'string' ? p.id : (typeof p.sessionId === 'string' ? p.sessionId : undefined);
-        const effectiveTerminalId = targetSessionId || (cleanMethod.startsWith('terminal') ? TerminalManager.getInstance().getActiveSessionId() : undefined);
-        if (effectiveTerminalId && typeof this.tabHost.getTerminalAgentAffinity === 'function') {
-          const aff = this.tabHost.getTerminalAgentAffinity(effectiveTerminalId);
-          if (aff && aff.status === 'alive') {
-            respond(false, { code: 'TERMINAL_FORBIDDEN', message: 'Access to agent-owned terminal is forbidden' }, 'TERMINAL_FORBIDDEN: Access to agent-owned terminal is forbidden');
-            return;
-          }
+        const targetsTerminalSession =
+          cleanMethod === 'terminalInput' ||
+          cleanMethod === 'terminalSendKey' ||
+          cleanMethod === 'terminalResize' ||
+          cleanMethod === 'terminalCloseSession' ||
+          cleanMethod === 'terminalRenameSession' ||
+          cleanMethod === 'terminalRestart' ||
+          cleanMethod === 'terminalSwitchSession';
+        const effectiveTerminalId = targetSessionId || (targetsTerminalSession ? TerminalManager.getInstance().getActiveSessionId() : undefined);
+        if (effectiveTerminalId && !this.userPlaneMayReachTerminal(effectiveTerminalId)) {
+          respond(false, { code: 'TERMINAL_FORBIDDEN', message: 'Access to agent-owned terminal is forbidden' }, 'TERMINAL_FORBIDDEN: Access to agent-owned terminal is forbidden');
+          return;
         }
       }
 
@@ -2421,15 +2416,13 @@ export class BridgeServer {
           if (typeof p.text === 'string') {
             const tm = TerminalManager.getInstance();
             if (p.sessionId) {
-              // Scoped callers (agent attachment, mobile grant) may only write to
-              // a terminal they own; a master-token socket is unscoped and
-              // addresses any session explicitly.
+              // An agent attachment is scoped to its own session; a companion grant follows the
+              // user-plane rule; a master-token socket is unscoped and addresses any session.
               const attachmentOwnsSession = !boundAttachmentId
                 || this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
-              const mobileOwnsSession = !mobileGrant
-                || (mobileGrant.sessionId === p.sessionId && mobileGrant.allowedScopes.includes('terminal.input'));
-              if (!attachmentOwnsSession || !mobileOwnsSession) {
-                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+              const mobileMayDrive = !mobileGrant || this.mobileMayDriveTerminal(mobileGrant, p.sessionId);
+              if (!attachmentOwnsSession || !mobileMayDrive) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
               tm.writeTo(p.sessionId, p.text);
@@ -2440,9 +2433,9 @@ export class BridgeServer {
               break;
             } else if (mobileGrant) {
               const effectiveSessionId = tm.getActiveSessionId();
-              const mobileOwnsSession = effectiveSessionId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
-              if (!mobileOwnsSession) {
-                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+              const mobileMayDrive = this.mobileMayDriveTerminal(mobileGrant, effectiveSessionId);
+              if (!mobileMayDrive) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
               tm.write(p.text);
@@ -2478,14 +2471,13 @@ export class BridgeServer {
           if (typeof sequence === 'string') {
             const tm = TerminalManager.getInstance();
             if (p.sessionId) {
-              // Same plane resolution as terminalInput: only scoped callers
-              // (agent attachment, mobile grant) are ownership-gated.
+              // Same plane resolution as terminalInput: an agent attachment and a companion grant
+              // are gated, a master-token socket is unscoped.
               const attachmentOwnsSession = !boundAttachmentId
                 || this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
-              const mobileOwnsSession = !mobileGrant
-                || (mobileGrant.sessionId === p.sessionId && mobileGrant.allowedScopes.includes('terminal.input'));
-              if (!attachmentOwnsSession || !mobileOwnsSession) {
-                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+              const mobileMayDrive = !mobileGrant || this.mobileMayDriveTerminal(mobileGrant, p.sessionId);
+              if (!attachmentOwnsSession || !mobileMayDrive) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
               tm.writeTo(p.sessionId, sequence);
@@ -2494,9 +2486,9 @@ export class BridgeServer {
               break;
             } else if (mobileGrant) {
               const effectiveSessionId = tm.getActiveSessionId();
-              const mobileOwnsSession = effectiveSessionId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
-              if (!mobileOwnsSession) {
-                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+              const mobileMayDrive = this.mobileMayDriveTerminal(mobileGrant, effectiveSessionId);
+              if (!mobileMayDrive) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
               tm.write(sequence);
@@ -2515,9 +2507,12 @@ export class BridgeServer {
         case 'getTerminalSessions':
         case 'antifan.getTerminalSessions': {
           const tm = TerminalManager.getInstance();
+          const sessions = this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
           respond(true, {
-            sessions: tm.listSessions(),
-            activeSessionId: tm.getActiveSessionId(),
+            // A companion sees exactly the sessions it may operate: agent terminals stay hidden
+            // from the mobile surface, matching its connect payload and terminal data frames.
+            sessions,
+            activeSessionId: this.visibleTerminalActiveId(sessions),
           });
           break;
         }
@@ -2526,8 +2521,15 @@ export class BridgeServer {
         case 'antifan.terminalSwitchSession': {
           if (typeof p.sessionId === 'string') {
             const tm = TerminalManager.getInstance();
+            if (mobileGrant && !this.userPlaneMayReachTerminal(p.sessionId)) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not target an agent-owned terminal session');
+              break;
+            }
             const switched = tm.switchSession(p.sessionId);
-            respond(switched, { switched, activeSessionId: tm.getActiveSessionId() });
+            respond(switched, {
+              switched,
+              activeSessionId: this.visibleTerminalActiveId(this.visibleTerminalSessions(tm.listSessions(), mobileGrant)),
+            });
           } else {
             respond(false, undefined, 'Missing sessionId');
           }
@@ -2538,7 +2540,11 @@ export class BridgeServer {
         case 'antifan.terminalNewSession': {
           const tm = TerminalManager.getInstance();
           const sessionId = tm.createSession(p.cwd);
-          respond(true, { sessionId, sessions: tm.listSessions() });
+          const sessions = this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
+          respond(true, {
+            sessionId,
+            sessions,
+          });
           break;
         }
 
@@ -2557,15 +2563,17 @@ export class BridgeServer {
             }
           }
           const targetId = p.sessionId || tm.getActiveSessionId();
-          if (mobileGrant) {
-            const mobileOwnsSession = targetId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
-            if (!mobileOwnsSession) {
-              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
-              break;
-            }
+          if (mobileGrant && !this.mobileMayDriveTerminal(mobileGrant, targetId)) {
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
+            break;
           }
           const closed = await tm.closeSession(targetId);
-          respond(closed, { closed, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
+          const sessions = this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
+          respond(closed, {
+            closed,
+            sessions,
+            activeSessionId: this.visibleTerminalActiveId(sessions),
+          });
           break;
         }
 
@@ -2584,15 +2592,16 @@ export class BridgeServer {
             }
           }
           const targetId = p.id || p.sessionId || tm.getActiveSessionId();
-          if (mobileGrant) {
-            const mobileOwnsSession = targetId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
-            if (!mobileOwnsSession) {
-              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
-              break;
-            }
+          if (mobileGrant && !this.mobileMayDriveTerminal(mobileGrant, targetId)) {
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
+            break;
           }
           const renamed = tm.renameSession(targetId, p.name || '');
-          respond(renamed, { renamed, sessions: tm.listSessions() });
+          const sessions = this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
+          respond(renamed, {
+            renamed,
+            sessions,
+          });
           break;
         }
         case 'terminalRestart':
@@ -2600,9 +2609,8 @@ export class BridgeServer {
           const tm = TerminalManager.getInstance();
           if (mobileGrant) {
             const effectiveSessionId = p.sessionId || tm.getActiveSessionId();
-            const mobileOwnsSession = effectiveSessionId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
-            if (!mobileOwnsSession) {
-              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+            if (!this.mobileMayDriveTerminal(mobileGrant, effectiveSessionId)) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
               break;
             }
           }
@@ -2616,9 +2624,8 @@ export class BridgeServer {
           const tm = TerminalManager.getInstance();
           if (mobileGrant) {
             const effectiveSessionId = p.sessionId || tm.getActiveSessionId();
-            const mobileOwnsSession = effectiveSessionId === mobileGrant.sessionId && mobileGrant.allowedScopes.includes('terminal.input');
-            if (!mobileOwnsSession) {
-              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller does not own the target terminal session');
+            if (!this.mobileMayDriveTerminal(mobileGrant, effectiveSessionId)) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
               break;
             }
           }
@@ -3215,6 +3222,44 @@ export class BridgeServer {
     return true;
   }
 
+  /**
+   * User-plane callers (a paired companion, an IDE bridge client) may reach any terminal that is
+   * not agent-owned. Single oracle behind the write gates, the session lists, the connect payload,
+   * the terminal-data frames, and the session broadcast.
+   */
+  private userPlaneMayReachTerminal(terminalSessionId?: string): boolean {
+    if (!terminalSessionId) return false;
+    if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
+      const aff = this.tabHost.getTerminalAgentAffinity(terminalSessionId);
+      if (aff && aff.status === 'alive') return false;
+    }
+    return true;
+  }
+
+  /** The user-plane slice of a session list: an agent-owned session is never part of it. */
+  private userPlaneSessions(sessions: SessionSummary[]): SessionSummary[] {
+    return sessions.filter(s => this.userPlaneMayReachTerminal(s.id));
+  }
+
+  /** What a caller sees: a companion gets the user plane, a control-plane caller sees every session. */
+  private visibleTerminalSessions(sessions: SessionSummary[], mobileGrant?: MobileSessionGrant): SessionSummary[] {
+    return mobileGrant ? this.userPlaneSessions(sessions) : sessions;
+  }
+
+  /**
+   * The active id a caller may hold: never one outside the sessions it can see. Mirrors the connect
+   * payload, so a phone cannot pick up an agent session id from a list but, response, or broadcast.
+   */
+  private visibleTerminalActiveId(sessions: SessionSummary[]): string {
+    const activeId = TerminalManager.getInstance().getActiveSessionId();
+    if (!activeId) return '';
+    return sessions.some(s => s.id === activeId) ? activeId : (sessions[0]?.id || '');
+  }
+
+  private mobileMayDriveTerminal(mobileGrant: MobileSessionGrant, terminalSessionId?: string): boolean {
+    return mobileGrant.allowedScopes.includes('terminal.input') && this.userPlaneMayReachTerminal(terminalSessionId);
+  }
+
   public broadcastEvent(event: string, data: unknown): void {
     const payload: BridgeEventPayload = { event, data };
     const broadcastStartMs = performance.now();
@@ -3241,6 +3286,34 @@ export class BridgeServer {
     // Pre-serialize frame payload once for all clients and benchmark
     const raw = JSON.stringify(payload);
     const rawBytes = Buffer.byteLength(raw, 'utf8');
+
+    // A companion receives the user-plane view of a session state: the agent plane stays invisible
+    // in the list, the active id, and the transcript snapshot that travels with it.
+    let mobileSessionFrame: { data: unknown; raw: string; rawBytes: number } | undefined;
+    if (isTerminalSession) {
+      const hasCompanion = [...this.clients].some(client =>
+        client.readyState === WebSocket.OPEN
+        && this.socketMobileGrants.get(client)?.allowedScopes.includes('terminal.sync'));
+      if (hasCompanion && data && typeof data === 'object') {
+        const state = data as {
+          sessions?: SessionSummary[];
+          splitSessionId?: string;
+        };
+        const sessions = this.userPlaneSessions(Array.isArray(state.sessions) ? state.sessions : []);
+        const activeId = this.visibleTerminalActiveId(sessions);
+        const activeSummary = sessions.find(s => s.id === activeId);
+        const mobileData = {
+          ...state,
+          sessions,
+          activeSessionId: activeId,
+          splitSessionId: activeSummary?.splitSessionId,
+          snapshot: activeSummary?.buffer || '',
+          snapshotThroughSeq: activeSummary?.snapshotThroughSeq || 0,
+        };
+        const mobileRaw = JSON.stringify({ event, data: mobileData });
+        mobileSessionFrame = { data: mobileData, raw: mobileRaw, rawBytes: Buffer.byteLength(mobileRaw, 'utf8') };
+      }
+    }
 
     let sent = 0;
     let congested = 0;
@@ -3276,6 +3349,8 @@ export class BridgeServer {
       if (state && state.queue.length > 0) congested += 1;
       if (isTerminalData) {
         this.sendEventFrame(client, event, data, terminalSessionId, raw, rawBytes, dataText, seq);
+      } else if (isTerminalSession && mobileGrant && mobileSessionFrame) {
+        this.sendEventFrame(client, event, mobileSessionFrame.data, undefined, mobileSessionFrame.raw, mobileSessionFrame.rawBytes);
       } else {
         this.sendEventFrame(client, event, data, undefined, raw, rawBytes);
       }

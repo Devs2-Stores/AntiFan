@@ -1168,6 +1168,8 @@ type TerminalWriteSurface = {
   resize: (cols: number, rows: number) => void;
   restart: (cwd?: string) => Promise<void>;
   getActiveSessionId: () => string;
+  listSessions: () => Array<{ id: string }>;
+  createSession: (cwd?: string) => string;
 };
 
 type MobileGrantSurface = {
@@ -1205,7 +1207,7 @@ describe('Bridge terminal write planes', () => {
       await new Promise<void>((resolve, reject) => { socket.on('open', resolve); socket.on('error', reject); });
       return socket;
     };
-    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string }>((resolve) => {
+    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string; data?: unknown }>((resolve) => {
       const onMessage = (raw: unknown) => {
         let frame: unknown;
         try { frame = JSON.parse(String(raw)); } catch { return; }
@@ -1214,6 +1216,7 @@ describe('Bridge terminal write planes', () => {
         resolve({
           success: 'success' in frame && frame.success === true,
           error: 'error' in frame && typeof frame.error === 'string' ? frame.error : undefined,
+          data: 'data' in frame ? (frame as { data: unknown }).data : undefined,
         });
       };
       socket.on('message', onMessage);
@@ -1247,7 +1250,8 @@ describe('Bridge terminal write planes', () => {
       assert.match(foreign.error || '', /Forbidden: Attachment-authenticated connections/);
       assert.strictEqual(writes.some((entry) => entry.input.includes('refused')), false, 'Refused writes must never reach the terminal');
 
-      // A mobile grant carries its own terminal session, advertised as terminal.input scope.
+      // A mobile grant carries the companion scopes. Its sessionId names the control-plane
+      // session it was paired under; terminal access itself follows the user-plane rule below.
       const grant: MobileSessionGrant = {
         grantToken: 'grant-terminal-write',
         sessionId: 'session-mobile',
@@ -1263,13 +1267,23 @@ describe('Bridge terminal write planes', () => {
       grantSurface.mobileGrants.set(grant.grantToken, grant);
       const mobile = await open({ Authorization: `Bearer ${grant.grantToken}` });
 
-      const mobileOwn = await call(mobile, 'term-mobile-own', 'antifan.terminalInput', { sessionId: 'session-mobile', text: 'echo mobile\r' });
-      assert.strictEqual(mobileOwn.success, true, mobileOwn.error);
+      const mobileUserPlane = await call(mobile, 'term-mobile-user', 'antifan.terminalInput', { sessionId: 'session-mobile', text: 'echo mobile\r' });
+      assert.strictEqual(mobileUserPlane.success, true, mobileUserPlane.error);
       assert.deepStrictEqual(writes[writes.length - 1], { sessionId: 'session-mobile', input: 'echo mobile\r' });
 
-      const mobileForeign = await call(mobile, 'term-mobile-foreign', 'antifan.terminalInput', { sessionId: 'session-alpha', text: 'echo refused\r' });
-      assert.strictEqual(mobileForeign.success, false);
-      assert.match(mobileForeign.error || '', /TERMINAL_FORBIDDEN/);
+      // The companion operates the user plane, so a session it was not minted for is still
+      // writable - the same rule as the session list and data frames it receives.
+      const mobileShared = await call(mobile, 'term-mobile-shared', 'antifan.terminalInput', { sessionId: 'session-alpha', text: 'echo shared\r' });
+      assert.strictEqual(mobileShared.success, true, mobileShared.error);
+      assert.deepStrictEqual(writes[writes.length - 1], { sessionId: 'session-alpha', input: 'echo shared\r' });
+
+      // Agent-owned sessions are the boundary: the write is refused and never reaches a shell.
+      (mockHost as unknown as { getTerminalAgentAffinity?: (id: string) => unknown }).getTerminalAgentAffinity =
+        (id: string) => (id === 'session-agent' ? { status: 'alive' } : undefined);
+      const mobileAgent = await call(mobile, 'term-mobile-agent', 'antifan.terminalInput', { sessionId: 'session-agent', text: 'echo agent-refused\r' });
+      assert.strictEqual(mobileAgent.success, false);
+      assert.match(mobileAgent.error || '', /TERMINAL_FORBIDDEN/);
+      assert.strictEqual(writes.some((entry) => entry.input.includes('agent-refused')), false, 'Refused writes must never reach the terminal');
     } finally {
       tm.writeTo = originalWriteTo;
       tm.write = originalWrite;
@@ -1288,7 +1302,7 @@ describe('Bridge terminal write planes', () => {
       await new Promise<void>((resolve, reject) => { socket.on('open', resolve); socket.on('error', reject); });
       return socket;
     };
-    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string }>((resolve) => {
+    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string; data?: unknown }>((resolve) => {
       const onMessage = (raw: unknown) => {
         let frame: unknown;
         try { frame = JSON.parse(String(raw)); } catch { return; }
@@ -1297,6 +1311,7 @@ describe('Bridge terminal write planes', () => {
         resolve({
           success: 'success' in frame && frame.success === true,
           error: 'error' in frame && typeof frame.error === 'string' ? frame.error : undefined,
+          data: 'data' in frame ? (frame as { data: unknown }).data : undefined,
         });
       };
       socket.on('message', onMessage);
@@ -1348,7 +1363,7 @@ describe('Bridge terminal write planes', () => {
       assert.strictEqual(masterRestart.success, true, masterRestart.error);
       assert.strictEqual(restarts.length, 1);
 
-      // 2. Mobile grant: issued for session-mobile with terminal.input scope
+      // 2. Mobile grant: issued with terminal.input scope for the companion's own session
       const grant: MobileSessionGrant = {
         grantToken: 'grant-terminal-ops',
         sessionId: 'session-mobile',
@@ -1362,7 +1377,7 @@ describe('Bridge terminal write planes', () => {
       grantSurface.mobileGrants.set(grant.grantToken, grant);
       const mobile = await open({ Authorization: `Bearer ${grant.grantToken}` });
 
-      // Mobile grant: the same four calls succeed for the session the grant was issued for
+      // The companion drives user-plane sessions; its own session is simply one of them.
       const mobileClose = await call(mobile, 'term-mobile-close', 'antifan.terminalCloseSession', { sessionId: 'session-mobile' });
       assert.strictEqual(mobileClose.success, true, mobileClose.error);
       assert.strictEqual(closed[closed.length - 1], 'session-mobile');
@@ -1379,26 +1394,36 @@ describe('Bridge terminal write planes', () => {
       assert.strictEqual(mobileRestart.success, true, mobileRestart.error);
       assert.strictEqual(restarts.length, 2);
 
-      // 3. Mobile grant with a foreign session id: all four refused with TERMINAL_FORBIDDEN
-      const foreignClose = await call(mobile, 'term-foreign-close', 'antifan.terminalCloseSession', { sessionId: 'session-foreign' });
-      assert.strictEqual(foreignClose.success, false);
-      assert.match(foreignClose.error || '', /TERMINAL_FORBIDDEN/);
+      // 3. Agent-owned sessions are the boundary: every op is refused and never reaches the shell.
+      (mockHost as unknown as { getTerminalAgentAffinity?: (id: string) => unknown }).getTerminalAgentAffinity =
+        (id: string) => (id === 'session-agent' ? { status: 'alive' } : undefined);
+      const agentClose = await call(mobile, 'term-agent-close', 'antifan.terminalCloseSession', { sessionId: 'session-agent' });
+      assert.strictEqual(agentClose.success, false);
+      assert.match(agentClose.error || '', /TERMINAL_FORBIDDEN/);
 
-      const foreignRename = await call(mobile, 'term-foreign-rename', 'antifan.terminalRenameSession', { sessionId: 'session-foreign', name: 'Stolen' });
-      assert.strictEqual(foreignRename.success, false);
-      assert.match(foreignRename.error || '', /TERMINAL_FORBIDDEN/);
+      const agentRename = await call(mobile, 'term-agent-rename', 'antifan.terminalRenameSession', { sessionId: 'session-agent', name: 'Stolen' });
+      assert.strictEqual(agentRename.success, false);
+      assert.match(agentRename.error || '', /TERMINAL_FORBIDDEN/);
 
-      const foreignResize = await call(mobile, 'term-foreign-resize', 'antifan.terminalResize', { sessionId: 'session-foreign', cols: 80, rows: 24 });
-      assert.strictEqual(foreignResize.success, false);
-      assert.match(foreignResize.error || '', /TERMINAL_FORBIDDEN/);
+      const agentResize = await call(mobile, 'term-agent-resize', 'antifan.terminalResize', { sessionId: 'session-agent', cols: 80, rows: 24 });
+      assert.strictEqual(agentResize.success, false);
+      assert.match(agentResize.error || '', /TERMINAL_FORBIDDEN/);
 
-      const foreignRestart = await call(mobile, 'term-foreign-restart', 'antifan.terminalRestart', { sessionId: 'session-foreign' });
-      assert.strictEqual(foreignRestart.success, false);
-      assert.match(foreignRestart.error || '', /TERMINAL_FORBIDDEN/);
+      const agentRestart = await call(mobile, 'term-agent-restart', 'antifan.terminalRestart', { sessionId: 'session-agent' });
+      assert.strictEqual(agentRestart.success, false);
+      assert.match(agentRestart.error || '', /TERMINAL_FORBIDDEN/);
 
-      // 4. Mobile grant with no session id while stubbed active session is not its granted session:
-      // resize and restart are refused
-      stubbedActiveSessionId = 'session-stubbed-active';
+      // 4. A call without a sessionId resolves to the active session: drivable while it is on the
+      // user plane, refused once the active session is agent-owned.
+      stubbedActiveSessionId = 'session-user-active';
+      const activeResize = await call(mobile, 'term-active-resize', 'antifan.terminalResize', { cols: 80, rows: 24 });
+      assert.strictEqual(activeResize.success, true, activeResize.error);
+      assert.deepStrictEqual(resized[resized.length - 1], { cols: 80, rows: 24 });
+      assert.strictEqual(resizedTo.some((r) => r.id === 'session-user-active'), false, 'a call without sessionId resizes the active shell, not a named session');
+
+      const resizedBeforeAgent = resized.length;
+      const restartsBeforeAgent = restarts.length;
+      stubbedActiveSessionId = 'session-agent';
       const noSessionResize = await call(mobile, 'term-nosess-resize', 'antifan.terminalResize', { cols: 80, rows: 24 });
       assert.strictEqual(noSessionResize.success, false);
       assert.match(noSessionResize.error || '', /TERMINAL_FORBIDDEN/);
@@ -1408,11 +1433,11 @@ describe('Bridge terminal write planes', () => {
       assert.match(noSessionRestart.error || '', /TERMINAL_FORBIDDEN/);
 
       // Refused calls must never reach the underlying TerminalManager methods
-      assert.strictEqual(closed.includes('session-foreign'), false, 'foreign session close must not reach TerminalManager');
-      assert.strictEqual(renamed.some((r) => r.id === 'session-foreign'), false, 'foreign session rename must not reach TerminalManager');
-      assert.strictEqual(resizedTo.some((r) => r.id === 'session-foreign'), false, 'foreign session resizeTo must not reach TerminalManager');
-      assert.strictEqual(resized.length, 0, 'resize without sessionId must not reach TerminalManager when refused');
-      assert.strictEqual(restarts.length, 2, 'restart calls must not reach TerminalManager when refused');
+      assert.strictEqual(closed.includes('session-agent'), false, 'agent session close must not reach TerminalManager');
+      assert.strictEqual(renamed.some((r) => r.id === 'session-agent'), false, 'agent session rename must not reach TerminalManager');
+      assert.strictEqual(resizedTo.some((r) => r.id === 'session-agent'), false, 'agent session resizeTo must not reach TerminalManager');
+      assert.strictEqual(resized.length, resizedBeforeAgent, 'agent-owned resize without sessionId must not reach TerminalManager');
+      assert.strictEqual(restarts.length, restartsBeforeAgent, 'agent-owned restart must not reach TerminalManager');
     } finally {
       tm.closeSession = originalCloseSession;
       tm.renameSession = originalRenameSession;
@@ -1425,7 +1450,7 @@ describe('Bridge terminal write planes', () => {
     }
   });
 
-  it('refuses every terminal method for a grant with no terminal session bound (fail-closed)', async () => {
+  it('refuses every terminal method that resolves to an agent-owned session, and drives the user plane (mobile boundary)', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0, false);
     const sockets: WebSocket[] = [];
@@ -1435,7 +1460,7 @@ describe('Bridge terminal write planes', () => {
       await new Promise<void>((resolve, reject) => { socket.on('open', resolve); socket.on('error', reject); });
       return socket;
     };
-    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string }>((resolve) => {
+    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string; data?: unknown }>((resolve) => {
       const onMessage = (raw: unknown) => {
         let frame: unknown;
         try { frame = JSON.parse(String(raw)); } catch { return; }
@@ -1444,6 +1469,7 @@ describe('Bridge terminal write planes', () => {
         resolve({
           success: 'success' in frame && frame.success === true,
           error: 'error' in frame && typeof frame.error === 'string' ? frame.error : undefined,
+          data: 'data' in frame ? (frame as { data: unknown }).data : undefined,
         });
       };
       socket.on('message', onMessage);
@@ -1467,7 +1493,9 @@ describe('Bridge terminal write planes', () => {
     const resizedTo: Array<{ id: string; cols: number; rows: number }> = [];
     const resized: Array<{ cols: number; rows: number }> = [];
     const restarts: Array<{ cwd?: string }> = [];
-    const stubbedActiveSessionId = 'terminal-1';
+    const originalListSessions = tm.listSessions.bind(terminalManager);
+    const originalCreateSession = tm.createSession.bind(terminalManager);
+    let stubbedActiveSessionId = 'terminal-1';
 
     tm.writeTo = (sessionId: string, input: string) => { writes.push({ sessionId, input }); };
     tm.write = (input: string) => { writes.push({ input }); };
@@ -1477,6 +1505,8 @@ describe('Bridge terminal write planes', () => {
     tm.resize = (cols: number, rows: number) => { resized.push({ cols, rows }); };
     tm.restart = async (cwd?: string) => { restarts.push({ cwd }); };
     tm.getActiveSessionId = () => stubbedActiveSessionId;
+    tm.listSessions = (() => [{ id: 'terminal-1' }, { id: 'terminal-2' }]) as unknown as typeof tm.listSessions;
+    tm.createSession = (() => 'terminal-3') as unknown as typeof tm.createSession;
 
     try {
       await server.start();
@@ -1491,6 +1521,9 @@ describe('Bridge terminal write planes', () => {
       };
       const grantSurface = server as unknown as MobileGrantSurface;
       grantSurface.mobileGrants.set(grant.grantToken, grant);
+      // The active session is agent-owned, so every call that resolves to it must be refused.
+      (mockHost as unknown as { getTerminalAgentAffinity?: (id: string) => unknown }).getTerminalAgentAffinity =
+        (id: string) => (id === 'terminal-1' ? { status: 'alive' } : undefined);
       const mobile = await open({ Authorization: `Bearer ${grant.grantToken}` });
 
       const inputRes = await call(mobile, 'fail-closed-input', 'antifan.terminalInput', { text: 'echo fail\r' });
@@ -1523,6 +1556,88 @@ describe('Bridge terminal write planes', () => {
       assert.strictEqual(resizedTo.length, 0);
       assert.strictEqual(resized.length, 0);
       assert.strictEqual(restarts.length, 0);
+
+      // Positive control: the refusal is affinity-driven, not blanket. Once the active session
+      // sits on the user plane the same calls succeed and reach the shell.
+      stubbedActiveSessionId = 'terminal-2';
+      const userPlaneInput = await call(mobile, 'user-plane-input', 'antifan.terminalInput', { text: 'echo live\r' });
+      assert.strictEqual(userPlaneInput.success, true, userPlaneInput.error);
+      assert.deepStrictEqual(writes[writes.length - 1], { input: 'echo live\r' });
+
+      const userPlaneResize = await call(mobile, 'user-plane-resize', 'antifan.terminalResize', { cols: 90, rows: 30 });
+      assert.strictEqual(userPlaneResize.success, true, userPlaneResize.error);
+      assert.deepStrictEqual(resized[resized.length - 1], { cols: 90, rows: 30 });
+
+      // 5. Session listings follow the same plane: an agent-owned session never appears, neither
+      //    on the list route nor in the response to creating a session.
+      const listed = await call(mobile, 'plane-list', 'antifan.getTerminalSessions', {});
+      assert.strictEqual(listed.success, true, listed.error);
+      assert.deepStrictEqual((listed.data as { sessions: Array<{ id: string }> }).sessions.map(s => s.id), ['terminal-2']);
+
+      const created = await call(mobile, 'plane-create', 'antifan.terminalNewSession', {});
+      assert.strictEqual(created.success, true, created.error);
+      assert.strictEqual((created.data as { sessionId: string }).sessionId, 'terminal-3');
+      assert.deepStrictEqual((created.data as { sessions: Array<{ id: string }> }).sessions.map(s => s.id), ['terminal-2']);
+
+      const closedList = await call(mobile, 'plane-close', 'antifan.terminalCloseSession', { sessionId: 'terminal-2' });
+      assert.strictEqual(closedList.success, true, closedList.error);
+      assert.deepStrictEqual((closedList.data as { sessions: Array<{ id: string }> }).sessions.map(s => s.id), ['terminal-2']);
+
+      const renamedList = await call(mobile, 'plane-rename', 'antifan.terminalRenameSession', { sessionId: 'terminal-2', name: 'Plane' });
+      assert.strictEqual(renamedList.success, true, renamedList.error);
+      assert.deepStrictEqual((renamedList.data as { sessions: Array<{ id: string }> }).sessions.map(s => s.id), ['terminal-2']);
+
+      // 6. The active id a companion receives is always one it can operate: with an agent-owned
+      //    shell in focus, responses fall back to a visible session instead of leaking that id.
+      stubbedActiveSessionId = 'terminal-1';
+      const agentActiveList = await call(mobile, 'plane-list-agent-active', 'antifan.getTerminalSessions', {});
+      assert.strictEqual(agentActiveList.success, true, agentActiveList.error);
+      const agentActiveData = agentActiveList.data as { sessions: Array<{ id: string }>; activeSessionId: string };
+      assert.deepStrictEqual(agentActiveData.sessions.map(s => s.id), ['terminal-2']);
+      assert.strictEqual(agentActiveData.activeSessionId, 'terminal-2');
+
+      const closedAgentActive = await call(mobile, 'plane-close-agent-active', 'antifan.terminalCloseSession', { sessionId: 'terminal-2' });
+      assert.strictEqual(closedAgentActive.success, true, closedAgentActive.error);
+      assert.strictEqual((closedAgentActive.data as { activeSessionId: string }).activeSessionId, 'terminal-2');
+
+      // 7. The session broadcast carries that same plane: an agent shell is invisible in the list,
+      //    the active id, and the transcript snapshot, while a control-plane caller still gets it all.
+      const master = await open({ Authorization: `Bearer ${server.getToken()}` });
+      type SessionFrame = { data: { sessions?: Array<{ id: string }>; activeSessionId?: string; snapshot?: string } };
+      const sessionFrames: SessionFrame[] = [];
+      let resolveFrames: () => void = () => {};
+      const bothFrames = new Promise<void>((resolve) => { resolveFrames = resolve; });
+      for (const socket of [mobile, master]) {
+        socket.on('message', (raw: unknown) => {
+          const text = String(raw);
+          if (!text.includes('"event":"antifan:terminal:session"')) return;
+          sessionFrames.push(JSON.parse(text) as SessionFrame);
+          if (sessionFrames.length >= 2) resolveFrames();
+        });
+      }
+
+      server.broadcastEvent('antifan:terminal:session', {
+        activeSessionId: 'terminal-1',
+        sessions: [
+          { id: 'terminal-1', name: 'agent-shell', cwd: 'C:/agent', buffer: 'AGENT-ONLY-OUTPUT', snapshotThroughSeq: 9 },
+          { id: 'terminal-2', name: 'user-shell', cwd: 'C:/user', buffer: 'user output', snapshotThroughSeq: 4 },
+        ],
+        snapshot: 'AGENT-ONLY-OUTPUT',
+        snapshotThroughSeq: 9,
+      });
+      await bothFrames;
+
+      const frameWithSessionCount = (count: number) => sessionFrames.find((f) => (f.data.sessions || []).length === count);
+      const mobileState = frameWithSessionCount(1);
+      const masterState = frameWithSessionCount(2);
+      assert.ok(mobileState, 'companion must receive a filtered session state');
+      assert.ok(masterState, 'control-plane caller must receive the unfiltered session state');
+      assert.deepStrictEqual(mobileState.data.sessions?.map((s) => s.id), ['terminal-2']);
+      assert.strictEqual(mobileState.data.activeSessionId, 'terminal-2');
+      assert.strictEqual(mobileState.data.snapshot, 'user output');
+      assert.strictEqual(JSON.stringify(mobileState.data).includes('AGENT-ONLY-OUTPUT'), false);
+      assert.deepStrictEqual(masterState.data.sessions?.map((s) => s.id), ['terminal-1', 'terminal-2']);
+      assert.strictEqual(masterState.data.snapshot, 'AGENT-ONLY-OUTPUT');
     } finally {
       tm.writeTo = originalWriteTo;
       tm.write = originalWrite;
@@ -1532,6 +1647,8 @@ describe('Bridge terminal write planes', () => {
       tm.resize = originalResize;
       tm.restart = originalRestart;
       tm.getActiveSessionId = originalGetActiveSessionId;
+      tm.listSessions = originalListSessions;
+      tm.createSession = originalCreateSession;
       for (const socket of sockets) { try { socket.close(); } catch {} }
       server.dispose();
     }

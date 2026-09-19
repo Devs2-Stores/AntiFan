@@ -185,6 +185,20 @@ export class DaemonTerminalProxy extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | undefined;
   private closed = false;
 
+  private cachedSessions: Array<Record<string, unknown>> = [];
+  private cachedSessionsById = new Map<string, Record<string, unknown>>();
+  private cachedActiveSessionId = '';
+  private cachedCwd = process.cwd();
+  private cachedSessionState: Record<string, unknown> | null = null;
+  private cachedStats = {
+    sessionCount: 0,
+    runningPtyCount: 0,
+    transcriptBytes: 0,
+    dataSubscriptionCount: 0,
+    exitSubscriptionCount: 0,
+    memoryEstimateBytes: 0,
+  };
+
   constructor(endpoint: DaemonEndpoint) {
     super();
     this.client = new DaemonClient(endpoint);
@@ -192,11 +206,51 @@ export class DaemonTerminalProxy extends EventEmitter {
     this.client.onClose(() => this.scheduleReconnect());
   }
 
+  private _updateLocalCache(state: { sessions?: unknown[]; activeSessionId?: string; cwd?: string; splitSessionId?: string; snapshot?: string; snapshotThroughSeq?: number } | null | undefined): void {
+    if (!state) return;
+    if (Array.isArray(state.sessions)) {
+      this.cachedSessions = state.sessions as Array<Record<string, unknown>>;
+      this.cachedSessionsById.clear();
+      for (const s of this.cachedSessions) {
+        if (s && typeof s.id === 'string') {
+          this.cachedSessionsById.set(s.id, s);
+        }
+      }
+    }
+    if (typeof state.activeSessionId === 'string' && state.activeSessionId) {
+      this.cachedActiveSessionId = state.activeSessionId;
+    }
+    if (typeof state.cwd === 'string' && state.cwd) {
+      this.cachedCwd = state.cwd;
+    } else {
+      const active = this.cachedSessionsById.get(this.cachedActiveSessionId);
+      if (active && typeof active.cwd === 'string') {
+        this.cachedCwd = active.cwd;
+      }
+    }
+    const prevSnapshot = (this.cachedSessionState as Record<string, unknown> | undefined)?.snapshot;
+    const prevSeq = (this.cachedSessionState as Record<string, unknown> | undefined)?.snapshotThroughSeq;
+    this.cachedSessionState = {
+      activeSessionId: this.cachedActiveSessionId,
+      sessions: this.cachedSessions,
+      splitSessionId: state.splitSessionId || (this.cachedSessionState as Record<string, unknown> | undefined)?.splitSessionId,
+      snapshot: typeof state.snapshot === 'string' ? state.snapshot : (typeof prevSnapshot === 'string' ? prevSnapshot : ''),
+      snapshotThroughSeq: typeof state.snapshotThroughSeq === 'number' ? state.snapshotThroughSeq : (typeof prevSeq === 'number' ? prevSeq : 0),
+    };
+    this.cachedStats.sessionCount = this.cachedSessions.length;
+    this.cachedStats.runningPtyCount = this.cachedSessions.filter((s) => s.state === 'running').length;
+  }
+
   private wireEvents(): void {
     // The daemon broadcasts the `antifan:`-prefixed names; TerminalManager emits the bare ones.
     // The mapping lives in protocol.ts so neither side can drift from the other.
     for (const [remote, local] of Object.entries(HOST_EVENT_TO_LOCAL)) {
-      this.client.onEvent(remote, (data) => this.emit(local, data));
+      this.client.onEvent(remote, (data) => {
+        if (remote === 'antifan:terminal:session' || local === 'session') {
+          this._updateLocalCache(data as Record<string, unknown>);
+        }
+        this.emit(local, data);
+      });
     }
   }
 
@@ -206,9 +260,12 @@ export class DaemonTerminalProxy extends EventEmitter {
       this.reconnectTimer = undefined;
       if (this.closed) return;
       try {
-        await this.client.connect();
+        await this.connect();
         this.reconnectDelay = RECONNECT_MIN_MS;
         this.emit('reconnected');
+        if (this.cachedSessionState) {
+          this.emit('session', this.cachedSessionState);
+        }
       } catch {
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
         this.scheduleReconnect();
@@ -218,6 +275,14 @@ export class DaemonTerminalProxy extends EventEmitter {
 
   async connect(): Promise<void> {
     await this.client.connect();
+    try {
+      const initial = await this.client.call<Record<string, unknown>>(HOST_METHOD.getSessionState);
+      this._updateLocalCache(initial);
+      const cwdRes = await this.client.call<{ cwd: string }>(HOST_METHOD.getCurrentCwd).catch(() => null);
+      if (cwdRes?.cwd) this.cachedCwd = cwdRes.cwd;
+    } catch {
+      /* best effort warm */
+    }
   }
 
   dispose(): void {
@@ -226,7 +291,7 @@ export class DaemonTerminalProxy extends EventEmitter {
     this.client.close();
   }
 
-  /* ---- TerminalManager-shaped surface (async) ---- */
+  /* ---- TerminalManager-shaped surface (async & sync-cached) ---- */
 
   async startTerminal(cwd?: string): Promise<boolean> {
     // Idempotent on the daemon side: its shell already exists, so this re-establishes cwd and
@@ -235,16 +300,13 @@ export class DaemonTerminalProxy extends EventEmitter {
     return r.started;
   }
 
-  async listSessions(): Promise<unknown[]> {
-    const r = await this.client.call<{ sessions: unknown[] }>(HOST_METHOD.listSessions);
-    return r.sessions;
+  listSessions(): unknown[] {
+    return this.cachedSessions;
   }
 
-  async getActiveSessionId(): Promise<string> {
-    const r = await this.client.call<{ activeSessionId: string }>(HOST_METHOD.listSessions);
-    return r.activeSessionId;
+  getActiveSessionId(): string {
+    return this.cachedActiveSessionId;
   }
-
   async getFullBuffer(sessionId: string): Promise<unknown> {
     return this.client.call(HOST_METHOD.getFullBuffer, { sessionId });
   }
@@ -257,12 +319,14 @@ export class DaemonTerminalProxy extends EventEmitter {
     return this.client.call(HOST_METHOD.syncView, query as Record<string, unknown>);
   }
 
-  async write(input: string): Promise<void> {
-    await this.client.call(HOST_METHOD.input, { text: input });
+  write(input: string): boolean {
+    this.client.call(HOST_METHOD.input, { text: input }).catch(() => undefined);
+    return true;
   }
 
-  async writeTo(sessionId: string, input: string): Promise<void> {
-    await this.client.call(HOST_METHOD.input, { sessionId, text: input });
+  writeTo(sessionId: string, input: string): boolean {
+    this.client.call(HOST_METHOD.input, { sessionId, text: input }).catch(() => undefined);
+    return true;
   }
 
   async sendKey(key: string, sessionId?: string): Promise<void> {
@@ -316,30 +380,28 @@ export class DaemonTerminalProxy extends EventEmitter {
     return r.ok;
   }
 
-  async getStats(): Promise<unknown> {
-    return this.client.call(HOST_METHOD.getStats);
+  getStats(): unknown {
+    this.client.call(HOST_METHOD.getStats).then((stats: unknown) => {
+      if (stats && typeof stats === 'object') Object.assign(this.cachedStats, stats);
+    }).catch(() => undefined);
+    return this.cachedStats;
   }
 
-  /**
-   * One session's liveness and scalar state — the shape `TerminalManager.getSession()` callers
-   * actually read (truthiness, `state`, `cwd`, `sessionGeneration`), never a live PTY handle.
-   *
-   * `buffer` is deliberately NOT returned: the manager's in-process `getSession()` hands back a
-   * Session whose `buffer` is up to 4 MiB, and it is called as a truthiness test in ~25 places. A
-   * faithful copy of that object over RPC would push megabytes per check. A call site that needs
-   * the transcript uses `getFullBuffer()`, which exists for exactly that.
-   */
-  async getSession(sessionId: string, opts: { includeBuffer?: boolean } = {}): Promise<Record<string, unknown> | undefined> {
-    const r = await this.client.call<{ session: Record<string, unknown> | null }>(HOST_METHOD.getSession, {
-      sessionId,
-      includeBuffer: opts.includeBuffer === true,
-    });
-    return r.session ?? undefined;
+  getSession(sessionId: string, opts: { includeBuffer?: boolean } = {}): Record<string, unknown> | Promise<Record<string, unknown> | undefined> | undefined {
+    if (opts.includeBuffer === true) {
+      return this.client.call<{ session: Record<string, unknown> | null }>(HOST_METHOD.getSession, {
+        sessionId,
+        includeBuffer: true,
+      }).then((r) => r.session ?? undefined);
+    }
+    const s = this.cachedSessionsById.get(sessionId);
+    if (!s) return undefined;
+    const { buffer: _b, splitBuffer: _sb, ...scalars } = s;
+    return scalars;
   }
 
-  async getCurrentCwd(): Promise<string> {
-    const r = await this.client.call<{ cwd: string }>(HOST_METHOD.getCurrentCwd);
-    return r.cwd;
+  getCurrentCwd(): string {
+    return this.cachedCwd;
   }
 
   async closeSplitSession(parentIdOrSplitId: string): Promise<boolean> {
@@ -378,8 +440,11 @@ export class DaemonTerminalProxy extends EventEmitter {
     return this.client.call(HOST_METHOD.getDiagnostics);
   }
 
-  async getSessionState(): Promise<unknown> {
-    return this.client.call(HOST_METHOD.getSessionState);
+  getSessionState(): unknown {
+    return this.cachedSessionState || {
+      activeSessionId: this.cachedActiveSessionId,
+      sessions: this.cachedSessions,
+    };
   }
 
   async getSubscribers(): Promise<unknown> {
@@ -398,8 +463,12 @@ export class DaemonTerminalProxy extends EventEmitter {
   }
 
   /** No-op locally: the daemon owns persistence. Kept so call sites need no branch. */
-  async persistSync(): Promise<void> {
-    await this.client.call(HOST_METHOD.persistSync).catch(() => undefined);
+  persistSync(): void {
+    this.client.call(HOST_METHOD.persistSync).catch(() => undefined);
+  }
+
+  setBridgeEndpoint(endpoint: unknown): void {
+    this.client.call(HOST_METHOD.setBridgeEndpoint, { endpoint }).catch(() => undefined);
   }
 
   async ping(): Promise<{ pong: boolean; pid: number }> {

@@ -585,12 +585,17 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     if (img.offsetParent === null && img.offsetWidth === 0 && img.offsetHeight === 0) {
       return true;
     }
-    if (img.loading === 'lazy') {
-      const r = img.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return true;
-      const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 0) || 0;
+    const r = img.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return true;
+    const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 0) || 0;
+    ${fullPage ? `if (img.loading === 'lazy') {
       return (r.top > vh * 2 || r.bottom < -vh);
-    }
+    }` : `const vw = window.innerWidth || (document.documentElement ? document.documentElement.clientWidth : 0) || 0;
+    const top = typeof r.top === 'number' ? r.top : (typeof r.y === 'number' ? r.y : 0);
+    const bottom = typeof r.bottom === 'number' ? r.bottom : top + (r.height || 0);
+    const left = typeof r.left === 'number' ? r.left : (typeof r.x === 'number' ? r.x : 0);
+    const right = typeof r.right === 'number' ? r.right : left + (r.width || 0);
+    if (bottom < 0 || top > vh || right < 0 || left > vw) return true;`}
     return false;
   };
   // A 1-2 px image is a tracking beacon, not page content: it is re-issued by ad
@@ -612,7 +617,12 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     if (r.width === 0 && r.height === 0) return true;
     if (isTrackingBeacon(img)) return true;
     ${fullPage ? '' : `const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 0) || 0;
-    if (img.loading === 'lazy' && (r.top > vh * 2 || r.bottom < -vh)) return true;`}
+    const vw = window.innerWidth || (document.documentElement ? document.documentElement.clientWidth : 0) || 0;
+    const top = typeof r.top === 'number' ? r.top : (typeof r.y === 'number' ? r.y : 0);
+    const bottom = typeof r.bottom === 'number' ? r.bottom : top + (r.height || 0);
+    const left = typeof r.left === 'number' ? r.left : (typeof r.x === 'number' ? r.x : 0);
+    const right = typeof r.right === 'number' ? r.right : left + (r.width || 0);
+    if (bottom < 0 || top > vh || right < 0 || left > vw) return true;`}
     return false;
   };
   const pendingImages = imgs.filter(i => !i.complete && !isCannotLoad(i) && !isTrackingBeacon(i)).length;

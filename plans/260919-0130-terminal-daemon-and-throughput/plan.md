@@ -1,7 +1,7 @@
 ---
 title: "terminal-daemon-and-throughput"
 description: "Lock the terminal-daemon design: a detached headless host that owns PTYs so GUI restarts during dogfooding never kill agent sessions. TerminalManager's import closure is Electron-free (verified), so the daemon reuses it verbatim instead of reimplementing a PTY layer."
-status: in-progress
+status: completed
 priority: P0
 effort: "1d (P0) + 1d (P1 storage)"
 tags: [terminal-daemon, pty-host, dogfooding, windows-conpty, single-writer]

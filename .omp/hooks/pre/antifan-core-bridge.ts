@@ -96,6 +96,9 @@ interface BridgeState {
 	lastTurnKey: string | null;
 	lastAgentEndKey: string | null;
 	shutdownEmitted: boolean;
+	/** Anti-direct policy state: true disables Core pack seeding and retrieval tools. */
+	antiDirect: boolean;
+	antiDirectTrigger: "user_skill_invocation" | "natural_language" | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +284,7 @@ function computeTaskHash(task: string, projectRoot: string): string {
  * owns edit verification. Kill switch: ANTIFAN_CORE_BRIDGE_GATE=off restores
  * the always-seed behavior.
  */
-type TaskIntentClass = "clone" | "storefront-edit" | "general";
+type TaskIntentClass = "clone" | "storefront-edit" | "user-direct" | "general";
 
 const CLONE_INTENT_RE =
 	/\b(clone|cloning|recreat\w*|replicat\w*|reconstruct\w*|dogfood\w*|stitch|site[-\s]?clone)\b/i;
@@ -309,6 +312,29 @@ function classifyTaskIntent(task: string): TaskIntentClass {
 	if (CLONE_INTENT_RE.test(task) || CLONE_INTENT_VI_RE.test(task)) return "clone";
 	if (EDIT_VERB_RE.test(task) && STOREFRONT_TARGET_RE.test(task)) return "storefront-edit";
 	return "general";
+}
+
+const ANTI_DIRECT_NL_RE =
+	/(?:sửa\s+trực\s+tiếp|không\s+tra\s+core|tắt\s+core|bỏ\s+qua\s+core|skip\s+core)/i;
+
+/**
+ * Detects whether anti-direct mode is requested via process env, skill invocation,
+ * or natural language directive.
+ */
+function detectAntiDirectIntent(task: string): {
+	active: boolean;
+	triggeredBy?: "user_skill_invocation" | "natural_language";
+} {
+	if (process.env.ANTIFAN_ANTI_DIRECT === "1") {
+		return { active: true, triggeredBy: "user_skill_invocation" };
+	}
+	if (/\b(?:skill:)?anti-direct\b/i.test(task)) {
+		return { active: true, triggeredBy: "user_skill_invocation" };
+	}
+	if (ANTI_DIRECT_NL_RE.test(task)) {
+		return { active: true, triggeredBy: "natural_language" };
+	}
+	return { active: false };
 }
 
 /** ANTIFAN_CORE_BRIDGE_GATE=off disables intent gating (always seed). */
@@ -513,6 +539,78 @@ function classifyReceiptRequired(toolName: string, input: Record<string, unknown
 	return null;
 }
 
+/**
+ * Forbidden retrieval and search actions in anti-direct mode.
+ * Write and learning tools (core.record_*, core.ingest_outcome, core.adjudicate, core.receipt v1)
+ * remain permitted.
+ */
+const FORBIDDEN_RETRIEVAL_ACTIONS: Record<string, true> = {
+	"core.context.pack": true,
+	"core.contextpack": true,
+	"core.context.pack.v2": true,
+	"core.contextpackv2": true,
+	"core.find.similar": true,
+	"core.findsimilar": true,
+	"core.recommend": true,
+	"core.receipt.v2": true,
+	"core.receiptv2": true,
+	"core.search": true,
+	"core.query": true,
+	"core.experience.chain": true,
+	"core.experiencechain": true,
+	"core.anti.patterns": true,
+	"core.antipatterns": true,
+	"core.workarounds": true,
+	"core.fix.patterns": true,
+	"core.fixpatterns": true,
+	"core.principles": true,
+	"core.hidden.requirements": true,
+	"core.hiddenrequirements": true,
+	"core.commercial.intel": true,
+	"core.commercialintel": true,
+	"core.tool.intel": true,
+	"core.toolintel": true,
+	"core.archetypes": true,
+	"core.platform.semantics": true,
+	"core.platformsemantics": true,
+	"core.practice.parity": true,
+	"core.practiceparity": true,
+	"core.skill.genealogy": true,
+	"core.skillgenealogy": true,
+	"core.domain": true,
+	"core.knowledge.gaps": true,
+	"core.knowledgegaps": true,
+	"core.candidates": true,
+};
+
+/**
+ * Checks whether a tool call invokes a forbidden retrieval or search action in anti-direct mode.
+ * Covers direct tool calls, xd:// devices, and bash CLI subcommands.
+ */
+function isAntiDirectForbiddenTool(toolName: string, input: Record<string, unknown>): boolean {
+	const canonical = canonicalCoreName(toolName);
+	if (canonical && FORBIDDEN_RETRIEVAL_ACTIONS[canonical] === true) {
+		return true;
+	}
+	const target = String(input?.path ?? input?.file ?? input?.filePath ?? "");
+	const xdMatch = /core[._]([a-z0-9_]+)/i.exec(target);
+	if (xdMatch) {
+		const candidate = `core.${xdMatch[1].toLowerCase().replace(/[_.]/g, ".")}`;
+		if (FORBIDDEN_RETRIEVAL_ACTIONS[candidate] === true) return true;
+	}
+	if (/^(bash|shell|exec|user_bash)$/i.test(toolName.trim())) {
+		const command = String(input?.command ?? input?.cmd ?? "");
+		const match = /antifan-core(?:\.cjs)?\b[^&|;]*?\b([a-z][a-z0-9-]*)\b/i.exec(command);
+		if (match) {
+			const sub = match[1].toLowerCase();
+			if (sub === "pack" || sub === "query" || sub === "recommend" || sub === "find-similar") {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 // ---------------------------------------------------------------------------
 // Message rendering
 // ---------------------------------------------------------------------------
@@ -618,6 +716,8 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		lastTurnKey: null,
 		lastAgentEndKey: null,
 		shutdownEmitted: false,
+		antiDirect: false,
+		antiDirectTrigger: null,
 	};
 
 	const log = (level: "info" | "warn" | "error", message: string) => {
@@ -749,6 +849,8 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		state.lastTurnKey = null;
 		state.lastAgentEndKey = null;
 		state.shutdownEmitted = false;
+		state.antiDirect = false;
+		state.antiDirectTrigger = null;
 	});
 
 	// -- before_agent_start: seed exactly one pack message ---------------------
@@ -763,6 +865,32 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 
 			// Identical prompt re-seed: reuse the pack, do not spawn again.
 			if (state.pack && isSameTask) {
+				return undefined;
+			}
+
+			// Anti-direct policy check (P0 priority: user explicit directive outranks auto heuristics)
+			const antiDirectCheck = detectAntiDirectIntent(task);
+			if (antiDirectCheck.active || state.antiDirect) {
+				state.antiDirect = true;
+				state.antiDirectTrigger = antiDirectCheck.triggeredBy ?? state.antiDirectTrigger ?? "user_skill_invocation";
+				process.env.ANTIFAN_ANTI_DIRECT = "1";
+				if (ctx?.sessionManager?.getSessionId?.()) {
+					process.env.ANTIFAN_ANTI_DIRECT_ORIGIN = ctx.sessionManager.getSessionId();
+				}
+
+				state.pack = null;
+				state.packId = null;
+				state.coreRelease = null;
+
+				if (!isSameTask) {
+					recordEvent("BRIDGE_CONTEXT_SKIPPED", {
+						intent: "user-direct",
+						taskHash,
+						triggeredBy: state.antiDirectTrigger,
+						reason: "user-direct: anti-direct policy active, Core pack skipped",
+					});
+					log("info", `core pack skipped: anti-direct policy active (triggeredBy=${state.antiDirectTrigger}, taskHash=${taskHash ?? "none"})`);
+				}
 				return undefined;
 			}
 
@@ -860,6 +988,12 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		try {
 			const messages = messagesField(event);
 			if (!messages) return undefined;
+			// Rehydrate / detect anti-direct if wrapper message exists in conversation
+			if (!state.antiDirect && messages.some((m) => typeof m?.content === "string" && m.content.includes("anti-direct"))) {
+				state.antiDirect = true;
+				state.antiDirectTrigger = "user_skill_invocation";
+				process.env.ANTIFAN_ANTI_DIRECT = "1";
+			}
 			let keptCurrent = false;
 			let changed = false;
 			const filtered = messages.filter((msg) => {
@@ -867,6 +1001,11 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 					(msg?.role === "custom" || msg?.role === "hookMessage") &&
 					msg?.customType === BRIDGE_MESSAGE_TYPE;
 				if (!isBridgeMessage) return true;
+				// In anti-direct mode, strip ALL core context pack messages completely
+				if (state.antiDirect || process.env.ANTIFAN_ANTI_DIRECT === "1") {
+					changed = true;
+					return false;
+				}
 				const details = (msg?.details ?? {}) as Record<string, unknown>;
 				if (details.kind !== "core-context-pack") return true; // failure label stays
 				const isCurrent = state.packId !== null && details.packId === state.packId;
@@ -893,9 +1032,13 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				projectRoot: state.projectRoot,
 				permissionScope: "eligible-content-only",
 				coreStatus: state.coreStatus,
+				antiDirect: state.antiDirect,
+				antiDirectTrigger: state.antiDirectTrigger,
 			};
 			if (state.unavailableReason) preserveData.unavailableReason = state.unavailableReason;
-			const contextLine = state.packId
+			const contextLine = state.antiDirect
+				? `AntiFan Core pack skipped (anti-direct policy active, triggeredBy=${state.antiDirectTrigger ?? "user_skill_invocation"}).`
+				: state.packId
 				? `AntiFan Core pack ${state.packId} (release ${state.coreRelease ?? "none"}, taskHash ${state.taskHash ?? "none"}) was injected at agent start; permissionScope=eligible-content-only.`
 				: `AntiFan Core unavailable (${state.unavailableReason ?? "not seeded"}); session ran without Core context.`;
 			return { context: [contextLine], preserveData };
@@ -908,7 +1051,21 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 	pi.on("tool_call", async (event: unknown, ctx: BridgeContext) => {
 		try {
 			const toolName = stringField(event, "toolName") ?? stringField(event, "name") ?? "";
-			const action = classifyReceiptRequired(toolName, inputField(event));
+			const input = inputField(event);
+
+			// Anti-direct policy check
+			if (state.antiDirect || process.env.ANTIFAN_ANTI_DIRECT === "1") {
+				if (isAntiDirectForbiddenTool(toolName, input)) {
+					const reason =
+						`REFUSED_CORE_RETRIEVAL_POLICY: Tool '${toolName}' performs Core retrieval and is blocked by anti-direct policy. ` +
+						`Direct source code analysis is required. Write and learning tools (core.record_*, core.ingest_outcome, core.adjudicate, core.receipt v1) remain active.`;
+					recordEvent("BRIDGE_TOOL_REFUSED", { toolName, policy: "anti-direct", reason });
+					log("warn", reason);
+					return { block: true, reason };
+				}
+			}
+
+			const action = classifyReceiptRequired(toolName, input);
 			if (!action) return undefined; // advisory surface: never blocked by the bridge
 			const status = await ensureCoreStatus(ctx ?? {});
 			if (status === "available") return undefined;
@@ -976,6 +1133,8 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			state.packId = null;
 			state.coreRelease = null;
 			state.taskHash = null;
+			delete process.env.ANTIFAN_ANTI_DIRECT;
+			delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
 		} catch {
 			/* telemetry only */
 		}

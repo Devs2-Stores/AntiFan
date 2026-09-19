@@ -16,6 +16,7 @@ export const DECISIONS = Object.freeze({
   REFUSED_DRIFT: 'REFUSED_DRIFT',
   REFUSED_TOOL_SURFACE: 'REFUSED_TOOL_SURFACE',
   REFUSED_SELF_VERIFICATION: 'REFUSED_SELF_VERIFICATION',
+  REFUSED_CORE_RETRIEVAL_POLICY: 'REFUSED_CORE_RETRIEVAL_POLICY',
 });
 
 export const LIFECYCLE_STATES = Object.freeze({
@@ -64,6 +65,81 @@ export const DEFAULT_FORBIDDEN_TOOLS = Object.freeze([
   'mcp__*browser_evaluate*',
   'risk:eval',
 ]);
+
+export const ANTI_DIRECT_FORBIDDEN_TOOLS = Object.freeze([
+  'core.context_pack',
+  'core.contextPack',
+  'core.context_pack_v2',
+  'core.contextPackV2',
+  'core.find_similar',
+  'core.findSimilar',
+  'core.recommend',
+  'core.receipt_v2',
+  'core.receiptV2',
+  'core.search',
+  'core.query',
+  'core.experience_chain',
+  'core.anti_patterns',
+  'core.workarounds',
+  'core.fix_patterns',
+  'core.principles',
+  'core.hidden_requirements',
+  'core.commercial_intel',
+  'core.tool_intel',
+  'core.archetypes',
+  'core.platform_semantics',
+  'core.practice_parity',
+  'core.skill_genealogy',
+  'core.domain',
+  'core.knowledge_gaps',
+  'core.candidates',
+  'mcp__*core_query*',
+  'mcp__*core_context_pack*',
+  'mcp__*core_recommend*',
+  'mcp__*core_find_similar*',
+  'mcp__*core_receipt_v2*',
+  'mcp__*core_search*',
+  'mcp__*core_experience_chain*',
+  'mcp__*core_anti_patterns*',
+  'mcp__*core_workarounds*',
+  'mcp__*core_fix_patterns*',
+  'mcp__*core_principles*',
+  'mcp__*core_hidden_requirements*',
+  'mcp__*core_commercial_intel*',
+  'mcp__*core_tool_intel*',
+  'mcp__*core_archetypes*',
+  'mcp__*core_platform_semantics*',
+  'mcp__*core_practice_parity*',
+  'mcp__*core_skill_genealogy*',
+  'mcp__*core_domain*',
+  'mcp__*core_knowledge_gaps*',
+  'mcp__*core_candidates*',
+]);
+
+/**
+ * Checks whether a tool name matches any forbidden Anti-Direct retrieval tool.
+ * @param {string} toolName
+ * @returns {boolean}
+ */
+export function isAntiDirectForbiddenTool(toolName) {
+  if (!toolName || typeof toolName !== 'string') return false;
+  const normT = normalizePath(toolName);
+  for (const fPat of ANTI_DIRECT_FORBIDDEN_TOOLS) {
+    if (matchPathPattern(normalizePath(fPat), normT)) {
+      return true;
+    }
+  }
+  // Also check normalized dotted form (e.g. core_query -> core.query)
+  const dotted = normT.replace(/^core_/i, 'core.');
+  if (dotted !== normT) {
+    for (const fPat of ANTI_DIRECT_FORBIDDEN_TOOLS) {
+      if (matchPathPattern(normalizePath(fPat), dotted)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 /**
  * Normalizes a file path to POSIX style (forward slashes, stripped leading/trailing slashes).

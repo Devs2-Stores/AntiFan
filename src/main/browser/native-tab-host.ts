@@ -3049,9 +3049,20 @@ export class NativeTabHost extends EventEmitter {
     } else {
       state.count++;
     }
+    const wc = view.webContents;
+    const wasThrottled = wc && 'backgroundThrottling' in wc && typeof wc.backgroundThrottling === 'boolean' ? wc.backgroundThrottling : true;
+    if (wc && typeof wc.setBackgroundThrottling === 'function') {
+      try { wc.setBackgroundThrottling(false); } catch {}
+    }
+    if (wc && typeof wc.invalidate === 'function') {
+      try { wc.invalidate(); } catch {}
+    }
     try {
       return await action();
     } finally {
+      if (wc && !wc.isDestroyed() && typeof wc.setBackgroundThrottling === 'function') {
+        try { wc.setBackgroundThrottling(wasThrottled); } catch {}
+      }
       const current = this.temporaryViewAttachCounts.get(view);
       if (current) {
         current.count--;
@@ -3166,10 +3177,21 @@ export class NativeTabHost extends EventEmitter {
     // 3: sidebarView (shell sidebar workbench)
     // 4: toolbarView (shell top toolbar and dropdown overlays)
     const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
-    const desiredOrder: WebContentsView[] = [];
+    const desiredOrder: Electron.View[] = [];
 
     if (this.frameBackdropView && children.includes(this.frameBackdropView)) {
       desiredOrder.push(this.frameBackdropView);
+    }
+    for (const child of children) {
+      if (
+        child !== this.frameBackdropView &&
+        child !== activeTab?.view &&
+        child !== activeTab?.mobileView &&
+        child !== this.sidebarView &&
+        child !== this.toolbarView
+      ) {
+        desiredOrder.push(child);
+      }
     }
     if (activeTab?.view && children.includes(activeTab.view)) {
       desiredOrder.push(activeTab.view);
@@ -3214,7 +3236,7 @@ export class NativeTabHost extends EventEmitter {
         if (typeof contentView.addChildView === 'function') {
           contentView.addChildView(v);
         }
-        if (v.webContents && !v.webContents.isDestroyed() && typeof v.webContents.invalidate === 'function') {
+        if (v instanceof WebContentsView && !v.webContents.isDestroyed() && typeof v.webContents.invalidate === 'function') {
           try { v.webContents.invalidate(); } catch {}
         }
       } catch (err) {
@@ -8385,10 +8407,10 @@ export class NativeTabHost extends EventEmitter {
       }
     });
 
-    win.webContents.on('did-finish-load', () => {
+    win.webContents.on('did-finish-load', async () => {
       const tm = TerminalManager.getInstance();
       const activeId = sessionId || tm.getActiveSessionId();
-      const s = tm.getSession(activeId);
+      const s = await tm.getSession(activeId, { includeBuffer: true });
       const activeSession = tm.listSessions().find(x => x.id === activeId);
       safeSendWebContents(win.webContents, 'antifan:terminal:session', {
         activeSessionId: activeId,
@@ -8484,10 +8506,10 @@ export class NativeTabHost extends EventEmitter {
       standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
     }
 
-    win.webContents.on('did-finish-load', () => {
+    win.webContents.on('did-finish-load', async () => {
       const tm = TerminalManager.getInstance();
       const activeId = sessionId || tm.getActiveSessionId();
-      const s = tm.getSession(activeId);
+      const s = await tm.getSession(activeId, { includeBuffer: true });
       const activeSession = tm.listSessions().find(x => x.id === activeId);
       safeSendWebContents(win.webContents, 'antifan:terminal:session', {
         activeSessionId: activeId,
