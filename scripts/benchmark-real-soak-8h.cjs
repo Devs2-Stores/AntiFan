@@ -32,6 +32,9 @@ const { performance } = require('node:perf_hooks');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const req = createRequire(path.join(PROJECT_ROOT, 'package.json'));
+// Filled in by `main()` once the run's data root is known. The process-tree walk uses
+// these to tell this run's processes from another application's.
+const appTreeMarkers = { projectRoot: PROJECT_ROOT, userDataDir: '' };
 const electronBin = req('electron');
 const WebSocket = req('ws');
 
@@ -41,6 +44,22 @@ const RECOVERY_MINUTES = parseFloat(process.env.SOAK_RECOVERY_MINUTES || '30');
 const WORKLOAD_MINUTES = Math.max(0.1, TOTAL_MINUTES - WARMUP_MINUTES - RECOVERY_MINUTES);
 const SAMPLE_INTERVAL_SECONDS = parseFloat(process.env.SOAK_SAMPLE_INTERVAL_SECONDS || '60');
 const SAMPLE_INTERVAL_MS = SAMPLE_INTERVAL_SECONDS * 1000;
+// Workload intensity is the independent variable of a throughput claim: two runs
+// are only comparable when the driver rate is known, so every knob is overridable
+// and every value is echoed into the report. Defaults are unchanged, which keeps
+// historical runs comparable.
+const SWITCH_INTERVAL_MS = Math.max(50, parseInt(process.env.SOAK_SWITCH_INTERVAL_MS || '3000', 10));
+const BURST_INTERVAL_MS = Math.max(500, parseInt(process.env.SOAK_BURST_INTERVAL_MS || '30000', 10));
+const BURST_LINES = Math.max(1, parseInt(process.env.SOAK_BURST_LINES || '300', 10));
+const TAB_ROUNDS = Math.max(1, parseInt(process.env.SOAK_TAB_ROUNDS || '1', 10));
+// The fixture pages mutate their title and a text node on a timer, which is the
+// workload's only high-frequency page event: the title storm drives the app's
+// state broadcast. Exposing the tick makes that rate an experiment variable
+// instead of a constant nobody can isolate.
+const FIXTURE_TICK_MS = Math.max(20, parseInt(process.env.SOAK_FIXTURE_TICK_MS || '200', 10));
+// A run tag suffixes both artifacts: an 8h soak, a 20m diagnostic and a re-run on a
+// fixed bundle must not overwrite each other's evidence.
+const REPORT_TAG = String(process.env.SOAK_REPORT_TAG || '').replace(/[^a-z0-9-]/gi, '').slice(0, 32);
 function spawnKeepAwakeProcess() {
   if (process.platform !== 'win32') return null;
   const psScript = `
@@ -119,8 +138,9 @@ const FREEZE_SLO = {
 
 const REPORTS_DIR = path.join(PROJECT_ROOT, 'plans', 'reports', 'runtime-verification');
 fs.mkdirSync(REPORTS_DIR, { recursive: true });
-const CHECKPOINT_PATH = path.join(REPORTS_DIR, 'real-soak-8h-checkpoint.json');
-const FINAL_REPORT_PATH = path.join(REPORTS_DIR, 'real-soak-8h.json');
+const REPORT_SUFFIX = REPORT_TAG ? `-${REPORT_TAG}` : '';
+const CHECKPOINT_PATH = path.join(REPORTS_DIR, `real-soak-8h${REPORT_SUFFIX}-checkpoint.json`);
+const FINAL_REPORT_PATH = path.join(REPORTS_DIR, `real-soak-8h${REPORT_SUFFIX}.json`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function quantiles(values) {
@@ -139,13 +159,29 @@ function evaluateFreezeVerdict(meta, metrics, orphanPidsCount) {
   const rendererSlope = metrics.rendererActiveSlopeMBPerMin;
   const hasValidSlope = overallSlope !== null && rendererSlope !== null;
   const maxActive = metrics.activeWorkingSetMB?.max || 0;
-  const switchP50 = metrics.switchLatencyMs?.p50 || 0;
-  const switchP95 = metrics.switchLatencyMs?.p95 || 0;
-  const switchMax = metrics.switchLatencyMs?.max || 0;
+  // The latency gate reads the workload phase — `switchLatencyMs` is that series now.
+  // An absent series must not pass: `quantiles([])` returns nulls, and falling back to
+  // 0 would read every bound as satisfied.
+  const switchCount = metrics.switchLatencyWorkloadCount || 0;
+  const switchP50 = metrics.switchLatencyMs?.p50 ?? Infinity;
+  const switchP95 = metrics.switchLatencyMs?.p95 ?? Infinity;
+  const switchMax = metrics.switchLatencyMs?.max ?? Infinity;
 
-  const slopeOk = hasValidSlope && overallSlope <= FREEZE_SLO.overallSlopeMBPerMin && rendererSlope <= FREEZE_SLO.rendererSlopeMBPerMin;
+  // Criterion 2 is the app-owned per-process maximum in committed private bytes, which
+  // is strictly tighter than the working-set walk it supplements rather than a
+  // replacement for it: on the 4 h run the walk summed five app renderers (plus Zalo's
+  // three) to −0.056 MB/min while the one growing process inside them read +0.17, and
+  // the app Tab *sum* read +0.14 — a sum is satisfiable by adding a flat process. Both
+  // conditions must hold, and the private series must exist.
+  const appPrivateSlope = metrics.appPrivateMaxSlopeMBPerMin;
+  const privateSlopeMeasured = typeof appPrivateSlope === 'number';
+  const privateSlopeOk = privateSlopeMeasured && appPrivateSlope <= FREEZE_SLO.rendererSlopeMBPerMin;
+  const slopeOk = hasValidSlope
+    && overallSlope <= FREEZE_SLO.overallSlopeMBPerMin
+    && rendererSlope <= FREEZE_SLO.rendererSlopeMBPerMin
+    && privateSlopeOk;
   const memoryOk = maxActive <= FREEZE_SLO.peakTotalWorkingSetMB;
-  const latencyOk = switchP50 <= FREEZE_SLO.switchLatencyP50Ms && switchP95 <= FREEZE_SLO.switchLatencyP95Ms && switchMax <= FREEZE_SLO.switchLatencyMaxMs;
+  const latencyOk = switchCount > 0 && switchP50 <= FREEZE_SLO.switchLatencyP50Ms && switchP95 <= FREEZE_SLO.switchLatencyP95Ms && switchMax <= FREEZE_SLO.switchLatencyMaxMs;
   const processOk = meta.processQuerySuccess === true && (orphanPidsCount || 0) <= FREEZE_SLO.maxOrphans;
   const executionOk = !meta.executionError && !meta.childExitedPrematurely;
   const teardownOk = !meta.teardownTelemetry?.teardownDegraded;
@@ -158,6 +194,9 @@ function evaluateFreezeVerdict(meta, metrics, orphanPidsCount) {
     isPassed,
     isDegraded,
     slopeOk,
+    privateSlopeOk,
+    privateSlopeMeasured,
+    switchCount,
     memoryOk,
     latencyOk,
     processOk,
@@ -213,7 +252,38 @@ async function getWindowsProcessTable() {
   return { ok: false, rows: [], error: lastError?.message || 'Unknown error' };
 }
 
-function collectProcessTree(allProcesses, rootPid) {
+// Windows recycles pids, so a walk by parent pid can adopt a process whose real parent
+// is long gone: Zalo.exe's 11 processes (526.4 MB) hung off this app's own crashpad
+// handler on the 4 h run, and every gate built from the walk then measured someone
+// else's memory. An edge is therefore accepted only for a process this app can own —
+// its command line names this run's app tree or profile, or it is one of the PTY
+// executables the terminal spawns. A refusal is recorded, never silently dropped, so a
+// wrong refusal is visible in the report instead of being a quiet smaller footprint.
+const APP_PTY_EXECUTABLES = new Set([
+  'winpty.exe', 'winpty-agent.exe', 'conhost.exe', 'openconsole.exe', 'powershell.exe', 'pwsh.exe',
+]);
+
+function normalizeForMatch(value) {
+  return String(value || '').toLowerCase().replace(/\\/g, '/');
+}
+
+// A plain substring test would also accept a sibling instance launched from another
+// worktree (`.../AntiFan-wt-mobile-plane-gates`), so the marker must end a path segment.
+function commandNamesPath(cmd, target) {
+  const c = normalizeForMatch(cmd);
+  const t = normalizeForMatch(target).replace(/\/+$/, '');
+  if (!t) return false;
+  return c.includes(`${t}/`) || c.includes(`${t} `) || c.endsWith(t);
+}
+
+function isAppOwnedProcess(row, markers) {
+  const cmd = String(row.CommandLine || '');
+  if (commandNamesPath(cmd, markers.userDataDir)) return true;
+  if (commandNamesPath(cmd, markers.projectRoot)) return true;
+  return APP_PTY_EXECUTABLES.has(String(row.Name || '').toLowerCase());
+}
+
+function collectProcessTree(allProcesses, rootPid, markers = {}) {
   const byParent = new Map();
   for (const p of allProcesses) {
     const parentId = Number(p.ParentProcessId);
@@ -221,6 +291,7 @@ function collectProcessTree(allProcesses, rootPid) {
     byParent.get(parentId).push(p);
   }
   const tree = [];
+  const refused = [];
   const stack = [rootPid];
   const seen = new Set();
   while (stack.length) {
@@ -230,10 +301,19 @@ function collectProcessTree(allProcesses, rootPid) {
     const row = allProcesses.find((p) => Number(p.ProcessId) === pid);
     if (row) tree.push(row);
     for (const child of byParent.get(pid) || []) {
-      stack.push(Number(child.ProcessId));
+      const childPid = Number(child.ProcessId);
+      if (!isAppOwnedProcess(child, markers)) {
+        refused.push({
+          pid: childPid,
+          name: String(child.Name || ''),
+          workingSetMB: Number((Number(child.WorkingSetSize || 0) / (1024 * 1024)).toFixed(2)),
+        });
+        continue;
+      }
+      stack.push(childPid);
     }
   }
-  return tree;
+  return { tree, refused };
 }
 
 function classifyProcess(row, rootPid) {
@@ -252,7 +332,7 @@ async function sampleMetrics(rootPid, label, totalSuspendedMs = 0) {
     return { ok: false, error: `Process table query failed during sample (${label}): ${procResult.error}` };
   }
   const all = procResult.rows;
-  const tree = collectProcessTree(all, rootPid);
+  const { tree, refused } = collectProcessTree(all, rootPid, appTreeMarkers);
   const byType = {};
   let totalMB = 0;
   for (const r of tree) {
@@ -277,6 +357,11 @@ async function sampleMetrics(rootPid, label, totalSuspendedMs = 0) {
       processCount: tree.length,
       byType,
       pids: tree.map((r) => Number(r.ProcessId)),
+      // What the app-scoped walk refused, so the reader can see that the series is
+      // named after its owner rather than assume a smaller footprint is a better one.
+      refusedProcessCount: refused.length,
+      refusedProcessWorkingSetMB: Number(refused.reduce((a, r) => a + r.workingSetMB, 0).toFixed(2)),
+      refusedProcessNames: Array.from(new Set(refused.map((r) => r.name))).sort(),
     },
   };
 }
@@ -311,6 +396,114 @@ function calculateRollingSlopes(samples, windowMinutes = 60) {
   return slopes;
 }
 
+/**
+ * The app's benchmark stream carries a per-process memory row once a minute, each
+ * tagged with the role of the WebContents in that process. It is consumed as it
+ * arrives rather than from the retained stdout buffer: that buffer is tail-capped,
+ * so on a multi-hour run the earliest samples — the ones a growth series is
+ * measured from — would be the first to disappear.
+ */
+function createBenchmarkStreamIngest() {
+  let pending = '';
+  const samples = [];
+  return {
+    samples,
+    push(chunk) {
+      pending += chunk;
+      // A line that never terminates must not grow without bound; benchmark lines
+      // are small and newline-terminated, so anything larger is a partial write.
+      if (pending.length > 1024 * 1024) pending = pending.slice(-1024 * 1024);
+      const lines = pending.split('\n');
+      pending = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('[antifan-benchmark] ')) continue;
+        let metric;
+        try {
+          metric = JSON.parse(line.slice('[antifan-benchmark] '.length));
+        } catch {
+          continue;
+        }
+        if (metric?.surface !== 'process' || !Array.isArray(metric?.extra?.processes)) continue;
+        const at = Date.parse(metric.ts);
+        if (!Number.isFinite(at)) continue;
+        samples.push({
+          at,
+          name: String(metric.name || ''),
+          processes: metric.extra.processes.map((p) => ({
+            pid: Number(p.pid),
+            type: String(p.type || ''),
+            role: String(p.role || ''),
+            url: String(p.url || ''),
+            workingSetMB: Number((Number(p.workingSetKB || 0) / 1024).toFixed(2)),
+            privateBytesMB: Number((Number(p.privateBytesKB || 0) / 1024).toFixed(2)),
+          })),
+        });
+      }
+    },
+  };
+}
+
+/**
+ * Per-process slopes inside one wall-clock window. The aggregate renderer slope
+ * sums five processes, so it can only say *that* renderer memory grew; this is
+ * what says *which* process grew and what it was hosting.
+ */
+function calculatePerProcessSlopes(processSamples, windowStart, windowEnd) {
+  // A non-finite bound means the caller has no workload samples yet, and an empty
+  // series is the honest answer: the two finite-checks below would skip their bounds
+  // and hand back a whole-run slope in a field that reads as windowed, which is how
+  // an early checkpoint printed 8 populated slopes beside an empty `activeWorkingSetMB`.
+  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd)) return [];
+  const byPid = new Map();
+  for (const sample of processSamples) {
+    if (Number.isFinite(windowStart) && sample.at < windowStart) continue;
+    if (Number.isFinite(windowEnd) && sample.at > windowEnd) continue;
+    for (const proc of sample.processes) {
+      if (!Number.isInteger(proc.pid) || proc.pid <= 0) continue;
+      let record = byPid.get(proc.pid);
+      if (!record) {
+        record = { pid: proc.pid, type: proc.type, role: proc.role, url: proc.url, points: [] };
+        byPid.set(proc.pid, record);
+      }
+      if (proc.role) record.role = proc.role;
+      if (proc.url) record.url = proc.url;
+      record.points.push({ at: sample.at, mb: proc.workingSetMB, privateMb: proc.privateBytesMB });
+    }
+  }
+  const slopes = [];
+  for (const record of byPid.values()) {
+    if (record.points.length < 3) continue;
+    const slope = calculateSlope(record.points, 'mb', 'at');
+    const privateSlope = calculateSlope(record.points, 'privateMb', 'at');
+    if (slope === null) continue;
+    const first = record.points[0];
+    const last = record.points[record.points.length - 1];
+    slopes.push({
+      pid: record.pid,
+      type: record.type,
+      role: record.role,
+      url: record.url,
+      samples: record.points.length,
+      firstWorkingSetMB: first.mb,
+      lastWorkingSetMB: last.mb,
+      deltaWorkingSetMB: Number((last.mb - first.mb).toFixed(2)),
+      firstPrivateMB: first.privateMb,
+      lastPrivateMB: last.privateMb,
+      deltaPrivateMB: Number((last.privateMb - first.privateMb).toFixed(2)),
+      slopeMBPerMin: Number(slope.toFixed(4)),
+      // Committed private bytes are the currency a retention gate may use; working set
+      // moves with shared pages and OS trimming, so the same process read +1.0874 MB/min
+      // in working set and −0.1775 in private bytes across one 8-minute window.
+      slopePrivateMBPerMin: privateSlope === null ? null : Number(privateSlope.toFixed(4)),
+      // Carried per row so a slope is never ambiguous about the window it was fitted to.
+      windowStart,
+      windowEnd,
+    });
+  }
+  slopes.sort((a, b) => b.slopeMBPerMin - a.slopeMBPerMin);
+  return slopes;
+}
+
 
 function buildReportPayload(meta) {
   const {
@@ -323,9 +516,13 @@ function buildReportPayload(meta) {
     switches,
     bursts,
     reloads,
-    terminalEvents,
+    terminalEventCount,
     samples,
     switchLatencies,
+    switchSamples,
+    switchLatencyByTab,
+    tabUrlById,
+    processSamples,
     orphanPids,
     stdout,
     stderr,
@@ -339,6 +536,54 @@ function buildReportPayload(meta) {
   const totals = activeSamples.map((s) => s.totalWorkingSetMB);
   const rendererTotals = activeSamples.map((s) => s.byType?.renderer?.workingSetMB || 0);
 
+  // The process series is wall-clock (`at`), so the window boundaries come from the
+  // wall-clock stamps of the workload samples rather than from their sleep-adjusted
+  // `activeAt`.
+  const processSeries = Array.isArray(processSamples) ? processSamples : [];
+  const perProcessSlopes = calculatePerProcessSlopes(
+    processSeries,
+    activeSamples.length > 0 ? activeSamples[0].at : NaN,
+    activeSamples.length > 0 ? activeSamples[activeSamples.length - 1].at : NaN
+  );
+  const slowSwitchSamples = (Array.isArray(switchSamples) ? switchSamples : [])
+    .slice()
+    .sort((a, b) => b.ms - a.ms)
+    .slice(0, 10);
+
+  // Per-process slopes ranked twice: working set and committed private bytes disagree,
+  // so one ranking cannot answer "which process grew" without first saying which memory
+  // it means.
+  const privateRanked = perProcessSlopes
+    .filter((row) => typeof row.slopePrivateMBPerMin === 'number')
+    .sort((a, b) => b.slopePrivateMBPerMin - a.slopePrivateMBPerMin);
+  // Switch latency by phase. Warmup accumulates a startup distribution the steady state
+  // never sees, so the gate reads the workload series and the other two are reported
+  // beside it; the split is what showed the 35 ms breach is not a startup artifact.
+  const switchRows = Array.isArray(switchSamples) ? switchSamples : [];
+  const latencyQuantiles = (rows) => quantiles(rows.map((s) => Number(Number(s.ms).toFixed(3))));
+  const workloadSwitches = switchRows.filter((s) => s.phase === 'workload');
+  const warmupSwitches = switchRows.filter((s) => s.phase === 'warmup');
+
+  // Same distribution, split by destination. `switchLatencyMs.max` is decided by one
+  // sample, and the slowest samples in the diagnostic run all landed on the same two
+  // heavy pages: a per-tab summary is what turns that from a suspicion into a table.
+  const switchLatencyByTabReport = [];
+  if (switchLatencyByTab instanceof Map) {
+    for (const [tabId, latencies] of switchLatencyByTab.entries()) {
+      if (!Array.isArray(latencies) || latencies.length === 0) continue;
+      const q = quantiles(latencies.map((v) => Number(v.toFixed(3))));
+      switchLatencyByTabReport.push({
+        tabId,
+        url: (tabUrlById instanceof Map ? tabUrlById.get(tabId) : '') || '',
+        count: latencies.length,
+        p50: q.p50,
+        p95: q.p95,
+        max: q.max,
+      });
+    }
+    switchLatencyByTabReport.sort((a, b) => (b.max || 0) - (a.max || 0));
+  }
+
   return {
     status: status || 'completed',
     startedAt,
@@ -348,6 +593,15 @@ function buildReportPayload(meta) {
       warmupMinutes: WARMUP_MINUTES,
       workloadMinutes: WORKLOAD_MINUTES,
       recoveryMinutes: RECOVERY_MINUTES,
+      // The driver rate decides how much work the run put through the app, so a
+      // verdict that omits it cannot be compared with any other verdict.
+      switchIntervalMs: SWITCH_INTERVAL_MS,
+      burstIntervalMs: BURST_INTERVAL_MS,
+      burstLines: BURST_LINES,
+      tabRounds: TAB_ROUNDS,
+      fixtureTickMs: FIXTURE_TICK_MS,
+      sampleIntervalSeconds: SAMPLE_INTERVAL_SECONDS,
+      reportTag: REPORT_TAG,
     },
     rootPid,
     fixturePort,
@@ -357,7 +611,7 @@ function buildReportPayload(meta) {
       switches,
       bursts,
       reloads,
-      terminalEventsCount: terminalEvents.length,
+      terminalEventsCount: terminalEventCount,
       totalSamples: samples.length,
       totalSuspendedMinutes: meta.totalSuspendedMinutes || 0,
       activeWorkloadMinutes: meta.activeWorkloadMinutes || 0,
@@ -372,7 +626,13 @@ function buildReportPayload(meta) {
     },
     metrics: (() => {
       const rawMetrics = {
-        switchLatencyMs: quantiles(switchLatencies.map((v) => Number(v.toFixed(3)))),
+        switchLatencyMs: latencyQuantiles(workloadSwitches),
+        switchLatencyWorkloadCount: workloadSwitches.length,
+        switchLatencyWarmupMs: latencyQuantiles(warmupSwitches),
+        switchLatencyWarmupCount: warmupSwitches.length,
+        // What the gate read before it was phase-scoped, kept so both readings can be
+        // compared on one artifact instead of across runs.
+        switchLatencyAllPhasesMs: quantiles(switchLatencies.map((v) => Number(v.toFixed(3)))),
         activeWorkingSetMB: quantiles(totals),
         activeRendererWorkingSetMB: quantiles(rendererTotals),
         overallActiveSlopeMBPerMin: calculateSlope(activeSamples, 'totalWorkingSetMB', 'activeAt') !== null ? Number(calculateSlope(activeSamples, 'totalWorkingSetMB', 'activeAt').toFixed(6)) : null,
@@ -388,11 +648,41 @@ function buildReportPayload(meta) {
         postWarmupMB: warmupSamples[warmupSamples.length - 1]?.totalWorkingSetMB || null,
         finalActiveMB: activeSamples[activeSamples.length - 1]?.totalWorkingSetMB || null,
         recoveredMB: recoverySamples[recoverySamples.length - 1]?.totalWorkingSetMB || null,
+        // Attribution, deliberately NOT a gate: the acceptance bounds stay on the
+        // aggregate series, because a per-process bound would be a new criterion
+        // rather than a better name for the existing one. These fields are what let
+        // a failing aggregate slope name the process that caused it.
+        processSeriesSampleCount: processSeries.length,
+        perProcessSlopes: perProcessSlopes.slice(0, 12),
+        // Working-set ranking, kept for continuity with earlier artifacts.
+        worstProcessSlopeMBPerMin: perProcessSlopes[0]?.slopeMBPerMin ?? null,
+        worstProcessRole: perProcessSlopes[0]?.role ?? '',
+        worstProcessUrl: perProcessSlopes[0]?.url ?? '',
+        worstProcessPid: perProcessSlopes[0]?.pid ?? null,
+        // Committed-private ranking: the per-process MAXIMUM criterion 2 gates on.
+        appPrivateMaxSlopeMBPerMin: privateRanked[0]?.slopePrivateMBPerMin ?? null,
+        appPrivateMaxRole: privateRanked[0]?.role ?? '',
+        appPrivateMaxUrl: privateRanked[0]?.url ?? '',
+        appPrivateMaxPid: privateRanked[0]?.pid ?? null,
+        // A slope is only readable with the window it was fitted to, and an empty series
+        // here means no workload samples existed — not a flat run.
+        processSlopeWindowStart: perProcessSlopes[0]?.windowStart ?? null,
+        processSlopeWindowEnd: perProcessSlopes[0]?.windowEnd ?? null,
+        // What the app-scoped walk refused, so a smaller footprint is auditable rather
+        // than assumed to be a better one.
+        refusedProcessCount: samples[samples.length - 1]?.refusedProcessCount ?? 0,
+        refusedProcessWorkingSetMB: samples[samples.length - 1]?.refusedProcessWorkingSetMB ?? 0,
+        refusedProcessNames: samples[samples.length - 1]?.refusedProcessNames ?? [],
+        slowSwitchSamples,
+        switchLatencyByTab: switchLatencyByTabReport,
       };
       const evaluation = evaluateFreezeVerdict(meta, rawMetrics, (orphanPids || []).length);
       return {
         ...rawMetrics,
         slopeSloSatisfied: evaluation.slopeOk,
+        privateSlopeSloSatisfied: evaluation.privateSlopeOk,
+        privateSlopeMeasured: evaluation.privateSlopeMeasured,
+        switchLatencyWorkloadSamples: evaluation.switchCount,
         memorySloSatisfied: evaluation.memoryOk,
         latencySloSatisfied: evaluation.latencyOk,
         orphanSloSatisfied: evaluation.processOk,
@@ -402,6 +692,8 @@ function buildReportPayload(meta) {
       };
     })(),
     samples,
+    processSeries,
+    slowSwitchSamples,
     stderrTail: (stderr || '').split(/\r?\n/).filter(Boolean).slice(-40),
     stdoutBenchmarkTail: (stdout || '')
       .split(/\r?\n/)
@@ -420,6 +712,7 @@ async function main() {
   const soakDataDir = fs.existsSync('E:/Work')
     ? 'E:/Work/.antifan-soak-8h'
     : path.join(os.tmpdir(), 'antifan-soak-8h');
+  appTreeMarkers.userDataDir = soakDataDir;
 
   try { fs.rmSync(soakDataDir, { recursive: true, force: true }); } catch {}
   const configDir = path.join(soakDataDir, 'config');
@@ -443,7 +736,17 @@ async function main() {
   let stderr = '';
   const samples = [];
   const switchLatencies = [];
-  const terminalEvents = [];
+  const switchSamples = [];
+  // Switch cost is not one distribution: the run's slowest switches were all
+  // transitions to the same heavy page, so a single `max` names a UI that stutters
+  // without naming the tab that stalls. Kept per tab so the report can.
+  const switchLatencyByTab = new Map();
+  const tabUrlById = new Map();
+  // Counted, not retained: the soak process has no use for the payloads, and an
+  // unbounded array of every chunk would put harness-side growth next to the app
+  // growth this run is measuring.
+  let terminalEventCount = 0;
+  const benchmarkIngest = createBenchmarkStreamIngest();
   let switches = 0;
   let bursts = 0;
   let reloads = 0;
@@ -512,9 +815,13 @@ async function main() {
     rootPid: null,
     fixturePort: null,
     tabIds,
-    terminalEvents,
+    terminalEventCount,
     samples,
     switchLatencies,
+    switchSamples,
+    switchLatencyByTab,
+    tabUrlById,
+    processSamples: benchmarkIngest.samples,
     requestCount: 0,
     switches: 0,
     bursts: 0,
@@ -582,7 +889,7 @@ async function main() {
           document.title = 'Fixture [' + count + '] ' + location.pathname;
           const el = document.getElementById('ticker');
           if (el) el.textContent = 'Tick: ' + count + ' | ' + new Date().toISOString();
-        }, 200);
+        }, ${FIXTURE_TICK_MS});
       </script>
     `);
   });
@@ -619,7 +926,10 @@ async function main() {
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (d) => { stdout = (stdout + d).slice(-300000); });
+    child.stdout.on('data', (d) => {
+      stdout = (stdout + d).slice(-300000);
+      benchmarkIngest.push(d);
+    });
     child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-300000); });
     child.on('exit', (code, signal) => {
       if (!isIntentionalTeardown) {
@@ -667,7 +977,7 @@ async function main() {
     ws.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(String(raw)); } catch { return; }
-      if (msg.event === 'antifan:terminal:data') terminalEvents.push(msg.data);
+      if (msg.event === 'antifan:terminal:data') terminalEventCount++;
       if (msg.id && pending.has(msg.id)) {
         const p = pending.get(msg.id);
         pending.delete(msg.id);
@@ -680,7 +990,8 @@ async function main() {
     });
 
     // 4. Setup tabs and terminal
-    const tabUrls = [
+    const tabUrls = [];
+    const baseUrls = [
       `http://127.0.0.1:${fixturePort}/store-home`,
       `http://127.0.0.1:${fixturePort}/collection-featured`,
       `http://127.0.0.1:${fixturePort}/product-test-1`,
@@ -688,11 +999,26 @@ async function main() {
       'https://example.com',
       'https://www.wikipedia.org',
     ];
+    // Tab count is the other half of "more work at once": extra rounds repeat the
+    // set with distinct fixture paths so each round is its own navigation, not a
+    // reload of a tab that is already open.
+    for (let round = 0; round < TAB_ROUNDS; round++) {
+      for (const url of baseUrls) {
+        if (!url.includes('127.0.0.1') || round === 0) {
+          tabUrls.push(url);
+        } else {
+          tabUrls.push(`${url}-r${round + 1}`);
+        }
+      }
+    }
     console.log(`[soak] Opening ${tabUrls.length} tabs...`);
     for (const url of tabUrls) {
       try {
         const res = await rpc('antifan.openTab', { url });
-        if (res && res.tabId) tabIds.push(res.tabId);
+        if (res && res.tabId) {
+          tabIds.push(res.tabId);
+          tabUrlById.set(res.tabId, url);
+        }
       } catch (err) {
         console.warn(`[soak] Failed to open tab ${url}:`, err.message);
       }
@@ -709,6 +1035,7 @@ async function main() {
     stateMeta.switches = switches;
     stateMeta.bursts = bursts;
     stateMeta.reloads = reloads;
+    stateMeta.terminalEventCount = terminalEventCount;
     stateMeta.stdout = stdout;
     stateMeta.stderr = stderr;
     const payload = buildReportPayload({ ...stateMeta, status: 'in-progress' });
@@ -765,23 +1092,32 @@ async function main() {
       try {
         const sw = await rpc('antifan.switchTab', { tabId });
         if (sw && sw.switched) {
-          switchLatencies.push(performance.now() - t0);
+          const latency = performance.now() - t0;
+          switchLatencies.push(latency);
+          // The SLO on `max` is decided by a single outlier out of thousands, so the
+          // sample that produced it must stay identifiable by time and target — a
+          // quantile alone cannot say whether it was a GC pause, a slow payload, or
+          // the process-table scrape the harness itself runs every minute.
+          switchSamples.push({ at: Date.now(), ms: Number(latency.toFixed(3)), tabId, phase: currentPhase });
+          const perTabLatencies = switchLatencyByTab.get(tabId);
+          if (perTabLatencies) perTabLatencies.push(latency);
+          else switchLatencyByTab.set(tabId, [latency]);
           switches++;
         }
       } catch {}
-      nextSwitchTime = now + 3000; // Switch tab every 3s
+      nextSwitchTime = now + SWITCH_INTERVAL_MS; // default 3s
     }
-    // 2. Terminal Bursts (every 30s in warmup & workload)
+    // 2. Terminal Bursts (default every 30s in warmup & workload)
     if (currentPhase !== 'recovery' && now >= nextBurstTime) {
       try {
         const marker = 100000 + bursts;
         await rpc('antifan.terminalInput', {
           sessionId,
-          text: `1..300 | ForEach-Object { $_ }; Write-Output ('AF_8H_SOAK_' + (${marker} + 1))\r`,
+          text: `1..${BURST_LINES} | ForEach-Object { $_ }; Write-Output ('AF_8H_SOAK_' + (${marker} + 1))\r`,
         });
         bursts++;
       } catch {}
-      nextBurstTime = now + 30000;
+      nextBurstTime = now + BURST_INTERVAL_MS;
     }
 
     // 3. Periodic Page Reload (every 90s in workload phase)
@@ -901,6 +1237,7 @@ async function main() {
     stateMeta.switches = switches;
     stateMeta.bursts = bursts;
     stateMeta.reloads = reloads;
+    stateMeta.terminalEventCount = terminalEventCount;
     stateMeta.stdout = stdout;
     stateMeta.stderr = stderr;
     if (executionError) {
@@ -929,8 +1266,24 @@ async function main() {
     console.log(`  Recovered: ${finalPayload.metrics.recoveredMB} MB`);
     console.log(`  Overall Slope: ${finalPayload.metrics.overallActiveSlopeMBPerMin !== null ? finalPayload.metrics.overallActiveSlopeMBPerMin + ' MB/min' : 'N/A'} (SLO <= ${FREEZE_SLO.overallSlopeMBPerMin} MB/min)`);
     console.log(`  Renderer Slope: ${finalPayload.metrics.rendererActiveSlopeMBPerMin !== null ? finalPayload.metrics.rendererActiveSlopeMBPerMin + ' MB/min' : 'N/A'} (SLO <= ${FREEZE_SLO.rendererSlopeMBPerMin} MB/min)`);
-    console.log(`  Tab Switch Latency: p50=${finalPayload.metrics.switchLatencyMs.p50}ms (SLO <= ${FREEZE_SLO.switchLatencyP50Ms}ms), p95=${finalPayload.metrics.switchLatencyMs.p95}ms (SLO <= ${FREEZE_SLO.switchLatencyP95Ms}ms), max=${finalPayload.metrics.switchLatencyMs.max}ms (SLO <= ${FREEZE_SLO.switchLatencyMaxMs}ms)`);
+    const wlQ = finalPayload.metrics.switchLatencyMs || {};
+    const wuQ = finalPayload.metrics.switchLatencyWarmupMs || {};
+    const allQ = finalPayload.metrics.switchLatencyAllPhasesMs || {};
+    console.log(`  Tab Switch Latency (workload, n=${finalPayload.metrics.switchLatencyWorkloadCount ?? 0}): p50=${wlQ.p50}ms (SLO <= ${FREEZE_SLO.switchLatencyP50Ms}ms), p95=${wlQ.p95}ms (SLO <= ${FREEZE_SLO.switchLatencyP95Ms}ms), max=${wlQ.max}ms (SLO <= ${FREEZE_SLO.switchLatencyMaxMs}ms)`);
+    console.log(`  Tab Switch Latency (warmup, n=${finalPayload.metrics.switchLatencyWarmupCount ?? 0}): p50=${wuQ.p50}ms, p95=${wuQ.p95}ms, max=${wuQ.max}ms | all phases: p50=${allQ.p50}ms, p95=${allQ.p95}ms, max=${allQ.max}ms`);
+    const appPrivate = finalPayload.metrics;
+    console.log(`  App-Owned Private Max: ${appPrivate.appPrivateMaxSlopeMBPerMin !== null ? appPrivate.appPrivateMaxSlopeMBPerMin + ' MB/min' : 'N/A (no workload samples)'} at pid=${appPrivate.appPrivateMaxPid ?? '-'} ${appPrivate.appPrivateMaxRole || ''} (SLO <= ${FREEZE_SLO.rendererSlopeMBPerMin} MB/min, per-process max)`);
     console.log(`  Orphan Processes: ${orphanPids.length} (Query OK: ${processQuerySuccess}, SLO = ${FREEZE_SLO.maxOrphans})`);
+    if (finalPayload.metrics.refusedProcessCount > 0) {
+      console.log(`  Walk Refused (not app-owned, excluded from every gate): ${finalPayload.metrics.refusedProcessCount} process(es), ${finalPayload.metrics.refusedProcessWorkingSetMB} MB [${(finalPayload.metrics.refusedProcessNames || []).join(', ')}]`);
+    }
+    const worstTab = (finalPayload.metrics.switchLatencyByTab || [])[0];
+    if (worstTab) {
+      console.log(`  Slowest Switch Destination: ${worstTab.url || worstTab.tabId} (max ${worstTab.max}ms, p95 ${worstTab.p95}ms over ${worstTab.count} switches)`);
+    }
+    if (finalPayload.metrics.worstProcessRole) {
+      console.log(`  Fastest-Growing Process (working set): ${finalPayload.metrics.worstProcessRole} pid=${finalPayload.metrics.worstProcessPid} (${finalPayload.metrics.worstProcessSlopeMBPerMin} MB/min)`);
+    }
     console.log('========================================================================');
     if (!isPassed) {
       if (isDegraded) {
@@ -938,7 +1291,7 @@ async function main() {
         const termFailed = finalPayload.stats.teardownTelemetry?.terminalClosedFailed ?? 0;
         console.error(`[soak] FAILED (TEARDOWN_DEGRADED): Required tab/terminal cleanup failed during teardown (tabsFailed: ${tFailed}, terminalFailed: ${termFailed}).`);
       } else {
-        console.error(`[soak] FAILED: SLO violations or execution failure detected (slopeOk: ${finalPayload.metrics.slopeSloSatisfied}, memoryOk: ${finalPayload.metrics.memorySloSatisfied}, latencyOk: ${finalPayload.metrics.latencySloSatisfied}, processOk: ${finalPayload.metrics.orphanSloSatisfied}, executionOk: ${finalPayload.metrics.executionSloSatisfied}, teardownOk: ${finalPayload.metrics.teardownSloSatisfied})`);
+        console.error(`[soak] FAILED: SLO violations or execution failure detected (slopeOk: ${finalPayload.metrics.slopeSloSatisfied}, privateSlopeOk: ${finalPayload.metrics.privateSlopeSloSatisfied} [measured: ${finalPayload.metrics.privateSlopeMeasured}], memoryOk: ${finalPayload.metrics.memorySloSatisfied}, latencyOk: ${finalPayload.metrics.latencySloSatisfied}, processOk: ${finalPayload.metrics.orphanSloSatisfied}, executionOk: ${finalPayload.metrics.executionSloSatisfied}, teardownOk: ${finalPayload.metrics.teardownSloSatisfied})`);
       }
       process.exitCode = 1;
     }
