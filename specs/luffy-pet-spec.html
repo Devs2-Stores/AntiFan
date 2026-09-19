@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AntiFan Mascot Pet Luffy - Interaction Specification</title>
+    <style>
+        :root {
+            /* AntiFan Dark Theme Baseline */
+            --bg-color: #18181b;
+            --card-bg: #27272a;
+            --text-color: #f4f4f5;
+            --border-color: #3f3f46;
+            
+            /* Luffy Design Tokens */
+            --luffy-skin: #fcd5b5;
+            --luffy-hat: #eab308; /* Yellow */
+            --luffy-hat-rim: #dc2626; /* Red */
+            --luffy-vest: #dc2626; /* Red */
+            --luffy-shorts: #2563eb; /* Blue */
+            --luffy-hair: #18181b; /* Dark */
+            --luffy-stroke: #000000;
+            --luffy-stroke-width: 1.5px;
+            --luffy-snore: #a78bfa;
+            /* Animation Tokens */
+            --anim-speed-fast: 0.6s;
+            --anim-speed-med: 1s;
+            --anim-speed-slow: 1.5s;
+            --ease-in-out: ease-in-out;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 { margin-bottom: 0.5rem; }
+        .subtitle { color: #a1a1aa; margin-bottom: 2rem; }
+
+        /* Canvas Arena */
+        .stage-container {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+            width: 100%;
+            max-width: 600px;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 600px;
+        }
+
+        button {
+            background-color: #3f3f46;
+            color: white;
+            border: 1px solid #52525b;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background-color: #52525b; }
+        button.active { background-color: #2563eb; border-color: #3b82f6; }
+
+        /* --- SVG Base Styles --- */
+        .luffy-pet {
+            width: 100px;
+            height: 100px;
+            display: none; /* Hidden by default */
+        }
+        
+        .luffy-pet.active {
+            display: block;
+        }
+
+        .luffy-pet * {
+            stroke: var(--luffy-stroke);
+            stroke-width: var(--luffy-stroke-width);
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* --- Shared SVG Component Fills --- */
+        .luffy-pet .hat { fill: var(--luffy-hat); }
+        .luffy-pet .hat-rim { fill: var(--luffy-hat-rim); stroke: none; }
+        .luffy-pet .head { fill: var(--luffy-skin); }
+        .luffy-pet .hair { fill: var(--luffy-hair); }
+        .luffy-pet .vest { fill: var(--luffy-vest); }
+        .luffy-pet .arm,
+        .luffy-pet .arm-working,
+        .luffy-pet .arm-scratch,
+        .luffy-pet .arms-holding,
+        .luffy-pet .arm-thumb {
+            fill: var(--luffy-skin);
+        }
+        .luffy-pet .eye {
+            fill: #000000;
+            stroke: none;
+        }
+        .luffy-pet .eye-closed {
+            fill: none;
+            stroke: var(--luffy-stroke);
+        }
+        .luffy-pet .mouth {
+            fill: none;
+            stroke: var(--luffy-stroke);
+        }
+        .luffy-pet .mouth-grin {
+            fill: #ffffff;
+            stroke: var(--luffy-stroke);
+        }
+        .luffy-pet .snore-bubble {
+            fill: var(--luffy-snore);
+            stroke: #ddd;
+            opacity: 0.7;
+        }
+        .luffy-pet .sign-board {
+            fill: #f4f4f5;
+            stroke: var(--luffy-stroke);
+        }
+        .luffy-pet .sign-text {
+            fill: #dc2626;
+            stroke: none;
+            font-weight: bold;
+            font-size: 20px;
+        }
+
+        /* --- Define States & Animations --- */
+
+        /* State 1: WORKING - Keyboard Mash / Rubber Stretch */
+        #luffy-working .hat { fill: var(--luffy-hat); }
+        #luffy-working .hat-rim { fill: var(--luffy-hat-rim); stroke: none; }
+        #luffy-working .head { fill: var(--luffy-skin); }
+        #luffy-working .hair { fill: var(--luffy-hair); }
+        #luffy-working .vest { fill: var(--luffy-vest); }
+        #luffy-working .arm { fill: var(--luffy-skin); }
+
+        @keyframes keyboard-mash {
+            0%, 100% { transform: translate(0, 0); }
+            25% { transform: translate(-2px, -1px); }
+            75% { transform: translate(2px, 1px); }
+        }
+        #luffy-working .arms {
+            animation: keyboard-mash var(--anim-speed-fast) infinite var(--ease-in-out);
+            transform-origin: center;
+        }
+
+        /* State 2: THINKING - Head Scratch / Confused */
+        #luffy-thinking .hat { fill: var(--luffy-hat); }
+        #luffy-thinking .hat-rim { fill: var(--luffy-hat-rim); stroke: none; }
+        #luffy-thinking .head { fill: var(--luffy-skin); }
+        #luffy-thinking .hair { fill: var(--luffy-hair); }
+        #luffy-thinking .arm-scratch { fill: var(--luffy-skin); }
+
+        @keyframes tilt-hat {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(-5deg); }
+        }
+        #luffy-thinking .hat-group {
+            animation: tilt-hat var(--anim-speed-slow) infinite var(--ease-in-out);
+            transform-origin: center bottom;
+        }
+        
+        #luffy-thinking .q-mark {
+            fill: #eab308;
+            stroke: none;
+            opacity: 0;
+        }
+        
+        @keyframes q-blink {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 1; }
+        }
+        
+        #luffy-thinking #q1 { animation: q-blink 1.2s infinite 0s; }
+        #luffy-thinking #q2 { animation: q-blink 1.2s infinite 0.4s; }
+
+        /* State 3: WAITING - Holding Sign */
+        #luffy-waiting .hat { fill: var(--luffy-hat); }
+        #luffy-waiting .hat-rim { fill: var(--luffy-hat-rim); stroke: none; }
+        #luffy-waiting .head { fill: var(--luffy-skin); }
+        #luffy-waiting .hair { fill: var(--luffy-hair); }
+        #luffy-waiting .vest { fill: var(--luffy-vest); }
+        #luffy-waiting .arms-holding { fill: var(--luffy-skin); }
+        #luffy-waiting .sign-board { fill: #f4f4f5; }
+        #luffy-waiting .sign-text { fill: #dc2626; stroke: none; font-weight: bold; font-size: 20px;}
+
+        @keyframes sign-bob {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
+        #luffy-waiting .sign-group {
+            animation: sign-bob var(--anim-speed-med) infinite var(--ease-in-out);
+        }
+
+        /* State 4: COMPLETED - Thumbs Up */
+        #luffy-completed .hat { fill: var(--luffy-hat); }
+        #luffy-completed .hat-rim { fill: var(--luffy-hat-rim); stroke: none; }
+        #luffy-completed .head { fill: var(--luffy-skin); }
+        #luffy-completed .hair { fill: var(--luffy-hair); }
+        #luffy-completed .vest { fill: var(--luffy-vest); }
+        #luffy-completed .arm-thumb { fill: var(--luffy-skin); }
+        
+        @keyframes wide-grin {
+            0%, 100% { transform: scaleX(1); }
+            50% { transform: scaleX(1.1); }
+        }
+        #luffy-completed .mouth-grin {
+            animation: wide-grin 0.8s infinite var(--ease-in-out);
+            transform-origin: center;
+        }
+
+        /* State 5: SLEEPING - Snoring Bubble */
+        #luffy-sleeping .hat { fill: var(--luffy-hat); }
+        #luffy-sleeping .hat-rim { fill: var(--luffy-hat-rim); stroke: none; }
+        #luffy-sleeping .head { fill: var(--luffy-skin); }
+        #luffy-sleeping .hair { fill: var(--luffy-hair); }
+        
+        #luffy-sleeping .head {
+             transform: rotate(15deg);
+             transform-origin: center;
+        }
+
+        #luffy-sleeping .snore-bubble {
+            fill: #a78bfa; /* Violet */
+            stroke: #ddd;
+            opacity: 0.7;
+        }
+
+        @keyframes snore-inflate {
+            0%, 100% { transform: scale(0.5); opacity: 0; }
+            50% { transform: scale(1); opacity: 0.8; }
+        }
+        #luffy-sleeping .snore-bubble {
+            animation: snore-inflate var(--anim-speed-slow) infinite var(--ease-in-out);
+            transform-origin: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>AntiFan Mascot Pet Luffy</h1>
+    <p class="subtitle">Bản đặc tả thiết kế tương tác SVG Chibi Luffy (Ultra-lightweight)</p>
+
+    <div class="stage-container">
+        
+        <!-- --- STATE 1: WORKING --- -->
+        <svg id="luffy-working" class="luffy-pet active" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <g class="body-group">
+                <ellipse class="vest" cx="50" cy="75" rx="20" ry="15" />
+                <ellipse class="arm" cx="30" cy="70" rx="6" ry="12" />
+                <ellipse class="arm" cx="70" cy="70" rx="6" ry="12" />
+            </g>
+            <g class="head-group">
+                <circle class="head" cx="50" cy="45" r="25" />
+                <path class="hair" d="M30,30 Q50,10 70,30 Z" />
+                <g class="hat-group">
+                    <path class="hat" d="M20,35 Q50,15 80,35 Z" />
+                    <rect class="hat-rim" x="15" y="32" width="70" height="6" rx="3" />
+                </g>
+                <!-- Working Face -->
+                <circle class="eye" cx="40" cy="45" r="2" fill="black" stroke="none"/>
+                <circle class="eye" cx="60" cy="45" r="2" fill="black" stroke="none"/>
+                <path class="mouth" d="M45,55 Q50,58 55,55" />
+            </g>
+            <!-- Arms Mash -->
+            <g class="arms">
+                <ellipse class="arm-working" cx="28" cy="72" rx="4" ry="10" fill="var(--luffy-skin)"/>
+                <ellipse class="arm-working" cx="72" cy="72" rx="4" ry="10" fill="var(--luffy-skin)"/>
+            </g>
+        </svg>
+
+        <!-- --- STATE 2: THINKING --- -->
+        <svg id="luffy-thinking" class="luffy-pet" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <g class="head-group">
+                <circle class="head" cx="50" cy="45" r="25" />
+                <path class="hair" d="M30,30 Q50,10 70,30 Z" />
+                <g class="hat-group">
+                    <path class="hat" d="M20,35 Q50,15 80,35 Z" />
+                    <rect class="hat-rim" x="15" y="32" width="70" height="6" rx="3" />
+                </g>
+                <!-- Thinking Face -->
+                <circle class="eye" cx="42" cy="45" r="2" fill="black" stroke="none"/>
+                <circle class="eye" cx="58" cy="45" r="2" fill="black" stroke="none"/>
+                <path class="mouth" d="M48,55 L52,55" />
+            </g>
+            <!-- Scratching Arm -->
+            <path class="arm-scratch" d="M70,60 Q75,50 65,40 Q60,35 60,40" />
+            <!-- Question Marks -->
+            <text id="q1" class="q-mark" x="15" y="30">?</text>
+            <text id="q2" class="q-mark" x="80" y="30">?</text>
+        </svg>
+
+        <!-- --- STATE 3: WAITING --- -->
+        <svg id="luffy-waiting" class="luffy-pet" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+             <g class="head-group">
+                <circle class="head" cx="50" cy="45" r="25" />
+                <path class="hair" d="M30,30 Q50,10 70,30 Z" />
+                <g class="hat-group">
+                    <path class="hat" d="M20,35 Q50,15 80,35 Z" />
+                    <rect class="hat-rim" x="15" y="32" width="70" height="6" rx="3" />
+                </g>
+                <!-- Waiting Face -->
+                <circle class="eye" cx="40" cy="45" r="2" fill="black" stroke="none"/>
+                <circle class="eye" cx="60" cy="45" r="2" fill="black" stroke="none"/>
+                <path class="mouth" d="M45,55 Q50,52 55,55" />
+            </g>
+             <g class="sign-group">
+                 <rect class="sign-board" x="10" y="60" width="80" height="35" rx="5" />
+                 <text class="sign-text" x="50" y="85" text-anchor="middle">?</text>
+                 <ellipse class="arms-holding" cx="20" cy="70" rx="5" ry="10" />
+                 <ellipse class="arms-holding" cx="80" cy="70" rx="5" ry="10" />
+             </g>
+        </svg>
+
+        <!-- --- STATE 4: COMPLETED --- -->
+        <svg id="luffy-completed" class="luffy-pet" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+             <g class="body-group">
+                <ellipse class="vest" cx="50" cy="75" rx="20" ry="15" />
+            </g>
+             <g class="head-group">
+                <circle class="head" cx="50" cy="45" r="25" />
+                <path class="hair" d="M30,30 Q50,10 70,30 Z" />
+                <g class="hat-group">
+                    <path class="hat" d="M20,35 Q50,15 80,35 Z" />
+                    <rect class="hat-rim" x="15" y="32" width="70" height="6" rx="3" />
+                </g>
+                <!-- Grinning Face -->
+                <circle class="eye" cx="40" cy="45" r="2.5" fill="black" stroke="none"/>
+                <circle class="eye" cx="60" cy="45" r="2.5" fill="black" stroke="none"/>
+                <ellipse class="mouth-grin" cx="50" cy="58" rx="10" ry="5" fill="white" stroke="black"/>
+            </g>
+            <!-- Thumbs Up -->
+             <path class="arm-thumb" d="M75,70 Q85,65 85,75 Q85,85 75,80 L70,75 Z" fill="var(--luffy-skin)"/>
+             <path d="M82,72 L82,68 M85,73 L85,69" stroke="black" stroke-width="1"/>
+        </svg>
+
+        <!-- --- STATE 5: SLEEPING --- -->
+        <svg id="luffy-sleeping" class="luffy-pet" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <g class="head-group asleep">
+                <circle class="head" cx="50" cy="50" r="25" />
+                <path class="hair" d="M30,35 Q50,15 70,35 Z" />
+                <g class="hat-group">
+                    <path class="hat" d="M20,40 Q50,20 80,40 Z" />
+                    <rect class="hat-rim" x="15" y="37" width="70" height="6" rx="3" />
+                </g>
+                <!-- Sleeping Face (Eyes Closed) -->
+                <path class="eye-closed" d="M38,50 L42,50" />
+                <path class="eye-closed" d="M58,50 L62,50" />
+                <path class="mouth" d="M48,60 Q50,62 52,60" />
+            </g>
+            <!-- Snoring Bubble -->
+            <circle class="snore-bubble" cx="65" cy="40" r="8" />
+        </svg>
+
+    </div>
+
+    <div class="controls">
+        <button onclick="setState('working', this)" class="active">WORKING</button>
+        <button onclick="setState('thinking', this)">THINKING</button>
+        <button onclick="setState('waiting', this)">WAITING</button>
+        <button onclick="setState('completed', this)">COMPLETED</button>
+        <button onclick="setState('sleeping', this)">SLEEPING</button>
+    </div>
+
+    <script>
+        function setState(state, btn) {
+            document.querySelectorAll('.luffy-pet').forEach(el => {
+                el.classList.remove('active');
+            });
+            document.querySelectorAll('.controls button').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            const target = document.getElementById(`luffy-${state}`);
+            if (target) {
+                target.classList.add('active');
+            }
+
+            if (btn) {
+                btn.classList.add('active');
+            }
+        }
+    </script>
+</body>
+</html>

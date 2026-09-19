@@ -345,25 +345,41 @@ button {
 }
 
 .terminal-tab-status-beacon {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   margin-left: 2px;
   margin-right: 2px;
   flex-shrink: 0;
   transition: all 0.2s ease;
+  vertical-align: middle;
 }
 
-.terminal-tab-status-beacon.streaming {
-  background: #c084fc;
-  box-shadow: 0 0 6px #c084fc, 0 0 10px rgba(168, 85, 247, 0.8);
-  animation: term-pulse 0.6s ease-in-out infinite alternate;
+.terminal-tab-status-beacon .micro-luffy {
+  display: block;
+  width: 13px;
+  height: 13px;
+  transition: transform 0.2s ease;
 }
 
-.terminal-tab-status-beacon.completed {
-  background: #10b981;
-  box-shadow: 0 0 6px #34d399;
+.terminal-tab-status-beacon.streaming .micro-luffy {
+  filter: drop-shadow(0 0 3px #c084fc);
+  animation: term-luffy-bob 0.6s ease-in-out infinite alternate;
+}
+
+.terminal-tab-status-beacon.completed .micro-luffy {
+  filter: drop-shadow(0 0 3px #34d399);
+}
+
+.terminal-tab-status-beacon.sleeping .micro-luffy {
+  opacity: 0.75;
+}
+
+@keyframes term-luffy-bob {
+  from { transform: translateY(0) scale(0.95); }
+  to { transform: translateY(-1.2px) scale(1.06); }
 }
 
 @keyframes term-ai-bar {

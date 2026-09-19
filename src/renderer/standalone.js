@@ -3484,6 +3484,19 @@ function classifySessionActivity(sessionId, data) {
   }, 1000);
 }
 
+function microLuffySvg(state) {
+  if (state === 'streaming') {
+    return `<svg class="micro-luffy" width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="8" r="4.5" fill="#fcd5b5" stroke="#18181b" stroke-width="0.8"/><ellipse cx="7" cy="4.5" rx="6" ry="2" fill="#eab308" stroke="#18181b" stroke-width="0.8"/><rect x="2" y="4.5" width="10" height="1" fill="#dc2626"/><circle cx="5.5" cy="7.5" r="0.8" fill="#18181b"/><circle cx="8.5" cy="7.5" r="0.8" fill="#18181b"/><path d="M5.5 10.2 Q7 11.5 8.5 10.2" stroke="#dc2626" stroke-width="0.8" stroke-linecap="round"/></svg>`;
+  }
+  if (state === 'completed') {
+    return `<svg class="micro-luffy" width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="8" r="4.5" fill="#fcd5b5" stroke="#18181b" stroke-width="0.8"/><ellipse cx="7" cy="4.5" rx="6" ry="2" fill="#eab308" stroke="#18181b" stroke-width="0.8"/><rect x="2" y="4.5" width="10" height="1" fill="#dc2626"/><path d="M4.5 8 Q5.5 7 6.5 8" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/><path d="M7.5 8 Q8.5 7 9.5 8" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/><path d="M5 9.5 Q7 12 9 9.5 Z" fill="#ffffff" stroke="#18181b" stroke-width="0.6"/></svg>`;
+  }
+  if (state === 'sleeping') {
+    return `<svg class="micro-luffy" width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="8" r="4.5" fill="#fcd5b5" stroke="#18181b" stroke-width="0.8"/><ellipse cx="7" cy="4.5" rx="6" ry="2" fill="#eab308" stroke="#18181b" stroke-width="0.8"/><rect x="2" y="4.5" width="10" height="1" fill="#dc2626"/><line x1="4.8" y1="8" x2="6.2" y2="8" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/><line x1="7.8" y1="8" x2="9.2" y2="8" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/><circle cx="9.5" cy="7" r="1.5" fill="#a78bfa" stroke="#e0e7ff" stroke-width="0.4" opacity="0.85"/></svg>`;
+  }
+  return `<svg class="micro-luffy" width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="8" r="4.5" fill="#fcd5b5" stroke="#18181b" stroke-width="0.8"/><ellipse cx="7" cy="4.5" rx="6" ry="2" fill="#eab308" stroke="#18181b" stroke-width="0.8"/><rect x="2" y="4.5" width="10" height="1" fill="#dc2626"/><circle cx="5.5" cy="8" r="0.7" fill="#18181b"/><circle cx="8.5" cy="8" r="0.7" fill="#18181b"/><path d="M6 10 Q7 11 8 10" stroke="#18181b" stroke-width="0.7" stroke-linecap="round"/></svg>`;
+}
+
 function updateTabActivityUi(sessionId) {
   const wrap = tabsEl?.querySelector(`.terminal-tab-wrap[data-session-id="${sessionId}"]`);
   if (!wrap) return;
@@ -3502,6 +3515,7 @@ function updateTabActivityUi(sessionId) {
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon sleeping';
       beaconEl.title = '💤 Đang ngủ (PTY đã giải phóng)';
+      beaconEl.innerHTML = microLuffySvg('sleeping');
     }
     return;
   }
@@ -3519,6 +3533,7 @@ function updateTabActivityUi(sessionId) {
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon streaming';
       beaconEl.title = act.isAi ? '⚡ AI đang phản hồi...' : 'Đang xử lý...';
+      beaconEl.innerHTML = microLuffySvg('streaming');
     }
   } else if (act?.isCompleted) {
     wrap.classList.remove('is-streaming');
@@ -3529,6 +3544,7 @@ function updateTabActivityUi(sessionId) {
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon completed';
       beaconEl.title = '✓ Hoàn tất';
+      beaconEl.innerHTML = microLuffySvg('completed');
     }
   } else {
     wrap.classList.remove('is-streaming');
@@ -3538,7 +3554,8 @@ function updateTabActivityUi(sessionId) {
     }
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon';
-      beaconEl.title = '';
+      beaconEl.title = 'Luffy Mascot';
+      beaconEl.innerHTML = microLuffySvg('idle');
     }
   }
 }
@@ -3654,6 +3671,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
 
     const beacon = document.createElement('span');
     beacon.className = 'terminal-tab-status-beacon';
+    beacon.innerHTML = microLuffySvg(isSessionSleeping(s.id) ? 'sleeping' : 'idle');
 
     // Affinity is inherited, never owned by a pane: a split's shell reports its parent's
     // session id, so a badge on a pane row could only ever read "chưa gán" and its picker

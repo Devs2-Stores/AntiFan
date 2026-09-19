@@ -91,6 +91,8 @@ public static class AntiFanWin32
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hwnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -129,7 +131,7 @@ function Get-OrcaWindowHandle {
   # The agent terminal lives inside Orca, so Orca's taskbar button is the target:
   # flashing it marks the exact window the user has to look at.
   try {
-    $orca = Get-Process -Name 'orca' -ErrorAction SilentlyContinue |
+    $orca = Get-Process -Name 'orca', 'antifan', 'electron' -ErrorAction SilentlyContinue |
       Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
       Select-Object -First 1
     if ($orca) { return $orca.MainWindowHandle }
@@ -153,6 +155,89 @@ function Invoke-TaskbarFlash {
   }
 }
 
+function New-LuffyAvatarBitmap {
+  param([int]$Size = 56)
+  $bmp = New-Object System.Drawing.Bitmap($Size, $Size)
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  $g.Clear([System.Drawing.Color]::Transparent)
+
+  [float]$scale = [float]$Size / 100.0
+
+  $skinBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(252, 213, 181))
+  $hatBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(234, 179, 8))
+  $rimBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(220, 38, 38))
+  $hairBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(24, 24, 27))
+  $blackBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::Black)
+  $signBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(244, 244, 245))
+  $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(24, 24, 27), [float][Math]::Max(1.0, 1.5 * $scale))
+
+  try {
+    # Head
+    $g.FillEllipse($skinBrush, [float](25 * $scale), [float](20 * $scale), [float](50 * $scale), [float](50 * $scale))
+    $g.DrawEllipse($pen, [float](25 * $scale), [float](20 * $scale), [float](50 * $scale), [float](50 * $scale))
+
+    # Hair tufts
+    $g.FillEllipse($hairBrush, [float](23 * $scale), [float](28 * $scale), [float](16 * $scale), [float](16 * $scale))
+    $g.FillEllipse($hairBrush, [float](61 * $scale), [float](28 * $scale), [float](16 * $scale), [float](16 * $scale))
+
+    # Straw Hat Dome
+    $g.FillPie($hatBrush, [float](18 * $scale), [float](2 * $scale), [float](64 * $scale), [float](50 * $scale), 180, 180)
+    $g.DrawArc($pen, [float](18 * $scale), [float](2 * $scale), [float](64 * $scale), [float](50 * $scale), 180, 180)
+
+    # Hat Red Ribbon
+    $g.FillRectangle($rimBrush, [float](14 * $scale), [float](23 * $scale), [float](72 * $scale), [float](6 * $scale))
+    $g.DrawRectangle($pen, [float](14 * $scale), [float](23 * $scale), [float](72 * $scale), [float](6 * $scale))
+
+    # Eyes
+    $g.FillEllipse($blackBrush, [float](40 * $scale), [float](40 * $scale), [float](4 * $scale), [float](5 * $scale))
+    $g.FillEllipse($blackBrush, [float](56 * $scale), [float](40 * $scale), [float](4 * $scale), [float](5 * $scale))
+
+    # Scar under left eye
+    $scarPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(180, 80, 60), [float][Math]::Max(1.0, 1.2 * $scale))
+    $g.DrawLine($scarPen, [float](38 * $scale), [float](48 * $scale), [float](43 * $scale), [float](48 * $scale))
+    $g.DrawLine($scarPen, [float](41 * $scale), [float](46 * $scale), [float](41 * $scale), [float](50 * $scale))
+    $scarPen.Dispose()
+
+    # Mouth (smile)
+    $g.DrawArc($pen, [float](44 * $scale), [float](48 * $scale), [float](12 * $scale), [float](10 * $scale), 20, 140)
+
+    # Sign / Board with "?"
+    $g.FillRectangle($signBrush, [float](18 * $scale), [float](62 * $scale), [float](64 * $scale), [float](32 * $scale))
+    $g.DrawRectangle($pen, [float](18 * $scale), [float](62 * $scale), [float](64 * $scale), [float](32 * $scale))
+
+    # Hands holding sign
+    $g.FillEllipse($skinBrush, [float](13 * $scale), [float](68 * $scale), [float](10 * $scale), [float](16 * $scale))
+    $g.DrawEllipse($pen, [float](13 * $scale), [float](68 * $scale), [float](10 * $scale), [float](16 * $scale))
+    $g.FillEllipse($skinBrush, [float](77 * $scale), [float](68 * $scale), [float](10 * $scale), [float](16 * $scale))
+    $g.DrawEllipse($pen, [float](77 * $scale), [float](68 * $scale), [float](10 * $scale), [float](16 * $scale))
+
+    # "?" on sign
+    [float]$fontSize = [Math]::Max(8.0, 15.0 * $scale)
+    $qFont = New-Object System.Drawing.Font('Segoe UI', $fontSize, [System.Drawing.FontStyle]::Bold)
+    $qBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(220, 38, 38))
+    $sf = New-Object System.Drawing.StringFormat
+    $sf.Alignment = [System.Drawing.StringAlignment]::Center
+    $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
+    $rect = New-Object System.Drawing.RectangleF([float](18 * $scale), [float](62 * $scale), [float](64 * $scale), [float](32 * $scale))
+    $g.DrawString('?', $qFont, $qBrush, $rect, $sf)
+    $qFont.Dispose()
+    $qBrush.Dispose()
+    $sf.Dispose()
+  } finally {
+    $skinBrush.Dispose()
+    $hatBrush.Dispose()
+    $rimBrush.Dispose()
+    $hairBrush.Dispose()
+    $blackBrush.Dispose()
+    $signBrush.Dispose()
+    $pen.Dispose()
+    $g.Dispose()
+  }
+
+  return $bmp
+}
+
 function Show-AlertPanel {
   if ($NoPanel) { return }
   Write-AlertDiagnostic "panel-enter body=[$Body] title=[$Title]"
@@ -161,87 +246,130 @@ function Show-AlertPanel {
     Add-Type -AssemblyName System.Drawing
     Add-Win32Interop
 
-    $panelWidth = 460
-    $panelHeight = 168
+    $panelWidth = 380
+    $panelHeight = 100
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = $Title
-    $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedToolWindow
+    $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
     $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
     $form.TopMost = $true
-    $form.ShowInTaskbar = $true
+    $form.ShowInTaskbar = $false
     $form.Width = $panelWidth
     $form.Height = $panelHeight
-    $form.BackColor = [System.Drawing.Color]::FromArgb(24, 24, 27)
+    $form.BackColor = [System.Drawing.Color]::FromArgb(20, 20, 24)
     $form.ForeColor = [System.Drawing.Color]::FromArgb(245, 245, 245)
 
+    # Rounded border region
+    $r = 16
+    $w = $panelWidth
+    $h = $panelHeight
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddArc(0, 0, $r, $r, 180, 90)
+    $path.AddArc($w - $r, 0, $r, $r, 270, 90)
+    $path.AddArc($w - $r, $h - $r, $r, $r, 0, 90)
+    $path.AddArc(0, $h - $r, $r, $r, 90, 90)
+    $path.CloseFigure()
+    $form.Region = New-Object System.Drawing.Region($path)
+    $path.Dispose()
+
+    # Paint border
+    $form.Add_Paint({
+      param($sender, $e)
+      $borderPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(234, 179, 8), 1.5)
+      $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+      $bw = $sender.Width - 1
+      $bh = $sender.Height - 1
+      $br = 16
+      $bp = New-Object System.Drawing.Drawing2D.GraphicsPath
+      $bp.AddArc(0, 0, $br, $br, 180, 90)
+      $bp.AddArc($bw - $br, 0, $br, $br, 270, 90)
+      $bp.AddArc($bw - $br, $bh - $br, $br, $br, 0, 90)
+      $bp.AddArc(0, $bh - $br, $br, $br, 90, 90)
+      $bp.CloseFigure()
+      $e.Graphics.DrawPath($borderPen, $bp)
+      $borderPen.Dispose()
+      $bp.Dispose()
+    })
+
     $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-    $form.Left = $area.Right - $panelWidth - 24
-    $form.Top = $area.Bottom - $panelHeight - 24
+    $form.Left = $area.Right - $panelWidth - 20
+    $form.Top = $area.Bottom - $panelHeight - 20
 
-    $accent = New-Object System.Windows.Forms.Panel
-    $accent.Dock = [System.Windows.Forms.DockStyle]::Top
-    $accent.Height = 5
-    $accent.BackColor = [System.Drawing.Color]::FromArgb(245, 158, 11)
-    $form.Controls.Add($accent)
+    # Mascot Avatar
+    $avatarBmp = New-LuffyAvatarBitmap -Size 60
+    $picAvatar = New-Object System.Windows.Forms.PictureBox
+    $picAvatar.Size = New-Object System.Drawing.Size(60, 60)
+    $picAvatar.Location = New-Object System.Drawing.Point(14, 20)
+    $picAvatar.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::CenterImage
+    $picAvatar.Image = $avatarBmp
+    $picAvatar.BackColor = [System.Drawing.Color]::Transparent
+    $form.Controls.Add($picAvatar)
 
+    # Heading (Amber Gold)
     $heading = New-Object System.Windows.Forms.Label
-    $heading.Text = 'OMP DANG CHO BAN TRA LOI'
-    $heading.Dock = [System.Windows.Forms.DockStyle]::Top
-    $heading.Height = 26
-    $heading.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+    $heading.Text = 'LUFFY: THUYEN TRUONG OI!'
+    $heading.Location = New-Object System.Drawing.Point(82, 12)
+    $heading.Size = New-Object System.Drawing.Size(284, 18)
+    $heading.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
     $heading.ForeColor = [System.Drawing.Color]::FromArgb(245, 158, 11)
     $heading.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    $heading.Padding = New-Object System.Windows.Forms.Padding(14, 6, 14, 0)
     $form.Controls.Add($heading)
 
+    # Message Body
     $message = New-Object System.Windows.Forms.Label
     $message.Text = $Body
-    $message.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $message.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-    $message.ForeColor = [System.Drawing.Color]::FromArgb(245, 245, 245)
-    $message.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    $message.Padding = New-Object System.Windows.Forms.Padding(14, 4, 14, 4)
+    $message.Location = New-Object System.Drawing.Point(82, 32)
+    $message.Size = New-Object System.Drawing.Size(284, 46)
+    $message.Font = New-Object System.Drawing.Font('Segoe UI', 8.5)
+    $message.ForeColor = [System.Drawing.Color]::FromArgb(244, 244, 245)
+    $message.TextAlign = [System.Drawing.ContentAlignment]::TopLeft
+    $message.AutoEllipsis = $true
     $form.Controls.Add($message)
 
+    # Hint
     $hint = New-Object System.Windows.Forms.Label
-    $hint.Text = 'Tra loi trong tab OMP. Bang nay tu dong dong khi ban tra loi (hoac bam vao de dong).'
-    $hint.Dock = [System.Windows.Forms.DockStyle]::Bottom
-    $hint.Height = 34
-    $hint.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+    $hint.Text = 'Bam de mo OMP (tu dong dong khi tra loi)'
+    $hint.Location = New-Object System.Drawing.Point(82, 80)
+    $hint.Size = New-Object System.Drawing.Size(284, 14)
+    $hint.Font = New-Object System.Drawing.Font('Segoe UI', 7.5)
     $hint.ForeColor = [System.Drawing.Color]::FromArgb(161, 161, 170)
-    $hint.Padding = New-Object System.Windows.Forms.Padding(14, 0, 14, 6)
     $form.Controls.Add($hint)
 
-    $onClick = { $form.Close() }
+    $onClick = {
+      try {
+        $targetHwnd = Get-OrcaWindowHandle
+        if ($targetHwnd -ne [IntPtr]::Zero) {
+          [void][AntiFanWin32]::SetForegroundWindow($targetHwnd)
+        }
+      } catch { }
+      $form.Close()
+    }
+
     $form.Add_Click($onClick)
-    $message.Add_Click($onClick)
+    $picAvatar.Add_Click($onClick)
     $heading.Add_Click($onClick)
+    $message.Add_Click($onClick)
     $hint.Add_Click($onClick)
 
-    # Materialize the handle before Show() so the no-activate style is already in
-    # place when the window is first mapped.
+    # Materialize handle before Show
     [void]$form.Handle
     [void][AntiFanWin32]::SuppressActivation($form.Handle)
-
     $form.Show()
 
-    # The parent may have spawned this process with SW_HIDE (hidden console):
-    # Windows then overrides the FIRST ShowWindow call in the process, which is
-    # the Show() above. Re-show explicitly and re-assert topmost z-order.
     [void][AntiFanWin32]::ShowWindow($form.Handle, 5)  # SW_SHOW
     [void][AntiFanWin32]::ShowTopMostNoActivate($form.Handle)
 
     $deadline = (Get-Date).AddMilliseconds([Math]::Max(1000, $LifetimeMs))
     while ($form.Visible -and (Get-Date) -lt $deadline) {
       [System.Windows.Forms.Application]::DoEvents()
-      Start-Sleep -Milliseconds 100
+      Start-Sleep -Milliseconds 50
     }
 
+    $avatarBmp.Dispose()
     $form.Close()
     $form.Dispose()
   } catch {
-    # The panel is one channel of three; a UI failure must not mask sound + flash.
     Write-AlertDiagnostic "panel-failed: $($_.Exception.Message) | $($_.InvocationInfo.PositionMessage)"
   }
 }
