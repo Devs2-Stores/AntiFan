@@ -1350,4 +1350,132 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     );
     assert.deepStrictEqual(geometryWrites, [], 'A capture that never measured a surface must not write replacement geometry for it');
   });
+
+  it('29. a target whose view is outside the window fails fast with NO_RENDER_SURFACE and never waits on the compositor', async () => {
+    const { ctx } = createMockContext();
+    ctx.createTab('https://example.com/detached');
+    const devTools = new TabDevToolsHost(ctx);
+    const commands: string[] = [];
+    let rasterCalls = 0;
+    const internals = devTools as unknown as {
+      sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown>;
+      captureNativeViewportRaster: () => Promise<{ bytes: Buffer | null; timedOut: boolean }>;
+    };
+    internals.sendCdpCommand = async (_wc, method, params) => {
+      commands.push(method);
+      // A laid-out surface the probe can read: the only reason this target cannot be
+      // captured is that its view is outside the window, so the refusal under test is
+      // the attachment one and not the pre-existing 0x0 gate.
+      if (method === 'Runtime.evaluate') {
+        const expression = params && typeof params === 'object' && 'expression' in params ? String((params as { expression?: unknown }).expression) : '';
+        if (expression.includes('devicePixelRatio')) {
+          return { result: { value: { dpr: 1, vw: 4, vh: 3, readyState: 'complete' } } };
+        }
+        return { result: { value: undefined } };
+      }
+      return {};
+    };
+    // A view outside the window has no compositor surface: its raster never settles.
+    // Reaching that tier is the defect — the wait it costs is what the bound pays for.
+    internals.captureNativeViewportRaster = async () => {
+      rasterCalls += 1;
+      return { bytes: null, timedOut: true };
+    };
+    // Ground truth: the target's view is not in the window, and the target is not the
+    // presented tab, so there is no presented view to re-assert for it.
+    ctx.isTabViewAttached = () => false;
+    ctx.getActiveTabId = () => 'tab-1';
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop', { timeoutMs: 10 }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'NO_RENDER_SURFACE'
+    );
+    assert.strictEqual(rasterCalls, 0, 'A view outside the window must be refused before the native raster tier');
+    assert.strictEqual(
+      commands.includes('Page.captureScreenshot'),
+      false,
+      'A target with no surface must never reach the CDP capture that waits out its bound'
+    );
+  });
+
+  it('30. a presented tab whose view fell out of the window is re-asserted before the capture waits on it', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    let attached = false;
+    let reasserts = 0;
+    let rasterCalls = 0;
+    const internals = devTools as unknown as {
+      sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown>;
+      captureNativeViewportRaster: () => Promise<{ bytes: Buffer | null; timedOut: boolean }>;
+    };
+    internals.sendCdpCommand = async (_wc, method, params) => {
+      if (method === 'Runtime.evaluate') {
+        const expression = params && typeof params === 'object' && 'expression' in params ? String((params as { expression?: unknown }).expression) : '';
+        if (expression.includes('devicePixelRatio')) {
+          return { result: { value: { dpr: 1, vw: 4, vh: 3, readyState: 'complete' } } };
+        }
+        return { result: { value: undefined } };
+      }
+      return {};
+    };
+    internals.captureNativeViewportRaster = async () => {
+      rasterCalls += 1;
+      return { bytes: makePng(4, 3), timedOut: false };
+    };
+    ctx.isTabViewAttached = () => attached;
+    ctx.reassertPresentedView = () => {
+      reasserts += 1;
+      attached = true;
+    };
+
+    const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 500 });
+
+    assert.strictEqual(reasserts, 1, 'The presented tab is the one whose view the window owns, so its missing view is repaired, not refused');
+    assert.strictEqual(rasterCalls, 1, 'The capture must run against the repaired surface');
+    assert.strictEqual(envelope.backend, 'capturePage');
+    assert.ok(envelope.data.length > 0);
+  });
+
+  it('31. an attach-for-capture target is never refused: the wrapper presents the view before the guard reads it', async () => {
+    const { ctx } = createMockContext();
+    ctx.createTab('https://example.com/bg');
+    const devTools = new TabDevToolsHost(ctx);
+    let wrapperRuns = 0;
+    let attachDepth = 0;
+    ctx.isTabViewAttached = () => attachDepth > 0;
+    // The temporary attach is what gives a background view a surface at all, so the
+    // guard has to read attachment inside it — reading it outside would refuse every
+    // background capture. The helper refcounts (inner reads attach the same view), so
+    // the mock counts depth the same way.
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>): Promise<T> => {
+      wrapperRuns += 1;
+      attachDepth += 1;
+      try {
+        return await action();
+      } finally {
+        attachDepth -= 1;
+      }
+    };
+    const internals = devTools as unknown as {
+      sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown>;
+      captureNativeViewportRaster: () => Promise<{ bytes: Buffer | null; timedOut: boolean }>;
+    };
+    internals.sendCdpCommand = async (_wc, method, params) => {
+      if (method === 'Runtime.evaluate') {
+        const expression = params && typeof params === 'object' && 'expression' in params ? String((params as { expression?: unknown }).expression) : '';
+        if (expression.includes('devicePixelRatio')) {
+          return { result: { value: { dpr: 1, vw: 4, vh: 3, readyState: 'complete' } } };
+        }
+        return { result: { value: undefined } };
+      }
+      return {};
+    };
+    internals.captureNativeViewportRaster = async () => ({ bytes: makePng(4, 3), timedOut: false });
+
+    const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop', { timeoutMs: 500 });
+
+    assert.ok(wrapperRuns >= 1, 'A background target is captured through the attach-for-capture helper');
+    assert.strictEqual(envelope.backend, 'capturePage');
+    assert.ok(envelope.data.length > 0);
+  });
 });

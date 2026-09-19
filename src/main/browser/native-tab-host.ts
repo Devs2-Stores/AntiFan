@@ -657,6 +657,7 @@ export class NativeTabHost extends EventEmitter {
         updateLayout: () => this.updateLayout(),
         applyTabDeviceEmulation: (tabId: string) => this.applyTabDeviceEmulationForTab(tabId),
         isTabViewAttached: (view) => this.isTabViewAttached(view),
+        reassertPresentedView: () => this.reassertPresentedView(),
         isWindowRenderable: () => !this.window.isDestroyed() && this.window.isVisible() && !this.window.isMinimized(),
       });
     }

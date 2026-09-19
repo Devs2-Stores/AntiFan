@@ -27,6 +27,7 @@ import {
   resolveCaptureMode,
   validateJpegBuffer,
   validatePngBuffer,
+  type CaptureMode,
   type CaptureViewportTransaction,
   type RenderSurfaceSnapshot,
   type VerificationCaptureEnvelope,
@@ -112,6 +113,12 @@ export interface TabDevToolsContext {
   isTabViewAttached?: (view: Electron.WebContentsView | null | undefined) => boolean;
   /** True while the host window is on screen (visible, not minimized, not destroyed). */
   isWindowRenderable?: () => boolean;
+  /**
+   * Re-asserts the invariant that the presented tab's view sits inside the
+   * window's contentView. A capture calls this instead of waiting on a surface
+   * that a view outside the window can never produce.
+   */
+  reassertPresentedView?: () => void;
 }
 export interface TabDevToolsStats {
   attachedWebContentsCount: number;
@@ -1648,6 +1655,7 @@ export class TabDevToolsHost {
       } catch {}
       try {
         const captureAction = async (): Promise<string> => {
+          this.assertCaptureSurfacePresent(targetId, effectivePane, targetPaneView, rect ? 'clip' : 'viewport', isOffscreenTarget);
           const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
             let timer: NodeJS.Timeout | undefined;
             const timeoutPromise = new Promise<T>((resolve) => {
@@ -1780,6 +1788,43 @@ export class TabDevToolsHost {
       }
     }
   });
+  }
+
+  /**
+   * Assert the surface a capture copies actually exists before any compositor wait.
+   *
+   * A capture copies the compositor surface of the window's own contentView child.
+   * A view outside `contentView` receives no BeginFrame, so it has no surface to
+   * copy: `capturePage()` never settles and `Page.captureScreenshot` waits out its
+   * bound — measured as the 4s native-raster bound plus the 8s no-surface CDP probe,
+   * surfacing as a CAPTURE_TIMEOUT that names the wrong cause while the pane paints
+   * nothing. Attachment is local ground truth, so it is read here instead of being
+   * inferred from the active-tab bookkeeping: `getActiveTabId()` says which tab the
+   * window should present, not which view is inside it. The active tab's view belongs
+   * in the window, so a missing one is re-asserted once through the host's own repair
+   * before the capture refuses.
+   */
+  private assertCaptureSurfacePresent(
+    targetId: string,
+    effectivePane: SplitPaneId | undefined,
+    targetPaneView: Electron.WebContentsView | null | undefined,
+    mode: CaptureMode,
+    isOffscreenTarget: boolean
+  ): void {
+    // An offscreen (OSR) target composites without a contentView child, so attachment
+    // says nothing about its surface. A host that cannot answer attachment is not
+    // evidence of a missing view either: both fall through to the compositor tiers.
+    if (isOffscreenTarget) return;
+    if (!targetPaneView || !this.ctx.isTabViewAttached) return;
+    if (this.ctx.isTabViewAttached(targetPaneView)) return;
+    if (targetId === this.ctx.getActiveTabId()) {
+      this.ctx.reassertPresentedView?.();
+      if (this.ctx.isTabViewAttached(targetPaneView)) return;
+    }
+    throw new CaptureError(
+      'NO_RENDER_SURFACE',
+      `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: its view is outside the window's contentView, so no compositor surface exists to copy (a view nobody presents receives no frames). Present the tab before capturing, or capture a target the window can show.`
+    );
   }
 
   /**
@@ -1932,6 +1977,7 @@ export class TabDevToolsHost {
           );
         } catch {}
         const captureAction = async (): Promise<VerificationCaptureEnvelope> => {
+          this.assertCaptureSurfacePresent(targetId, effectivePane, targetPaneView, mode, isOffscreenTarget);
           // Derive zoom and DPR directly from browser/CDP state inside agent working block (atomic with capture, non-nesting)
           const zoom = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
           // The tab's live surface is the only source of capture geometry. A
