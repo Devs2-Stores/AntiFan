@@ -278,6 +278,7 @@ export const TOOLBAR_CHANNELS = {
   SET_SPLIT_FOCUSED_PANE: 'antifan:toolbar:set-split-focused-pane',
   PHONE_STATUS: 'antifan:toolbar:phone-status',
   GET_PHONE_STATUS: 'antifan:toolbar:get-phone-status',
+  WORKSPACE_IDENTIFY: 'antifan:toolbar:workspace-identify',
 };
 
 export interface ToolbarPhoneStatus {

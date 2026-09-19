@@ -441,7 +441,7 @@
                 <span class="theme-pill theme-pill-platform" id="themePlatformBadge">Theme</span>
                 <span class="theme-pill theme-pill-verdict" id="themeHealthPill">READY</span>
               </div>
-              <div class="theme-studio-subtitle">Quản lý tiến độ 5 chặng, checklist nghiệm thu A-Z &amp; chẩn đoán live storefront</div>
+              <div class="theme-studio-subtitle">Checklist tiến độ đầy đủ theo từng trang (Home, Collection, PDP, Cart, Blog, Account, 404) &amp; QA Storefront</div>
             </div>
           </div>
           <div class="theme-studio-header-right">
@@ -456,6 +456,7 @@
             </div>
             <button id="btnThemeQaRerun" class="btn-theme-qa" style="padding:2px 10px;font-size:11px;" title="Re-run QA Validation">🔄 Scan Live</button>
             <button id="btnThemeChecklistReset" class="btn-theme-action" style="padding:2px 8px;font-size:11px;" title="Đặt lại checklist mặc định">↺ Reset</button>
+            <button id="btnThemeExportReport" class="btn-theme-action" style="padding:2px 8px;font-size:11px;" title="Sao chép báo cáo tiến độ Markdown">📋 Báo Cáo</button>
             <button class="shortcuts-close" id="themeQaClose" aria-label="Close Theme QA summary">&times;</button>
           </div>
         </div>
@@ -464,8 +465,8 @@
         <div class="theme-studio-nav">
           <button class="theme-studio-nav-tab active" id="tabNavThemeChecklist">
             <span>📋</span>
-            <span>Lộ Trình &amp; Checklist (5 Chặng)</span>
-            <span class="theme-nav-badge" id="badgeThemeChecklist">0/28</span>
+            <span>Checklist Từng Trang (A-Z)</span>
+            <span class="theme-nav-badge" id="badgeThemeChecklist">0/44</span>
           </button>
           <button class="theme-studio-nav-tab" id="tabNavThemeFindings">
             <span>🧪</span>
@@ -480,16 +481,21 @@
           <div class="theme-studio-tab-content" id="themeTabChecklist">
             <div class="theme-checklist-toolbar">
               <div class="theme-phase-filters" id="themePhaseFilters">
-                <button class="phase-filter-btn active" data-phase="all">Tất cả (5 Chặng)</button>
-                <button class="phase-filter-btn" data-phase="phase-1">Chặng 1: Móng</button>
-                <button class="phase-filter-btn" data-phase="phase-2">Chặng 2: Máy mua hàng</button>
-                <button class="phase-filter-btn" data-phase="phase-3">Chặng 3: Vỏ &amp; Menu</button>
-                <button class="phase-filter-btn" data-phase="phase-4">Chặng 4: Mặt tiền</button>
-                <button class="phase-filter-btn" data-phase="phase-5">Chặng 5: QA &amp; Cấu hình</button>
+                <button class="phase-filter-btn active" data-page="all">Tất cả trang</button>
+                <button class="phase-filter-btn" data-page="home">🏠 Trang Chủ</button>
+                <button class="phase-filter-btn" data-page="collection">🛍️ Collection</button>
+                <button class="phase-filter-btn" data-page="product">📦 Sản Phẩm</button>
+                <button class="phase-filter-btn" data-page="cart">🛒 Giỏ Hàng</button>
+                <button class="phase-filter-btn" data-page="blog">📰 Blog &amp; Tin</button>
+                <button class="phase-filter-btn" data-page="account">👤 Tài Khoản</button>
+                <button class="phase-filter-btn" data-page="pages">📄 Trang Phụ &amp; 404</button>
+                <button class="phase-filter-btn" data-page="qa-gate">🎯 QA Nghiệm Thu</button>
+                <button class="phase-filter-btn" data-page="uncompleted" style="border-color:rgba(245,158,11,0.4);color:#fbbf24;">⏳ Chưa làm</button>
               </div>
               <div class="theme-checklist-search">
-                <input type="text" id="themeChecklistSearch" placeholder="Tìm kiếm module hoặc mã..." autocomplete="off" />
+                <input type="text" id="themeChecklistSearch" placeholder="Tìm kiếm module, mã hoặc QA..." autocomplete="off" />
               </div>
+
             </div>
 
             <!-- List of Sections / Modules Container -->

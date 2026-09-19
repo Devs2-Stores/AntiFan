@@ -1222,6 +1222,12 @@ export class NativeTabHost extends EventEmitter {
     });
     ipcMain.handle(TOOLBAR_CHANNELS.GET_PHONE_STATUS, async (_event, forceRefresh?: boolean) => this.getPhoneStatus(forceRefresh));
     ipcMain.handle(TOOLBAR_CHANNELS.THEME_QA_RUN, async (_event, options?: { workspaceRoot?: string }) => this.runThemeQa(options));
+    // Read-only: the toolbar scopes per-storefront state (checklist progress) by
+    // workspace, so two theme projects served on one local port stay separate.
+    ipcMain.handle(TOOLBAR_CHANNELS.WORKSPACE_IDENTIFY, () => {
+      const activeTab = this.tabs.get(this.activeTabId);
+      return { workspacePath: this.resolveTargetWorkspace(undefined, activeTab?.state.url) };
+    });
 
     ipcMain.handle(TOOLBAR_CHANNELS.CREATE_TAB, (_event, url?: string) => this.createTab(url));
     ipcMain.handle(TOOLBAR_CHANNELS.SWITCH_TAB, (_event, tabId: string) => this.switchTab(tabId));

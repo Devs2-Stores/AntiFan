@@ -57,6 +57,7 @@ const CHANNELS = {
   THEME_QA_STATE: 'antifan:toolbar:theme-qa-state',
   PHONE_STATUS: 'antifan:toolbar:phone-status',
   GET_PHONE_STATUS: 'antifan:toolbar:get-phone-status',
+  WORKSPACE_IDENTIFY: 'antifan:toolbar:workspace-identify',
 };
 
 const toolbarApi = {
@@ -121,6 +122,7 @@ const toolbarApi = {
   saveWorkflow: (item: { id?: string; name: string; description?: string; steps: unknown[] }) => ipcRenderer.invoke('antifan:workflow:save', item),
   deleteWorkflow: (id: string) => ipcRenderer.invoke('antifan:workflow:delete', id),
   runThemeQa: (options?: { workspaceRoot?: string }) => ipcRenderer.invoke(CHANNELS.THEME_QA_RUN, options),
+  identifyWorkspace: () => ipcRenderer.invoke(CHANNELS.WORKSPACE_IDENTIFY),
   onThemeQaState: (callback: (state: unknown) => void) => {
     const handler = (_event: unknown, state: unknown) => callback(state);
     ipcRenderer.on(CHANNELS.THEME_QA_STATE, handler);

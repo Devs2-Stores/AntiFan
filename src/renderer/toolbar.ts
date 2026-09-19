@@ -114,6 +114,8 @@ interface AntiFanToolbarApi {
   onFindResult: (callback: (result: any) => void) => () => void;
   onScreenshotCaptured?: (callback: () => void) => () => void;
   runThemeQa: (options?: { workspaceRoot?: string }) => Promise<{ ok: boolean; report?: any; error?: string }>;
+  /** Workspace the active storefront belongs to; read-only, no side effects. */
+  identifyWorkspace?: () => Promise<{ workspacePath?: string }>;
   onThemeQaState: (callback: (state: ThemeQaState) => void) => () => void;
   getPhoneStatus?: (forceRefresh?: boolean) => Promise<ToolbarPhoneStatus>;
   onPhoneStatusChanged?: (callback: (status: ToolbarPhoneStatus) => void) => () => void;
@@ -265,60 +267,290 @@ interface ThemeChecklistItem {
   code: string;
   name: string;
   desc: string;
-  phase: 'phase-1' | 'phase-2' | 'phase-3' | 'phase-4' | 'phase-5';
+  qaPoint: string;
+  page: 'home' | 'collection' | 'product' | 'cart' | 'blog' | 'account' | 'pages' | 'qa-gate';
   pathHint?: string;
   done: boolean;
 }
 
+interface ThemePageDef {
+  title: string;
+  badge: string;
+  icon: string;
+  path: string;
+  /**
+   * `handle-required` marks a page that has no index route on any supported
+   * platform — Haravan/Sapo/Shopify all serve PDPs only at `/products/<handle>`.
+   * Those cards refuse to navigate/scan until a real product page is open, so a
+   * scan can never report findings for an unrelated 404 page.
+   */
+  routeKind?: 'index' | 'handle-required';
+  routeNote?: string;
+  /** Limitation of what this card's items and scan actually prove. */
+  note?: string;
+}
+
+/**
+ * A route scan loads one page at one viewport, so it cannot certify mobile
+ * behaviour or the dynamic storefront mechanics (drawer, AJAX cart, sticky bars).
+ * Every completion claim carries this, so a 44/44 checklist never reads as more
+ * than it is.
+ */
+const QA_GATE_DISCLAIMER =
+  'Checklist là trạng thái dev tự khai; quét QA chỉ đo các trang tĩnh tại route đang mở — chưa chứng minh viewport mobile 375px, drawer trượt hay luồng AJAX/thêm giỏ động.';
+
+const PAGE_DEFS: Record<string, ThemePageDef> = {
+  home: {
+    title: 'Trang Chủ (Home - Banner, Danh Mục, Flash Sale, Tabs SP, Tin Tức, Footer)',
+    badge: 'HOME',
+    icon: '🏠',
+    path: '/',
+  },
+  collection: {
+    title: 'Trang Danh Mục Sản Phẩm (Collection - Bộ Lọc Filter, Sắp Xếp Sort, Grid SP, Phân Trang)',
+    badge: 'COLLECTION',
+    icon: '🛍️',
+    path: '/collections/all',
+  },
+  product: {
+    title: 'Trang Chi Tiết Sản Phẩm (Product / PDP - Gallery Ảnh, Variant Swatch, Mua Hàng, Sticky ATC, Tabs)',
+    badge: 'PRODUCT',
+    icon: '📦',
+    path: '/products/<handle>',
+    routeKind: 'handle-required',
+    routeNote: 'Chưa có trang sản phẩm nào đang mở: mở một PDP thật (/products/<handle>) trên storefront rồi bấm lại — không có route /products để mở hộ.',
+  },
+  cart: {
+    title: 'Trang Giỏ Hàng & Mini Cart (Cart - AJAX Drawer, Bảng Giỏ Hàng, Note, Checkout, Empty State)',
+    badge: 'CART',
+    icon: '🛒',
+    path: '/cart',
+  },
+  blog: {
+    title: 'Trang Tin Tức & Bài Viết (Blog / Article - Danh Sách Bài, Nội Dung Chi Tiết, Bình Luận)',
+    badge: 'BLOG',
+    icon: '📰',
+    path: '/blogs/news',
+  },
+  account: {
+    title: 'Trang Khách Hàng / Tài Khoản (Customer - Đăng Nhập, Đăng Ký, Đơn Hàng, Sổ Địa Chỉ)',
+    badge: 'ACCOUNT',
+    icon: '👤',
+    path: '/account/login',
+  },
+  pages: {
+    title: 'Trang Phụ & Hệ Thống (Pages, Liên Hệ, Giới Thiệu, Tìm Kiếm, Quickview, 404)',
+    badge: 'PAGES',
+    icon: '📄',
+    path: '/pages/lien-he',
+  },
+  'qa-gate': {
+    title: 'Nghiệm Thu Cổng Chất Lượng & QA Storefront (Responsive 375px, 0 Lỗi Console, Empty State, Settings)',
+    badge: 'QA GATE',
+    icon: '🎯',
+    path: '/',
+    note: QA_GATE_DISCLAIMER,
+  },
+};
+
 const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
-  // CHẶNG 1: KHUNG XƯƠNG
-  { id: 'glb-01', code: 'GLB-01', name: 'Layout & Reset CSS', desc: 'Biến màu sắc, font chữ, container chuẩn, theme.liquid', phase: 'phase-1', pathHint: '/', done: false },
-  { id: 'glb-02', code: 'GLB-02', name: 'Kho Icon SVG', desc: 'Snippet SVG icons: giỏ hàng, search, user, tim, close', phase: 'phase-1', pathHint: '/', done: false },
-  { id: 'glb-03', code: 'GLB-03', name: 'SEO & Meta Tags', desc: 'Thẻ meta title, description, canonical, OG image', phase: 'phase-1', pathHint: '/', done: false },
+  // 1. TRANG CHỦ (HOME)
+  { id: 'hom-01', code: 'HOM-01', name: 'Header & Sticky Mega Menu', desc: 'Logo, menu đa cấp 1-2-3, sticky khi cuộn, bubble count giỏ hàng', qaPoint: 'Menu mobile không tràn màn hình, không giật lag khi cuộn sticky', page: 'home', pathHint: '/', done: false },
+  { id: 'hom-02', code: 'HOM-02', name: 'Hero Banner Slider', desc: 'Slider ảnh/video banner chính, chuyển slide 2 chiều mượt mà', qaPoint: 'Ảnh responsive không méo, không vỡ layout trước khi init Swiper/Slick', page: 'home', pathHint: '/', done: false },
+  { id: 'hom-03', code: 'HOM-03', name: 'Danh Mục Nổi Bật (Categories)', desc: 'Lưới icon/ảnh danh mục dẫn đến từng collection', qaPoint: 'Tỷ lệ ảnh đồng đều, không co giật layout khi tải trang', page: 'home', pathHint: '/', done: false },
+  { id: 'hom-04', code: 'HOM-04', name: 'Flash Sale Deal Đếm Ngược', desc: 'Đồng hồ đếm ngược ngày:giờ:phút:giây, thanh tiến độ đã bán', qaPoint: 'Hết hạn tự động ẩn hoặc đổi trạng thái, không hiện NaN', page: 'home', pathHint: '/', done: false },
+  { id: 'hom-05', code: 'HOM-05', name: 'Tabs Sản Phẩm Trang Chủ', desc: 'Chuyển tab danh mục mượt mà, tải đúng sản phẩm theo tab', qaPoint: 'Bỏ chọn danh mục trong settings không làm sập layout trang', page: 'home', pathHint: '/', done: false },
+  { id: 'hom-06', code: 'HOM-06', name: 'Banner Quảng Cáo Đôi / Video', desc: 'Banner phụ 2 bên hoặc video tự động phát (muted)', qaPoint: 'Video có playsinline trên mobile, banner không lệch chiều cao', page: 'home', pathHint: '/', done: false },
+  { id: 'hom-07', code: 'HOM-07', name: 'Tin Tức Mới Nhất (Blog Carousel)', desc: 'Lưới 3-4 bài viết mới nhất, tiêu đề, ngày đăng, tóm tắt', qaPoint: 'Tiêu đề dài tự cắt dòng line-clamp, thẻ tin đều nhau', page: 'home', pathHint: '/', done: false },
+  { id: 'hom-08', code: 'HOM-08', name: 'Chân Trang (Footer) & Newsletter', desc: 'Cột thông tin shop, chính sách, form đăng ký email, BCT', qaPoint: 'Form email validate chuẩn AJAX, 375px không vỡ footer', page: 'home', pathHint: '/', done: false },
 
-  // CHẶNG 2: MÁY MUA HÀNG
-  { id: 'pdp-01', code: 'PDP-01', name: 'Thẻ sản phẩm (product-card)', desc: 'Ảnh 2 hover, giá, sale badge, xử lý hết hàng / liên hệ', phase: 'phase-2', pathHint: '/collections/all', done: false },
-  { id: 'pdp-02', code: 'PDP-02', name: 'Product Gallery & Zoom', desc: 'Gallery ảnh to + thumbnail + đổi màu nhảy ảnh variant', phase: 'phase-2', pathHint: '/products', done: false },
-  { id: 'pdp-03', code: 'PDP-03', name: 'Khối Mua Hàng & Swatch', desc: 'Variant swatch màu/size, số lượng, Mua ngay, Thêm giỏ', phase: 'phase-2', pathHint: '/products', done: false },
-  { id: 'pdp-04', code: 'PDP-04', name: 'Tabs nội dung SP & Sticky ATC', desc: 'Mô tả, thông số, thanh mua hàng dính đáy khi cuộn', phase: 'phase-2', pathHint: '/products', done: false },
-  { id: 'pdp-05', code: 'PDP-05', name: 'Quickview Modal', desc: 'Xem nhanh sản phẩm: slider ảnh, swatch, thêm giỏ', phase: 'phase-2', pathHint: '/', done: false },
-  { id: 'crt-01', code: 'CRT-01', name: 'AJAX Cart Drawer', desc: 'Thêm/bớt/xóa món, cập nhật giá tiền và số lượng tức thì', phase: 'phase-2', pathHint: '/cart', done: false },
-  { id: 'crt-02', code: 'CRT-02', name: 'Trạng thái Empty Cart', desc: 'Giỏ hàng trống báo đúng câu chữ + nút Tiếp tục mua sắm', phase: 'phase-2', pathHint: '/cart', done: false },
+  // 2. TRANG DANH MỤC (COLLECTION)
+  { id: 'col-01', code: 'COL-01', name: 'Banner Đầu Trang & Breadcrumb', desc: 'Thanh điều hướng Trang chủ > Danh mục, ảnh cover danh mục', qaPoint: 'Breadcrumb có cấu trúc schema, không lặp tiêu đề', page: 'collection', pathHint: '/collections/all', done: false },
+  { id: 'col-02', code: 'COL-02', name: 'Bộ Lọc Sản Phẩm Đa Năng (Filter)', desc: 'Lọc theo giá, màu sắc, kích thước, thương hiệu, tag', qaPoint: 'Lọc AJAX không reload trang, URL cập nhật query param', page: 'collection', pathHint: '/collections/all', done: false },
+  { id: 'col-03', code: 'COL-03', name: 'Bộ Sắp Xếp Sản Phẩm (Sort)', desc: 'Xếp theo: Giá tăng/giảm, Mới nhất, Bán chạy, Tên A-Z', qaPoint: 'Đổi sắp xếp giữ nguyên điều kiện bộ lọc đang chọn', page: 'collection', pathHint: '/collections/all', done: false },
+  { id: 'col-04', code: 'COL-04', name: 'Lưới Sản Phẩm Đều Khung (Grid)', desc: 'Hiển thị 2 cột (mobile), 3-4 cột (desktop), nút mua thẳng hàng', qaPoint: 'Thẻ sản phẩm cao bằng nhau, nút mua không bị thụt thò', page: 'collection', pathHint: '/collections/all', done: false },
+  { id: 'col-05', code: 'COL-05', name: 'Phân Trang & Nút Xem Thêm', desc: 'Phân trang 1, 2, 3... hoặc nút Xem thêm / Cuộn vô tận', qaPoint: 'Trang cuối cùng không lặp sản phẩm, cuộn mượt không giật', page: 'collection', pathHint: '/collections/all', done: false },
+  { id: 'col-06', code: 'COL-06', name: 'Trạng Thái Bộ Lọc Trống (Empty Filter)', desc: 'Thông báo "Không tìm thấy sản phẩm" + nút Xóa bộ lọc', qaPoint: 'Bấm Xóa bộ lọc khôi phục lại danh mục bình thường', page: 'collection', pathHint: '/collections/all', done: false },
 
-  // CHẶNG 3: VỎ BỌC & ĐIỀU HƯỚNG
-  { id: 'hdr-01', code: 'HDR-01', name: 'Header & Mega Menu', desc: 'Logo, menu đa cấp 1-2-3, bubble count giỏ hàng', phase: 'phase-3', pathHint: '/', done: false },
-  { id: 'hdr-02', code: 'HDR-02', name: 'Mobile Menu Drawer', desc: 'Menu mobile đồng bộ desktop, nút hamburger, scroll mượt', phase: 'phase-3', pathHint: '/', done: false },
-  { id: 'hdr-03', code: 'HDR-03', name: 'Smart Search Popup', desc: 'Gợi ý sản phẩm, xử lý từ khóa ngắn < 2 ký tự, zero result', phase: 'phase-3', pathHint: '/search', done: false },
-  { id: 'ftr-01', code: 'FTR-01', name: 'Footer & Newsletter', desc: 'Cột link, thông tin shop, form đăng ký mail validate AJAX', phase: 'phase-3', pathHint: '/', done: false },
-  { id: 'col-01', code: 'COL-01', name: 'Bộ lọc sản phẩm (Filter)', desc: 'Lọc theo giá, màu, size, thương hiệu; reset được bộ lọc', phase: 'phase-3', pathHint: '/collections/all', done: false },
-  { id: 'col-02', code: 'COL-02', name: 'Product Grid & Phân trang', desc: 'Lưới sản phẩm đều khung, phân trang số hoặc xem thêm', phase: 'phase-3', pathHint: '/collections/all', done: false },
+  // 3. TRANG CHI TIẾT SẢN PHẨM (PRODUCT / PDP)
+  { id: 'pdp-01', code: 'PDP-01', name: 'Thư Viện Ảnh & Phóng To (Gallery & Zoom)', desc: 'Slider ảnh to + thumbnail nhỏ, zoom hover, lightbox', qaPoint: 'Đổi màu swatch thì ảnh to tự nhảy sang đúng màu tương ứng', page: 'product', done: false },
+  { id: 'pdp-02', code: 'PDP-02', name: 'Tiêu Đề, Mã SKU & Đánh Giá Sao', desc: 'Tên sản phẩm H1, SKU, tình trạng kho, đánh giá sao', qaPoint: 'Đổi biến thể cập nhật đúng SKU và trạng thái còn hàng', page: 'product', done: false },
+  { id: 'pdp-03', code: 'PDP-03', name: 'Khối Giá Bán, Giá Gạch & % Giảm', desc: 'Giá bán, giá so sánh gạch ngang, % tiết kiệm, sale badge', qaPoint: 'Định dạng tiền VNĐ chuẩn (100.000₫), không lỗi NaN', page: 'product', done: false },
+  { id: 'pdp-04', code: 'PDP-04', name: 'Bộ Chọn Biến Thể (Variant Swatch)', desc: 'Swatch màu sắc (có ảnh/màu hex), kích thước (S/M/L)', qaPoint: 'Biến thể hết hàng bị gạch mờ, chặn bấm mua biến thể lỗi', page: 'product', done: false },
+  { id: 'pdp-05', code: 'PDP-05', name: 'Số Lượng & Nút Thêm Giỏ / Mua Ngay', desc: 'Nút +/- số lượng, Thêm vào giỏ, Mua ngay chuyển checkout', qaPoint: 'Thêm giỏ AJAX không reload, cập nhật số lượng tức thì', page: 'product', done: false },
+  { id: 'pdp-06', code: 'PDP-06', name: 'Thanh Mua Hàng Dính Đáy (Sticky ATC)', desc: 'Thanh dính đáy màn hình khi cuộn qua nút mua chính', qaPoint: 'Hiển thị mượt mà trên mobile & desktop, không che nội dung', page: 'product', done: false },
+  { id: 'pdp-07', code: 'PDP-07', name: 'Tabs Chi Tiết Mô Tả & Thông Số', desc: 'Tab Mô tả chi tiết, Thông số kỹ thuật, Chính sách đổi trả', qaPoint: 'Bảng biểu không gây tràn ngang (overflow) trên mobile 375px', page: 'product', done: false },
+  { id: 'pdp-08', code: 'PDP-08', name: 'Sản Phẩm Gợi Ý / Cùng Chuyên Mục', desc: 'Lưới sản phẩm liên quan hoặc sản phẩm vừa xem', qaPoint: 'Không gợi ý trùng chính sản phẩm đang xem', page: 'product', done: false },
 
-  // CHẶNG 4: MẶT TIỀN & VỆ TINH
-  { id: 'hom-01', code: 'HOM-01', name: 'Hero Banner Slider', desc: 'Banner chính chạy 2 chiều, không vỡ trước khi init slide', phase: 'phase-4', pathHint: '/', done: false },
-  { id: 'hom-02', code: 'HOM-02', name: 'Danh mục nổi bật Grid', desc: 'Icon/Ảnh danh mục, tỷ lệ ảnh đồng bộ, không méo', phase: 'phase-4', pathHint: '/', done: false },
-  { id: 'hom-03', code: 'HOM-03', name: 'Flash Sale Countdown', desc: 'Đồng hồ đếm ngược, thanh tiến độ bán, hết hạn tự ẩn', phase: 'phase-4', pathHint: '/', done: false },
-  { id: 'hom-04', code: 'HOM-04', name: 'Tabs sản phẩm trang chủ', desc: 'Chuyển tab mượt mà, bỏ chọn danh mục không vỡ khung', phase: 'phase-4', pathHint: '/', done: false },
-  { id: 'hom-05', code: 'HOM-05', name: 'Tin tức & Đối tác', desc: 'Blog carousel mới nhất, slider logo đối tác', phase: 'phase-4', pathHint: '/', done: false },
-  { id: 'blg-01', code: 'BLG-01', name: 'Blog list & Article detail', desc: 'Danh sách bài viết, chi tiết bài, mục lục, bình luận', phase: 'phase-4', pathHint: '/blogs/news', done: false },
-  { id: 'pag-01', code: 'PAG-01', name: 'Trang liên hệ (Contact)', desc: 'Form liên hệ validate trước khi gửi + bản đồ', phase: 'phase-4', pathHint: '/pages/lien-he', done: false },
-  { id: 'acc-01', code: 'ACC-01', name: 'Tài khoản & Đổi mật khẩu', desc: 'Đăng nhập, đăng ký, quên MK, đổi MK (không thiếu đổi MK)', phase: 'phase-4', pathHint: '/account/login', done: false },
-  { id: 'acc-02', code: 'ACC-02', name: 'Lịch sử đơn hàng & Sổ địa chỉ', desc: 'Trang orders không crash Liquid, thêm/sửa/xóa địa chỉ', phase: 'phase-4', pathHint: '/account/orders', done: false },
-  { id: 'sys-01', code: 'SYS-01', name: 'Trang 404 & Tìm kiếm', desc: 'Giao diện 404 có style, kết quả tìm kiếm đúng từ khóa', phase: 'phase-4', pathHint: '/404', done: false },
+  // 4. TRANG GIỎ HÀNG (CART)
+  { id: 'crt-01', code: 'CRT-01', name: 'Mini Cart Drawer Trượt Phải (AJAX)', desc: 'Ngăn kéo giỏ hàng trượt từ phải sang khi thêm sản phẩm', qaPoint: 'Mở/đóng mượt mà, bấm backdrop mờ tự đóng', page: 'cart', pathHint: '/cart', done: false },
+  { id: 'crt-02', code: 'CRT-02', name: 'Trang Giỏ Hàng Đầy Đủ (/cart)', desc: 'Bảng sản phẩm, ảnh, tên, đơn giá, số lượng, thành tiền, nút xóa', qaPoint: 'Tăng giảm số lượng tính lại tổng tiền AJAX, không reload', page: 'cart', pathHint: '/cart', done: false },
+  { id: 'crt-03', code: 'CRT-03', name: 'Ghi Chú Đơn Hàng & Mã Khuyến Mãi', desc: 'Khung nhập ghi chú gửi shop, nhập voucher giảm giá', qaPoint: 'Ghi chú lưu đúng vào thuộc tính note của đơn hàng', page: 'cart', pathHint: '/cart', done: false },
+  { id: 'crt-04', code: 'CRT-04', name: 'Nút Tiến Hành Thanh Toán (Checkout)', desc: 'Nút nổi bật chuyển khách sang trang thanh toán bảo mật', qaPoint: 'Không bị disabled khi giỏ hàng có sản phẩm hợp lệ', page: 'cart', pathHint: '/cart', done: false },
+  { id: 'crt-05', code: 'CRT-05', name: 'Trạng Thái Giỏ Hàng Trống (Empty Cart)', desc: 'Icon giỏ rỗng + câu thông báo + nút Tiếp tục mua sắm', qaPoint: 'Xóa hết món chuyển ngay sang Empty Cart không sót bảng cũ', page: 'cart', pathHint: '/cart', done: false },
 
-  // CHẶNG 5: CẤU HÌNH & QA
-  { id: 'set-01', code: 'SET-01', name: 'Theme Settings Schema', desc: 'Đổi setting ăn ngoài giao diện 100%, ghi kích thước khuyên dùng', phase: 'phase-5', pathHint: '/', done: false },
-  { id: 'qa-01', code: 'QA-01', name: '3 Bài Test Diệt Bug', desc: 'Empty-state sạch, 375px không scroll ngang, Console sạch 100%', phase: 'phase-5', pathHint: '/', done: false },
+  // 5. TRANG BÀI VIẾT & BLOG (BLOG)
+  { id: 'blg-01', code: 'BLG-01', name: 'Danh Sách Bài Viết (Blog Listing)', desc: 'Lưới bài viết, ảnh cover, tiêu đề, ngày đăng, phân trang', qaPoint: 'Ảnh bài viết đồng bộ tỷ lệ, không bị méo lệch khung', page: 'blog', pathHint: '/blogs/news', done: false },
+  { id: 'blg-02', code: 'BLG-02', name: 'Chi Tiết Bài Viết (Article Detail)', desc: 'Tiêu đề H1, tác giả, ngày đăng, tags, nội dung bài viết', qaPoint: 'Typography chuẩn, ảnh trong bài tự co giãn 100%', page: 'blog', pathHint: '/blogs/news', done: false },
+  { id: 'blg-03', code: 'BLG-03', name: 'Khung Bình Luận Bài Viết (Comments)', desc: 'Danh sách bình luận + form gửi bình luận (Tên, Email, Lời nhắn)', qaPoint: 'Form gửi bình luận có thông báo thành công / chờ duyệt', page: 'blog', pathHint: '/blogs/news', done: false },
+  { id: 'blg-04', code: 'BLG-04', name: 'Sidebar Chuyên Mục & Top Bài Viết', desc: 'Danh mục tin, bài viết xem nhiều, bài liên quan', qaPoint: 'Link chính xác, mobile ẩn sidebar gọn gàng cuối bài', page: 'blog', pathHint: '/blogs/news', done: false },
+
+  // 6. TRANG TÀI KHOẢN (ACCOUNT)
+  { id: 'acc-01', code: 'ACC-01', name: 'Form Đăng Nhập & Quên Mật Khẩu', desc: 'Form email/mật khẩu, link chuyển sang khung Quên MK tức thì', qaPoint: 'Báo lỗi rõ ràng khi sai thông tin, gửi mail khôi phục OK', page: 'account', pathHint: '/account/login', done: false },
+  { id: 'acc-02', code: 'ACC-02', name: 'Form Đăng Ký Tài Khoản Mới', desc: 'Form đăng ký: Họ tên, Email, SĐT, Mật khẩu', qaPoint: 'Validate định dạng email và độ dài mật khẩu trước submit', page: 'account', pathHint: '/account/register', done: false },
+  { id: 'acc-03', code: 'ACC-03', name: 'Bảng Điều Khiển & Lịch Sử Đơn Hàng', desc: 'Thông tin cá nhân, danh sách đơn hàng, trạng thái giao', qaPoint: 'Khách chưa đăng nhập vào /account tự chuyển về /account/login', page: 'account', pathHint: '/account', done: false },
+  { id: 'acc-04', code: 'ACC-04', name: 'Sổ Địa Chỉ Giao Hàng (Addresses)', desc: 'Danh sách địa chỉ, form Thêm/Sửa/Xóa địa chỉ', qaPoint: 'Xóa địa chỉ có popup xác nhận, cascade Tỉnh->Huyện', page: 'account', pathHint: '/account/addresses', done: false },
+
+  // 7. TRANG PHỤ & HỆ THỐNG (PAGES)
+  { id: 'sys-01', code: 'SYS-01', name: 'Trang Liên Hệ & Bản Đồ Showroom', desc: 'Form gửi liên hệ (Tên, Email, SĐT, Lời nhắn) + bản đồ Map', qaPoint: 'Form submit thành công có toast, SĐT bấm gọi được ngay', page: 'pages', pathHint: '/pages/lien-he', done: false },
+  { id: 'sys-02', code: 'SYS-02', name: 'Trang Giới Thiệu & Chính Sách Shop', desc: 'Trang nội dung tĩnh, quy định đổi trả, bảo hành', qaPoint: 'Trình bày sạch sẽ, bảng biểu responsive không vỡ khung', page: 'pages', pathHint: '/pages/gioi-thieu', done: false },
+  { id: 'sys-03', code: 'SYS-03', name: 'Trang Tìm Kiếm Sản Phẩm (/search)', desc: 'Thanh tìm kiếm, đếm số kết quả tìm thấy, lưới sản phẩm', qaPoint: 'Tìm không ra kết quả có gợi ý từ khóa hoặc SP nổi bật', page: 'pages', pathHint: '/search', done: false },
+  { id: 'sys-04', code: 'SYS-04', name: 'Popup Xem Nhanh Sản Phẩm (Quickview)', desc: 'Modal xem nhanh ảnh, swatch, giá, nút mua từ danh mục', qaPoint: 'Nút ESC / dấu x đóng mượt, chọn biến thể chuẩn xác', page: 'pages', pathHint: '/collections/all', done: false },
+  { id: 'sys-05', code: 'SYS-05', name: 'Trang Lỗi 404 Không Tìm Thấy', desc: 'Giao diện 404 thân thiện, nút Quay lại trang chủ, thanh tìm kiếm', qaPoint: 'Không để trang trắng trơn, không lỗi vỡ header/footer', page: 'pages', pathHint: '/antifan-404-probe', done: false },
+
+  // 8. NGHIỆM THU & QA (QA GATE)
+  { id: 'qag-01', code: 'QAG-01', name: 'Responsive 375px Không Tràn Ngang', desc: 'Dùng thanh Thử Viewport 375px duyệt toàn bộ các trang', qaPoint: 'Tuyệt đối không có phần tử nào gây scrollbar ngang', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-02', code: 'QAG-02', name: 'Kiểm Tra Trạng Thái Trống (Empty State)', desc: 'Test danh mục không có SP, giỏ rỗng, tìm kiếm không ra', qaPoint: 'Layout không bị sập hay méo khung khi dữ liệu trống', page: 'qa-gate', pathHint: '/collections/all', done: false },
+  { id: 'qag-03', code: 'QAG-03', name: '0 Lỗi Đỏ Console JS & 0 Ảnh Hỏng 404', desc: 'Mở DevTools Console kiểm tra toàn bộ các trang', qaPoint: 'Không có Uncaught TypeError, không có tài nguyên 404', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-04', code: 'QAG-04', name: 'Kiểm Tra Cấu Hình Theme Settings', desc: 'Bật/tắt các setting trong theme admin (settings_schema.json)', qaPoint: 'Mọi setting đều có tác dụng ngoài storefront, không setting rác', page: 'qa-gate', pathHint: '/', done: false },
 ];
 
-const THEME_CHECKLIST_STORAGE_KEY = 'antifan_theme_checklist_state_v1';
+const THEME_CHECKLIST_STORAGE_PREFIX = 'antifan_theme_checklist_state_v3';
 let themeChecklist: ThemeChecklistItem[] = [];
 let activePhaseFilter: string = 'all';
 let checklistSearchQuery: string = '';
 let activeThemeStudioTab: 'checklist' | 'findings' = 'checklist';
+let activeChecklistScope: string = 'unbound';
+/**
+ * Scope marker for a storefront whose workspace could not be resolved. Kept
+ * distinct from a resolved scope so a bare-origin key never silently mixes two
+ * projects, and so the report states which storefront was actually measured.
+ */
+const UNKNOWN_WORKSPACE_TAG = 'unknown-workspace';
+/** How long the checklist waits for the workspace identity before giving up on it. */
+const WORKSPACE_IDENTIFY_TIMEOUT_MS = 1500;
+/** Workspace tag for the storefront in front of the user; empty until it is known. */
+let checklistWorkspaceTag = '';
+/** Origin the current tag was resolved for, so a tab switch re-resolves it. */
+let checklistWorkspaceResolvedFor = '';
+let checklistWorkspacePending: Promise<void> | null = null;
 
-function loadThemeChecklist(): ThemeChecklistItem[] {
+/**
+ * The storefront whose checklist is on screen. Progress is keyed by origin and by
+ * the workspace that origin belongs to, so a second shop — or a second theme
+ * project served on the same local port — never inherits the first one's ticks.
+ */
+function checklistOrigin(): string {
+  const ordered = [currentTabs.find((tab) => tab.id === activeTabId), ...currentTabs];
+  for (const tab of ordered) {
+    if (!tab?.url) continue;
+    try {
+      const parsed = new URL(tab.url);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.origin;
+    } catch {
+      // not a navigable origin — keep looking
+    }
+  }
+  return 'unbound';
+}
+
+function checklistScope(): string {
+  const origin = checklistOrigin();
+  return `${origin}@${checklistWorkspaceTag || UNKNOWN_WORKSPACE_TAG}`;
+}
+
+/**
+ * Storage-safe identity for a theme workspace: readable leaf plus a stable path
+ * hash. The path is normalized first — Windows reports the same project as
+ * `E:\Work\Themes\Shop` or `e:/work/themes/shop`, and a case-split hash would file
+ * two scopes for one project.
+ */
+function workspaceTag(workspacePath?: string): string {
+  const normalized = (workspacePath ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  if (!normalized) return '';
+  let hash = 0;
+  for (let i = 0; i < normalized.length; i++) hash = (hash * 31 + normalized.charCodeAt(i)) >>> 0;
+  const leaf = normalized.split('/').pop() ?? '';
+  const slug = leaf.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
+  return `${slug || 'workspace'}-${hash.toString(36)}`;
+}
+
+/**
+ * Learn which workspace the open storefront belongs to, once per origin. Every
+ * theme project locally is served from a fixed port (`127.0.0.1:9292`), so two
+ * projects on that port resolve to one origin and would otherwise share progress.
+ */
+function resolveChecklistWorkspace(origin: string, force = false): Promise<void> {
+  if (!force && origin === checklistWorkspaceResolvedFor) return Promise.resolve();
+  if (checklistWorkspacePending) return checklistWorkspacePending;
+  const identify = getApi()?.identifyWorkspace;
+  if (!identify) {
+    checklistWorkspaceTag = '';
+    checklistWorkspaceResolvedFor = origin;
+    return Promise.resolve();
+  }
+  checklistWorkspacePending = (async () => {
+    try {
+      // Bounded: a main process that never answers must not leave the panel
+      // pending forever. Falling back to the unknown-workspace scope keeps the
+      // checklist usable and honest about what it measured.
+      const res = await Promise.race([
+        identify(),
+        new Promise<null>((resolve) => {
+          setTimeout(() => resolve(null), WORKSPACE_IDENTIFY_TIMEOUT_MS);
+        }),
+      ]);
+      checklistWorkspaceTag = workspaceTag(res?.workspacePath);
+    } catch (err) {
+      console.warn('[ThemeStudio] Workspace identity unavailable; scoping the checklist to the unknown-workspace scope:', err);
+      checklistWorkspaceTag = '';
+    }
+    checklistWorkspaceResolvedFor = origin;
+    checklistWorkspacePending = null;
+  })();
+  return checklistWorkspacePending;
+}
+
+function checklistStorageKey(scope: string): string {
+  return `${THEME_CHECKLIST_STORAGE_PREFIX}:${scope}`;
+}
+
+/** Move `themeChecklist` onto the active scope, persisting the previous one first. */
+function applyChecklistScope(): boolean {
+  const next = checklistScope();
+  if (next === activeChecklistScope) return false;
+  if (themeChecklist.length > 0) saveThemeChecklist(themeChecklist, activeChecklistScope);
+  activeChecklistScope = next;
+  themeChecklist = loadThemeChecklist(next);
+  return true;
+}
+
+/**
+ * Bind the checklist to the active storefront. Returns false while the storefront's
+ * workspace is still unknown: committing a scope in that window would file one
+ * project's ticks under a key another project may resolve to. `force` re-reads the
+ * workspace, since switching projects does not change the storefront origin when
+ * both are served from the same local port.
+ */
+function ensureChecklistScope(force = false): boolean {
+  const origin = checklistOrigin();
+  if (force || origin !== checklistWorkspaceResolvedFor) {
+    const tagAlreadyKnown = origin === checklistWorkspaceResolvedFor;
+    void resolveChecklistWorkspace(origin, force).then(() => {
+      const scopeChanged = applyChecklistScope();
+      // A forced re-read renders a frozen panel until it lands, so it must repaint
+      // even when the workspace (and therefore the scope) turns out unchanged.
+      if (scopeChanged || force) renderThemeStudioChecklist();
+    });
+    if (!tagAlreadyKnown) return false;
+  }
+  applyChecklistScope();
+  return true;
+}
+
+function loadThemeChecklist(scope: string): ThemeChecklistItem[] {
   try {
-    const raw = localStorage.getItem(THEME_CHECKLIST_STORAGE_KEY);
+    const raw = localStorage.getItem(checklistStorageKey(scope));
     if (!raw) return DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
     const saved = JSON.parse(raw) as Record<string, boolean>;
     return DEFAULT_THEME_CHECKLIST.map((item) => ({
@@ -330,35 +562,119 @@ function loadThemeChecklist(): ThemeChecklistItem[] {
   }
 }
 
-function saveThemeChecklist(items: ThemeChecklistItem[]) {
+function saveThemeChecklist(items: ThemeChecklistItem[], scope: string) {
   try {
     const record: Record<string, boolean> = {};
     for (const item of items) {
       if (item.done) record[item.id] = true;
     }
-    localStorage.setItem(THEME_CHECKLIST_STORAGE_KEY, JSON.stringify(record));
+    localStorage.setItem(checklistStorageKey(scope), JSON.stringify(record));
   } catch (err) {
     console.warn('[ThemeStudio] Failed to save checklist state:', err);
   }
 }
 
-const PHASE_TITLES: Record<string, string> = {
-  'phase-1': 'Chặng 1: Móng & Khung Xương (Layout, Reset CSS, Icons)',
-  'phase-2': 'Chặng 2: Máy Mua Hàng (PDP, Swatch, Gallery, Cart Drawer)',
-  'phase-3': 'Chặng 3: Vỏ Bọc & Điều Hướng (Header, Menu, Footer, Filter)',
-  'phase-4': 'Chặng 4: Mặt Tiền & Vệ Tinh (Trang Chủ, Blog, Account, 404)',
-  'phase-5': 'Chặng 5: Cấu Hình & Tự Kiểm QA (Settings, Empty State, 375px)',
-};
+/**
+ * A live product page. Haravan/Sapo/Shopify serve PDPs only at `/products/<handle>`,
+ * so this is the sole route that can be trusted as "the product page".
+ */
+const PRODUCT_PAGE_PATH = /\/products\/[^/?#]+/;
 
-function renderThemeStudioChecklist() {
+/**
+ * Origin every storefront route is resolved against: the tab in front of the user
+ * first, then any other browsing tab, then the local storefront dev server.
+ */
+function storefrontOrigin(): string {
+  const ordered = [currentTabs.find((tab) => tab.id === activeTabId), ...currentTabs];
+  for (const tab of ordered) {
+    if (!tab?.url) continue;
+    try {
+      const parsed = new URL(tab.url);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.origin;
+    } catch {
+      // not a navigable origin — keep looking
+    }
+  }
+  return 'http://127.0.0.1:9292';
+}
+
+/**
+ * The absolute route a checklist action should open, or `null` when the page has
+ * no index route and no matching storefront page is open. Callers must refuse
+ * rather than navigate: opening a made-up route would scan a 404 while claiming a
+ * product page.
+ */
+function resolveChecklistRoute(pageDef: ThemePageDef, itemPath?: string): string | null {
+  if (pageDef.routeKind === 'handle-required') {
+    const openUrl = currentTabs.find((tab) => tab.id === activeTabId)?.url;
+    if (!openUrl) return null;
+    try {
+      return PRODUCT_PAGE_PATH.test(new URL(openUrl).pathname) ? openUrl : null;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return new URL(itemPath || pageDef.path, storefrontOrigin()).href;
+  } catch {
+    return null;
+  }
+}
+
+function navigatePreview(pathHint: string) {
+  const resolvedOrigin = storefrontOrigin();
+  let targetUrl = pathHint;
+  const activeTab = currentTabs.find((t) => t.id === activeTabId);
+
+  try {
+    targetUrl = new URL(pathHint, resolvedOrigin).href;
+  } catch {
+    targetUrl = `${resolvedOrigin}${pathHint.startsWith('/') ? pathHint : '/' + pathHint}`;
+  }
+
+  // 1. Navigate active tab
+  getApi()?.navigate(targetUrl, activeTabId);
+
+  // 2. Update Omnibox input
+  if (urlInput) {
+    urlInput.value = targetUrl;
+  }
+
+  // 3. Automatically close modal so storefront is visible immediately!
+  if (themeQaOverlay) {
+    themeQaOverlay.style.display = 'none';
+    releaseOverlay('theme-qa');
+  }
+
+  showToolbarToast(`Đang mở Storefront: ${targetUrl}`);
+}
+
+function renderThemeStudioChecklist(refreshWorkspace = false) {
   const container = document.getElementById('themeChecklistList');
   const progressVal = document.getElementById('themeChecklistProgressVal');
   const progressBar = document.getElementById('themeChecklistProgressBar') as HTMLElement | null;
   const badgeNav = document.getElementById('badgeThemeChecklist');
   if (!container) return;
 
+  if (!ensureChecklistScope(refreshWorkspace)) {
+    container.innerHTML = '';
+    const pending = document.createElement('div');
+    pending.className = 'theme-checklist-pending';
+    pending.textContent = 'Đang xác định storefront và workspace để mở đúng checklist…';
+    container.appendChild(pending);
+    if (progressVal) progressVal.textContent = '--';
+    if (progressBar) progressBar.style.width = '0%';
+    if (badgeNav) badgeNav.textContent = '--';
+    return;
+  }
+
+  // A forced re-read (opening the panel after switching projects) renders the
+  // committed scope until the new one lands. Editing is held off for that one
+  // round-trip so a tick cannot be filed under the project being left behind.
+  const verifyingWorkspace = checklistWorkspacePending !== null;
+
   if (themeChecklist.length === 0) {
-    themeChecklist = loadThemeChecklist();
+    themeChecklist = loadThemeChecklist(activeChecklistScope);
   }
 
   const total = themeChecklist.length;
@@ -369,43 +685,141 @@ function renderThemeStudioChecklist() {
   if (progressBar) progressBar.style.width = `${percent}%`;
   if (badgeNav) badgeNav.textContent = `${doneCount}/${total}`;
 
-  // Group items by phase
-  const phases = ['phase-1', 'phase-2', 'phase-3', 'phase-4', 'phase-5'];
+  // Group items by page
+  const pageKeys = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'];
   container.innerHTML = '';
 
   const q = checklistSearchQuery.trim().toLowerCase();
 
-  phases.forEach((phaseKey) => {
-    if (activePhaseFilter !== 'all' && activePhaseFilter !== phaseKey) return;
+  pageKeys.forEach((pageKey) => {
+    if (activePhaseFilter !== 'all' && activePhaseFilter !== 'uncompleted' && activePhaseFilter !== pageKey) return;
 
-    let phaseItems = themeChecklist.filter((it) => it.phase === phaseKey);
+    let pageItems = themeChecklist.filter((it) => it.page === pageKey);
+    if (activePhaseFilter === 'uncompleted') {
+      pageItems = pageItems.filter((it) => !it.done);
+    }
+    if (pageItems.length === 0 && activePhaseFilter === 'uncompleted') return;
+
     if (q) {
-      phaseItems = phaseItems.filter(
-        (it) => it.name.toLowerCase().includes(q) || it.code.toLowerCase().includes(q) || it.desc.toLowerCase().includes(q)
+      pageItems = pageItems.filter(
+        (it) =>
+          it.name.toLowerCase().includes(q) ||
+          it.code.toLowerCase().includes(q) ||
+          it.desc.toLowerCase().includes(q) ||
+          it.qaPoint.toLowerCase().includes(q)
       );
     }
-    if (phaseItems.length === 0 && q) return;
+    if (pageItems.length === 0 && q) return;
 
-    const phaseDone = phaseItems.filter((it) => it.done).length;
-    const phaseTotal = phaseItems.length;
+    const pageDone = pageItems.filter((it) => it.done).length;
+    const pageTotal = pageItems.length;
+    const pageDef = PAGE_DEFS[pageKey] || { title: pageKey, badge: pageKey.toUpperCase(), icon: '📄', path: '/' };
 
     const card = document.createElement('div');
     card.className = 'theme-phase-card';
 
     const header = document.createElement('div');
     header.className = 'theme-phase-header';
-    header.innerHTML = `
-      <div class="theme-phase-header-title">
-        <span class="theme-phase-badge">${phaseKey.toUpperCase().replace('-', ' ')}</span>
-        <span>${PHASE_TITLES[phaseKey] || phaseKey}</span>
-      </div>
-      <div class="theme-phase-progress-pill">${phaseDone}/${phaseTotal} Xong</div>
+
+    const headerLeft = document.createElement('div');
+    headerLeft.className = 'theme-phase-header-title';
+    headerLeft.innerHTML = `
+      <span class="theme-phase-badge">${pageDef.icon} ${pageDef.badge}</span>
+      <span>${pageDef.title}</span>
     `;
+
+    const headerRight = document.createElement('div');
+    headerRight.style.display = 'flex';
+    headerRight.style.alignItems = 'center';
+
+    const btnOpenPage = document.createElement('button');
+    btnOpenPage.className = 'theme-btn-open-page';
+    btnOpenPage.title = `Mở đường dẫn storefront: ${pageDef.path}`;
+    btnOpenPage.textContent = `↗ Mở trang`;
+    btnOpenPage.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const route = resolveChecklistRoute(pageDef);
+      if (!route) {
+        showToolbarToast(pageDef.routeNote ?? `Không mở được ${pageDef.title}: chưa có trang tương ứng đang mở.`);
+        return;
+      }
+      navigatePreview(route);
+    });
+
+    const btnScanPage = document.createElement('button');
+    btnScanPage.className = 'theme-btn-scan-page';
+    btnScanPage.title = `Mở và quét QA storefront cho trang: ${pageDef.title}`;
+    btnScanPage.textContent = `🔍 Quét QA`;
+    btnScanPage.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const route = resolveChecklistRoute(pageDef);
+      if (!route) {
+        showToolbarToast(pageDef.routeNote ?? `Không quét được ${pageDef.title}: chưa có trang tương ứng đang mở.`);
+        return;
+      }
+      // Already on the resolved route: the QA run reloads the page itself, so a
+      // pre-navigation would only add a second full load.
+      if (route !== currentTabs.find((tab) => tab.id === activeTabId)?.url) {
+        navigatePreview(route);
+        showToolbarToast(`Đang chuyển đến ${pageDef.title} và chuẩn bị chạy QA…`);
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, 800);
+        await promise;
+      } else {
+        showToolbarToast(`Đang quét QA trên ${pageDef.title}…`);
+      }
+      const res = await getApi()?.runThemeQa();
+      if (res?.report) {
+        lastThemeQaReport = res.report;
+        renderThemeQa({ ...themeQaState, report: res.report }, res.report);
+        tabNavThemeFindings?.classList.add('active');
+        tabNavThemeChecklist?.classList.remove('active');
+        if (themeTabFindings) themeTabFindings.style.display = 'flex';
+        if (themeTabChecklist) themeTabChecklist.style.display = 'none';
+        renderThemeStudioFindings();
+        openThemeQaSummary();
+      }
+    });
+
+    const allDone = pageItems.length > 0 && pageItems.every((it) => it.done);
+    const btnToggleAll = document.createElement('button');
+    btnToggleAll.className = 'theme-btn-toggle-all';
+    btnToggleAll.textContent = allDone ? '↺ Bỏ xong' : '✓ Xong cả trang';
+    btnToggleAll.title = allDone ? 'Đánh dấu chưa hoàn thành toàn bộ mục trang này' : 'Đánh dấu đã hoàn thành toàn bộ mục trang này';
+    btnToggleAll.disabled = verifyingWorkspace;
+    btnToggleAll.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (checklistWorkspacePending) return;
+      const newStatus = !allDone;
+      pageItems.forEach((it) => {
+        it.done = newStatus;
+        const found = themeChecklist.find((m) => m.id === it.id);
+        if (found) found.done = newStatus;
+      });
+      saveThemeChecklist(themeChecklist, activeChecklistScope);
+      renderThemeStudioChecklist();
+      showToolbarToast(`${newStatus ? 'Đã hoàn thành' : 'Đã bỏ hoàn thành'} toàn bộ ${pageDef.title}`);
+    });
+
+    const progressPill = document.createElement('div');
+    progressPill.className = 'theme-phase-progress-pill';
+    progressPill.textContent = `${pageDone}/${pageTotal} Xong`;
+
+    headerRight.append(btnOpenPage, btnScanPage, btnToggleAll, progressPill);
+    header.append(headerLeft, headerRight);
+    card.append(header);
+
+    if (pageDef.note) {
+      const note = document.createElement('div');
+      note.className = 'theme-phase-note';
+      note.textContent = pageDef.note;
+      card.append(note);
+    }
 
     const itemsBox = document.createElement('div');
     itemsBox.className = 'theme-phase-items';
 
-    phaseItems.forEach((item) => {
+    pageItems.forEach((item) => {
       const row = document.createElement('div');
       row.className = `theme-item-row${item.done ? ' is-done' : ''}`;
 
@@ -416,9 +830,11 @@ function renderThemeStudioChecklist() {
       cb.type = 'checkbox';
       cb.className = 'theme-item-checkbox';
       cb.checked = item.done;
+      cb.disabled = verifyingWorkspace;
       cb.addEventListener('change', () => {
+        if (checklistWorkspacePending) return;
         item.done = cb.checked;
-        saveThemeChecklist(themeChecklist);
+        saveThemeChecklist(themeChecklist, activeChecklistScope);
         renderThemeStudioChecklist();
       });
 
@@ -431,6 +847,7 @@ function renderThemeStudioChecklist() {
       info.innerHTML = `
         <div class="theme-item-name">${item.name}</div>
         <div class="theme-item-desc">${item.desc}</div>
+        <div class="theme-item-qa-point">🔍 QA: ${item.qaPoint}</div>
       `;
 
       left.append(cb, codeTag, info);
@@ -440,27 +857,29 @@ function renderThemeStudioChecklist() {
 
       const statusTag = document.createElement('span');
       statusTag.className = `theme-status-tag ${item.done ? 'done' : 'backlog'}`;
-      statusTag.textContent = item.done ? 'Done' : 'Backlog';
+      statusTag.textContent = item.done ? '✓ Xong' : 'Chưa làm';
       right.appendChild(statusTag);
 
-      if (item.pathHint) {
-        const btnNav = document.createElement('button');
-        btnNav.className = 'theme-btn-nav';
-        btnNav.title = `Mở đường dẫn ${item.pathHint}`;
-        btnNav.textContent = '↗ Xem';
-        btnNav.addEventListener('click', (e) => {
-          e.stopPropagation();
-          getApi()?.navigate(item.pathHint!);
-          showToolbarToast(`Điều hướng đến ${item.pathHint}`);
-        });
-        right.appendChild(btnNav);
-      }
+      const targetPath = resolveChecklistRoute(pageDef, item.pathHint);
+      const btnNav = document.createElement('button');
+      btnNav.className = 'theme-btn-nav';
+      btnNav.title = targetPath ? `Mở đường dẫn storefront: ${targetPath}` : (pageDef.routeNote ?? 'Chưa có trang tương ứng đang mở');
+      btnNav.textContent = '↗ Xem';
+      btnNav.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!targetPath) {
+          showToolbarToast(pageDef.routeNote ?? 'Chưa có trang tương ứng đang mở');
+          return;
+        }
+        navigatePreview(targetPath);
+      });
+      right.appendChild(btnNav);
 
       row.append(left, right);
       itemsBox.appendChild(row);
     });
 
-    card.append(header, itemsBox);
+    card.append(itemsBox);
     container.appendChild(card);
   });
 }
@@ -2541,7 +2960,10 @@ tabNavThemeChecklist?.addEventListener('click', () => {
   tabNavThemeFindings?.classList.remove('active');
   if (themeTabChecklist) themeTabChecklist.style.display = 'flex';
   if (themeTabFindings) themeTabFindings.style.display = 'none';
-  renderThemeStudioChecklist();
+  // Opening the panel is the moment the user may have switched theme projects
+  // behind the same local port, so re-read the workspace instead of trusting the
+  // identity cached when the storefront origin was first seen.
+  renderThemeStudioChecklist(true);
 });
 
 tabNavThemeFindings?.addEventListener('click', () => {
@@ -2557,7 +2979,7 @@ phaseFilterBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
     phaseFilterBtns.forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
-    activePhaseFilter = btn.getAttribute('data-phase') || 'all';
+    activePhaseFilter = btn.getAttribute('data-page') || btn.getAttribute('data-phase') || 'all';
     renderThemeStudioChecklist();
   });
 });
@@ -2571,10 +2993,62 @@ themeChecklistSearch?.addEventListener('input', () => {
 const btnThemeChecklistReset = document.getElementById('btnThemeChecklistReset');
 btnThemeChecklistReset?.addEventListener('click', () => {
   if (confirm('Bạn có chắc muốn đặt lại toàn bộ checklist về trạng thái chưa làm?')) {
-    localStorage.removeItem(THEME_CHECKLIST_STORAGE_KEY);
+    localStorage.removeItem(checklistStorageKey(activeChecklistScope));
     themeChecklist = DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
     renderThemeStudioChecklist();
     showToolbarToast('Đã đặt lại checklist');
+  }
+});
+
+const btnThemeExportReport = document.getElementById('btnThemeExportReport');
+btnThemeExportReport?.addEventListener('click', () => {
+  if (!ensureChecklistScope()) {
+    showToolbarToast('Đang xác định storefront và workspace, thử xuất lại sau một nhịp…');
+    return;
+  }
+  if (themeChecklist.length === 0) {
+    themeChecklist = loadThemeChecklist(activeChecklistScope);
+  }
+  const total = themeChecklist.length;
+  const doneCount = themeChecklist.filter((it) => it.done).length;
+  const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+
+  const pageKeys = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'];
+  const lines: string[] = [];
+  lines.push(`# BÁO CÁO TIẾN ĐỘ THEME & QA STOREFRONT (AntiFan Theme Studio)`);
+  lines.push(`- **Thời gian xuất:** ${new Date().toLocaleString('vi-VN')}`);
+  lines.push(`- **Storefront đang đo:** ${activeChecklistScope}`);
+  lines.push(`- **Tổng tiến độ:** ${doneCount}/${total} mục (${percent}%)`);
+  lines.push(`- **Đánh giá tổng thể:** ${percent === 100 ? '✅ SẴN SÀNG NGHIỆM THU / HANDOFF' : percent >= 80 ? '🟡 ĐANG HOÀN THIỆN (GẦN XONG)' : '🔴 ĐANG PHÁT TRIỂN'}`);
+  lines.push(`- **Phạm vi bằng chứng:** ${QA_GATE_DISCLAIMER}`);
+  lines.push('');
+
+  pageKeys.forEach((key) => {
+    const pItems = themeChecklist.filter((it) => it.page === key);
+    const pDef = PAGE_DEFS[key] || { title: key, badge: key.toUpperCase(), icon: '📄', path: '/' };
+    const pDone = pItems.filter((it) => it.done).length;
+    const pTotal = pItems.length;
+    const pPct = pTotal > 0 ? Math.round((pDone / pTotal) * 100) : 0;
+
+    lines.push(`### ${pDef.icon} ${pDef.title} (${pDone}/${pTotal} - ${pPct}%)`);
+    pItems.forEach((it) => {
+      lines.push(`- [${it.done ? 'x' : ' '}] **[${it.code}]** ${it.name} - *${it.desc}* (🎯 QA: ${it.qaPoint})`);
+    });
+    lines.push('');
+  });
+
+  const reportText = lines.join('\n');
+  const clipboard = navigator.clipboard;
+  if (clipboard?.writeText) {
+    clipboard.writeText(reportText).then(() => {
+      showToolbarToast('📋 Đã sao chép Báo cáo Tiến độ Markdown vào Clipboard!');
+    }).catch(() => {
+      console.log(reportText);
+      showToolbarToast('📋 Đã in báo cáo Markdown vào Console F12');
+    });
+  } else {
+    console.log(reportText);
+    showToolbarToast('📋 Đã in báo cáo Markdown vào Console F12');
   }
 });
 
@@ -3638,6 +4112,10 @@ async function initToolbar() {
     if (state) {
       currentTabs = state.tabs || [];
       activeTabId = state.activeTabId || '';
+      // Kick off the identity read without blocking the toolbar: a main process
+      // that stalls here would freeze tabs, profiles and bookmarks. The checklist
+      // paints its pending state until the answer lands.
+      void resolveChecklistWorkspace(checklistOrigin());
       if (state.bookmarks) currentBookmarks = state.bookmarks;
       if (state.activeChromeProfile) activeProfileInfo = state.activeChromeProfile;
       if (state.chromeProfiles) availableChromeProfiles = state.chromeProfiles;

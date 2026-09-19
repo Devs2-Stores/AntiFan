@@ -2872,14 +2872,17 @@ body, html {
 
 /* AntiFan Theme Studio & QA Cockpit Styling */
 .theme-studio-modal {
-  width: min(1060px, 95vw);
-  height: min(88vh, 820px);
+  width: min(1120px, 95vw);
+  height: min(88vh, 840px);
   max-height: 90vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: #11141b;
   border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 10px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85), 0 0 30px rgba(56, 189, 248, 0.1);
+  position: relative;
 }
 .theme-studio-header {
   display: flex;
@@ -3041,19 +3044,22 @@ body, html {
 
 /* Tab Content Body */
 .theme-studio-body {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   background: #0f1219;
 }
 .theme-studio-tab-content {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
-
 /* TAB 1: ROADMAP & CHECKLIST */
 .theme-checklist-toolbar {
   display: flex;
@@ -3106,18 +3112,58 @@ body, html {
   border-color: #38bdf8;
 }
 .theme-checklist-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 16px;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: scroll !important;
+  overflow-x: hidden;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.35) rgba(255, 255, 255, 0.04);
+}
+.theme-checklist-scroll::-webkit-scrollbar,
+.theme-qa-findings-list::-webkit-scrollbar {
+  width: 8px !important;
+  display: block !important;
+}
+.theme-checklist-scroll::-webkit-scrollbar-track,
+.theme-qa-findings-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-radius: 4px;
+}
+.theme-checklist-scroll::-webkit-scrollbar-thumb,
+.theme-qa-findings-list::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.35) !important;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.theme-checklist-scroll::-webkit-scrollbar-thumb:hover,
+.theme-qa-findings-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.7) !important;
 }
 .theme-phase-card {
   background: #141824;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   overflow: hidden;
+}
+.theme-checklist-pending {
+  padding: 18px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.theme-phase-note {
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(234, 179, 8, 0.06);
+  font-size: 11px;
+  line-height: 1.45;
+  color: #d7c58a;
 }
 .theme-phase-header {
   display: flex;
@@ -3199,21 +3245,29 @@ body, html {
 }
 .theme-item-name {
   font-size: 12px;
+  font-weight: 600;
   color: #f1f5f9;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .theme-item-row.is-done .theme-item-name {
   text-decoration: line-through;
-  color: #94a3b8;
+  color: #64748b;
 }
 .theme-item-desc {
   font-size: 11px;
-  color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: #94a3b8;
+  margin-top: 1px;
+  line-height: 1.4;
+}
+.theme-item-qa-point {
+  font-size: 10px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-top: 3px;
+  display: inline-block;
+  width: fit-content;
 }
 .theme-item-right {
   display: flex;
@@ -3231,19 +3285,69 @@ body, html {
 .theme-status-tag.in-progress { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
 .theme-status-tag.done { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
 .theme-btn-nav {
+  padding: 3px 9px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.theme-btn-nav:hover {
+  background: #38bdf8;
+  color: #0f172a;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+}
+.theme-btn-open-page {
   padding: 2px 7px;
   border-radius: 4px;
-  background: rgba(56, 189, 248, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  color: #38bdf8;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
   font-size: 10px;
   cursor: pointer;
   transition: all 0.15s ease;
+  margin-right: 4px;
 }
-.theme-btn-nav:hover {
-  background: rgba(56, 189, 248, 0.25);
+.theme-btn-open-page:hover {
+  background: rgba(56, 189, 248, 0.2);
   border-color: #38bdf8;
+  color: #38bdf8;
+}
+.theme-btn-scan-page {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-right: 4px;
+}
+.theme-btn-scan-page:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #34d399;
   color: #fff;
+}
+.theme-btn-toggle-all {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-right: 6px;
+}
+.theme-btn-toggle-all:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
 }
 
 /* TAB 2: LIVE QA DASHBOARD */
@@ -3332,12 +3436,16 @@ body, html {
 .qa-stat-card.warning .stat-num { color: #fbbf24; }
 .qa-stat-card.info .stat-num { color: #38bdf8; }
 .theme-qa-findings-list {
-  flex: 1;
-  overflow-y: auto;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: scroll !important;
+  overflow-x: hidden;
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.35) rgba(255, 255, 255, 0.04);
 }
 .qa-empty-state {
   display: flex;
