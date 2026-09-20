@@ -3123,6 +3123,11 @@ function applyCategoryToSession(sessionId, rawCategory, popover) {
   if (isNewName) terminalCategories.push(category);
   const session = findSession(baseId);
   if (session) session.category = category || undefined;
+  if (Array.isArray(sessions)) {
+    for (const s of sessions) {
+      if (s && s.splitOf === baseId) s.category = category || undefined;
+    }
+  }
   if (typeof renderTabs === 'function') renderTabs();
   if (isNewName) persistTerminalTabPrefs();
   try {

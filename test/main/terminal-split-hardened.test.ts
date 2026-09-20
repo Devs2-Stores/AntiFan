@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 
-const ROOT = path.resolve(__dirname, '../../..');
+const ROOT = path.resolve(__dirname, '../..');
 
 describe('Terminal Split Hardened 10-Round Verification Suite', () => {
   const tm = TerminalManager.getInstance();

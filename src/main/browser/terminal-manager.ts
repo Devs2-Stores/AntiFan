@@ -1010,6 +1010,7 @@ export class TerminalManager extends EventEmitter {
                 const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, item.rows);
                 s.name = item.name || s.name;
                 s.capsuleId = item.capsuleId || this.currentCapsuleId;
+                s.category = item.category;
               }
             } else if (item.state === 'sleeping') {
               this.restoreSleepingSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
@@ -1034,6 +1035,7 @@ export class TerminalManager extends EventEmitter {
               s.name = item.name || s.name;
               s.splitOf = item.splitOf;
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              s.category = item.category ?? parent?.category;
             } else {
               const s = this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
@@ -1457,6 +1459,7 @@ export class TerminalManager extends EventEmitter {
               const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, item.rows);
               s.name = item.name || s.name;
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              s.category = item.category;
             }
           } else if (item.state === 'sleeping') {
             this.restoreSleepingSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
@@ -1480,6 +1483,7 @@ export class TerminalManager extends EventEmitter {
             s.name = item.name || s.name;
             s.splitOf = item.splitOf;
             s.capsuleId = item.capsuleId || this.currentCapsuleId;
+            s.category = item.category ?? parent?.category;
           } else {
             this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
             deferredIds.push(item.id);
@@ -1767,11 +1771,17 @@ export class TerminalManager extends EventEmitter {
       this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
     }
     const targetSession = this.sessions.get(id);
+    const prevName = targetSession?.name;
+    const prevCategory = targetSession?.category;
+    const prevCapsuleId = targetSession?.capsuleId;
     if (targetSession) {
       await this.safelyKillSession(targetSession);
       this.sessions.delete(id);
     }
     const s = this.spawn(id, cwd || this.currentCwd);
+    if (prevName) s.name = prevName;
+    if (prevCapsuleId) s.capsuleId = prevCapsuleId;
+    if (prevCategory) s.category = prevCategory;
     this.persist();
     this.emitSession();
     this.emit('session-restarted', { id, generation: s.sessionGeneration });
@@ -1813,6 +1823,7 @@ export class TerminalManager extends EventEmitter {
     const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS, parentId, parent.sessionGeneration);
     splitSession.splitOf = parentId;
     splitSession.capsuleId = parent.capsuleId || this.currentCapsuleId;
+    splitSession.category = parent.category;
     this.persist();
     this.emitSession();
     this.emit('session-created', { id, parentId, generation: splitSession.sessionGeneration });
@@ -1949,11 +1960,19 @@ export class TerminalManager extends EventEmitter {
    * mean "no category" rather than an unnamed group.
    */
   public setCategory(id: string, category?: string): boolean {
-    const s = this.sessions.get(id);
-    if (!s || s.disposed) return false;
+    const direct = this.sessions.get(id);
+    if (!direct || direct.disposed) return false;
+    const baseId = direct.splitOf || id;
+    const s = this.sessions.get(baseId) || direct;
     const trimmed = typeof category === 'string' ? category.trim() : '';
     s.category = trimmed ? trimmed : undefined;
-    this.schedulePersist(id);
+    this.schedulePersist(baseId);
+    for (const split of this.sessions.values()) {
+      if (split.splitOf === baseId) {
+        split.category = s.category;
+        this.dirtySessionIds.add(split.id);
+      }
+    }
     this.emitSession();
     return true;
   }
