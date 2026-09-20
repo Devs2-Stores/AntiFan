@@ -103,6 +103,7 @@ export interface RendererActionRequest {
    */
   scrollIntoView?: boolean;
   label?: string;
+  color?: string;
   deltaY?: number;
   nonce: string;
   documentUrl: string;

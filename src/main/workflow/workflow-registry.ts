@@ -18,6 +18,28 @@ export interface WorkflowItem {
   legacy?: boolean;
 }
 
+const WORKFLOW_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+export function sanitizeWorkflowId(raw: string): string {
+  const base = path.basename(raw).replace(/\.json$/i, '');
+  if (!WORKFLOW_ID_PATTERN.test(base)) {
+    throw new Error(`Invalid workflow id '${raw}'`);
+  }
+  return base;
+}
+
+export function customWorkflowPath(storageDir: string, id: string): string {
+  const safeId = sanitizeWorkflowId(id);
+  const resolvedDir = path.resolve(storageDir);
+  const filePath = path.resolve(resolvedDir, `${safeId}.json`);
+  const relative = path.relative(resolvedDir, filePath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('Workflow path escapes storage directory');
+  }
+  return filePath;
+}
+
+
 export const BUILTIN_WORKFLOWS: WorkflowItem[] = [
   {
     id: 'wf-storefront-qa',
@@ -243,11 +265,19 @@ export class WorkflowRegistry {
             continue;
           }
 
+          let id: string;
+          try {
+            const rawId = typeof json.id === 'string' ? json.id : `wf-custom-${file.replace(/\.json$/, '')}`;
+            id = sanitizeWorkflowId(rawId);
+          } catch {
+            console.warn(`[workflow-registry] Workflow ${file} has an unsafe id; quarantining to .invalid`);
+            this.quarantineFile(filePath);
+            continue;
+          }
+
           const rawDef = json.definition || json;
-          const fileCustomId = typeof json.id === 'string' ? json.id : `wf-custom-${file.replace(/\.json$/, '')}`;
           const unionParsed = WorkflowDefinitionSchema.safeParse(rawDef);
           if (unionParsed.success) {
-            const id = fileCustomId;
             this.customWorkflows.set(id, {
               id,
               name: unionParsed.data.name,
@@ -264,7 +294,6 @@ export class WorkflowRegistry {
           const legacyParsed = LegacyWorkflowDefinitionSchema.safeParse(rawDef);
           if (legacyParsed.success) {
             console.warn(`[workflow-registry] Workflow ${file} loaded using legacy schema with unvalidated params`);
-            const id = fileCustomId;
             this.customWorkflows.set(id, {
               id,
               name: legacyParsed.data.name,
@@ -320,7 +349,10 @@ export class WorkflowRegistry {
   }
 
   public saveCustom(item: { id?: string; name: string; description?: string; steps: unknown[] }): WorkflowItem {
-    const id = item.id || `wf-custom-${Date.now()}`;
+    const id = item.id ? sanitizeWorkflowId(item.id) : `wf-custom-${Date.now()}`;
+    if (BUILTIN_WORKFLOWS.some((wf) => wf.id === id)) {
+      throw new Error('Cannot overwrite a built-in workflow');
+    }
     const rawDef = {
       version: '1.0' as const,
       name: item.name,
@@ -360,7 +392,7 @@ export class WorkflowRegistry {
     if (this.storageDir) {
       try {
         fs.mkdirSync(this.storageDir, { recursive: true });
-        fs.writeFileSync(path.join(this.storageDir, `${id}.json`), JSON.stringify(workflowItem, null, 2), 'utf-8');
+        fs.writeFileSync(customWorkflowPath(this.storageDir, id), JSON.stringify(workflowItem, null, 2), 'utf-8');
       } catch (err) {
         console.error('[workflow-registry] Failed to persist custom workflow:', err);
       }
@@ -370,11 +402,20 @@ export class WorkflowRegistry {
   }
 
   public deleteCustom(id: string): boolean {
-    if (this.customWorkflows.has(id)) {
-      this.customWorkflows.delete(id);
+    let safeId: string;
+    try {
+      safeId = sanitizeWorkflowId(id);
+    } catch {
+      return false;
+    }
+    if (BUILTIN_WORKFLOWS.some((wf) => wf.id === safeId)) {
+      return false;
+    }
+    if (this.customWorkflows.has(safeId)) {
+      this.customWorkflows.delete(safeId);
       if (this.storageDir) {
         try {
-          const filePath = path.join(this.storageDir, `${id}.json`);
+          const filePath = customWorkflowPath(this.storageDir, safeId);
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }

@@ -119,6 +119,59 @@ function retryBackoffMs(attempt: number): number {
   const jitter = Math.floor(Math.random() * 200);
   return Math.min(2000, 200 * Math.pow(2, attempt) + jitter);
 }
+
+interface OverflowReading {
+  hasHorizontalScrollbar?: unknown;
+  hasHorizontalOverflow?: unknown;
+  scrollWidth?: unknown;
+  clientWidth?: unknown;
+  breakpoints?: unknown;
+}
+
+function collectOverflowHits(data: unknown, prefix = 'root'): Array<{ id: string; scrollWidth?: number; clientWidth?: number }> {
+  if (!data || typeof data !== 'object') return [];
+  const rec = data as OverflowReading;
+  const hits: Array<{ id: string; scrollWidth?: number; clientWidth?: number }> = [];
+  if (rec.breakpoints && typeof rec.breakpoints === 'object') {
+    for (const [id, bp] of Object.entries(rec.breakpoints as Record<string, unknown>)) {
+      hits.push(...collectOverflowHits(bp, id));
+    }
+  }
+  const overflowed = rec.hasHorizontalOverflow === true || rec.hasHorizontalScrollbar === true;
+  if (overflowed) {
+    hits.push({
+      id: prefix,
+      scrollWidth: typeof rec.scrollWidth === 'number' ? rec.scrollWidth : undefined,
+      clientWidth: typeof rec.clientWidth === 'number' ? rec.clientWidth : undefined,
+    });
+  }
+  return hits;
+}
+
+function formatWorkflowReport(
+  payload: Record<string, unknown>,
+  format: 'markdown' | 'json'
+): { mime: string; data: string } {
+  if (format !== 'markdown') {
+    return { mime: 'application/json', data: JSON.stringify(payload, null, 2) };
+  }
+  const steps = Array.isArray(payload.steps) ? payload.steps as WorkflowStepResult[] : [];
+  const title = String(payload.title || payload.name || 'Workflow Report');
+  const lines = [
+    `# ${title}`,
+    '',
+    `- Generated: ${new Date(Number(payload.timestamp) || Date.now()).toISOString()}`,
+    `- Target: ${JSON.stringify(payload.target ?? {})}`,
+    '',
+    '## Steps',
+    ...steps.map((step, index) => {
+      const err = step.error ? ` — ${step.error}` : '';
+      return `${index + 1}. ${step.stepName} (\`${step.type}\`): **${step.status}**${err} (${step.durationMs}ms)`;
+    }),
+  ];
+  return { mime: 'text/markdown', data: lines.join('\n') };
+}
+
 export class WorkflowEngine {
   constructor(private readonly ports: WorkflowEnginePorts) {}
 
@@ -252,7 +305,8 @@ export class WorkflowEngine {
             reqContext,
             step.timeoutMs,
             signal,
-            makeDispatchChild
+            makeDispatchChild,
+            stepResults
           );
 
           if (stepOutput.updatedTarget) {
@@ -416,7 +470,8 @@ export class WorkflowEngine {
     context: CapabilityRequestContext,
     timeoutMs: number,
     signal: AbortSignal | undefined,
-    makeDispatchChild: (stepSignal: AbortSignal) => (intent: ClientInvocationIntent) => Promise<InternalChildCapabilityResponse>
+    makeDispatchChild: (stepSignal: AbortSignal) => (intent: ClientInvocationIntent) => Promise<InternalChildCapabilityResponse>,
+    priorStepResults: WorkflowStepResult[]
   ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget; replacementRevision?: string }> {
     const stepAbortController = new AbortController();
     let timer: NodeJS.Timeout | undefined;
@@ -462,7 +517,8 @@ export class WorkflowEngine {
         this.dispatchStep(
           step,
           context,
-          makeDispatchChild(stepAbortController.signal)
+          makeDispatchChild(stepAbortController.signal),
+          priorStepResults
         ),
         timeoutPromise,
         abortPromise,
@@ -476,7 +532,8 @@ export class WorkflowEngine {
   private async dispatchStep(
     step: WorkflowStep,
     context: CapabilityRequestContext,
-    dispatchChild: (intent: ClientInvocationIntent) => Promise<InternalChildCapabilityResponse>
+    dispatchChild: (intent: ClientInvocationIntent) => Promise<InternalChildCapabilityResponse>,
+    priorStepResults: WorkflowStepResult[] = []
   ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget; replacementRevision?: string }> {
     // Lowering pass: legacy param shapes are normalized to what each capability declares before any
     // dispatch, so a persisted workflow cannot fail on a contract that has since been tightened.
@@ -546,9 +603,10 @@ export class WorkflowEngine {
       }
 
       case 'browser.scroll': {
+        const deltaY = typeof params.deltaY === 'number' ? params.deltaY : params.y;
         const res = await invokeCap(
           'browser.agent-scroll',
-          { deltaY: params.deltaY, selector: params.selector, tabId }
+          { deltaY, selector: params.selector, tabId }
         );
         return { data: { success: Boolean(res.data) }, replacementRevision: res.replacementRevision };
       }
@@ -565,13 +623,14 @@ export class WorkflowEngine {
         if (!params.selector || typeof params.selector !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'browser.agent-highlight requires selector');
         const res = await invokeCap(
           'browser.agent-highlight',
-          { selector: params.selector, label: params.label, tabId }
+          { selector: params.selector, label: params.label, color: params.color, tabId }
         );
         return { data: { success: Boolean(res.data) }, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.screenshot': {
-        const res = await invokeCap('browser.screenshot', { tabId });
+        const format = params.format === 'png' || params.format === 'jpeg' ? params.format : undefined;
+        const res = await invokeCap('browser.screenshot', { tabId, format });
         const artifacts: ArtifactRef[] = (typeof res.data === 'object' && res.data !== null && 'id' in res.data) ? [res.data as ArtifactRef] : [];
         return { data: { captured: true }, artifacts, replacementRevision: res.replacementRevision };
       }
@@ -656,11 +715,19 @@ export class WorkflowEngine {
           'browser.responsive-check',
           { tabId: tabId || context.browserTarget?.tabId }
         );
-        const data = res.data as { hasHorizontalScrollbar?: boolean; scrollWidth?: number; clientWidth?: number };
-        if (data?.hasHorizontalScrollbar) {
-          throw new Error(`Horizontal overflow detected: scrollWidth (${data.scrollWidth}) > clientWidth (${data.clientWidth})`);
+        const hits = collectOverflowHits(res.data);
+        if (hits.length > 0) {
+          const detail = hits
+            .map((hit) => {
+              const dims = hit.scrollWidth !== undefined && hit.clientWidth !== undefined
+                ? ` scrollWidth (${hit.scrollWidth}) > clientWidth (${hit.clientWidth})`
+                : '';
+              return `${hit.id}${dims}`;
+            })
+            .join('; ');
+          throw new Error(`Horizontal overflow detected: ${detail}`);
         }
-        return { data, replacementRevision: res.replacementRevision };
+        return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
       case 'file.read': {
@@ -714,11 +781,20 @@ export class WorkflowEngine {
         if (!context.runId || !context.attemptId) {
           throw new CapabilityError('INVALID_ARGUMENT', 'runId and attemptId are required for report generation');
         }
-        const reportData = JSON.stringify({ name: step.name, params, target: context.browserTarget, timestamp: Date.now() }, null, 2);
+        const format = params.format === 'markdown' ? 'markdown' : 'json';
+        const payload: Record<string, unknown> = {
+          name: step.name,
+          title: params.title,
+          params,
+          target: context.browserTarget,
+          timestamp: Date.now(),
+          steps: priorStepResults,
+        };
+        const rendered = formatWorkflowReport(payload, format);
         const art = this.ports.artifacts.stage({
           kind: 'report',
-          mime: 'application/json',
-          data: reportData,
+          mime: rendered.mime,
+          data: rendered.data,
           runId: context.runId,
           attemptId: context.attemptId,
           projectId: context.projectId,
@@ -727,7 +803,7 @@ export class WorkflowEngine {
           // Mirrors the report.generate capability: this step is that capability inside a workflow.
           retentionPolicy: 'permanent',
         });
-        return { data: { generated: true }, artifacts: [art] };
+        return { data: { generated: true, format, mime: rendered.mime }, artifacts: [art] };
       }
 
       default: {

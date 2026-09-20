@@ -5,6 +5,15 @@
  * typing indicators, visual scrolling, and real DOM event automation.
  */
 
+/** Accept only hex / rgb / rgba so injected highlight CSS cannot run attacker text. */
+export function sanitizeHighlightColor(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(trimmed)) return trimmed;
+  if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(trimmed)) return trimmed;
+  return undefined;
+}
+
 export const AGENT_BROWSER_SCRIPT = `(() => {
   const OVERLAY_ID = '__antifan_agent_overlay__';
   const CURSOR_ID = '__antifan_agent_cursor__';
@@ -204,7 +213,7 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     }, 3500);
   }
 
-  function highlightElement(el) {
+  function highlightElement(el, color) {
     if (!el) return;
     const ov = ensureOverlay();
     const hl = ensureHighlight(ov);
@@ -216,6 +225,13 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     hl.style.top = Math.max(0, rect.top - 3) + 'px';
     hl.style.width = (rect.width + 6) + 'px';
     hl.style.height = (rect.height + 6) + 'px';
+    if (color) {
+      hl.style.borderColor = color;
+      hl.style.boxShadow = '0 0 0 3px rgba(10, 15, 30, 0.85), 0 0 24px ' + color;
+    } else {
+      hl.style.borderColor = '';
+      hl.style.boxShadow = '';
+    }
     scheduleHighlightFadeout(2500);
   }
 
@@ -879,14 +895,14 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     activateOverlay();
     return true;
   };
-  window.__antifanAgentHighlight = (selector, label) => {
+  window.__antifanAgentHighlight = (selector, label, color) => {
     if (!selector) return false;
     const el = querySelectorDeep(selector);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       const rect = el.getBoundingClientRect();
       window.__antifanAgentMove(rect.left + rect.width / 2, rect.top + rect.height / 2, label || 'Inspecting...');
-      highlightElement(el);
+      highlightElement(el, color);
       showBanner(label || ('Highlighted ' + selector), '🎯');
       return true;
     }

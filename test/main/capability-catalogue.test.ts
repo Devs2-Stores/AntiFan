@@ -388,6 +388,13 @@ describe('Capability catalogue', () => {
     assert.ok(serverToolNames.includes('anti.browser.zoom.set'));
     assert.ok(serverToolNames.includes('anti.theme.assert_cart'), 'anti.theme.assert_cart must be included in listTools');
 
+    const advertised = buildMcpToolList([], transport);
+    const openTab = advertised.find((tool) => tool.name === 'antifan_open_tab');
+    const createAlias = advertised.find((tool) => tool.name === 'anti.browser.tabs.create');
+    assert.ok(openTab?.risk, 'canonical open_tab must carry catalogue risk');
+    assert.strictEqual(createAlias?.risk, openTab?.risk, 'tabs.create alias must inherit open_tab risk, not a leaf guess');
+    assert.ok(serverResult.tools.every((tool) => !('risk' in tool)), 'MCP tools/list must not leak hub risk onto the advertised schema');
+
     // 4. Verify listTools() returns empty list when transport is omitted
     const fallbackServer = new AntiFanMcpServer(mockHost as any, false);
     const fallbackResult = await fallbackServer.listTools();

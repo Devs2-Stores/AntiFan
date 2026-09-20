@@ -152,7 +152,7 @@ export interface BrowserHostPort {
   agentType?(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentScroll?(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentHover?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
-  agentHighlight?(params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentHighlight?(params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentClear?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<boolean>;
   agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile', selector?: string, viewportOnly?: boolean): Promise<string>;
   agentFind?(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }): Promise<unknown>;
@@ -3620,7 +3620,7 @@ export class BrowserControlPort {
     }, { tabId, signal });
   }
 
-  async agentHighlight(args: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ highlighted: boolean }> {
+  async agentHighlight(args: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ highlighted: boolean }> {
     if (!this.host.agentHighlight) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHighlight is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {

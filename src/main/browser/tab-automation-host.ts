@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { SplitPaneId } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
-import { AGENT_BROWSER_SCRIPT } from './agent-browser';
+import { AGENT_BROWSER_SCRIPT, sanitizeHighlightColor } from './agent-browser';
 import { SemanticRefRegistry, makeTargetKey, SnapshotFindResult } from './semantic-ref-registry';
 import {
   buildIsolatedExecutorScript,
@@ -788,6 +788,7 @@ export class TabAutomationHost {
       force?: boolean;
       deltaY?: number;
       label?: string;
+      color?: string;
       tabId?: string;
       paneId?: SplitPaneId;
       noAutoDismiss?: boolean;
@@ -918,6 +919,8 @@ export class TabAutomationHost {
               deltaY: params.deltaY,
               documentUrl: curUrl,
               nonce: descriptor.nonce,
+              color: action === 'highlight' ? sanitizeHighlightColor(params.color) : undefined,
+              label: params.label,
             });
 
             const rawRes = await this.executeInIsolatedWorld(wc, script);
@@ -976,10 +979,11 @@ export class TabAutomationHost {
             })()`).catch(() => {});
           }
           if (action === 'highlight') {
+            const highlightColor = sanitizeHighlightColor(params.color) || '';
             wc.executeJavaScript(`(() => {
               try {
                 if (typeof window.__antifanAgentHighlight === 'function') {
-                  window.__antifanAgentHighlight(${JSON.stringify(params.selector || '')}, ${JSON.stringify(params.label || '')});
+                  window.__antifanAgentHighlight(${JSON.stringify(params.selector || '')}, ${JSON.stringify(params.label || '')}, ${JSON.stringify(highlightColor)});
                 }
               } catch {}
             })()`).catch(() => {});
@@ -1110,8 +1114,8 @@ export class TabAutomationHost {
     return this.agentHover(args);
   }
 
-  public async agentHighlight(params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const res = await this.dispatchAgentAction('highlight', params as any);
+  public async agentHighlight(params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+    const res = await this.dispatchAgentAction('highlight', params);
     return res.success;
   }
 

@@ -402,6 +402,24 @@ describe('SemanticRefRegistry Pure Main Authority', () => {
     });
   });
 
+  it('isolated highlight paints an overlay using the request color', () => {
+    const script = buildIsolatedExecutorScript({
+      action: 'highlight',
+      ref: '@e1',
+      color: '#ff00aa',
+      nonce: 'nonce-1',
+      documentUrl: 'https://example.com',
+    });
+    assert.doesNotThrow(() => {
+      new vm.Script(script);
+    });
+    assert.ok(script.includes('__antifan_agent_highlight__'));
+    assert.ok(script.includes('req.color'));
+    assert.ok(script.includes('border:2px solid'));
+    assert.ok(script.includes('2500'));
+    assert.ok(script.includes("box.style.display = 'none'"));
+  });
+
   it('findInSnapshot strips stateful g/y flags and matches all descriptors idempotently', () => {
     const registry = new SemanticRefRegistry();
     const target = {

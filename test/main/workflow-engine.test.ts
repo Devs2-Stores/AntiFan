@@ -1538,4 +1538,81 @@ describe('Workflow Engine', () => {
     assert.strictEqual(failed.status, 'failed');
     assert.match(String(failed.stepResults[0]?.error), /forbidden pattern/);
   });
+
+  it('maps scroll y to deltaY, forwards highlight color, and includes prior steps in reports', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-norm-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const scrolls: Array<{ deltaY?: number }> = [];
+    const highlights: Array<{ color?: string; selector?: string }> = [];
+    const host = createMockHost({
+      agentScroll: async (params) => {
+        scrolls.push(params);
+        return true;
+      },
+      agentHighlight: async (params) => {
+        highlights.push(params);
+        return true;
+      },
+    });
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+    const files = new WorkspaceFilePort();
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+    registerFileCapabilities(catalogue, files, () => root);
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+    const dispatch = createStubDispatcher(catalogue, {
+      lease,
+      leaseToken: lease.token,
+      projectId,
+      workspaceId,
+      browserTarget: target,
+      grant: 'write',
+    });
+
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Normalize and Report',
+      steps: [
+        { id: 'scroll', name: 'Scroll with legacy y', type: 'browser.scroll', params: { y: 400 }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+        { id: 'hl', name: 'Highlight CTA', type: 'browser.highlight', params: { selector: '#buy', color: '#ff00aa' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+        { id: 'report', name: 'Write report', type: 'report.generate', params: { format: 'markdown', title: 'Run Report' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+      ],
+    };
+
+    const result = await engine.execute({
+      workflow,
+      target,
+      lease,
+      runId: 'run-norm',
+      attemptId: 'attempt-1',
+      grant: 'write',
+      dispatchChildIntent: dispatch,
+    });
+
+    assert.strictEqual(result.status, 'passed', result.stepResults.map((s) => s.error).filter(Boolean).join('; '));
+    assert.strictEqual(scrolls[0]?.deltaY, 400);
+    assert.strictEqual(highlights[0]?.color, '#ff00aa');
+    assert.ok(result.artifacts.length >= 1);
+    const report = artifacts.readTextById(result.artifacts[0]!.id);
+    assert.match(report.text, /Scroll with legacy y/);
+    assert.match(report.text, /Highlight CTA/);
+  });
 });

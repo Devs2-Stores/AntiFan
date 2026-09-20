@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as vm from 'node:vm';
-import { AGENT_BROWSER_SCRIPT } from '../../src/main/browser/agent-browser';
+import { AGENT_BROWSER_SCRIPT, sanitizeHighlightColor } from '../../src/main/browser/agent-browser';
 import { ELEMENT_PICKER_SCRIPT, normalizeAnnotationPrompt } from '../../src/main/browser/element-picker';
 import { dispatchAnnotationToTerminal, stripDeliveryMode } from '../../src/main/browser/annotation-dispatch';
 import type { PickedElementInput } from '../../src/main/browser/annotation-dispatch';
@@ -575,5 +575,16 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     // Cleared textarea (/queue alone or whitespace)
     assert.strictEqual(normalizeAnnotationPrompt('/queue'), '');
     assert.strictEqual(normalizeAnnotationPrompt('/queue   '), '');
+  });
+
+  it('sanitizes highlight colors and rejects CSS injection', () => {
+    assert.strictEqual(sanitizeHighlightColor('#ff00aa'), '#ff00aa');
+    assert.strictEqual(sanitizeHighlightColor('#FFF'), '#FFF');
+    assert.strictEqual(sanitizeHighlightColor('rgba(0, 240, 255, 0.5)'), 'rgba(0, 240, 255, 0.5)');
+    assert.strictEqual(sanitizeHighlightColor('red'), undefined);
+    assert.strictEqual(sanitizeHighlightColor('url(javascript:alert(1))'), undefined);
+    assert.strictEqual(sanitizeHighlightColor('expression(alert(1))'), undefined);
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('highlightElement(el, color)'));
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('window.__antifanAgentHighlight = (selector, label, color)'));
   });
 });

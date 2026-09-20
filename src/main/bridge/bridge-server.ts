@@ -2848,6 +2848,7 @@ export class BridgeServer {
             selector: p.selector,
             ref: p.ref,
             label: p.label,
+            color: typeof p.color === 'string' ? p.color : undefined,
             tabId: p.tabId,
             paneId: p.paneId,
           });

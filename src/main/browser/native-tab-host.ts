@@ -53,6 +53,7 @@ import { TerminalManager, selectAnnotationTargets, type TerminalManagerStats } f
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
+import { buildMcpToolList } from '../mcp/mcp-server';
 import { getMcpDispatchService, mcpDispatchStoreLabel, unmeasuredBoundaryEnvelope } from '../diagnostics/mcp-dispatch-service';
 import { UnmeasuredReason } from '../diagnostics/mcp-dispatch-accounting';
 import { WindowStateManager, WindowState } from './window-state';
@@ -2102,15 +2103,28 @@ export class NativeTabHost extends EventEmitter {
 
     ipcMain.handle('antifan:workflow:get-state', () => {
       const workflows = this.controlPlane ? this.controlPlane.workflowRegistry.getAll() : [];
-      const tools = this.controlPlane
-        ? this.controlPlane.capabilities.listAll().map((cap) => ({
-            id: cap.name,
-            name: cap.name,
-            description: cap.description,
-            category: cap.risk,
-            permissions: [cap.risk],
-            inputSchema: cap.inputSchema,
-          }))
+      const tools = this.controlPlane?.transport
+        ? buildMcpToolList([], this.controlPlane.transport, true).map((tool) => {
+          const name = tool.name;
+          const category = name.startsWith('anti.')
+            ? 'mcp'
+            : name.startsWith('browser.')
+              ? 'browser'
+              : name.startsWith('theme.')
+                ? 'theme'
+                : 'tool';
+          const risk = tool.risk === 'write' || tool.risk === 'eval' || tool.risk === 'execute'
+            ? tool.risk
+            : 'read';
+          return {
+            id: name,
+            name,
+            description: tool.description || '',
+            category,
+            permissions: [risk],
+            inputSchema: tool.inputSchema,
+          };
+        })
         : [];
       return { workflows, tools };
     });
@@ -2148,14 +2162,20 @@ export class NativeTabHost extends EventEmitter {
       }
     });
 
-    ipcMain.handle('antifan:workflow:save', (_event, item: unknown) => {
+    ipcMain.handle('antifan:workflow:save', (event, item: unknown) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        throw new Error('FORBIDDEN_SENDER');
+      }
       if (!this.controlPlane) {
         throw new Error('Control plane runtime is not initialized');
       }
       return this.controlPlane.workflowRegistry.saveCustom(item as Parameters<typeof this.controlPlane.workflowRegistry.saveCustom>[0]);
     });
 
-    ipcMain.handle('antifan:workflow:delete', (_event, id: unknown) => {
+    ipcMain.handle('antifan:workflow:delete', (event, id: unknown) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        throw new Error('FORBIDDEN_SENDER');
+      }
       if (!this.controlPlane) {
         throw new Error('Control plane runtime is not initialized');
       }
@@ -2168,6 +2188,9 @@ export class NativeTabHost extends EventEmitter {
       }
       if (!this.controlPlane) {
         return { ok: false, status: 'failed', error: 'Control plane runtime is not initialized' };
+      }
+      if (this.activeWorkflowAbortController) {
+        return { ok: false, status: 'failed', error: 'ALREADY_RUNNING' };
       }
       const raw = (payload && typeof payload === 'object') ? payload as { workflowDef?: unknown; workflowId?: unknown } : undefined;
       let wfDef: WorkflowDefinition | undefined;
@@ -2230,7 +2253,9 @@ export class NativeTabHost extends EventEmitter {
           onEvent: (event) => {
             try {
               this.toolbarView?.webContents?.send?.('antifan:workflow:event', event);
-            } catch {}
+            } catch (err) {
+              console.error('[workflow] failed to send antifan:workflow:event', err);
+            }
           },
         });
         return {
@@ -2269,9 +2294,12 @@ export class NativeTabHost extends EventEmitter {
     });
     // Core Health surface (Phase 6): aggregated snapshot + drill-downs, all
     // read through the existing antifan-core CLI surface. Read-only.
-    ipcMain.handle('antifan:core-health:get-state', async () => {
+    ipcMain.handle('antifan:core-health:get-state', async (_event, opts?: unknown) => {
+      const refresh = Boolean(opts && typeof opts === 'object' && (opts as { refresh?: unknown }).refresh === true);
       try {
-        return await getCoreHealthService().getState();
+        const service = getCoreHealthService();
+        if (refresh) service.clearCache();
+        return await service.getState();
       } catch (err) {
         return {
           snapshot: {
@@ -5925,7 +5953,7 @@ export class NativeTabHost extends EventEmitter {
     return this.getAutomationHost().agentHover(params);
   }
 
-  public async agentHighlight(params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentHighlight(params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentHighlight(params);
   }
   public async agentClear(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {

@@ -708,8 +708,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, color: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1477,8 +1477,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, color: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -2291,8 +2291,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, color: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({

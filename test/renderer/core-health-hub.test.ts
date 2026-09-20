@@ -255,4 +255,53 @@ describe('Core Health surfaces inside the existing Hub', () => {
     const items = doc.querySelectorAll('#hubItemsList .hub-list-item');
     assert.ok(items.length >= 2, 'engine status + recorded row listed');
   });
+
+  test('Task-run badge counts task_runs rows only, not packs or cases', async (t) => {
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const ctx = await loadToolbar(DEGRADED_STATE);
+    dom = ctx.dom;
+    const doc = ctx.doc;
+    (doc.getElementById('btnWorkflowHub') as HTMLElement).click();
+    await flush();
+    assert.equal(doc.getElementById('badgeTaskRuns')?.textContent, '0');
+  });
+
+  test('Root cause P2 maps to WARN rather than DEGRADED', async (t) => {
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const state = {
+      ...DEGRADED_STATE,
+      rootCauses: {
+        ...DEGRADED_STATE.rootCauses,
+        groups: [{
+          key: 'SLOW_PAINT',
+          issueClass: 'perf',
+          count: 1,
+          worstSeverity: 'P2',
+          affected: ['tab-1'],
+          latestIssueId: 'ISS-2',
+          latestMessage: 'paint exceeded budget',
+        }],
+      },
+    };
+    const ctx = await loadToolbar(state);
+    dom = ctx.dom;
+    const doc = ctx.doc;
+    (doc.getElementById('btnWorkflowHub') as HTMLElement).click();
+    await flush();
+    (doc.getElementById('tabNavRootCauses') as HTMLElement).click();
+    await flush();
+    assert.equal(doc.getElementById('coreStatusPill')?.textContent, 'WARN');
+    assert.ok(doc.getElementById('coreDetailCode')?.textContent?.includes('SLOW_PAINT'));
+  });
+
+  test('Prompt overlay includes a hidden multiline field for JSON authoring', async (t) => {
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const ctx = await loadToolbar(DEGRADED_STATE);
+    dom = ctx.dom;
+    const doc = ctx.doc;
+    const multiline = doc.getElementById('promptMultiline');
+    assert.ok(multiline, 'promptMultiline textarea exists');
+    assert.equal((multiline as HTMLElement).style.display, 'none');
+    assert.ok(doc.getElementById('promptModal'));
+  });
 });

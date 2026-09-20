@@ -10,7 +10,7 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { NativeTabHost } from '../browser/native-tab-host';
+import type { NativeTabHost } from '../browser/native-tab-host';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityError, AuthenticatedCapabilityContext, ClientInvocationIntent, makeControlPlaneId } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
@@ -559,7 +559,13 @@ export class AntiFanMcpServer {
   }
 
   public async listTools(): Promise<{ tools: Tool[] }> {
-    return { tools: buildMcpToolList(this.getStaticTools(), this.transport, this.isHighRiskAllowed) };
+    return {
+      tools: buildMcpToolList(this.getStaticTools(), this.transport, this.isHighRiskAllowed).map(({ name, description, inputSchema }) => ({
+        name,
+        description,
+        inputSchema,
+      })),
+    };
   }
 
   public async callTool(toolName: string, args: Record<string, unknown> = {}, callerRequestId?: string): Promise<{ content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean }> {
@@ -824,13 +830,15 @@ function agentCapabilitySucceeded(name: string, data: unknown): boolean {
   return false;
 }
 
-export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTransportAdapter, isHighRiskAllowed = false): Tool[] {
+export type McpAdvertisedTool = Tool & { risk?: string };
+
+export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTransportAdapter, isHighRiskAllowed = false): McpAdvertisedTool[] {
   if (!transport) {
     return [];
   }
   const grants: Array<'read' | 'write' | 'eval'> = ['read', 'write'];
   if (isHighRiskAllowed) grants.push('eval');
-  const toolMap = new Map<string, Tool>();
+  const toolMap = new Map<string, McpAdvertisedTool>();
   for (const grant of grants) {
     for (const item of transport.list({ grant })) {
       if (!toolMap.has(item.name)) {
@@ -838,13 +846,14 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
           name: item.name,
           description: item.description,
           inputSchema: item.inputSchema as Tool['inputSchema'],
+          risk: item.risk,
         });
       }
     }
   }
   const listed = Array.from(toolMap.values());
   const aliases = listed.filter((item) => item.name.startsWith('antifan_') || item.name.startsWith('theme.')).flatMap((item) => {
-    const generated: Tool[] = [];
+    const generated: McpAdvertisedTool[] = [];
     if (item.name === 'antifan_open_tab') generated.push({ ...item, name: 'anti.browser.tabs.create' });
     if (item.name === 'antifan_list_tabs') generated.push({ ...item, name: 'anti.browser.tabs.list' });
     if (item.name === 'antifan_switch_tab') generated.push({ ...item, name: 'anti.browser.tabs.activate' });

@@ -483,12 +483,13 @@ export class BrowserActionRegistry {
           selector: { type: 'string', description: 'CSS selector of element to highlight' },
           ref: { type: 'string', description: 'Interactive snapshot element reference (e.g. @e1)' },
           label: { type: 'string', description: 'Badge label text' },
+          color: { type: 'string', description: 'Highlight color as #hex or rgb/rgba' },
           tabId: { type: 'string', description: 'Optional tab ID' },
           paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
         },
       },
-      handler: async (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
-        const highlighted = await tabHost.agentHighlight(params as any);
+      handler: async (params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const highlighted = await tabHost.agentHighlight(params);
         return { highlighted, success: highlighted };
       },
     });

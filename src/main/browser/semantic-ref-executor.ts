@@ -1087,6 +1087,51 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         }
         return { ok: true, executed: true, executionTier: 'isolated_synthetic' };
       } else if (req.action === 'highlight') {
+        if (targetElement) {
+          const r = targetElement.getBoundingClientRect();
+          let ov = document.getElementById('__antifan_agent_overlay__');
+          if (!ov) {
+            ov = document.createElement('div');
+            ov.id = '__antifan_agent_overlay__';
+            ov.setAttribute('style', 'position:fixed;inset:0;pointer-events:none;z-index:2147483646;');
+            (document.documentElement || document.body).appendChild(ov);
+          }
+          let hl = document.getElementById('__antifan_agent_highlight__');
+          if (!hl) {
+            hl = document.createElement('div');
+            hl.id = '__antifan_agent_highlight__';
+            ov.appendChild(hl);
+          } else if (hl.parentElement !== ov) {
+            ov.appendChild(hl);
+          }
+          const color = typeof req.color === 'string' && req.color ? req.color : '#00f0ff';
+          hl.setAttribute('style', [
+            'position:fixed',
+            'left:' + Math.max(0, r.left - 3) + 'px',
+            'top:' + Math.max(0, r.top - 3) + 'px',
+            'width:' + (r.width + 6) + 'px',
+            'height:' + (r.height + 6) + 'px',
+            'border:2px solid ' + color,
+            'background:rgba(0,240,255,0.12)',
+            'border-radius:6px',
+            'box-shadow:0 0 0 3px rgba(10,15,30,0.85), 0 0 24px ' + color,
+            'pointer-events:none',
+            'z-index:2147483645',
+            'display:block',
+            'opacity:1',
+            'transition:opacity 0.35s ease'
+          ].join(';'));
+          if (window.__antifanIsolatedHighlightTimer) clearTimeout(window.__antifanIsolatedHighlightTimer);
+          window.__antifanIsolatedHighlightTimer = setTimeout(function() {
+            const box = document.getElementById('__antifan_agent_highlight__');
+            if (box) {
+              box.style.opacity = '0';
+              setTimeout(function() {
+                if (box && box.style.opacity === '0') box.style.display = 'none';
+              }, 360);
+            }
+          }, 2500);
+        }
         return { ok: true, executed: true, executionTier: 'isolated_synthetic', rect: computedRect };
       } else if (req.action === 'probe') {
         // Measurement only: no scroll, no dispatch, no occlusion gate. The drag

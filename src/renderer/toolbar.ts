@@ -82,11 +82,11 @@ interface AntiFanToolbarApi {
   getWorkflowState: () => Promise<{ tools: any[]; workflows: any[] }>;
   runWorkflow: (payload: { workflowId?: string; workflowDef?: any }) => Promise<any>;
   abortWorkflow: () => Promise<boolean>;
-  saveWorkflow: (item: { id?: string; name: string; description?: string; steps: any[] }) => Promise<any>;
+  saveWorkflow: (item: { id?: string; name: string; description?: string; steps: unknown[] }) => Promise<unknown>;
   deleteWorkflow: (id: string) => Promise<boolean>;
   getWorkflowArtifact: (artifactId: string) => Promise<any>;
   onWorkflowEvent: (callback: (event: any) => void) => () => void;
-  getCoreHealthState?: () => Promise<any>;
+  getCoreHealthState?: (opts?: { refresh?: boolean }) => Promise<any>;
   getMcpDispatchState?: () => Promise<any>;
   getCoreTaskRunTrace?: (id: string) => Promise<any>;
   clearStorage: () => Promise<{ success: boolean; cleared: boolean; reason?: string; origin?: string }>;
@@ -194,19 +194,26 @@ function showToolbarToast(message: string, duration = 2500) {
  * Electron renderer has no window.prompt — this modal replaces it.
  * Resolves null on cancel/backdrop/Escape, string on OK/Enter.
  */
-function showPromptDialog(title: string, initial = ''): Promise<string | null> {
+function showPromptDialog(title: string, initial = '', options?: { multiline?: boolean }): Promise<string | null> {
   const { promise, resolve } = Promise.withResolvers<string | null>();
   const overlay = document.getElementById('promptOverlay') as HTMLElement | null;
+  const modal = document.getElementById('promptModal') as HTMLElement | null;
   const titleEl = document.getElementById('promptTitle');
   const input = document.getElementById('promptInput') as HTMLInputElement | null;
+  const multiline = document.getElementById('promptMultiline') as HTMLTextAreaElement | null;
   const btnOk = document.getElementById('promptOk');
   const btnCancel = document.getElementById('promptCancel');
-  if (!overlay || !input || !btnOk || !btnCancel) {
+  const useMultiline = Boolean(options?.multiline && multiline);
+  const field: HTMLInputElement | HTMLTextAreaElement | null = useMultiline ? multiline : input;
+  if (!overlay || !field || !btnOk || !btnCancel) {
     resolve(null);
     return promise;
   }
   if (titleEl) titleEl.textContent = title;
-  input.value = initial;
+  if (input) input.style.display = useMultiline ? 'none' : '';
+  if (multiline) multiline.style.display = useMultiline ? '' : 'none';
+  modal?.classList.toggle('prompt-modal-wide', useMultiline);
+  field.value = initial;
   overlay.style.display = 'flex';
   acquireOverlay('prompt');
   const done = (value: string | null) => {
@@ -214,23 +221,65 @@ function showPromptDialog(title: string, initial = ''): Promise<string | null> {
     releaseOverlay('prompt');
     document.removeEventListener('keydown', onKey, true);
     overlay.removeEventListener('click', onBackdrop);
-    // Clear handlers so the dismissed invocation's closures aren't retained on
-    // the shared DOM buttons until the next prompt opens.
     btnOk.onclick = null;
     btnCancel.onclick = null;
+    if (input) input.style.display = '';
+    if (multiline) multiline.style.display = 'none';
+    modal?.classList.remove('prompt-modal-wide');
     resolve(value);
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') { e.preventDefault(); done(input.value); }
+    if (e.key === 'Enter' && !useMultiline) { e.preventDefault(); done(field.value); }
+    else if (e.key === 'Enter' && useMultiline && (e.ctrlKey || e.metaKey)) { e.preventDefault(); done(field.value); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(null); }
   };
   const onBackdrop = (e: MouseEvent) => { if (e.target === overlay) done(null); };
-  btnOk.onclick = () => done(input.value);
+  btnOk.onclick = () => done(field.value);
   btnCancel.onclick = () => done(null);
   document.addEventListener('keydown', onKey, true);
   overlay.addEventListener('click', onBackdrop);
-  input.focus();
-  input.select();
+  field.focus();
+  if ('select' in field) field.select();
+  return promise;
+}
+
+function showConfirmDialog(title: string): Promise<boolean> {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  const overlay = document.getElementById('promptOverlay') as HTMLElement | null;
+  const titleEl = document.getElementById('promptTitle');
+  const input = document.getElementById('promptInput') as HTMLInputElement | null;
+  const multiline = document.getElementById('promptMultiline') as HTMLTextAreaElement | null;
+  const btnOk = document.getElementById('promptOk');
+  const btnCancel = document.getElementById('promptCancel');
+  if (!overlay || !btnOk || !btnCancel) {
+    resolve(false);
+    return promise;
+  }
+  if (titleEl) titleEl.textContent = title;
+  if (input) input.style.display = 'none';
+  if (multiline) multiline.style.display = 'none';
+  overlay.style.display = 'flex';
+  acquireOverlay('prompt');
+  const done = (value: boolean) => {
+    overlay.style.display = 'none';
+    releaseOverlay('prompt');
+    document.removeEventListener('keydown', onKey, true);
+    overlay.removeEventListener('click', onBackdrop);
+    btnOk.onclick = null;
+    btnCancel.onclick = null;
+    if (input) input.style.display = '';
+    resolve(value);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+  };
+  const onBackdrop = (e: MouseEvent) => { if (e.target === overlay) done(false); };
+  btnOk.onclick = () => done(true);
+  btnCancel.onclick = () => done(false);
+  document.addEventListener('keydown', onKey, true);
+  overlay.addEventListener('click', onBackdrop);
+  btnOk.focus();
   return promise;
 }
 function renderThemeQa(state: ThemeQaState, report?: Record<string, unknown>) {
@@ -1352,6 +1401,169 @@ let isWorkflowRunning = false;
 let runStartTime = 0;
 let runTimerInterval: any = null;
 
+interface ActiveRunStepStatus {
+  status: string;
+  attempts: number;
+}
+
+interface HubArtifact {
+  id: string;
+  name?: string;
+  mimeType?: string;
+  mime?: string;
+  sizeBytes?: number;
+}
+
+interface ActiveRunState {
+  workflowId: string;
+  totalSteps: number;
+  completedSteps: number;
+  stepStatuses: Record<string, ActiveRunStepStatus>;
+  artifacts: HubArtifact[];
+}
+
+function asHubArtifacts(value: unknown): HubArtifact[] {
+  if (!Array.isArray(value)) return [];
+  const out: HubArtifact[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || !('id' in item)) continue;
+    const id = item.id;
+    if (typeof id !== 'string' || !id) continue;
+    const name = 'name' in item ? item.name : undefined;
+    const mimeType = 'mimeType' in item ? item.mimeType : undefined;
+    const mime = 'mime' in item ? item.mime : undefined;
+    const sizeBytes = 'sizeBytes' in item ? item.sizeBytes : undefined;
+    out.push({
+      id,
+      name: typeof name === 'string' ? name : undefined,
+      mimeType: typeof mimeType === 'string' ? mimeType : undefined,
+      mime: typeof mime === 'string' ? mime : undefined,
+      sizeBytes: typeof sizeBytes === 'number' ? sizeBytes : undefined,
+    });
+  }
+  return out;
+}
+
+let activeRun: ActiveRunState | null = null;
+
+function updateAllHubBadges() {
+  if (badgeWorkflowCount) badgeWorkflowCount.textContent = String(hubWorkflows.length);
+  if (badgeMcpCount) badgeMcpCount.textContent = String(hubMcpTools.length);
+  updateCoreBadges();
+}
+
+function rootCauseStatus(severity: string): string {
+  if (severity === 'P0' || severity === 'P1') return 'DEGRADED';
+  if (severity === 'P2') return 'WARN';
+  if (severity === 'P3') return 'INFO';
+  return 'UNKNOWN';
+}
+
+function artifactIcon(mimeType: string | undefined): string {
+  const mime = (mimeType || '').toLowerCase();
+  if (mime.startsWith('image/')) return '🖼️';
+  if (mime.includes('markdown') || mime.endsWith('/md')) return '📝';
+  if (mime.includes('json')) return '📦';
+  if (mime.startsWith('text/')) return '📄';
+  return '📎';
+}
+
+function applyStepStatusToDom(stepId: string, status: string, attempts = 1) {
+  const card = document.getElementById(`step-card-${stepId}`);
+  const pill = document.getElementById(`step-status-${stepId}`);
+  const isPassed = status === 'passed';
+  const isSkipped = status === 'skipped';
+  const isBlocked = status === 'blocked';
+  const isRetry = status === 'retry';
+  const isRunning = status === 'running';
+  if (card) {
+    card.className = `hub-step-card ${isPassed ? 'step-passed' : isSkipped ? 'step-skipped' : isBlocked ? 'step-blocked' : isRetry || isRunning ? 'step-running' : status === 'failed' ? 'step-failed' : ''}`;
+  }
+  if (pill) {
+    pill.className = `hub-step-status ${isPassed ? 'step-status-passed' : isSkipped ? 'step-status-skipped' : isBlocked ? 'step-status-blocked' : isRetry || isRunning ? 'step-status-running' : status === 'failed' ? 'step-status-failed' : 'step-status-pending'}`;
+    if (isRetry) pill.textContent = `RETRY ${attempts}`;
+    else if (isRunning) pill.textContent = 'RUNNING';
+    else pill.textContent = (status || 'PENDING').toUpperCase();
+  }
+}
+
+function projectActiveRunProgress() {
+  if (!activeRun || !hubProgressBar) return;
+  const total = Math.max(1, activeRun.totalSteps);
+  const pct = Math.round((activeRun.completedSteps / total) * 100);
+  hubProgressBar.style.width = `${pct}%`;
+}
+
+function projectActiveRunOntoDom() {
+  if (!activeRun) return;
+  projectActiveRunProgress();
+  for (const [stepId, st] of Object.entries(activeRun.stepStatuses)) {
+    applyStepStatusToDom(stepId, st.status, st.attempts);
+  }
+  renderActiveRunArtifacts();
+}
+
+function renderActiveRunArtifacts() {
+  if (!activeRun || !wfArtifactsSection || !wfArtifactsGrid) return;
+  if (!activeRun.artifacts.length) {
+    wfArtifactsSection.style.display = 'none';
+    return;
+  }
+  wfArtifactsSection.style.display = 'flex';
+  wfArtifactsGrid.innerHTML = '';
+  for (const art of activeRun.artifacts) {
+    wfArtifactsGrid.appendChild(buildArtifactCard(art));
+  }
+}
+
+function buildArtifactCard(art: { id: string; name?: string; mimeType?: string; mime?: string; sizeBytes?: number }): HTMLDivElement {
+  const card = document.createElement('div');
+  card.className = 'hub-artifact-card';
+  const mime = art.mimeType || art.mime || '';
+  card.innerHTML = `
+    <div class="hub-artifact-preview">
+      <span style="font-size:32px;">${artifactIcon(mime)}</span>
+    </div>
+    <div class="hub-artifact-meta">
+      <div class="hub-artifact-title">${escapeHtml(art.name || art.id)}</div>
+      <div class="hub-artifact-desc">${escapeHtml(mime || 'artifact')} (${Math.round((art.sizeBytes || 0) / 1024)} KB)</div>
+    </div>
+  `;
+  card.style.cursor = 'pointer';
+  card.title = 'Mở / sao chép artifact';
+  card.onclick = async () => {
+    try {
+      const fullArt = await getApi()?.getWorkflowArtifact(art.id);
+      if (!fullArt) {
+        showToolbarToast('Không đọc được artifact.');
+        return;
+      }
+      if (fullArt.mimeType?.startsWith('image/') && fullArt.data) {
+        const preview = card.querySelector('.hub-artifact-preview');
+        if (preview) preview.innerHTML = `<img src="${fullArt.data}" alt="${escapeHtml(art.name || '')}" />`;
+        await navigator.clipboard.writeText(fullArt.data);
+        showToolbarToast('🖼️ Đã sao chép data URL ảnh vào clipboard.');
+        return;
+      }
+      const text = typeof fullArt.data === 'string' ? fullArt.data : JSON.stringify(fullArt.data, null, 2);
+      await navigator.clipboard.writeText(text);
+      showToolbarToast('📋 Đã sao chép nội dung artifact vào clipboard.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      showToolbarToast(`Không mở được artifact: ${message}`);
+    }
+  };
+  if (mime.startsWith('image/')) {
+    getApi()?.getWorkflowArtifact(art.id).then((fullArt) => {
+      if (fullArt && fullArt.data && fullArt.mimeType?.startsWith('image/')) {
+        const preview = card.querySelector('.hub-artifact-preview');
+        if (preview) preview.innerHTML = `<img src="${fullArt.data}" alt="${escapeHtml(art.name || '')}" />`;
+      }
+    }).catch(() => null);
+  }
+  return card;
+}
+
 function getStepIcon(type: string): string {
   if (type.startsWith('browser.navigate')) return '🌐';
   if (type.startsWith('browser.click')) return '👆';
@@ -1375,25 +1587,29 @@ async function openWorkflowHub() {
   acquireOverlay('workflow-hub');
 
   try {
-    const res = await getApi()?.getWorkflowState();
+    const [res] = await Promise.all([
+      getApi()?.getWorkflowState(),
+      refreshCoreHealthState(),
+      refreshMcpDispatchState(),
+    ]);
     if (res) {
       hubWorkflows = res.workflows || [];
       hubMcpTools = res.tools || [];
-      if (badgeWorkflowCount) badgeWorkflowCount.textContent = String(hubWorkflows.length);
-      if (badgeMcpCount) badgeMcpCount.textContent = String(hubMcpTools.length);
+      updateAllHubBadges();
     }
   } catch (err) {
     console.error('[workflow hub] Failed to fetch state:', err);
   }
 
-  await refreshCoreHealthState();
-  await refreshMcpDispatchState();
-
   renderHubList();
   if (hubActiveTab === 'workflows' && hubWorkflows.length > 0 && !hubSelectedWorkflow) {
     selectWorkflow(hubWorkflows[0]);
+  } else if (hubActiveTab === 'workflows' && hubWorkflows.length === 0) {
+    showHubEmptyDetail();
   } else if (hubActiveTab === 'mcp' && hubMcpTools.length > 0 && !hubSelectedMcpTool) {
     selectMcpTool(hubMcpTools[0]);
+  } else if (hubActiveTab === 'mcp' && hubMcpTools.length === 0) {
+    showHubEmptyDetail();
   } else if (hubActiveTab === 'mcp-dispatch') {
     renderMcpDispatchSelection();
   } else if (HUB_CORE_TABS.includes(hubActiveTab)) {
@@ -1401,9 +1617,9 @@ async function openWorkflowHub() {
   }
 }
 
-async function refreshCoreHealthState() {
+async function refreshCoreHealthState(forceRefresh = false) {
   try {
-    const res = await getApi()?.getCoreHealthState?.();
+    const res = await getApi()?.getCoreHealthState?.(forceRefresh ? { refresh: true } : undefined);
     if (res) {
       hubCoreState = res;
       updateCoreBadges();
@@ -1434,7 +1650,7 @@ function updateCoreBadges() {
   const bridge = hubCoreState?.bridge;
   if (badgeBridge) badgeBridge.textContent = bridge?.status ?? '–';
   const tr = hubCoreState?.taskRuns;
-  if (badgeTaskRuns) badgeTaskRuns.textContent = String((tr?.taskRuns?.length || 0) + (tr?.packs?.length || 0) + (tr?.cases?.length || 0));
+  if (badgeTaskRuns) badgeTaskRuns.textContent = String(tr?.taskRuns?.length ?? 0);
   const rc = hubCoreState?.rootCauses;
   if (badgeRootCauses) badgeRootCauses.textContent = String(rc?.openTotal ?? 0);
   const reg = hubCoreState?.regressions;
@@ -1445,6 +1661,13 @@ function closeWorkflowHub() {
   if (!workflowHubOverlay) return;
   workflowHubOverlay.style.display = 'none';
   releaseOverlay('workflow-hub');
+}
+
+function showHubEmptyDetail() {
+  if (hubWfDetail) hubWfDetail.style.display = 'none';
+  if (hubMcpDetail) hubMcpDetail.style.display = 'none';
+  if (hubCoreDetail) hubCoreDetail.style.display = 'none';
+  if (hubDetailEmpty) hubDetailEmpty.style.display = 'flex';
 }
 
 function renderHubList() {
@@ -1461,6 +1684,7 @@ function renderHubList() {
 
     if (filtered.length === 0) {
       hubItemsList.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center;">Không tìm thấy kịch bản nào.</div>';
+      showHubEmptyDetail();
       return;
     }
 
@@ -1500,6 +1724,7 @@ function renderHubList() {
 
     if (filtered.length === 0) {
       hubItemsList.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center;">Không tìm thấy MCP Tool nào.</div>';
+      showHubEmptyDetail();
       return;
     }
 
@@ -1524,7 +1749,11 @@ function renderHubList() {
   }
 }
 
-function selectWorkflow(wf: any) {
+function selectWorkflow(wf: typeof hubSelectedWorkflow) {
+  if (!wf) {
+    showHubEmptyDetail();
+    return;
+  }
   hubSelectedWorkflow = wf;
   hubSelectedMcpTool = null;
   renderHubList();
@@ -1548,12 +1777,12 @@ function selectWorkflow(wf: any) {
   if (wfStepsCount) wfStepsCount.textContent = `${steps.length} Bước`;
   if (wfStepsContainer) {
     wfStepsContainer.innerHTML = '';
-    steps.forEach((step: any, idx: number) => {
+    steps.forEach((step: { id?: string; name?: string; type?: string; params?: Record<string, unknown> }, idx: number) => {
       const card = document.createElement('div');
       card.className = 'hub-step-card';
       card.id = `step-card-${step.id || idx}`;
 
-      const icon = getStepIcon(step.type);
+      const icon = getStepIcon(step.type || '');
       const paramsSummary = Object.entries(step.params || {})
         .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
         .join(' | ');
@@ -1562,9 +1791,9 @@ function selectWorkflow(wf: any) {
         <div class="hub-step-idx">${idx + 1}</div>
         <div class="hub-step-icon">${icon}</div>
         <div class="hub-step-info">
-          <div class="hub-step-title">${escapeHtml(step.name)}</div>
+          <div class="hub-step-title">${escapeHtml(step.name || '')}</div>
           <div class="hub-step-meta">
-            <span class="hub-step-tag">${escapeHtml(step.type)}</span>
+            <span class="hub-step-tag">${escapeHtml(step.type || '')}</span>
             ${paramsSummary ? `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(paramsSummary)}</span>` : ''}
           </div>
         </div>
@@ -1574,9 +1803,14 @@ function selectWorkflow(wf: any) {
     });
   }
 
-  if (hubRunStatusBar) hubRunStatusBar.style.display = 'none';
-  if (wfArtifactsSection) wfArtifactsSection.style.display = 'none';
-  if (wfArtifactsGrid) wfArtifactsGrid.innerHTML = '';
+  if (activeRun && activeRun.workflowId === wf.id) {
+    if (hubRunStatusBar) hubRunStatusBar.style.display = 'flex';
+    projectActiveRunOntoDom();
+  } else {
+    if (hubRunStatusBar) hubRunStatusBar.style.display = 'none';
+    if (wfArtifactsSection) wfArtifactsSection.style.display = 'none';
+    if (wfArtifactsGrid) wfArtifactsGrid.innerHTML = '';
+  }
 }
 
 
@@ -1651,7 +1885,7 @@ function coreListItems(): CoreListItem[] {
     const groups = (s.rootCauses?.groups || []) as Array<{ key: string; count: number; issueClass: string; worstSeverity: string; latestMessage?: string }>;
     return groups.map((g) => ({
       id: g.key, title: g.key, desc: g.latestMessage || '',
-      status: g.worstSeverity === 'P0' || g.worstSeverity === 'P1' ? 'DEGRADED' : 'UNKNOWN',
+      status: rootCauseStatus(g.worstSeverity),
       meta: `×${g.count} · ${g.issueClass}`,
     }));
   }
@@ -2271,7 +2505,7 @@ async function renderCoreDetail(id: string) {
     const groups = (s.rootCauses?.groups || []) as Array<{ key: string; worstSeverity: string; issueClass: string; latestMessage?: string }>;
     const g = groups.find((x) => x.key === id);
     if (g) {
-      setHeader(g.key, g.latestMessage || '', g.worstSeverity === 'P0' || g.worstSeverity === 'P1' ? 'DEGRADED' : 'UNKNOWN', g.issueClass);
+      setHeader(g.key, g.latestMessage || '', rootCauseStatus(g.worstSeverity), g.issueClass);
       setBody(g);
     }
     return;
@@ -2305,8 +2539,10 @@ function setHubTab(tab: HubTab) {
   renderHubList();
   if (tab === 'workflows') {
     if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);
+    else showHubEmptyDetail();
   } else if (tab === 'mcp') {
     if (hubMcpTools.length > 0) selectMcpTool(hubMcpTools[0]);
+    else showHubEmptyDetail();
   } else if (tab === 'mcp-dispatch') {
     renderMcpDispatchSelection();
   } else {
@@ -2353,23 +2589,29 @@ async function runActiveWorkflow() {
     runStatusPill.textContent = 'RUNNING';
   }
   if (runCurrentStepText) runCurrentStepText.textContent = 'Bắt đầu khởi chạy workflow...';
-  if (hubProgressBar) hubProgressBar.style.width = '5%';
+  if (hubProgressBar) {
+    hubProgressBar.style.width = '0%';
+    hubProgressBar.style.backgroundColor = '';
+  }
 
   const steps = hubSelectedWorkflow.definition?.steps || [];
-  steps.forEach((s: any, idx: number) => {
-    const pill = document.getElementById(`step-status-${s.id || idx}`);
-    if (pill) {
-      pill.className = 'hub-step-status step-status-pending';
-      pill.textContent = 'PENDING';
-    }
-    const card = document.getElementById(`step-card-${s.id || idx}`);
-    if (card) {
-      card.className = 'hub-step-card';
-    }
+  activeRun = {
+    workflowId: String(hubSelectedWorkflow.id),
+    totalSteps: steps.length,
+    completedSteps: 0,
+    stepStatuses: {},
+    artifacts: [],
+  };
+  steps.forEach((s: { id?: string }, idx: number) => {
+    const stepId = String(s.id || idx);
+    const run = activeRun;
+    if (run) run.stepStatuses[stepId] = { status: 'pending', attempts: 0 };
+    applyStepStatusToDom(stepId, 'pending');
   });
+  projectActiveRunProgress();
 
   runStartTime = Date.now();
-  if (runTimerInterval) clearInterval(runTimerInterval);
+  clearInterval(runTimerInterval);
   runTimerInterval = setInterval(() => {
     const elapsed = ((Date.now() - runStartTime) / 1000).toFixed(1);
     if (runTimerText) runTimerText.textContent = `${elapsed}s`;
@@ -2379,9 +2621,6 @@ async function runActiveWorkflow() {
     const res = await getApi()?.runWorkflow({ workflowId: hubSelectedWorkflow.id, workflowDef: hubSelectedWorkflow.definition });
     if (res) {
       const isPassed = res.status === 'passed';
-      // `completed_with_errors` means every step ran and the failures were handled by
-      // `continueOnError`; it is not a failed run. A precondition refusal is a blocked run, not a
-      // failed one — the main process reports it as FORBIDDEN_SENDER or an explicit `blocked`.
       const isCompletedWithErrors = res.status === 'completed_with_errors';
       const isBlocked = res.status === 'blocked' || (res.ok === false && res.error === 'FORBIDDEN_SENDER');
       if (runStatusPill) {
@@ -2413,44 +2652,21 @@ async function runActiveWorkflow() {
         }
       }
 
-      if (res.artifacts && res.artifacts.length > 0 && wfArtifactsSection && wfArtifactsGrid) {
-        wfArtifactsSection.style.display = 'flex';
-        wfArtifactsGrid.innerHTML = '';
-        for (const art of res.artifacts) {
-          const card = document.createElement('div');
-          card.className = 'hub-artifact-card';
-          card.innerHTML = `
-            <div class="hub-artifact-preview">
-              <span style="font-size:32px;">📸</span>
-            </div>
-            <div class="hub-artifact-meta">
-              <div class="hub-artifact-title">${escapeHtml(art.name || art.id)}</div>
-              <div class="hub-artifact-desc">${escapeHtml(art.mimeType || 'artifact')} (${Math.round((art.sizeBytes || 0) / 1024)} KB)</div>
-            </div>
-          `;
-          try {
-            getApi()?.getWorkflowArtifact(art.id).then((fullArt) => {
-              if (fullArt && fullArt.data && fullArt.mimeType.startsWith('image/')) {
-                const preview = card.querySelector('.hub-artifact-preview');
-                if (preview) {
-                  preview.innerHTML = `<img src="${fullArt.data}" alt="${escapeHtml(art.name || '')}" />`;
-                }
-              }
-            }).catch(() => null);
-          } catch {}
-          wfArtifactsGrid.appendChild(card);
-        }
+      if (activeRun) {
+        activeRun.artifacts = asHubArtifacts(res.artifacts);
+        renderActiveRunArtifacts();
       }
       showToolbarToast(isPassed ? '✅ Workflow chạy hoàn tất thành công!' : '⚠️ Workflow kết thúc có lỗi.');
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error('[workflow] Run failed:', err);
     if (runStatusPill) {
       runStatusPill.className = 'hub-status-pill pill-failed';
       runStatusPill.textContent = 'ERROR';
     }
-    if (runCurrentStepText) runCurrentStepText.textContent = `Lỗi: ${err.message || String(err)}`;
-    showToolbarToast(`❌ Lỗi chạy workflow: ${err.message || String(err)}`);
+    if (runCurrentStepText) runCurrentStepText.textContent = `Lỗi: ${message}`;
+    showToolbarToast(`❌ Lỗi chạy workflow: ${message}`);
   } finally {
     isWorkflowRunning = false;
     if (runTimerInterval) {
@@ -4552,7 +4768,7 @@ async function initToolbar() {
   tabNavRegressions?.addEventListener('click', () => setHubTab('regressions'));
   tabNavMcpDispatch?.addEventListener('click', () => { setHubTab('mcp-dispatch'); void refreshMcpDispatchState(); });
   btnCoreRefresh?.addEventListener('click', async () => {
-    await refreshCoreHealthState();
+    await refreshCoreHealthState(true);
     renderHubList();
     if (hubCoreSelected) await renderCoreDetail(hubCoreSelected.id);
   });
@@ -4577,11 +4793,15 @@ async function initToolbar() {
   });
   btnDeleteCustomWf?.addEventListener('click', async () => {
     if (hubSelectedWorkflow && !hubSelectedWorkflow.isBuiltIn) {
+      const confirmed = await showConfirmDialog(`Xóa kịch bản "${hubSelectedWorkflow.name}"?`);
+      if (!confirmed) return;
       await getApi()?.deleteWorkflow(hubSelectedWorkflow.id);
       const res = await getApi()?.getWorkflowState();
       hubWorkflows = res?.workflows || [];
+      updateAllHubBadges();
       renderHubList();
       if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);
+      else showHubEmptyDetail();
       showToolbarToast('🗑️ Đã xóa kịch bản custom.');
     }
   });
@@ -4589,70 +4809,111 @@ async function initToolbar() {
     const name = await showPromptDialog('Nhập tên Workflow mới:');
     if (!name || !name.trim()) return;
     const description = (await showPromptDialog('Nhập mô tả kịch bản (tùy chọn):')) || '';
+    const rawJson = await showPromptDialog(
+      'Dán JSON steps (Ctrl+Enter để OK). Để trống dùng mẫu 2 bước:',
+      '',
+      { multiline: true },
+    );
+    const defaultSteps = [
+      {
+        id: 'step-navigate',
+        name: 'Mở trang web mục tiêu',
+        type: 'browser.navigate' as const,
+        params: { url: 'https://example.com' },
+        timeoutMs: 8000,
+        retryCount: 0,
+        continueOnError: false,
+      },
+      {
+        id: 'step-screenshot',
+        name: 'Chụp ảnh màn hình kiểm thử',
+        type: 'browser.screenshot' as const,
+        params: { format: 'png' },
+        timeoutMs: 10000,
+        retryCount: 0,
+        continueOnError: false,
+      },
+    ];
+    let steps: unknown[] = defaultSteps;
+    if (rawJson && rawJson.trim()) {
+      try {
+        const parsed: unknown = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) {
+          steps = parsed;
+        } else if (parsed && typeof parsed === 'object' && 'steps' in parsed && Array.isArray(parsed.steps)) {
+          steps = parsed.steps;
+        } else {
+          showToolbarToast('JSON phải là mảng steps hoặc object có trường steps.');
+          return;
+        }
+      } catch {
+        showToolbarToast('JSON không hợp lệ.');
+        return;
+      }
+    }
     const newWf = {
       name: name.trim(),
       description: description.trim(),
-      steps: [
-        {
-          id: 'step-navigate',
-          name: 'Mở trang web mục tiêu',
-          type: 'browser.navigate' as const,
-          params: { url: 'https://example.com' },
-          timeoutMs: 8000,
-          retryCount: 0,
-          continueOnError: false,
-        },
-        {
-          id: 'step-screenshot',
-          name: 'Chụp ảnh màn hình kiểm thử',
-          type: 'browser.screenshot' as const,
-          params: { format: 'png' },
-          timeoutMs: 10000,
-          retryCount: 0,
-          continueOnError: false,
-        },
-      ],
+      steps,
     };
     try {
       await getApi()?.saveWorkflow(newWf);
       const res = await getApi()?.getWorkflowState();
       hubWorkflows = res?.workflows || [];
+      updateAllHubBadges();
       renderHubList();
       const created = hubWorkflows.find((w) => w.name === newWf.name);
       if (created) selectWorkflow(created);
       showToolbarToast('✅ Đã tạo kịch bản Workflow mới!');
-    } catch (err: any) {
-      alert(`Lỗi tạo workflow: ${err.message || String(err)}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      showToolbarToast(`Lỗi tạo workflow: ${message}`);
     }
   });
 
   if (api.onWorkflowEvent) {
-    api.onWorkflowEvent((event: any) => {
-      if (!event) return;
+    api.onWorkflowEvent((raw) => {
+      if (!raw || typeof raw !== 'object') return;
+      const event = raw as {
+        type?: string;
+        stepId?: string;
+        stepName?: string;
+        status?: string;
+        attempt?: number;
+        result?: { artifacts?: unknown[] };
+      };
       if (event.type === 'step:start' && event.stepId) {
-        const card = document.getElementById(`step-card-${event.stepId}`);
-        if (card) card.className = 'hub-step-card step-running';
-        const pill = document.getElementById(`step-status-${event.stepId}`);
-        if (pill) {
-          pill.className = 'hub-step-status step-status-running';
-          pill.textContent = 'RUNNING';
+        if (activeRun) {
+          const prev = activeRun.stepStatuses[event.stepId];
+          activeRun.stepStatuses[event.stepId] = { status: 'running', attempts: prev?.attempts || 1 };
         }
+        applyStepStatusToDom(event.stepId, 'running', activeRun?.stepStatuses[event.stepId]?.attempts || 1);
         if (runCurrentStepText) {
           runCurrentStepText.textContent = `Đang chạy: ${event.stepName || event.stepId}...`;
         }
-      } else if (event.type === 'step:end' && event.stepId) {
-        const isPassed = event.status === 'passed';
-        // `skipped` (abort rollback) and `blocked` (precondition refusal) are distinct from a
-        // failure: an aborted run must not paint its remaining steps red.
-        const isSkipped = event.status === 'skipped';
-        const isBlocked = event.status === 'blocked';
-        const card = document.getElementById(`step-card-${event.stepId}`);
-        if (card) card.className = `hub-step-card ${isPassed ? 'step-passed' : isSkipped ? 'step-skipped' : isBlocked ? 'step-blocked' : 'step-failed'}`;
-        const pill = document.getElementById(`step-status-${event.stepId}`);
-        if (pill) {
-          pill.className = `hub-step-status ${isPassed ? 'step-status-passed' : isSkipped ? 'step-status-skipped' : isBlocked ? 'step-status-blocked' : 'step-status-failed'}`;
-          pill.textContent = (event.status || 'DONE').toUpperCase();
+      } else if (event.type === 'step:retry' && event.stepId) {
+        const attempts = Number(event.attempt || ((activeRun?.stepStatuses[event.stepId]?.attempts || 0) + 1));
+        if (activeRun) {
+          activeRun.stepStatuses[event.stepId] = { status: 'retry', attempts };
         }
+        applyStepStatusToDom(event.stepId, 'retry', attempts);
+        if (runCurrentStepText) {
+          runCurrentStepText.textContent = `Retry ${attempts}: ${event.stepName || event.stepId}...`;
+        }
+      } else if (event.type === 'step:end' && event.stepId) {
+        const status = event.status || 'failed';
+        if (activeRun) {
+          const prev = activeRun.stepStatuses[event.stepId];
+          activeRun.stepStatuses[event.stepId] = { status, attempts: prev?.attempts || 1 };
+          if (status === 'passed' || status === 'failed' || status === 'skipped' || status === 'blocked') {
+            activeRun.completedSteps = Math.min(activeRun.totalSteps, activeRun.completedSteps + 1);
+          }
+          projectActiveRunProgress();
+        }
+        applyStepStatusToDom(event.stepId, status, activeRun?.stepStatuses[event.stepId]?.attempts || 1);
+      } else if (event.type === 'workflow:end' && activeRun) {
+        activeRun.artifacts = asHubArtifacts(event.result?.artifacts);
+        renderActiveRunArtifacts();
       }
     });
   }

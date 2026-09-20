@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { ArtifactStore } from '../src/main/tools/artifact-store';
-import { WorkflowRegistry } from '../src/main/workflow/workflow-registry';
+import { WorkflowRegistry, sanitizeWorkflowId, customWorkflowPath } from '../src/main/workflow/workflow-registry';
 
 describe('Workflow & Artifact Security and Hub Registry', () => {
   const tmpDir = path.join(os.tmpdir(), `antifan-test-hub-${Date.now()}`);
@@ -294,6 +294,54 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
       const deleted = reloadedRegistry.deleteCustom(custom.id);
       assert.strictEqual(deleted, true);
       assert.strictEqual(reloadedRegistry.getById(custom.id), undefined);
+    });
+
+    it('rejects unsafe ids and keeps custom files inside the storage directory', () => {
+      assert.throws(() => sanitizeWorkflowId('..'), /Invalid workflow id/);
+      assert.throws(() => sanitizeWorkflowId('../etc/passwd.json'.replace(/passwd\.json$/, '..')), /Invalid workflow id/);
+      assert.strictEqual(sanitizeWorkflowId('../safe-id'), 'safe-id');
+
+      const registry = new WorkflowRegistry(workflowsDir);
+      assert.throws(
+        () => registry.saveCustom({
+          id: '..',
+          name: 'Escape',
+          steps: [{ id: 's1', name: 'Step', type: 'browser.click', params: { selector: '.x' }, timeoutMs: 1000, retryCount: 0, continueOnError: false }],
+        }),
+        /Invalid workflow id/,
+      );
+      assert.strictEqual(registry.deleteCustom('../nope'), false);
+
+      const saved = registry.saveCustom({
+        id: '../inside-ok',
+        name: 'Inside',
+        steps: [{ id: 's1', name: 'Step', type: 'browser.click', params: { selector: '.x' }, timeoutMs: 1000, retryCount: 0, continueOnError: false }],
+      });
+      assert.strictEqual(saved.id, 'inside-ok');
+      const stored = customWorkflowPath(workflowsDir, saved.id);
+      assert.ok(stored.startsWith(path.resolve(workflowsDir)));
+      assert.ok(fs.existsSync(stored));
+      assert.strictEqual(registry.deleteCustom(saved.id), true);
+    });
+
+    it('quarantines on-disk workflows whose id fails sanitization', () => {
+      const poisonDir = path.join(tmpDir, 'poison-workflows');
+      fs.mkdirSync(poisonDir, { recursive: true });
+      const poisonPath = path.join(poisonDir, 'evil.json');
+      fs.writeFileSync(poisonPath, JSON.stringify({
+        id: '..',
+        name: 'Poison',
+        version: '1.0',
+        definition: {
+          version: '1.0',
+          name: 'Poison',
+          steps: [{ id: 's1', name: 'Step', type: 'browser.click', params: { selector: '.x' }, timeoutMs: 1000, retryCount: 0, continueOnError: false }],
+        },
+      }));
+      const registry = new WorkflowRegistry(poisonDir);
+      assert.equal(registry.getById('..'), undefined);
+      assert.equal(fs.existsSync(poisonPath), false);
+      assert.equal(fs.existsSync(path.join(poisonDir, 'evil.invalid')), true);
     });
   });
 });

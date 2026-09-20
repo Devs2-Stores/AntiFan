@@ -1944,6 +1944,18 @@ body, html {
   border-color: rgba(56, 189, 248, 0.7);
 }
 
+.prompt-modal.prompt-modal-wide {
+  width: 520px;
+}
+
+.prompt-input-multiline {
+  min-height: 140px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.4;
+}
+
+
 .prompt-actions {
   display: flex;
   justify-content: flex-end;

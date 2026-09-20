@@ -129,7 +129,7 @@ const toolbarApi = {
     return () => ipcRenderer.removeListener(CHANNELS.THEME_QA_STATE, handler);
   },
   getWorkflowArtifact: (artifactId: string) => ipcRenderer.invoke('antifan:workflow:get-artifact', artifactId),
-  getCoreHealthState: () => ipcRenderer.invoke('antifan:core-health:get-state'),
+  getCoreHealthState: (opts?: { refresh?: boolean }) => ipcRenderer.invoke('antifan:core-health:get-state', opts),
   getCoreTaskRunTrace: (id: string) => ipcRenderer.invoke('antifan:core-health:get-task-run-trace', id),
   getMcpDispatchState: () => ipcRenderer.invoke('antifan:mcp-dispatch:get-state'),
   onWorkflowEvent: (callback: (event: unknown) => void) => {
