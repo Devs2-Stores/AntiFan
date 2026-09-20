@@ -1189,7 +1189,7 @@ const MEDIA_FREEZE_BOUND_MS = 4_000;
  * Read-only DOM census for a capture that never settled on the compositor.
  *
  * Counts the conditions that keep `Page.captureScreenshot` from producing a
- * stable frame — media that is playing (or ready to play), endless animations
+ * stable frame — media that is actually playing (`paused === false`), endless animations
  * classified by their real constructor (`CSSAnimation` vs the WAAPI `Animation`
  * class `Element.animate` produces), and SVG SMIL — and reports a count per
  * media tag. It never reads element text, never touches storage or the network,
@@ -1200,8 +1200,7 @@ const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
   let playing = 0;
   const tags = {};
   for (const el of media) {
-    const ready = typeof el.readyState === 'number' && el.readyState > 2;
-    if (el.paused === false || ready) {
+    if (el.paused === false) {
       playing++;
       const tag = el.tagName ? String(el.tagName).toLowerCase() : 'media';
       tags[tag] = (tags[tag] || 0) + 1;

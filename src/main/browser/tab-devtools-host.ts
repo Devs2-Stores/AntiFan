@@ -226,6 +226,12 @@ export class TabDevToolsHost {
    */
   private nativeRasterInFlight = new Map<number, Promise<Electron.NativeImage | null>>();
   /**
+   * WebContents whose in-flight capturePage already outlived a caller bound.
+   * Waiting on that promise again just burns the next budget; Chromium will not
+   * settle it. Skip native until the original raster completes and clears this.
+   */
+  private nativeRasterPoisoned = new Set<number>();
+  /**
    * Per-target tracker-isolation state, keyed by WebContents id. Presence means
    * the target may still have a pre-document stub script registered and/or a
    * `Network.setBlockedURLs` blocklist applied, so `endTrackerIsolation` knows
@@ -1853,10 +1859,11 @@ export class TabDevToolsHost {
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return { bytes: null, timedOut: false };
     if (typeof wc.capturePage !== 'function') return { bytes: null, timedOut: false };
     const wcId = typeof wc.id === 'number' ? wc.id : undefined;
+    if (wcId !== undefined && this.nativeRasterPoisoned.has(wcId)) {
+      return { bytes: null, timedOut: true };
+    }
     let pending = wcId !== undefined ? this.nativeRasterInFlight.get(wcId) : undefined;
     if (!pending) {
-      // The capture starts before the race, so the bound never cancels the
-      // raster itself — only this call's wait for it.
       pending = wc.capturePage().catch(() => null);
       if (wcId !== undefined) {
         this.nativeRasterInFlight.set(wcId, pending);
@@ -1865,6 +1872,7 @@ export class TabDevToolsHost {
           if (this.nativeRasterInFlight.get(wcId) === tracked) {
             this.nativeRasterInFlight.delete(wcId);
           }
+          this.nativeRasterPoisoned.delete(wcId);
         }).catch(() => {});
       }
     }
@@ -1878,7 +1886,10 @@ export class TabDevToolsHost {
         }, Math.max(1, Math.round(boundMs)));
       });
       const image = await Promise.race([pending, bound]);
-      if (!image) return { bytes: null, timedOut };
+      if (!image) {
+        if (timedOut && wcId !== undefined) this.nativeRasterPoisoned.add(wcId);
+        return { bytes: null, timedOut };
+      }
       if (typeof image.isEmpty === 'function' && image.isEmpty()) return { bytes: null, timedOut: false };
       if (format === 'jpeg' && typeof image.toJPEG === 'function') {
         const jpeg = image.toJPEG(Math.max(1, Math.min(100, Math.round(quality ?? 85))));
@@ -2173,17 +2184,15 @@ export class TabDevToolsHost {
           // bound — the same 60s hang this guard exists to prevent.
           let nativeRasterAnswered = false;
           let nativeRasterTimedOut = false;
-          if (mode === 'viewport' && !isOffscreenTarget) {
-            const nativeRaster = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality, Math.min(boundMs, NATIVE_VIEWPORT_RASTER_BOUND_MS));
-            nativeRasterTimedOut = nativeRaster.timedOut;
-            const nativeBytes = nativeRaster.bytes;
-            if (nativeBytes) {
-              const nativeImage = imageFormat === 'jpeg' ? validateJpegBuffer(nativeBytes) : validatePngBuffer(nativeBytes);
+          if (mode === 'viewport' && !isOffscreenTarget && isForeground) {
+            const acceptNativeRaster = (raster: { bytes: Buffer | null; timedOut: boolean }): VerificationCaptureEnvelope | null => {
+              if (!raster.bytes) return null;
+              const nativeImage = imageFormat === 'jpeg' ? validateJpegBuffer(raster.bytes) : validatePngBuffer(raster.bytes);
               const nativeSize = nativeImage.ok ? { width: nativeImage.width, height: nativeImage.height } : null;
               if (nativeImage.ok && nativeSize) nativeRasterAnswered = true;
               if (nativeImage.ok && nativeSize && rasterMatchesCss(nativeSize, cssCaptureSize, dpr, zoom)) {
                 return {
-                  data: nativeBytes.toString('base64'),
+                  data: raster.bytes.toString('base64'),
                   backend: 'capturePage',
                   dpr,
                   zoom,
@@ -2195,6 +2204,18 @@ export class TabDevToolsHost {
                   settle: lastQuiescence?.warnings,
                 };
               }
+              return null;
+            };
+            const nativeBound = Math.min(boundMs, NATIVE_VIEWPORT_RASTER_BOUND_MS);
+            const nativeRaster = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality, nativeBound);
+            nativeRasterTimedOut = nativeRaster.timedOut;
+            const earlyNative = acceptNativeRaster(nativeRaster);
+            if (earlyNative) return earlyNative;
+            if (nativeRaster.timedOut) {
+              throw new CaptureError(
+                'CAPTURE_TIMEOUT',
+                `Page.captureScreenshot (viewport) on tab '${targetId}': native viewport raster did not settle within ${nativeBound}ms`
+              );
             }
           }
 
@@ -2222,11 +2243,11 @@ export class TabDevToolsHost {
           // frame to copy: the fallback would wait out its whole bound and leave
           // the target's CDP transport draining. Give it a short probe bound
           // instead, and name the missing surface when it cannot answer (below).
-          // A native raster that TIMED OUT is a different class: the compositor
-          // hung, so a probe failure must report the measured timeout, never
-          // the NO_RENDER_SURFACE label reserved for an absent surface.
-          const captureHasNoSurface = mode === 'viewport' && !isOffscreenTarget && !nativeRasterAnswered;
+          // A native raster that TIMED OUT already threw: capturePage is still
+          // in flight, so CDP captureScreenshot is not dispatched against it.
+          const captureHasNoSurface = mode === 'viewport' && !isOffscreenTarget && !nativeRasterAnswered && !nativeRasterTimedOut;
           const cdpBoundMs = captureHasNoSurface ? Math.min(boundMs, NO_SURFACE_CAPTURE_PROBE_BOUND_MS) : boundMs;
+
           let captureRes: { data?: string } | undefined;
           try {
             captureRes = await this.sendCdpCommand<{ data?: string }>(

@@ -1460,6 +1460,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown>;
       captureNativeViewportRaster: () => Promise<{ bytes: Buffer | null; timedOut: boolean }>;
     };
+    let rasterCalls = 0;
     internals.sendCdpCommand = async (_wc, method, params) => {
       if (method === 'Runtime.evaluate') {
         const expression = params && typeof params === 'object' && 'expression' in params ? String((params as { expression?: unknown }).expression) : '';
@@ -1468,14 +1469,105 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         }
         return { result: { value: undefined } };
       }
+      if (method === 'Page.captureScreenshot') {
+        return { data: makePng(4, 3).toString('base64') };
+      }
       return {};
     };
-    internals.captureNativeViewportRaster = async () => ({ bytes: makePng(4, 3), timedOut: false });
+    internals.captureNativeViewportRaster = async () => {
+      rasterCalls += 1;
+      return { bytes: makePng(4, 3), timedOut: false };
+    };
 
     const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop', { timeoutMs: 500 });
 
     assert.ok(wrapperRuns >= 1, 'A background target is captured through the attach-for-capture helper');
-    assert.strictEqual(envelope.backend, 'capturePage');
+    assert.strictEqual(rasterCalls, 0, 'Background attach-for-capture must not start capturePage');
+    assert.strictEqual(envelope.backend, 'cdp');
     assert.ok(envelope.data.length > 0);
+  });
+
+  it('32. a hung native viewport raster does not dispatch CDP captureScreenshot', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    let cdpCaptureCalls = 0;
+    const { promise: rasterPromise, resolve: resolveRaster } = Promise.withResolvers<unknown>();
+    const mockWc = {
+      id: 800,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      executeJavaScript: async () => undefined,
+      capturePage: () => rasterPromise,
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) => {
+          if (method === 'Page.captureScreenshot') {
+            cdpCaptureCalls += 1;
+            return new Promise(() => {});
+          }
+          return Promise.resolve({ result: { value: { dpr: 1, vw: 4, vh: 4 } } });
+        },
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 20 }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+    );
+    assert.strictEqual(cdpCaptureCalls, 0, 'CDP captureScreenshot must not run while capturePage is in flight');
+
+    resolveRaster({ isEmpty: () => false, toPNG: () => makePng(4, 4) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
+
+  it('33. a hung native raster fails at the short bound without waiting the remaining capture budget', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    let nativeCalls = 0;
+    let cdpCaptureCalls = 0;
+    const mockWc = {
+      id: 801,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      executeJavaScript: async () => undefined,
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) => {
+          if (method === 'Page.captureScreenshot') {
+            cdpCaptureCalls += 1;
+            return Promise.resolve({ data: makePng(4, 4).toString('base64') });
+          }
+          return Promise.resolve({ result: { value: { dpr: 1, vw: 4, vh: 4 } } });
+        },
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+    const internals = devTools as unknown as {
+      captureNativeViewportRaster: () => Promise<{ bytes: Buffer | null; timedOut: boolean }>;
+    };
+    internals.captureNativeViewportRaster = async () => {
+      nativeCalls += 1;
+      return { bytes: null, timedOut: true };
+    };
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 50 }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+    );
+    assert.strictEqual(nativeCalls, 1, 'Must not wait the remaining capture budget on a hung capturePage');
+    assert.strictEqual(cdpCaptureCalls, 0, 'CDP captureScreenshot must not run while capturePage is in flight');
   });
 });
