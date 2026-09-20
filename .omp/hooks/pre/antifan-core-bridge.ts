@@ -98,7 +98,13 @@ interface BridgeState {
 	shutdownEmitted: boolean;
 	/** Anti-direct policy state: true disables Core pack seeding and retrieval tools. */
 	antiDirect: boolean;
-	antiDirectTrigger: "user_skill_invocation" | "natural_language" | null;
+	antiDirectTrigger: "user_skill_invocation" | "natural_language" | "annotation_tag" | null;
+	/**
+	 * Last explicit mode signal of the session: an annotation-mode tag or a
+	 * skill/natural-language directive. A Core request must be able to switch a
+	 * Direct-armed session back, so the last explicit signal wins.
+	 */
+	directMode: "unset" | "direct" | "core";
 }
 
 // ---------------------------------------------------------------------------
@@ -318,18 +324,29 @@ const ANTI_DIRECT_NL_RE =
 	/(?:sửa\s+trực\s+tiếp|không\s+tra\s+core|tắt\s+core|bỏ\s+qua\s+core|skip\s+core)/i;
 
 /**
+ * Mode tag the AntiFan annotation popup puts in every prompt it builds: the
+ * Direct Edit chip is the popup default, and the Core tick flips the same tag
+ * slot to a Core request.
+ */
+const ANTI_DIRECT_TAG_RE = /\[[^\]]*direct[- ]?edit\]/i;
+const CORE_CONTEXT_TAG_RE = /\[[^\]]*core[- ]?(?:context|pack)\]/i;
+
+/**
  * Detects whether anti-direct mode is requested via process env, skill invocation,
- * or natural language directive.
+ * annotation tag, or natural language directive.
  */
 function detectAntiDirectIntent(task: string): {
 	active: boolean;
-	triggeredBy?: "user_skill_invocation" | "natural_language";
+	triggeredBy?: "user_skill_invocation" | "natural_language" | "annotation_tag";
 } {
 	if (process.env.ANTIFAN_ANTI_DIRECT === "1") {
 		return { active: true, triggeredBy: "user_skill_invocation" };
 	}
 	if (/\b(?:skill:)?anti-direct\b/i.test(task)) {
 		return { active: true, triggeredBy: "user_skill_invocation" };
+	}
+	if (ANTI_DIRECT_TAG_RE.test(task)) {
+		return { active: true, triggeredBy: "annotation_tag" };
 	}
 	if (ANTI_DIRECT_NL_RE.test(task)) {
 		return { active: true, triggeredBy: "natural_language" };
@@ -718,6 +735,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		shutdownEmitted: false,
 		antiDirect: false,
 		antiDirectTrigger: null,
+		directMode: "unset",
 	};
 
 	const log = (level: "info" | "warn" | "error", message: string) => {
@@ -851,6 +869,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		state.shutdownEmitted = false;
 		state.antiDirect = false;
 		state.antiDirectTrigger = null;
+		state.directMode = "unset";
 	});
 
 	// -- before_agent_start: seed exactly one pack message ---------------------
@@ -870,8 +889,18 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 
 			// Anti-direct policy check (P0 priority: user explicit directive outranks auto heuristics)
 			const antiDirectCheck = detectAntiDirectIntent(task);
-			if (antiDirectCheck.active || state.antiDirect) {
+			if (CORE_CONTEXT_TAG_RE.test(task)) {
+				// An annotation ticked for Core context is an explicit per-prompt
+				// request: it must switch a Direct-armed session back, not just
+				// skip the arming this once.
+				state.directMode = "core";
+				state.antiDirect = false;
+				state.antiDirectTrigger = null;
+				delete process.env.ANTIFAN_ANTI_DIRECT;
+				delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
+			} else if (antiDirectCheck.active || state.antiDirect) {
 				state.antiDirect = true;
+				state.directMode = "direct";
 				state.antiDirectTrigger = antiDirectCheck.triggeredBy ?? state.antiDirectTrigger ?? "user_skill_invocation";
 				process.env.ANTIFAN_ANTI_DIRECT = "1";
 				if (ctx?.sessionManager?.getSessionId?.()) {
@@ -997,9 +1026,12 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		try {
 			const messages = messagesField(event);
 			if (!messages) return undefined;
-			// Rehydrate / detect anti-direct if wrapper message exists in conversation
-			if (!state.antiDirect && messages.some((m) => typeof m?.content === "string" && m.content.includes("anti-direct"))) {
+			// Rehydrate / detect anti-direct if wrapper message exists in conversation.
+			// An explicit Core request outranks it: a Direct-armed session must not be
+			// re-armed by a stale conversation mention after the user ticked Core.
+			if (state.directMode !== "core" && !state.antiDirect && messages.some((m) => typeof m?.content === "string" && m.content.includes("anti-direct"))) {
 				state.antiDirect = true;
+				state.directMode = "direct";
 				state.antiDirectTrigger = "user_skill_invocation";
 				process.env.ANTIFAN_ANTI_DIRECT = "1";
 			}
@@ -1043,6 +1075,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				coreStatus: state.coreStatus,
 				antiDirect: state.antiDirect,
 				antiDirectTrigger: state.antiDirectTrigger,
+				directMode: state.directMode,
 			};
 			if (state.unavailableReason) preserveData.unavailableReason = state.unavailableReason;
 			const contextLine = state.antiDirect

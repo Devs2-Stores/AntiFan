@@ -292,3 +292,87 @@ test('session_shutdown clears ANTIFAN_ANTI_DIRECT environment variables', async 
 	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, undefined);
 	assert.equal(process.env.ANTIFAN_ANTI_DIRECT_ORIGIN, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// 7. Annotation Mode Tags (AntiFan popup → bridge)
+// ---------------------------------------------------------------------------
+
+test('annotation Direct Edit tag arms anti-direct per prompt without a skill invocation', async () => {
+	delete process.env.ANTIFAN_ANTI_DIRECT;
+	delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
+
+	const h = makePi();
+	bridgeHook(h.pi);
+	await h.emit('session_start');
+
+	const messages = await h.emitBeforeAgentStart(
+		'/queue [⚡Direct-Edit] @ .antifan/annotations/element_1.md\nsửa khoảng cách supplier card'
+	);
+	assert.equal(messages.length, 0, 'Tagged annotation prompt must not receive a Core pack');
+	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, '1', 'Annotation tag latches anti-direct for this session');
+
+	const skipped = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
+	assert.equal(skipped.length, 1);
+	assert.equal(skipped[0].data.intent, 'user-direct');
+	assert.equal(skipped[0].data.triggeredBy, 'annotation_tag');
+});
+
+test('a ticked Core annotation switches an armed Direct session back to Core context', async () => {
+	process.env.ANTIFAN_CORE_TIMEOUT_MS = '1';
+	delete process.env.ANTIFAN_ANTI_DIRECT;
+	delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
+
+	const h = makePi();
+	bridgeHook(h.pi);
+	await h.emit('session_start');
+
+	await h.emitBeforeAgentStart('/queue [⚡Direct-Edit] sửa lề nút cart');
+	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, '1');
+
+	// The Core tick is an explicit per-prompt mode request, so it must disarm the
+	// latched Direct mode instead of being skipped by it.
+	await h.emitBeforeAgentStart('/queue [🧠Core-Context] tra core giúp tôi luồng checkout');
+	assert.equal(
+		process.env.ANTIFAN_ANTI_DIRECT,
+		undefined,
+		'Core-tagged annotation must clear the latched anti-direct env'
+	);
+
+	// The disarm is a mode switch, not a one-prompt exception: an untagged follow-up
+	// stays in Core mode too.
+	const skippedAfter = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
+	await h.emitBeforeAgentStart('tiếp tục kiểm tra luồng checkout');
+	assert.equal(
+		h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED').length,
+		skippedAfter.length,
+		'untagged follow-up must not fall back to anti-direct'
+	);
+	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, undefined);
+});
+
+test('a stale anti-direct mention in the conversation cannot re-arm a Core-mode session', async () => {
+	process.env.ANTIFAN_CORE_TIMEOUT_MS = '1';
+	delete process.env.ANTIFAN_ANTI_DIRECT;
+
+	const h = makePi();
+	bridgeHook(h.pi);
+	await h.emit('session_start');
+	await h.emitBeforeAgentStart('/queue [🧠Core-Context] tra core cho luồng cart');
+
+	await h.emit(
+		'context',
+		{
+			messages: [
+				{ role: 'user', content: 'skill://anti-direct đã bật trước đó' },
+				{ role: 'custom', customType: 'antifan-core-bridge', content: '[AntiFan Core context pack 42]' },
+			],
+		},
+		{ sessionManager: { getSessionId: () => 'session-core' } }
+	);
+
+	assert.equal(
+		process.env.ANTIFAN_ANTI_DIRECT,
+		undefined,
+		'Core mode must survive a conversation mention of anti-direct'
+	);
+});

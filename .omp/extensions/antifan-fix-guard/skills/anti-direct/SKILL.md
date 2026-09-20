@@ -25,6 +25,11 @@ This skill arms **Direct Edit Mode** for the current AntiFan session and child s
 3. **Active Learning Loop**:
    - The write plane remains intact: `core.record_fix_pattern`, `core.record_anti_pattern`, `core.ingest_outcome`, and standard `core.receipt` (v1) remain fully permitted to capture lessons learned.
 
+## Arming Surfaces
+
+- Skill invocation (`/skill:anti-direct`) or a natural-language directive arms the mode for the whole session.
+- Every Element Picker annotation carries a mode tag in its prompt: `[⚡Direct-Edit]` (popup default) arms the mode, `[🧠Core-Context]` (Core tick) clears it again. The last explicit signal wins, so a ticked Core annotation is never swallowed by an armed Direct session.
+
 ## Workflow
 
 1. Identify affected source files using workspace search (`grep`, `read`).
