@@ -4252,6 +4252,14 @@ export class NativeTabHost extends EventEmitter {
         backgroundThrottling: isOffscreen ? false : undefined,
       }),
     });
+    // The view's own background is the canvas for whatever the page leaves unpainted, so
+    // it is the only thing that keeps captures opaque: measured with Electron 43, a
+    // transparent-canvas page captured through `capturePage()` and CDP
+    // `Page.captureScreenshot` returns `rgba(0,0,0,0)` while this background is
+    // transparent, and opaque white once it is `#ffffff`. CDP's
+    // `Emulation.setDefaultBackgroundColorOverride` did NOT change either capture's
+    // pixels (measured across reload, `Page.enable`, `invalidate`, and
+    // `captureBeyondViewport` on/off), so opacity must not be delegated to it.
     try { view.setBackgroundColor('#ffffff'); } catch {}
     const isBlankUrl = !url || url === 'about:blank';
     const rawPresetId = options?.devicePresetId || (options?.mobile ? 'iphone-15' : undefined);

@@ -1709,9 +1709,6 @@ export class TabDevToolsHost {
         try {
           const cdpTask = async (): Promise<string | null> => {
             await this.sendCdpCommand(wc, 'Page.enable');
-            await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride', {
-              color: { r: 255, g: 255, b: 255, a: 1 },
-            }).catch(() => {});
             await this.sendCdpCommand(wc, 'DOM.enable').catch(() => {});
             await this.sendCdpCommand(wc, 'DOM.getDocument', { depth: 1 }).catch(() => {});
             const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
@@ -1789,11 +1786,6 @@ export class TabDevToolsHost {
           );
         } catch {}
       }
-      try {
-        if (!wc.isDestroyed() && wc.debugger && wc.debugger.isAttached()) {
-          await wc.debugger.sendCommand('Emulation.setDefaultBackgroundColorOverride', {}).catch(() => {});
-        }
-      } catch {}
     }
   });
   }
