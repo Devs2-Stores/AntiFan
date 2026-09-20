@@ -504,6 +504,35 @@ proposed for the retention (Blink attribute/string table plus IPC buffers holdin
 committed until view teardown) remains `[INFERENCE]` — the fix is justified by the work removed,
 not by the mechanism.
 
+## Open after this pass — one item, with the reason it is not a patch
+
+The six instrument defects and the history-store defect were fixed after the run was stopped
+(see the changelog for the batch and its proof). Two findings from the same pass are recorded
+here instead of patched:
+
+1. **`api.getTerminalAffinities()` is still one `invoke` per 5 Hz broadcast** (~72,000 per 4 h),
+   and no push channel exists for affinities. A renderer-side cache was **rejected with
+   evidence**, not deferred for effort: main still owns writers the renderer cannot observe
+   (`native-tab-host.ts:1667` revive, `:6221` entry deletion, `:7073-7120` tab-driven updates),
+   so a cached map cannot be proven fresh, and a stale badge is a worse failure than the CPU the
+   cache would save. The correct shape is to carry affinities in the broadcast payload itself —
+   the same move follow-up 1 made for the tab list, and the only one with no staleness window —
+   which changes main's payload contract and therefore needs its own pass with a payload test.
+2. **The retention owner is still unnamed, and the existing data cannot name it.** The terminal
+   write path is now *refuted* by caps in the code itself (`scrollback: 10000` at
+   `standalone.js:2034,2599`; `MAX_RECOVERY_QUEUE_BYTES`/`_CHUNKS` at `:1283-1284`, enforced at
+   `:1497-1498`; `MAX_HYDRATION_WRITE_CHARS` at `:1663`) — a monotone slope cannot come from a
+   saturated circular buffer — and the inventory found no unbounded renderer structure on that
+   path. What remains are engine-level effects (Blink string interning under the fixture's 5 Hz
+   title churn, allocator/page behaviour under IPC + terminal parse churn), which the current
+   payloads cannot separate from host contention. The decisive test needs either a run with the
+   burst legs (legs 2-3) or a sub-step timer inside `switchTab`; both need the app live, which is
+   why they are recorded rather than run. See
+   `plans/reports/runtime-verification/renderer-retention-lead-analysis-20260920.md` and
+   `.../switch-tail-spike-analysis-20260920.md` (the tail is steady-state, not an outlier:
+   22/1143 switches over 35 ms, median gap 105 s, whole distribution shifted ~2.5x, and the shift
+   is inside `NativeTabHost.switchTab()` while `tabs.layout` stays under 0.2 ms).
+
 ### Analysis behind rows 1 and 2 (written while both were still candidates)
 
 - **Redundant `getTabs()` per tab broadcast.** `api.onTabsUpdated((tabs) => …)` already
