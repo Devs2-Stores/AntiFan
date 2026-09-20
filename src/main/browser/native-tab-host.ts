@@ -5518,15 +5518,17 @@ export class NativeTabHost extends EventEmitter {
           viewSize: { width: preset.width, height: preset.height },
           scale: renderScale,
         }, tab.view);
-        // Dynamic corner clipping per-device preset, clear for desktop/flat screens.
-        // The view background must mirror the clip state on every preset change: a
-        // rounded preset needs a transparent view so the device chassis shows through
-        // the corners, while a flat preset must restore the opaque background. Setting
-        // it only for the rounded case left the view transparent for every later flat
-        // preset, and an unpainted moment of such a tab then exposed the window
-        // backdrop (#080c14) through the view — the all-black tab that a reload cleared.
+        // Guest canvas stays the UA default white on every preset, including rounded
+        // phones. A transparent view (`#00000000`) lets frameBackdropView `#060910`
+        // show through any page that leaves html/body unpainted — the collection
+        // page that "inherited AntiFan dark mode". Corner clipping no longer punches
+        // the document (it only removes leftover `#antifan-device-clip`), and
+        // single-tab mode hides the phone chassis, so there is nothing for a
+        // transparent view to reveal. Split-review already keeps both panes
+        // `#ffffff`; this branch must match. Do not inject document CSS: that
+        // breaks CSS 2.1 Appendix E canvas propagation and Shopify negative z-index.
         const clipRadius = getPresetCornerRadius(preset);
-        try { tab.view.setBackgroundColor(clipRadius > 0 ? '#00000000' : '#ffffff'); } catch {}
+        try { tab.view.setBackgroundColor('#ffffff'); } catch {}
         this.applyDeviceCornerClipping(tab.view.webContents, clipRadius);
 
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
