@@ -222,6 +222,247 @@ class MockDocument {
   }
 }
 
+/**
+ * A picker instance driven through its own published events: the harness awaits
+ * `antifan-pick-event` instead of sleeping, so a failure names the missing signal.
+ */
+interface PickerHarness {
+  win: JsdomLike['window'];
+  doc: Document;
+  clipboardWrites: string[];
+  published: Record<string, unknown>[];
+  nextPick: () => Promise<Record<string, unknown>>;
+  drainMicrotasks: () => Promise<void>;
+  openModal: () => Element | null;
+}
+
+function createPickerHarness(JSDOM: JsdomCtor): PickerHarness {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    runScripts: 'outside-only',
+    url: 'https://m-n-bakery.myharavan.com/products/banh-mi',
+  });
+  const win = dom.window as JsdomLike['window'];
+  const doc: Document = win.document;
+
+  const target = doc.createElement('a');
+  target.className = 'product-card__title';
+  doc.body.appendChild(target);
+  target.getBoundingClientRect = () => ({ x: 10, y: 10, width: 200, height: 40, top: 10, right: 210, bottom: 50, left: 10, toJSON: () => ({}) });
+
+  const clipboardWrites: string[] = [];
+  Object.defineProperty(win.navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText: (text: string) => {
+        clipboardWrites.push(text);
+        return Promise.resolve();
+      },
+    },
+  });
+
+  // A published pick is the page's own completion signal: the test awaits it
+  // instead of sleeping, so a failure names the missing signal, not a timeout.
+  const published: Record<string, unknown>[] = [];
+  const waiters: Array<(pick: Record<string, unknown>) => void> = [];
+  win.addEventListener('antifan-pick-event', (ev) => {
+    const detail = ev instanceof win.CustomEvent ? (ev.detail as Record<string, unknown>) : {};
+    published.push(detail);
+    const waiter = waiters.shift();
+    if (waiter) waiter(detail);
+  });
+
+  win.eval(ELEMENT_PICKER_SCRIPT);
+
+  return {
+    win,
+    doc,
+    clipboardWrites,
+    published,
+    nextPick: () => {
+      const { promise, resolve } = Promise.withResolvers<Record<string, unknown>>();
+      waiters.push(resolve);
+      return promise;
+    },
+    // Deterministic quiescence for absence assertions: drains the microtask chain
+    // the clipboard promise resolution starts, with no wall-clock dependency.
+    drainMicrotasks: async () => {
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    },
+    openModal: () => {
+      target.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+      return doc.getElementById('antifan-comment-modal');
+    },
+  };
+}
+
+describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
+  const modalTextarea = (h: PickerHarness, modal: Element): HTMLTextAreaElement => {
+    const textarea = modal.querySelector('textarea');
+    assert.ok(textarea, 'comment modal must carry the prompt textarea');
+    return textarea as HTMLTextAreaElement;
+  };
+
+  const promptOf = (h: PickerHarness, modal: Element): string => modalTextarea(h, modal).value;
+
+  it('defaults to the Direct Edit tag with the caret after it, and the Core tick flips the tag slot', async (t) => {
+    const { JSDOM, error } = loadJsdom();
+    if (!JSDOM) {
+      t.skip(`jsdom unavailable: ${error}`);
+      return;
+    }
+    const h = createPickerHarness(JSDOM);
+    const modal = h.openModal();
+    assert.ok(modal, 'clicking a target must open the annotation modal');
+
+    const textarea = modalTextarea(h, modal);
+    assert.strictEqual(textarea.value, '/queue [⚡Direct-Edit] ', 'Direct Edit is the popup default mode tag');
+    assert.strictEqual(textarea.selectionStart, textarea.value.length, 'caret must land after the default tag');
+    assert.strictEqual(textarea.selectionEnd, textarea.value.length);
+
+    const coreTick = modal.querySelector('#antifanCoreTickInput');
+    assert.ok(coreTick instanceof h.win.HTMLInputElement);
+    assert.strictEqual(coreTick.checked, false, 'Core retrieval starts unticked');
+    assert.ok(modal.querySelector('#btnModalCopy'), 'the modal offers the Copy Prompt action');
+
+    // Clicking through the chip (not calling the handler directly) also proves the
+    // picker-level click guard leaves modal-internal clicks alone.
+    const directChip = modal.querySelector('#antifanChip-direct');
+    assert.ok(directChip instanceof h.win.HTMLElement);
+    directChip.click();
+    assert.strictEqual(promptOf(h, modal), '/queue [🧠Core-Context] ', 'Direct chip must flip the tag slot to Core');
+    assert.strictEqual(coreTick.checked, true);
+
+    directChip.click();
+    assert.strictEqual(promptOf(h, modal), '/queue [⚡Direct-Edit] ', 'second click must flip the tag slot back to Direct');
+
+    coreTick.click();
+    assert.strictEqual(promptOf(h, modal), '/queue [🧠Core-Context] ', 'the Core tick alone owns the mode tag');
+    assert.strictEqual(directChip.textContent, '⚡ Direct Edit', 'the chip label is not the mode carrier');
+
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+
+  it('keeps the typed request across chip toggles and never duplicates a mode tag', async (t) => {
+    const { JSDOM, error } = loadJsdom();
+    if (!JSDOM) {
+      t.skip(`jsdom unavailable: ${error}`);
+      return;
+    }
+    const h = createPickerHarness(JSDOM);
+    const modal = h.openModal();
+    assert.ok(modal);
+    const textarea = modalTextarea(h, modal);
+
+    textarea.value = '/queue [⚡Direct-Edit] đổi màu nút cart';
+    const themeChip = modal.querySelector('#antifanChip-theme');
+    assert.ok(themeChip instanceof h.win.HTMLElement);
+    themeChip.click();
+    assert.strictEqual(promptOf(h, modal), '/queue [🎨Theme-Fix] [⚡Direct-Edit] đổi màu nút cart');
+
+    const speedChip = modal.querySelector('#antifanChip-speed');
+    assert.ok(speedChip instanceof h.win.HTMLElement);
+    speedChip.click();
+    assert.strictEqual(
+      promptOf(h, modal),
+      '/queue [🚀PageSpeed] [⚡Direct-Edit] đổi màu nút cart',
+      'action chips are single-select, so the typed request survives while only the mode tag is permanent',
+    );
+
+    // A hand-pasted duplicate tag must not survive into the published prompt.
+    textarea.value = '/queue [🚀PageSpeed] [🚀PageSpeed] xử lý lazy load ảnh hero';
+    const themeOff = modal.querySelector('#antifanChip-theme');
+    assert.ok(themeOff instanceof h.win.HTMLElement);
+    themeOff.click();
+    assert.strictEqual(
+      promptOf(h, modal),
+      '/queue [🎨Theme-Fix] [⚡Direct-Edit] xử lý lazy load ảnh hero',
+      'stale and duplicated chip tags are dropped, never carried',
+    );
+
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+
+  it('Copy Prompt publishes copyOnly artifacts to the clipboard without terminal dispatch', async (t) => {
+    const { JSDOM, error } = loadJsdom();
+    if (!JSDOM) {
+      t.skip(`jsdom unavailable: ${error}`);
+      return;
+    }
+    const h = createPickerHarness(JSDOM);
+    const modal = h.openModal();
+    assert.ok(modal);
+    modalTextarea(h, modal).value = '/queue [⚡Direct-Edit] sửa khoảng cách supplier';
+
+    const pickPromise = h.nextPick();
+    const copyBtn = modal.querySelector('#btnModalCopy');
+    assert.ok(copyBtn instanceof h.win.HTMLElement);
+    copyBtn.click();
+
+    const pick = await pickPromise;
+    assert.strictEqual(pick.copyOnly, true, 'copyOnly must reach the host so it skips terminal dispatch');
+    assert.strictEqual(pick.userComment, '/queue [⚡Direct-Edit] sửa khoảng cách supplier');
+    assert.deepStrictEqual(h.clipboardWrites, ['/queue [⚡Direct-Edit] sửa khoảng cách supplier']);
+    assert.strictEqual(h.doc.getElementById('antifan-comment-modal'), null, 'modal closes after the copy settles');
+
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+
+  it('Send publishes without copyOnly and leaves the clipboard to the host', async (t) => {
+    const { JSDOM, error } = loadJsdom();
+    if (!JSDOM) {
+      t.skip(`jsdom unavailable: ${error}`);
+      return;
+    }
+    const h = createPickerHarness(JSDOM);
+    const modal = h.openModal();
+    assert.ok(modal);
+    modalTextarea(h, modal).value = '/queue [⚡Direct-Edit] sửa khoảng cách supplier';
+
+    const pickPromise = h.nextPick();
+    const sendBtn = modal.querySelector('#btnModalSend');
+    assert.ok(sendBtn instanceof h.win.HTMLElement);
+    sendBtn.click();
+
+    const pick = await pickPromise;
+    assert.strictEqual(pick.copyOnly, undefined, 'Send never sets copyOnly');
+    assert.strictEqual(pick.userComment, '/queue [⚡Direct-Edit] sửa khoảng cách supplier');
+    assert.deepStrictEqual(h.clipboardWrites, [], 'the page must not pre-write the raw prompt on Send');
+    assert.strictEqual(h.doc.getElementById('antifan-comment-modal'), null, 'modal closes after Send');
+
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+
+  it('refuses a body-less prompt: no publish, error surfaced, modal stays open', async (t) => {
+    const { JSDOM, error } = loadJsdom();
+    if (!JSDOM) {
+      t.skip(`jsdom unavailable: ${error}`);
+      return;
+    }
+    const h = createPickerHarness(JSDOM);
+    const modal = h.openModal();
+    assert.ok(modal);
+    modalTextarea(h, modal).value = '/queue [⚡Direct-Edit] ';
+
+    const sendBtn = modal.querySelector('#btnModalSend');
+    assert.ok(sendBtn instanceof h.win.HTMLElement);
+    sendBtn.click();
+    await h.drainMicrotasks();
+
+    assert.deepStrictEqual(h.published, [], 'a tag-only prompt must never be published');
+    const status = modal.querySelector('#statusMsg');
+    assert.ok(status instanceof h.win.HTMLElement);
+    assert.strictEqual(status.style.display, 'block', 'the user gets an explicit error');
+    assert.strictEqual(h.doc.getElementById('antifan-comment-modal'), modal, 'modal stays open for the fix');
+
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+});
+
 describe('Element Picker Resolution & Artifact Upgrades', () => {
   it('validates syntax and key functions of ELEMENT_PICKER_SCRIPT', () => {
     assert.doesNotThrow(() => {

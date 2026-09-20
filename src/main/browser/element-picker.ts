@@ -792,6 +792,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     const closeBtn = header.querySelector('#btnModalClose');
     if (closeBtn) {
       closeBtn.onclick = (e) => {
+        if (isSubmitting) return;
         prevent(e);
         cleanupModalListeners();
         try { if (typeof modal.close === 'function') modal.close(); } catch {}
@@ -860,55 +861,102 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     chipRow.style.cssText = 'display:flex;align-items:center;gap:5px;overflow-x:auto;padding:1px 0;box-sizing:border-box;scrollbar-width:none;';
 
     let activeActionChip = null;
+    const QUEUE_PREFIX = '/queue ';
+    const DIRECT_TAG = '[⚡Direct-Edit]';
+    const CORE_TAG = '[🧠Core-Context]';
     const actionChips = [
       { id: 'theme', label: '🎨 Sửa Theme', tag: '[🎨Theme-Fix]', title: 'Áp dụng quy chuẩn theme platform (Haravan/Shopify/Sapo)' },
-      { id: 'direct', label: '⚡ Direct Edit', tag: '[⚡Direct-Edit]', title: 'Sửa trực tiếp, bỏ qua tra Core context (anti-direct)' },
+      { id: 'direct', label: '⚡ Direct Edit', tag: DIRECT_TAG, title: 'Sửa trực tiếp, bỏ qua tra Core context (anti-direct) — mặc định bật' },
       { id: 'speed', label: '🚀 PageSpeed', tag: '[🚀PageSpeed]', title: 'Tối ưu Core Web Vitals & pagespeed' },
     ];
+
+    // Direct Edit is the popup default, so the Core tick starts off and owns the
+    // per-annotation mode tag the pre-hook reads: unticked → Direct Edit, ticked
+    // → Core context retrieval. The other chips never touch this.
+    const coreTick = document.createElement('label');
+    coreTick.id = 'antifanCoreTick';
+    coreTick.title = 'Tra Core context (claims + history) cho annotation này — mặc định tắt';
+    coreTick.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:#0f172a;color:#94a3b8;border:1px solid #1e293b;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:500;cursor:pointer;white-space:nowrap;line-height:1.2;flex-shrink:0;';
+    const coreTickInput = document.createElement('input');
+    coreTickInput.type = 'checkbox';
+    coreTickInput.id = 'antifanCoreTickInput';
+    coreTickInput.checked = false;
+    coreTickInput.style.cssText = 'margin:0;width:11px;height:11px;accent-color:#38bdf8;cursor:pointer;';
+    const coreTickText = document.createElement('span');
+    coreTickText.textContent = 'Core';
+    coreTick.appendChild(coreTickInput);
+    coreTick.appendChild(coreTickText);
+
+    const chipButtons = {};
+    const isDirectMode = () => !coreTickInput.checked;
+    const applyChipState = () => {
+      actionChips.forEach((c) => {
+        const btn = chipButtons[c.id];
+        if (!btn) return;
+        const isOn = c.id === 'direct' ? isDirectMode() : activeActionChip === c.id;
+        btn.style.background = isOn ? '#0284c7' : '#0f172a';
+        btn.style.color = isOn ? '#ffffff' : '#94a3b8';
+        btn.style.borderColor = isOn ? '#38bdf8' : '#1e293b';
+      });
+      coreTick.style.borderColor = isDirectMode() ? '#1e293b' : '#38bdf8';
+    };
+    const stripManagedTags = () => {
+      let body = textarea.value.replace(/^(\\s*\\/queue\\b\\s*)+/gi, '');
+      actionChips.forEach((c) => {
+        body = body.split(c.tag).join('');
+      });
+      body = body.split(CORE_TAG).join('');
+      return body.replace(/\\s+/g, ' ').trim();
+    };
+    // The prompt is always derived from chip state, so a hand-edited tag can
+    // never ship a body-less or double-tagged comment.
+    const buildUserComment = (bodyOverride) => {
+      const body = bodyOverride === undefined ? stripManagedTags() : String(bodyOverride).trim();
+      const tags = [];
+      if (activeActionChip) {
+        const active = actionChips.filter((c) => c.id === activeActionChip)[0];
+        if (active) tags.push(active.tag);
+      }
+      if (isDirectMode()) tags.push(DIRECT_TAG);
+      else tags.push(CORE_TAG);
+      return QUEUE_PREFIX + (tags.length ? tags.join(' ') + ' ' : '') + body;
+    };
+    const syncPromptTags = () => {
+      textarea.value = buildUserComment();
+      applyChipState();
+    };
 
     actionChips.forEach((c) => {
       const btn = document.createElement('button');
       btn.type = 'button';
+      btn.id = 'antifanChip-' + c.id;
       btn.textContent = c.label;
       btn.title = c.title;
       btn.style.cssText = 'background:#0f172a;color:#94a3b8;border:1px solid #1e293b;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all 0.15s ease;line-height:1.2;';
+      chipButtons[c.id] = btn;
 
       btn.onclick = (e) => {
         if (e) {
           e.stopPropagation();
           e.preventDefault();
         }
-        const isCurrentlyActive = activeActionChip === c.id;
-        chipRow.querySelectorAll('button').forEach((b) => {
-          b.style.background = '#0f172a';
-          b.style.color = '#94a3b8';
-          b.style.borderColor = '#1e293b';
-        });
-
-        actionChips.forEach((other) => {
-          textarea.value = textarea.value.replace(other.tag + ' ', '').replace(other.tag, '');
-        });
-
-        if (isCurrentlyActive) {
-          activeActionChip = null;
+        if (c.id === 'direct') {
+          coreTickInput.checked = isDirectMode();
         } else {
-          activeActionChip = c.id;
-          btn.style.background = '#0284c7';
-          btn.style.color = '#ffffff';
-          btn.style.borderColor = '#38bdf8';
-
-          const QUEUE_PREFIX = '/queue ';
-          let val = textarea.value.trim();
-          if (val.startsWith(QUEUE_PREFIX)) {
-            val = val.substring(QUEUE_PREFIX.length).trim();
-          }
-          textarea.value = QUEUE_PREFIX + c.tag + ' ' + val;
+          activeActionChip = activeActionChip === c.id ? null : c.id;
         }
+        syncPromptTags();
         textarea.focus();
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       };
       chipRow.appendChild(btn);
     });
+    coreTickInput.onchange = () => {
+      syncPromptTags();
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    };
+    chipRow.appendChild(coreTick);
     const textarea = document.createElement('textarea');
     textarea.placeholder = 'Mô tả / yêu cầu sửa...';
     textarea.style.cssText = 'width:100%;height:58px;min-height:58px;max-height:200px;background:#060a11;border:1px solid #263b50;border-radius:4px;color:#f8fafc;padding:8px;font-size:11.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box;line-height:1.4;overflow-y:auto;';
@@ -954,10 +1002,11 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     statusMsg.style.cssText = 'display:none;color:#ef4444;font-size:10.5px;padding-top:2px;line-height:1.2;font-weight:500;';
 
     // Footer is deliberately bare: image attach lives on clipboard paste / drag-drop,
-    // so the modal stays compact on small screens. Just the primary action.
+    // so the modal stays compact on small screens. Copy Prompt publishes the same
+    // artifacts but leaves the terminal untouched.
     const footer = document.createElement('div');
-    footer.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;padding-top:1px;';
-    footer.innerHTML = '<button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button>';
+    footer.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:6px;padding-top:1px;';
+    footer.innerHTML = '<button id="btnModalCopy" type="button" style="background:#0f172a;border:1px solid #1e293b;color:#94a3b8;border-radius:4px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;" title="Copy prompt đầy đủ (kèm annotation + ảnh) và không gửi vào terminal">📋 Copy Prompt</button><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button>';
     modal.appendChild(header);
     modal.appendChild(termRow);
     modal.appendChild(chipRow);
@@ -1001,15 +1050,11 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     if (typeof modal.showModal === 'function') {
       try { modal.showModal(); } catch {}
     }
-    // Default prompt prefix: every annotation is queued to the agent (/queue),
-    // so the user only types the actual request. Kept on submit (see doSubmit).
-    const QUEUE_PREFIX = '/queue ';
-    if (!textarea.value) textarea.value = QUEUE_PREFIX;
+    // Default prompt: queued to the agent (/queue) in Direct Edit mode, so the
+    // user only types the actual request and Core stays untraced until ticked.
+    syncPromptTags();
     textarea.focus();
-    const prefixLen = QUEUE_PREFIX.length;
-    if (textarea.value.substring(0, prefixLen) === QUEUE_PREFIX) {
-      textarea.setSelectionRange(prefixLen, prefixLen);
-    }
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     const textareaAutoGrow = () => {
       const scrollH = textarea.scrollHeight;
       if (scrollH > 58) {
@@ -1181,15 +1226,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       }
     };
 
-    const doSubmit = () => {
+    const doSubmit = (options) => {
       if (isSubmitting) return;
+      const copyOnly = !!(options && options.copyOnly);
 
-      let userComment = textarea.value.trim();
-      // Keep the /queue command prefix as the prompt's first token, so the agent
-      // queues the annotation even when the user edited the textarea. Normalize
-      // first: strip all leading /queue tokens so a cleared textarea (value
-      // '/queue' after trim) is validated as empty instead of double-prefixed.
-      let promptBody = userComment.replace(/^(\\s*\\/queue\\b\\s*)+/gi, '').trim();
+      // The textarea carries the mode tags; re-derive the prompt from chip state
+      // so a cleared textarea (/queue + tags only) is still validated as empty
+      // instead of shipping a body-less tagged comment.
+      let promptBody = stripManagedTags();
       let bodyHasContent = promptBody.length > 0;
       if (!bodyHasContent && attachedImages.length === 0) {
         statusMsg.textContent = 'Vui lòng nhập mô tả hoặc đính kèm ảnh trước khi gửi.';
@@ -1200,18 +1244,22 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       if (!bodyHasContent && attachedImages.length > 0) {
         promptBody = 'Kiểm tra phần tử này theo ảnh đính kèm.';
       }
-      userComment = '/queue ' + promptBody;
+      const userComment = buildUserComment(promptBody);
       statusMsg.style.display = 'none';
 
       isSubmitting = true;
       textarea.disabled = true;
       const submitBtn = modal.querySelector('#btnModalSend');
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Đang gửi...';
-        submitBtn.style.opacity = '0.6';
-        submitBtn.style.cursor = 'default';
+      const copyBtn = modal.querySelector('#btnModalCopy');
+      const activeBtn = copyOnly ? copyBtn : submitBtn;
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.textContent = copyOnly ? 'Đang copy...' : 'Đang gửi...';
+        activeBtn.style.opacity = '0.6';
+        activeBtn.style.cursor = 'default';
       }
+      if (copyOnly && submitBtn) submitBtn.disabled = true;
+      if (!copyOnly && copyBtn) copyBtn.disabled = true;
       cleanupModalListeners();
       try {
         // 1. Re-measure fresh rect on submit to eliminate any scroll/layout drift
@@ -1293,6 +1341,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             return chosen;
           })(),
           actionChip: activeActionChip || undefined,
+          copyOnly: copyOnly || undefined,
           attachedImages: attachedImages.slice(0, 6),
           rect: {
             x: Math.round(freshRect.left + window.scrollX),
@@ -1363,9 +1412,19 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           isSubmitting = false;
           updateMultiDock();
         } else {
-          cleanupModalListeners();
-          try { modal.remove(); } catch {}
-          publishPick(pickedItem);
+          const publishNow = () => {
+            cleanupModalListeners();
+            try { modal.remove(); } catch {}
+            publishPick(pickedItem);
+          };
+          // Copy Prompt must resolve its clipboard write before the host replaces
+          // the text with the full prompt (artifact paths included), so the
+          // complete prompt is always the last value written.
+          if (copyOnly && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(userComment).then(publishNow, publishNow);
+          } else {
+            publishNow();
+          }
         }
       } catch (err) {
         console.error('[antifan-inspect] doSubmit error:', err);
@@ -1379,11 +1438,25 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             attachedImages: attachedImages.slice(0, 6),
             timestamp: Date.now(),
             actionChip: activeActionChip || undefined,
+            copyOnly: copyOnly || undefined,
           });
         } catch {}
       }
     };
 
+    const copyPromptBtn = modal.querySelector('#btnModalCopy');
+    if (copyPromptBtn) {
+      copyPromptBtn.onclick = (ev) => {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        doSubmit({ copyOnly: true });
+      };
+      copyPromptBtn.onpointerdown = (ev) => {
+        if (ev) ev.stopPropagation();
+      };
+    }
     const sendBtn = modal.querySelector('#btnModalSend');
     if (sendBtn) {
       sendBtn.onclick = (ev) => {
@@ -1415,6 +1488,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         doSubmit();
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
+        if (isSubmitting) return;
         cleanupModalListeners();
         try { if (typeof modal.close === 'function') modal.close(); } catch {}
         modal.remove();

@@ -85,6 +85,11 @@ export interface AntiFanPickedElement {
   timestamp: number;
   targetSessionId?: string;
   tabId?: string;
+  /**
+   * Annotation was captured for the clipboard only: artifacts are still written,
+   * but the prompt is never typed into the terminal.
+   */
+  copyOnly?: boolean;
 }
 
 export interface ChatToolCall {

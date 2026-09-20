@@ -364,11 +364,7 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('termContext.annotationSessionId = termSelect.value || \'auto\''), 'Picker must persist Auto when explicitly selected');
   });
 
-  it('defaults annotation prompts to the /queue prefix and keeps the editor compact', () => {
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("const QUEUE_PREFIX = '/queue '"), 'Prompt must default to /queue prefix');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("if (!textarea.value) textarea.value = QUEUE_PREFIX"), 'Prefix must be pre-filled on open');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("replace(/^(\\s*\\/queue\\b\\s*)+/gi, '')"), 'Bare and repeated /queue tokens must be normalized before validation');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("userComment = '/queue ' + promptBody"), 'Prompt must always carry exactly one /queue prefix');
+  it('keeps the annotation editor compact above the storefront content', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('width:min(92vw,400px)'), 'Modal width must scale with viewport');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('modal.offsetHeight'), 'Modal position must use measured height');
     const measureIdx = ELEMENT_PICKER_SCRIPT.indexOf('modal.offsetHeight');
