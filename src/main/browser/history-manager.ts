@@ -101,6 +101,7 @@ export class HistoryManager extends EventEmitter {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
     }
+    this.persistArmedAt = 0;
     const filePath = this.getHistoryFilePath();
     try {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -223,6 +224,7 @@ export class HistoryManager extends EventEmitter {
 
     const existing = this.historyMap.get(url);
     if (existing) {
+      if (existing.title === cleanTitle) return;
       existing.title = cleanTitle;
       this.schedulePersist();
     } else {

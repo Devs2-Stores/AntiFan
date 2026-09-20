@@ -8,6 +8,12 @@ import { HistoryManager } from '../../src/main/browser/history-manager';
 describe('HistoryManager (Intelligent Browsing History & Frecency Search)', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-history-test-'));
   const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  // Real timer delay needed because tests verify async disk write coalescing against the filesystem and platform clock.
+  const delay = (ms: number): Promise<void> => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, ms);
+    return promise;
+  };
 
   before(() => {
     process.env.ANTIFAN_CONFIG_DIR = tempDir;
@@ -138,6 +144,104 @@ describe('HistoryManager (Intelligent Browsing History & Frecency Search)', () =
       } finally {
         clearInterval(poll);
       }
+    } finally {
+      timings.PERSIST_QUIET_MS = original.quiet;
+      timings.PERSIST_CEILING_MS = original.ceiling;
+      mgr.persistSync();
+    }
+  });
+
+  it('does not write to disk when title update is unchanged', async () => {
+    const mgr = HistoryManager.getInstance();
+    const timings = HistoryManager as unknown as { PERSIST_QUIET_MS: number; PERSIST_CEILING_MS: number };
+    const original = { quiet: timings.PERSIST_QUIET_MS, ceiling: timings.PERSIST_CEILING_MS };
+    timings.PERSIST_QUIET_MS = 150;
+    timings.PERSIST_CEILING_MS = 2000;
+    mgr.persistSync();
+    try {
+      mgr.clearHistory();
+      const file = path.join(tempDir, 'browser-history.json');
+      mgr.recordVisit('https://example.com/item', 'Sample Title');
+
+      const deadline = Date.now() + 2000;
+      let initialMtime = 0;
+      while (Date.now() < deadline) {
+        if (fs.existsSync(file)) {
+          const content = fs.readFileSync(file, 'utf8');
+          if (content.includes('Sample Title')) {
+            initialMtime = fs.statSync(file).mtimeMs;
+            break;
+          }
+        }
+        await delay(25);
+      }
+      assert.ok(initialMtime > 0, 'initial visit must flush to disk');
+      const initialContent = fs.readFileSync(file, 'utf8');
+
+      let mtime = initialMtime;
+      let extraWrites = 0;
+      const poll = setInterval(() => {
+        const current = fs.statSync(file).mtimeMs;
+        if (current !== mtime) {
+          mtime = current;
+          extraWrites++;
+        }
+      }, 20);
+
+      try {
+        for (let i = 0; i < 5; i++) {
+          mgr.updateTitle('https://example.com/item', 'Sample Title');
+          mgr.updateTitle('https://example.com/item', '  Sample Title  ');
+          await delay(25);
+        }
+
+        await delay(250);
+
+        assert.strictEqual(extraWrites, 0, 'unchanged title updates must not trigger disk writes');
+        assert.strictEqual(fs.statSync(file).mtimeMs, initialMtime, 'file mtime must not change');
+        assert.strictEqual(fs.readFileSync(file, 'utf8'), initialContent, 'file content must remain unchanged');
+      } finally {
+        clearInterval(poll);
+      }
+    } finally {
+      timings.PERSIST_QUIET_MS = original.quiet;
+      timings.PERSIST_CEILING_MS = original.ceiling;
+      mgr.persistSync();
+    }
+  });
+
+  it('debounces a subsequent mutation after persistSync instead of flushing immediately', async () => {
+    const mgr = HistoryManager.getInstance();
+    const timings = HistoryManager as unknown as { PERSIST_QUIET_MS: number; PERSIST_CEILING_MS: number };
+    const original = { quiet: timings.PERSIST_QUIET_MS, ceiling: timings.PERSIST_CEILING_MS };
+    timings.PERSIST_QUIET_MS = 150;
+    timings.PERSIST_CEILING_MS = 300;
+    mgr.persistSync();
+    try {
+      mgr.clearHistory();
+      const file = path.join(tempDir, 'browser-history.json');
+
+      mgr.recordVisit('https://example.com/initial', 'Initial Visit');
+      await delay(500);
+
+      mgr.persistSync();
+      const syncMtime = fs.statSync(file).mtimeMs;
+      const syncContent = fs.readFileSync(file, 'utf8');
+      assert.ok(syncContent.includes('Initial Visit'));
+
+      mgr.recordVisit('https://example.com/after-sync', 'After Sync Visit');
+
+      await delay(40);
+      const earlyMtime = fs.statSync(file).mtimeMs;
+      const earlyContent = fs.readFileSync(file, 'utf8');
+      assert.strictEqual(earlyMtime, syncMtime, 'mutation after persistSync must debounce rather than flush immediately');
+      assert.strictEqual(earlyContent, syncContent, 'file content must not be updated before quiet period elapses');
+
+      await delay(250);
+      const debouncedMtime = fs.statSync(file).mtimeMs;
+      const debouncedContent = fs.readFileSync(file, 'utf8');
+      assert.notStrictEqual(debouncedMtime, syncMtime, 'file mtime must update after quiet window elapses');
+      assert.ok(debouncedContent.includes('After Sync Visit'), 'file must include the debounced mutation');
     } finally {
       timings.PERSIST_QUIET_MS = original.quiet;
       timings.PERSIST_CEILING_MS = original.ceiling;
