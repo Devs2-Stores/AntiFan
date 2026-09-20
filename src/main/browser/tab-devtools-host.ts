@@ -1672,61 +1672,27 @@ export class TabDevToolsHost {
       try {
         const captureAction = async (): Promise<string> => {
           this.assertCaptureSurfacePresent(targetId, effectivePane, targetPaneView, rect ? 'clip' : 'viewport', isOffscreenTarget);
-          const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
-            let timer: NodeJS.Timeout | undefined;
-            const timeoutPromise = new Promise<T>((resolve) => {
-              timer = setTimeout(() => resolve(fallback), ms);
-            });
-            p.catch(() => {});
-            return Promise.race([p, timeoutPromise]).finally(() => {
-              clearTimeout(timer);
-            });
-          };
-        // Full-page requests are delegated to captureVerificationScreenshot above;
-        // this helper is strictly viewport/clip.
-        if (isForeground || isOffscreenTarget) {
-          // Tier 1: Fast webContents.capturePage() with 600ms race.
-          // Foreground tabs only to avoid compositor surface bleed; offscreen agent
-          // tabs (Dual-Plane) also use capturePage because their offscreen-rendered
-          // WebContents has no attached compositor surface for CDP fromSurface.
-          const capturePageTier = async (): Promise<string> => {
-            const img = await withTimeout(wc.capturePage(rect), 600, null);
-            if (!img) return '';
-            if (typeof img.isEmpty === 'function' && !img.isEmpty()) {
-              if (format === 'jpeg' && typeof img.toJPEG === 'function') {
-                return img.toJPEG(quality).toString('base64');
-              }
-              return img.toPNG().toString('base64');
-            }
-            if (typeof img.toPNG === 'function') {
-              if (format === 'jpeg' && typeof img.toJPEG === 'function') {
-                const jpegBuf = img.toJPEG(quality);
-                if (jpegBuf.length > 0) return jpegBuf.toString('base64');
-              }
-              const pngBuf = img.toPNG();
-              if (pngBuf.length > 0) {
-                return pngBuf.toString('base64');
-              }
-            }
-            return '';
-          };
-          const tier1Result = await capturePageTier();
-          if (tier1Result && tier1Result.length > 0) {
-            return tier1Result;
-          }
-        }
 
-        // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (4000ms race).
-        // `fromSurface` is always true here, and must stay that way: Chromium's native-window
-        // snapshot path (fromSurface:false) dereferences the target's native window, which an
-        // offscreen (OSR) agent tab does not have, and that dereference kills the browser
-        // process (measured: exception 0xC0000005 at address 0x0, dumps stop in
-        // WindowSnapshotReachedScreen -> GrabNativeWindowSnapshot) instead of failing the call.
-        try {
-          const cdpTask = async (): Promise<string | null> => {
-            await this.sendCdpCommand(wc, 'Page.enable');
-            await this.sendCdpCommand(wc, 'DOM.enable').catch(() => {});
-            await this.sendCdpCommand(wc, 'DOM.getDocument', { depth: 1 }).catch(() => {});
+          // Never Promise.race-abandon `capturePage()`. Chromium will not cancel that
+          // raster: the renderer stays alive (eval/DOM) while the guest canvas paints
+          // only the view's `#ffffff` background until the next navigation. Measured
+          // on the Levents MCP tab: switchTab's DirectComposition recycle does not
+          // restart BeginFrame once capturePage is wedged; F5 does. Share one in-flight
+          // raster (offscreen OSR has no CDP fromSurface) and otherwise use CDP.
+          if (!rect && (isForeground || isOffscreenTarget)) {
+            const raster = await this.captureNativeViewportRaster(wc, format, quality, 600);
+            if (raster.bytes && raster.bytes.length > 0) {
+              return raster.bytes.toString('base64');
+            }
+          }
+
+          // `fromSurface` is always true: Chromium's native-window snapshot path
+          // (fromSurface:false) dereferences the target's native window, which an
+          // offscreen (OSR) agent tab does not have, and that dereference kills the
+          // browser process (measured: exception 0xC0000005 at address 0x0, dumps stop
+          // in WindowSnapshotReachedScreen -> GrabNativeWindowSnapshot).
+          try {
+            await this.sendCdpCommand(wc, 'Page.enable', {}, 4_000);
             const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
               format,
               quality: format === 'jpeg' ? quality : undefined,
@@ -1735,33 +1701,18 @@ export class TabDevToolsHost {
               clip: rect
                 ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
                 : undefined,
-            });
-            return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
-          };
-          const cdpResult = await withTimeout(cdpTask(), 4000, null);
-          if (cdpResult && cdpResult.length > 0) {
-            return cdpResult;
+            }, 4_000);
+            if (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) {
+              return cdpRes.data;
+            }
+          } catch (err) {
+            try { this.ctx.reassertPresentedView?.(); } catch {}
+            throw this.toCaptureError(err, `Page.captureScreenshot (viewport) on tab '${targetId}'`);
           }
-        } catch {}
 
-        // There is deliberately no native-view fallback tier here. Chromium's
-        // `fromSurface:false` snapshot dereferences the target's native window, and an
-        // offscreen (OSR) agent tab has none, so the browser process dies with an access
-        // violation (measured: exception 0xC0000005 at address 0x0; production dumps stop
-        // at WindowSnapshotReachedScreen -> GrabNativeWindowSnapshot). A target without a
-        // compositor surface must fail as an empty capture, never as a process crash.
-
-        // If all tiers yielded empty string, do a fast retry after 150ms
-        try {
-          await new Promise((r) => setTimeout(r, 150));
-          const retryImg = await withTimeout(wc.capturePage(rect), 1500, null);
-          if (retryImg && typeof retryImg.isEmpty === 'function' && !retryImg.isEmpty()) {
-            return format === 'jpeg' ? retryImg.toJPEG(quality).toString('base64') : retryImg.toPNG().toString('base64');
-          }
-        } catch {}
-
-        return '';
-      };
+          try { this.ctx.reassertPresentedView?.(); } catch {}
+          return '';
+        };
 
       if (!isForeground && !isOffscreenTarget && this.ctx.runWithAttachedTabView && targetPaneView) {
         return await this.ctx.runWithAttachedTabView(

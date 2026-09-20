@@ -262,4 +262,33 @@ describe('Presented view invariant', () => {
     assert.strictEqual(presented.currentBounds().width, laidOut.width, 'recycle must not mutate the already-laid-out width');
     assert.ok(presented.invalidateCalls >= 1, 'the view must still be invalidated after the recycle');
   });
+
+  it('a leaked attach-for-capture count must not skip recycling the presented compositor layer', async () => {
+    const presented = createTestTab('tab-visible');
+    const { host, children } = createPresentedHost({
+      tabs: [presented],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+    let removes = 0;
+    let adds = 0;
+    const origRemove = host.window.contentView.removeChildView.bind(host.window.contentView);
+    const origAdd = host.window.contentView.addChildView.bind(host.window.contentView);
+    host.window.contentView.removeChildView = (view: unknown) => {
+      removes += 1;
+      origRemove(view);
+    };
+    host.window.contentView.addChildView = (view: unknown, index?: number) => {
+      adds += 1;
+      origAdd(view, index);
+    };
+
+    await host.runWithAttachedTabView(presented.tab.view, async () => {
+      host.reassertPresentedView();
+    });
+
+    assert.deepStrictEqual(children, [presented.tab.view], 'the presented view must remain the only child');
+    assert.ok(removes >= 1 && adds >= 1, 'leaked temp-attach must not skip DirectComposition recycle');
+  });
+
 });

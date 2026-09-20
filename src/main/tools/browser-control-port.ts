@@ -7255,7 +7255,17 @@ export class BrowserControlPort {
         }
       }
       if (!tabExists(candidate)) {
-        throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
+        const boundId = target?.tabId && target.tabId.trim().length > 0 ? target.tabId.trim() : '';
+        if (boundId && candidate === boundId) {
+          const failoverTab = this.host.getFailoverTargetTab ? this.host.getFailoverTargetTab(boundId) : undefined;
+          if (failoverTab && tabExists(failoverTab)) {
+            candidate = failoverTab;
+          } else {
+            throw new CapabilityError('TARGET_STALE', `Target tab no longer exists: ${explicitTabId}`);
+          }
+        } else {
+          throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
+        }
       }
       if ((operationType === 'write' || operationType === 'lifecycle') && target?.tabId && target.tabId.trim().length > 0 && candidate !== target.tabId.trim()) {
         const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(target.tabId.trim(), candidate) : false;

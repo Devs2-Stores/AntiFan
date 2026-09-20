@@ -7,6 +7,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 ## [v1.3.6] - Unreleased
 
 
+### Sửa lỗi — Tab MCP trắng dù DOM sống; screenshot timeout / TARGET_BUSY_DRAINING
+- **Triệu chứng (user, tab `46e999f1` levents.asia, không reload)**: OS screenshot pane trắng xóa; URL/title đúng; `document.readyState=complete`, 5587 node, innerText storefront. YouTube tab cạnh đó paint bình thường. `switchTab` recycle **không** lành. F5 thì hết.
+- **Nguyên nhân (đo trên app sống)**: `captureScreenshot` viewport `Promise.race(capturePage, 600ms)` **bỏ** promise. Chromium không hủy raster → compositor WebContentsView chết, canvas guest `#ffffff` hiện ra. CDP timeout tiếp theo = `CAPTURE_TIMEOUT` / `TARGET_BUSY_DRAINING`. Recycle DirectComposition không hủy `capturePage` đang treo. Session MCP bind tab đã chết (`cd3887e0`) trả `CAPABILITY_NOT_FOUND` thay vì `TARGET_STALE`.
+- **Sửa**: viewport capture dùng **một** `captureNativeViewportRaster` (không race-abandon, không retry `capturePage` thứ hai); timeout → CDP rồi `reassertPresentedView`. `reassertPresentedView` recycle tab đang trình bày **kể cả** khi attach-for-capture leak. Bound tab chết + explicit id trùng bound → failover / `TARGET_STALE`.
+- **Bằng chứng**: Computer Use YouTube paint, Levents vẫn trắng sau bounce (chứng recycle không lành hung raster). Unit: `tab-devtools-host` 39/39 kể cả test 34 (đúng 1 `capturePage`); `native-tab-host-presented-view` 5/5 (leaked temp-attach vẫn recycle). Tab đang trắng **vẫn** cần **một** navigation để gỡ raster Chromium đã treo — code mới chặn wedge lần sau; process đang chạy chưa load bản này.
+
+
 ### Sửa lỗi — Tab trắng/đen sau MCP / DevTools dock dù DOM còn (F5 thì hết)
 - **Triệu chứng (user báo kèm ảnh + Computer Use trên app sống)**: `bagamuioto.myharavan.com` vẽ **trắng xóa**; DevTools `mode: 'bottom'` → pane **đen** (`frameBackdropView` `#060910`) trong khi Elements vẫn thấy DOM; **đóng DevTools → trắng** (canvas `#ffffff`, không paint). F5 thì hết.
 - **Nguyên nhân (đo trên cửa sổ `[DEV]` pid đang chạy)**: renderer sống, compositor WebContentsView chết. Dock bottom chiếm guest surface. `invalidate()` không sinh BeginFrame. Round-trip `getBounds()` ±1px **phá** visual. F5 lành vì `did-finish-load` → `updateLayout()`.

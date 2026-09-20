@@ -40,7 +40,7 @@ interface MockTabRecord {
     webContents: {
       isDestroyed: () => boolean;
       executeJavaScript: (script: string, ...args: unknown[]) => Promise<unknown>;
-      capturePage: (rect?: unknown) => Promise<{ isEmpty: () => boolean; toPNG: () => { toString: (fmt: string) => string }; toDataURL: () => string; getSize: () => { width: number; height: number }; crop: (r: unknown) => unknown }>;
+      capturePage: (rect?: unknown) => Promise<{ isEmpty: () => boolean; toPNG: () => Buffer; toJPEG?: () => Buffer; toDataURL: () => string; getSize: () => { width: number; height: number }; crop: (r: unknown) => unknown }>;
       findInPage: (text: string, options?: unknown) => void;
       stopFindInPage: (action: string) => void;
       loadURL: (url: string) => Promise<void>;
@@ -56,6 +56,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const tabs = new Map<string, MockTabRecord>();
 
     const mockWc = {
+      id: 1,
       isDestroyed: () => false,
       executeJavaScript: async (script: string) => {
         scriptsExecuted.push(script);
@@ -69,10 +70,11 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       },
       capturePage: async () => ({
         isEmpty: () => false,
-        toPNG: () => ({ toString: () => 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' }),
-        toDataURL: () => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-        getSize: () => ({ width: 100, height: 100 }),
-        crop: () => ({ isEmpty: () => false, toPNG: () => ({ toString: () => 'cropped' }) }),
+        toPNG: () => makePng(1, 1),
+        toJPEG: () => makePng(1, 1),
+        toDataURL: () => `data:image/png;base64,${makePng(1, 1).toString('base64')}`,
+        getSize: () => ({ width: 1, height: 1 }),
+        crop: () => ({ isEmpty: () => false, toPNG: () => makePng(1, 1) }),
       }),
       findInPage: (text: string) => {
         scriptsExecuted.push(`findInPage:${text}`);
@@ -1573,4 +1575,47 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(envelope.backend, 'cdp');
     assert.ok(envelope.data.length > 0);
   });
+
+  it('34. viewport captureScreenshot must not stack a second capturePage after a hung raster', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    let capturePageCalls = 0;
+    let reasserts = 0;
+    ctx.reassertPresentedView = () => { reasserts += 1; };
+    const hung = new Promise<never>(() => {});
+    const mockWc = {
+      id: 901,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      executeJavaScript: async () => undefined,
+      capturePage: () => {
+        capturePageCalls += 1;
+        return hung;
+      },
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) => {
+          if (method === 'Page.captureScreenshot') {
+            return Promise.reject(new Error('CDP command Page.captureScreenshot timed out after 4000ms'));
+          }
+          return Promise.resolve({});
+        },
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+
+    await assert.rejects(
+      () => devTools.captureScreenshot(undefined, 'tab-1', 'desktop'),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+    );
+    assert.strictEqual(capturePageCalls, 1, 'a hung capturePage must be shared, never raced-and-retried');
+    assert.ok(reasserts >= 1, 'a timed-out viewport capture must reassert the presented view');
+  });
+
 });

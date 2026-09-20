@@ -3100,13 +3100,16 @@ export class NativeTabHost extends EventEmitter {
       // to lay it out before its renderer can commit a frame.
       this.layOutDetachedView(activeTab.view);
       recordLifecycleEvent('tabhost.presentedViewReattached', { tabId: this.activeTabId });
-    } else if (!this.isTemporarilyAttachedView(activeTab.view)) {
+    } else {
+      // Recycle even when an attach-for-capture count is held. A leaked or hung
+      // capture used to skip this and leave the user on a white DirectComposition
+      // canvas until F5. Recycle is remove+add — the view stays attached.
       this.recyclePresentedLayer(activeTab.view, false);
     }
     if (activeTab.state.splitMode && activeTab.mobileView?.webContents && !activeTab.mobileView.webContents.isDestroyed()) {
       if (!this.isTabViewAttached(activeTab.mobileView)) {
         this.attachTabView(activeTab.mobileView, true);
-      } else if (!this.isTemporarilyAttachedView(activeTab.mobileView)) {
+      } else {
         this.recyclePresentedLayer(activeTab.mobileView, true);
       }
     }
@@ -3125,12 +3128,12 @@ export class NativeTabHost extends EventEmitter {
    * Drop and re-insert a presented view so Windows DirectComposition allocates a
    * new visual. `invalidate()` on an already-attached occluded view does not
    * restart BeginFrame; a getBounds 1px kick destroyed the visual instead
-   * (black pane, backdrop showing through). Skip a view an in-flight capture
-   * is holding — the caller still needs that surface.
+   * (black pane, backdrop showing through). A hung capturePage raster is a
+   * different death mode (navigation heals it; recycle does not) — do not skip
+   * recycle because an attach-for-capture count leaked.
    */
   private recyclePresentedLayer(view: WebContentsView | null | undefined, isMobile: boolean): void {
     if (!view || !this.window || !this.window.contentView) return;
-    if (this.isTemporarilyAttachedView(view)) return;
     try {
       if (this.isTabViewAttached(view)) {
         this.window.contentView.removeChildView(view);
