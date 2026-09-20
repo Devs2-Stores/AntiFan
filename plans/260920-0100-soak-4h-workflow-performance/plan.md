@@ -785,6 +785,17 @@ currency that decides it. Only this run can.
   window label above: a field whose name asserts a scope it does not measure. The verdict
   and any later comparison must read it as "active minutes since start".
 
+### Status of each finding above (what carries it now, so it is not re-litigated)
+
+| finding | state | carried by |
+|---|---|---|
+| latency gate not phase-scoped | **applied** | `metrics.switchLatencyMs` is the workload series (`scripts/benchmark-real-soak-8h.cjs:1131`) and the gate reads that series (`:188-194`, `:227`); `switchLatencyAllPhasesMs` (`:1137`) keeps the all-phase reading beside it for a reader, and `max` is reported rather than graded |
+| slow tail is not destination-specific | **analysis** | `plans/reports/runtime-verification/switch-tail-spike-analysis-20260920.md`; `metrics.switchLatencyByTab` prints the per-tab table |
+| the scrape-collision explanation is refuted | **applied** | the comment above `switchSamples` states what the data shows instead of a mechanism it contradicts |
+| `calculatePerProcessSlopes` dropped its window | **applied** | `stats.processSlopeWindowStart/End` (`:1171-1172`); a window that cannot be derived yields an empty series rather than a whole-run fit wearing a workload label; pinned by `test/unit/soak-payload-contract.test.mjs` |
+| non-WebContents rows report an empty `role` | **applied** | role falls back to `type` in the series mapping (`:546`, `:618-624`, `:640`) and in the CPU attribution (`:817`, `:829`); pinned by the "role is never empty" cases (`soak-payload-contract.test.mjs:355-396`) and `soak-analyzer-cpu.test.mjs:213` |
+| `activeWorkloadMinutes` measured the wrong span | **applied** | `stats.activeWorkloadMinutes` is now the workload samples' own sleep-adjusted span (`:792`), the old reading keeps the name that says what it measures (`stats.activeMinutesSinceStart`), and the source field was renamed to match (`:1363`, `:1668`); pinned by the payload-contract cases and readable mid-run on `real-soak-8h-legs4h-checkpoint.json` (`activeWorkloadMinutes: 29.03` beside `activeMinutesSinceStart: 60.01`) |
+
 ## Committed-growth finding: the chrome renderer owns it (68- and 129-minute reads)
 
 Across the first **68 workload minutes** (69 frames), exactly one app process grows in
