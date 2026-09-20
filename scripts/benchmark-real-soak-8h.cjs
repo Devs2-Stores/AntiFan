@@ -537,14 +537,18 @@ function createBenchmarkStreamIngest() {
         samples.push({
           at,
           name: String(metric.name || ''),
-          processes: metric.extra.processes.map((p) => ({
-            pid: Number(p.pid),
-            type: String(p.type || ''),
-            role: String(p.role || ''),
-            url: String(p.url || ''),
-            workingSetMB: Number((Number(p.workingSetKB || 0) / 1024).toFixed(2)),
-            privateBytesMB: Number((Number(p.privateBytesKB || 0) / 1024).toFixed(2)),
-          })),
+          processes: metric.extra.processes.map((p) => {
+            const type = String(p.type || '');
+            const role = String(p.role || '');
+            return {
+              pid: Number(p.pid),
+              type,
+              role: role || type,
+              url: String(p.url || ''),
+              workingSetMB: Number((Number(p.workingSetKB || 0) / 1024).toFixed(2)),
+              privateBytesMB: Number((Number(p.privateBytesKB || 0) / 1024).toFixed(2)),
+            };
+          }),
         });
       }
     },
@@ -604,19 +608,20 @@ function calculatePerProcessSlopes(processSamples, windowStart, windowEnd) {
   // series is the honest answer: the two finite-checks below would skip their bounds
   // and hand back a whole-run slope in a field that reads as windowed, which is how
   // an early checkpoint printed 8 populated slopes beside an empty `activeWorkingSetMB`.
-  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd)) return [];
+  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd) || windowStart > windowEnd) return [];
   const byPid = new Map();
   for (const sample of processSamples) {
-    if (Number.isFinite(windowStart) && sample.at < windowStart) continue;
-    if (Number.isFinite(windowEnd) && sample.at > windowEnd) continue;
+    if (sample.at < windowStart || sample.at > windowEnd) continue;
     for (const proc of sample.processes) {
       if (!Number.isInteger(proc.pid) || proc.pid <= 0) continue;
       let record = byPid.get(proc.pid);
+      const effectiveRole = proc.role || proc.type || '';
       if (!record) {
-        record = { pid: proc.pid, type: proc.type, role: proc.role, url: proc.url, points: [] };
+        record = { pid: proc.pid, type: proc.type, role: effectiveRole, url: proc.url, points: [] };
         byPid.set(proc.pid, record);
       }
       if (proc.role) record.role = proc.role;
+      else if (!record.role && proc.type) record.role = proc.type;
       if (proc.url) record.url = proc.url;
       record.points.push({ at: sample.at, mb: proc.workingSetMB, privateMb: proc.privateBytesMB });
     }
@@ -632,7 +637,7 @@ function calculatePerProcessSlopes(processSamples, windowStart, windowEnd) {
     slopes.push({
       pid: record.pid,
       type: record.type,
-      role: record.role,
+      role: record.role || record.type || '',
       url: record.url,
       samples: record.points.length,
       firstWorkingSetMB: first.mb,
@@ -805,7 +810,12 @@ function buildReportPayload(meta) {
   const processRoles = new Map();
   for (const s of processSeries) {
     for (const p of s.processes || []) {
-      if (p.role) processRoles.set(p.pid, { role: p.role, type: p.type });
+      const existing = processRoles.get(p.pid);
+      const effectiveType = p.type || existing?.type || '';
+      const hasWebRole = p.role && p.role !== p.type;
+      const existingHasWebRole = existing && existing.role && existing.role !== existing.type;
+      const effectiveRole = hasWebRole ? p.role : (existingHasWebRole ? existing.role : (p.role || effectiveType));
+      processRoles.set(p.pid, { role: effectiveRole, type: effectiveType });
     }
   }
   const attachCpuRoles = (cpu) =>
@@ -813,7 +823,12 @@ function buildReportPayload(meta) {
       ? null
       : {
           ...cpu,
-          perProcess: cpu.perProcess.map((row) => ({ ...row, role: processRoles.get(row.pid)?.role || '', type: processRoles.get(row.pid)?.type || '' })),
+          perProcess: cpu.perProcess.map((row) => {
+            const mapped = processRoles.get(row.pid);
+            const type = mapped?.type || '';
+            const role = mapped?.role || type || '';
+            return { ...row, role, type };
+          }),
         };
   // The CPU counters ride on the harness's own per-minute tree-walk rows (`samples`, via
   // `sampleMetrics().cpuByPid`), and NOT on the app's telemetry rows (`processSeries`), which carry
@@ -832,10 +847,12 @@ function buildReportPayload(meta) {
   );
   const cpuSource = `samples.cpuByPid (${cpuSeries.length} of ${samples.length} row(s) carry counters)`;
   const withCpuSource = (cpu) => (cpu === null ? null : { ...cpu, source: cpuSource });
+  const workloadWindowStart = activeSamples.length > 0 ? activeSamples[0].at : null;
+  const workloadWindowEnd = activeSamples.length > 0 ? activeSamples[activeSamples.length - 1].at : null;
   const perProcessSlopes = calculatePerProcessSlopes(
     processSeries,
-    activeSamples.length > 0 ? activeSamples[0].at : NaN,
-    activeSamples.length > 0 ? activeSamples[activeSamples.length - 1].at : NaN
+    workloadWindowStart ?? NaN,
+    workloadWindowEnd ?? NaN
   );
   const slowSwitchSamples = (Array.isArray(switchSamples) ? switchSamples : [])
     .slice()
@@ -844,9 +861,12 @@ function buildReportPayload(meta) {
   // The full series, not only its slowest ten: a stall that is indifferent to what the
   // run was doing (idle or 40 lines/s of PTY output) and a stall caused by a collision
   // with that output produce the same top-ten list. Only the per-leg and per-phase counts
-  // separate them, and only the whole series carries them. `at` is kept as the raw
-  // wall-clock stamp so a later reader can test a cadence (the harness's own 60 s scrape,
-  // the fixture tick) against the tail instead of guessing at one.
+  // separate them, and only the whole series carries them. The candidate hypothesis that
+  // the tail is caused by the harness's own per-minute process-table scrape was tested
+  // and refuted: exactly 1 of the 10 slowest switches sat within 3 s of a scrape and it was
+  // the smallest of them (17.0 ms), while the three worst were 3.2 s, 29.3 s, and 43.0 s away.
+  // `at` is kept as the raw wall-clock stamp so attribution is computed from measured counts
+  // rather than argued from a mechanism the data contradicts.
   const switchSeries = (Array.isArray(switchSamples) ? switchSamples : []).slice(0, SWITCH_SAMPLE_CAP);
   const switchSamplesDropped = (Array.isArray(switchSamples) ? switchSamples.length : 0) - switchSeries.length;
   // The bisect's answer. Each leg is fitted to its own observed window, and the rows are
@@ -857,7 +877,8 @@ function buildReportPayload(meta) {
   const legSlopes = [];
   for (const leg of Array.isArray(legs) ? legs : []) {
     const from = leg.observedFrom ?? leg.startAt;
-    const to = leg.observedTo ?? leg.endAt;
+    const isOpen = leg.observedTo === null || leg.observedTo === undefined;
+    const to = isOpen ? leg.endAt : leg.observedTo;
     const rows = calculatePerProcessSlopes(processSeries, from, to).filter(
       (row) => typeof row.slopePrivateMBPerMin === 'number'
     );
@@ -868,18 +889,38 @@ function buildReportPayload(meta) {
     const legCpu = withCpuSource(attachCpuRoles(calculateCpuDeltas(cpuSeries, from, to)));
     const legBurstLines = Number.isFinite(leg.bursts) ? leg.bursts * leg.burstLines : null;
     const legSwitchCount = switchSeries.filter((s) => s.leg === `${leg.name}#${leg.ordinal}`).length;
+    let observedMinutes;
+    if (isOpen) {
+      let lastFitStamp = null;
+      for (const s of processSeries) {
+        if (Number.isFinite(s.at) && s.at >= from && s.at <= to) {
+          if (lastFitStamp === null || s.at > lastFitStamp) lastFitStamp = s.at;
+        }
+      }
+      for (const s of cpuSeries) {
+        if (Number.isFinite(s.at) && s.at >= from && s.at <= to) {
+          if (lastFitStamp === null || s.at > lastFitStamp) lastFitStamp = s.at;
+        }
+      }
+      observedMinutes = lastFitStamp !== null && lastFitStamp >= from
+        ? Number(((lastFitStamp - from) / 60000).toFixed(2))
+        : 0;
+    } else {
+      observedMinutes = Number(((to - from) / 60000).toFixed(2));
+    }
     legSlopes.push({
       name: leg.name,
       // Carried so a reader can join this row back to the switch series, whose rows are
       // tagged `name#ordinal` — without it the join has to be guessed from the name.
       ordinal: leg.ordinal ?? null,
+      open: isOpen,
       burstLines: leg.burstLines,
       burstIntervalMs: leg.burstIntervalMs,
       startAt: leg.startAt,
       endAt: leg.endAt,
       observedFrom: leg.observedFrom ?? null,
       observedTo: leg.observedTo ?? null,
-      observedMinutes: Number(((to - from) / 60000).toFixed(2)),
+      observedMinutes,
       bursts: leg.bursts ?? null,
       switchCount: legSwitchCount,
       burstLinesObserved: legBurstLines,
@@ -1127,8 +1168,8 @@ function buildReportPayload(meta) {
         appPrivateMaxPid: privateRanked[0]?.pid ?? null,
         // A slope is only readable with the window it was fitted to, and an empty series
         // here means no workload samples existed — not a flat run.
-        processSlopeWindowStart: perProcessSlopes[0]?.windowStart ?? null,
-        processSlopeWindowEnd: perProcessSlopes[0]?.windowEnd ?? null,
+        processSlopeWindowStart: workloadWindowStart ?? null,
+        processSlopeWindowEnd: workloadWindowEnd ?? null,
         // What the app-scoped walk refused, so a smaller footprint is auditable rather
         // than assumed to be a better one.
         refusedProcessCount: samples[samples.length - 1]?.refusedProcessCount ?? 0,
@@ -1169,6 +1210,7 @@ function buildReportPayload(meta) {
     })(),
     samples,
     processSeries,
+    historySamples: historyRows,
     legSlopes,
     slowSwitchSamples,
     switchSamples: switchSeries,
@@ -1577,9 +1619,12 @@ async function main() {
   // leg reported 0 observed bursts — which then priced the whole run's CPU per line against a
   // zero denominator (null), silently, on every bisect run.
   let activeLegEntry = null;
-  const enterLeg = (leg, at) => {
+  const closeOpenLeg = (at) => {
     const open = legTimeline[legTimeline.length - 1];
     if (open && open.observedTo === null) open.observedTo = at;
+  };
+  const enterLeg = (leg, at) => {
+    closeOpenLeg(at);
     // Ordinal, because a bisect may return to a regime it already ran
     // (`baseline,burst4x,baseline`) and a name alone would merge legs 1 and 3 in every
     // table keyed by leg.
@@ -1609,6 +1654,7 @@ async function main() {
     }
     if (childExitedPrematurely) {
       console.error(`[soak] Aborting soak loop early due to child process exit (code: ${childExitCode})`);
+      closeOpenLeg(Date.now());
       stateMeta.finishedAt = new Date().toISOString();
       stateMeta.status = 'failed';
       stateMeta.error = `Child process exited unexpectedly with code ${childExitCode}`;
@@ -1626,7 +1672,13 @@ async function main() {
     if (activeLegKey !== activeLegName) {
       activeLegName = activeLegKey;
       activeLegEntry = null;
-      activeLegLabel = activeLeg ? enterLeg(activeLeg, now) : null;
+      if (activeLeg) {
+        activeLegLabel = enterLeg(activeLeg, now);
+        nextBurstTime = now + (activeLeg ? activeLeg.burstIntervalMs : BURST_INTERVAL_MS);
+      } else {
+        activeLegLabel = null;
+        closeOpenLeg(workloadEndTime);
+      }
     }
     if (currentPhase === 'recovery') {
       await performRecoveryTeardown('Phase 3 Recovery');
@@ -1786,9 +1838,12 @@ async function main() {
     stateMeta.finishedAt = new Date().toISOString();
     stateMeta.orphanPids = orphanPids;
     stateMeta.processQuerySuccess = processQuerySuccess;
+    // The loop's counters are live variables and the last checkpoint may be a full interval
+    // old, so the final payload must read them here or it under-reports the run it grades.
     stateMeta.requestCount = requestCount;
     stateMeta.switches = switches;
     stateMeta.bursts = bursts;
+    closeOpenLeg(executionError || childExitedPrematurely ? Math.min(Date.now(), workloadEndTime) : workloadEndTime);
     stateMeta.burstsByPhase = { ...burstsByPhase };
     stateMeta.reloads = reloads;
     stateMeta.terminalEventCount = terminalEventCount;

@@ -311,6 +311,22 @@ function printPerPidFloor(label, key = 'privateBytesMB') {
   const sumFloor = floorSeries(sum, k);
   const appSum = lsq(sumFloor, (sumFloor.length - 1) * perFrameMin);
   console.log(`  app-only Tab sum: ${mb(sumFloor[0])} -> ${mb(sumFloor[sumFloor.length - 1])} floor = ${mb(appSum)} MB/min across ${tabs.size} app Tab processes`);
+  if (key === 'privateBytesMB') {
+    const bound = 0.15;
+    const maxTab = ranked.find((r) => r.type === 'Tab');
+    const maxSlope = maxTab ? maxTab.floorSlope : NaN;
+    const maxBreached = Number.isFinite(maxSlope) && maxSlope > bound;
+    const sumBreached = Number.isFinite(appSum) && appSum > bound;
+    console.log(
+      `  deciding reading: per-process max = ${mb(maxSlope)} MB/min (pid ${maxTab ? maxTab.pid : 'n/a'}` +
+        `${maxTab?.role ? ` ${maxTab.role}` : maxTab?.url ? ` ${maxTab.url}` : ''})` +
+        ` [bound ${bound} MB/min: ${maxBreached ? 'BREACH' : 'OK'}]` +
+        ` | sum = ${mb(appSum)} MB/min [bound ${bound} MB/min: ${sumBreached ? 'BREACH' : 'OK'}]` +
+        (maxBreached && !sumBreached
+          ? ' — SUM MASKS BREACH (two flat/falling renderers mask the growing one; per-process max decides)'
+          : ''),
+    );
+  }
   const gate = report.metrics ? report.metrics.rendererActiveSlopeMBPerMin : undefined;
   if (key === 'workingSetMB' && Number.isFinite(gate)) {
     const diluted = appSum - gate;
@@ -574,7 +590,17 @@ function cpuFrames(from, to) {
 function roleByPid() {
   const map = new Map();
   for (const f of frames) for (const p of f.processes) if (p.role) map.set(String(p.pid), p.role);
+  if (report.rootPid != null && !map.has(String(report.rootPid))) {
+    map.set(String(report.rootPid), 'browser (main)');
+  }
   return map;
+}
+
+function roleForPid(pid, roles) {
+  const r = roles ? roles.get(String(pid)) : null;
+  if (r) return r;
+  if (report.rootPid != null && Number(pid) === Number(report.rootPid)) return 'browser (main)';
+  return 'unattributed';
 }
 
 const s3 = (v) => (Number.isFinite(v) ? v.toFixed(3) : 'n/a');
@@ -662,7 +688,7 @@ function printCpu() {
         s3(d.perMinute).padEnd(9) +
         String(d.frames).padEnd(8) +
         `${d.notAttributable.length} / ${d.unreadable.length} / ${d.reset.length}`.padEnd(40) +
-        (top ? `${roles.get(String(top[0])) || 'unattributed'} pid=${top[0]} ${s3(top[1])}s` : 'none'),
+        (top ? `${roleForPid(top[0], roles)} pid=${top[0]} ${s3(top[1])}s` : 'none'),
     );
     if (per1000 !== null) {
       console.log(
@@ -751,8 +777,16 @@ function deriveScheduledLegs() {
   const planned = Array.isArray(cfg.legs) ? cfg.legs : [];
   const startedAt = Date.parse(report.startedAt);
   const warmup = Number(cfg.warmupMinutes);
-  if (planned.length < 2 || !Number.isFinite(startedAt) || !Number.isFinite(warmup)) return [];
-  let cursor = startedAt + warmup * 60_000;
+  if (planned.length < 2) return [];
+  const firstWorkload = samples.find((s) => s.label === 'workload');
+  const observedAnchor = firstWorkload && Number.isFinite(firstWorkload.at) ? firstWorkload.at : null;
+  const scheduledAnchor = Number.isFinite(startedAt) && Number.isFinite(warmup) ? startedAt + warmup * 60_000 : null;
+  const anchor = observedAnchor !== null ? observedAnchor : scheduledAnchor;
+  if (anchor === null) return [];
+  const anchorSource = observedAnchor !== null
+    ? `observed first workload sample (${clock(observedAnchor)})`
+    : `scheduled (startedAt + warmupMinutes = ${clock(scheduledAnchor)})`;
+  let cursor = anchor;
   const out = [];
   for (const leg of planned) {
     const minutes = Number(leg.minutes);
@@ -765,9 +799,11 @@ function deriveScheduledLegs() {
       observedTo: cursor + minutes * 60_000,
       bursts: null,
       provisional: true,
+      anchorSource,
     });
     cursor += minutes * 60_000;
   }
+  out.anchorSource = anchorSource;
   return out;
 }
 
@@ -779,6 +815,7 @@ function printLegs() {
     console.log('\n### legs: this report has no legSlopes (single-regime run)');
     return;
   }
+  const roles = roleByPid();
   const windows = [];
   for (const leg of legs) {
     const from = Number.isFinite(leg.observedFrom) ? leg.observedFrom : leg.startAt;
@@ -798,10 +835,10 @@ function printLegs() {
   console.log('\n### leg bisect (per leg, committed private bytes, observed windows)');
   if (provisional) {
     console.log(
-      '  NOTE: no leg has closed its window in this artifact (only a finished run writes legSlopes, and a' +
-        '\n        checkpoint carries them only for the legs it has exited), so the windows below are DERIVED from' +
-        '\n        config.legs + startedAt, not observed. A machine sleep or a delayed phase shifts them, and the' +
-        '\n        observed burst count is unknown, so the per-line column reads n/a. The final report supersedes this.',
+      `  NOTE: derived leg windows anchored to ${legs.anchorSource || 'scheduled anchor'}.` +
+        '\n        No leg has closed its window in this artifact, so the windows below are PROVISIONAL' +
+        '\n        (scheduled durations, not observed). Observed burst counts are unknown, so per-line reads n/a.' +
+        '\n        The final report supersedes this.',
     );
   }
   for (const { leg, win } of windows) {
@@ -870,6 +907,12 @@ function printLegs() {
           ? ` | lower bound: ${legCpuDelta.notAttributable.length} one-end, ${legCpuDelta.unreadable.length} unreadable, ${legCpuDelta.reset.length} reset`
           : ''),
     );
+    if (legCpuDelta && legCpuDelta.per.length > 0) {
+      const perPidStr = legCpuDelta.per
+        .map(([pid, s]) => `${roleForPid(pid, roles)} pid=${pid} ${s3(s)}s`)
+        .join(' | ');
+      console.log(`      per-pid CPU: ${perPidStr}`);
+    }
     legCpu.push({ name: leg.name, minutes, cpu: legCpuDelta, per1000: legPer1000, perSwitch: legMsPerSwitch, switches: legSwitches, bursts: leg.bursts ?? null, provisional: !!leg.provisional, counterFault });
     console.log('    ' + 'pid'.padEnd(7) + 'type'.padEnd(7) + 'pv first->last'.padEnd(20) + 'pv slope'.padEnd(17) + 'floor slope'.padEnd(14) + 'B/1000 lines'.padEnd(13) + 'role');
     for (const r of rows.slice(0, 6)) {
@@ -957,6 +1000,71 @@ function printLegs() {
     );
   }
 }
+/**
+ * History store persistence flush costs, as sampled by the app itself on every flush.
+ *
+ * The history store writes browsing history to disk from the main process. If flushes are
+ * uncoalesced, synchronous rewrites produce main-process CPU stalls and contention with
+ * the terminal write path. This reads `historySamples` (surface `history`, name `persist`)
+ * and attributes the flush cost per unit of work (per 1000 burst lines, per tab switch).
+ */
+function printHistory() {
+  console.log('\n### history persist flushes (app browsing history store write cost)');
+  const raw = Array.isArray(report.historySamples) ? report.historySamples : [];
+  const rows = raw.filter(
+    (s) => Number.isFinite(s?.value) && (!s.surface || s.surface === 'history') && (!s.name || s.name === 'persist'),
+  );
+  if (rows.length === 0) {
+    console.log('  history: not collected in this report (no historySamples present in payload)');
+    return;
+  }
+  const vals = rows.map((r) => r.value).sort((a, b) => a - b);
+  const count = vals.length;
+  const totalMs = vals.reduce((a, b) => a + b, 0);
+  const p50 = quantile(vals, 0.5);
+  const p95 = quantile(vals, 0.95);
+  const max = vals[vals.length - 1];
+
+  const legRows = Array.isArray(report.legSlopes) ? report.legSlopes : [];
+  const legObservedTotal = legRows.reduce(
+    (a, l) => a + (Number.isFinite(l.bursts) ? l.bursts * l.burstLines : 0),
+    0,
+  );
+  const switches = Array.isArray(report.switchSamples)
+    ? report.switchSamples.filter((s) => s.phase === 'workload').length || report.switchSamples.length
+    : (Number.isFinite(report.stats?.switches) ? report.stats.switches : 0);
+
+  const per1000 = legObservedTotal >= 1000 ? (totalMs * 1000) / legObservedTotal : null;
+  const perSwitch = switches > 0 ? totalMs / switches : null;
+
+  console.log(
+    `  count ${count} flushes | p50 ${s3(p50)} ms | p95 ${s3(p95)} ms | max ${s3(max)} ms | total ${s3(totalMs)} ms` +
+      ` | ${per1000 !== null ? `${s3(per1000)} ms per 1000 lines (${legObservedTotal} lines)` : 'per-line n/a'}` +
+      ` | ${perSwitch !== null ? `${s3(perSwitch)} ms / switch (${switches} switches)` : 'per-switch n/a'}`,
+  );
+  if (legRows.length > 0) {
+    console.log('  per leg:');
+    for (const leg of legRows) {
+      const from = Number.isFinite(leg.observedFrom) ? leg.observedFrom : leg.startAt;
+      const to = Number.isFinite(leg.observedTo) ? leg.observedTo : leg.endAt;
+      const inLeg = Number.isFinite(from) && Number.isFinite(to)
+        ? rows.filter((r) => r.at >= from && r.at <= to)
+        : [];
+      if (inLeg.length === 0) {
+        console.log(`    leg ${leg.name}: 0 flushes`);
+        continue;
+      }
+      const legVals = inLeg.map((r) => r.value).sort((a, b) => a - b);
+      const legTotal = legVals.reduce((a, b) => a + b, 0);
+      const legLines = Number.isFinite(leg.bursts) ? leg.bursts * leg.burstLines : 0;
+      const legPer1000 = legLines >= 1000 ? (legTotal * 1000) / legLines : null;
+      console.log(
+        `    leg ${leg.name}: ${legVals.length} flushes | p50 ${s3(quantile(legVals, 0.5))} ms | p95 ${s3(quantile(legVals, 0.95))} ms | max ${s3(legVals[legVals.length - 1])} ms | total ${s3(legTotal)} ms` +
+          ` | ${legPer1000 !== null ? `${s3(legPer1000)} ms per 1000 lines` : 'per-line n/a'}`,
+      );
+    }
+  }
+}
 
 console.log(`report: ${reportArg ? path.resolve(reportArg) : DEFAULT_REPORT}`);
 console.log(`status: ${report.status} | started ${report.startedAt} | frames ${frames.length} | samples ${samples.length}`);
@@ -988,5 +1096,6 @@ for (const label of ['workload']) printPerPidFloor(label, 'workingSetMB');
 printRecoveryRelease();
 printCpu();
 printLegs();
+printHistory();
 printSwitchTail();
 for (const label of ['workload', 'recovery']) printContaminated(label);

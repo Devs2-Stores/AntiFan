@@ -296,3 +296,115 @@ describe('soak payload — history flush cost', () => {
     );
   });
 });
+
+describe('soak payload — leg slopes and open legs', () => {
+  const procSample = (at, pid, privateBytesMB = 50) => ({
+    at,
+    processes: [{ pid, type: 'Browser', role: '', workingSetMB: 100, privateBytesMB }],
+  });
+  const openLeg = (name, ordinal, startAt, endAt, observedFrom = startAt) => ({
+    name,
+    ordinal,
+    burstLines: 300,
+    burstIntervalMs: 30000,
+    startAt,
+    endAt,
+    observedFrom,
+    observedTo: null,
+    bursts: 5,
+  });
+
+  it('marks an in-flight leg as open and computes observedMinutes from actual fit frames, never scheduled end', () => {
+    // An in-flight leg at a mid-run checkpoint must report the duration actually observed so
+    // far (10 minutes here), not the scheduled span (60 minutes).
+    const leg = openLeg('baseline', 1, 0, 3_600_000, 0);
+    const processSamples = [procSample(0, 100, 50), procSample(300_000, 100, 51), procSample(600_000, 100, 52)];
+    const payload = buildReportPayload({ ...baseMeta, processSamples, legs: [leg] });
+
+    assert.strictEqual(payload.legSlopes.length, 1);
+    const slopeRow = payload.legSlopes[0];
+    assert.strictEqual(slopeRow.open, true);
+    assert.strictEqual(slopeRow.observedTo, null);
+    assert.strictEqual(slopeRow.observedMinutes, 10);
+  });
+
+  it('marks a completed leg as closed with observedMinutes matching its observed window', () => {
+    const leg = {
+      ...openLeg('baseline', 1, 0, 3_600_000, 0),
+      observedTo: 3_600_000,
+    };
+    const processSamples = [procSample(0, 100, 50), procSample(1_800_000, 100, 51), procSample(3_600_000, 100, 52)];
+    const payload = buildReportPayload({ ...baseMeta, processSamples, legs: [leg] });
+
+    const slopeRow = payload.legSlopes[0];
+    assert.strictEqual(slopeRow.open, false);
+    assert.strictEqual(slopeRow.observedTo, 3_600_000);
+    assert.strictEqual(slopeRow.observedMinutes, 60);
+  });
+
+  it('reports zero observedMinutes for an open leg that has not yet observed any samples in its window', () => {
+    const leg = openLeg('burst4x', 2, 3_600_000, 7_200_000, 3_600_000);
+    const payload = buildReportPayload({ ...baseMeta, processSamples: [], legs: [leg] });
+
+    const slopeRow = payload.legSlopes[0];
+    assert.strictEqual(slopeRow.open, true);
+    assert.strictEqual(slopeRow.observedMinutes, 0);
+  });
+});
+
+describe('soak payload — non-WebContents process role attribution', () => {
+  it('carries process type when no WebContents role is known, so role is never empty', () => {
+    const samples = [
+      { at: 1_000_000, activeAt: 1_000_000, label: 'workload', totalWorkingSetMB: 100, byType: {}, cpuByPid: { 100: 1.0, 200: 2.0 } },
+      { at: 1_600_000, activeAt: 1_600_000, label: 'workload', totalWorkingSetMB: 105, byType: {}, cpuByPid: { 100: 2.5, 200: 2.0 } },
+    ];
+    const processSamples = [
+      { at: 1_000_000, processes: [
+        { pid: 100, type: 'Browser', role: '', workingSetMB: 100, privateBytesMB: 50 },
+        { pid: 200, type: 'GPU', role: '', workingSetMB: 80, privateBytesMB: 40 },
+        { pid: 300, type: 'Tab', role: 'tab:storefront', workingSetMB: 60, privateBytesMB: 30 },
+      ]},
+      { at: 1_300_000, processes: [
+        { pid: 100, type: 'Browser', role: '', workingSetMB: 102, privateBytesMB: 55 },
+        { pid: 200, type: 'GPU', role: '', workingSetMB: 80, privateBytesMB: 40 },
+        { pid: 300, type: 'Tab', role: 'tab:storefront', workingSetMB: 61, privateBytesMB: 30 },
+      ]},
+      { at: 1_600_000, processes: [
+        { pid: 100, type: 'Browser', role: '', workingSetMB: 105, privateBytesMB: 60 },
+        { pid: 200, type: 'GPU', role: '', workingSetMB: 80, privateBytesMB: 40 },
+        { pid: 300, type: 'Tab', role: 'tab:storefront', workingSetMB: 62, privateBytesMB: 30 },
+      ]},
+    ];
+    const payload = buildReportPayload({ ...baseMeta, samples, processSamples });
+
+    const browserSlope = payload.metrics.perProcessSlopes.find((p) => p.pid === 100);
+    const gpuSlope = payload.metrics.perProcessSlopes.find((p) => p.pid === 200);
+    const tabSlope = payload.metrics.perProcessSlopes.find((p) => p.pid === 300);
+
+    assert.ok(browserSlope);
+    assert.strictEqual(browserSlope.role, 'Browser');
+    assert.ok(gpuSlope);
+    assert.strictEqual(gpuSlope.role, 'GPU');
+    assert.ok(tabSlope);
+    assert.strictEqual(tabSlope.role, 'tab:storefront');
+
+    assert.strictEqual(payload.metrics.appPrivateMaxRole, 'Browser');
+    assert.strictEqual(payload.metrics.appPrivateMaxPid, 100);
+
+    const cpuBrowser = payload.metrics.cpu.perProcess.find((p) => p.pid === 100);
+    assert.ok(cpuBrowser);
+    assert.strictEqual(cpuBrowser.role, 'Browser');
+    assert.strictEqual(cpuBrowser.type, 'Browser');
+
+    assert.strictEqual(payload.metrics.processSlopeWindowStart, 1_000_000);
+    assert.strictEqual(payload.metrics.processSlopeWindowEnd, 1_600_000);
+  });
+
+  it('exposes historySamples directly on the payload root', () => {
+    const historySamples = [{ at: 1000, name: 'persist', value: 15, extra: { items: 10 } }];
+    const payload = buildReportPayload({ ...baseMeta, historySamples });
+    assert.ok(Array.isArray(payload.historySamples));
+    assert.strictEqual(payload.historySamples.length, 1);
+    assert.strictEqual(payload.historySamples[0].value, 15);
+  });
+});

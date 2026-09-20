@@ -209,4 +209,117 @@ describe('soak analyzer — CPU reading', () => {
     // A healthy run must not carry the flag, or the warning becomes noise.
     assert.ok(!instrumentedReport().metrics.legBurstCounterSuspect);
   });
+
+  it('identifies the root pid as browser (main) instead of unattributed when top consumer has no role', () => {
+    // When the top-CPU process has no recorded role, if its pid equals report.rootPid,
+    // the analyzer identifies it as the browser main process rather than calling it unattributed.
+    const minutesOf = [0, 1, 2, 3];
+    const labels = ['workload', 'workload', 'workload', 'workload'];
+    const report = buildReportPayload({
+      ...baseMeta,
+      rootPid: 9999,
+      samples: minutesOf.map((m, i) => ({
+        at: at(m),
+        activeAt: at(m),
+        label: labels[i],
+        totalWorkingSetMB: 160,
+        byType: {},
+        cpuByPid: { 9999: 10 + m * 5.0, 101: 10 + m * 0.5 },
+      })),
+      processSamples: minutesOf.map((m) => ({
+        at: at(m),
+        processes: [
+          { pid: 9999, type: 'Browser', role: '', url: '', workingSetMB: 100, privateBytesMB: 80 },
+          { pid: 101, type: 'Tab', role: 'chrome:toolbar', url: '', workingSetMB: 50, privateBytesMB: 40 },
+        ],
+      })),
+    });
+    const out = runAnalyzer(report);
+    assert.match(out, /browser \(main\) pid=9999/, 'root process must be identified as browser (main)');
+    assert.doesNotMatch(out, /unattributed pid=9999/, 'root process must not be called unattributed');
+  });
+
+  it('prints each leg\'s per-pid CPU split across all contributing processes', () => {
+    // Each leg window reports the per-pid CPU split across all contributing processes, not only the single top line.
+    const out = runAnalyzer(instrumentedReport());
+    assert.match(out, /per-pid CPU:.*chrome:standalone\+chrome:toolbar pid=101 1\.000s/, 'leg baseline per-pid CPU includes pid 101');
+    assert.match(out, /per-pid CPU:.*unattributed pid=202 0\.200s/, 'leg baseline per-pid CPU includes pid 202');
+    assert.match(out, /per-pid CPU:.*chrome:standalone\+chrome:toolbar pid=101 1\.500s/, 'leg burst4x per-pid CPU includes pid 101');
+    assert.match(out, /per-pid CPU:.*unattributed pid=202 0\.300s/, 'leg burst4x per-pid CPU includes pid 202');
+  });
+
+  it('reports history persistence as not collected when the payload carries no history samples', () => {
+    // A run without history persist samples reports not collected rather than fabricating a 0 ms flush measurement.
+    const out = runAnalyzer(instrumentedReport());
+    assert.match(out, /### history persist flushes/, 'history section exists');
+    assert.match(out, /history: not collected in this report/, 'honestly reports not collected');
+    assert.doesNotMatch(out, /count 0 flushes.*total 0\.000 ms/, 'must not fabricate a 0 ms flush measurement');
+  });
+
+  it('reads historySamples, reports count, p50/p95/max, total, and prices against leg volume and switches', () => {
+    // Evaluates flush latency distribution and prices per 1000 burst lines and per tab switch against observed leg volume.
+    const base = instrumentedReport();
+    const historySamples = [
+      { at: at(3.5), surface: 'history', name: 'persist', value: 10.0 },
+      { at: at(4.0), surface: 'history', name: 'persist', value: 20.0 },
+      { at: at(6.0), surface: 'history', name: 'persist', value: 30.0 },
+    ];
+    const report = { ...base, historySamples };
+    const out = runAnalyzer(report);
+    assert.match(out, /count 3 flushes/, 'flush count');
+    assert.match(out, /p50 20\.000 ms/, 'median flush latency');
+    assert.match(out, /max 30\.000 ms/, 'maximum flush latency');
+    assert.match(out, /total 60\.000 ms/, 'total flush latency');
+    assert.match(out, /37\.500 ms per 1000 lines/, 'priced per 1000 lines');
+    assert.match(out, /30\.000 ms \/ switch/, 'priced per switch');
+  });
+
+  it('anchors derived legs to the first observed workload sample and prints the anchor used', () => {
+    // The provisional leg schedule anchors to the first observed workload sample in the payload when present,
+    // falling back to scheduled only when no workload sample exists.
+    const base = instrumentedReport();
+    const provisional = {
+      ...base,
+      legSlopes: [],
+      config: {
+        ...base.config,
+        warmupMinutes: 1,
+        legs: [
+          { name: 'baseline', minutes: 2, burstLines: 40, burstIntervalMs: 30000 },
+          { name: 'burst4x', minutes: 3, burstLines: 40, burstIntervalMs: 30000 },
+        ],
+      },
+    };
+    const out = runAnalyzer(provisional);
+    assert.match(out, /derived leg windows anchored to observed first workload sample \(00:03:00\)/);
+    assert.match(out, /window 00:03:00 -> 00:05:00/);
+
+    const warmupOnly = {
+      ...provisional,
+      samples: base.samples.filter((s) => s.label === 'warmup'),
+    };
+    const outFallback = runAnalyzer(warmupOnly);
+    assert.match(outFallback, /derived leg windows anchored to scheduled \(startedAt \+ warmupMinutes = 00:01:00\)/);
+    assert.match(outFallback, /window 00:01:00 -> 00:03:00/);
+  });
+
+  it('reports per-process max beside sum for private floor and flags when sum masks breach', () => {
+    // The deciding reading for the app-owned floor is the per-process maximum in private bytes beside the sum,
+    // flagging when flat renderers mask a breach.
+    const minutesOf = Array.from({ length: 15 }, (_, i) => i);
+    const report = buildReportPayload({
+      ...baseMeta,
+      samples: minutesOf.map((m) => phaseSample(m, 'workload')),
+      processSamples: minutesOf.map((m) => ({
+        at: at(m),
+        processes: [
+          { pid: 101, type: 'Tab', role: 'chrome:toolbar', url: '', workingSetMB: 100, privateBytesMB: 50 + m * 0.20 },
+          { pid: 102, type: 'Tab', role: 'tab:idle', url: '', workingSetMB: 80, privateBytesMB: 50 - m * 0.10 },
+        ],
+      })),
+    });
+    const out = runAnalyzer(report);
+    assert.match(out, /deciding reading: per-process max = 0\.20 MB\/min.*\[bound 0\.15 MB\/min: BREACH\] \| sum = 0\.10 MB\/min \[bound 0\.15 MB\/min: OK\]/);
+    assert.match(out, /SUM MASKS BREACH/);
+  });
 });
