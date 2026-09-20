@@ -213,39 +213,6 @@ html, body {
 }
 `;
 
-/**
- * The canvas the browser is expected to paint itself.
- *
- * A page that declares no background of its own — measured on hoplongtech.com:
- * `html`, `body` and `.site-header` all compute to `rgba(0, 0, 0, 0)` — renders on
- * the user agent's default canvas, which is white. Without this, those unpainted
- * regions show this app's own chrome (the window is `#080c14`, the frame backdrop
- * `#060910`) and CDP captures return transparent bands that composite as black.
- *
- * The fill has to sit below every piece of page content, and it must not be a
- * background on the root element. An author background on `html` stops the canvas
- * from adopting `body`'s background, which moves `body`'s own background into the
- * in-flow block pass of the painting order — above every negative `z-index`
- * descendant. Shopify OS 2.0 "Horizon" themes paint each section's color scheme
- * with exactly that pattern (`.section-background { position: absolute;
- * z-index: -2 }`), so backgrounding the root renders those sections, and all text
- * colored against them, as blank white while Chrome paints them correctly.
- *
- * A pseudo-element of the root is a child box of the root stacking context, not a
- * background of the root element, so propagation stays intact. `:where()` holds
- * specificity at zero and the layer is pinned to the most negative `z-index` CSS
- * can express, so any background a page declares paints over this fill.
- */
-export const DEFAULT_CANVAS_CSS = `
-:where(html)::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -2147483647;
-  background-color: #ffffff;
-  pointer-events: none;
-}
-`;
 
 export const MOBILE_TOUCH_CLIENT_SCRIPT = `(() => {
   if (window.__antifanMobileEmulated) return;
@@ -3908,12 +3875,11 @@ export class NativeTabHost extends EventEmitter {
       this.appliedClipRadius.delete(wc);
       wc.session.cookies.flushStore().catch(() => {});
       this.injectAutoJsonViewer(wc);
-      // Every pane, every preset: pages rely on the user agent's default canvas, and
-      // without it this app's dark chrome shows through whatever the page leaves
-      // unpainted (and every capture of that area comes back transparent). The fill
-      // stays below all content and never backgrounds the root element — see
-      // DEFAULT_CANVAS_CSS for why that distinction decides how the page renders.
-      wc.insertCSS(DEFAULT_CANVAS_CSS).catch(() => {});
+      // The native view canvas defaults to white (the user agent's default canvas)
+      // via `view.setBackgroundColor('#ffffff')`. We deliberately do NOT inject
+      // synthetic CSS into the document tree — doing so breaks CSS 2.1 Appendix E
+      // canvas propagation (obscuring dark mode body backgrounds on Google/Facebook
+      // with a white sheet) and breaks negative z-index section backgrounds on Shopify.
       // Idempotent layout and clipping synchronization on page load
       const isMobilePane = paneId === 'mobile' || Boolean(DEVICE_PRESETS.find((p) => p.id === state.devicePresetId)?.mobile);
       if (isMobilePane) {
@@ -4286,7 +4252,7 @@ export class NativeTabHost extends EventEmitter {
         backgroundThrottling: isOffscreen ? false : undefined,
       }),
     });
-    try { view.setBackgroundColor('#080c14'); } catch {}
+    try { view.setBackgroundColor('#ffffff'); } catch {}
     const isBlankUrl = !url || url === 'about:blank';
     const rawPresetId = options?.devicePresetId || (options?.mobile ? 'iphone-15' : undefined);
     const initialPreset = findDevicePreset(rawPresetId);
@@ -4444,7 +4410,7 @@ export class NativeTabHost extends EventEmitter {
         target.view = new WebContentsView({
           webPreferences: getSecureWebPreferences(target.state.partition),
         });
-        try { target.view.setBackgroundColor('#080c14'); } catch {}
+        try { target.view.setBackgroundColor('#ffffff'); } catch {}
         target.state.crashed = false;
         this.setSafeUserAgent(target.view.webContents, this.defaultUserAgent);
         const isBlank = !target.state.url || target.state.url === 'about:blank';
