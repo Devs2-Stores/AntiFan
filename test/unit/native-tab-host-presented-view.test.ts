@@ -221,4 +221,45 @@ describe('Presented view invariant', () => {
 
     assert.deepStrictEqual(children, [presented.tab.view], 'releasing the capture must hand the window back to the presented tab only');
   });
+
+  it('reassert on an already-attached pane recycles the compositor layer without a getBounds kick', () => {
+    const presented = createTestTab('tab-visible');
+    const { host, children } = createPresentedHost({
+      tabs: [presented],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+    const laidOut = {
+      x: 0,
+      y: TOOLBAR_HEIGHT,
+      width: WINDOW_CONTENT_BOX.width,
+      height: WINDOW_CONTENT_BOX.height - TOOLBAR_HEIGHT,
+    };
+    presented.tab.view.setBounds(laidOut);
+    const boundsBeforeRecycle = presented.setBoundsCalls.length;
+    let removes = 0;
+    let adds = 0;
+    const origRemove = host.window.contentView.removeChildView.bind(host.window.contentView);
+    const origAdd = host.window.contentView.addChildView.bind(host.window.contentView);
+    host.window.contentView.removeChildView = (view: unknown) => {
+      removes += 1;
+      origRemove(view);
+    };
+    host.window.contentView.addChildView = (view: unknown, index?: number) => {
+      adds += 1;
+      origAdd(view, index);
+    };
+
+    host.reassertPresentedView();
+
+    assert.deepStrictEqual(children, [presented.tab.view], 'an already-presented view must stay the only child');
+    assert.ok(removes >= 1 && adds >= 1, 'the dead DirectComposition visual is dropped and the view is re-inserted');
+    assert.deepStrictEqual(
+      presented.setBoundsCalls.slice(boundsBeforeRecycle),
+      [],
+      'must not pin getBounds() — that 1px round-trip destroyed the surface (black pane, backdrop showing through)'
+    );
+    assert.strictEqual(presented.currentBounds().width, laidOut.width, 'recycle must not mutate the already-laid-out width');
+    assert.ok(presented.invalidateCalls >= 1, 'the view must still be invalidated after the recycle');
+  });
 });

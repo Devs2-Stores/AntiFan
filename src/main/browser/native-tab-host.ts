@@ -1024,6 +1024,12 @@ export class NativeTabHost extends EventEmitter {
     this.window.on('resize', () => {
       this.updateLayout();
     });
+    this.window.on('show', () => {
+      this.updateLayout();
+    });
+    this.window.on('restore', () => {
+      this.updateLayout();
+    });
 
     this.setupToolbarIpc();
     this.setupSidebarIpc();
@@ -3041,6 +3047,15 @@ export class NativeTabHost extends EventEmitter {
    * the window background (the reported "trang" page that heals the moment the tab is
    * activated again). Re-assert the invariant after every view-stack mutation rather
    * than trusting whichever transaction ran last.
+   *
+   * Re-attach is not enough on Windows: an occluded WebContentsView can stay in
+   * `contentView.children` with a dead DirectComposition visual. A 1px
+   * `getBounds()` round-trip was measured harmful — the pane went black
+   * (`frameBackdropView` `#060910` showing through) while DevTools still showed
+   * the DOM; F5 healed because `did-finish-load` calls `updateLayout()` with the
+   * window's content box. Recycle the layer (remove + attach) then run that
+   * same layout path. Never pin `getBounds()`: it is stale after DevTools dock
+   * or capture occlusion.
    */
   public reassertPresentedView(): void {
     if (this.isDisposed) return;
@@ -3057,12 +3072,43 @@ export class NativeTabHost extends EventEmitter {
       // to lay it out before its renderer can commit a frame.
       this.layOutDetachedView(activeTab.view);
       recordLifecycleEvent('tabhost.presentedViewReattached', { tabId: this.activeTabId });
+    } else if (!this.isTemporarilyAttachedView(activeTab.view)) {
+      this.recyclePresentedLayer(activeTab.view, false);
     }
-    if (activeTab.state.splitMode && activeTab.mobileView?.webContents && !activeTab.mobileView.webContents.isDestroyed() && !this.isTabViewAttached(activeTab.mobileView)) {
-      this.attachTabView(activeTab.mobileView, true);
+    if (activeTab.state.splitMode && activeTab.mobileView?.webContents && !activeTab.mobileView.webContents.isDestroyed()) {
+      if (!this.isTabViewAttached(activeTab.mobileView)) {
+        this.attachTabView(activeTab.mobileView, true);
+      } else if (!this.isTemporarilyAttachedView(activeTab.mobileView)) {
+        this.recyclePresentedLayer(activeTab.mobileView, true);
+      }
+    }
+    if (typeof wc.setBackgroundThrottling === 'function') {
+      try { wc.setBackgroundThrottling(false); } catch {}
     }
     this.enforceZOrder();
-    try { wc.invalidate(); } catch {}
+    // Authoritative bounds — same path F5 uses. Do not round-trip getBounds().
+    this.updateLayout();
+    if (typeof wc.invalidate === 'function') {
+      try { wc.invalidate(); } catch {}
+    }
+  }
+
+  /**
+   * Drop and re-insert a presented view so Windows DirectComposition allocates a
+   * new visual. `invalidate()` on an already-attached occluded view does not
+   * restart BeginFrame; a getBounds 1px kick destroyed the visual instead
+   * (black pane, backdrop showing through). Skip a view an in-flight capture
+   * is holding — the caller still needs that surface.
+   */
+  private recyclePresentedLayer(view: WebContentsView | null | undefined, isMobile: boolean): void {
+    if (!view || !this.window || !this.window.contentView) return;
+    if (this.isTemporarilyAttachedView(view)) return;
+    try {
+      if (this.isTabViewAttached(view)) {
+        this.window.contentView.removeChildView(view);
+      }
+    } catch {}
+    this.attachTabView(view, isMobile);
   }
 
   /**
@@ -3966,6 +4012,16 @@ export class NativeTabHost extends EventEmitter {
         })();`;
         wc.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
       }
+    });
+
+    wc.on('devtools-closed', () => {
+      if (this.isDisposed) return;
+      if (id !== this.activeTabId) return;
+      // Docked DevTools (`mode: 'bottom'`) on a WebContentsView kills the guest
+      // compositor: pane goes black (backdrop) while Elements still shows the DOM.
+      // Closing it leaves the view attached with a white unpainted canvas. F5 heals
+      // via did-finish-load → updateLayout. Recycle the layer instead of reloading.
+      this.reassertPresentedView();
     });
 
     wc.on('dom-ready', () => {
@@ -5806,7 +5862,10 @@ export class NativeTabHost extends EventEmitter {
     if (wc.isDevToolsOpened()) {
       wc.closeDevTools();
     } else {
-      wc.openDevTools({ mode: 'bottom' });
+      // `bottom` docks into the WebContentsView and kills the guest compositor
+      // (black pane, DOM still in Elements). Context-menu Inspect already uses
+      // detach. F12 / toolbar must match.
+      wc.openDevTools({ mode: 'detach' });
     }
   }
 

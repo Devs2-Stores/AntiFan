@@ -6,6 +6,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+
+### Sửa lỗi — Tab trắng/đen sau MCP / DevTools dock dù DOM còn (F5 thì hết)
+- **Triệu chứng (user báo kèm ảnh + Computer Use trên app sống)**: `bagamuioto.myharavan.com` vẽ **trắng xóa**; DevTools `mode: 'bottom'` → pane **đen** (`frameBackdropView` `#060910`) trong khi Elements vẫn thấy DOM; **đóng DevTools → trắng** (canvas `#ffffff`, không paint). F5 thì hết.
+- **Nguyên nhân (đo trên cửa sổ `[DEV]` pid đang chạy)**: renderer sống, compositor WebContentsView chết. Dock bottom chiếm guest surface. `invalidate()` không sinh BeginFrame. Round-trip `getBounds()` ±1px **phá** visual. F5 lành vì `did-finish-load` → `updateLayout()`.
+- **Sửa**: bỏ kick getBounds. `reassertPresentedView` recycle layer rồi `updateLayout()`. `toggleDevTools` mở `detach` (khớp context-menu Inspect). `devtools-closed` gọi reassert — đóng dock không để pane trắng. `show`/`restore` cũng `updateLayout`.
+- **Bằng chứng**: Computer Use: đóng DevTools → trắng; F5 → PDP Bagamuioto paint. Unit `native-tab-host-presented-view` 4/4 (recycle, không còn `width-1`). Process đang chạy **chưa** có bản này — reload app.
+
 ### Sửa lỗi — Dark Mode AntiFan lộ xuyên storefront trên preset điện thoại bo góc
 - **Triệu chứng (user báo kèm ảnh, không suy luận)**: trang collection `bagamuioto.myharavan.com` trên preset `xiaomi-14` có nền navy `#060910` quanh card trắng / filter bar chữ đen — đọc như Dark Mode của app đang nhuộm Web.
 - **Nguyên nhân (đo trên tab sống)**: `html`/`body`/`main` nền `rgba(0,0,0,0)`, `color-scheme: normal`, **không** có `@media (prefers-color-scheme: dark)`. `applyTabDeviceEmulation` Case B đặt `view.setBackgroundColor('#00000000')` khi `getPresetCornerRadius > 0`. `applyDeviceCornerClipping` chỉ gỡ `#antifan-device-clip` (không còn punch góc). Single-tab ẩn phone chassis. Canvas trong suốt ⇒ `frameBackdropView` `#060910` lộ xuyên vùng trang không tô. `prefers-color-scheme: dark` vẫn true vì `nativeTheme.themeSource = 'system'` nhưng **không** restyle trang này.
