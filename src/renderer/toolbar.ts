@@ -268,7 +268,7 @@ interface ThemeChecklistItem {
   name: string;
   desc: string;
   qaPoint: string;
-  page: 'home' | 'collection' | 'product' | 'cart' | 'blog' | 'account' | 'pages' | 'qa-gate';
+  page: 'home' | 'collection' | 'product' | 'cart' | 'blog' | 'account' | 'pages' | 'qa-gate' | string;
   pathHint?: string;
   done: boolean;
 }
@@ -511,8 +511,14 @@ function resolveChecklistWorkspace(origin: string, force = false): Promise<void>
   return checklistWorkspacePending;
 }
 
+const THEME_CHECKLIST_DATA_PREFIX = 'antifan_theme_checklist_custom_items';
+
 function checklistStorageKey(scope: string): string {
   return `${THEME_CHECKLIST_STORAGE_PREFIX}:${scope}`;
+}
+
+function checklistDataStorageKey(scope: string): string {
+  return `${THEME_CHECKLIST_DATA_PREFIX}:${scope}`;
 }
 
 /** Move `themeChecklist` onto the active scope, persisting the previous one first. */
@@ -550,12 +556,20 @@ function ensureChecklistScope(force = false): boolean {
 
 function loadThemeChecklist(scope: string): ThemeChecklistItem[] {
   try {
-    const raw = localStorage.getItem(checklistStorageKey(scope));
-    if (!raw) return DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
-    const saved = JSON.parse(raw) as Record<string, boolean>;
-    return DEFAULT_THEME_CHECKLIST.map((item) => ({
+    const rawDone = localStorage.getItem(checklistStorageKey(scope));
+    const savedDone = rawDone ? (JSON.parse(rawDone) as Record<string, boolean>) : {};
+
+    let baseItems: ThemeChecklistItem[];
+    const rawData = localStorage.getItem(checklistDataStorageKey(scope));
+    if (rawData) {
+      baseItems = JSON.parse(rawData) as ThemeChecklistItem[];
+    } else {
+      baseItems = DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+    }
+
+    return baseItems.map((item) => ({
       ...item,
-      done: Boolean(saved[item.id]),
+      done: Boolean(savedDone[item.id]),
     }));
   } catch {
     return DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
@@ -569,6 +583,7 @@ function saveThemeChecklist(items: ThemeChecklistItem[], scope: string) {
       if (item.done) record[item.id] = true;
     }
     localStorage.setItem(checklistStorageKey(scope), JSON.stringify(record));
+    localStorage.setItem(checklistDataStorageKey(scope), JSON.stringify(items));
   } catch (err) {
     console.warn('[ThemeStudio] Failed to save checklist state:', err);
   }
@@ -649,6 +664,8 @@ function navigatePreview(pathHint: string) {
   showToolbarToast(`Đang mở Storefront: ${targetUrl}`);
 }
 
+const collapsedPages = new Set<string>();
+
 function renderThemeStudioChecklist(refreshWorkspace = false) {
   const container = document.getElementById('themeChecklistList');
   const progressVal = document.getElementById('themeChecklistProgressVal');
@@ -685,8 +702,10 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
   if (progressBar) progressBar.style.width = `${percent}%`;
   if (badgeNav) badgeNav.textContent = `${doneCount}/${total}`;
 
-  // Group items by page
-  const pageKeys = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'];
+  // Group items by page (standard pages first, then any custom pages)
+  const standardPages = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'];
+  const customPages = Array.from(new Set(themeChecklist.map((it) => it.page).filter((p) => !standardPages.includes(p))));
+  const pageKeys = [...standardPages, ...customPages];
   container.innerHTML = '';
 
   const q = checklistSearchQuery.trim().toLowerCase();
@@ -694,14 +713,15 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
   pageKeys.forEach((pageKey) => {
     if (activePhaseFilter !== 'all' && activePhaseFilter !== 'uncompleted' && activePhaseFilter !== pageKey) return;
 
-    let pageItems = themeChecklist.filter((it) => it.page === pageKey);
+    const pageItems = themeChecklist.filter((it) => it.page === pageKey);
+    let visibleItems = pageItems;
     if (activePhaseFilter === 'uncompleted') {
-      pageItems = pageItems.filter((it) => !it.done);
+      visibleItems = visibleItems.filter((it) => !it.done);
     }
-    if (pageItems.length === 0 && activePhaseFilter === 'uncompleted') return;
+    if (visibleItems.length === 0 && activePhaseFilter === 'uncompleted') return;
 
     if (q) {
-      pageItems = pageItems.filter(
+      visibleItems = visibleItems.filter(
         (it) =>
           it.name.toLowerCase().includes(q) ||
           it.code.toLowerCase().includes(q) ||
@@ -709,11 +729,18 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
           it.qaPoint.toLowerCase().includes(q)
       );
     }
-    if (pageItems.length === 0 && q) return;
+    if (visibleItems.length === 0 && q) return;
 
     const pageDone = pageItems.filter((it) => it.done).length;
     const pageTotal = pageItems.length;
-    const pageDef = PAGE_DEFS[pageKey] || { title: pageKey, badge: pageKey.toUpperCase(), icon: '📄', path: '/' };
+    const pageDef = PAGE_DEFS[pageKey] || {
+      title: `Trang ${pageKey.charAt(0).toUpperCase() + pageKey.slice(1)}`,
+      badge: pageKey.toUpperCase(),
+      icon: '📌',
+      path: '/',
+    };
+
+    const isCollapsed = collapsedPages.has(pageKey);
 
     const card = document.createElement('div');
     card.className = 'theme-phase-card';
@@ -724,9 +751,19 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
     const headerLeft = document.createElement('div');
     headerLeft.className = 'theme-phase-header-title';
     headerLeft.innerHTML = `
+      <span class="theme-phase-chevron">${isCollapsed ? '▶' : '▼'}</span>
       <span class="theme-phase-badge">${pageDef.icon} ${pageDef.badge}</span>
       <span>${pageDef.title}</span>
     `;
+
+    header.addEventListener('click', () => {
+      if (collapsedPages.has(pageKey)) {
+        collapsedPages.delete(pageKey);
+      } else {
+        collapsedPages.add(pageKey);
+      }
+      renderThemeStudioChecklist();
+    });
 
     const headerRight = document.createElement('div');
     headerRight.style.display = 'flex';
@@ -781,6 +818,16 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
       }
     });
 
+    const btnAddCardItem = document.createElement('button');
+    btnAddCardItem.className = 'theme-btn-card-add';
+    btnAddCardItem.title = `Thêm mục kiểm tra mới vào ${pageDef.title}`;
+    btnAddCardItem.textContent = `+ Thêm`;
+    btnAddCardItem.disabled = verifyingWorkspace;
+    btnAddCardItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openItemEditorDialog(null, pageKey);
+    });
+
     const allDone = pageItems.length > 0 && pageItems.every((it) => it.done);
     const btnToggleAll = document.createElement('button');
     btnToggleAll.className = 'theme-btn-toggle-all';
@@ -805,11 +852,11 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
     progressPill.className = 'theme-phase-progress-pill';
     progressPill.textContent = `${pageDone}/${pageTotal} Xong`;
 
-    headerRight.append(btnOpenPage, btnScanPage, btnToggleAll, progressPill);
+    headerRight.append(btnOpenPage, btnScanPage, btnAddCardItem, btnToggleAll, progressPill);
     header.append(headerLeft, headerRight);
     card.append(header);
 
-    if (pageDef.note) {
+    if (pageDef.note && !isCollapsed) {
       const note = document.createElement('div');
       note.className = 'theme-phase-note';
       note.textContent = pageDef.note;
@@ -818,8 +865,27 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
 
     const itemsBox = document.createElement('div');
     itemsBox.className = 'theme-phase-items';
+    if (isCollapsed) {
+      itemsBox.style.display = 'none';
+    }
 
-    pageItems.forEach((item) => {
+    if (visibleItems.length === 0) {
+      const emptyRow = document.createElement('div');
+      emptyRow.className = 'theme-checklist-empty-page';
+      emptyRow.innerHTML = `<span>Chưa có mục nào trong trang này.</span>`;
+      const btnAddEmpty = document.createElement('button');
+      btnAddEmpty.className = 'theme-btn-card-add';
+      btnAddEmpty.style.marginLeft = '8px';
+      btnAddEmpty.textContent = '+ Thêm mục đầu tiên';
+      btnAddEmpty.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openItemEditorDialog(null, pageKey);
+      });
+      emptyRow.appendChild(btnAddEmpty);
+      itemsBox.appendChild(emptyRow);
+    }
+
+    visibleItems.forEach((item) => {
       const row = document.createElement('div');
       row.className = `theme-item-row${item.done ? ' is-done' : ''}`;
 
@@ -874,6 +940,31 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
         navigatePreview(targetPath);
       });
       right.appendChild(btnNav);
+
+      const btnEdit = document.createElement('button');
+      btnEdit.className = 'theme-btn-item-action theme-btn-item-edit';
+      btnEdit.title = `Chỉnh sửa mục: ${item.name}`;
+      btnEdit.textContent = '✏️ Sửa';
+      btnEdit.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openItemEditorDialog(item, pageKey);
+      });
+      right.appendChild(btnEdit);
+
+      const btnDelete = document.createElement('button');
+      btnDelete.className = 'theme-btn-item-action theme-btn-item-delete';
+      btnDelete.title = `Xóa mục: ${item.name}`;
+      btnDelete.textContent = '🗑️ Xóa';
+      btnDelete.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(`Bạn có chắc muốn xóa mục "${item.code} - ${item.name}"?`)) {
+          themeChecklist = themeChecklist.filter((it) => it.id !== item.id);
+          saveThemeChecklist(themeChecklist, activeChecklistScope);
+          renderThemeStudioChecklist();
+          showToolbarToast(`Đã xóa mục: ${item.name}`);
+        }
+      });
+      right.appendChild(btnDelete);
 
       row.append(left, right);
       itemsBox.appendChild(row);
@@ -3038,11 +3129,13 @@ themeChecklistSearch?.addEventListener('input', () => {
 
 const btnThemeChecklistReset = document.getElementById('btnThemeChecklistReset');
 btnThemeChecklistReset?.addEventListener('click', () => {
-  if (confirm('Bạn có chắc muốn đặt lại toàn bộ checklist về trạng thái chưa làm?')) {
+  if (confirm('Bạn có chắc muốn đặt lại toàn bộ checklist về mặc định ban đầu?')) {
     localStorage.removeItem(checklistStorageKey(activeChecklistScope));
+    localStorage.removeItem(checklistDataStorageKey(activeChecklistScope));
     themeChecklist = DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+    saveThemeChecklist(themeChecklist, activeChecklistScope);
     renderThemeStudioChecklist();
-    showToolbarToast('Đã đặt lại checklist');
+    showToolbarToast('Đã đặt lại checklist về mặc định');
   }
 });
 
@@ -3059,7 +3152,9 @@ btnThemeExportReport?.addEventListener('click', () => {
   const doneCount = themeChecklist.filter((it) => it.done).length;
   const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
-  const pageKeys = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'];
+  const standardPages = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'];
+  const customPages = Array.from(new Set(themeChecklist.map((it) => it.page).filter((p) => !standardPages.includes(p))));
+  const pageKeys = [...standardPages, ...customPages];
   const lines: string[] = [];
   lines.push(`# BÁO CÁO TIẾN ĐỘ THEME & QA STOREFRONT (AntiFan Theme Studio)`);
   lines.push(`- **Thời gian xuất:** ${new Date().toLocaleString('vi-VN')}`);
@@ -3097,6 +3192,183 @@ btnThemeExportReport?.addEventListener('click', () => {
     showToolbarToast('📋 Đã in báo cáo Markdown vào Console F12');
   }
 });
+
+/* THEME CHECKLIST ITEM CRUD MODAL LOGIC */
+let editingItemId: string | null = null;
+
+function openItemEditorDialog(item: ThemeChecklistItem | null = null, defaultPage = 'home') {
+  const overlay = document.getElementById('themeItemEditOverlay');
+  const titleEl = document.getElementById('themeItemEditTitle');
+  const selPage = document.getElementById('itemEditPage') as HTMLSelectElement | null;
+  const inputCode = document.getElementById('itemEditCode') as HTMLInputElement | null;
+  const inputName = document.getElementById('itemEditName') as HTMLInputElement | null;
+  const inputDesc = document.getElementById('itemEditDesc') as HTMLTextAreaElement | null;
+  const inputQa = document.getElementById('itemEditQa') as HTMLInputElement | null;
+  const inputPath = document.getElementById('itemEditPath') as HTMLInputElement | null;
+
+  if (!overlay || !selPage || !inputCode || !inputName || !inputDesc || !inputQa || !inputPath) return;
+
+  editingItemId = item ? item.id : null;
+
+  const standardPages = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'];
+  const allPages = Array.from(new Set([...standardPages, ...themeChecklist.map((it) => it.page)]));
+  selPage.innerHTML = '';
+  allPages.forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = p;
+    const def = PAGE_DEFS[p];
+    opt.textContent = def ? `${def.icon} ${def.title.split(' (')[0]} (${def.badge})` : `📌 Trang ${p}`;
+    selPage.appendChild(opt);
+  });
+
+  if (item) {
+    if (titleEl) titleEl.textContent = `✏️ Chỉnh sửa: ${item.code} - ${item.name}`;
+    selPage.value = item.page;
+    inputCode.value = item.code;
+    inputName.value = item.name;
+    inputDesc.value = item.desc;
+    inputQa.value = item.qaPoint;
+    inputPath.value = item.pathHint || '';
+  } else {
+    if (titleEl) titleEl.textContent = '➕ Thêm mục kiểm tra mới';
+    const targetPage = (activePhaseFilter !== 'all' && activePhaseFilter !== 'uncompleted' && (PAGE_DEFS[activePhaseFilter] || allPages.includes(activePhaseFilter)))
+      ? activePhaseFilter
+      : defaultPage;
+    selPage.value = targetPage;
+
+    const prefixMap: Record<string, string> = {
+      home: 'HOM', collection: 'COL', product: 'PDP', cart: 'CRT',
+      blog: 'BLG', account: 'ACC', pages: 'SYS', 'qa-gate': 'QAG',
+    };
+    const prefix = prefixMap[targetPage] || targetPage.slice(0, 3).toUpperCase();
+    const existingNums = themeChecklist
+      .filter((it) => it.code.startsWith(prefix))
+      .map((it) => {
+        const m = it.code.match(/\d+/);
+        return m ? parseInt(m[0], 10) : 0;
+      });
+    const nextNum = (existingNums.length > 0 ? Math.max(...existingNums) : 0) + 1;
+    inputCode.value = `${prefix}-${String(nextNum).padStart(2, '0')}`;
+    inputName.value = '';
+    inputDesc.value = '';
+    inputQa.value = '';
+    inputPath.value = PAGE_DEFS[targetPage]?.path || '';
+  }
+
+  overlay.style.display = 'flex';
+  setTimeout(() => inputName.focus(), 50);
+}
+
+function closeItemEditorDialog() {
+  const overlay = document.getElementById('themeItemEditOverlay');
+  if (overlay) overlay.style.display = 'none';
+  editingItemId = null;
+}
+
+function saveItemEditorForm() {
+  const selPage = document.getElementById('itemEditPage') as HTMLSelectElement | null;
+  const inputCode = document.getElementById('itemEditCode') as HTMLInputElement | null;
+  const inputName = document.getElementById('itemEditName') as HTMLInputElement | null;
+  const inputDesc = document.getElementById('itemEditDesc') as HTMLTextAreaElement | null;
+  const inputQa = document.getElementById('itemEditQa') as HTMLInputElement | null;
+  const inputPath = document.getElementById('itemEditPath') as HTMLInputElement | null;
+
+  if (!selPage || !inputCode || !inputName || !inputDesc || !inputQa || !inputPath) return;
+
+  const page = selPage.value;
+  const name = inputName.value.trim();
+  const desc = inputDesc.value.trim();
+  const qaPoint = inputQa.value.trim();
+  const pathHint = inputPath.value.trim() || undefined;
+
+  if (!name) {
+    showToolbarToast('Vui lòng nhập tên mục kiểm tra');
+    inputName.focus();
+    return;
+  }
+
+  if (!qaPoint) {
+    showToolbarToast('Vui lòng nhập điểm kiểm tra QA tiêu chuẩn');
+    inputQa.focus();
+    return;
+  }
+
+  const prefixMap: Record<string, string> = {
+    home: 'HOM', collection: 'COL', product: 'PDP', cart: 'CRT',
+    blog: 'BLG', account: 'ACC', pages: 'SYS', 'qa-gate': 'QAG',
+  };
+  const code = inputCode.value.trim() || `${prefixMap[page] || page.slice(0, 3).toUpperCase()}-01`;
+
+  if (editingItemId) {
+    const item = themeChecklist.find((it) => it.id === editingItemId);
+    if (item) {
+      item.page = page;
+      item.code = code;
+      item.name = name;
+      item.desc = desc;
+      item.qaPoint = qaPoint;
+      item.pathHint = pathHint;
+    }
+    showToolbarToast(`Đã cập nhật mục: ${name}`);
+  } else {
+    const newItem: ThemeChecklistItem = {
+      id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      code,
+      name,
+      desc,
+      qaPoint,
+      page,
+      pathHint,
+      done: false,
+    };
+    themeChecklist.push(newItem);
+    showToolbarToast(`Đã thêm mục kiểm tra mới: ${name}`);
+  }
+
+  saveThemeChecklist(themeChecklist, activeChecklistScope);
+  renderThemeStudioChecklist();
+  closeItemEditorDialog();
+}
+
+const btnThemeItemAdd = document.getElementById('btnThemeItemAdd');
+btnThemeItemAdd?.addEventListener('click', () => openItemEditorDialog(null, 'home'));
+
+const btnItemEditSave = document.getElementById('btnItemEditSave');
+btnItemEditSave?.addEventListener('click', saveItemEditorForm);
+
+const btnItemEditCancel = document.getElementById('btnItemEditCancel');
+btnItemEditCancel?.addEventListener('click', closeItemEditorDialog);
+
+const themeItemEditClose = document.getElementById('themeItemEditClose');
+themeItemEditClose?.addEventListener('click', closeItemEditorDialog);
+
+const themeItemEditOverlay = document.getElementById('themeItemEditOverlay');
+themeItemEditOverlay?.addEventListener('click', (e) => {
+  if (e.target === themeItemEditOverlay) closeItemEditorDialog();
+});
+
+const itemEditPageSelect = document.getElementById('itemEditPage') as HTMLSelectElement | null;
+itemEditPageSelect?.addEventListener('change', () => {
+  if (editingItemId) return;
+  const p = itemEditPageSelect.value;
+  const prefixMap: Record<string, string> = {
+    home: 'HOM', collection: 'COL', product: 'PDP', cart: 'CRT',
+    blog: 'BLG', account: 'ACC', pages: 'SYS', 'qa-gate': 'QAG',
+  };
+  const prefix = prefixMap[p] || p.slice(0, 3).toUpperCase();
+  const existingNums = themeChecklist
+    .filter((it) => it.code.startsWith(prefix))
+    .map((it) => {
+      const m = it.code.match(/\d+/);
+      return m ? parseInt(m[0], 10) : 0;
+    });
+  const nextNum = (existingNums.length > 0 ? Math.max(...existingNums) : 0) + 1;
+  const inputCode = document.getElementById('itemEditCode') as HTMLInputElement | null;
+  const inputPath = document.getElementById('itemEditPath') as HTMLInputElement | null;
+  if (inputCode) inputCode.value = `${prefix}-${String(nextNum).padStart(2, '0')}`;
+  if (inputPath && !inputPath.value) inputPath.value = PAGE_DEFS[p]?.path || '';
+});
+
 
 const btnVpQuicks = document.querySelectorAll('.btn-vp-quick');
 btnVpQuicks.forEach((btn) => {
@@ -3262,6 +3534,7 @@ document.addEventListener('keydown', (e) => {
   if (shortcutsOverlay?.style.display === 'flex') { closeShortcutsOverlay(); return; }
   if (workflowHubOverlay?.style.display === 'flex') { closeWorkflowHub(); return; }
   if (mobileRemoteOverlay?.style.display === 'flex') { closeMobileRemoteModal(); return; }
+  if (themeItemEditOverlay?.style.display === 'flex') { closeItemEditorDialog(); return; }
   if (themeQaOverlay?.style.display === 'flex') { themeQaOverlay.style.display = 'none'; releaseOverlay('theme-qa'); return; }
   if (findBar?.style.display === 'flex') { hideFindBar(); return; }
   if (omniboxSuggestDropdown?.style.display === 'block') { hideSuggestDropdown(); return; }

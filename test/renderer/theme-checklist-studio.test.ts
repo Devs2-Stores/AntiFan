@@ -561,4 +561,100 @@ describe('Theme Studio page-by-page checklist', () => {
       dom.window.close();
     }
   });
+
+  test('page card can be collapsed and expanded by clicking header', async (t) => {
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const { doc, dom } = await loadToolbar();
+    try {
+      const list = doc.getElementById('themeChecklistList');
+      assert.ok(list, 'checklist list exists');
+      const firstCard = list.querySelector('.theme-phase-card') as HTMLElement;
+      const header = firstCard.querySelector('.theme-phase-header') as HTMLElement;
+      const itemsBox = firstCard.querySelector('.theme-phase-items') as HTMLElement;
+
+      assert.notEqual(itemsBox.style.display, 'none', 'initially expanded');
+      header.click();
+      await flush(4);
+      const collapsedCard = list.querySelector('.theme-phase-card') as HTMLElement;
+      const collapsedItems = collapsedCard.querySelector('.theme-phase-items') as HTMLElement;
+      assert.equal(collapsedItems.style.display, 'none', 'clicking header collapses card');
+
+      (collapsedCard.querySelector('.theme-phase-header') as HTMLElement).click();
+      await flush(4);
+      const expandedCard = list.querySelector('.theme-phase-card') as HTMLElement;
+      const expandedItems = expandedCard.querySelector('.theme-phase-items') as HTMLElement;
+      assert.notEqual(expandedItems.style.display, 'none', 'clicking header again expands card');
+    } finally {
+      dom.window.close();
+    }
+  });
+
+  test('supports full CRUD: add new item, edit it, and delete it with persistence', async (t) => {
+    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
+    const { doc, win, dom } = await loadToolbar();
+    try {
+      // 1. CREATE: Open dialog, submit form
+      const btnAdd = doc.getElementById('btnThemeItemAdd') as HTMLElement;
+      assert.ok(btnAdd, 'add item button exists');
+      btnAdd.click();
+      await flush(4);
+
+      const overlay = doc.getElementById('themeItemEditOverlay') as HTMLElement;
+      assert.equal(overlay.style.display, 'flex', 'item edit modal opens');
+
+      const nameInput = doc.getElementById('itemEditName') as HTMLInputElement;
+      const descInput = doc.getElementById('itemEditDesc') as HTMLTextAreaElement;
+      const qaInput = doc.getElementById('itemEditQa') as HTMLInputElement;
+      const saveBtn = doc.getElementById('btnItemEditSave') as HTMLElement;
+
+      nameInput.value = 'Banner Video Pop-up';
+      descInput.value = 'Popup video review sản phẩm khi click banner';
+      qaInput.value = 'Video tự động dừng khi đóng popup, autoplay muted';
+      saveBtn.click();
+      await flush(4);
+
+      assert.equal(overlay.style.display, 'none', 'modal closes after save');
+      const list = doc.getElementById('themeChecklistList') as HTMLElement;
+      const allRows = list.querySelectorAll('.theme-item-row');
+      assert.equal(allRows.length, CHECKLIST_ITEMS + 1, 'list has one extra item');
+
+      const newItemRow = Array.from(allRows).find((r) => r.textContent?.includes('Banner Video Pop-up')) as HTMLElement;
+      assert.ok(newItemRow, 'new item row is rendered in the list');
+      assert.ok(newItemRow.textContent?.includes('Video tự động dừng'), 'QA criteria rendered');
+
+      // 2. UPDATE: Click Edit button on the new item
+      const btnEdit = newItemRow.querySelector('.theme-btn-item-edit') as HTMLElement;
+      assert.ok(btnEdit, 'edit button exists on row');
+      btnEdit.click();
+      await flush(4);
+
+      assert.equal(overlay.style.display, 'flex', 'edit modal opens');
+      assert.equal(nameInput.value, 'Banner Video Pop-up', 'modal pre-fills item name');
+      assert.equal(qaInput.value, 'Video tự động dừng khi đóng popup, autoplay muted', 'modal pre-fills QA criteria');
+
+      nameInput.value = 'Banner Video Pop-up V2';
+      qaInput.value = 'Hỗ trợ cả iframe Youtube và MP4 native';
+      saveBtn.click();
+      await flush(4);
+
+      assert.equal(overlay.style.display, 'none', 'modal closes after update');
+      const updatedRows = list.querySelectorAll('.theme-item-row');
+      const updatedItemRow = Array.from(updatedRows).find((r) => r.textContent?.includes('Banner Video Pop-up V2')) as HTMLElement;
+      assert.ok(updatedItemRow, 'updated item row is rendered');
+      assert.ok(updatedItemRow.textContent?.includes('Hỗ trợ cả iframe Youtube'), 'updated QA criteria rendered');
+
+      // 3. DELETE: Click Delete button on the item
+      win.confirm = () => true;
+      const btnDelete = updatedItemRow.querySelector('.theme-btn-item-delete') as HTMLElement;
+      assert.ok(btnDelete, 'delete button exists on row');
+      btnDelete.click();
+      await flush(4);
+
+      const afterDeleteRows = list.querySelectorAll('.theme-item-row');
+      assert.equal(afterDeleteRows.length, CHECKLIST_ITEMS, 'item count returns to original after delete');
+      assert.ok(!Array.from(afterDeleteRows).some((r) => r.textContent?.includes('Banner Video Pop-up V2')), 'deleted item no longer exists');
+    } finally {
+      dom.window.close();
+    }
+  });
 });

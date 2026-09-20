@@ -492,8 +492,11 @@
                 <button class="phase-filter-btn" data-page="qa-gate">🎯 QA Nghiệm Thu</button>
                 <button class="phase-filter-btn" data-page="uncompleted" style="border-color:rgba(245,158,11,0.4);color:#fbbf24;">⏳ Chưa làm</button>
               </div>
-              <div class="theme-checklist-search">
-                <input type="text" id="themeChecklistSearch" placeholder="Tìm kiếm module, mã hoặc QA..." autocomplete="off" />
+              <div class="theme-checklist-actions">
+                <div class="theme-checklist-search">
+                  <input type="text" id="themeChecklistSearch" placeholder="Tìm kiếm module, mã hoặc QA..." autocomplete="off" />
+                </div>
+                <button id="btnThemeItemAdd" class="btn-theme-action btn-theme-add-item" title="Thêm mục kiểm tra mới">➕ Thêm mục</button>
               </div>
 
             </div>
@@ -558,6 +561,56 @@
 
         <!-- Hidden Raw Summary for test backward compatibility -->
         <div id="themeQaSummary" style="display:none;" aria-hidden="true">No validation has been run.</div>
+      </div>
+      <!-- THEME CHECKLIST ITEM CRUD MODAL -->
+      <div class="theme-item-edit-overlay" id="themeItemEditOverlay" style="display:none;">
+        <div class="theme-item-edit-modal" role="dialog" aria-modal="true" aria-labelledby="themeItemEditTitle">
+          <div class="theme-item-edit-header">
+            <strong id="themeItemEditTitle" class="theme-item-edit-title">Thêm mục kiểm tra mới</strong>
+            <button class="shortcuts-close" id="themeItemEditClose" aria-label="Close dialog">&times;</button>
+          </div>
+          <div class="theme-item-edit-body">
+            <div class="theme-form-group">
+              <label for="itemEditPage">Nhóm trang / Danh mục (*):</label>
+              <select id="itemEditPage" class="theme-form-select">
+                <option value="home">🏠 Trang Chủ (Home)</option>
+                <option value="collection">🛍️ Trang Danh Mục (Collection)</option>
+                <option value="product">📦 Trang Chi Tiết Sản Phẩm (PDP)</option>
+                <option value="cart">🛒 Trang Giỏ Hàng &amp; Mini Cart (Cart)</option>
+                <option value="blog">📰 Trang Tin Tức &amp; Bài Viết (Blog)</option>
+                <option value="account">👤 Trang Khách Hàng / Tài Khoản (Account)</option>
+                <option value="pages">📄 Trang Phụ &amp; Hệ Thống (Pages / 404)</option>
+                <option value="qa-gate">🎯 Cổng Nghiệm Thu (QA Gate)</option>
+              </select>
+            </div>
+            <div class="theme-form-row">
+              <div class="theme-form-group" style="flex: 1;">
+                <label for="itemEditCode">Mã mục (Code):</label>
+                <input type="text" id="itemEditCode" class="theme-form-input" placeholder="VD: HOM-09, COL-07..." />
+              </div>
+              <div class="theme-form-group" style="flex: 2;">
+                <label for="itemEditName">Tên mục kiểm tra (*):</label>
+                <input type="text" id="itemEditName" class="theme-form-input" placeholder="VD: Sticky Mega Menu..." required />
+              </div>
+            </div>
+            <div class="theme-form-group">
+              <label for="itemEditDesc">Mô tả yêu cầu:</label>
+              <textarea id="itemEditDesc" class="theme-form-textarea" rows="2" placeholder="Chi tiết chức năng, bố cục cần kiểm tra..."></textarea>
+            </div>
+            <div class="theme-form-group">
+              <label for="itemEditQa">Điểm kiểm tra QA tiêu chuẩn (*):</label>
+              <input type="text" id="itemEditQa" class="theme-form-input" placeholder="VD: Kiểm tra mobile 375px không tràn ngang..." required />
+            </div>
+            <div class="theme-form-group">
+              <label for="itemEditPath">Đường dẫn storefront test (Route):</label>
+              <input type="text" id="itemEditPath" class="theme-form-input" placeholder="VD: /collections/all, /cart hoặc để trống" />
+            </div>
+          </div>
+          <div class="theme-item-edit-actions">
+            <button type="button" class="btn-theme-action" id="btnItemEditCancel">Hủy</button>
+            <button type="button" class="btn-theme-qa" id="btnItemEditSave" style="padding: 4px 16px;">💾 Lưu mục</button>
+          </div>
+        </div>
       </div>
     </div>
     <!-- WORKFLOW & MCP HUB MODAL -->
