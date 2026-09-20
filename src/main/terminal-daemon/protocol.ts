@@ -29,6 +29,7 @@ export const HOST_METHOD = {
   syncView: 'terminalSyncView',
   captureBaseline: 'terminalCaptureBaseline',
   waitReady: 'terminalWaitReady',
+  waitTerminal: 'terminalWaitTerminal',
   input: 'terminalInput',
   sendKey: 'terminalSendKey',
   resize: 'terminalResize',

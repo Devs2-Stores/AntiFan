@@ -231,6 +231,11 @@ function main(): void {
             break;
           }
 
+          case HOST_METHOD.waitTerminal: {
+            respond(true, await tm.waitTerminal(p as unknown as Parameters<TerminalManager['waitTerminal']>[0]));
+            break;
+          }
+
           case HOST_METHOD.input: {
             if (typeof p.text !== 'string') {
               respond(false, undefined, 'Missing text in terminalInput');

@@ -22,6 +22,7 @@ import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { HOST_METHOD, HOST_EVENT, HOST_EVENT_TO_LOCAL } from './protocol';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload } from '../../shared/contracts';
+import type { TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
 
 const HOST = '127.0.0.1';
 const CALL_TIMEOUT_MS = 15000;
@@ -460,6 +461,29 @@ export class DaemonTerminalProxy extends EventEmitter {
     // as a transport failure. The extra headroom covers the round trip and host-side scheduling.
     const r = await this.client.call<{ ready: boolean }>(HOST_METHOD.waitReady, { sessionId, timeoutMs }, timeoutMs + 5000);
     return r.ready;
+  }
+
+  async waitTerminal(input: TerminalWaitInput, signal?: AbortSignal): Promise<TerminalWaitResult> {
+    if (signal?.aborted) {
+      throw new Error('Terminal wait aborted');
+    }
+    const timeoutMs = typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs)
+      ? input.timeoutMs
+      : 15000;
+    const callPromise = this.client.call<TerminalWaitResult>(
+      HOST_METHOD.waitTerminal,
+      input as unknown as Record<string, unknown>,
+      timeoutMs + 5000,
+    );
+    if (!signal) return callPromise;
+    return new Promise<TerminalWaitResult>((resolve, reject) => {
+      const onAbort = (): void => reject(new Error('Terminal wait aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      callPromise.then(
+        (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
+        (err) => { signal.removeEventListener('abort', onAbort); reject(err); },
+      );
+    });
   }
 
   /** No-op locally: the daemon owns persistence. Kept so call sites need no branch. */
