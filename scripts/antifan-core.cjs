@@ -4,6 +4,7 @@
 //   import <reportsDir>     import scout ledgers
 //   query '{"text":"..."}'  anchored claims
 //   pack '{"task":"..."}'   context pack
+//   scope '{"path":"E:\\Work\\apps\\AntiFan"}'  units a project root resolves to
 //   recommend '{"task":"..."}'
 //   receipt '{"task":"...","recommendation":"..."}'
 //   outcome '{"task":"...","outcome":"..."}'  case + PENDING candidate + observation
@@ -45,6 +46,7 @@ async function main() {
     case 'import': out = core.importScout(arg ?? path.join(process.cwd(), 'plans', '260914-1248-work-root-sequential-evidence-scout', 'reports')); break;
     case 'query': out = core.query(parse(arg)); break;
     case 'pack': out = core.contextPack(parse(arg)); break;
+    case 'scope': { const s = parse(arg); out = core.resolveScope(s.path ?? arg ?? ''); break; }
     case 'recommend': out = core.recommend(parse(arg)); break;
     case 'receipt': out = core.receipt(parse(arg)); break;
     case 'outcome': out = core.ingestOutcome(parse(arg)); break;

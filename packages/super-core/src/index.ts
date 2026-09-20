@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DDL, MIGRATIONS, SCHEMA_VERSION, PLATFORM_BACKFILL_SQL, POST_SCHEMA_SQL, NAMESPACE_BACKFILL_SQL, CORE_NAMESPACES, CoreNamespace, KNOWN_PLATFORMS } from './schema.js';
+import { buildFtsTerms, contentCoverage, ftsExpression } from './terms.js';
 export { CORE_NAMESPACES, CoreNamespace };
 
 const id = (s: string) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 20);
@@ -55,8 +56,8 @@ function collapseDuplicateStatements<
 }
 
 
-export interface QueryOpts { text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace; }
-export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; namespace?: CoreNamespace; }
+export interface QueryOpts { text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string; }
+export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string; }
 export interface OutcomeInput { task: string; context?: string; outcome: string; verificationRef?: string; unitId?: string; platform?: string; namespace?: CoreNamespace; }
 
 // A regression check is a re-executable invariant over live store state.
@@ -338,6 +339,40 @@ export class Core {
     return rows.length === 1 ? rows[0].p : null;
   }
 
+  /**
+   * Units belonging to a project root. Unit relPaths are stored relative to the
+   * ingest root, which the store does not record, and a caller knows its project
+   * as an absolute path: `E:\Work\apps\AntiFan` must resolve to `apps/AntiFan`.
+   * Paths are matched on components, never as string prefixes, so `apps/demo`
+   * never answers for `apps/demo2`. A root nested inside a known project
+   * (`…\apps\AntiFan\packages\super-core`) still belongs to that project, so the
+   * enclosing unit wins first; only a root above every known unit falls back to
+   * the longest component suffix that any unit sits under — which is what keeps
+   * `…\apps\AntiFan` from resolving to a unit merely named
+   * `antifan-dogfood-clone`. A root with no units under it resolves to null and
+   * leaves retrieval store-wide.
+   */
+  resolveScope(scope: string): { key: string; unitIds: string[] } | null {
+    const norm = (s: string) => s.toLowerCase().replace(/\\/g, '/').replace(/^[a-z]:/, '').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+    const components = norm(scope ?? '').split('/').filter(Boolean);
+    if (!components.length) return null;
+    const scopePath = `/${components.join('/')}/`;
+    const units = (this.db.prepare('SELECT unitId, relPath FROM units').all() as Array<{ unitId: string; relPath: string | null }>)
+      .map((u) => ({ unitId: u.unitId, rel: norm(u.relPath ?? '') }))
+      .filter((u) => u.rel.length > 0);
+    const under = (key: string) => units.filter((u) => u.rel === key || u.rel.startsWith(`${key}/`)).map((u) => u.unitId).sort();
+    const enclosing = units
+      .filter((u) => scopePath.includes(`/${u.rel}/`))
+      .sort((a, b) => b.rel.length - a.rel.length)[0];
+    if (enclosing) return { key: enclosing.rel, unitIds: under(enclosing.rel) };
+    for (let n = components.length; n >= 1; n--) {
+      const key = components.slice(-n).join('/');
+      const unitIds = under(key);
+      if (unitIds.length) return { key, unitIds };
+    }
+    return null;
+  }
+
   // Unresolved conflicts visible under the given scope. unitIds widen the scope
   // (explicitly requested units always surface their conflicts); platform
   // applies the same untagged-excluded policy as query().
@@ -470,38 +505,66 @@ export class Core {
     if (opts.unitId) { where.push('c.unitId = ?'); args.push(opts.unitId); }
     if (opts.unitIds?.length) { where.push(`c.unitId IN (${opts.unitIds.map(() => '?').join(',')})`); args.push(...opts.unitIds); }
     if (opts.kind) { where.push('c.kind = ?'); args.push(opts.kind); }
+    // Project scope is a PREFERENCE, not a filter: claims from the caller's own
+    // units fill the pool first, the rest of the store fills what is left, so a
+    // project with thin evidence still gets cross-project knowledge instead of an
+    // empty result. scopeTier carries that order through scoring and the final
+    // sort — the SQL orders by it so in-scope rows cannot be crowded out of the
+    // oversampled pool by higher-ranked out-of-scope rows.
+    const scope = opts.scope ? this.resolveScope(opts.scope) : null;
+    const scopeIds = scope?.unitIds ?? [];
+    const scopeCol = scopeIds.length ? `, (CASE WHEN c.unitId IN (${scopeIds.map(() => '?').join(',')}) THEN 0 ELSE 1 END) AS scopeTier` : '';
+    const scopeArgs: unknown[] = scopeIds.length ? [...scopeIds] : [];
+    const scopeOrder = scopeIds.length ? 'scopeTier, ' : '';
     // Over-fetch so the deterministic re-rank layer has candidates to order;
     // the visible window is still `limit`.
     const fetchN = Math.min(limit * 3, 600);
     let rows: Array<Record<string, unknown>>;
     // FTS5 treats - : ( ) " as syntax; quote each term. AND first for precision;
     // fall back to OR for recall when no claim contains every term.
-    const terms = opts.text ? opts.text.split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, '""')}"`) : [];
+    const terms = buildFtsTerms(opts.text ?? '');
     if (terms.length) {
-      const andQ = terms.join(' ');
+      const andQ = ftsExpression(terms, 'AND');
       rows = this.db.prepare(
-        `SELECT c.*, bm25(claims_fts) AS rank FROM claims_fts f JOIN claims c ON c.claimId = f.claimId WHERE claims_fts MATCH ? AND ${where.join(' AND ')} ORDER BY rank LIMIT ?`,
-      ).all(andQ, ...args as never[], fetchN) as Array<Record<string, unknown>>;
+        `SELECT c.*, bm25(claims_fts) AS rank${scopeCol} FROM claims_fts f JOIN claims c ON c.claimId = f.claimId WHERE claims_fts MATCH ? AND ${where.join(' AND ')} ORDER BY ${scopeOrder}rank LIMIT ?`,
+      ).all(...scopeArgs as never[], andQ, ...args as never[], fetchN) as Array<Record<string, unknown>>;
       if (rows.length === 0 && terms.length > 1) {
-        const orQ = terms.join(' OR ');
+        const orQ = ftsExpression(terms, 'OR');
         rows = this.db.prepare(
-          `SELECT c.*, bm25(claims_fts) AS rank FROM claims_fts f JOIN claims c ON c.claimId = f.claimId WHERE claims_fts MATCH ? AND ${where.join(' AND ')} ORDER BY rank LIMIT ?`,
-        ).all(orQ, ...args as never[], fetchN) as Array<Record<string, unknown>>;
+          `SELECT c.*, bm25(claims_fts) AS rank${scopeCol} FROM claims_fts f JOIN claims c ON c.claimId = f.claimId WHERE claims_fts MATCH ? AND ${where.join(' AND ')} ORDER BY ${scopeOrder}rank LIMIT ?`,
+        ).all(...scopeArgs as never[], orQ, ...args as never[], fetchN) as Array<Record<string, unknown>>;
       }
+    } else if ((opts.text ?? '').trim().length) {
+      // Text was given but it carries no content word: the request names nothing
+      // to retrieve, and answering with the newest claims store-wide is how a
+      // function-only prompt used to inject 200 irrelevant rows.
+      rows = [];
     } else {
-      rows = this.db.prepare(`SELECT * FROM claims c WHERE ${where.join(' AND ')} ORDER BY c.createdAt DESC LIMIT ?`).all(...args as never[], fetchN) as Array<Record<string, unknown>>;
+      rows = this.db.prepare(`SELECT * FROM claims c WHERE ${where.join(' AND ')} ORDER BY ${scopeOrder}c.createdAt DESC LIMIT ?`).all(...scopeArgs as never[], ...args as never[], fetchN) as Array<Record<string, unknown>>;
     }
     const evStmt = this.db.prepare('SELECT * FROM evidence WHERE claimId = ?');
-    for (const r of rows) r.evidence = evStmt.all(r.claimId as string);
-    const scope = this.unresolvedConflictScope(opts);
+    for (const r of rows) {
+      r.evidence = evStmt.all(r.claimId as string);
+      r.coverage = contentCoverage(r.statement, terms);
+    }
+    const scopeWhere = this.unresolvedConflictScope(opts);
     const conflictSubjects = new Set(
-      (this.db.prepare(`SELECT subject FROM conflicts WHERE ${scope.where}`).all(...scope.args as never[]) as Array<{ subject: string | null }>)
+      (this.db.prepare(`SELECT subject FROM conflicts WHERE ${scopeWhere.where}`).all(...scopeWhere.args as never[]) as Array<{ subject: string | null }>)
         .map((r) => r.subject).filter((s): s is string => s != null),
     );
     const targetNamespace = opts.namespace ?? this.inferQueryNamespace(opts);
     const scored = this.scoreClaims(rows, { platform: opts.platform, conflictSubjects, targetNamespace });
-    // Deterministic re-rank: composite score desc, BM25 asc, claimId asc.
-    scored.sort((a, b) => (b.score - a.score) || ((a.rank as number | undefined) ?? 0) - ((b.rank as number | undefined) ?? 0) || String(a.claimId).localeCompare(String(b.claimId)));
+    // Deterministic re-rank: the caller's own project first, then how much of the
+    // request's content a claim carries, then composite score desc, BM25 asc,
+    // claimId asc. Coverage outranks the composite because the composite weights
+    // text at 0.25 and would otherwise let a claim matching one common token out
+    // of a whole-store pool beat the claim that actually answers the request.
+    scored.sort((a, b) =>
+      (((a.scopeTier as number | undefined) ?? 1) - ((b.scopeTier as number | undefined) ?? 1))
+      || (((b.coverage as number | undefined) ?? 0) - ((a.coverage as number | undefined) ?? 0))
+      || (b.score - a.score)
+      || (((a.rank as number | undefined) ?? 0) - ((b.rank as number | undefined) ?? 0))
+      || String(a.claimId).localeCompare(String(b.claimId)));
     return scored.slice(0, limit) as Array<Record<string, unknown> & { claimId: string; contextPlatform: string | null; namespace: CoreNamespace | null; evidence: unknown[]; score: number }>;
   }
 
@@ -513,18 +576,23 @@ export class Core {
     // A plain top-N query therefore fills the pack with copies of one fact. Ask
     // for an oversampled pool, collapse equal statements, then take N DISTINCT.
     const pool = Math.min(limit * 4, 200);
-    const raw = this.query({ text: opts.task, platform: opts.platform, unitIds: opts.unitIds, includeGlobal: opts.includeGlobal, namespace: opts.namespace, limit: pool });
+    const projectScope = opts.scope ? this.resolveScope(opts.scope) : null;
+    const raw = this.query({ text: opts.task, platform: opts.platform, unitIds: opts.unitIds, scope: opts.scope, includeGlobal: opts.includeGlobal, namespace: opts.namespace, limit: pool });
     const claims = collapseDuplicateStatements(raw, limit);
-    const scope = this.unresolvedConflictScope(opts);
-    const conflicts = this.db.prepare(`SELECT * FROM conflicts WHERE ${scope.where} LIMIT 50`).all(...scope.args as never[]);
+    // Conflicts stay store-wide unless units are named explicitly: the conflict
+    // list is a warning surface, and hiding a cross-project conflict is worse
+    // than listing one from another project.
+    const conflictScope = this.unresolvedConflictScope(opts);
+    const conflicts = this.db.prepare(`SELECT * FROM conflicts WHERE ${conflictScope.where} LIMIT 50`).all(...conflictScope.args as never[]);
     // Unknowns = units with blocked/pending artifacts. Scoped to requested
     // units when given; platform-scoped via the unit's unanimous claim
     // platform when a platform is requested.
     const unknownArgs: unknown[] = [];
     let unknownSql = `SELECT unitId, COUNT(*) AS n FROM artifacts WHERE disposition IN ('BLOCKED','PENDING')`;
-    if (opts.unitIds?.length) {
-      unknownSql += ` AND unitId IN (${opts.unitIds.map(() => '?').join(',')})`;
-      unknownArgs.push(...opts.unitIds);
+    const unknownUnits = opts.unitIds?.length ? opts.unitIds : projectScope?.unitIds;
+    if (unknownUnits?.length) {
+      unknownSql += ` AND unitId IN (${unknownUnits.map(() => '?').join(',')})`;
+      unknownArgs.push(...unknownUnits);
     }
     unknownSql += ' GROUP BY unitId';
     let unknowns = this.db.prepare(unknownSql).all(...unknownArgs as never[]) as Array<{ unitId: string; n: number }>;
@@ -536,21 +604,28 @@ export class Core {
     }
     const release = this.db.prepare('SELECT releaseId, createdAt FROM releases ORDER BY createdAt DESC LIMIT 1').get() as { releaseId?: string; createdAt?: string } | undefined;
     // Pack identity (R3): deterministic packId over (taskHash, platform,
-    // sessionId). Same input in the same session returns the same packId and
-    // refreshes claimIdsJson in place — no row spam. lastIssuedAt tracks the
+    // sessionId, scope). Same input in the same session returns the same packId
+    // and refreshes claimIdsJson in place — no row spam. lastIssuedAt tracks the
     // write so a re-issued pack reads as the task's most recent injection;
-    // createdAt stays the first-issue time.
+    // createdAt stays the first-issue time. The project scope is part of the KEY
+    // because the same task text in two projects is two different packs: without
+    // it, a pack issued in one repo is re-issued verbatim in another, carrying
+    // claims about a codebase the caller is not in. A pack issued with no scope
+    // keeps the pre-scope identity, so existing rows are still reused.
     const taskHash = id(opts.task);
     const sessionId = opts.sessionId ?? '';
-    const packId = `pack-${id(`${taskHash}|${opts.platform ?? ''}|${sessionId}`)}`;
+    const scopeKey = projectScope?.key ?? null;
+    const packId = `pack-${id(`${taskHash}|${opts.platform ?? ''}|${sessionId}|${scopeKey ?? ''}`)}`;
     const issuedAt = now();
-    this.db.prepare(`INSERT INTO packs(packId,task,platform,claimIdsJson,createdAt,taskHash,sessionId,lastIssuedAt) VALUES (?,?,?,?,?,?,?,?)
+    this.db.prepare(`INSERT INTO packs(packId,task,platform,claimIdsJson,createdAt,taskHash,sessionId,lastIssuedAt,scopeKey) VALUES (?,?,?,?,?,?,?,?,?)
       ON CONFLICT(packId) DO UPDATE SET claimIdsJson=excluded.claimIdsJson, lastIssuedAt=excluded.lastIssuedAt`)
-      .run(packId, opts.task, opts.platform ?? null, JSON.stringify(claims.map((c) => c.claimId)), issuedAt, taskHash, sessionId, issuedAt);
+      .run(packId, opts.task, opts.platform ?? null, JSON.stringify(claims.map((c) => c.claimId)), issuedAt, taskHash, sessionId, issuedAt, scopeKey);
     return {
       packId,
       task: opts.task,
       platform: opts.platform ?? null,
+      scopeKey,
+      scopeUnitCount: projectScope ? projectScope.unitIds.length : null,
       release: release ?? null,
       permissionScope: 'eligible-content-only',
       claims,
@@ -903,7 +978,9 @@ export class Core {
   // platform is requested, untagged rows are excluded unless includeGlobal.
   findSimilar(opts: { task: string; platform?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace }) {
     const limit = Math.max(1, Math.min(opts.limit ?? 10, 50));
-    const terms = opts.task.split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, '""')}"`);
+    // Same term hygiene as query(): a function word must not be what makes a
+    // case, decision, or claim "similar" to the task.
+    const terms = buildFtsTerms(opts.task).map((t) => `"${t.replace(/"/g, '""')}"*`);
     const orQ = terms.join(' OR ');
     const like = `%${opts.task}%`;
     const claimArgs: unknown[] = [];

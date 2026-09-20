@@ -22,6 +22,13 @@ const HOOK_MTS = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-hook-')
 fs.copyFileSync(HOOK_PATH, HOOK_MTS);
 const { default: bridgeHook } = await import(pathToFileURL(HOOK_MTS).href);
 
+// The suite asserts Core pack seeding, which the anti-direct policy suppresses by
+// design (anti-direct-policy.test.mjs owns that behavior). The ambient process that
+// runs the suite may itself be an anti-direct session, and the policy travels in the
+// environment: without this reset the whole suite skips its packs and reports failure
+// for a policy it never asked for. A test that wants the policy sets it explicitly.
+for (const k of ['ANTIFAN_ANTI_DIRECT', 'ANTIFAN_ANTI_DIRECT_ORIGIN']) delete process.env[k];
+
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -35,6 +42,8 @@ const ENV_KEYS = [
 	'ANTIFAN_PROJECT_ROOT',
 	'ANTIFAN_CORE_PACK_LIMIT',
 	'ANTIFAN_CORE_BRIDGE_GATE',
+	'ANTIFAN_ANTI_DIRECT',
+	'ANTIFAN_ANTI_DIRECT_ORIGIN',
 ];
 
 async function withEnv(overrides, fn) {
@@ -190,6 +199,101 @@ test('project root resolves by walking up from a subdirectory cwd', async () => 
 		const messages = await h.emitBeforeAgentStart('task from nested dir', { cwd: path.join(REPO, 'scripts') });
 		assert.equal(messages.length, 1);
 		assert.equal(messages[0].details.projectRoot, REPO);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// R7 — the pack is scoped to the caller's own project
+// ---------------------------------------------------------------------------
+
+/**
+ * The store ranks the caller's own project first, and the bridge must pass its
+ * resolved project root so that ranking can act: an unscoped pack leads with
+ * whichever claim carries the strongest evidence store-wide, which is how a task
+ * in this repo receives answers about a different codebase.
+ */
+test('core available: the pack leads with the caller project claims', async () => {
+	const dir = tmpDir('core-bridge-scope-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	const reports = path.join(dir, 'reports');
+	const ledger = (entryId, relPath) => ({
+		entryId,
+		relPath,
+		path: `E:\\Work\\${relPath}`,
+		size: 1,
+		mtime: '2026-01-01T00:00:00Z',
+		sha256: entryId,
+		disposition: 'ANALYZED_WITH_CLAIMS',
+		observedAt: '2026-01-01T00:00:00Z',
+	});
+	const writeUnit = (unitId, ledgerLine, claims) => {
+		const ud = path.join(reports, 'units', unitId);
+		fs.mkdirSync(ud, { recursive: true });
+		fs.writeFileSync(path.join(ud, 'content-ledger.jsonl'), `${JSON.stringify(ledgerLine)}\n`);
+		fs.writeFileSync(path.join(ud, 'claims.jsonl'), `${claims.map((c) => JSON.stringify(c)).join('\n')}\n`);
+	};
+	fs.mkdirSync(reports, { recursive: true });
+	fs.writeFileSync(
+		path.join(reports, 'project-register.json'),
+		JSON.stringify({
+			runId: 'bridge-scope',
+			units: [
+				{ unitId: 'u-anti', rootId: 'work-root', relPath: 'apps\\AntiFan', kind: 'package', disposition: 'ELIGIBLE', parentId: null, markers: ['manifest:package.json'] },
+				{ unitId: 'u-har', rootId: 'work-root', relPath: 'themes\\har', kind: 'package', disposition: 'ELIGIBLE', parentId: null, markers: ['theme-project'] },
+			],
+		}),
+	);
+	fs.writeFileSync(path.join(reports, 'skills-register.json'), JSON.stringify({ skills: [] }));
+	writeUnit('u-anti', ledger('e-anti', 'apps\\AntiFan\\src\\main\\browser\\native-tab-host.ts'), [
+		{
+			claimId: 'c-anti',
+			unitId: 'u-anti',
+			statement: 'canvas fill override keeps the tab background opaque',
+			kind: 'CODE',
+			status: 'OBSERVED',
+			extractorVersion: 't',
+			evidenceRefs: [{ entryId: 'e-anti', revision: 'e-anti', path: 'apps\\AntiFan\\src\\main\\browser\\native-tab-host.ts', anchor: 'fill' }],
+		},
+	]);
+	// Same terms as the in-scope claim, stronger evidence and state, other project.
+	writeUnit('u-har', ledger('e-har', 'themes\\har\\assets\\core.css'), [
+		{
+			claimId: 'c-har',
+			unitId: 'u-har',
+			statement: 'canvas fill override for the unrelated theme grid',
+			kind: 'CODE',
+			status: 'PROMOTED',
+			extractorVersion: 't',
+			evidenceRefs: [
+				{ entryId: 'e-har', revision: 'e-har', path: 'themes\\har\\assets\\core.css', anchor: 'a' },
+				{ entryId: 'e-har', revision: 'e-har', path: 'themes\\har\\assets\\core.css', anchor: 'b' },
+				{ entryId: 'e-har', revision: 'e-har', path: 'themes\\har\\assets\\core.css', anchor: 'c' },
+			],
+		},
+	]);
+	const cli = path.join(REPO, 'scripts', 'antifan-core.cjs');
+	const imported = spawnSync(process.execPath, [cli, 'import', reports], {
+		env: { ...process.env, SUPER_CORE_DB: db, ANTIFAN_PROJECT_ROOT: undefined },
+		encoding: 'utf8',
+	});
+	assert.equal(imported.status, 0, `fixture import must succeed: ${imported.stderr}`);
+
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('canvas fill override', { cwd: REPO });
+		assert.equal(messages.length, 1, 'exactly one pack message');
+		const content = messages[0].content;
+		const inScope = content.indexOf('keeps the tab background opaque');
+		const otherProject = content.indexOf('unrelated theme grid');
+		assert.ok(inScope >= 0, 'the in-scope claim is in the pack');
+		assert.ok(otherProject >= 0, 'the other-project claim is still visible, not filtered away');
+		assert.ok(
+			inScope < otherProject,
+			'the caller project claim leads the pack even though the other project claim carries stronger evidence',
+		);
+		assert.equal(messages[0].details.claimCount, 2);
 	});
 });
 

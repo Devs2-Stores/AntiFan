@@ -8,6 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { openCore, type Core, CORE_NAMESPACES } from './index.js';
+import { buildFtsTerms, contentCoverage, ftsExpression } from './terms.js';
 import { SCHEMA_VERSION, NAMESPACE_BACKFILL_SQL } from './schema.js';
 
 function fixtureReports() {
@@ -873,9 +874,9 @@ test('namespace is recorded and backfilled across claims, cases, and decisions',
   const core = openCore(dbPath);
   const raw = new DatabaseSync(dbPath);
   try {
-    // 1. Verify schemaVersion is bumped to 10
+    // 1. Verify schemaVersion is bumped to the current schema
     const version = (raw.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value;
-    assert.equal(version, '10', 'SCHEMA_VERSION is 10');
+    assert.equal(version, String(SCHEMA_VERSION), 'schemaVersion matches SCHEMA_VERSION');
 
     // 2. Import scout fixtures
     core.importScout(fixtureReports());
@@ -1048,4 +1049,137 @@ test('context pack collapses one statement re-extracted across units, query keep
     core.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Retrieval hygiene: what reaches the FTS expression, and in what order results
+// come back. Measured on the live corpus before this: the marker token `#1,`
+// matched 1977 claims, `[Image` 532, `và` 432 — the AND form matched nothing, so
+// every pack was built from an OR pool of 2695/2754/607/593 rows.
+// ---------------------------------------------------------------------------
+
+test('retrieval terms are content words, emitted as prefix matches', () => {
+  // The observed prompt: attachment marker, Vietnamese function words, and two
+  // content words across a diacritic/no-diacritic mix.
+  assert.deepEqual(
+    buildFtsTerms('Mất luôn chữ Google? [Image #1, 1568x882] WebContent bị gì rồi'),
+    ['Mất', 'chữ', 'Google', 'WebContent'],
+    'marker, numerals and function words never become terms',
+  );
+  assert.deepEqual(buildFtsTerms('màu mặc định bị lỗi rồi'), ['màu', 'mặc', 'định', 'lỗi'], 'content words survive');
+  assert.deepEqual(buildFtsTerms('Đây nữa, và nhé'), [], 'a function-only prompt carries no term');
+  assert.deepEqual(buildFtsTerms('Google google GOOGLE'), ['Google'], 'fold-equal duplicates collapse');
+  assert.equal(ftsExpression(['webcontent'], 'AND'), '"webcontent"*', 'terms are prefix matches');
+  assert.equal(ftsExpression(['a"b', 'c'], 'OR'), '"a""b"* OR "c"*', 'quotes inside a term stay escaped');
+  assert.equal(contentCoverage('WebContentsView keeps the page opaque', ['webcontent', 'opaque']), 2, 'coverage counts folded hits');
+});
+
+test('a function word cannot retrieve a claim, and a prefix reaches a longer token', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-hygiene-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const nowStr = new Date().toISOString();
+    const seed = (claimId: string, rowid: number, statement: string) => {
+      raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt)
+        VALUES (?, 'u-hyg', ?, 'RULE', 'ACTIVE', 'v1', ?)`).run(claimId, statement, nowStr);
+      raw.prepare("INSERT INTO evidence(id, claimId, revision) VALUES (?, ?, 'rev1')").run(`ev-${claimId}`, claimId);
+      raw.prepare('INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (?,?,?,?,?)').run(rowid, statement, 'RULE', 'u-hyg', claimId);
+    };
+    seed('c-noise', 1, 'đây nữa bị rồi và nhé');
+    seed('c-real', 2, 'WebContentsView paints the page background');
+
+    const hits = core.query({ text: 'Mất luôn chữ Google? [Image #1, 1568x882] WebContent bị gì rồi' });
+    assert.deepEqual(hits.map((h) => h.claimId), ['c-real'], 'the prefix term reaches WebContentsView, the function words retrieve nothing');
+
+    assert.deepEqual(core.query({ text: 'và nhé' }), [], 'a termless prompt retrieves nothing rather than the newest rows');
+    // A prompt that is only an attachment marker names nothing either, and its raw
+    // text is not empty: the termless branch is the one that has to hold there.
+    assert.deepEqual(buildFtsTerms('[Image #1, 1919x1039]'), [], 'a marker-only prompt yields no term');
+    assert.deepEqual(core.query({ text: '[Image #1, 1919x1039]' }), [], 'and retrieves nothing, without throwing');
+    assert.ok(core.query({ text: '' }).length >= 1, 'no text still lists recent claims (unchanged)');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a claim carrying more of the request outranks a better-evidenced claim that carries less', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-coverage-rank-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const nowStr = new Date().toISOString();
+    // No claim carries every term, so retrieval falls back to the OR pool — the
+    // one pool where two rows can differ in how much of the request they answer.
+    // The thin row (two terms) is weak evidence; the richer row's competitor
+    // (one term) is PROMOTED with three anchors.
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt)
+      VALUES ('c-two', 'u-cov', 'canvas fill override on the tab host', 'RULE', 'OBSERVED', 'v1', ?)`).run(nowStr);
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt)
+      VALUES ('c-one', 'u-cov', 'canvas sizing rules for the theme grid', 'RULE', 'PROMOTED', 'v1', ?)`).run(nowStr);
+    for (const [claimId, rowid, statement] of [
+      ['c-two', 1, 'canvas fill override on the tab host'],
+      ['c-one', 2, 'canvas sizing rules for the theme grid'],
+    ] as const) {
+      raw.prepare('INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (?,?,?,?,?)').run(rowid, statement, 'RULE', 'u-cov', claimId);
+    }
+    for (const ev of ['ev-1', 'ev-2', 'ev-3']) raw.prepare("INSERT INTO evidence(id, claimId, revision) VALUES (?, 'c-one', 'rev1')").run(ev);
+    raw.prepare("INSERT INTO evidence(id, claimId, revision) VALUES ('ev-two', 'c-two', 'rev1')").run();
+
+    const hits = core.query({ text: 'canvas background fill' });
+    assert.equal(hits.length, 2, 'the OR pool holds both partial answers');
+    assert.equal(hits[0].claimId, 'c-two', 'the claim carrying canvas AND fill outranks the PROMOTED claim carrying one term');
+    assert.equal(hits[1].claimId, 'c-one', 'the better-evidenced single-term claim follows');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Project scope: a pack is issued FOR a project root, and its identity says so.
+// Same task text under two roots used to collapse into one pack row.
+// ---------------------------------------------------------------------------
+
+test('resolveScope maps a project root to the units under it, longest suffix first', () => {
+  const dir = fixtureReports();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  assert.deepEqual(core.resolveScope('E:\\Work\\apps\\demo'), { key: 'apps/demo', unitIds: ['u-test'] }, 'absolute root matches the store-relative path');
+  assert.deepEqual(core.resolveScope('E:\\Work\\apps\\demo\\packages\\super-core'), { key: 'apps/demo', unitIds: ['u-test'] }, 'a nested root falls back to the project that contains it');
+  assert.deepEqual(core.resolveScope('E:\\Work\\apps'), { key: 'apps', unitIds: ['u-other', 'u-test'] }, 'a parent root covers every project under it');
+  assert.equal(core.resolveScope('E:\\Work\\nowhere'), null, 'a root with no units under it does not scope');
+  assert.equal(core.resolveScope(''), null, 'an empty scope does not scope');
+  core.close();
+});
+
+test('a pack is scoped to the caller project and its identity does not collide across roots', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const task = 'settings schema rule';
+  const har = core.contextPack({ task, scope: 'E:\\Work\\themes\\har', limit: 4 });
+  const sapo = core.contextPack({ task, scope: 'E:\\Work\\themes\\sapo', limit: 4 });
+  const unscoped = core.contextPack({ task, limit: 4 });
+
+  assert.equal(har.scopeKey, 'themes/har', 'the pack records the scope it was issued for');
+  assert.equal(har.scopeUnitCount, 1, 'the scope resolves to the project unit');
+  assert.equal(har.claims[0].unitId, 'u-har', 'the project cannot be crowded out by the rest of the store');
+  assert.notEqual(har.packId, sapo.packId, 'the same task in two roots is two packs');
+  assert.notEqual(har.packId, unscoped.packId, 'a scoped pack is not the store-wide pack');
+  assert.ok(sapo.claims.some((c) => c.unitId === 'u-sapo'), 'the other root still resolves its own unit');
+  assert.ok(!har.claims.some((c) => c.unitId === 'u-gen'), 'out-of-scope claims do not lead the pack');
+
+  const rows = new DatabaseSync(path.join(dir, 'core.db')).prepare('SELECT packId, scopeKey FROM packs').all() as Array<{ packId: string; scopeKey: string | null }>;
+  assert.deepEqual(
+    rows.map((r) => r.scopeKey).sort(),
+    [null, 'themes/har', 'themes/sapo'],
+    'every issued pack names its scope (store-wide packs stay null)',
+  );
+  core.close();
 });

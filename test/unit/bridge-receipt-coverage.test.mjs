@@ -33,6 +33,13 @@ const HOOK_MTS = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-hook-')
 fs.copyFileSync(HOOK_PATH, HOOK_MTS);
 const { default: bridgeHook } = await import(pathToFileURL(HOOK_MTS).href);
 
+// The refusal reason this suite pins is the Core-unavailable one. The anti-direct
+// policy is checked first and reports its own reason, and that policy travels in the
+// environment of whichever process runs the suite — so an anti-direct session would
+// turn this guard red for a policy this file never asked for. Clear it at load; a
+// test that wants the policy sets it explicitly.
+for (const k of ['ANTIFAN_ANTI_DIRECT', 'ANTIFAN_ANTI_DIRECT_ORIGIN']) delete process.env[k];
+
 // The mutating set is read from the real dispatch table — never re-declared
 // in this file, or the guard would drift alongside the file it watches.
 const { CORE_DISPATCH } = require(path.join(REPO, 'scripts', 'antifan-omp-mcp.cjs'));
@@ -77,6 +84,8 @@ const ENV_KEYS = [
 	'ANTIFAN_PROJECT_ROOT',
 	'ANTIFAN_CORE_PACK_LIMIT',
 	'ANTIFAN_CORE_STATUS_RETRY_MS',
+	'ANTIFAN_ANTI_DIRECT',
+	'ANTIFAN_ANTI_DIRECT_ORIGIN',
 ];
 
 async function withEnv(overrides, fn) {

@@ -180,11 +180,11 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     READ_POLICY, (p: Parameters<CoreStorePort['query']>[0]) => core.query(p));
 
   reg('core.context_pack', 'Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope.',
-    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, required: ['task'] },
+    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' }, scope: { type: 'string', description: 'Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack.' } }, required: ['task'] },
     READ_POLICY, (p: Parameters<CoreStorePort['contextPack']>[0]) => core.contextPack(p));
 
   reg('core.recommend', 'Recommend from evidence: Context Pack + recommendation or explicit abstention.',
-    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, required: ['task'] },
+    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' }, scope: { type: 'string', description: 'Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack.' } }, required: ['task'] },
     READ_POLICY, (p: Parameters<CoreStorePort['recommend']>[0]) => core.recommend(p));
 
   reg('core.stats', 'Return Super Core store counts for verification.',
@@ -342,7 +342,7 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
 
   // v4: Enriched Context Pack & Receipt
   reg('core.context_pack_v2', 'Build an enriched Context Pack with rules, cases, pitfalls, workarounds, pattern, uncertainty, confidence.',
-    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' } }, required: ['task'] },
+    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' }, scope: { type: 'string', description: 'Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack.' } }, required: ['task'] },
     READ_POLICY, (p: Record<string, unknown>) => core.contextPackV2(p));
   reg('core.receipt_v2', 'Issue an enriched Decision Receipt with why, cases, risks, alternatives, uncertainty, confidence.',
     { type: 'object', properties: { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' }, platform: { type: 'string' } }, required: ['task', 'recommendation'] },

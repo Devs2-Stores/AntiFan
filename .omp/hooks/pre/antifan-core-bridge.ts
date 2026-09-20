@@ -932,6 +932,15 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				JSON.stringify({
 					task,
 					limit: envInt("ANTIFAN_CORE_PACK_LIMIT", MAX_CLAIMS_IN_MESSAGE, 50),
+					// Scope the pack to the project being worked on. The store
+					// spans every analysed root, so without this the pack for a
+					// task in this repo is filled from every other project's
+					// claims first (dogfood-clone, theme, docs) and the caller's
+					// own findings arrive after them. Scope is a preference, not
+					// a filter: in-scope claims lead, cross-project knowledge
+					// still fills what is left. The resolved project root is the
+					// authority — never inferred from the prompt.
+					scope: state.projectRoot,
 					// Scope the pack to a platform when the workspace declares one.
 					// Without it the Core applies no platform constraint, so claims
 					// tagged for a different e-commerce platform are injected into

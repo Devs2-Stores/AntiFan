@@ -2,7 +2,7 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export const CORE_NAMESPACES = ['PLATFORM_KNOWLEDGE', 'ANTIFAN_ENGINEERING', 'PERSONAL_PRACTICE'] as const;
 export type CoreNamespace = typeof CORE_NAMESPACES[number];
@@ -335,7 +335,8 @@ CREATE TABLE IF NOT EXISTS packs (
   createdAt TEXT NOT NULL,
   taskHash TEXT,
   sessionId TEXT,
-  lastIssuedAt TEXT
+  lastIssuedAt TEXT,
+  scopeKey TEXT
 );
 
 CREATE TABLE IF NOT EXISTS observations (
@@ -721,5 +722,12 @@ CREATE INDEX IF NOT EXISTS idx_claims_namespace ON claims(namespace);
 CREATE INDEX IF NOT EXISTS idx_cases_namespace ON cases(namespace);
 CREATE INDEX IF NOT EXISTS idx_decisions_namespace ON decisions(namespace);
 ${NAMESPACE_BACKFILL_SQL}`,
+  },
+  {
+    // Pack identity gained the project scope: the same task text in two project
+    // roots is two different packs, so the row must name the scope it was issued
+    // for. Existing rows carry NULL — their identity predates scoping.
+    from: 10, to: 11,
+    sql: `ALTER TABLE packs ADD COLUMN scopeKey TEXT;`,
   },
 ];
