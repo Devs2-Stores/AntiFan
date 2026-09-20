@@ -192,4 +192,33 @@ describe('Presented view invariant', () => {
     assert.strictEqual(attachedDuringSwitch, true, 'the detach sweep must not take away a view an in-flight capture is holding');
     assert.deepStrictEqual(children, [presented.tab.view], 'releasing the capture must hand the window back to the presented tab only');
   });
+
+  it('raiseViewForCapture lifts a background view above the user tab without switching it', async () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host, children } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+
+    await host.runWithAttachedTabView(background.tab.view, async () => {
+      const buriedPresented = children.indexOf(presented.tab.view);
+      const buriedBackground = children.indexOf(background.tab.view);
+      assert.ok(buriedPresented > buriedBackground && buriedBackground >= 0, 'the attach helper keeps the capture view occluded');
+
+      host.raiseViewForCapture(background.tab.view);
+      const raisedPresented = children.indexOf(presented.tab.view);
+      const raisedBackground = children.indexOf(background.tab.view);
+      assert.ok(raisedBackground > raisedPresented && raisedPresented >= 0, 'raiseViewForCapture must sit the capture view above the user tab');
+      assert.strictEqual(host.activeTabId, 'tab-visible', 'raise must not switch the visible tab');
+
+      host.reassertPresentedView();
+      const restoredPresented = children.indexOf(presented.tab.view);
+      const restoredBackground = children.indexOf(background.tab.view);
+      assert.ok(restoredPresented > restoredBackground && restoredBackground >= 0, 'reassertPresentedView must put the user tab back on top while capture still holds the view');
+    });
+
+    assert.deepStrictEqual(children, [presented.tab.view], 'releasing the capture must hand the window back to the presented tab only');
+  });
 });

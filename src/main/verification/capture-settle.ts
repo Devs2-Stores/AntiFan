@@ -839,7 +839,13 @@ export async function evaluatePreCaptureQuiescence(
   // Only a still-loading image is worth waiting for. A broken image never becomes
   // loadable by waiting, so refusing the capture on one made every ad-bearing page
   // uncapturable (measured: 2 broken ad images refused vnexpress.net outright).
-  const imagesSettled = sample2.pendingImages === 0;
+  // After the observation window, a leftover pending image among already-decoded
+  // siblings is the same class: it will not become loadable by refusing the raster
+  // (measured: 1 pending image refused phongvu.vn after network_idle). Refuse only
+  // while pending images still outnumber loaded ones — the page is still loading.
+  const loadedImages = Math.max(0, sample2.imageCount - sample2.pendingImages);
+  const leftoverPendingTolerated = sample2.pendingImages > 0 && loadedImages >= sample2.pendingImages;
+  const imagesSettled = sample2.pendingImages === 0 || leftoverPendingTolerated;
 
   // Structural identity: the tracked image set and each image's layout must hold.
   // A source swap inside an unmoved element is churn to report, not a reason to refuse.
@@ -919,7 +925,7 @@ export async function evaluatePreCaptureQuiescence(
   const toleratedPredicates: string[] = [];
   if (layoutStable && layoutDriftPx > 0) toleratedPredicates.push('layoutStable');
   if (imageIdentityStable && rotatedImages > 0) toleratedPredicates.push('imageIdentityStable');
-  if (imagesSettled && sample2.brokenImages.length > 0) toleratedPredicates.push('imagesSettled');
+  if (imagesSettled && (sample2.brokenImages.length > 0 || leftoverPendingTolerated)) toleratedPredicates.push('imagesSettled');
 
   const warnings: CaptureSettleWarnings = {
     brokenImages: sample2.brokenImages,

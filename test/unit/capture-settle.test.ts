@@ -601,6 +601,15 @@ describe('evaluatePreCaptureQuiescence (capture-admissibility verdicts)', () => 
     assert.strictEqual(result.predicates.imagesSettled, false);
   });
 
+  it('admits a capture when leftover pending images are outnumbered by loaded ones', async () => {
+    const { result } = await evaluate(() => sampleOf({ pendingImages: 1, imageCount: 5 }));
+
+    assert.strictEqual(result.ready, true, 'A leftover pending image among already-decoded siblings must not refuse the raster');
+    assert.strictEqual(result.predicates.imagesSettled, true);
+    assert.strictEqual(result.measurements.pendingImages, 1);
+    assert.ok(result.warnings.toleratedPredicates.includes('imagesSettled'));
+  });
+
   it('admits a capture on a page whose banner rotates in place, counting the churn', async () => {
     // Both creatives occupy the same 728x92 slot: a swap inside an unmoved element.
     const rotating = (index: number) =>

@@ -119,6 +119,12 @@ export interface TabDevToolsContext {
    * that a view outside the window can never produce.
    */
   reassertPresentedView?: () => void;
+  /**
+   * Lift a helper-attached background view above the user's tab for one raster.
+   * Occluded WebContentsViews on Windows produce no compositor frame.
+   * Does not change the active tab. Pair with reassertPresentedView after the CDP call.
+   */
+  raiseViewForCapture?: (view: Electron.WebContentsView) => void;
 }
 export interface TabDevToolsStats {
   attachedWebContentsCount: number;
@@ -636,7 +642,11 @@ export class TabDevToolsHost {
         fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
       }
 
-      dispatchAnnotationToTerminal(tm, targetSessionId, fullPrompt);
+      // Copy Prompt publishes the same artifacts but leaves the terminal untouched:
+      // the prompt lands on the clipboard for a manual paste instead.
+      if (!rawResult.copyOnly) {
+        dispatchAnnotationToTerminal(tm, targetSessionId, fullPrompt);
+      }
 
       try {
         clipboard.writeText(fullPrompt);
@@ -2031,11 +2041,18 @@ export class TabDevToolsHost {
           // full-page on them is already refused above.
           if (mode !== 'viewport' && !isOffscreenTarget) {
             const windowPresented = this.ctx.isWindowRenderable ? this.ctx.isWindowRenderable() : true;
-            if (!windowPresented || surface.hidden === true) {
-              const cause = surface.hidden === true ? classifyRenderSurfaceCause(surface) : 'window-not-presented';
+            if (!windowPresented) {
               throw new CaptureError(
                 'NO_RENDER_SURFACE',
-                `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause ${cause}). Show the window or use a viewport capture.`
+                `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause window-not-presented). Show the window or use a viewport capture.`
+              );
+            }
+            // Occluded background panes report document.hidden until raiseViewForCapture.
+            // That flag is only a compositor-gone signal on the already-presented tab.
+            if (isForeground && surface.hidden === true) {
+              throw new CaptureError(
+                'NO_RENDER_SURFACE',
+                `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause ${classifyRenderSurfaceCause(surface)}). Show the window or use a viewport capture.`
               );
             }
           }
@@ -2182,50 +2199,18 @@ export class TabDevToolsHost {
           // walk + settle gate (seconds of work), so a window hidden mid-capture
           // would otherwise still reach captureBeyondViewport and wait out the
           // bound — the same 60s hang this guard exists to prevent.
-          let nativeRasterAnswered = false;
-          let nativeRasterTimedOut = false;
-          if (mode === 'viewport' && !isOffscreenTarget && isForeground) {
-            const acceptNativeRaster = (raster: { bytes: Buffer | null; timedOut: boolean }): VerificationCaptureEnvelope | null => {
-              if (!raster.bytes) return null;
-              const nativeImage = imageFormat === 'jpeg' ? validateJpegBuffer(raster.bytes) : validatePngBuffer(raster.bytes);
-              const nativeSize = nativeImage.ok ? { width: nativeImage.width, height: nativeImage.height } : null;
-              if (nativeImage.ok && nativeSize) nativeRasterAnswered = true;
-              if (nativeImage.ok && nativeSize && rasterMatchesCss(nativeSize, cssCaptureSize, dpr, zoom)) {
-                return {
-                  data: raster.bytes.toString('base64'),
-                  backend: 'capturePage',
-                  dpr,
-                  zoom,
-                  cssViewport,
-                  cssCaptureSize,
-                  rasterSize: nativeSize,
-                  captureMode: mode,
-                  timestamp: Date.now(),
-                  settle: lastQuiescence?.warnings,
-                };
-              }
-              return null;
-            };
-            const nativeBound = Math.min(boundMs, NATIVE_VIEWPORT_RASTER_BOUND_MS);
-            const nativeRaster = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality, nativeBound);
-            nativeRasterTimedOut = nativeRaster.timedOut;
-            const earlyNative = acceptNativeRaster(nativeRaster);
-            if (earlyNative) return earlyNative;
-            if (nativeRaster.timedOut) {
-              throw new CaptureError(
-                'CAPTURE_TIMEOUT',
-                `Page.captureScreenshot (viewport) on tab '${targetId}': native viewport raster did not settle within ${nativeBound}ms`
-              );
-            }
-          }
+          // Verification capture uses CDP Page.captureScreenshot({ fromSurface: true })
+          // as the only raster engine. Native capturePage is uncancelable Mojo: a hung
+          // raster used to throw at 4s and poison the WebContents so later calls never
+          // reached CDP. Background and offscreen paths already succeed on this engine;
+          // foreground viewport joins them. captureNativeViewportRaster remains for the
+          // legacy helper, which still shares in-flight rasters and poisons on timeout.
+          //
+          // A viewport with no compositor frame to copy must not wait the full outer
+          // bound: the probe bound names a missing surface instead of draining CDP.
+          const captureHasNoSurface = mode === 'viewport' && !isOffscreenTarget;
+          const cdpBoundMs = captureHasNoSurface ? Math.min(boundMs, NO_SURFACE_CAPTURE_PROBE_BOUND_MS) : boundMs;
 
-          // A surface that no window presents never answers the capture: measured
-          // against a detached WebContentsView (never added to a window's contentView),
-          // Page.captureScreenshot times out for viewport and beyond-viewport alike and
-          // capturePage() never settles, while the same view attached to the window
-          // answers in ~130ms. Occlusion is irrelevant (a covered view captures in
-          // ~150ms). Failing closed keeps a missing surface a typed error instead of a
-          // bound-long hang that also poisons the target's CDP queue.
           if (!isForeground && !isOffscreenTarget && this.ctx.isTabViewAttached && targetPaneView && !this.ctx.isTabViewAttached(targetPaneView)) {
             throw new CaptureError(
               'NO_RENDER_SURFACE',
@@ -2239,15 +2224,18 @@ export class TabDevToolsHost {
               `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window was hidden or minimized during capture setup, so the compositor produces no beyond-viewport surface. Show the window or use a viewport capture.`
             );
           }
-          // A viewport raster the native tier answered empty has no compositor
-          // frame to copy: the fallback would wait out its whole bound and leave
-          // the target's CDP transport draining. Give it a short probe bound
-          // instead, and name the missing surface when it cannot answer (below).
-          // A native raster that TIMED OUT already threw: capturePage is still
-          // in flight, so CDP captureScreenshot is not dispatched against it.
-          const captureHasNoSurface = mode === 'viewport' && !isOffscreenTarget && !nativeRasterAnswered && !nativeRasterTimedOut;
-          const cdpBoundMs = captureHasNoSurface ? Math.min(boundMs, NO_SURFACE_CAPTURE_PROBE_BOUND_MS) : boundMs;
 
+          const shouldRaiseForRaster = !isForeground && !isOffscreenTarget && Boolean(targetPaneView);
+          if (shouldRaiseForRaster) {
+            this.ctx.raiseViewForCapture?.(targetPaneView);
+            try {
+              await this.evalJs(
+                'new Promise(r => { const t = setTimeout(r, 60); if (typeof requestAnimationFrame === "function") { requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); } })',
+                targetId,
+                effectivePane
+              );
+            } catch {}
+          }
           let captureRes: { data?: string } | undefined;
           try {
             captureRes = await this.sendCdpCommand<{ data?: string }>(
@@ -2263,13 +2251,16 @@ export class TabDevToolsHost {
               cdpBoundMs
             );
           } catch (err) {
-            if (captureHasNoSurface && !nativeRasterTimedOut) {
-              throw new CaptureError(
-                'NO_RENDER_SURFACE',
-                `Tab '${targetId}' pane '${effectivePane}' produced no ${mode} raster: the native view handed back no frame and the CDP fallback found no compositor surface to copy, so the window is not presenting this view (a hidden, minimised or Chromium-occluded window, or a tab the window is not showing). Bring the AntiFan window to the foreground, or capture an offscreen agent-plane tab.`
-              );
-            }
+            // A timed-out raster can leave the presented pane blank even though the
+            // view is still attached: the compositor stopped committing frames.
+            // Re-assert restores z-order and invalidates so the user sees the page
+            // again instead of a white content box (measured: dienmaycholon.com).
+            this.ctx.reassertPresentedView?.();
             throw this.toCaptureError(err, `Page.captureScreenshot (${mode}) on tab '${targetId}'`);
+          } finally {
+            if (shouldRaiseForRaster) {
+              this.ctx.reassertPresentedView?.();
+            }
           }
 
           if (!captureRes || typeof captureRes.data !== 'string' || captureRes.data.length === 0) {
@@ -2388,9 +2379,11 @@ export class TabDevToolsHost {
       viewportTransaction = await this.restoreCapturedGeometry(wc, targetId, effectivePane, surfaceBefore);
     }
     if (viewportTransaction && !viewportTransaction.restored && !viewportTransaction.deferred) {
-      // A moved layout viewport is a state hazard, so it outranks the original
-      // capture outcome: evidence captured on a surface we could not restore
-      // must never be receipted as usable geometry.
+      // Restore failure is the measured white-pane path: the layout viewport
+      // stayed at the capture size and the compositor stopped committing
+      // (Google Sheets, 3000x1420 left vs 2400x1136). Re-assert before the
+      // throw so the user is not left staring at a blank content box.
+      try { this.ctx.reassertPresentedView?.(); } catch {}
       throw new CaptureError(
         'CAPTURE_VIEWPORT_NOT_RESTORED',
         `Capture on tab '${targetId}' left the layout viewport at ${viewportTransaction.after ? `${viewportTransaction.after.width}x${viewportTransaction.after.height}` : 'an unmeasurable size'} after ${viewportTransaction.attempts} restore attempts (expected ${viewportTransaction.before ? `${viewportTransaction.before.width}x${viewportTransaction.before.height}` : 'unknown'})`,

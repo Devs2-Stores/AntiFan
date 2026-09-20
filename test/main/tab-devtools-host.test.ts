@@ -1151,11 +1151,10 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(dom, '<html><body><h1>Hello Test</h1></body></html>');
   });
 
-  it('25. a hung native viewport raster reports CAPTURE_TIMEOUT, not NO_RENDER_SURFACE', async () => {
+  it('25. a hung CDP viewport raster reports CAPTURE_TIMEOUT, not NO_RENDER_SURFACE', async () => {
     const { ctx } = createMockContext();
     let attached = false;
     let capturePageCalls = 0;
-    const { promise: rasterPromise, resolve: resolveRaster } = Promise.withResolvers<unknown>();
     const { promise: screenshotPromise, resolve: resolveScreenshot } = Promise.withResolvers<unknown>();
     const mockWc = {
       id: 700,
@@ -1165,7 +1164,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       executeJavaScript: async () => undefined,
       capturePage: () => {
         capturePageCalls += 1;
-        return rasterPromise;
+        throw new Error('capturePage must not run on verification capture');
       },
       debugger: {
         isAttached: () => attached,
@@ -1182,17 +1181,14 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     ctx.getTabWebContents = () => mockWc;
     const devTools = new TabDevToolsHost(ctx);
 
-    // The caller's timeoutMs bounds the native raster wait too, so a 10ms bound
-    // exercises the real timeout path without stubbing the private method.
     await assert.rejects(
       () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 10 }),
       (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
     );
-    assert.strictEqual(capturePageCalls, 1);
+    assert.strictEqual(capturePageCalls, 0, 'Verification capture must not start uncancelable capturePage');
 
-    resolveRaster({ isEmpty: () => false, toPNG: () => makePng(4, 4) });
     resolveScreenshot({ data: makePng(4, 4).toString('base64') });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await Promise.resolve();
   });
 
   it('26. a second native raster request shares the in-flight capture instead of stacking another capturePage', async () => {
@@ -1416,6 +1412,9 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         }
         return { result: { value: undefined } };
       }
+      if (method === 'Page.captureScreenshot') {
+        return { data: makePng(4, 3).toString('base64') };
+      }
       return {};
     };
     internals.captureNativeViewportRaster = async () => {
@@ -1431,8 +1430,8 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 500 });
 
     assert.strictEqual(reasserts, 1, 'The presented tab is the one whose view the window owns, so its missing view is repaired, not refused');
-    assert.strictEqual(rasterCalls, 1, 'The capture must run against the repaired surface');
-    assert.strictEqual(envelope.backend, 'capturePage');
+    assert.strictEqual(rasterCalls, 0, 'Verification capture must not start capturePage');
+    assert.strictEqual(envelope.backend, 'cdp');
     assert.ok(envelope.data.length > 0);
   });
 
@@ -1487,18 +1486,22 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(envelope.data.length > 0);
   });
 
-  it('32. a hung native viewport raster does not dispatch CDP captureScreenshot', async () => {
+  it('32. verification capture does not start capturePage when CDP hangs', async () => {
     const { ctx } = createMockContext();
     let attached = false;
+    let capturePageCalls = 0;
     let cdpCaptureCalls = 0;
-    const { promise: rasterPromise, resolve: resolveRaster } = Promise.withResolvers<unknown>();
+    const { promise: screenshotPromise, resolve: resolveScreenshot } = Promise.withResolvers<unknown>();
     const mockWc = {
       id: 800,
       isDestroyed: () => false,
       on: () => {},
       removeListener: () => {},
       executeJavaScript: async () => undefined,
-      capturePage: () => rasterPromise,
+      capturePage: () => {
+        capturePageCalls += 1;
+        throw new Error('capturePage must not run on verification capture');
+      },
       debugger: {
         isAttached: () => attached,
         attach: () => { attached = true; },
@@ -1508,7 +1511,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         sendCommand: (method: string) => {
           if (method === 'Page.captureScreenshot') {
             cdpCaptureCalls += 1;
-            return new Promise(() => {});
+            return screenshotPromise;
           }
           return Promise.resolve({ result: { value: { dpr: 1, vw: 4, vh: 4 } } });
         },
@@ -1521,13 +1524,14 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 20 }),
       (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
     );
-    assert.strictEqual(cdpCaptureCalls, 0, 'CDP captureScreenshot must not run while capturePage is in flight');
+    assert.strictEqual(capturePageCalls, 0, 'Verification capture must not start uncancelable capturePage');
+    assert.ok(cdpCaptureCalls >= 1, 'Hung compositor is observed on the CDP path');
 
-    resolveRaster({ isEmpty: () => false, toPNG: () => makePng(4, 4) });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    resolveScreenshot({ data: makePng(4, 4).toString('base64') });
+    await Promise.resolve();
   });
 
-  it('33. a hung native raster fails at the short bound without waiting the remaining capture budget', async () => {
+  it('33. verification capture uses CDP even if native raster would hang', async () => {
     const { ctx } = createMockContext();
     let attached = false;
     let nativeCalls = 0;
@@ -1563,11 +1567,10 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       return { bytes: null, timedOut: true };
     };
 
-    await assert.rejects(
-      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 50 }),
-      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
-    );
-    assert.strictEqual(nativeCalls, 1, 'Must not wait the remaining capture budget on a hung capturePage');
-    assert.strictEqual(cdpCaptureCalls, 0, 'CDP captureScreenshot must not run while capturePage is in flight');
+    const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 50 });
+    assert.strictEqual(nativeCalls, 0, 'Verification capture must not enter the native raster path');
+    assert.ok(cdpCaptureCalls >= 1);
+    assert.strictEqual(envelope.backend, 'cdp');
+    assert.ok(envelope.data.length > 0);
   });
 });

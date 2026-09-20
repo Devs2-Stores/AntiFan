@@ -641,6 +641,7 @@ export class NativeTabHost extends EventEmitter {
         applyTabDeviceEmulation: (tabId: string) => this.applyTabDeviceEmulationForTab(tabId),
         isTabViewAttached: (view) => this.isTabViewAttached(view),
         reassertPresentedView: () => this.reassertPresentedView(),
+        raiseViewForCapture: (view) => this.raiseViewForCapture(view),
         isWindowRenderable: () => !this.window.isDestroyed() && this.window.isVisible() && !this.window.isMinimized(),
       });
     }
@@ -3129,6 +3130,39 @@ export class NativeTabHost extends EventEmitter {
           this.reassertPresentedView();
         }
       }
+    }
+  }
+
+  /**
+   * `enforceZOrder` keeps the user's active tab above every other pane, so a
+   * helper-attached background view is occluded. On Windows an occluded
+   * WebContentsView produces no compositor frame, and Page.captureScreenshot
+   * `{ fromSurface: true }` then waits out the 8s no-surface probe (measured:
+   * inactive bagamuioto + mdn video). Lift the capture view above the active
+   * tab and below chrome for the raster; `reassertPresentedView` restores.
+   * Does not change `activeTabId`.
+   */
+  public raiseViewForCapture(view: WebContentsView): void {
+    if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
+    if (!this.isTabViewAttached(view)) return;
+    const contentView = this.window.contentView;
+    try {
+      if (typeof contentView.removeChildView === 'function') contentView.removeChildView(view);
+      if (typeof contentView.addChildView === 'function') contentView.addChildView(view);
+      if (this.sidebarView && this.isTabViewAttached(this.sidebarView as unknown as WebContentsView)) {
+        contentView.removeChildView(this.sidebarView);
+        contentView.addChildView(this.sidebarView);
+      }
+      if (this.toolbarView && this.isTabViewAttached(this.toolbarView as unknown as WebContentsView)) {
+        contentView.removeChildView(this.toolbarView);
+        contentView.addChildView(this.toolbarView);
+      }
+      const wc = view.webContents;
+      if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.invalidate === 'function') {
+        try { wc.invalidate(); } catch {}
+      }
+    } catch (err) {
+      console.warn('[native-tab-host] raiseViewForCapture error:', err);
     }
   }
 
@@ -5709,42 +5743,6 @@ export class NativeTabHost extends EventEmitter {
     );
     const shouldReload = options?.reload ?? categoryChanged;
 
-    if (shouldReload && !tab.view.webContents.isDestroyed()) {
-      try {
-        const wc = tab.view.webContents;
-        if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.insertCSS === 'function') {
-          let curtainKey: string | null = null;
-          let cleanedUp = false;
-          let timeoutId: NodeJS.Timeout | null = null;
-          const cleanup = () => {
-            if (cleanedUp) return;
-            cleanedUp = true;
-            if (timeoutId) {
-              clearTimeout(timeoutId);
-              timeoutId = null;
-            }
-            if (curtainKey && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeInsertedCSS === 'function') {
-              try { wc.removeInsertedCSS(curtainKey); } catch {}
-              curtainKey = null;
-            }
-          };
-          if (typeof wc.once === 'function') {
-            wc.once('did-finish-load', cleanup);
-          }
-          timeoutId = setTimeout(cleanup, 2500);
-          wc.insertCSS('html { opacity: 0 !important; }').then((key) => {
-            curtainKey = key;
-            if (cleanedUp) {
-              if (typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeInsertedCSS === 'function') {
-                try { wc.removeInsertedCSS(key); } catch {}
-              }
-              curtainKey = null;
-            }
-          }).catch(() => {});
-        }
-      } catch {}
-    }
-
     tab.customViewport = undefined;
     tab.state.devicePresetId = effectivePresetId;
     this.updateLayout();
@@ -8135,69 +8133,33 @@ export class NativeTabHost extends EventEmitter {
     };
     tab.state.devicePresetId = `custom-${w}x${h}`;
     const applyForTarget = async (): Promise<boolean> => {
-      let curtainKey: string | null = null;
-      let cleanedUp = false;
       const wc = tab.view.webContents;
 
-      const cleanupCurtain = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        if (curtainKey && wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeInsertedCSS === 'function') {
-          try { wc.removeInsertedCSS(curtainKey); } catch {}
-          curtainKey = null;
-        }
+      await this.applyCdpTouchEmulation(wc, mobile);
+      const customPreset: DevicePreset = {
+        id: tab.state.devicePresetId || `custom-${w}x${h}`,
+        name: `Custom (${w}x${h})`,
+        width: w,
+        height: h,
+        deviceScaleFactor: resolvedDpr,
+        mobile,
+        category: mobile ? 'mobile' : (w < 1024 ? 'tablet' : 'desktop'),
+        platform: isIphoneDimensions || mobile ? 'iPhone' : undefined,
       };
-
-      if (options.reload && wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.insertCSS === 'function') {
+      await this.applyCdpDeviceEmulationState(wc, customPreset);
+      if (wc && typeof wc.executeJavaScript === 'function') {
         try {
-          if (typeof wc.once === 'function') {
-            wc.once('did-finish-load', cleanupCurtain);
-          }
-          const key = await wc.insertCSS('html { opacity: 0 !important; }');
-          curtainKey = key;
-          if (cleanedUp) {
-            if (typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeInsertedCSS === 'function') {
-              try { wc.removeInsertedCSS(key); } catch {}
-            }
-            curtainKey = null;
-          }
+          await wc.executeJavaScript(`
+            window.dispatchEvent(new Event('resize'));
+            window.dispatchEvent(new Event('orientationchange'));
+          `);
         } catch {}
       }
-
-      try {
-        await this.applyCdpTouchEmulation(wc, mobile);
-        const customPreset: DevicePreset = {
-          id: tab.state.devicePresetId || `custom-${w}x${h}`,
-          name: `Custom (${w}x${h})`,
-          width: w,
-          height: h,
-          deviceScaleFactor: resolvedDpr,
-          mobile,
-          category: mobile ? 'mobile' : (w < 1024 ? 'tablet' : 'desktop'),
-          platform: isIphoneDimensions || mobile ? 'iPhone' : undefined,
-        };
-        await this.applyCdpDeviceEmulationState(wc, customPreset);
-        if (wc && typeof wc.executeJavaScript === 'function') {
-          try {
-            await wc.executeJavaScript(`
-              window.dispatchEvent(new Event('resize'));
-              window.dispatchEvent(new Event('orientationchange'));
-            `);
-          } catch {}
-        }
-        if (options.reload) {
-          const reloadOk = await this.reloadAndWait(targetId);
-          if (!reloadOk) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available', { tabId: targetId, operation: 'setViewport' });
-        }
-        return true;
-      } finally {
-        if (curtainKey) {
-          if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.removeListener === 'function') {
-            try { wc.removeListener('did-finish-load', cleanupCurtain); } catch {}
-          }
-          cleanupCurtain();
-        }
+      if (options.reload) {
+        const reloadOk = await this.reloadAndWait(targetId);
+        if (!reloadOk) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available', { tabId: targetId, operation: 'setViewport' });
       }
+      return true;
     };
     if (targetId === this.activeTabId) {
       this.updateLayout();
