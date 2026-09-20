@@ -5,7 +5,7 @@ import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabi
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { CapabilityError, issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
 import { NativeTabHost, NativeTabRecord } from '../../src/main/browser/native-tab-host';
-import { DEVICE_PRESETS, getPresetCornerRadius } from '../../src/main/browser/device-presets';
+import { DEVICE_PRESETS } from '../../src/main/browser/device-presets';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { TabDevToolsHost } from '../../src/main/browser/tab-devtools-host';
 import { SemanticElementDescriptor } from '../../src/main/browser/semantic-ref-types';
@@ -218,27 +218,26 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(host.broadcastCount, 0, 'Rejected dimensions must not announce a state change');
   });
 
-  it('keeps the tab view background in sync with the applied preset clip radius', () => {
+  it('keeps the tab view background opaque white for every device preset', () => {
     const host = createTestHost();
     const tab = createTestTabRecord('tab-1');
     host.tabs.set('tab-1', tab);
 
-    // Reported symptom path: a rounded preset requires a transparent view so the
-    // device chassis shows through the corners, and the flat preset that follows
-    // must restore the opaque background. Leaving it transparent made every
-    // unpainted moment of that tab show the dark window backdrop instead of the
-    // page, which reads as an all-black tab until a reload repaints the viewport.
+    // Rounded presets used to clear the view (`#00000000`) so a device chassis
+    // could show through the corners. That punch-through is gone: clipping only
+    // removes leftover document CSS, and single-tab mode hides the chassis.
+    // A transparent view then shows frameBackdropView `#060910` through any
+    // page that leaves html/body unpainted. Guest canvas must stay UA white.
     host.setDevicePreset('tab-1', 'phone-iphone16promax');
-    assert.strictEqual(tab.backgroundColors[tab.backgroundColors.length - 1], '#00000000', 'A rounded preset must clear the view background');
+    assert.strictEqual(tab.backgroundColors[tab.backgroundColors.length - 1], '#ffffff', 'A rounded preset must keep the opaque UA canvas');
     host.setDevicePreset('tab-1', 'laptop-macbook13');
-    assert.strictEqual(tab.backgroundColors[tab.backgroundColors.length - 1], '#ffffff', 'A flat preset following a rounded one must restore the opaque view background');
+    assert.strictEqual(tab.backgroundColors[tab.backgroundColors.length - 1], '#ffffff', 'A flat preset following a rounded one must keep the opaque view background');
+    host.setDevicePreset('tab-1', 'xiaomi-14');
+    assert.strictEqual(tab.backgroundColors[tab.backgroundColors.length - 1], '#ffffff', 'xiaomi-14 (the reported leak preset) must keep the opaque UA canvas');
 
-    // Contract for the whole catalogue, in catalogue order: the view background
-    // must always mirror the preset's clip radius, whatever the previous preset was.
     for (const preset of DEVICE_PRESETS) {
       host.setDevicePreset('tab-1', preset.id);
-      const expected = getPresetCornerRadius(preset) > 0 ? '#00000000' : '#ffffff';
-      assert.strictEqual(tab.backgroundColors[tab.backgroundColors.length - 1], expected, `Preset ${preset.id} left the view background out of sync with its clip radius`);
+      assert.strictEqual(tab.backgroundColors[tab.backgroundColors.length - 1], '#ffffff', `Preset ${preset.id} left the guest canvas transparent`);
     }
   });
   it('applies device emulation to an explicit background tab without switching active tab', async () => {
