@@ -1116,7 +1116,7 @@ function buildReportPayload(meta) {
       // What the field above used to hold: elapsed time since launch minus suspends, which
       // on the 4 h run read `10` ten minutes into a 30-minute warmup. Kept under the name
       // that says what it measures, so a reader comparing runs can pick either.
-      activeMinutesSinceStart: meta.activeWorkloadMinutes || 0,
+      activeMinutesSinceStart: meta.activeMinutesSinceStart || 0,
       teardownTelemetry: teardownTelemetry || {
         tabsClosedRequested: 0,
         tabsClosedSuccess: 0,
@@ -1357,7 +1357,10 @@ async function main() {
     bursts: 0,
     reloads: 0,
     totalSuspendedMinutes: 0,
-    activeWorkloadMinutes: 0,
+    // Elapsed time since launch minus suspends. NOT the workload phase's span: that is
+    // derived from the workload samples in `buildReportPayload` and lands in
+    // `stats.activeWorkloadMinutes`, so the two readings can never be confused by name.
+    activeMinutesSinceStart: 0,
     stdout: '',
     stderr: '',
     teardownTelemetry,
@@ -1662,7 +1665,7 @@ async function main() {
       throw new Error(`Child process exited unexpectedly with code ${childExitCode}`);
     }
     const now = Date.now();
-    stateMeta.activeWorkloadMinutes = Number(((now - startTime - totalSuspendedMs) / 60000).toFixed(2));
+    stateMeta.activeMinutesSinceStart = Number(((now - startTime - totalSuspendedMs) / 60000).toFixed(2));
     const currentPhase = now < warmupEndTime ? 'warmup' : now < workloadEndTime ? 'workload' : 'recovery';
     const activeLeg = currentPhase === 'workload' ? legAt(now) : null;
     // Keyed by name *and* window: a bisect that returns to a previous regime

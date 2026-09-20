@@ -119,7 +119,7 @@ describe('soak payload — measured workload span', () => {
       sampleAt('recovery', 6_000_000, 5_900_000),
     ];
     // elapsed-since-start at that point is 4.9 min; the phase's own sleep-adjusted span is 60.
-    const payload = buildReportPayload({ ...baseMeta, samples, activeWorkloadMinutes: 4.9 });
+    const payload = buildReportPayload({ ...baseMeta, samples, activeMinutesSinceStart: 4.9 });
     assert.strictEqual(payload.stats.activeWorkloadMinutes, 60);
     assert.strictEqual(payload.stats.activeMinutesSinceStart, 4.9);
   });
