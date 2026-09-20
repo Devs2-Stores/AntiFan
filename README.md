@@ -34,7 +34,9 @@ Local Control Plane for OMP / agent CLI workflows: MCP exposes browser, device, 
 - Element Picker thu thập selector/XPath, ngữ cảnh DOM, computed styles, ảnh chụp và tối đa các ảnh đính kèm để đưa vào prompt cho AI.
 - `Tự động (theo site URL)` lưu annotation vào project tương ứng dưới `E:\Work\customizes`, `E:\Work\themes` hoặc `E:\Work\apps`; tên project khớp chính xác luôn được ưu tiên trước hậu tố số.
 - Khi người dùng chọn một terminal session cụ thể, lựa chọn đó là nguồn quyết định cho cả nơi lưu artifact và nơi gửi prompt. Chế độ tự động ngăn annotation rơi vào session đang active nhưng không liên quan.
-- Artifact được ghi vào `.antifan/annotations` và `.antifan/snapshots` của project đích. `auto` gửi prompt ngay tới terminal; `draft` giữ delivery ở trạng thái chờ.
+- Artifact được ghi vào `.antifan/annotations` và `.antifan/snapshots` của project đích. `Gửi ^` gửi prompt ngay tới terminal; `Copy Prompt` chỉ ghi artifact rồi đưa prompt đầy đủ vào clipboard, không chạm vào terminal.
+- Prompt luôn bắt đầu bằng `/queue`, theo sau là tag chế độ do popup tự dựng từ chip: `[⚡Direct-Edit]` (mặc định) hoặc `[🧠Core-Context]` khi tick `Core`. Chip hành động (`🎨Theme-Fix`, `🚀PageSpeed`) là chọn một, tag chế độ thì luôn có.
+- Tag chế độ là tín hiệu anti-direct cho `antifan-core-bridge`: `[⚡Direct-Edit]` khoá phiên ở Direct Edit, `[🧠Core-Context]` mở lại Core cho annotation đó và các lượt sau.
 
 ## 🚀 Hướng dẫn Chạy & Phát triển
 
