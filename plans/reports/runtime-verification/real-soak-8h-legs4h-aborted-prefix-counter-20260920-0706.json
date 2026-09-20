@@ -1,0 +1,3987 @@
+{
+  "status": "in-progress",
+  "startedAt": "2026-09-19T23:34:24.286Z",
+  "finishedAt": "2026-09-20T00:04:34.986Z",
+  "config": {
+    "totalMinutes": 240,
+    "requestedTotalMinutes": 240,
+    "warmupMinutes": 30,
+    "workloadMinutes": 180,
+    "recoveryMinutes": 30,
+    "switchIntervalMs": 3000,
+    "burstIntervalMs": 30000,
+    "burstLines": 300,
+    "tabRounds": 1,
+    "fixtureTickMs": 200,
+    "sampleIntervalSeconds": 60,
+    "reportTag": "legs4h",
+    "legs": [
+      {
+        "name": "baseline",
+        "minutes": 60,
+        "burstLines": 300,
+        "burstIntervalMs": 30000
+      },
+      {
+        "name": "burst4x",
+        "minutes": 60,
+        "burstLines": 1200,
+        "burstIntervalMs": 30000
+      },
+      {
+        "name": "burst-off",
+        "minutes": 60,
+        "burstLines": 1,
+        "burstIntervalMs": 600000
+      }
+    ]
+  },
+  "rootPid": 47184,
+  "fixturePort": 64640,
+  "stats": {
+    "requestCount": 5,
+    "openedTabs": 6,
+    "switches": 571,
+    "bursts": 60,
+    "reloads": 1,
+    "terminalEventsCount": 272,
+    "totalSamples": 31,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": 30,
+    "teardownTelemetry": {
+      "tabsToClose": 0,
+      "tabsClosedSuccess": 0,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": false,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "switchLatencyWorkloadCount": 0,
+    "switchLatencyWarmupMs": {
+      "min": 9.584,
+      "p50": 13.89,
+      "p95": 19.446,
+      "max": 47.969
+    },
+    "switchLatencyWarmupCount": 571,
+    "switchLatencyAllPhasesMs": {
+      "min": 9.584,
+      "p50": 13.89,
+      "p95": 19.446,
+      "max": 47.969
+    },
+    "activeWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "activeRendererWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "overallActiveSlopeMBPerMin": null,
+    "overallActiveSlopeMBPerHour": null,
+    "rendererActiveSlopeMBPerMin": null,
+    "rendererActiveSlopeMBPerHour": null,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": 1469.21,
+    "postWarmupMB": 1341.2,
+    "finalActiveMB": null,
+    "recoveredMB": null,
+    "processSeriesSampleCount": 30,
+    "perProcessSlopes": [],
+    "worstProcessSlopeMBPerMin": null,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": null,
+    "appPrivateMaxSlopeMBPerMin": null,
+    "appPrivateMaxRole": "",
+    "appPrivateMaxUrl": "",
+    "appPrivateMaxPid": null,
+    "processSlopeWindowStart": null,
+    "processSlopeWindowEnd": null,
+    "refusedProcessCount": 0,
+    "refusedProcessWorkingSetMB": 0,
+    "refusedProcessNames": [],
+    "slowSwitchSamples": [
+      {
+        "at": 1789861075599,
+        "ms": 47.969,
+        "tabId": "291406c5-8c54-4289-aca8-79cc8edccdb4",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789861142026,
+        "ms": 46.448,
+        "tabId": "cb9c1540-ab4f-4eda-a7a6-235d81e65c91",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789861618925,
+        "ms": 44.236,
+        "tabId": "8ecf576d-fb49-4344-bbe1-409d776a4d62",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789861306171,
+        "ms": 41.235,
+        "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789862444786,
+        "ms": 41.179,
+        "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789862396736,
+        "ms": 40.188,
+        "tabId": "8ecf576d-fb49-4344-bbe1-409d776a4d62",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789861457609,
+        "ms": 39.26,
+        "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789861406409,
+        "ms": 33.618,
+        "tabId": "cb9c1540-ab4f-4eda-a7a6-235d81e65c91",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789861931776,
+        "ms": 29.996,
+        "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+        "phase": "warmup"
+      },
+      {
+        "at": 1789862649153,
+        "ms": 29.872,
+        "tabId": "291406c5-8c54-4289-aca8-79cc8edccdb4",
+        "phase": "warmup"
+      }
+    ],
+    "switchLatencyByTab": [
+      {
+        "tabId": "291406c5-8c54-4289-aca8-79cc8edccdb4",
+        "url": "https://example.com",
+        "count": 95,
+        "p50": 12.937,
+        "p95": 19.858,
+        "max": 47.969
+      },
+      {
+        "tabId": "cb9c1540-ab4f-4eda-a7a6-235d81e65c91",
+        "url": "http://127.0.0.1:64640/collection-featured",
+        "count": 95,
+        "p50": 13.648,
+        "p95": 18.952,
+        "max": 46.448
+      },
+      {
+        "tabId": "8ecf576d-fb49-4344-bbe1-409d776a4d62",
+        "url": "http://127.0.0.1:64640/product-test-1",
+        "count": 95,
+        "p50": 13.854,
+        "p95": 20.021,
+        "max": 44.236
+      },
+      {
+        "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+        "url": "https://www.wikipedia.org",
+        "count": 95,
+        "p50": 15.451,
+        "p95": 28.769,
+        "max": 41.235
+      },
+      {
+        "tabId": "bc34c917-a0f2-4054-bb87-094ce169e191",
+        "url": "http://127.0.0.1:64640/store-home",
+        "count": 96,
+        "p50": 13.713,
+        "p95": 18.948,
+        "max": 23.144
+      },
+      {
+        "tabId": "473623c5-1209-4140-9c37-38323a9b8a94",
+        "url": "http://127.0.0.1:64640/product-test-2",
+        "count": 95,
+        "p50": 13.698,
+        "p95": 17.732,
+        "max": 18.756
+      }
+    ],
+    "slopeSloSatisfied": null,
+    "slopeGateApplicable": false,
+    "privateSlopeSloSatisfied": null,
+    "privateSlopeMeasured": false,
+    "switchLatencyWorkloadSamples": 0,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": false,
+    "orphanSloSatisfied": false,
+    "executionSloSatisfied": true,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [
+    {
+      "at": 1789860874799,
+      "activeAt": 1789860874799,
+      "label": "warmup",
+      "totalWorkingSetMB": 1469.21,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 199.51
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 267.93
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 720.31
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 113.02
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 168.43
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789860876633,
+      "activeAt": 1789860876633,
+      "label": "warmup",
+      "totalWorkingSetMB": 1479.57,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 205.63
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.22
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 717.93
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 113.23
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 169.56
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 1,
+      "refusedProcessWorkingSetMB": 12.86,
+      "refusedProcessNames": [
+        "python.exe"
+      ]
+    },
+    {
+      "at": 1789860936674,
+      "activeAt": 1789860936674,
+      "label": "warmup",
+      "totalWorkingSetMB": 1487.26,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 200.64
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 720.08
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.44
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.1
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789860996893,
+      "activeAt": 1789860996893,
+      "label": "warmup",
+      "totalWorkingSetMB": 1490.52,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 203.1
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.24
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 720.6
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.41
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.16
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861056945,
+      "activeAt": 1789861056945,
+      "label": "warmup",
+      "totalWorkingSetMB": 1500.84,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 205.18
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 274.55
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 728.13
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.39
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.6
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861117194,
+      "activeAt": 1789861117194,
+      "label": "warmup",
+      "totalWorkingSetMB": 1507.71,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 207.79
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 275.03
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 731.79
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.38
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.73
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861177549,
+      "activeAt": 1789861177549,
+      "label": "warmup",
+      "totalWorkingSetMB": 1520.55,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 214.31
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 275.64
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 737
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.39
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.21
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861236946,
+      "activeAt": 1789861236946,
+      "label": "warmup",
+      "totalWorkingSetMB": 1515.25,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 209.2
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 275.9
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 736.21
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.41
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.52
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861296787,
+      "activeAt": 1789861296787,
+      "label": "warmup",
+      "totalWorkingSetMB": 1513.45,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 209.55
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.83
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 736.36
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.41
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.3
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861356970,
+      "activeAt": 1789861356970,
+      "label": "warmup",
+      "totalWorkingSetMB": 1499.2,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 207.72
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.14
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 726.3
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.28
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.76
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861417443,
+      "activeAt": 1789861417443,
+      "label": "warmup",
+      "totalWorkingSetMB": 1504.88,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 208.61
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.24
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 730.93
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.28
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.82
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861477150,
+      "activeAt": 1789861477150,
+      "label": "warmup",
+      "totalWorkingSetMB": 1508.88,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 211.23
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.63
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 731.95
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.3
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.78
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861536989,
+      "activeAt": 1789861536989,
+      "label": "warmup",
+      "totalWorkingSetMB": 1509.52,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 209.81
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.53
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 733.78
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.3
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.11
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861597187,
+      "activeAt": 1789861597187,
+      "label": "warmup",
+      "totalWorkingSetMB": 1510.1,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 207.88
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.52
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 736.41
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.3
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.99
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861657402,
+      "activeAt": 1789861657402,
+      "label": "warmup",
+      "totalWorkingSetMB": 1526.46,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 222.81
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.59
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 737.67
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.11
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861717352,
+      "activeAt": 1789861717352,
+      "label": "warmup",
+      "totalWorkingSetMB": 1543.13,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 237.54
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.57
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 739.62
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.12
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861777381,
+      "activeAt": 1789861777381,
+      "label": "warmup",
+      "totalWorkingSetMB": 1498.61,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 214.97
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.57
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 717.68
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.3
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.08
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861837623,
+      "activeAt": 1789861837623,
+      "label": "warmup",
+      "totalWorkingSetMB": 1513.25,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 229.68
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.88
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 717.52
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.3
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 180.88
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861897744,
+      "activeAt": 1789861897744,
+      "label": "warmup",
+      "totalWorkingSetMB": 1526.3,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 244.42
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.91
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 715.34
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.36
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789861957694,
+      "activeAt": 1789861957694,
+      "label": "warmup",
+      "totalWorkingSetMB": 1493.45,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 207.84
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.96
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 718.76
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.61
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862017813,
+      "activeAt": 1789862017813,
+      "label": "warmup",
+      "totalWorkingSetMB": 1508.79,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 222.33
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.02
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 719.81
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.35
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862077833,
+      "activeAt": 1789862077833,
+      "label": "warmup",
+      "totalWorkingSetMB": 1522.36,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 237.18
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.11
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 718.55
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.23
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862137919,
+      "activeAt": 1789862137919,
+      "label": "warmup",
+      "totalWorkingSetMB": 1493.5,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 208.27
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.14
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 718.59
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.23
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862198214,
+      "activeAt": 1789862198214,
+      "label": "warmup",
+      "totalWorkingSetMB": 1508.72,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 223.09
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.16
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 719.02
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.16
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862258049,
+      "activeAt": 1789862258049,
+      "label": "warmup",
+      "totalWorkingSetMB": 1518.11,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 237.44
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.88
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 713.95
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.56
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862318127,
+      "activeAt": 1789862318127,
+      "label": "warmup",
+      "totalWorkingSetMB": 1492.22,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 209.98
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 272.97
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 715.55
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.44
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862378117,
+      "activeAt": 1789862378117,
+      "label": "warmup",
+      "totalWorkingSetMB": 1510.54,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 225.21
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.03
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 718.66
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.36
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862438461,
+      "activeAt": 1789862438461,
+      "label": "warmup",
+      "totalWorkingSetMB": 1529.4,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 239.84
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.03
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 722.91
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.34
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862498555,
+      "activeAt": 1789862498555,
+      "label": "warmup",
+      "totalWorkingSetMB": 1505.88,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 215.47
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 273.05
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 723.83
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 112.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 181.25
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862558204,
+      "activeAt": 1789862558204,
+      "label": "warmup",
+      "totalWorkingSetMB": 1367.66,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 204.27
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 230.06
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 664.18
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 109.3
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 159.85
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    },
+    {
+      "at": 1789862618231,
+      "activeAt": 1789862618231,
+      "label": "warmup",
+      "totalWorkingSetMB": 1341.2,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 181.36
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 230.14
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 660.22
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 109.3
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 160.18
+        }
+      },
+      "pids": [
+        47184,
+        40268,
+        7196,
+        43936,
+        31028,
+        15072,
+        10308,
+        35036,
+        44208,
+        46812,
+        37072,
+        29344,
+        46820,
+        39992,
+        2592
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": []
+    }
+  ],
+  "processSeries": [
+    {
+      "at": 1789860925216,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 201.92,
+          "privateBytesMB": 133.29
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 179.38,
+          "privateBytesMB": 149.1
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.49,
+          "privateBytesMB": 14.27
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 162.55,
+          "privateBytesMB": 68.61
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 153.58,
+          "privateBytesMB": 61.72
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 130.84,
+          "privateBytesMB": 36.13
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 120.56,
+          "privateBytesMB": 22.76
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 150.81,
+          "privateBytesMB": 48.59
+        }
+      ]
+    },
+    {
+      "at": 1789860985225,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 203.89,
+          "privateBytesMB": 135.38
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 180.62,
+          "privateBytesMB": 168.01
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.44,
+          "privateBytesMB": 14.22
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 165.52,
+          "privateBytesMB": 71.26
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.49,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 131.82,
+          "privateBytesMB": 37.15
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 121.15,
+          "privateBytesMB": 23.68
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 151,
+          "privateBytesMB": 48.71
+        }
+      ]
+    },
+    {
+      "at": 1789861045237,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 204.94,
+          "privateBytesMB": 136.32
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.1,
+          "privateBytesMB": 163.55
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.39,
+          "privateBytesMB": 14.22
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 168.14,
+          "privateBytesMB": 74.05
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.49,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 133.66,
+          "privateBytesMB": 39.18
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 121.16,
+          "privateBytesMB": 23.68
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 151.47,
+          "privateBytesMB": 49.16
+        }
+      ]
+    },
+    {
+      "at": 1789861105240,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 207.44,
+          "privateBytesMB": 138.5
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 180.95,
+          "privateBytesMB": 150.86
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.38,
+          "privateBytesMB": 14.21
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 171.12,
+          "privateBytesMB": 77.11
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.49,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 134.95,
+          "privateBytesMB": 40.26
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 121.17,
+          "privateBytesMB": 23.69
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 151.75,
+          "privateBytesMB": 49.59
+        }
+      ]
+    },
+    {
+      "at": 1789861165245,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 208.14,
+          "privateBytesMB": 139.01
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.25,
+          "privateBytesMB": 152.66
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.4,
+          "privateBytesMB": 14.23
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 175.25,
+          "privateBytesMB": 81.14
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.49,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.94,
+          "privateBytesMB": 42.36
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 121.18,
+          "privateBytesMB": 23.69
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.08,
+          "privateBytesMB": 49.82
+        }
+      ]
+    },
+    {
+      "at": 1789861225255,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 207.79,
+          "privateBytesMB": 138.81
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.41,
+          "privateBytesMB": 153.84
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.39,
+          "privateBytesMB": 14.21
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 172.64,
+          "privateBytesMB": 78.46
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.49,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 137.54,
+          "privateBytesMB": 42.62
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 121.19,
+          "privateBytesMB": 23.7
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.59,
+          "privateBytesMB": 50.3
+        }
+      ]
+    },
+    {
+      "at": 1789861285269,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 210.01,
+          "privateBytesMB": 140.66
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.14,
+          "privateBytesMB": 147.7
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.41,
+          "privateBytesMB": 14.24
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 174,
+          "privateBytesMB": 79.74
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.49,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 137.78,
+          "privateBytesMB": 42.92
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 121.21,
+          "privateBytesMB": 23.7
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 153.11,
+          "privateBytesMB": 50.78
+        }
+      ]
+    },
+    {
+      "at": 1789861345280,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 208.98,
+          "privateBytesMB": 141.94
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.15,
+          "privateBytesMB": 168.47
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.28,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.01,
+          "privateBytesMB": 80.03
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.79,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 132.74,
+          "privateBytesMB": 43.37
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 119.76,
+          "privateBytesMB": 23.71
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 151.55,
+          "privateBytesMB": 51.84
+        }
+      ]
+    },
+    {
+      "at": 1789861405292,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 208.95,
+          "privateBytesMB": 141.79
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.16,
+          "privateBytesMB": 161.97
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.28,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 174.53,
+          "privateBytesMB": 81.09
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.79,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 135.21,
+          "privateBytesMB": 44.07
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 119.78,
+          "privateBytesMB": 23.71
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.07,
+          "privateBytesMB": 52.3
+        }
+      ]
+    },
+    {
+      "at": 1789861465306,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 209.25,
+          "privateBytesMB": 142
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.31,
+          "privateBytesMB": 154.9
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.3,
+          "privateBytesMB": 14.2
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 175.92,
+          "privateBytesMB": 82.68
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.79,
+          "privateBytesMB": 57.99
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.37,
+          "privateBytesMB": 43.57
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 119.78,
+          "privateBytesMB": 23.71
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.86,
+          "privateBytesMB": 53.03
+        }
+      ]
+    },
+    {
+      "at": 1789861525314,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 210.05,
+          "privateBytesMB": 142.57
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.03,
+          "privateBytesMB": 152.83
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.3,
+          "privateBytesMB": 14.2
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 174.2,
+          "privateBytesMB": 80.87
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.79,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.89,
+          "privateBytesMB": 43.11
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 119.79,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 153.25,
+          "privateBytesMB": 53.72
+        }
+      ]
+    },
+    {
+      "at": 1789861585321,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 208.3,
+          "privateBytesMB": 141.78
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 180.94,
+          "privateBytesMB": 154.55
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.3,
+          "privateBytesMB": 14.2
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 175.26,
+          "privateBytesMB": 81.79
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.79,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 137.21,
+          "privateBytesMB": 43.53
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 119.8,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.28,
+          "privateBytesMB": 54.64
+        }
+      ]
+    },
+    {
+      "at": 1789861645322,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 223.13,
+          "privateBytesMB": 157.28
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.12,
+          "privateBytesMB": 152.51
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 175.68,
+          "privateBytesMB": 82.17
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.79,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 137.6,
+          "privateBytesMB": 43.9
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 119.82,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 155.09,
+          "privateBytesMB": 55.67
+        }
+      ]
+    },
+    {
+      "at": 1789861705337,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 238.86,
+          "privateBytesMB": 173.02
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.63,
+          "privateBytesMB": 166.27
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 175.69,
+          "privateBytesMB": 82.34
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.79,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 137.3,
+          "privateBytesMB": 43.64
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 119.82,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 156.98,
+          "privateBytesMB": 56.98
+        }
+      ]
+    },
+    {
+      "at": 1789861765349,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 215.66,
+          "privateBytesMB": 148.75
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.43,
+          "privateBytesMB": 163.64
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.3,
+          "privateBytesMB": 14.2
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 171.39,
+          "privateBytesMB": 81.91
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 147.13,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.74,
+          "privateBytesMB": 44.09
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.74,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 144.11,
+          "privateBytesMB": 51.7
+        }
+      ]
+    },
+    {
+      "at": 1789861825363,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 229.91,
+          "privateBytesMB": 163.28
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.27,
+          "privateBytesMB": 153.29
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.3,
+          "privateBytesMB": 14.2
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 171.89,
+          "privateBytesMB": 82.38
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 147.13,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.66,
+          "privateBytesMB": 43.86
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.75,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 143.4,
+          "privateBytesMB": 51.18
+        }
+      ]
+    },
+    {
+      "at": 1789861885367,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 245.01,
+          "privateBytesMB": 178.82
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.16,
+          "privateBytesMB": 153.67
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 172.22,
+          "privateBytesMB": 83.12
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.73,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.21,
+          "privateBytesMB": 43.83
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.5,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 142.4,
+          "privateBytesMB": 51.16
+        }
+      ]
+    },
+    {
+      "at": 1789861945380,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 208.96,
+          "privateBytesMB": 142.02
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.42,
+          "privateBytesMB": 153.8
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 171.96,
+          "privateBytesMB": 83.21
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.73,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.59,
+          "privateBytesMB": 44.2
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.5,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 142.77,
+          "privateBytesMB": 51.57
+        }
+      ]
+    },
+    {
+      "at": 1789862005389,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 223.18,
+          "privateBytesMB": 157.04
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.21,
+          "privateBytesMB": 153.02
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.39,
+          "privateBytesMB": 84.49
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.73,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 137.06,
+          "privateBytesMB": 44.69
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.53,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 143.41,
+          "privateBytesMB": 52.03
+        }
+      ]
+    },
+    {
+      "at": 1789862065393,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 237.32,
+          "privateBytesMB": 171.34
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.89,
+          "privateBytesMB": 168.16
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 171.95,
+          "privateBytesMB": 82.95
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.73,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.72,
+          "privateBytesMB": 44.14
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.52,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 144.46,
+          "privateBytesMB": 52.89
+        }
+      ]
+    },
+    {
+      "at": 1789862125408,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 209.8,
+          "privateBytesMB": 143.73
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.6,
+          "privateBytesMB": 164.5
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 172.85,
+          "privateBytesMB": 84.14
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.73,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 137.19,
+          "privateBytesMB": 44.59
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.52,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 144.77,
+          "privateBytesMB": 53.36
+        }
+      ]
+    },
+    {
+      "at": 1789862185408,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 223.24,
+          "privateBytesMB": 156.73
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.65,
+          "privateBytesMB": 155.06
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.54,
+          "privateBytesMB": 84.95
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.73,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.14,
+          "privateBytesMB": 43.52
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.52,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 145.29,
+          "privateBytesMB": 53.96
+        }
+      ]
+    },
+    {
+      "at": 1789862245421,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 238.07,
+          "privateBytesMB": 172.26
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.56,
+          "privateBytesMB": 152.12
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 171.75,
+          "privateBytesMB": 84.55
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.72,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 131.7,
+          "privateBytesMB": 43.95
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.53,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 142.77,
+          "privateBytesMB": 54.11
+        }
+      ]
+    },
+    {
+      "at": 1789862305436,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 210.52,
+          "privateBytesMB": 143.98
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.35,
+          "privateBytesMB": 154.17
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 174.29,
+          "privateBytesMB": 86.33
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.72,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 133.6,
+          "privateBytesMB": 44.41
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.53,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 143.64,
+          "privateBytesMB": 54.57
+        }
+      ]
+    },
+    {
+      "at": 1789862365439,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 225.42,
+          "privateBytesMB": 159.2
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.4,
+          "privateBytesMB": 152.29
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.35,
+          "privateBytesMB": 84.77
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.72,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 134.68,
+          "privateBytesMB": 44.11
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.55,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 144.37,
+          "privateBytesMB": 55.07
+        }
+      ]
+    },
+    {
+      "at": 1789862425451,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 240,
+          "privateBytesMB": 173.73
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 182.05,
+          "privateBytesMB": 166.66
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 174.18,
+          "privateBytesMB": 85.77
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.72,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.22,
+          "privateBytesMB": 44.53
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.55,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 145.61,
+          "privateBytesMB": 56.03
+        }
+      ]
+    },
+    {
+      "at": 1789862485453,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 216.59,
+          "privateBytesMB": 150.35
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 181.6,
+          "privateBytesMB": 162.6
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 112.29,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 175.25,
+          "privateBytesMB": 86.38
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.72,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 136.17,
+          "privateBytesMB": 43.73
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 118.55,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 146.27,
+          "privateBytesMB": 56.93
+        }
+      ]
+    },
+    {
+      "at": 1789862545467,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 204.78,
+          "privateBytesMB": 165.25
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 160.18,
+          "privateBytesMB": 153.29
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 109.3,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 168.54,
+          "privateBytesMB": 87.33
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 114.53,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 131.05,
+          "privateBytesMB": 44.11
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 110.74,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 139.86,
+          "privateBytesMB": 57.53
+        }
+      ]
+    },
+    {
+      "at": 1789862605479,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 220.3,
+          "privateBytesMB": 181.57
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 160.13,
+          "privateBytesMB": 152.57
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 109.3,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 167.54,
+          "privateBytesMB": 86.22
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 114.53,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 131.54,
+          "privateBytesMB": 44.57
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 110.74,
+          "privateBytesMB": 23.73
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 135.1,
+          "privateBytesMB": 50.82
+        }
+      ]
+    },
+    {
+      "at": 1789862665480,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 47184,
+          "type": "Browser",
+          "role": "",
+          "url": "",
+          "workingSetMB": 197.75,
+          "privateBytesMB": 158.77
+        },
+        {
+          "pid": 39992,
+          "type": "GPU",
+          "role": "",
+          "url": "",
+          "workingSetMB": 160.22,
+          "privateBytesMB": 152.11
+        },
+        {
+          "pid": 46820,
+          "type": "Utility",
+          "role": "",
+          "url": "",
+          "workingSetMB": 109.3,
+          "privateBytesMB": 14.17
+        },
+        {
+          "pid": 29344,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 167.56,
+          "privateBytesMB": 86.26
+        },
+        {
+          "pid": 35036,
+          "type": "Tab",
+          "role": "tab:40c51816",
+          "url": "https://www.google.com/",
+          "workingSetMB": 114.62,
+          "privateBytesMB": 58.24
+        },
+        {
+          "pid": 10308,
+          "type": "Tab",
+          "role": "tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5",
+          "url": "http://127.0.0.1:64640/store-home",
+          "workingSetMB": 131.22,
+          "privateBytesMB": 44.29
+        },
+        {
+          "pid": 15072,
+          "type": "Tab",
+          "role": "tab:291406c5",
+          "url": "https://example.com/",
+          "workingSetMB": 110.74,
+          "privateBytesMB": 23.72
+        },
+        {
+          "pid": 31028,
+          "type": "Tab",
+          "role": "tab:961a2325",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 135.44,
+          "privateBytesMB": 51.18
+        }
+      ]
+    }
+  ],
+  "legSlopes": [
+    {
+      "name": "baseline",
+      "burstLines": 300,
+      "burstIntervalMs": 30000,
+      "startAt": 1789862674799,
+      "endAt": 1789866274799,
+      "observedFrom": 1789862674876,
+      "observedTo": null,
+      "observedMinutes": 60,
+      "bursts": 0,
+      "topSlopes": []
+    }
+  ],
+  "slowSwitchSamples": [
+    {
+      "at": 1789861075599,
+      "ms": 47.969,
+      "tabId": "291406c5-8c54-4289-aca8-79cc8edccdb4",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789861142026,
+      "ms": 46.448,
+      "tabId": "cb9c1540-ab4f-4eda-a7a6-235d81e65c91",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789861618925,
+      "ms": 44.236,
+      "tabId": "8ecf576d-fb49-4344-bbe1-409d776a4d62",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789861306171,
+      "ms": 41.235,
+      "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789862444786,
+      "ms": 41.179,
+      "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789862396736,
+      "ms": 40.188,
+      "tabId": "8ecf576d-fb49-4344-bbe1-409d776a4d62",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789861457609,
+      "ms": 39.26,
+      "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789861406409,
+      "ms": 33.618,
+      "tabId": "cb9c1540-ab4f-4eda-a7a6-235d81e65c91",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789861931776,
+      "ms": 29.996,
+      "tabId": "961a2325-116c-4ba7-bf04-d2955de349ed",
+      "phase": "warmup"
+    },
+    {
+      "at": 1789862649153,
+      "ms": 29.872,
+      "tabId": "291406c5-8c54-4289-aca8-79cc8edccdb4",
+      "phase": "warmup"
+    }
+  ],
+  "stderrTail": [
+    "[index] Terminal Host Daemon unavailable (no staged daemon bundle (run scripts/stage-daemon-host.mjs)); falling back to in-process TerminalManager"
+  ],
+  "stdoutBenchmarkTail": [
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":13.607099999906495,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:02.970Z\",\"nowMs\":1778588.4903}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.14500000001862645,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:06.039Z\",\"nowMs\":1781657.5636}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":12.256599999964237,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:06.039Z\",\"nowMs\":1781657.8273}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.11519999988377094,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:09.153Z\",\"nowMs\":1784771.3799}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":15.994500000029802,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:09.153Z\",\"nowMs\":1784771.6747}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":40,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":272,\"totalBytes\":176073},\"ts\":\"2026-09-20T00:04:09.712Z\",\"nowMs\":1785330.6169}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-20T00:04:09.712Z\",\"nowMs\":1785330.6998}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.09759999997913837,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":169},\"ts\":\"2026-09-20T00:04:09.712Z\",\"nowMs\":1785330.8224}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":217,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":273,\"totalBytes\":176290},\"ts\":\"2026-09-20T00:04:09.744Z\",\"nowMs\":1785362.4603}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-20T00:04:09.744Z\",\"nowMs\":1785362.5422}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.12280000001192093,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":436},\"ts\":\"2026-09-20T00:04:09.744Z\",\"nowMs\":1785362.6889}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":824,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":274,\"totalBytes\":177114},\"ts\":\"2026-09-20T00:04:09.871Z\",\"nowMs\":1785489.4586}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.08199999993667006,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":1653},\"ts\":\"2026-09-20T00:04:09.871Z\",\"nowMs\":1785489.6131}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-20T00:04:09.883Z\",\"nowMs\":1785501.539}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":1566,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":275,\"totalBytes\":178680},\"ts\":\"2026-09-20T00:04:09.905Z\",\"nowMs\":1785524.1514}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.12540000001899898,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":2889},\"ts\":\"2026-09-20T00:04:09.906Z\",\"nowMs\":1785524.373}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-20T00:04:09.913Z\",\"nowMs\":1785531.4785}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":289,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":276,\"totalBytes\":178969},\"ts\":\"2026-09-20T00:04:09.946Z\",\"nowMs\":1785565.0301}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.08909999998286366,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":601},\"ts\":\"2026-09-20T00:04:09.946Z\",\"nowMs\":1785565.2053}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-20T00:04:09.960Z\",\"nowMs\":1785579.1443}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.5623000001069158,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:12.226Z\",\"nowMs\":1787844.9709}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":17.11849999986589,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:12.228Z\",\"nowMs\":1787846.4936}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.26200000010430813,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:15.300Z\",\"nowMs\":1790919.2864}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":12.54050000011921,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:15.301Z\",\"nowMs\":1790920.0782}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.21760000009089708,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:18.379Z\",\"nowMs\":1793997.515}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":13.202899999916553,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:18.379Z\",\"nowMs\":1793997.9537}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.159599999897182,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:21.459Z\",\"nowMs\":1797077.5911}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":13.809399999910966,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:21.459Z\",\"nowMs\":1797077.8595}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1493999999947846,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:24.539Z\",\"nowMs\":1800158.0935}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":11.909800000023097,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:24.540Z\",\"nowMs\":1800158.3478}",
+    "[antifan-benchmark] {\"surface\":\"process\",\"name\":\"periodic\",\"extra\":{\"breakdown\":{\"Browser\":{\"processes\":1,\"workingSetKB\":202500,\"privateBytesKB\":162576},\"GPU\":{\"processes\":1,\"workingSetKB\":164068,\"privateBytesKB\":155760},\"Utility\":{\"processes\":1,\"workingSetKB\":111924,\"privateBytesKB\":14512},\"Tab\":{\"processes\":5,\"workingSetKB\":675408,\"privateBytesKB\":270020}},\"processes\":[{\"pid\":47184,\"type\":\"Browser\",\"workingSetKB\":202500,\"privateBytesKB\":162576,\"role\":\"\",\"url\":\"\"},{\"pid\":39992,\"type\":\"GPU\",\"workingSetKB\":164068,\"privateBytesKB\":155760,\"role\":\"\",\"url\":\"\"},{\"pid\":46820,\"type\":\"Utility\",\"workingSetKB\":111924,\"privateBytesKB\":14512,\"role\":\"\",\"url\":\"\"},{\"pid\":29344,\"type\":\"Tab\",\"workingSetKB\":171580,\"privateBytesKB\":88332,\"role\":\"chrome:standalone+chrome:toolbar+chrome:frame-backdrop\",\"url\":\"file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html\"},{\"pid\":35036,\"type\":\"Tab\",\"workingSetKB\":117368,\"privateBytesKB\":59640,\"role\":\"tab:40c51816\",\"url\":\"https://www.google.com/\"},{\"pid\":10308,\"type\":\"Tab\",\"workingSetKB\":134372,\"privateBytesKB\":45348,\"role\":\"tab:bc34c917+tab:cb9c1540+tab:8ecf576d+tab:473623c5\",\"url\":\"http://127.0.0.1:64640/store-home\"},{\"pid\":15072,\"type\":\"Tab\",\"workingSetKB\":113396,\"privateBytesKB\":24292,\"role\":\"tab:291406c5\",\"url\":\"https://example.com/\"},{\"pid\":31028,\"type\":\"Tab\",\"workingSetKB\":138692,\"privateBytesKB\":52408,\"role\":\"tab:961a2325\",\"url\":\"https://www.wikipedia.org/\"}],\"mainRssKB\":202500},\"ts\":\"2026-09-20T00:04:25.480Z\",\"nowMs\":1801099.1888}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.22109999996609986,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:27.620Z\",\"nowMs\":1803238.7612}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":16.255200000014156,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:27.620Z\",\"nowMs\":1803239.161}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.22540000011213124,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:30.698Z\",\"nowMs\":1806317.0098}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":17.73950000014156,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:30.699Z\",\"nowMs\":1806317.6665}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.27010000008158386,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:33.789Z\",\"nowMs\":1809407.4327}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":18.61450000014156,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:33.789Z\",\"nowMs\":1809407.8499}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.12280000001192093,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:34.904Z\",\"nowMs\":1810522.1896}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1158999998588115,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:34.905Z\",\"nowMs\":1810523.2423}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.08429999998770654,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T00:04:34.905Z\",\"nowMs\":1810523.7222}"
+  ]
+}

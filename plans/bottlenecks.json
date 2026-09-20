@@ -680,14 +680,25 @@
       "status": "closed",
       "evidence": "`evaluateFreezeVerdict` (scripts/benchmark-real-soak-8h.cjs:163) compares `rendererSlope`, bound at :156 to `metrics.rendererActiveSlopeMBPerMin` — the least-squares slope of the summed renderer working set — against `FREEZE_SLO.rendererSlopeMBPerMin`. The per-process series that could name a growing member is reported only as attribution (`perProcessSlopes`, `worstProcessSlopeMBPerMin`, :550-556) and gates nothing. Measured on the 4 h run: the app Tab sum read +0.14 MB/min over the window while the single growing process inside it (pid 33800, the four fixture pages that share one renderer) read +0.17 — both above the 0.15 threshold's neighbourhood, on the same frames, with only one of the two numbers deciding the verdict. Found by the 4 h soak diagnostic; see plans/260920-0100-soak-4h-workflow-performance.",
       "predicate": {
-        "kind": "file-regex",
-        "file": "scripts/benchmark-real-soak-8h.cjs",
-        "pattern": "privateSlopeOk = privateSlopeMeasured && appPrivateSlope <= FREEZE_SLO\\.rendererSlopeMBPerMin",
-        "negate": true
+        "kind": "any-of",
+        "predicates": [
+          {
+            "kind": "file-regex",
+            "file": "scripts/benchmark-real-soak-8h.cjs",
+            "pattern": "appPrivateSlope\\s*<=\\s*FREEZE_SLO\\.rendererSlopeMBPerMin",
+            "negate": true
+          },
+          {
+            "kind": "file-regex",
+            "file": "scripts/benchmark-real-soak-8h.cjs",
+            "pattern": "&&\\s*privateSlopeOk",
+            "negate": true
+          }
+        ]
       },
-      "closedBy": "`evaluateFreezeVerdict` adds `privateSlopeOk` as a third condition of `slopeOk`: the app-owned per-process maximum in committed private bytes must be at or below the renderer bound, and the series must exist (`privateSlopeMeasured`). The existing renderer-sum condition is kept, so the change is strictly additive — a run cannot pass by adding a flat process to a sum that a growing one sits inside. The verdict carries `privateSlopeSloSatisfied` / `privateSlopeMeasured` and the FAILED line names the condition, so which of the three slope conditions decided a verdict is readable from the artifact.",
+      "closedBy": "`evaluateFreezeVerdict` adds `privateSlopeOk` as a third condition of `slopeOk`: the app-owned per-process maximum in committed private bytes must be at or below the renderer bound, and the series must exist (`privateSlopeMeasured`). The existing renderer-sum condition is kept, so the change is strictly additive — a run cannot pass by adding a flat process to a sum that a growing one sits inside. The verdict carries `privateSlopeSloSatisfied` / `privateSlopeMeasured` and the FAILED line names the condition, so which of the three slope conditions decided a verdict is readable from the artifact. The predicate pins two markers (the bound applied to the per-process value, and that value reaching `slopeOk` through `&& privateSlopeOk`) instead of one exact line: the first version pinned the assignment's literal text and reported REOPENED the moment the same condition was rewritten as a ternary for leg runs (`slopeGateApplicable`), which is a formatting change, not a regression.",
       "reVerifyWith": "evaluate a synthetic payload whose renderer sum is flat but whose per-process private maximum exceeds the bound and assert `slopeOk` is false; evaluate one whose `appPrivateMaxSlopeMBPerMin` is null and assert the same",
-      "lastVerifiedBy": "AK soak-4h workflow-performance session (2026-09-20) — harness instrument fixes; `node scripts/check-bottlenecks.mjs` green",
+      "lastVerifiedBy": "AK soak-4h workflow-performance session (2026-09-20) — harness instrument fixes + leg-bisect refactor; predicate re-specified to be shape-independent and `node scripts/check-bottlenecks.mjs` green after it",
       "updatedAt": "2026-09-20"
     },
     {

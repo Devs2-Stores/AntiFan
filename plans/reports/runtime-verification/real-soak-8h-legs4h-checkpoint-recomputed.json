@@ -1,0 +1,580 @@
+{
+  "source": "real-soak-8h-legs4h-checkpoint.json",
+  "sourceStartedAt": "2026-09-20T00:06:57.446Z",
+  "sourceFinishedAt": "2026-09-20T00:57:09.832Z",
+  "recomputedAt": "2026-09-20T01:05:59.787Z",
+  "harnessLegsEnv": "baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000",
+  "historyRowsRecovered": 0,
+  "stdoutProvided": false,
+  "memoryAgrees": true,
+  "memoryDiffs": {},
+  "stale": {
+    "cpu": {
+      "from": "2026-09-20T00:37:58.821Z",
+      "to": "2026-09-20T00:55:58.975Z",
+      "windowMinutes": 18,
+      "samples": 19,
+      "cpuSecondsTotal": 0,
+      "cpuSecondsPerMinute": 0,
+      "perProcess": [],
+      "notAttributablePids": [],
+      "unreadablePids": [],
+      "counterResetPids": [],
+      "bursts": 40,
+      "burstLines": 12000,
+      "msPer1000BurstLines": 0,
+      "switches": 381,
+      "msPerSwitch": 0
+    },
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-20T00:07:58.590Z",
+        "to": "2026-09-20T00:35:58.798Z",
+        "windowMinutes": 28,
+        "samples": 29,
+        "cpuSecondsTotal": 0,
+        "cpuSecondsPerMinute": 0,
+        "perProcess": [],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": []
+      },
+      "workload": {
+        "from": "2026-09-20T00:37:58.821Z",
+        "to": "2026-09-20T00:55:58.975Z",
+        "windowMinutes": 18,
+        "samples": 19,
+        "cpuSecondsTotal": 0,
+        "cpuSecondsPerMinute": 0,
+        "perProcess": [],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": []
+      },
+      "recovery": null
+    },
+    "legCpu": [
+      {
+        "name": "baseline",
+        "ordinal": 1,
+        "cpu": {
+          "from": "2026-09-20T00:37:58.821Z",
+          "to": "2026-09-20T00:56:58.977Z",
+          "windowMinutes": 19,
+          "samples": 20,
+          "cpuSecondsTotal": 0,
+          "cpuSecondsPerMinute": 0,
+          "perProcess": [],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "burstLines": 12000,
+          "msPer1000BurstLines": 0,
+          "msPerSwitch": 0
+        }
+      }
+    ],
+    "historyPersist": null
+  },
+  "recomputed": {
+    "cpu": {
+      "from": "2026-09-20T00:37:13.071Z",
+      "to": "2026-09-20T00:56:14.109Z",
+      "windowMinutes": 19.02,
+      "samples": 20,
+      "cpuSecondsTotal": 131.547,
+      "cpuSecondsPerMinute": 6.916,
+      "perProcess": [
+        {
+          "pid": 14108,
+          "seconds": 36.859,
+          "share": 0.2802,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 34492,
+          "seconds": 32.406,
+          "share": 0.2463,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 29832,
+          "seconds": 30.969,
+          "share": 0.2354,
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "type": "Tab"
+        },
+        {
+          "pid": 46456,
+          "seconds": 15.391,
+          "share": 0.117,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 45324,
+          "seconds": 5.391,
+          "share": 0.041,
+          "role": "tab:a2810597+tab:ff5c9a1c+tab:88fa5d53+tab:29fb34db",
+          "type": "Tab"
+        },
+        {
+          "pid": 40368,
+          "seconds": 3.25,
+          "share": 0.0247,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 9196,
+          "seconds": 2.516,
+          "share": 0.0191,
+          "role": "tab:6a69f961",
+          "type": "Tab"
+        },
+        {
+          "pid": 40444,
+          "seconds": 1.641,
+          "share": 0.0125,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 46796,
+          "seconds": 1.625,
+          "share": 0.0124,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 46512,
+          "seconds": 1.156,
+          "share": 0.0088,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 43764,
+          "seconds": 0.281,
+          "share": 0.0021,
+          "role": "tab:c49550af",
+          "type": "Tab"
+        },
+        {
+          "pid": 21616,
+          "seconds": 0.031,
+          "share": 0.0002,
+          "role": "tab:7ad242ef",
+          "type": "Tab"
+        },
+        {
+          "pid": 31608,
+          "seconds": 0.031,
+          "share": 0.0002,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 33320,
+          "seconds": 0,
+          "share": 0,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 46400,
+          "seconds": 0,
+          "share": 0,
+          "role": "",
+          "type": ""
+        }
+      ],
+      "notAttributablePids": [],
+      "unreadablePids": [],
+      "counterResetPids": [],
+      "source": "samples.cpuByPid (51 of 51 row(s) carry counters)",
+      "bursts": 40,
+      "burstLines": 12000,
+      "msPer1000BurstLines": 10962.25,
+      "switches": 381,
+      "msPerSwitch": 345.2677
+    },
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-20T00:07:09.477Z",
+        "to": "2026-09-20T00:36:13.008Z",
+        "windowMinutes": 29.06,
+        "samples": 31,
+        "cpuSecondsTotal": 201.657,
+        "cpuSecondsPerMinute": 6.939,
+        "perProcess": [
+          {
+            "pid": 14108,
+            "seconds": 57.766,
+            "share": 0.2865,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 34492,
+            "seconds": 49.719,
+            "share": 0.2466,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 29832,
+            "seconds": 44.859,
+            "share": 0.2225,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 46456,
+            "seconds": 23.828,
+            "share": 0.1182,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 45324,
+            "seconds": 7.859,
+            "share": 0.039,
+            "role": "tab:a2810597+tab:ff5c9a1c+tab:88fa5d53+tab:29fb34db",
+            "type": "Tab"
+          },
+          {
+            "pid": 40368,
+            "seconds": 5.484,
+            "share": 0.0272,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 9196,
+            "seconds": 3.719,
+            "share": 0.0184,
+            "role": "tab:6a69f961",
+            "type": "Tab"
+          },
+          {
+            "pid": 40444,
+            "seconds": 3.047,
+            "share": 0.0151,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 46796,
+            "seconds": 2.953,
+            "share": 0.0146,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 46512,
+            "seconds": 1.875,
+            "share": 0.0093,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 43764,
+            "seconds": 0.438,
+            "share": 0.0022,
+            "role": "tab:c49550af",
+            "type": "Tab"
+          },
+          {
+            "pid": 33320,
+            "seconds": 0.063,
+            "share": 0.0003,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 21616,
+            "seconds": 0.047,
+            "share": 0.0002,
+            "role": "tab:7ad242ef",
+            "type": "Tab"
+          },
+          {
+            "pid": 31608,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 46400,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (51 of 51 row(s) carry counters)"
+      },
+      "workload": {
+        "from": "2026-09-20T00:37:13.071Z",
+        "to": "2026-09-20T00:56:14.109Z",
+        "windowMinutes": 19.02,
+        "samples": 20,
+        "cpuSecondsTotal": 131.547,
+        "cpuSecondsPerMinute": 6.916,
+        "perProcess": [
+          {
+            "pid": 14108,
+            "seconds": 36.859,
+            "share": 0.2802,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 34492,
+            "seconds": 32.406,
+            "share": 0.2463,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 29832,
+            "seconds": 30.969,
+            "share": 0.2354,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 46456,
+            "seconds": 15.391,
+            "share": 0.117,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 45324,
+            "seconds": 5.391,
+            "share": 0.041,
+            "role": "tab:a2810597+tab:ff5c9a1c+tab:88fa5d53+tab:29fb34db",
+            "type": "Tab"
+          },
+          {
+            "pid": 40368,
+            "seconds": 3.25,
+            "share": 0.0247,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 9196,
+            "seconds": 2.516,
+            "share": 0.0191,
+            "role": "tab:6a69f961",
+            "type": "Tab"
+          },
+          {
+            "pid": 40444,
+            "seconds": 1.641,
+            "share": 0.0125,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 46796,
+            "seconds": 1.625,
+            "share": 0.0124,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 46512,
+            "seconds": 1.156,
+            "share": 0.0088,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 43764,
+            "seconds": 0.281,
+            "share": 0.0021,
+            "role": "tab:c49550af",
+            "type": "Tab"
+          },
+          {
+            "pid": 21616,
+            "seconds": 0.031,
+            "share": 0.0002,
+            "role": "tab:7ad242ef",
+            "type": "Tab"
+          },
+          {
+            "pid": 31608,
+            "seconds": 0.031,
+            "share": 0.0002,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 33320,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 46400,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (51 of 51 row(s) carry counters)"
+      },
+      "recovery": null
+    },
+    "legCpu": [
+      {
+        "name": "baseline",
+        "ordinal": 1,
+        "cpu": {
+          "from": "2026-09-20T00:37:13.071Z",
+          "to": "2026-09-20T00:56:14.109Z",
+          "windowMinutes": 19.02,
+          "samples": 20,
+          "cpuSecondsTotal": 131.547,
+          "cpuSecondsPerMinute": 6.916,
+          "perProcess": [
+            {
+              "pid": 14108,
+              "seconds": 36.859,
+              "share": 0.2802,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 34492,
+              "seconds": 32.406,
+              "share": 0.2463,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 29832,
+              "seconds": 30.969,
+              "share": 0.2354,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 46456,
+              "seconds": 15.391,
+              "share": 0.117,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 45324,
+              "seconds": 5.391,
+              "share": 0.041,
+              "role": "tab:a2810597+tab:ff5c9a1c+tab:88fa5d53+tab:29fb34db",
+              "type": "Tab"
+            },
+            {
+              "pid": 40368,
+              "seconds": 3.25,
+              "share": 0.0247,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9196,
+              "seconds": 2.516,
+              "share": 0.0191,
+              "role": "tab:6a69f961",
+              "type": "Tab"
+            },
+            {
+              "pid": 40444,
+              "seconds": 1.641,
+              "share": 0.0125,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 46796,
+              "seconds": 1.625,
+              "share": 0.0124,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 46512,
+              "seconds": 1.156,
+              "share": 0.0088,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 43764,
+              "seconds": 0.281,
+              "share": 0.0021,
+              "role": "tab:c49550af",
+              "type": "Tab"
+            },
+            {
+              "pid": 21616,
+              "seconds": 0.031,
+              "share": 0.0002,
+              "role": "tab:7ad242ef",
+              "type": "Tab"
+            },
+            {
+              "pid": 31608,
+              "seconds": 0.031,
+              "share": 0.0002,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 33320,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 46400,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (51 of 51 row(s) carry counters)",
+          "burstLines": 12000,
+          "msPer1000BurstLines": 10962.25,
+          "msPerSwitch": 345.2677
+        },
+        "bursts": 40,
+        "burstLinesObserved": 12000,
+        "switchCount": 381
+      }
+    ],
+    "historyPersist": null,
+    "legBurstCounterSuspect": false,
+    "verdict": "FAILED"
+  }
+}

@@ -84,6 +84,51 @@ working time than the defect costs.
 2. **The retention fix** — trace it with a heap diff across the three documents that share pid
    47536, then fix, then verify on the 60-minute floor preflight; a shorter window cannot
    resolve 0.17 MB/min against a 10 MB collection amplitude.
+
+   **Instrument first (applied 2026-09-20 06:54, `scripts/probe-renderer-retention-class.cjs`):
+   classify the memory before snapshotting it.** A V8 heap snapshot is the wrong first move for
+   this pid, for two reasons that are properties of the tool, not opinions: it forces a GC inside
+   the process being measured (on a 0.17 MB/min slope, the collector's own effect is the same
+   order as the signal), and it sees only V8 objects — the remaining suspects are Blink-side
+   (`nodes` for the terminal scrollback and the tab strip, attribute/string tables, IPC buffers
+   that keep a page committed until view teardown), which a JS-heap diff reports as "no growth"
+   while the private bytes climb. The probe attaches to a running app's DevTools endpoint and
+   classifies **per document**: `nodes` / `documents` / `jsEventListeners` are exact counts, so
+   monotone growth is retention and is classified against a per-minute threshold;
+   `JSHeapUsedSize` is a sawtooth, so it needs *both* an amplitude and a step-rate test before it
+   is called growth; `RecalcStyleCount` / `LayoutCount` are cumulative work counters, so they are
+   printed as rates rather than classified. A counter the protocol refuses is recorded
+   `unsupported` and its document `UNMEASURED` — never `0`, because a zero reads as a flat,
+   healthy series.
+
+   Narrow check: probe `--self-test` **11/11** on a synthetic endpoint (three documents growing
+   three different ways — `DOM_NODES` 600 nodes/min, `EVENT_LISTENERS` 30 listeners/min, one flat
+   ⇒ `FLAT`; a sawtooth heap −10 MB then +4.5 MB is **not** classified as growth; a document whose
+   counters fail ⇒ `UNMEASURED`), and the adversarial direction was run: flattening the nodes
+   series in a **copy** of the fake makes the self-test fail in exactly that slot (`JS_HEAP`
+   instead of `DOM_NODES`), restoring the original returns 11/11.
+
+   **The running leg run cannot be probed (verified, not assumed): no CDP endpoint.** The harness
+   gained `SOAK_APP_ARGS` for this, which appends extra switches to the app's argv and records
+   them (`config.appArgs` in the payload plus a launch log), because a run carrying a debug
+   endpoint that the payload does not record would later be read as a clean baseline. The leg run
+   launched at 06:34 predates that switch, and the check confirms it:
+   `Get-CimInstance Win32_Process` filtered to `electron|AntiFan` returns **19** processes, of
+   which **8** carry `antifan-soak-8h` in their command line and **0** carry
+   `--remote-debugging` (`wmic` returned an empty process list on this host; the CIM query is the
+   one that works). A second, concurrent app is **not** an option: the soak app is a heavy
+   workload of its own on four cores, and the leg bisect is a memory measurement — this is the
+   same contamination that already produced two false gate failures (`memoryOk`, `processOk`) in
+   the 4 h run's verdict. So the diagnosis run is sequenced after the leg run, with its own tag,
+   and the recipe is:
+
+   ```
+   SOAK_APP_ARGS="--remote-debugging-port=0" node scripts/probe-renderer-retention-class.cjs \
+     --profile=E:/Work/.antifan-soak-8h/Profile --samples=6 --interval-ms=60000
+   ```
+   launched while that run is in flight, so the probe samples the same process the run's own
+   telemetry attributes.
+
 3. **The throughput work** — the CPU costs on the shared thread pool, which are what "more work
    at once" is actually bound by.
 
@@ -121,7 +166,7 @@ the renderer harness ("FakeElement") does not parse `innerHTML`, so it cannot se
   `switchLatencyByTab` (count/p50/p95/max per destination, with its URL) and prints the
   slowest destination in the terminal verdict.
 
-### Phase 3c — Latency gate — RESOLVED by the 4 h run
+### Phase 3c — Latency gate — DECIDED (2026-09-20) and applied
 The gate fails on `max`, and `switchLatencyByTab` answers the question it was added for:
 **neither branch holds.** It is not a per-destination cost (the per-destination table under
 "Harness findings" shows **all six** breaching 35 ms while every p95 sits at 15–17 ms) and it
@@ -129,11 +174,22 @@ is not a one-off stall (8 of the 10 slowest fall in the steady-state workload ph
 across the run: 18:23, 18:25, 18:40, 18:41, 18:58, 19:05, 19:37, 21:08). What is left is a
 global stall that hits every destination equally, at ~0.2 % of 4090 switches, on a uniformly
 shifted distribution (every p50 10.1–10.9 and the run's fastest switch at 6.76, against a 2 h
-baseline whose fastest switch was 3.092). Phase 3c's replacement is therefore a *decision* for
-the user, not a fix: gate the max (currently 50.976 against 35) or gate a percentile with the
-max reported (`switchLatencyMs` is min 6.76 / p50 10.346 / p95 15.513 / max 50.976). Per the
-standing rule that a user-owned threshold is not changed silently, both are reported and the
-threshold is left alone.
+baseline whose fastest switch was 3.092).
+
+**User decision (asked with the run's numbers, answered 2026-09-20): gate percentiles, report
+the max.** The gate is now `p50 ≤ 12 ms && p95 ≤ 18 ms` on the workload phase; `switchMax` is
+reported only. Applied in `scripts/benchmark-real-soak-8h.cjs`: the `switchLatencyMaxMs: 35`
+row is deleted from `FREEZE_SLO` (a threshold sitting in an SLO object that nothing grades is a
+trap for the next reader), the `switchMax` term is removed from `latencyOk` with the reason and
+date in-line, and the payload gains `switchLatencyMaxMs` + `latencyMaxGated: false` so a
+dropped bound is distinguishable from a passed one.
+Discriminating proof: `test/unit/soak-latency-gate.test.mjs` grades the exported
+`evaluateFreezeVerdict` — reinstating the old `switchMax <= 35` term fails 2 of its 6 cases
+(max 50.976 with p50/p95 inside; max 900 at the bounds), restoring it returns 6/6. This
+threshold is the *only* one the user changed; the memory and process bounds are untouched.
+
+rawMetrics already carries the full distribution (`switchLatencyMs` min 6.76 / p50 10.346 / p95
+15.513 / max 50.976), so nothing about the tail is lost — it stops deciding the verdict.
 
 ### Phase 3d — A/B the driver
 Run the same instrumented soak twice on the fixed bundle, changing only the workload's
@@ -146,16 +202,260 @@ per-broadcast consumers, because the tick drives both — see "Suspect list narr
 ### Phase 4 — Soak
 Run the full 240-minute soak on the fixed bundle.
 
-### Phase 4b — Post-fix preflight (the retention re-measure, RUNNING)
+### Phase 4b — Post-fix preflight (the retention re-measure, DONE — claim WITHDRAWN)
 `SOAK_DURATION_MINUTES=90 SOAK_WARMUP_MINUTES=15 SOAK_RECOVERY_MINUTES=15 SOAK_REPORT_TAG=preflight-fixed`
 — the 60-minute workload window is the floor instrument (0.17 MB/min is +10 MB against ~1 MB of
-floor noise, so 60 minutes resolves it and another 4 h run does not). This is the acceptance run
-for criterion 2 on the fixed bundle: pid 47536's rolling private floor must flatten, and the run
-must stay `degraded: false` with 0 orphans. If the floor holds, the two per-broadcast fixes did
-not own the growth and the changelog's mechanism note must be withdrawn rather than restated.
-Machine load is *not* controlled (the user's own app instance, this session and the terminal
-daemon share four cores), so latency numbers from this run are not comparable to the 4 h run —
-the memory floor is, and that is what the preflight is for.
+floor noise, so 60 minutes resolves it and another 4 h run does not). Machine load is *not*
+controlled (the user's own app instance, this session and the terminal daemon share four cores),
+so latency numbers from this run are not comparable to the 4 h run — the memory floor is, and that
+is what the preflight is for.
+
+**Result: the floor did not hold, so the mechanism note is withdrawn rather than restated.** Both
+fits are over the workload phase, same role (`chrome:standalone+chrome:toolbar+chrome:frame-backdrop`),
+same `privateBytesMB` column, 60 s frames, fitted by LSQ:
+
+| run | bundle | workload | pv first → last | slope ±1se | residual sd | 2nd half |
+|---|---|---|---|---|---|---|
+| 4h | pre-fix | 179 min | 85.48 → 117.54 (+32.06 MB) | **0.1699 ± 0.0010** | 0.66 | 0.166 |
+| preflight | post-fix | 58 min | 82.43 → 94.13 (+11.70 MB) | **0.2234 ± 0.0070** | 0.92 | 0.209 |
+
+The post-fix slope is *higher* (+0.0535 MB/min, ~7.5σ), so the two per-broadcast fixes do not own
+the growth. Two further facts decide what does:
+
+- The growth is linear and steady (2nd half 0.209 vs 1st half 0.243; the rolling-min floor still
+  climbs +2.79 MB in the last 20 min), so it is **not** a bounded buffer filling up: xterm's
+  scrollback is capped at 10,000 lines (`src/renderer/standalone.js:2034`), which would flatten
+  ~16 minutes in, and it does not flatten.
+- Both runs cost the same per line of terminal output — 32.06 MB / 107,400 lines = **298 B/line**
+  (4h) and 11.70 MB / 34,800 lines = **336 B/line** (preflight) — so the suspect moves from the
+  broadcast path to the **terminal write path**. The confound this leaves open is honest and
+  stated: both runs write ~10 lines/s, so a purely **time**-proportional driver fits the same
+  numbers. Phase 4c separates the two by measurement.
+
+### Phase 4c — Leg bisect (STOPPED 08:10 local at the operator's request after 63 min; one leg closed, legs 2–3 unrun)
+A re-run of the same workload cannot separate a per-line cost from a per-minute one, and the 4 h
+run already showed what the whole-window slope does with that ambiguity. The harness now splits
+its **own** workload phase into consecutive legs that differ in one driver
+(`SOAK_LEGS="name:minutes:burstLines:burstIntervalMs,..."`), records the leg boundaries it actually
+observed, and fits each leg separately, so process identity, page set, host load and the switch
+rate are held fixed while only the burst volume moves. Legs are keyed by name *and* window, so a
+bisect that returns to an earlier regime reads as three legs rather than one swallowing the leg
+between them, and each leg carries its **observed** burst count, because a leg whose writes failed
+would otherwise read as "this driver costs nothing".
+
+Because a leg run's workload slope is a blend of deliberately different regimes, the slope gate no
+longer grades it: `slopeSloSatisfied: null`, `slopeGateApplicable: false`, verdict
+`PASSED_SLOPE_NOT_GRADED`, with `legSlopes` carrying the measurement. The other gates (peak memory,
+latency, orphans, execution, teardown) stay meaningful and still run — leg 2 is also the throughput
+test the concurrency goal asks for (40 lines/s of PTY output while switching tabs every 3 s).
+
+`SOAK_DURATION_MINUTES=240 SOAK_WARMUP_MINUTES=30 SOAK_RECOVERY_MINUTES=30 SOAK_REPORT_TAG=legs4h SOAK_LEGS="baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000"`
+
+| leg | minutes | burst | what its slope decides |
+|---|---|---|---|
+| `baseline` | 60 | 300 lines / 30 s (10 lines/s) | the current bundle's rate (must reproduce 0.2234) |
+| `burst4x` | 60 | 1200 lines / 30 s (40 lines/s) | ≈4× leg 1 ⇒ cost is per **line**; ≈leg 1 ⇒ per **minute** |
+| `burst-off` | 60 | 1 line / 600 s (off) | ≈0 ⇒ per line; ≈leg 1 ⇒ per minute |
+
+Order is deliberate: a cost that rises 4× and then collapses cannot be produced by a monotone
+time-decay, which is the confound a single knob change across separate runs would leave open.
+
+**Mid-run read (applied 2026-09-20 06:55 local, run in flight).** `legSlopes` is written only
+when the harness finishes, so a leg that has already completed could not be read from the
+payload — the bisect's answer would arrive at 10:34 instead of at the end of leg 2. The
+analyzer now derives the leg windows from the run's own schedule (`config.legs` + `startedAt` +
+`warmupMinutes`) when the payload carries no `legSlopes`, and **labels every derived window
+`PROVISIONAL`** in the header, on each leg line, and in the reading text: those boundaries are
+scheduled, not observed, so a machine sleep or a delayed phase shifts them, and the observed
+burst count is unknown, so the per-line column prints `n/a` rather than a number computed from
+a fabricated count. The final payload's observed `legSlopes` supersedes the derived read.
+Verified three ways on real data: derived mode over the 4 h artifact's workload window (three
+legs, real frames, `PROVISIONAL`, per-line `n/a`), observed mode with leg counts injected
+(per-line column computed, and suppressed below 1000 observed lines, where the quotient is a
+large number that reads like a measurement), and the live leg-run checkpoint (three derived
+windows, `no usable window (0 frames)` — correct, the workload had not started in that launch).
+
+**Leg burst counter fault — found, fixed, and the run restarted (2026-09-20 07:05–07:08).**
+Found by the repair round, confirmed in source, and fatal to half of this run's reading: `legAt()`
+returns `{ ...leg, startAt, endAt }` — a fresh spread of a `LEGS` schedule entry — while `enterLeg()`
+pushes a *separate* object into `legTimeline` with `bursts: 0`. The loop's `if (activeLeg) activeLeg.bursts++`
+therefore incremented a throwaway on every burst, and every `legTimeline[].bursts` stayed 0. The
+consequence was silent and total: `legBurstsObserved` = 0 → in leg mode `workloadBurstLines` = 0 →
+`costPerUnit(x, 0)` returns `null` → **`metrics.cpu.msPer1000BurstLines` was null for the whole run**, and
+each leg's `msPer1000BurstLines` with it. Since "performance so more work runs at once" is read from exactly
+that number (cost per line of PTY output), the leg run in flight could not answer its own throughput question.
+
+Fixed in `scripts/benchmark-real-soak-8h.cjs`: `enterLeg()` keeps a reference to the timeline entry it pushed
+(`activeLegEntry`) and the burst path increments that. The same class of hole is now loud instead of silent —
+the payload derives `metrics.legBurstCounterSuspect` ("legs recorded 0 bursts while the workload phase wrote
+some"), the harness prints it in the terminal verdict, and the analyzer prints it in the CPU section, on each
+leg header (`~N bursts scheduled, 0 recorded -> per-line n/a`), and in the cross-leg table. The analyzer also
+stops pricing a leg run's workload against the *base* knob: when a leg schedule exists it divides by the legs'
+**observed** volume, and says so in the line.
+
+Because the fix is a harness change, the running process could not pick it up, and the run had 3 h 28 m left
+with a null metric in its deliverable. Restarted at **07:07** with the identical schedule
+(`SOAK_REPORT_TAG=legs4h`, `SOAK_LEGS="baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000"`,
+warmup 30 / workload 180 / recovery 30 → ends **11:07**), which costs the 32 minutes already spent rather
+than a 4-hour artifact with the throughput column missing. The aborted prefix is kept as
+`real-soak-8h-legs4h-aborted-prefix-counter-20260920-0706.json` so no reader mistakes it for the run.
+
+Narrow check for the fix: `test/unit/soak-analyzer-cpu.test.mjs` drives the **real** `buildReportPayload`
+in leg mode and the real analyzer through a process spawn — per-phase CPU, the independent recompute agreeing
+with the reported block, per-leg pricing (leg 2 = 1406.250 ms / 1000 lines), the sub-1000-line floor reading
+`n/a`, a legacy artifact reading `NOT MEASURED` rather than `0`, and legs at 0 bursts producing both fault
+lines — **5/5 pass**; the four soak suites together are **31/31**. The end-to-end proof is the restarted run's
+own payload: leg 1's observed burst count is read from the 07:44 checkpoint.
+
+**Two analyzer guards, added with the fix (07:10).** A mid-run checkpoint carries `legSlopes` for
+the legs it has already exited, so a 3-leg workload read after leg 1 holds **one** leg's volume;
+pricing the phase's CPU against it would report a cost several times the truth and print it as a
+measurement. The phase line now prices a leg run only when **every scheduled leg is observed**,
+and otherwise says how many legs the artifact holds and prints no per-line number at all — the
+fallback to the base knob is removed for that case, because the knob is a different regime's
+volume. The branch was verified against the real analyzer through a spawned process: leg-run
+complete → prices the legs' observed volume; partial → refuses; all-legs-zero-bursts → the counter
+fault. Two cases were wrong before this pass and are pinned by
+`test/unit/soak-analyzer-cpu.test.mjs` (7/7): the partial fixture printed `266.667 ms per 1000
+burst lines` from the base knob, and the whole leg-reading printed nothing at all for it. A third
+wording defect of the same class was found by reading the live 07:17 checkpoint: the switch-tail
+section told a leg run with no tagged sample yet "no leg schedule in this run", which the payload's
+own `config.legs` contradicts — one group is either "no schedule" or "no sample inside a leg yet",
+and it now says which.
+
+**The run in flight is instrumented in memory, stale in CPU and history (measured 2026-09-20 08:05–09:20).**
+The 07:07 restart was made for the burst counter alone, so it inherited a **second** reader defect that
+also landed after the original launch: the payload's CPU block was computed from a series that carries no
+per-process counters. Read from the live artifact rather than inferred: `real-soak-8h-legs4h-checkpoint.json`
+(07:57 — checkpoints are on a **10-minute** cadence, so an intermediate read of a 17-minute-old mtime is the
+cadence, not a stall) reports `metrics.cpu = {cpuSecondsTotal: 0, windowMinutes: 18, perProcess: []}` while the
+same file's `samples[].cpuByPid` holds real counters, and `metrics.cpu.source` is **undefined** — the field the
+fix introduces. So the process launched at 07:06:57 runs the harness as it stood *before* the CPU-source fix.
+The consequence would have been the same one the burst counter produced: a deliverable that prices the whole
+workload at zero, and a throughput question ("how much work at once") answered with `0 s/min`.
+
+The counters are in the payload regardless of which reader ran, so the numbers are recoverable without
+restarting a third time: **`scripts/recompute-soak-metrics.cjs <payload.json> [--stdout <log>] [--out <file>]`**
+replays a saved payload through the current `buildReportPayload` and writes a **sidecar** — the payload stays
+byte-identical as the record of what the run reported, and the sidecar carries the corrected blocks beside the
+stale ones, so nothing is silently rewritten.
+
+- Validation, on the live checkpoint: the memory round-trip **AGREES** (all seven control metrics identical —
+  the inputs are faithful), stale CPU `0 s / 18 min` → recomputed **131.547 s over 19.02 min = 6.916 s/min over
+  15 pids**; leg 1 `baseline` reads the same window, `40 bursts`, `381 switches`. The per-phase block attributes
+  it: warmup 201.657 s / 29.06 min = 6.939 s/min, of which pid 14108 (main) 57.8 s, pid 34492 49.7 s, and pid
+  29832 44.9 s carrying `chrome:standalone+chrome:toolbar+chrome:frame-backdrop`.
+- Refusal check (the guard is not decorative): dropping one sample makes the memory metrics disagree
+  (overall slope 0.3698 → 0.3895), and the tool prints `REFUSED` and exits **2** rather than publishing
+  plausible CPU numbers from mis-mapped inputs.
+- Contamination caveat, stated because it bounds the number: this run's host also ran a full-project `tsc`
+  emit and four test suites during the run, and from ~09:15 it shares the machine with the user's own work.
+  Read the recomputed CPU as **attribution** (which process, which phase, which leg) and not as a clean
+  per-minute cost; the first run whose payload carries the fixed reader is the comparable one.
+- History: that fix also landed after the 07:06 launch, so this artifact carries no `historyPersist`. The
+  app-side metric itself is proven (`5/5` on the rewrite-storm test, `19/19` payload contract); `--stdout`
+  recovers rows for a payload written before ingestion existed, and the first run whose payload carries the
+  block is the next one.
+
+**Decision — finish and recompute, not a third restart.** The memory bisect in flight is the run's actual
+deliverable and it is valid; CPU is exactly recoverable offline (proven above on this very data) and history
+is absent from one artifact only. A third launch would pay another 4 hours of the user's machine for a block
+that is already reconstructible, and would put a fresh full-workload soak on top of the user's own working
+session — the contamination it would inherit costs more than the field it would add.
+
+**STOPPED at 08:10 local, at the operator's request (supersedes the decision above; 2026-09-20).** The
+operator needed the machine for their own work session, so the run was ended deliberately — this is a stop,
+not a failure, and the artifact must not be read as a run that crashed. What the stop leaves, all of it on
+disk before the process died:
+
+- `real-soak-8h-legs4h-checkpoint.json`, written **08:07** on the harness's own 10-minute cadence: **61
+  samples**, last at 08:06, `stats` 60 bursts / 572 switches / leg 1's observed window recorded
+  (`legs[0] = baseline`, 60 bursts, 572 switches). Sampling and the checkpoint writer were both alive at the
+  cut: the checkpoint advanced from 51 to 61 samples across the 10 minutes before it.
+- `real-soak-8h-legs4h-checkpoint-recomputed.json`, the offline CPU sidecar over that checkpoint (see above):
+  memory round-trip agrees, CPU **131.547 s / 19.02 min = 6.916 s/min**, 15 pids.
+- Teardown verified: the harness pid and its Electron tree (main 14108) are gone; the surviving `electron.exe`
+  processes belong to the operator's own app (`--user-data-dir` = the default profile) and to the detached
+  terminal **daemon host** (`daemon-entry.js`), neither of which this run owns and neither of which was touched.
+
+What it does **not** have, stated so a reader does not infer it later: no final payload, therefore no
+`metrics.verdict`, no `metrics.cpu` (the in-flight reader was the pre-fix one — CPU is the sidecar, not the
+payload), no `historyPersist`, and **legs 2 and 3 never ran**, so the bisect's discriminator (leg 2 at 4× the
+burst volume, and leg 3 as the monotone-decay falsifier) is still an open measurement. The pre-registered
+predictions above remain unfired, which is the point of having registered them: a resume re-runs the same
+schedule and reads them against a run that has not been fitted to its own outcome.
+
+Defects confirmed by reading the instruments during this run and **not** yet applied (each has its evidence
+in the session that found it; none is time-critical before the bisect is re-run):
+
+1. The leg boundary does not reset `nextBurstTime`, so a leg with a long interval followed by a loud one
+   starves the loud leg's opening minutes (the schedule here puts the silent leg last, which is why this run
+   is unaffected — a future reordering would be silently biased).
+2. An open leg's `observedMinutes` is the *scheduled* span (`observedTo ?? endAt`), so the live leg reported
+   60 minutes after 10 minutes of runtime; the fit is unaffected, a reader computing a burst rate is not.
+3. Ledger `B41` states its closure as `all-of` over two negated markers, which only reopens the row when
+   *both* markers vanish; a partial revert (one marker dropped) leaves the tripwire green. `any-of` matches
+   the `closedBy` wording, which pins both.
+4. The analyzer prints the top CPU consumer of the workload as `unattributed` even when it is `rootPid`
+   (pid 14108 here — the main process) — the headline fact of a CPU reading.
+5. The analyzer's leg table prints per-pid *memory* but not per-pid *CPU*, though `cpuDelta.per` already
+   carries it, so "whose cost scales with the burst volume" is unanswerable from the artifact.
+6. `historyPersist` is in the payload but no analyzer section prints it, so the new metric is readable only
+   by opening JSON; and the derived-leg windows anchor to `startedAt + warmupMinutes` rather than to the
+   first observed workload sample, which disagrees with every other section when warmup overruns.
+7. Two history-store guards the fix's own design implies but does not contain: an unchanged title still bumps
+   `mutationVersion` (discarding an in-flight snapshot and re-arming the debounce for zero content change),
+   and `persistSync` clears the timer but not `persistArmedAt` (so the next mutation takes the ceiling path
+   and writes immediately instead of debouncing).
+
+**Pre-registered predictions (recorded 06:55, before any leg has frames).** The bisect's value
+is that it was not fitted to its own outcome, so each leg's reading is fixed in advance:
+
+| leg | if the cost is per **line** | if the cost is per **minute** |
+|---|---|---|
+| `baseline` (300 lines / 30 s) | 47536 floor ≈ **0.22 MB/min** (reproduces 0.2234) | 47536 floor ≈ **0.17–0.22 MB/min** (indistinguishable — this leg is the control) |
+| `burst4x` (1200 lines / 30 s) | floor ≈ **0.8–0.9 MB/min** (4× leg 1) | floor ≈ **leg 1 ± noise** |
+| `burst-off` (1 line / 600 s) | floor ≈ **0** | floor ≈ **leg 1** |
+
+Leg 2 is the discriminator; leg 3 is the falsifier of a monotone time-decay, because a cost
+that rises 4× and then collapses cannot be a decay of the same thing.
+
+**Leg 2 is also the throughput measurement** the concurrency objective asks for: 40 lines/s of
+PTY output while switching tabs every 3 s. Its `switchLatencyMs` and its observed burst count
+are read as a work-rate result, not only as a bisect leg.
+
+**The switch tail is in this run (corrected at the restart).** The tail instrument landed at 06:52,
+after the first launch (06:34), so that attempt's payload kept only the ten slowest switches. The
+re-launched run (07:07) postdates it and therefore carries the **whole series** with a leg stamp on
+every row, which is what lets the tail be attributed per leg rather than argued from ten samples.
+The earlier limitation is kept here as the reason the restart's tail section is the comparable one.
+
+### Instrument — the whole switch series, so the tail can be attributed (applied, next run)
+
+The gate now grades percentiles and reports the maximum, which leaves the question the 4 h
+verdict could not answer: **what produces the tail**. The harness collected every switch
+(`switchSamples`, one `{at, ms, tabId, phase}` per switch) and then dropped the series at
+report time, keeping ten rows. Ten rows can say the tail exists; they cannot separate the two
+candidates that matter, because a stall that collides with the terminal write path and a stall
+indifferent to it produce the same top ten.
+
+Applied in `scripts/benchmark-real-soak-8h.cjs`: the payload carries the **whole series**
+(capped at 20 000 rows — 4 h at a 3 s cadence is ~4 800 — with `switchSamplesDropped` beside
+the cap so a truncated series is never read as a complete one), each row stamped with the
+**leg** it ran in (`baseline#1`, `burst4x#2`, …; ordinal included because a returning bisect
+would otherwise merge legs 1 and 3) and its phase. `scripts/analyze-soak-app-only.cjs` reads it
+as a **switch tail** section: an independent recompute of the workload quantiles that states
+whether it *agrees with or contradicts* the reported gate, stall counts per phase and **per
+leg** (the burst-volume A/B, on one series in one run), and the positions of the stalls inside
+the harness's own 60 s sampling interval with every switch printed beside them, so a pile-up
+that is only the harness's scrape is visible as one.
+
+Narrow checks: `test/unit/soak-switch-series.test.mjs` grades the **real** `buildReportPayload`
+(now exported for this, like `evaluateFreezeVerdict`) — every switch carried, the cap reported
+rather than silent, the slowest ten still ranked by latency, an absent series yielding `[]`
+instead of a missing field — **5/5 pass**; and fixtures over the analyzer verify derived and
+observed leg modes plus all three switch-tail paths (series agrees, series contradicts, legacy
+artifact without the series).
 
 ### Phase 5 — Close
 Verdict with every gate, per-process evidence, and a changelog entry. The machine-checkable
@@ -701,6 +1001,16 @@ against a floor whose noise is ~1 MB — detectable without another 4 h run.
 - **A module-scope accumulator in `toolbar.ts`** — not found: `overlayTokens` is the only
   module-scope container in the file and it is token-keyed and released; every other `push`
   is a local array rebuilt per render.
+- **The renderer's own benchmark recorder (`__terminalBench`)** — a per-chunk push that is
+  never drained *in code*: it appends `{ stage, ts, extra }` per terminal chunk (`T1`) and per
+  write/parse/paint (`T2`–`T4`) into an array with no trim (`standalone.js:219-241`, `:4717`),
+  which is the right shape (~300 B/line) and would explain why the growth tracks bytes
+  written. **Dead for every soak run: the hook is opt-in on the URL (`urlParams.get('__bench')`),
+  and `src/main` has no producer for that parameter** — a repo-wide grep finds it only in the
+  renderer, its two compiled copies, a temporary mutation-test copy, and
+  `test/e2e/terminal-paint-bench.cjs`, which sets it *and* drains it (`snapshot()`/`clear()`,
+  `:259`, `:282`, `:321`). The soak launches the app with `ANTIFAN_BENCHMARK=1` but never
+  `?__bench=1`, so the recorder is `null` in the measured renderer.
 
 ### Predictions this run will settle (recorded before the data)
 
@@ -733,9 +1043,16 @@ against a floor whose noise is ~1 MB — detectable without another 4 h run.
 - **`renderThemeQa` as a per-push rebuild**: inspected — it assigns one `textContent` and
   toggles two classes, and takes no subtree. It does run on every push because the
   broadcast always carries `themeQa` (`native-tab-host.ts:7799`), but the work is trivial.
-- **`updateControls` as an unguarded render**: it is value-guarded end to end
-  (`lastAppliedBackDisabled`, `lastAppliedForwardDisabled`, `lastAppliedZoomText`,
-  `lastAppliedDevicePresetId`, `lastAppliedSplitMode`, `lastAppliedAgentControlled`).
+- **`updateControls` as an unguarded render**: it performs no subtree work — every DOM rebuild
+  it could do is guarded by a last-applied value (`lastAppliedBackDisabled`,
+  `lastAppliedForwardDisabled`, `lastAppliedZoomText`, `lastAppliedDevicePresetId`,
+  `lastAppliedSplitMode`, `lastAppliedSplitFocusedPane`, `lastAppliedAgentControlled`)
+  and a change-detecting signature is therefore not needed. Three writes are unconditional on
+  every push — `btnClearOmnibox.style.display`, `btnQuickInspect.classList` and
+  `btnFontFinder.classList` (`toolbar.ts:2817-2828`) — but each writes a primitive whose value
+  Blink compares before invalidating, so the cost is three O(1) style-token writes on two
+  elements, µs per push at the measured 5 Hz broadcast: recorded so the "guarded end to end"
+  shorthand is not read as "no write at all".
 - **Terminal transcript as the main-process growth source**: `SessionRecord` is chunked with
   `trimTail()` eviction at `MAX_TRANSCRIPT_BYTES = 4 MB` per session (plus a 256 KB
   re-slice overshoot) and `MAX_PERSISTED_BYTES = 1 MB` on disk, and this run holds two pty
@@ -749,3 +1066,19 @@ against a floor whose noise is ~1 MB — detectable without another 4 h run.
 - **Fixture page as the memory source**: the fixture writes `document.title` and one
   `textContent` per tick and appends no DOM, so a tab-renderer slope is not a fixture
   artifact.
+- **The per-chunk terminal write path as an unbounded accumulator** — read end to end
+  against the live source, bounded at every retention point:
+  `TerminalWriteDispatcher.queueWrite` pushes then either fast-paths, flushes at the 64 KB
+  frame budget, or schedules one rAF, and `flushWrite` **splices** what it drained off the
+  head index (a remainder chunk is re-spliced in place), with `cancel()` emptying the queue
+  and zeroing `queueByteLength` (`src/shared/terminal-write-dispatcher.ts:176-303`). The gap
+  recovery queue is capped by `MAX_RECOVERY_QUEUE_BYTES` / `MAX_RECOVERY_QUEUE_CHUNKS` and on
+  overflow sets `DEGRADED` and **clears** the queue, after which `DEGRADED` drops further
+  chunks instead of queueing them (`standalone.js:1489-1508`, `:1454-1456`). The activity
+  classifier throttles to 100 ms and slices its `tail` to 64 chars
+  (`standalone.js:3423-3467`). The one genuinely unbounded window is the hydration branch
+  (`standalone.js:1442-1452`), which queues every incoming chunk while
+  `activeHydratingEpoch !== null`; the epoch is cleared in a `finally` on *every* exit
+  including a rejected snapshot RPC (`:1684-1762`, `:1764-1836`), so that window is one
+  in-flight await at first activation, not steady-state streaming — it is a burst risk during
+  a slow hydration, not the per-minute rise.
