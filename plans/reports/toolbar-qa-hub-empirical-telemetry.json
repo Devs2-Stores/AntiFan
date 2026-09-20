@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-19T16:04:46.032Z",
+  "timestamp": "2026-09-20T08:13:58.011Z",
   "themeQa": {
     "beforeClick": {
       "btnText": "QA",
@@ -51,15 +51,15 @@
   "ipcCalls": [
     {
       "channel": "antifan:toolbar:get-initial-state",
-      "time": 1789833886335
+      "time": 1789892038207
     },
     {
       "channel": "antifan:toolbar:theme-qa-run",
-      "time": 1789833886876
+      "time": 1789892038711
     },
     {
       "channel": "antifan:workflow:get-state",
-      "time": 1789833887198
+      "time": 1789892039032
     },
     {
       "channel": "antifan:workflow:run",
@@ -103,10 +103,14 @@
           ]
         }
       },
-      "time": 1789833888027
+      "time": 1789892039783
     }
   ],
   "rendererLogs": [
+    {
+      "level": 2,
+      "msg": "[ThemeStudio] Workspace identity unavailable; scoping the checklist to the unknown-workspace scope: Error: Error invoking remote method 'antifan:toolbar:workspace-identify': Error: No handler registered for 'antifan:toolbar:workspace-identify'"
+    },
     {
       "level": 3,
       "msg": "[core health] Failed to fetch state: Error: Error invoking remote method 'antifan:core-health:get-state': Error: No handler registered for 'antifan:core-health:get-state'"
