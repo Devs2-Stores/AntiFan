@@ -2704,6 +2704,8 @@ function escapeHtml(text: string): string {
 }
 
 let draggedTabId: string | null = null;
+// One pending "scroll the active tab into view" frame callback; see renderTabs().
+let activeTabScrollRaf = 0;
 let lastTabsSignature = '';
 let lastBookmarksSignature = '';
 let lastChromeProfileName = '';
@@ -2939,22 +2941,39 @@ function renderTabs() {
     const isAgentControlled = tab.isAgentControlled === true;
     const hasThemeError = Boolean(tab.themeError);
 
-    tabEl.className = `tab ${isActive ? 'active' : ''} ${isAgentControlled ? 'agent-controlled' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
-    tabEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    // The strip re-renders on every state broadcast — a page that retitles itself drives this at
+    // up to 5 Hz — and most of the properties below already hold the value being written. An
+    // unchanged attribute write is not free: it replaces the attribute value and invalidates
+    // style, which is what this path was paying per broadcast for a title that had moved and
+    // nothing else. Compare first, as `titleSpan` below and the `lastApplied*` controls do.
+    const nextTabClassName = `tab ${isActive ? 'active' : ''} ${isAgentControlled ? 'agent-controlled' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
+    if (tabEl.className !== nextTabClassName) tabEl.className = nextTabClassName;
+    const nextAriaSelected = isActive ? 'true' : 'false';
+    if (tabEl.getAttribute('aria-selected') !== nextAriaSelected) tabEl.setAttribute('aria-selected', nextAriaSelected);
     if (isActive) {
       // Keep the active tab on screen: with a hidden scrollbar an off-screen active tab
       // is invisible, which makes switching to a later tab look like it did nothing.
-      requestAnimationFrame(() => {
+      // Coalesced to one pending callback: the strip re-renders on every state broadcast
+      // (a retitling page drives it at up to 5 Hz), and an uncancelled schedule per render
+      // retains that render's closure — this element, the tab payload it captured, and the
+      // per-render Map/Set — for as long as the frame loop is stalled. Cancelling first also
+      // scrolls the element of the latest render rather than a superseded one.
+      if (activeTabScrollRaf) cancelAnimationFrame(activeTabScrollRaf);
+      activeTabScrollRaf = requestAnimationFrame(() => {
+        activeTabScrollRaf = 0;
         try { tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch {}
       });
     }
-    tabEl.setAttribute('tabindex', isActive ? '0' : '-1');
+    const nextTabIndex = isActive ? '0' : '-1';
+    if (tabEl.getAttribute('tabindex') !== nextTabIndex) tabEl.setAttribute('tabindex', nextTabIndex);
     // Update Spinner & Icon
     const refs = tabRefsCache.get(tabEl) || cacheTabRefs(tabEl);
     const indexBadge = refs.indexBadge;
     if (indexBadge) {
-      indexBadge.textContent = `#${index + 1}`;
-      indexBadge.title = `Tab #${index + 1} (ID: ${tab.id}) - Nhấp chuột phải để sao chép cho Agent`;
+      const badgeText = `#${index + 1}`;
+      if (indexBadge.textContent !== badgeText) indexBadge.textContent = badgeText;
+      const badgeTitle = `Tab #${index + 1} (ID: ${tab.id}) - Nhấp chuột phải để sao chép cho Agent`;
+      if (indexBadge.title !== badgeTitle) indexBadge.title = badgeTitle;
     }
     const spinner = refs.spinner;
     const icon = refs.icon;
@@ -2963,73 +2982,88 @@ function renderTabs() {
     const audioBtn = refs.audioBtn;
     const agentBadge = refs.agentBadge;
     if (agentBadge) {
-      agentBadge.style.display = isAgentControlled ? 'inline-flex' : 'none';
-      if (isAgentWorking) {
-        agentBadge.className = 'tab-agent-badge working';
-        agentBadge.textContent = '⚡ AGENT';
-      } else {
-        agentBadge.className = 'tab-agent-badge';
-        agentBadge.textContent = '🤖 AGENT';
+      const badgeDisplay = isAgentControlled ? 'inline-flex' : 'none';
+      if (agentBadge.style.display !== badgeDisplay) agentBadge.style.display = badgeDisplay;
+      const badgeClass = isAgentWorking ? 'tab-agent-badge working' : 'tab-agent-badge';
+      const badgeLabel = isAgentWorking ? '⚡ AGENT' : '🤖 AGENT';
+      // Class and label move together, so the class is the value that decides whether the pair
+      // is written at all.
+      if (agentBadge.className !== badgeClass) {
+        agentBadge.className = badgeClass;
+        agentBadge.textContent = badgeLabel;
       }
     }
     // Update Audio & Mute State
     if (audioBtn) {
+      const audioDisplay = tab.isAudible || tab.isMuted ? 'inline-flex' : 'none';
+      if (audioBtn.style.display !== audioDisplay) audioBtn.style.display = audioDisplay;
       if (tab.isAudible || tab.isMuted) {
-        audioBtn.style.display = 'inline-flex';
-        if (tab.isMuted) {
-          audioBtn.className = 'tab-audio-btn muted';
-          audioBtn.title = 'Bật tiếng tab (Muted)';
-          audioBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`;
-        } else {
-          audioBtn.className = 'tab-audio-btn playing';
-          audioBtn.title = 'Tắt tiếng tab (Đang phát âm thanh)';
-          audioBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`;
+        const audioClass = tab.isMuted ? 'tab-audio-btn muted' : 'tab-audio-btn playing';
+        if (audioBtn.className !== audioClass) {
+          audioBtn.className = audioClass;
+          audioBtn.title = tab.isMuted ? 'Bật tiếng tab (Muted)' : 'Tắt tiếng tab (Đang phát âm thanh)';
+          audioBtn.innerHTML = tab.isMuted
+            ? `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`
+            : `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`;
         }
-      } else {
-        audioBtn.style.display = 'none';
       }
     }
 
 
     if (hasThemeError) {
-      if (spinner) spinner.style.display = 'none';
-      if (icon) icon.style.display = 'inline-block';
+      if (spinner && spinner.style.display !== 'none') spinner.style.display = 'none';
+      if (icon && icon.style.display !== 'inline-block') icon.style.display = 'inline-block';
       if (statusDot) {
-        statusDot.style.display = 'inline-block';
-        statusDot.className = 'tab-status-dot theme-error';
-        statusDot.title = `⚠️ Lỗi Theme: ${tab.themeError}`;
+        if (statusDot.style.display !== 'inline-block') statusDot.style.display = 'inline-block';
+        if (statusDot.className !== 'tab-status-dot theme-error') {
+          statusDot.className = 'tab-status-dot theme-error';
+          statusDot.title = `⚠️ Lỗi Theme: ${tab.themeError}`;
+        }
       }
     } else if (tab.isLoading) {
-      if (spinner) spinner.style.display = 'inline-block';
-      if (icon) icon.style.display = 'none';
+      if (spinner && spinner.style.display !== 'inline-block') spinner.style.display = 'inline-block';
+      if (icon && icon.style.display !== 'none') icon.style.display = 'none';
       if (statusDot) {
-        statusDot.style.display = 'inline-block';
-        statusDot.className = 'tab-status-dot loading';
-        statusDot.title = 'Đang tải trang...';
+        if (statusDot.style.display !== 'inline-block') statusDot.style.display = 'inline-block';
+        if (statusDot.className !== 'tab-status-dot loading') {
+          statusDot.className = 'tab-status-dot loading';
+          statusDot.title = 'Đang tải trang...';
+        }
       }
     } else {
-      if (spinner) spinner.style.display = 'none';
+      if (spinner && spinner.style.display !== 'none') spinner.style.display = 'none';
       if (icon) {
-        icon.style.display = 'inline-block';
-        icon.src = tab.favicon || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>';
+        if (icon.style.display !== 'inline-block') icon.style.display = 'inline-block';
+        // Re-assigning `src` restarts the image load even when the URL is unchanged, which is a
+        // decode and a repaint per broadcast for a favicon that did not move.
+        const nextIconSrc =
+          tab.favicon ||
+          'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>';
+        if (icon.getAttribute('src') !== nextIconSrc) icon.src = nextIconSrc;
       }
       if (statusDot) {
         if (isAgentWorking) {
-          statusDot.style.display = 'inline-block';
-          statusDot.className = 'tab-status-dot agent-working';
-          statusDot.title = '🤖 AI Agent đang điều phối tab này!';
+          if (statusDot.style.display !== 'inline-block') statusDot.style.display = 'inline-block';
+          if (statusDot.className !== 'tab-status-dot agent-working') {
+            statusDot.className = 'tab-status-dot agent-working';
+            statusDot.title = '🤖 AI Agent đang điều phối tab này!';
+          }
         } else if (isAiStreaming) {
-          statusDot.style.display = 'inline-block';
-          statusDot.className = 'tab-status-dot ai-streaming';
-          statusDot.title = '⚡ AI đang phản hồi...';
+          if (statusDot.style.display !== 'inline-block') statusDot.style.display = 'inline-block';
+          if (statusDot.className !== 'tab-status-dot ai-streaming') {
+            statusDot.className = 'tab-status-dot ai-streaming';
+            statusDot.title = '⚡ AI đang phản hồi...';
+          }
         } else if (isAiCompleted) {
-          statusDot.style.display = 'inline-block';
-          statusDot.className = 'tab-status-dot ai-completed';
-          statusDot.title = '✓ AI đã phản hồi xong!';
+          if (statusDot.style.display !== 'inline-block') statusDot.style.display = 'inline-block';
+          if (statusDot.className !== 'tab-status-dot ai-completed') {
+            statusDot.className = 'tab-status-dot ai-completed';
+            statusDot.title = '✓ AI đã phản hồi xong!';
+          }
         } else {
-          statusDot.style.display = 'none';
-          statusDot.className = 'tab-status-dot';
-          statusDot.title = '';
+          if (statusDot.style.display !== 'none') statusDot.style.display = 'none';
+          if (statusDot.className !== 'tab-status-dot') statusDot.className = 'tab-status-dot';
+          if (statusDot.title !== '') statusDot.title = '';
         }
       }
     }

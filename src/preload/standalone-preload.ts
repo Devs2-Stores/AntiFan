@@ -1,6 +1,27 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { TERMINAL_CHANNELS } from '../shared/contracts';
-import type { TerminalDataPayload, TerminalTabPrefs } from '../shared/contracts';
+import type { TerminalDataPayload, TerminalTabPrefs, TabsUpdatedPayload } from '../shared/contracts';
+
+/**
+ * The tab broadcast is one object carrying both halves the renderer reads. Normalizing
+ * at this boundary keeps that contract total: a payload from a build that predates the
+ * affinity map — or a malformed one — reads as "no affinities" instead of arriving as a
+ * shape the renderer would index blindly.
+ */
+function normalizeTabsUpdatedPayload(d: unknown): TabsUpdatedPayload {
+  const source: Record<string, unknown> = (d && typeof d === 'object' && !Array.isArray(d))
+    ? d as Record<string, unknown>
+    : { tabs: d };
+  const tabs = source.tabs;
+  const affinities = source.terminalAffinities;
+  return {
+    tabs: Array.isArray(tabs) ? tabs as TabsUpdatedPayload['tabs'] : [],
+    terminalAffinities: (affinities && typeof affinities === 'object')
+      ? affinities as TabsUpdatedPayload['terminalAffinities']
+      : {},
+  };
+}
+
 const api = {
   copyToClipboard: (text: string) => clipboard.writeText(text),
   readFromClipboard: () => clipboard.readText(),
@@ -70,6 +91,10 @@ const api = {
     ipcRenderer.send('antifan:terminal:ack', payload),
   onTerminalData: (cb: (data: TerminalDataPayload) => void) => { const h = (_e: unknown, d: TerminalDataPayload) => cb(d); ipcRenderer.on('antifan:terminal:data', h); return () => ipcRenderer.removeListener('antifan:terminal:data', h); },
   onTerminalSession: (cb: (state: unknown) => void) => { const h = (_e: unknown, d: unknown) => cb(d); ipcRenderer.on('antifan:terminal:session', h); return () => ipcRenderer.removeListener('antifan:terminal:session', h); },
-  onTabsUpdated: (cb: (tabs: unknown[]) => void) => { const h = (_e: unknown, d: unknown) => cb(Array.isArray(d) ? d : []); ipcRenderer.on('antifan:tabs:updated', h); return () => ipcRenderer.removeListener('antifan:tabs:updated', h); },
+  onTabsUpdated: (cb: (payload: TabsUpdatedPayload) => void) => {
+    const h = (_e: unknown, d: unknown) => cb(normalizeTabsUpdatedPayload(d));
+    ipcRenderer.on('antifan:tabs:updated', h);
+    return () => ipcRenderer.removeListener('antifan:tabs:updated', h);
+  },
 };
 contextBridge.exposeInMainWorld('antifanStandalone', api);

@@ -428,6 +428,7 @@ export interface StandaloneHarness {
   processIncomingChunk: (viewState: unknown, chunk: Chunk, isSplit: boolean) => Promise<void>;
   terminalDataListeners: Array<(payload: unknown) => void>;
   terminalSessionListeners: Array<(state: unknown) => void>;
+  tabsUpdatedListeners: Array<(payload: unknown) => void>;
   getSplitGeometry: () => SplitGeometry;
   applySplitRatio: (ratio?: number, resizePty?: boolean) => void;
   mountSplit: (sessionId: string, snapshot?: string, snapshotSeq?: number) => void;
@@ -439,6 +440,8 @@ export interface StandaloneHarness {
   queryAll(selector: string): FakeElement[];
   /** Push a session broadcast through the renderer's `onTerminalSession` listener. */
   emitSession(state: unknown): void;
+  /** Push a tab broadcast through the renderer's `onTabsUpdated` listener. */
+  emitTabsUpdated(payload: unknown): void;
   /** Push a terminal data payload through the renderer's `onTerminalData` listener. */
   emitData(payload: unknown): void;
   /** Replace the renderer's live `sessions` array (plain data only). */
@@ -448,7 +451,7 @@ export interface StandaloneHarness {
   getActiveId(): string;
   renderTabs: () => void;
   syncTerminalPool: (allSessions: unknown[], currentActiveId: string, snapshot?: string, snapshotThroughSeq?: number) => void;
-  updateAffinityBadges: (deliveredTabs?: unknown[]) => Promise<void>;
+  updateAffinityBadges: (deliveredTabs?: unknown[], deliveredAffinities?: unknown) => Promise<void>;
   /** The read-only transcript preview mounted for a sleeping active session. */
   sleepPreview(): FakeElement | null;
   showCategoryPicker: (sessionId: string, anchorEl: FakeElement) => void;
@@ -549,6 +552,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   windowStub.window = windowStub;
   const terminalDataListeners: Array<(payload: unknown) => void> = [];
   const terminalSessionListeners: Array<(state: unknown) => void> = [];
+  const tabsUpdatedListeners: Array<(payload: unknown) => void> = [];
   const bridgeTarget: Record<string, unknown> = {
     getTerminalDelta: async () => null,
     splitTerminal: async () => '',
@@ -568,6 +572,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     // Capture push-channel listeners so tests can drive the data/session flow.
     onTerminalData: (listener: (payload: unknown) => void) => { terminalDataListeners.push(listener); },
     onTerminalSession: (listener: (state: unknown) => void) => { terminalSessionListeners.push(listener); },
+    onTabsUpdated: (listener: (payload: unknown) => void) => { tabsUpdatedListeners.push(listener); },
   };
   // The renderer wires its whole preload bridge at load time, so unimplemented members are no-ops.
   // Every invocation is recorded so a test can prove which bridge calls a flow actually made.
@@ -663,6 +668,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     processIncomingChunk: read<StandaloneHarness['processIncomingChunk']>('processIncomingChunk').bind(null) as StandaloneHarness['processIncomingChunk'],
     terminalDataListeners,
     terminalSessionListeners,
+    tabsUpdatedListeners,
     getSplitGeometry: read<StandaloneHarness['getSplitGeometry']>('getSplitGeometry'),
     applySplitRatio: read<StandaloneHarness['applySplitRatio']>('applySplitRatio'),
     mountSplit: read<StandaloneHarness['mountSplit']>('mountSplit'),
@@ -673,6 +679,9 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     queryAll: (selector: string) => standaloneElement.querySelectorAll(selector),
     emitSession: (state: unknown) => {
       for (const listener of [...terminalSessionListeners]) listener(state);
+    },
+    emitTabsUpdated: (payload: unknown) => {
+      for (const listener of [...tabsUpdatedListeners]) listener(payload);
     },
     emitData: (payload: unknown) => {
       for (const listener of [...terminalDataListeners]) listener(payload);

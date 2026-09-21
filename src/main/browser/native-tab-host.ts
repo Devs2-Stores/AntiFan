@@ -14,7 +14,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, TabsUpdatedPayload } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -402,19 +402,6 @@ export interface NativeTabRecord {
   lastNavigationFailure?: { cause: string; message: string; timedOut: boolean };
 }
 
-/** Public DTO describing a terminal session's browser-tab affinity binding. */
-export interface TerminalAgentAffinityInfo {
-  tabId: string;
-  primaryTabId: string;
-  managedTabIds: string[];
-  status: 'alive' | 'closed';
-  lastUrl?: string;
-  isOffscreen?: boolean;
-  isEphemeral?: boolean;
-  title?: string;
-  url?: string;
-}
-
 /**
  * One terminal's agent ownership record: the tabs it may address, the tab its agent
  * is bound to, and the per-tab bookkeeping the badge and lineage queries read.
@@ -433,6 +420,20 @@ type TerminalAgentAffinityEntry = {
   lastUrl?: string;
   closedAt?: number;
 };
+
+/**
+ * Time one step of `switchTab` into a bucket that exists only while benchmarks are on.
+ * The aggregate `switched` number shows a per-switch cost and never attributes it, so
+ * the switch path reports its steps separately (row `switch-steps`). A production
+ * switch pays one null test per step and allocates nothing beyond the bucket the row
+ * consumes; a benchmark switch pays one `performance.now()` per step.
+ */
+function markSwitchStep(bucket: Record<string, number> | null, name: string, from: number): number {
+  if (bucket === null) return from;
+  const now = performance.now();
+  bucket[name] = Number((now - from).toFixed(3));
+  return now;
+}
 
 export class NativeTabHost extends EventEmitter {
   private window: BrowserWindow;
@@ -2016,25 +2017,10 @@ export class NativeTabHost extends EventEmitter {
     });
 
     ipcMain.handle(TERMINAL_CHANNELS.GET_ALL_AFFINITIES, () => {
-      // One round-trip for every badge on the strip, driven by the affinity map
-      // itself: each session's own generation is passed, which takes the
-      // exact-generation map hit in `getTerminalAgentAffinity` instead of the
-      // O(E) prefix scan a generation-less lookup would run per session. It also
-      // avoids the per-session transcript slicing `listSessions()` performs — a
-      // badge refresh must never touch megabytes of scrollback.
-      const tm = TerminalManager.getInstance();
-      const result: Record<string, TerminalAgentAffinityInfo> = {};
-      for (const terminalId of this.getTerminalIdsWithAffinity()) {
-        const session = tm.getSession(terminalId) as { sessionGeneration?: number } | undefined;
-        // Parity with the session-enumerated version: a terminal whose session no
-        // longer exists has no badge to paint.
-        if (!session) continue;
-        const affinity = this.getTerminalAgentAffinity(terminalId, session.sessionGeneration);
-        if (affinity) {
-          result[terminalId] = affinity;
-        }
-      }
-      return result;
+      // One round-trip for every badge on the strip, over the same projection the tab
+      // broadcast carries. A refresh that follows a mutation the renderer just made
+      // pulls it instead of waiting for the next broadcast to echo its own change back.
+      return this.buildTerminalAffinityMap();
     });
     ipcMain.handle(TERMINAL_CHANNELS.POPOUT, () => {
       return this.togglePopoutTerminal();
@@ -4518,6 +4504,11 @@ export class NativeTabHost extends EventEmitter {
         return false;
       }
       const switchStartMs = performance.now();
+      // Per-step timings for this switch (see markSwitchStep). The aggregate `switched`
+      // benchmark says a switch got slower but never which step paid for it, and the
+      // bucket exists only while benchmarks are on.
+      const stepBucket = isBenchmarkEnabled() ? ({} as Record<string, number>) : null;
+      let stepMark = switchStartMs;
 
       // Guard against destroyed WebContents/WebContentsView or crashed renderer
       const isTargetDestroyed = !target.view || target.view.webContents.isDestroyed();
@@ -4605,6 +4596,8 @@ export class NativeTabHost extends EventEmitter {
         }
       }
 
+      stepMark = markSwitchStep(stepBucket, 'ensureView', stepMark);
+
       this.activeTabId = targetId;
 
       // Safely attach target active tab views FIRST before detaching old views
@@ -4660,8 +4653,11 @@ export class NativeTabHost extends EventEmitter {
         }
       }
 
+      stepMark = markSwitchStep(stepBucket, 'attachSweep', stepMark);
+
       this.updateLayout();
       this.broadcastState();
+      stepMark = markSwitchStep(stepBucket, 'layoutBroadcast', stepMark);
 
       if (this.isRulerActive && !target.view.webContents.isDestroyed()) {
         target.view.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
@@ -4682,6 +4678,7 @@ export class NativeTabHost extends EventEmitter {
         }
       }
       this.applyTabThrottling();
+      stepMark = markSwitchStep(stepBucket, 'throttle', stepMark);
       if (target.view?.webContents && !target.view.webContents.isDestroyed()) {
         try { target.view.webContents.invalidate(); } catch {}
         try { target.view.webContents.focus(); } catch {}
@@ -4689,9 +4686,14 @@ export class NativeTabHost extends EventEmitter {
       if (target.mobileView?.webContents && !target.mobileView.webContents.isDestroyed()) {
         try { target.mobileView.webContents.invalidate(); } catch {}
       }
+      stepMark = markSwitchStep(stepBucket, 'invalidateFocus', stepMark);
       this.reassertPresentedView();
+      stepMark = markSwitchStep(stepBucket, 'presentedView', stepMark);
       if (isBenchmarkEnabled()) {
         recordBenchmark({ surface: 'tabs', name: 'switched', value: performance.now() - switchStartMs, extra: { attachedViews: this.countAttachedViews() } });
+        if (stepBucket) {
+          recordBenchmark({ surface: 'tabs', name: 'switch-steps', value: Number((performance.now() - switchStartMs).toFixed(3)), extra: stepBucket });
+        }
       }
       return true;
     } catch (err) {
@@ -6100,6 +6102,33 @@ export class NativeTabHost extends EventEmitter {
   public hasTab(tabId?: string | null): boolean {
     if (!tabId || !this.tabs) return false;
     return Boolean(this.resolveTargetTabId(tabId));
+  }
+
+  /**
+   * The affinity projection a badge paints from — one entry per bound terminal.
+   *
+   * Each lookup is generation-aware on purpose: a generation-less one runs an O(E)
+   * prefix scan, and `listSessions()` would slice a transcript per session. A
+   * terminal whose session is gone has no badge to paint and is skipped, which
+   * matches the session-enumerated version this replaced.
+   *
+   * Both the pull RPC and the tab broadcast read this, so the work happens once per
+   * broadcast in the main process instead of once per requesting renderer.
+   */
+  public buildTerminalAffinityMap(): Record<string, TerminalAgentAffinityInfo> {
+    const result: Record<string, TerminalAgentAffinityInfo> = {};
+    const terminalIds = this.getTerminalIdsWithAffinity();
+    if (terminalIds.length === 0) return result;
+    const tm = TerminalManager.getInstance();
+    for (const terminalId of terminalIds) {
+      const session = tm.getSession(terminalId) as { sessionGeneration?: number } | undefined;
+      if (!session) continue;
+      const affinity = this.getTerminalAgentAffinity(terminalId, session.sessionGeneration);
+      if (affinity) {
+        result[terminalId] = affinity;
+      }
+    }
+    return result;
   }
 
   /**
@@ -7864,12 +7893,24 @@ export class NativeTabHost extends EventEmitter {
       phoneStatus: this.cachedPhoneStatus,
     };
     safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
-    safeSendWebContents(this.sidebarView?.webContents, 'antifan:tabs:updated', payload.tabs);
-    if (this.terminalWindows) {
-      for (const win of this.terminalWindows.values()) {
-        if (win && !win.isDestroyed()) {
-          safeSendWebContents(win.webContents, 'antifan:tabs:updated', payload.tabs);
-        }
+    // The sidebar and every terminal window read the tab list; the ones showing a
+    // terminal tab strip also read the affinity map behind its badges. Both ride one
+    // channel because the map is a projection of the state this broadcast already
+    // carries, and fetching it separately cost a second `invoke` per broadcast —
+    // ~72,000 over one 4 h soak — each allocating a correlation entry, a promise and
+    // a deserialized map on the main thread that every switch, bridge RPC and
+    // terminal fanout also runs on. Built once here, however many windows read it.
+    const tabTargets = [
+      this.sidebarView?.webContents,
+      ...(this.terminalWindows ? Array.from(this.terminalWindows.values(), (win) => win?.webContents) : []),
+    ].filter((wc): wc is Electron.WebContents => Boolean(wc));
+    if (tabTargets.length > 0) {
+      const tabsPayload: TabsUpdatedPayload = {
+        tabs: payload.tabs,
+        terminalAffinities: this.buildTerminalAffinityMap(),
+      };
+      for (const wc of tabTargets) {
+        safeSendWebContents(wc, 'antifan:tabs:updated', tabsPayload);
       }
     }
     this.schedulePersist();

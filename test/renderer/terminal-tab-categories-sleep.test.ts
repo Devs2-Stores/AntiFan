@@ -513,6 +513,55 @@ describe('Renderer bulk affinity badges', () => {
     assert.match(deliveredBadge, /Delivered/, 'the delivered list is what decorates the badge');
     assert.doesNotMatch(deliveredBadge, /Refetched/, 'the badge must not read a re-fetched list');
   });
+
+  it('uses the affinity map a caller delivered instead of re-fetching it', async () => {
+    const harness = loadStandalone();
+    await flush();
+    seed(harness, [{ id: 'b1', name: 'B', state: 'running' }], 'b1');
+    harness.renderTabs();
+    await flush();
+    harness.apiCalls.length = 0;
+
+    // Both maps answer for b1 and both tabs are in the delivered list, so the badge's
+    // text names which of the two the renderer read. The call count is the property that
+    // matters: the map is a projection of the same host state the list came from, so a
+    // caller holding it must not spend a second `invoke` per broadcast on it.
+    harness.api.getTerminalAffinities = async () => ({ b1: { tabId: 'tab-rpc', managedTabIds: ['tab-rpc'], status: 'alive' } });
+    const deliveredTabs = [
+      { id: 'tab-pushed', title: 'Pushed', url: 'https://example.com' },
+      { id: 'tab-rpc', title: 'Refetched', url: 'https://example.com' },
+    ];
+    const deliveredAffinities = { b1: { tabId: 'tab-pushed', managedTabIds: ['tab-pushed'], status: 'alive' } };
+    const fetchesBefore = countCalls(harness, 'getTerminalAffinities');
+    await harness.updateAffinityBadges(deliveredTabs, deliveredAffinities);
+
+    assert.strictEqual(countCalls(harness, 'getTerminalAffinities'), fetchesBefore, 'a delivered affinity map must not be re-fetched');
+    const badge = wrapFor(harness, 'b1').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '';
+    assert.match(badge, /Pushed/, 'the delivered map is what binds the badge');
+    assert.doesNotMatch(badge, /Refetched/, 'the badge must not read a re-fetched map');
+  });
+
+  it('binds every badge from one tab broadcast with no round-trip of its own', async () => {
+    const harness = loadStandalone();
+    await flush();
+    seed(harness, [{ id: 'c1', name: 'C', state: 'running' }], 'c1');
+    harness.renderTabs();
+    await flush();
+    harness.apiCalls.length = 0;
+
+    const fetchesBefore = countCalls(harness, 'getTabs');
+    const affinityFetchesBefore = countCalls(harness, 'getTerminalAffinities');
+    harness.emitTabsUpdated({
+      tabs: [{ id: 'tab-live', title: 'Live', url: 'https://example.com' }],
+      terminalAffinities: { c1: { tabId: 'tab-live', managedTabIds: ['tab-live'], status: 'alive' } },
+    });
+    await flush();
+    await flush();
+
+    assert.strictEqual(countCalls(harness, 'getTabs'), fetchesBefore, 'the broadcast list must not be re-fetched');
+    assert.strictEqual(countCalls(harness, 'getTerminalAffinities'), affinityFetchesBefore, 'the broadcast map must not be re-fetched');
+    assert.match(wrapFor(harness, 'c1').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '', /Live/);
+  });
 });
 
 describe('Renderer tab context-menu actions', () => {

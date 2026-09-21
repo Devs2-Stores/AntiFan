@@ -421,6 +421,33 @@ export interface TerminalTabPrefs {
   starredCategories: string[];
 }
 
+/** Public DTO describing a terminal session's browser-tab affinity binding. */
+export interface TerminalAgentAffinityInfo {
+  tabId: string;
+  primaryTabId: string;
+  managedTabIds: string[];
+  status: 'alive' | 'closed';
+  lastUrl?: string;
+  isOffscreen?: boolean;
+  isEphemeral?: boolean;
+  title?: string;
+  url?: string;
+}
+
+/**
+ * What the sidebar and the terminal windows receive on the tab broadcast.
+ *
+ * The tab list and the terminal-affinity map are two projections of the same host
+ * state, and the affinity badge needs both. Sending them on one channel is what
+ * removes a second round-trip per broadcast: each one allocated a correlation
+ * entry, a promise and a deserialized map on the main thread that every switch,
+ * bridge RPC and terminal fanout also runs on.
+ */
+export interface TabsUpdatedPayload {
+  tabs: AntiFanTab[];
+  terminalAffinities: Record<string, TerminalAgentAffinityInfo>;
+}
+
 /** Cap on stored colour overrides, so a corrupt file cannot smuggle in an unbounded map. */
 export const TERMINAL_CATEGORY_COLORS_MAX = 128;
 

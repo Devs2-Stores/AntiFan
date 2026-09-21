@@ -4,7 +4,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { NativeTabHost, NativeTabRecord } from '../../src/main/browser/native-tab-host';
+import { parseBenchmarkLine } from '../../src/main/benchmark/telemetry';
 import { AntiFanTab } from '../../src/shared/contracts';
+
 
 /**
  * Every tab transaction - a switch, a close, a refused activation, the release of an
@@ -289,6 +291,69 @@ describe('Presented view invariant', () => {
 
     assert.deepStrictEqual(children, [presented.tab.view], 'the presented view must remain the only child');
     assert.ok(removes >= 1 && adds >= 1, 'leaked temp-attach must not skip DirectComposition recycle');
+  });
+
+  it('a benchmark-enabled switch emits one switch-steps row naming every timed step', () => {
+
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+
+    const prev = process.env.ANTIFAN_BENCHMARK;
+    process.env.ANTIFAN_BENCHMARK = '1';
+    const captured: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => {
+      const line = args.map(String).join(' ');
+      if (line.startsWith('[antifan-benchmark]')) captured.push(line);
+    };
+    try {
+      assert.strictEqual(host.switchTab('tab-bg'), true, 'a live background tab must switch');
+    } finally {
+      console.log = origLog;
+      if (prev === undefined) delete process.env.ANTIFAN_BENCHMARK;
+      else process.env.ANTIFAN_BENCHMARK = prev;
+    }
+
+    const rows = captured.map((line) => parseBenchmarkLine(line)).filter((row): row is NonNullable<typeof row> => row !== null);
+    const steps = rows.find((row) => row.surface === 'tabs' && row.name === 'switch-steps');
+    assert.ok(steps, 'a benchmark-enabled switch must emit a switch-steps row');
+    assert.ok(Number.isFinite(steps.value), 'the row value is the switch total in ms');
+    for (const key of ['ensureView', 'attachSweep', 'layoutBroadcast', 'throttle', 'invalidateFocus', 'presentedView']) {
+      assert.ok(Number.isFinite(Number(steps.extra?.[key])), `step ${key} must be a finite ms reading`);
+    }
+  });
+
+  it('a production switch allocates no switch-steps row', () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+    delete process.env.ANTIFAN_BENCHMARK;
+    const captured: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => {
+      const line = args.map(String).join(' ');
+      if (line.startsWith('[antifan-benchmark]')) captured.push(line);
+    };
+    try {
+      assert.strictEqual(host.switchTab('tab-bg'), true);
+    } finally {
+      console.log = origLog;
+    }
+    const rows = captured.map((line) => parseBenchmarkLine(line)).filter((row): row is NonNullable<typeof row> => row !== null);
+    assert.strictEqual(
+      rows.some((row) => row.surface === 'tabs' && row.name === 'switch-steps'),
+      false,
+      'production path must not emit switch-steps',
+    );
   });
 
 });
