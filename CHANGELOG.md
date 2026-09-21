@@ -7,6 +7,16 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 ## [v1.3.6] - Unreleased
 
 
+
+### Bổ sung — `switchTab` tách bước; ingest soak không còn nuốt row attribution
+- **Vấn đề (đo trên `perf4h`, không suy luận)**: soak 4 h bị abort lúc 08:40 local sau 109.1 phút workload (`real-soak-8h-perf4h-checkpoint.json`, 141 sample / 2727 switch). Gate latency đang hiệu lực (p50 ≤ 12 **và** p95 ≤ 18) **FAILS** (15.723 / 20.656); peak 1607.08 MB **FAILS**; slope renderer 0.1185 **không chấm** vì `slopeGateApplicable: false`. So với `legs4h2` leg 1, p50 switch **+5.6 ms** và độc lập tải/thời gian — một **bước cố định** trong `switchTab`, không phải việc scale. Giả thuyết gán bước đó cho `2697a28c` (gỡ `isTemporarilyAttachedView` nên mọi switch đều recycle) **sai tiền đề**: `git show` chỉ đổi hành vi khi *đang giữ* attach-for-capture; soak switch không giữ capture. `refusedProcessCount` 0→1 cũng không phải cây app lạ: đúng **một** sample (`python.exe` 18.58 MB) trên 141.
+- **Sửa — app** (`src/main/browser/native-tab-host.ts`): `markSwitchStep` ghi sáu mốc (`ensureView`, `attachSweep`, `layoutBroadcast`, `throttle`, `invalidateFocus`, `presentedView`) vào row `tabs`/`switch-steps` **chỉ khi** `ANTIFAN_BENCHMARK=1` (soak luôn set). Production: một phép thử null/bước, không cấp phát bucket.
+- **Sửa — harness** (`scripts/benchmark-real-soak-8h.cjs`): ingest trước đây `continue` mọi dòng không phải `history`/`process` — row `switch-steps` (và cả `switched`) bị nuốt. Nay thu `tabs`/`switch-steps` vào `switchStepSamples` (trần 20.000, mirror `historySamples`); `buildReportPayload` **luôn** để field này là mảng (`[]` nếu thiếu, không bao giờ bỏ field).
+- **Sửa — analyzer** (`scripts/analyze-soak-app-only.cjs`): mục `switch-steps` in p50/p95/max/mean và tỉ lệ trên mean; payload không mang mẫu → **`not collected`**, không bịa `0`.
+- **Bằng chứng**: `npm run compile` exit 0; `native-tab-host-presented-view` **7/7** (có env → đúng 6 khoá hữu hạn; không env → không có row); `soak-payload-contract` **29/29** (field `[]` khi thiếu; ingest giữ switch-steps, vẫn bỏ `switched`, history nguyên); analyzer trên checkpoint thật in `not collected`; payload synthetic 1 row in bảng 6 bước. Verdict: `plans/reports/runtime-verification/real-soak-4h-verdict-perf4h.md`. **Không** chạy lại 4 h — cây app của user (pid 16884) còn sống; harness `rmSync` profile soak lúc launch.
+- **Chưa đo, kèm lý do**: bước nào trả +5.6 ms — instrument có rồi, run abort trước khi nó có mặt trên bundle đang đo. Lần soak sống tiếp theo mới là phép đo.
+
+
 ### Sửa lỗi — Tab MCP trắng dù DOM sống; screenshot timeout / TARGET_BUSY_DRAINING
 - **Triệu chứng (user, tab `46e999f1` levents.asia, không reload)**: OS screenshot pane trắng xóa; URL/title đúng; `document.readyState=complete`, 5587 node, innerText storefront. YouTube tab cạnh đó paint bình thường. `switchTab` recycle **không** lành. F5 thì hết.
 - **Nguyên nhân (đo trên app sống)**: `captureScreenshot` viewport `Promise.race(capturePage, 600ms)` **bỏ** promise. Chromium không hủy raster → compositor WebContentsView chết, canvas guest `#ffffff` hiện ra. CDP timeout tiếp theo = `CAPTURE_TIMEOUT` / `TARGET_BUSY_DRAINING`. Recycle DirectComposition không hủy `capturePage` đang treo. Session MCP bind tab đã chết (`cd3887e0`) trả `CAPABILITY_NOT_FOUND` thay vì `TARGET_STALE`.

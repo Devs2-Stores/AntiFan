@@ -14,15 +14,25 @@ blocks: []
 ## Overview
 
 The standing 2h soak fails two gates, and both failures bound how much work the app can
-hold at once:
+hold at once. The table below is written to match what `evaluateFreezeVerdict` actually
+grades, because it grades a **leg run differently**: with `LEGS.length > 1` the memory
+slopes report `null` (not-applicable) instead of a number a reader would take as a verdict —
+"one slope fitted across legs that ran different burst volumes is a blend of regimes and
+grades nothing" — while the peak and the latency percentiles stay graded. Per-leg
+`topSlopes` is the memory measurement for such a run.
 
-| Gate | Bound | 2026-09-19 2h run | Consequence for concurrency |
-|---|---|---|---|
-| renderer memory slope | ≤ 0.15 MB/min | **0.208** (reproduced 2/2 runs) | a long session ends in a restart, which costs every live tab and terminal |
-| switch latency max | ≤ 35 ms | **42.1** (1 of 1756 switches, p95 6.8 ms) | one stall is invisible in aggregate but it is what a user feels on a switch |
-| peak active memory | ≤ 1600 MB | 1549.7 | already inside the gate; a larger tab count has no headroom left |
-| orphans | 0 | 0 | — |
-| execution / teardown | clean | clean | — |
+| Gate | Bound | 2026-09-19 2h run | 2026-09-21 4h legs run (perf4h, in flight) | Consequence for concurrency |
+|---|---|---|---|---|
+| renderer memory slope | ≤ 0.15 MB/min | **0.208** (reproduced 2/2 runs) | 0.0797 — **not graded on a leg run** (`slopeGateApplicable: false`) | a long session ends in a restart, which costs every live tab and terminal |
+| switch latency | p50 ≤ 12 ms **and** p95 ≤ 18 ms, workload phase (`switchMaxMs` reported beside them, not graded) | max **42.1** (1 of 1756 switches, p95 6.8) | **p50 15.693 / p95 20.53 — fails** (max 30.94) | the user is told not to trust a switch; this is the gate a person feels |
+| peak active memory | ≤ 1600 MB | 1549.7 | **1607.08 — fails** | a larger tab count has no headroom left |
+| `appPrivateMaxSlopeMBPerMin` | ≤ 0.15 MB/min | not measured | 0.1828 — reported, **not graded on a leg run** | tighter app-owned companion to the slope row |
+| orphans | 0 | 0 | 0 | — |
+| execution / teardown | clean | clean | clean | — |
+
+This run's verdict is therefore `FAILED` on exactly two graded criteria — the peak and the
+latency percentiles — and a leg run that passed everything else would report the harness's
+own name for it, `PASSED_SLOPE_NOT_GRADED`.
 
 The stated goal of this run is *performance so more work can run at once*, so the two
 failing gates are the work. A pass/fail re-run alone would not improve anything: the run
@@ -123,8 +133,25 @@ working time than the defect costs.
    and the recipe is:
 
    ```
-   SOAK_APP_ARGS="--remote-debugging-port=0" node scripts/probe-renderer-retention-class.cjs \
+   # 1. Launch the diagnosis soak WITH the DevTools endpoint. SOAK_APP_ARGS is read by the harness
+   #    (scripts/benchmark-real-soak-8h.cjs) and appended to the app's argv; setting it on the
+   #    probe's own command line - as an earlier revision of this block did - does nothing except
+   #    leave the probe with no DevToolsActivePort to read. Tag it so a diagnosis run is never
+   #    mistaken for a clean measurement. --minutes 120 gives a 30/60/30 split (the harness prints
+   #    this at launch, and 240 -> 30/180/30 fixes the split), so the baseline leg spans the full
+   #    60 minutes the CPU comparison needs.
+   SOAK_APP_ARGS="--remote-debugging-port=0" SOAK_REPORT_TAG=probe1 \
+     SOAK_LEGS="baseline:60:300:30000" node scripts/benchmark-real-soak-8h.cjs --minutes 120
+
+   # 2. Attach the probe to the running app's profile while it is in flight.
+   node scripts/probe-renderer-retention-class.cjs \
      --profile=E:/Work/.antifan-soak-8h/Profile --samples=6 --interval-ms=60000
+
+   # 3. Attribute the captured probe stdout to the right phases. The analyzer's defaults are
+   #    legs4h2's window (--start=01:41:29, --schedule=30,60,60,60,30), so any other clock is
+   #    mis-phased unless both are passed; for the 30/60/30 run above that is 30,60,30.
+   node scripts/analyze-retention-probe-log.cjs <captured-probe-log> \
+     --start=<HH:MM:SS of the probe run's start> --schedule=30,60,30
    ```
    launched while that run is in flight, so the probe samples the same process the run's own
    telemetry attributes.
@@ -202,6 +229,32 @@ per-broadcast consumers, because the tick drives both — see "Suspect list narr
 ### Phase 4 — Soak
 Run the full 240-minute soak on the fixed bundle.
 
+**Run identity (2026-09-21, tag `perf4h`).** Launched 06:20:18 with `--minutes 240` and the Phase 4c
+schedule `SOAK_LEGS="baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000"` — the same
+schedule §Phase 4c specifies, so this run carries both the full-window floor *and* the volume-vs-time
+legs in one artifact. The tag diverges from the plan's earlier `legs4h` name on purpose: yesterday's
+`legs4h` artifacts already exist under `real-soak-8h-legs4h*`, and a run that writes to the same
+names would overwrite the prefix it is meant to be compared against.
+
+Bundle measured: 417 files / 8.8 MB, md5 `c4a2d9f92a046701fce0192113649722`. Zero `.compiled` files
+were rewritten after launch (`find .compiled -newermt 06:20:18` = 0 at T+6 min), so the measured
+artifact is the one that started. Two instruments now make that a guarantee rather than a check:
+`hashCompiledTree` writes the digest into the payload (`config.bundle{start,end,changedDuringRun}`),
+and `bundlePreflight` refuses to launch a run whose bundle is stale (3 cases covered, full suite 56/56).
+This is the plan's "Risk: bundle drift during measurement" converted from detection into prevention —
+the earlier run in this plan died exactly there, booting an app that recompiled itself 6 s in.
+
+Environment (the §Phase 4b load caveat, now measured rather than asserted): the user's own app
+instance (pid 16884 tree, up since 01:31:43) and the shared terminal daemon host (pid 10952 tree,
+since 2026-09-20 11:33) are alive alongside the run — 12 processes, ~2.98 GB RSS, 11.4 k s CPU at
+T+6 min, with 6.2 GB of 15.9 GB free and 27% CPU load. A 5-minute sampler records that series to
+`perf4h-external-load.jsonl` so the verdict can state the competition instead of assuming it away.
+This *does not* touch the memory gates: `processSamples` is `benchmarkIngest.samples` (harness line
+1599), which the app fills from its own `recordProcessMetrics` (`src/main/index.ts:348`) over
+`app.getAppMetrics()` — i.e. only this run's app tree (main pid 2596) can enter the per-process
+series, so leg slopes and floors stay clean and only the latency numbers carry the load caveat,
+exactly as §Phase 4b says.
+
 ### Phase 4b — Post-fix preflight (the retention re-measure, DONE — claim WITHDRAWN)
 `SOAK_DURATION_MINUTES=90 SOAK_WARMUP_MINUTES=15 SOAK_RECOVERY_MINUTES=15 SOAK_REPORT_TAG=preflight-fixed`
 — the 60-minute workload window is the floor instrument (0.17 MB/min is +10 MB against ~1 MB of
@@ -242,6 +295,50 @@ rate are held fixed while only the burst volume moves. Legs are keyed by name *a
 bisect that returns to an earlier regime reads as three legs rather than one swallowing the leg
 between them, and each leg carries its **observed** burst count, because a leg whose writes failed
 would otherwise read as "this driver costs nothing".
+
+#### Result — the legs ran, and the checkpoint survived the final-write crash (2026-09-21)
+
+`legs4h2` is recorded in this plan as "stopped, legs 2–3 unrun", which is wrong in one direction that
+matters: the run **did** execute all three legs (it was killed at 05:31, 2 h into the 4 h shape) and its
+`.json` payload died in the `closeOpenLeg` `ReferenceError` — but the **checkpoint** it wrote 10 minutes
+before the kill carries every leg, and the checkpoint is the file the analyzer reads. Same role, same
+`privateBytesMB` column, one row per leg, `legBurstCounterSuspect: false`:
+
+| leg | obs min | bursts | lines written | chrome renderer pv first → last | LSQ pv |
+|---|---|---|---|---|---|
+| `baseline#1` | 60 | 119 | 35,700 | 70.38 → 84.36 (+13.98) | **0.2417** |
+| `burst4x#2` | 60 | 119 | **142,800** (4×) | 84.61 → 97.63 (+13.02) | **0.2410** |
+| `burst-off#3` | 60 | 5 | **5** (≈0) | 97.77 → 120.30 (+22.53) | **0.1806** |
+
+The role is `chrome:standalone+chrome:toolbar+chrome:frame-backdrop` in all three legs (pid 22376). What the
+table decides, and what it does not:
+
+- **The terminal write path is not the driver.** Four times the lines over the same hour moves the slope by
+  0.0007 MB/min (0.3 %, i.e. nothing). This is the 4× separation Phase 4c was built for, and it is the fact
+  the earlier 298–336 B/line reading could not establish on its own.
+- **The growth is dominated by something that costs per minute, not per line.** With five lines written in
+  an hour the slope is still **0.1806 MB/min** — 75 % of the loaded baseline's rate. Whatever accumulates
+  keeps accumulating while the terminal is silent.
+- **A residual volume/path term exists but is not per-line.** `burst-off` sits 25 % below `baseline`, while
+  `burst4x` — 4× the volume — sits *level* with it. A linear per-line cost cannot do both, so the honest
+  reading is a small regime effect (streaming active vs silent), not a per-byte one.
+- **The floor is monotone across regimes** (70 → 84 → 97 MB, then +22.5 MB in the silent leg), so nothing
+  here is a buffer filling to a cap. `burst-off`'s endpoint delta (+22.53 MB) exceeds its own LSQ (0.1806 ⇒
+  +10.8 MB), which is the shape the analyzer's rolling-min floor exists to resolve: a step plus a plateau,
+  not a straight line — and the step is the reason the *floor* series, not the raw slope, is the instrument.
+- **Its absolute level is not comparable to the 09-20 runs.** `legs4h2` measured on a host that already had
+  the user's own app instance up (started 01:31:43, alive for its whole window); `soak4h`, `preflight-fixed`
+  and `legs4h` all measured on 09-20 with no such load. Load moves the level (~0.20 unloaded vs ~0.24 loaded
+  on the same leg-1 regime) and does **not** move the leg pattern — which is why the legs, not the absolute
+  floor, are the load-robust comparison, and why the `perf4h` run keeps its own external-load series.
+- **No per-line CPU price is quotable for `burst-off`**: `msPer1000BurstLines` divides by 5 lines, so it
+  reads 34,478,400 ms/1000 lines. The row is arithmetically correct and semantically meaningless; the leg's
+  value is its ≈0 volume, not its cost column.
+
+`perf4h` (this run) reruns the identical three-leg schedule with the instrument defects closed: observed
+burst counts present (`burstLinesObserved`), per-leg refusals visible (`refused*`), the bundle digest carried
+in `config.bundle`, and the same per-process private column as the gate — so it either reproduces this table
+on a clean artifact or contradicts it, and either answer is decisive.
 
 Because a leg run's workload slope is a blend of deliberately different regimes, the slope gate no
 longer grades it: `slopeSloSatisfied: null`, `slopeGateApplicable: false`, verdict
@@ -504,34 +601,100 @@ proposed for the retention (Blink attribute/string table plus IPC buffers holdin
 committed until view teardown) remains `[INFERENCE]` — the fix is justified by the work removed,
 not by the mechanism.
 
-## Open after this pass — one item, with the reason it is not a patch
+**Correction (2026-09-21, read off the bundle the running 4 h soak actually loads).** "The work that
+ran on every broadcast" is only half removed, and the half that survives is on the path that fires at
+5 Hz:
 
-The six instrument defects and the history-store defect were fixed after the run was stopped
-(see the changelog for the batch and its proof). Two findings from the same pass are recorded
-here instead of patched:
+- `updateAffinityBadges(deliveredTabs, deliveredAffinities)` does use the delivered halves when a
+  caller hands them in, and `api.onTabsUpdated` does (`standalone.js:4703`) — follow-up 1 is real
+  there.
+- But `renderTabs()` still ends with a **bare** `updateAffinityBadges()` (`:4648`), which takes the
+  fallback branch and issues `api.getTabs()` **and** `api.getTerminalAffinities()`. `renderTabs()` is
+  called from the session-broadcast handler (`api.onTerminalSession`, `:4652` → `:4695`), so those two
+  `invoke`s still run on every 5 Hz session push — the same ~72,000-`getTerminalAffinities` figure the
+  open item below records, now with its call path named.
+- Line numbers verified identical in `.compiled/src/renderer/standalone.js` (4501 / 4648 / 4652),
+  which is the copy the harness loads, so this is a property of the measured bundle and not of the
+  source tree alone.
 
-1. **`api.getTerminalAffinities()` is still one `invoke` per 5 Hz broadcast** (~72,000 per 4 h),
-   and no push channel exists for affinities. A renderer-side cache was **rejected with
-   evidence**, not deferred for effort: main still owns writers the renderer cannot observe
-   (`native-tab-host.ts:1667` revive, `:6221` entry deletion, `:7073-7120` tab-driven updates),
-   so a cached map cannot be proven fresh, and a stale badge is a worse failure than the CPU the
-   cache would save. The correct shape is to carry affinities in the broadcast payload itself —
-   the same move follow-up 1 made for the tab list, and the only one with no staleness window —
-   which changes main's payload contract and therefore needs its own pass with a payload test.
-2. **The retention owner is still unnamed, and the existing data cannot name it.** The terminal
-   write path is now *refuted* by caps in the code itself (`scrollback: 10000` at
-   `standalone.js:2034,2599`; `MAX_RECOVERY_QUEUE_BYTES`/`_CHUNKS` at `:1283-1284`, enforced at
-   `:1497-1498`; `MAX_HYDRATION_WRITE_CHARS` at `:1663`) — a monotone slope cannot come from a
-   saturated circular buffer — and the inventory found no unbounded renderer structure on that
-   path. What remains are engine-level effects (Blink string interning under the fixture's 5 Hz
-   title churn, allocator/page behaviour under IPC + terminal parse churn), which the current
-   payloads cannot separate from host contention. The decisive test needs either a run with the
-   burst legs (legs 2-3) or a sub-step timer inside `switchTab`; both need the app live, which is
-   why they are recorded rather than run. See
-   `plans/reports/runtime-verification/renderer-retention-lead-analysis-20260920.md` and
-   `.../switch-tail-spike-analysis-20260920.md` (the tail is steady-state, not an outlier:
-   22/1143 switches over 35 ms, median gap 105 s, whole distribution shifted ~2.5x, and the shift
-   is inside `NativeTabHost.switchTab()` while `tabs.layout` stays under 0.2 ms).
+What this does **not** do is explain the retention: the quoted cost of those calls is "a correlation
+entry, a promise and a deserialized payload **on the main thread**", and the growing process is a
+renderer. It is broadcast-rate CPU and main-thread garbage, and it closes the open item's shape
+(carry affinities in the broadcast payload) rather than the retention question.
+
+**Rank correction and the fix design, from the same reading pass.** The advisory is right that the cost
+is not confined to main: the `invoke` reply is deserialized **in the renderer**, so 144,000 round trips
+carrying the whole tab list plus the whole affinity map are 144,000 deserializations in the process that
+is actually growing. That makes this a live suspect for **committed growth by churn/fragmentation**, not
+only broadcast-rate CPU — and it comes with a falsifiable prediction: if churn is the driver, the fix
+should collapse the renderer's **private-bytes sd / range** (legs4h2: sd 15.60 MB, range 115.95 MB on the
+standalone renderer) far more than its slope. Read those two columns before and after, not just the slope.
+
+The cheap fix is now identified, and it is smaller than this plan's open item assumed:
+
+- Main is **already** sending both halves on one channel: `flushBroadcastState()` builds
+  `{ tabs: payload.tabs, terminalAffinities: this.buildTerminalAffinityMap() }` and sends it as
+  `antifan:tabs:updated` (`src/main/browser/native-tab-host.ts:7866-7887`), and its own comment says the
+  map "is a projection of the state this broadcast already carries" — so any affinity change rides a push
+  the renderer already receives, and the renderer's `onTabsUpdated` handler already gets both halves
+  (`standalone.js:4703`).
+- Therefore a **renderer-side cache of the last delivered pair**, refreshed in that handler and passed by
+  `renderTabs()` into `updateAffinityBadges(...)`, fixes the 5 Hz path **without touching main's payload
+  contract** — the fallback fetch stays only for the never-delivered cold case. Sleep/wake state, which
+  `renderTabs()` also repaints after a session push, comes from renderer-local session state and needs no
+  affinity refetch, so a cached pair cannot make a badge stale.
+- The four other bare calls are **audited and need no work**: `standalone.js:2857`, `:2870`, `:2933` and
+  `:2990` are all `onclick` handlers inside the affinity popover (after `removeTabAffinity` /
+  `rebindTerminalAffinity` / `adoptTabAffinity`), so each fires once per user click. Only the
+  `renderTabs()` tail sits on the 5 Hz path.
+- A renderer-side cache is sound **only where every affinity change is accompanied by a push**, and the
+  audit says that holds for some mutators and is unproven for others. `bindTerminalAgentAffinity` calls
+  `broadcastState()` at `:6321` and `detachTabFromAffinityEntry` at `:6783`; but
+  `dropTerminalAffinityEntries` (`:6870`), `clearTerminalAgentAffinity` (`:6886`),
+  `clearTerminalAffinityTombstone` (`:6908`) and `reviveTerminalAgentAffinity` (`:6941`) contain no call
+  of their own — they may rely on a caller broadcasting, which is precisely the assumption to verify
+  before the cache lands. `broadcastState()` (`:7811`) is still the single coalescer that flushes
+  `{ tabs: getTabList(), terminalAffinities: buildTerminalAffinityMap() }` and throttles repeat flushes to
+  `BROADCAST_MIN_INTERVAL_MS`; the open question is only who calls it. The fix has a fallback that makes
+  the question non-blocking: let the fetch path **write what it fetched into the cache**, so the four click
+  handlers stay self-correcting, and a badge can then lag only for a change made off those paths.
+- **Race to guard in the implementation**: `updateAffinityBadges` is `async` and `renderTabs()` calls it
+  fire-and-forget. On the cold path the awaited fetch can land *after* a fresher `tabs:updated` has filled
+  the cache, and the late result would install stale halves. Either resolve the cached pair synchronously
+  before the `await`, or let the fallback write the cache only when it is still empty.
+
+## Open after this pass — closed, retracted, or waiting on the next live run
+
+The six instrument defects and the history-store defect were fixed after the first measured
+run stopped (see the changelog for that batch). The 2026-09-21 `perf4h` soak was **aborted**
+by the operator at 08:40 local after 109.1 min workload (verdict:
+`plans/reports/runtime-verification/real-soak-4h-verdict-perf4h.md`). What that abort
+changed about the two items recorded here:
+
+1. **`api.getTerminalAffinities()` per 5 Hz broadcast — APPLIED in the working tree.**
+   `native-tab-host.ts` already puts `terminalAffinities: this.buildTerminalAffinityMap()`
+   on the broadcast payload; `standalone-preload.ts` parses it; `standalone.js`
+   `updateAffinityBadges(deliveredTabs, deliveredAffinities)` resolves the delivered map
+   and only calls `api.getTerminalAffinities()` when the payload omits it. The ~72,000
+   invokes/4 h are gone on the broadcast path. Not on the measured `perf4h` bundle
+   (uncommitted `src/` at abort time).
+2. **`switchTab` sub-step timer — APPLIED in the app and the harness.** `markSwitchStep`
+   records `ensureView` / `attachSweep` / `layoutBroadcast` / `throttle` /
+   `invalidateFocus` / `presentedView` into a `tabs`/`switch-steps` row when
+   `ANTIFAN_BENCHMARK=1`. The ingest no longer drops every non-`history`/non-`process`
+   line: `switchStepSamples` is a first-class payload array (`[]` if missing, never
+   omitted); the analyzer prints p50/p95/max/mean and share of mean, or `not collected`.
+   The aborted run predates this, so the +5.6 ms p50 step is still unnamed. The next live
+   soak is the measurement.
+
+**Retracted:** `2697a28c` as the +5.6 ms mechanism. `git show` is 13 lines that only
+change behaviour while an attach-for-capture count is held. A soak switch does not hold
+a capture. "Make recycle conditional on a stale presentation" is not the next patch.
+
+**Dropped:** seeding a pid manifest from sample 1 because `refusedProcessCount` went 0→1.
+On `perf4h` that was **one** sample (`python.exe`, 18.58 MB) out of 141. Not a foreign
+Electron tree.
+
 
 ### Analysis behind rows 1 and 2 (written while both were still candidates)
 
@@ -990,10 +1153,21 @@ consumers that run on every 5 Hz broadcast:
 
 | # | consumer | anchor | status |
 |---|---|---|---|
-| 1 | `updateAffinityBadges()` re-fetches both lists per broadcast | `standalone.js:4685` → `:2710-2775` | **live lead** |
-| 2 | `renderTabs()` re-runs on title churn | `toolbar.ts:2413` (signature includes `t.title`), `:2435-2680` | **live lead** |
+| 1 | `updateAffinityBadges()` re-fetches both lists per broadcast | `standalone.js:4685` → `:2710-2775` | **applied (follow-up 1) — in the bundle the 09-21 run measures** |
+| 2 | `renderTabs()` re-runs on title churn | `toolbar.ts:2413` (signature includes `t.title`), `:2435-2680` | **applied (follow-up 2) — in the bundle the 09-21 run measures** |
 | 3 | `renderThemeQa()` per push | `toolbar.ts:4178`, `:236-267` | **already rejected below** |
 | 4 | `updateControls()` per push | `toolbar.ts:4198`, `:2690-2750` | **already rejected below** |
+
+Both leads named here were fixed in the follow-up batch, so this table is a record of what was
+suspected, not a list of open work: `updateAffinityBadges(deliveredTabs, deliveredAffinities)` now
+takes the broadcast's own two halves and only falls back to `api.getTabs()`/`api.getTerminalAffinities()`
+when a caller hands in neither, and the tab-strip render reads the children list instead of parsing
+48 selectors. What that fix removed was **main-thread** work — the load quoted at `:2711` is "a
+correlation entry, a promise and a deserialized payload on the main thread" — and this finding is
+about a *renderer* process, so it explains CPU contention during switches, not the committed growth.
+Neither lead is therefore the retention owner, and the owner is still unnamed (see the open item
+below). The `data-managed-sig` guard the author already had on the adjacent popover is what made
+consumer 1 a lead rather than a guess; it is still the shape to copy when the owner is found.
 
 Ruled quiet by inspection: `frame-backdrop.ts` (layout only on split/resize), the session-activity
 caches (`standalone.js:3412`, `:3457` — keyed by session, at most two entries), the write
@@ -1122,3 +1296,589 @@ against a floor whose noise is ~1 MB — detectable without another 4 h run.
   including a rejected snapshot RPC (`:1684-1762`, `:1764-1836`), so that window is one
   in-flight await at first activation, not steady-state streaming — it is a burst risk during
   a slow hydration, not the per-minute rise.
+
+## Operational notes — 2026-09-21, taken while the 4 h run was in flight
+
+Recorded because each one would otherwise cost time after the run ends.
+
+- **The stale-final hazard is not this harness failing to write finals.** `real-soak-8h-legs4h.json`
+  and `real-soak-8h-legs4h2.json` **do not exist**; the runs whose tables this plan quotes left only
+  their checkpoints (`real-soak-8h-legs4h-checkpoint.json` 419 KB / 08:07, `real-soak-8h-legs4h2-checkpoint.json`
+  1.6 MB / 05:31). Both were superseded or stopped rather than completed, so the finals were never due —
+  `diag1`, `soak4h` and `preflight-fixed` all wrote finals normally. The consequence for the verdict is
+  the important part: **the checkpoint is an equal-grade source**, and `scripts/analyze-soak-app-only.cjs`
+  was dry-run against *both* a checkpoint and a final (legs4h2 checkpoint, soak4h final) and prints the
+  same windowed tables for each.
+- **`legs4h2` is the load-matched comparator, and its shape is known now**: a Tab-role renderer
+  (`chrome:standalone+chrome:toolbar+chrome:frame-backdrop`, `file:///…/standalone.html`) grows at
+  **0.28 MB/min private** through the workload window (sd 15.60) and **0.00 MB/min in recovery** — it
+  releases nothing when activity stops, which is what makes this retention rather than transient
+  allocation. Every real page tab sits at 0.00. `worstProcessSlopeMBPerMin` 0.2657 is that same pid.
+- **That comparator ran with `appArgs: ["--remote-debugging-port=0"]`; this run has `appArgs: []`.** The
+  post-fix re-measure that the probes attach to must pass `SOAK_APP_ARGS` to match, or the comparison
+  trades one variable for another.
+- **The watcher's liveness probe is unreliable and did fire a false negative — cause not established.**
+  The probe is `(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine
+  -match 'benchmark-real-soak-8h' }).Count` (`perf4h-watch.cjs:79`, in `%LOCALAPPDATA%/Temp/`), and the
+  live harness command line (`"…\node.exe" scripts/benchmark-real-soak-8h.cjs --minutes 240`) **does**
+  contain that pattern — verified by running the same query from this session before writing this. It
+  nevertheless returned 0 three times from 06:28 to 06:38 while harness PID 21752 was demonstrably alive:
+  the checkpoint it wrote at 06:30:29 and the external-load samples at 06:38 are both later than the first
+  "not visible". Two candidates remain and neither is tested — the pipeline string being mangled across
+  the shell hop, or a CIM visibility limit in the spawned context — so this records the **symptom and the
+  workaround**, not a cause. Liveness is instead established by the 10-minute checkpoint cadence plus
+  `scripts/sample-external-load.cjs --harness-pid <pid>`, launched for 250 minutes and exiting when the
+  harness does. Do not restore the PowerShell probe; check a pid directly.
+- **Script locations for cleanup**: `perf4h-watch.cjs` lives in the OS temp directory
+  (`%LOCALAPPDATA%/Temp/perf4h-watch.cjs`), not in `scripts/` as the Files table above says, and the
+  external-load sampler writes `plans/reports/runtime-verification/perf4h-external-load.jsonl`. The
+  files the verdict needs are the harness's own `real-soak-8h-perf4h.json` / `-checkpoint.json`,
+  `perf4h-run.log` and `perf4h-pid-manifest-20260921.json`.
+- **Per-leg memory slopes are not in the artifact.** `legSlopes[n]` carries the leg's schedule, its volumes
+  (`bursts`, `burstLinesObserved`, `switchCount`) and its `cpu` block
+  (`cpuSecondsPerMinute`, `msPerSwitch`, `msPer1000BurstLines`, `perProcess`), but **no memory slope** —
+  that has to be sliced out of `samples` / `processSeries` by each leg's `startAt`/`endAt`. Compare PV sd on
+  **equal-length 60-minute windows**: an 8-frame window's sd is not comparable to a 179-frame one, and sd is
+  the column the churn prediction lives in.
+- **Live reading at 07:00, nine minutes into leg 1 — the mechanism's identity is already reproducing.** The
+  top private-bytes grower is the standalone renderer `19124`
+  (`chrome:standalone+chrome:toolbar+chrome:frame-backdrop`, `file:///…/standalone.html`) at **+0.37 MB/min**
+  across the workload window, and `worstProcessPid` is that same pid (0.2318 MB/min). Every real page tab
+  sits at or below 0.14 MB/min. Switch latency **fails the live gate** (p50 15.7 ms, p95 20.5 against `p50 ≤ 12 &&
+  p95 ≤ 18`; the max-35 bound this line first cited was deleted by the Phase 3c decision, and the comparator
+  passes the same gate at 10.7 / 13.1), and the throughput columns the legs4h restart was missing are present
+  (`msPerSwitch` 314.19, `msPer1000BurstLines` 10748.60).
+- **The verdict must state the spread, not only this run's slope.** `soak4h.json` — same bundle family —
+  reported `rendererActiveSlopeMBPerMin` **0.039** where `legs4h2` reported **0.261**: a ~7× run-to-run
+  spread, so a single perf4h slope settles nothing. The verdict therefore leads with (a) whether the
+  mechanism's identity reproduces, (b) the load-matched 60-minute window floors against legs4h2's legs, and
+  (c) the spread named next to whatever single number this run produces, so it cannot be over-read.
+- **The peak-memory gate is breached, but marginally — and the metric is phase-scoped, so the two peaks
+  must be read separately.** At 07:03, nine minutes into leg 1, the checkpoint's
+  `metrics.activeWorkingSetMB.max` reads **1601.01 MB** against the gate's **≤ 1600 MB**, with
+  `appPrivateMax` 0.3726 MB/min on the standalone renderer. The chain is in the harness end to end:
+  `const totals = activeSamples.map((s) => s.totalWorkingSetMB)` (`:984`) → `activeWorkingSetMB:
+  quantiles(totals)` (`:1357`) → the gate check itself, `const maxActive = metrics.activeWorkingSetMB?.max`
+  (`:265`), printed as `Peak Max … SLO <= …` (`:2223`) against `FREEZE_SLO.peakTotalWorkingSetMB`. The scope
+  is verified and not assumed: `activeSamples = samples.filter((s) => s.label === 'workload')`
+  (`scripts/benchmark-real-soak-8h.cjs:972`) feeds `activeWorkingSetMB`, `overallActiveSlopeMBPerMin` and
+  `rendererActiveSlopeMBPerMin` alike, and the label is set per phase — so the 1601.01 sample is inside the
+  workload window (it is the second workload sample: `1589.32 → **1601.01** → 1579.82` MB, latest 1575.39).
+  The tree's global maximum in the same artifact, **1608.43 MB at 06:40:32**, sits in warmup and is therefore
+  *outside* the gated metric rather than inside it. The breach is **1.01 MB on an active-window transition
+  peak** — present, but not an overrun and not a warmup artifact.
+  What it does confirm is this plan's premise at the workload it was written for: 1549.7 MB had "no headroom
+  left", and the same workload now touches 1601. For completeness, the private release at the workload
+  boundary is *small* — the Browser drops `168.95 → 154.30 MB`, i.e. **14.65 MB**, not the hundreds of MB a
+  warmup teardown would imply — so the transition peak is not explained by warmup memory being reclaimed.
+- **What the verdict cites from `metrics`, by name** — all of it on one artifact, no cross-run lookups:
+  `activeWorkingSetMB.max` (the gated peak), `rendererActiveSlopeMBPerMin` / `overallActiveSlopeMBPerMin`
+  (phase-scoped slopes), `rolling60MinSlopes` (the floor), the four point readings `initialLoadedMB` /
+  `postWarmupMB` / `finalActiveMB` / `recoveredMB` (raw endpoint deltas, computed without a regression),
+  `perProcessSlopes[0]` with `worstProcessPid` / `worstProcessRole` (attribution), `switchLatencyMs` beside
+  `switchLatencyAllPhasesMs` (the phase-scoped gate next to the pre-scoping reading the harness deliberately
+  kept for this comparison), `cpu.msPerSwitch` / `cpu.msPer1000BurstLines` (throughput), and `config.bundle`
+  with `bundle.changedDuringRun`.
+- **The external-process attribution held, and its one gap is visible.** `refusedProcessCount` is 0 in the
+  early samples and 1 later — the harness's pid manifest learned about the user's own app tree partway
+  through, so the first samples excluded it by ignorance rather than by rule. The next run should list the
+  other app trees from the first sample.
+- **Leg 1 closed at 07:50:29 and it points at the "contradicts" branch — with one caveat that decides how
+  much weight it carries.** Same schedule, and the *injected load* is identical to legs4h2's leg 1 to the
+  unit: `bursts 119 / 35700 bursts lines / 1169 switches` in both. The measured result differs sharply:
+
+  | Leg 1 (60 min, identical schedule) | this run (`perf4h`) | `legs4h2` leg 1 |
+  |---|---|---|
+  | `rendererActiveSlopeMBPerMin` — the graded series | **0.079728** | **0.261952** |
+  | `overallActiveSlopeMBPerMin` | **0.117506** | **0.646958** |
+  | — the same two series at run level (a blend, **not** a leg) | 0.099247 / 0.130035 | 0.26137 / 0.409933 |
+  | `switchLatencyMs` p50 / p95 / max | 15.56 / 20.53 / **30.94** | 10.737 / 13.069 / **94.691** |
+  | `activeWorkingSetMB` p50 / max | 1582.79 / **1607.08** (gate 1600) | 1534.82 / 1584.20 |
+  | `postWarmupMB` → `finalActiveMB` | 1571.77 → 1579.93 | 1503.57 → 1560.39 |
+  | CPU s/min, `msPerSwitch` | **7.039**, 355.61 | 2.488, 125.64 |
+
+  The two leg-1 slope pairs are refitted from `samples[]` over each run's **own** leg-1 window
+  (`legSlopes[0].observedFrom .. observedTo`, 60 frames on each side) with the harness's least-squares fit. The
+  method is certified by reproducing every stored slope in both checkpoints exactly — perf4h leg 1
+  (`0.079728` / `0.117506`), perf4h run level (`0.099247` / `0.130035`), legs4h2 run level (`0.26137` /
+  `0.409933`) — so it is the harness's own method rather than a lookalike. The leg-1 row is the right comparator:
+  a run-level slope on a leg run is fitted across regimes the harness itself refuses to grade
+  (`slopeGateApplicable: false`, "a blend of regimes … grades nothing"), so `0.409933` understates the leg-1 gap by
+  about a third and `0.26137` would understate the renderer gap by the same class of error. The bound on the
+  latency row is the live one (**p50 ≤ 12 / p95 ≤ 18**, workload phase); the retired `max ≤ 35` is not graded at
+  all (`latencyMaxGated: false`).
+
+  Two readings follow, and they are different in kind:
+  - **The graded series improves 3.3× and the tail 3×, but this run fails the same latency gate legs4h2 failed.**
+    `rendererActiveSlopeMBPerMin` falls from legs4h2's leg-1 `0.261952` to `0.079728` (`overall` from
+    `0.646958` to `0.117506`) — but a leg run does not grade slopes at all (`slopeGateApplicable: false`), so
+    that is a measurement, not a passed gate. The live `switchLatencyMs` bound is **p50 ≤ 12 / p95 ≤ 18** and this
+    run reads **15.56 / 20.53**: it fails the same criterion legs4h2 failed, on a 3× smaller tail (max `30.94`
+    vs `94.691`) and with its floor 4.5 ms higher. The retention owner is still named and still the same role
+    (`chrome:standalone+chrome:toolbar+chrome:frame-backdrop`, pid `19124`) at **0.1236** MB/min now (`0.1247`
+    at leg-1 close) against legs4h2's `0.2657`, so the mechanism's identity reproduces and its magnitude halves.
+  - **The peak gate is now the failing one, and by 7.08 MB rather than 1.01** (`activeWorkingSetMB.max`
+    moved 1601.01 → 1607.08 as leg 1 ran), while `postWarmupMB` starts **68 MB higher** than legs4h2
+    (1571.77 vs 1503.57) and `finalActiveMB` only rises 8.16 MB across the leg. So the ceiling is being
+    touched by the *startup/warmup footprint*, not by growth during the leg — the fix's justification is a
+    startup cost story here, not a steady-state growth story.
+  - **The cost columns are not comparable across the two runs.** Identical injected work cost 2.83× the CPU
+    per switch and 3.83× the `msPer1000BurstLines` (10748.60 vs 2806.64) — a near-uniform slowdown factor,
+    which points at machine-level contention rather than at the workload. Use the leg table for
+    **within-run** ratios (which is what §Phase 4c designed it for) and never compare absolute CPU across
+    these two runs.
+  - **The 62 MB warmup elevation is Chromium-wide and proportional, so it is not an app-object leak — and that
+    redirects the optimizer away from app code.** Mean warmup footprint over 31 frames per run: renderer
+    `+34.6 MB` (5 procs, **+4.6%**), gpu `+14.9` (**+8.7%**), browser `+11.9` (**+5.5%**), utility `+0.3`,
+    other `+0.2` — i.e. **61.9 MB of the elevation sits entirely in the Chromium-owned roles and every one of them
+    moves by roughly the same 4–9%**, while the seven non-Chromium processes move by under 0.2 MB combined. A leak
+    in app code would concentrate in the renderer and leave gpu and browser flat; a uniform proportional lift across
+    all three is a whole-tree scale factor (build/commit-accounting or host state), not allocation. So the peak
+    breach of **+7.08 MB** is a small margin riding on a ~62 MB shift that this run's bundle *cannot* explain —
+    which is the strongest argument in this plan for settling it with a **same-bundle control run** before touching
+    app code.
+- **The comparator's bundle is not recorded anywhere, and its tree moved around it.** `grep` for
+  its md5 across `plans/` finds only this plan's own `perf4h` digest and my pid manifest; legs4h2's
+  checkpoint carries `config.bundle: null` and no final payload survives. Meanwhile
+  `.compiled/src/main/index.js` was rewritten at **04:21:45** (verified by `stat` this session), inside legs4h2's
+  01:41 → 05:31 span. That write **cannot** have reached the running process — a live process holds its own loaded
+  modules, so a file rewritten under it is invisible to it, and the boundary a file mtime draws is the compile, not
+  the run — so it is *not* evidence that run measured a drifting tree, and the earlier "same drift class" reading of
+  it is withdrawn. What makes the comparison cross-bundle is independent of it and is recorded: `git status` shows
+  **13 tracked files modified** plus 20 untracked artifacts, and `src/` alone took **14** edits between **01:09:53
+  and 01:37:15** — before legs4h2 launched at 01:41 but after the 01:04 compile — while `.compiled` was written
+  again at **01:37**, **04:21** and **06:16** (incremental emits, not one compile). The tree legs4h2 loaded is
+  therefore **not reconstructible** from mtimes, which is exactly why its missing digest matters; this run's bundle
+  comes from the 06:16 full recompile. So every cross-run column above is cross-bundle as well as cross-load, and
+  the verdict must say so rather than treating legs4h2 as a clean comparator. This run's own bundle is the verified one: the T+6 minute check found zero rewritten
+  `.compiled` files, and `config.bundle{start,end,changedDuringRun}` will confirm it at the end.
+- **The 2.8× CPU gap is real, is not uniform, and is unattributed — so the verdict must not call it a
+  regression.** The component split of the two leg-1 `cpu.perProcess` blocks rules out a single machine-level
+  factor:
+
+  | leg-1 component | perf4h | legs4h2 | ratio |
+  |---|---|---|---|
+  | GPU | 124.16 s (30%) | 28.16 s | 4.41× |
+  | standalone renderer (`chrome:standalone+…`) | 99.31 s | 16.39 s | 6.06× |
+  | page-tab renderer (`tab:…`) | 46.50 s | 7.70 s | 6.04× |
+  | Browser | 59.31 s | 32.19 s | 1.84× |
+  | console host / pty children `[INFERENCE]` | 58.19 s | 52.39 s | ~1.11× |
+  | **total** | **415.71 s (7.039 s/min)** | **146.88 s (2.488 s/min)** | 2.83× |
+
+  The driver side — the pty children, which are the workload being injected — costs the *same* in both runs,
+  so the work per unit did not change; every **Chromium** process is 4.4–6× more expensive while the Browser
+  is 1.84×. A machine-wide contention story would not leave the pty children at ~1.0 and would not spare the
+  Browser at 1.84 while renderers sit at 6×. (The legs4h2 rows are role-less `?` entries whose count and
+  magnitude match the console hosts, hence the `[INFERENCE]`.) A Windows `CurrentClockSpeed` read is not a
+  usable throttle check: it returned `2400` against a `2400` base, i.e. the configured speed rather than the
+  live clock, with an instantaneous `LoadPercentage` of 15% and 6.2 GB free.
+  What the artifacts *cannot* settle is whether legs4h2 ran the same app code — its bundle digest was never
+  recorded (see above) and `.compiled` moved inside its window. The *known* background, by contrast, is
+  comparable and does not separate the runs: the user's own app tree has been up since 01:31:43 — ten minutes
+  before legs4h2 launched at 01:41 — and the shared terminal daemon since 2026-09-20 11:33, so both runs had
+  both. Each window also carried heavy session work of its own (the earlier session emitted one compiled file at
+  04:21, inside legs4h2 — a write a live process cannot observe, so it is contention at most, not bundle drift;
+  this session ran its proxy sweeps and samplers during perf4h). Machine contention
+  therefore fits the *magnitude* poorly: it would have to spare the pty children at ~1.0× and the Browser at
+  1.84× while inflating every rendering process 4.4–6×. The machine's own largest background consumer is also
+  measurably idle: the user's app tree (pid 16884, up since 01:31:43) had accrued **264 CPU-seconds in 6.5
+  hours — 0.68 s/min**, and the shared terminal daemon (pid 10952, since 2026-09-20 11:33) **2056 s over
+  20.5 h — 1.67 s/min**. Neither can supply a 2.83× factor on a workload the app itself drove at 7.04 s/min.
+  A sampler running outside the harness (`perf4h-external-load.jsonl`, one tick a minute from 06:26:57, before
+  leg 1 opened at 06:50:29) now measures the host side of this leg directly instead of by inference: 12 external
+  processes holding **~2.9 GB** RSS, **~6.0 GB** machine-free, `loadPct` between 9 and 52 with no sustained
+  saturation, and an external CPU draw of **32–42 cpu-s/min** against the app's 7.04–7.31 s/min — under a sixth of
+  the sampled demand, on a machine at roughly a third of capacity. That cuts both ways and the verdict must keep
+  both cuts: contention cannot be *dismissed* (the host was carrying about 5× the soak's own CPU in other work),
+  and it cannot be *measured on the comparator's side* either, because no sampler existed on 09-20 01:41 — the
+  external load during legs4h2's leg 1 is simply unrecorded, so the 2.83× stays unattributed rather than being
+  assigned to the host. That working tree is also a *verified* same-bundle control rather than an assumed one: no
+  file under `src/` is newer than the last compile (06:16:57), and the single file carrying exactly that timestamp
+  — `src/renderer/terminal-write-dispatcher.js` — is the tracked emit mirror of
+  `src/shared/terminal-write-dispatcher.ts`, sharing its `.compiled` twin's timestamp to the millisecond. The
+  harness itself has not changed since 06:19:48, and that is the one this run used. What the sampler does settle,
+  independently of the harness, is that this run's tree did not
+  move under it: `compiledRewritten` — `.compiled` files newer than the run launch — reads **0 on every tick**, and
+  its own CPU series puts leg 2 (7.31 s/min at 4× the injected lines) level with leg 1 (7.039 s/min), which is the
+  fixed-per-switch shape arriving from a second instrument.
+  So this stays an **unattributed 2.8×
+  per-switch cost** with the component table as its evidence. The control that would settle it is a
+  **same-bundle** short leg-1 re-run, which is one more reason the retention-probe run must happen **before**
+  the **retention fix (Phase 3 item 2)** lands — and it is specifically that fix, not "any fix": the
+  latency-gate change and the broadcast-path guards shipped on 2026-09-20 and are already in **both** bundles,
+  which the artifacts show rather than assume — legs4h2's `perProcess` carries the same
+  `chrome:standalone+chrome:toolbar+chrome:frame-backdrop` role string this run's does, and that combined
+  labelling is the role-resolution change from that same batch. A run taken after the retention fix measures a
+  different tree and cannot answer this question at all. That control no longer needs a separate run: it is the
+  working-tree leg of the A/B ladder below, and the ordering this bullet demanded is already satisfied by the clock
+  — `perf4h` launched at **06:20:29**, after the 06:10 `toolbar.ts` retention fix and its 06:16:57 compile, so that
+  leg and this run are both post-fix bundles. The 200-minute retention-probe leg the earlier sequencing reserved for
+  this question is superseded by that leg plus the retention analysis already taken from this run's checkpoint.
+- **`recoveredMB` is a cleaner retention signal than any slope, and it has a comparator target.**
+  legs4h2 went from `finalActiveMB` 1560.39 to `recoveredMB` 1062.36 — **32% of the active footprint came
+  back**. The verdict reads this run's pair the same way: a comparable release exonerates steady-state
+  retention, a release of ~0 means the workload's memory was retained outright. Endpoint deltas are not
+  regression-fitted and do not depend on the window length that makes 60-minute slopes noisy.
+- **`recoveredMB` now has a numerical expectation, not just a comparator.** The release ratio across every
+  completed run that records both numbers:
+
+  | run | peak (MB) | recovered (MB) | released |
+  |---|---|---|---|
+  | `real-soak-8h-soak4h` (09-20 04:52) | 2126.06 | 1422.84 | 33.1% |
+  | `real-soak-8h-preflight-fixed` (09-20 06:28) | 1551.93 | 1007.64 | 35.1% |
+  | `real-soak-8h-diag1` (09-20 12:45) | 1556.34 | 981.61 | 36.9% |
+  | `real-soak-2h` (09-19 10:24) | 1549.71 | 1026.71 | 33.7% |
+  | `real-soak-8h-legs4h2` (09-21 05:31) | 1560.39 | 1062.36 | 31.9% |
+
+  Five independent runs — four of them on the same 1550-1560 peak plateau — release **32-37%** of the peak. A
+  band that tight across different harness revisions and bundles says the release is a property of this
+  workload's teardown, not of any one build, so the verdict can *predict* instead of merely compare: from a
+  ~1607-1610 peak, `recoveredMB` should land near **1010-1090 MB**. Land there and the steady-state retention
+  hypothesis is bounded from the other side as well — the memory does come back; land near the peak (~1600)
+  and the workload's memory is retained outright, which is the signature this plan is hunting. One historical
+  outlier is named so it is not read as support either way: `real-soak-8h.json` (09-19) released only 0.7%,
+  but from a *lower* peak (1204.88) — a different regime, not a counterexample.
+  Two facts fall out of the same sweep. **No historical run carries CPU metrics at all** — the `cpu` block is
+  this plan's own instrumentation — which is why legs4h2 is the only CPU comparator that exists and why a
+  same-bundle control run is the only way to close that question. And a probe run was already attempted once:
+  `real-soak-8h-domprobe-aborted-duration-mismatch-20260921-0610.json` (09-21 06:06) is `in-progress`, carries
+  `appArgs: ["--remote-debugging-port=0"]`, and its filename records why it died — a duration mismatch, before
+  this run's first launch. The recipe in §Instrument first is therefore not untried.
+- **The peak breach is a regression against the comparator too, not only against the gate.** On the same
+  injected workload, legs4h2 peaked at `activeWorkingSetMB.max` **1584.20 MB** (inside the ceiling) while this
+  run already reads **1607.08 MB** during leg 1. The verdict states both comparisons separately from the
+  slope result, which went the other way.
+- **Context for the peak gate: 1607 is mild by history, and footprint level is independent of slope.** The run
+  that breached the ceiling hardest is `real-soak-8h-soak4h` (09-19 17:52Z → 21:52Z = 09-20 00:52 → 04:52
+  local, tag `soak4h`, `status: failed`, 242 samples, 240 workload minutes, teardown clean with 6/6 tabs
+  closed). Its `activeWorkingSetMB` reads **min 2019.92 / p50 2069.17 / p95 2099.23 / max 2126.06** — a *floor*
+  above this plan's 1600 ceiling, held for the whole run rather than overshooting during load. Its workload
+  configuration matches this run's (240 total, 30/180/30, 3000 ms switches, 300 lines / 30 s bursts, 200 ms
+  fixture, 6 tabs), so the 2000+ MB level did not come from the schedule; the artifact records no cause, so it
+  is left as an open question rather than guessed at. (That run is also the source of the latency decision in
+  §Phase 3c — its `switchLatencyMs` p50 10.346 / p95 15.513 / max 50.976 is quoted there verbatim.)
+  Two consequences for how the verdict states the peak. First, **a breach of this ceiling is not novel**: runs
+  plateau at 1549-1560 (`real-soak-2h`, `preflight-fixed`, `diag1`, legs4h2) and one sat at 2019-2126, so this
+  run's 1607.08 is one point on a wide historical spread and must not be written up as unprecedented. Second,
+  and more useful: **footprint level and slope are independent quantities**. `soak4h` held its 2126 MB while
+  showing the *flattest* renderer slope on record — 0.0389 MB/min against this run's 0.0797 and legs4h2's
+  0.2614 — and it still released 33.1% of its peak, inside the release band above. A large steady footprint is
+  therefore not evidence of retention, which is why the peak row and the slope row are read separately: this
+  run's peak breach is a *level* finding (startup footprint — 1571.77 post-warmup against legs4h2's 1503.57),
+  not a *growth* finding.
+- **The leg-2 shape test is already answered for CPU, and it answers in the direction that protects the app.**
+  Recomputing both payloads with `scripts/recompute-soak-metrics.cjs` (sidecar only — the payloads stay
+  byte-identical, and its round-trip check reproduces this run's stored `cpu` block exactly: 486.252 s over
+  69.07 min = 7.04 s/min) gives the first same-denominator per-leg comparison:
+
+  | run / leg | window | cpu s/min | bursts / lines | switches |
+  |---|---|---|---|---|
+  | perf4h leg 1 baseline | 59.06 min | **7.039** | 119 / 35,700 | 1169 |
+  | perf4h leg 2 burst4x | 9.01 min (in flight) | **7.098** | 19 / 22,800 | 195 |
+  | legs4h2 leg 1 baseline | 59.04 min | 2.488 | 119 / 35,700 | 1169 |
+  | legs4h2 leg 2 burst4x | 59.05 min | 2.985 | 119 / 142,800 | 1169 |
+  | legs4h2 leg 3 burst-off | 59.05 min | 2.919 | 5 / 5 | 1170 |
+
+  A 4× volume increase moves this run's CPU by **+0.8%** and legs4h2's by +20%: both flat, in the same
+  direction. The current bundle is therefore **not** volume-sensitive where legs4h2 was not, so the
+  broadcast-path work is not what makes this run cost 2.83× more — that closes the "did the app become
+  workload-dependent" half of the question and leaves only the *level* (baseline work, or the machine), which
+  is exactly where the same-bundle control run points. Note the denominators: legs4h2's `legSlopes` entries
+  carry **no `metrics` block** — but they do carry `topSlopes`, the per-leg measurement the harness intends for a
+  legs run, in **both** payloads, so leg-to-leg *memory* comparison is available on the same denominator as the
+  CPU table above. The recompute's own contribution is CPU only; its `memoryAgrees` round-trip check is what
+  certifies the memory blocks it does not touch.
+- **What the live checkpoint already settles about the gates — and it is not what the plan's gate table says.**
+  Read from the running payload (`real-soak-8h-perf4h-checkpoint.json`) against the harness's own verdict
+  function, which grades a leg run differently by design:
+
+  | criterion (`evaluateFreezeVerdict`) | this run | legs4h2 | note |
+  |---|---|---|---|
+  | `slopeGateApplicable` | **false** | false | `LEGS.length > 1` ⇒ memory slopes report **null**, not a number |
+  | `slopeSloSatisfied` | **null** | null | "one slope fitted across legs that ran different burst volumes … grades nothing" |
+  | `memorySloSatisfied` (peak ≤ 1600) | **false** | true | 1607.08 vs 1584.20 — the graded memory failure |
+  | `latencyOk` (p50 ≤ 12, p95 ≤ 18, workload phase) | **false** | true | **15.693 / 20.53** vs 10.737 / 13.069 |
+  | `appPrivateMaxSlopeMBPerMin` | 0.1828 | 0.2771 | stricter app-owned metric; reported, **not** graded on a leg run |
+  | `verdict` | `FAILED` | `FAILED` | a leg run that passes everything else reports `PASSED_SLOPE_NOT_GRADED` |
+
+  Two corrections follow. First, the plan's gate row "switch latency max ≤ 35 ms → 42.1" is the **pre-decision**
+  reading: since the 2026-09-20 user decision the graded statistic is the p50/p95 pair with `switchMaxMs`
+  reported beside it, so this run fails latency **at p50**, not at one stall. Second — and this decides how that
+  failure may be *named* — `switchLatencyMs` is a full round trip: `const t0 = performance.now(); const sw = await
+  rpc('antifan.switchTab', { tabId }); latency = performance.now() - t0;`. It spans the client transport and the
+  harness's own event loop as well as the app, and this run's harness carries instrumentation legs4h2's did not
+  (`switchSamples` retains all 2143 rows in the payload, CPU is enumerated per pid every sample, per-leg blocks
+  are built). A uniform shift is therefore **not attributable to the app's switch path from this artifact
+  alone** — a second thing only the same-bundle control run can separate.
+
+  The shift is uniform, and the uniformity is the finding:
+
+  | window | n | min | p50 | p95 | max |
+  |---|---|---|---|---|---|
+  | warmup, 30 min, low load | 585 | 12.488 | **15.748** | 20.987 | 34.847 |
+  | workload leg 1 baseline | 1169 | 12.065 | **15.560** | 20.381 | 30.94 |
+  | workload leg 2 burst4x (partial) | 389 | 12.694 | **16.341** | 20.886 | 25.477 |
+
+  The p50 sits at 15.6-16.3 in **every** window, including warmup at low load, and even `min` only reaches
+  12.1-12.7 — so this is not burst contention, not leg 2, and not a workload effect: it is ~+5 ms on essentially
+  every switch. Meanwhile every app-owned metric moved the other way against legs4h2 — per-leg `topSlopes[0]`
+  0.1779 MB/min against 0.2417 / 0.2410 / 0.1806, `appPrivateMaxSlopeMBPerMin` 0.1828 against 0.2771, latency
+  **max** 30.94 against 94.691 — and the renderer tabs read ~0.02 MB/min or negative in every leg of both runs.
+  The app improved; the level costs did not.
+
+  Per-destination rows separate the two effects, and the `min` column is the cleanest signal in the pair:
+
+  | destination (357-358 switches each) | legs4h2 min / p50 | perf4h min / p50 |
+  |---|---|---|
+  | https://www.wikipedia.org | 8.24 / 10.94 | 12.44 / 16.96 |
+  | https://example.com | 8.21 / 10.38 | 12.06 / 15.13 |
+  | fixture /store-home | 8.21 / 10.80 | 12.16 / 15.41 |
+  | fixture /product-test-1, /product-test-2, /collection-featured | 8.08-8.29 / 10.72-10.76 | 12.63-12.74 / 15.58-15.77 |
+
+  Every destination moved by the same amount at the floor (+3.8 to +4.4 ms at `min`) and by +4.3 to +6.0 ms at
+  p50 — including the local fixture destinations, which traverse no network, and including wikipedia, which is
+  the only remote one and the slowest on both sides. A constant additive term on a round trip that hits all six
+  destinations equally is what a slower host or a costlier transport looks like; it is *not* what a per-page or
+  per-destination cost looks like. If a host-wide slowdown were the whole story it would scale both metrics by
+  one factor, and it does not: CPU rose **2.83×** per unit of work while the switch path rose ~**1.4×**. The two
+  are work-normalized differently, so they are compatible — but the mismatch says the app's *non-switch* work
+  grew proportionally more than its switch path, and the host hypothesis covers only the constant part. The
+  proportional part has to be named from the leg-1 CPU split, where **79% of the tree's CPU sits inside
+  Chromium**, which the plan's own instrumentation (app-side, benchmark-mode only) cannot account for.
+
+  Naming that proportional part is what the per-component comparison does, and the two runs' baseline legs are
+  the cleanest pair available: identical work (60 min, 119 bursts, 35,700 lines, 1169 switches), no leg
+  ambiguity, and the same host two hours apart (legs4h2 ran 01:41-05:31 local today, this run 07:50 onward) —
+  which is what retires the "slower machine" reading for the *level* as well, since a slower machine cannot
+  differ from itself by 4-6× inside Chromium while the non-Chromium console host moves 1.48×.
+
+  | component (leg baseline) | perf4h | legs4h2 | ratio |
+  |---|---|---|---|
+  | GPU | **124.16 s** | 28.16 s | **4.41×** |
+  | chrome:standalone+toolbar+frame-backdrop | **99.31 s** | 16.39 s | **6.06×** |
+  | Browser | 59.31 s | 32.19 s | 1.84× |
+  | tabs (four renderers) | 49.96 s | 9.83 s | 5.08× |
+  | console host (pty child) | 58.19 s | ~39.4 s | ~1.48× |
+  | Utility | 10.69 s | ~0.45 s | — |
+  | **total** | **415.705 s** | **146.876 s** | **2.829×** |
+
+  The absolute gap is real and large — 2.488 → 7.039 s/min on identical work — but **it is not attributable from
+  these two runs, and an earlier "it is in-app, render-side" reading must not be carried forward.** Three facts
+  constrain it, and they point different ways:
+
+  1. **The two runs loaded *different* bundles, and a directory mtime will not tell you that.** `.compiled`'s
+     directory mtime reads 01:04, but a compile that overwrites files leaves the directory mtime alone — the
+     real index is the files: **812 of 834** are newer than 01:05, and the newest is
+     `.compiled/src/renderer/terminal-write-dispatcher.js` at **2026-09-21 06:16:57** local. legs4h2 ran
+     01:41-05:31 and this run launched 06:20:18 (its own `startedAt`), so a full recompile sits **between** the
+     two runs. The app-code term is therefore **live**, and this is consistent with what the plan already
+     records elsewhere: the retention fix went into `.compiled`, so this run loaded it and legs4h2 did not.
+     Do not read a bundle digest out of a directory timestamp again.
+  2. **The growth is broad, not concentrated**: GPU 4.41×, the UI-surface bundle 6.06×, Browser 1.84×, the four
+     renderers 5.08×, and the non-Chromium console host 1.48×. A whole-tree rebuild plus a fix that changes how
+     often the renderers repaint would move several components at once, so breadth is *evidence* for a
+     host-level term and not proof of one: a shift that also moves the pty children the rendering path never
+     touches is what a host-level change looks like, and **this machine has a documented history of exactly
+     that** — `plans/260830-1530-electron-cpu-memory-performance-optimization` exists because forced
+     `ignore-gpu-blocklist` + `CanvasOopRasterization` spun the GPU process on this Intel UHD 630 to 130% of a
+     core, and its red-team flagged the dual-GPU (UHD 630 + GTX 1650) adapter path. The GPU is *not* spinning
+     here (124.16 s of a 3543.6 s leg = 3.5% of one core), so this is not that fault returning — but the same
+     surface is where a host-side difference would sit, and the GPU's *share* of the app's CPU did rise,
+     19.2% → 29.9%.
+  3. **The harness differs, and the harness drives the app's work.** App-tree CPU counts work the app performs,
+     and a CDP/RPC-driven scrape, per-switch bookkeeping and fixture traffic are app-tree work by construction.
+     The newer harness carries more of all three, so part of the 2.829× can be harness-induced rather than
+     intrinsic — a term the same-bundle control cannot bound, because it shares the harness.
+
+  So three terms moved at once — bundle, harness, host — and the pair separates none of them on its own. What
+  the pair does say is that the code delta is small and almost entirely on the capture/compositor path, which is
+  also where the cost went:
+
+  - `toolbar.ts`, edited 06:10:55 and uncommitted, is this plan's own retention fix, and it **removes** work:
+    `renderChromeProfiles()` no longer rebuilds the profile dropdown on every state push, and `renderPhoneStatus()`
+    no longer parses and rebuilds a template five times a second.
+  - The rest of the delta is the 01:0x-01:31 cluster, all of it newer than legs4h2's 01:04 bundle:
+    `native-tab-host.ts`, `standalone.js`, `standalone-preload.ts`, `contracts.ts`, plus the committed capture work
+    `2697a28c` "stop hung capturePage wedging guest canvas", `d7c77d83` "raster inactive tabs and reassert after
+    restore fail", `bee72187` "fail hung native raster without 25s wait", `462a48b4` "drop the background override
+    the capture path never needed", and `a25d9f99` "restore native view canvas background and remove DOM fill".
+    (`.compiled`'s newest file only *looks* like source: `src/renderer/terminal-write-dispatcher.js` is tracked,
+    unmodified, and merely re-synced from `src/shared/terminal-write-dispatcher.ts` at 06:16:57.)
+
+  That second group is the one that matters here. It moves background painting out of the DOM and onto the native
+  view's canvas and the compositor — which is exactly where the cost went: GPU 4.41×, UI-surface bundle 6.06×,
+  and a uniform +4 ms on every switch, because every switch paints. A work-removing renderer fix cannot produce a
+  cost increase; a change that hands painting to the compositor can, and it predicts precisely the shape seen.
+  Testing it is a bounded job: a worktree at the pre-01:04 revision, compiled and run against the *current*
+  harness, separates this code term from the harness term — and it is the only run that can. Until then the
+  verdict states the gap, states that it is not attributable from these two runs, and does not attribute it.
+  `app.getGPUFeatureStatus()` — the prior plan's own acceptance check, compositing and video reporting Hardware
+  Accelerated — plus the GPU process's share of the leg's CPU belong in the same artifact as the CPU table, so a
+  4× GPU reading is either reproduced or named as a path change instead of left to inference.
+- **No probe could have attached to this run, and that is recorded, not assumed.** `config.appArgs` is `[]`
+  here, so the app carried no DevTools endpoint and the retention probe (`scripts/probe-renderer-retention-class.cjs`,
+  self-test 11/11) had nothing to connect to. The probe therefore belongs to a *separate diagnosis run* —
+  §Instrument first already carries its invocation — which is the same place the same-bundle leg-1 CPU control
+  has to come from, since a post-fix run measures a different tree.
+- **The component table above is the first hard evidence for Phase 3 item 3 ("the throughput work"), and it
+  points somewhere the plan's wording does not.** Item 3 is scoped to "the CPU costs on the shared thread
+  pool", but the leg-1 split puts **79% of the tree's CPU inside Chromium** (GPU 124.16 s + standalone
+  renderer 99.31 s + page-tab renderer 46.50 s + Browser 59.31 s = 329.28 s of 415.71 s) and only ~12% in the
+  console-host pty children, which are the *driver*, not the app. Whatever the 2.8× factor turns out to be, it
+  is a Chromium-side cost that the plan's item 3 currently does not own — the `switchLatencyByTab` and
+  signature-guard work already applied (2026-09-20) reduced *work per push*, and the remaining candidate on
+  that side is the paint/composite volume the terminal pushes generate. Item 3's scope is widened here to say
+  so rather than left to be rediscovered after the next run.
+- **The launch log shows the bundle preflight doing its job for real, four minutes before this run started.**
+  `perf4h-run.log` carries two blocks: `=== LAUNCH 2026-09-21 06:16:51 ===` with bundle md5
+  `6d19d8a87a5e51da14e6eb00e71d10da`, then `=== RELAUNCH 2026-09-21 06:20:18 ===` with md5
+  `c4a2d9f92a046701fce0192113649722` — the digest this run's identity records. That first block is the
+  stale-bundle death §Phase 4 describes ("booting an app that recompiled itself 6 s in") caught on a real
+  launch rather than in a fixture, and it is also why `.compiled` mtimes cluster at 06:16:57: the tree it
+  compiled against moved underneath it and the run was replaced instead of measured. Every number below
+  therefore belongs to the 06:20:18 relaunch.
+- **Correction from the same watch: the leg-2 "sampler starvation" I recorded a few minutes ago was my own
+  misread of the clock, and the time check refutes it.** The checkpoint log emits one line per 10 samples —
+  `11 … 81` across leg 1 and `91` at 07:50:29 — so leg 2's first checkpoint falls due at ~08:00:29, and the
+  read that was about to be called "minutes late" ran at **08:00:10, nineteen seconds early**. Nothing was
+  late and nothing is starving; the run's own last reading (RAM 1579.93 MB, nine app processes, three harness
+  pids) was healthy throughout. What survives is worth keeping as a *criterion* rather than a finding: the
+  harness is itself a writer at 1200 lines / 30 s in leg 2, so **if leg 2's checkpoints arrive sparser than
+  leg 1's ten-minute cadence, the write path is the bottleneck** — and that would be throughput evidence for
+  Phase 3 item 3 independent of anything the app does. The stale-bundle preflight block above is unaffected
+  by this correction. The window's other writer is explained the same way: the external-load series
+  (`perf4h-external-load.jsonl`) holds 23 entries from 06:26:53 to 08:04:32 local on a steady 5.1-minute
+  cadence (its newest entry, 08:04:32, was 3.4 minutes old when measured at 08:07:56), so it was alive and on
+  schedule *through* the leg-2 transition rather than stalled. Two claims that were written here first do not
+  survive that measurement and are withdrawn: there is **no missed tick** — every gap in the series is 5.1
+  minutes, and the apparent 07:54 → 08:04 hole was an artifact of comparing two of my own readings instead of
+  two consecutive entries — and nothing here says the sampler *finished*, because it is a detached process and
+  its absence from `hub jobs` proves nothing either way. Both writers in this window are simply healthy, which
+  closes the "two writers stalled" reading of the leg-2 transition entirely. (The series also witnesses
+  integrity independently: each entry carries `compiledRewritten` and `externalPids`, alongside `loadPct` and
+  the machine's free/total MB.)
+- **The comparator's three legs are all closed, and they say its CPU is baseline-dominated — which is what
+  makes the 2.8× unattributable rather than merely unexplained.** `real-soak-8h-legs4h2.json` does not exist;
+  only the checkpoint does (`status: in-progress`, 231 samples, yet all three legs closed — the same
+  stale-final shape the first bullet in this section documents). Its legs, read from that checkpoint:
+
+  | leg | injected volume | bursts / switches | cpu s/min |
+  |---|---|---|---|
+  | 1 baseline | 300 lines / 30 s — 35,700 lines | 119 / 1169 | **2.488** |
+  | 2 burst4x | 1200 lines / 30 s — 142,800 lines | 119 / 1169 | **2.985** |
+  | 3 burst-off | 1 line / 600 s — 5 lines | 5 / 1170 | **2.919** |
+
+  A 4× volume increase moves CPU by 20%, and a leg that injects **five lines in an hour** still costs 2.919
+  s/min — more than the heavy baseline leg. So for legs4h2 the cost is the *baseline* (fixture tick at 200 ms,
+  six tabs, renderers), not the terminal burst. That matters here for exactly one reason: a 2.83× gap on
+  baseline-dominated work cannot be explained by "more work per push", so it is either the machine (against
+  which the idle-background measurements above argue) or the app code, which does differ between the two runs —
+  and the clean evidence for that is the compile boundary, not any single file's mtime: legs4h2 loaded the last
+  pre-launch compile (01:04), while 812 of the 834 compiled files were rewritten at 06:16, after legs4h2 ended. A
+  file written *during* the window is not evidence about that run: what the boundary shows is the compile, and the
+  app that ran had already loaded its own copy, so nothing written to `.compiled` while that run was in flight could
+  have reached it. This run's own legs 2 and 3 are the other half of that evidence and are already in
+  flight: if their CPU stays flat the way legs4h2's did, the *shape* matches and only the level differs; if
+  they scale with volume, the current bundle has introduced workload-dependent cost, which would be a more
+  serious finding than either hypothesis above.
+
+## Open items added by the in-flight reads (2026-09-21)
+
+Recorded so the verdict pass does not have to re-derive them. None of them is a patch to make while this run is
+in flight.
+
+### The checkpoint and log advance every 10 samples, so ~10 minutes of silence is not a stall
+
+Measured 2026-09-21 08:19 while leg 2 was open: `perf4h-run.log` and `real-soak-8h-perf4h-checkpoint.json` both had
+mtime 08:10:29 — 535 s old — while `samples` was 111 and leg 2's `observedMinutes` was 19.85, i.e. both writers were
+exactly in step with each other. The reason is cadence, not failure: the checkpoint is written and logged once per
+**10** samples (`Saved 11 / 21 / … / 111 samples`), and samples accrue at one per minute. Liveness was checked
+directly instead of inferred — `perf4h-pid-manifest-20260921.json` records harness pid 21752 and app main pid 2596,
+both alive at that moment (2596 is the same pid the CPU table lists as `Browser#2596`).
+
+So an age of up to ~10 minutes is normal for both files, and neither one's mtime is a liveness signal. What *is* a
+signal is the two disagreeing, or a leg's `observedMinutes` falling behind wall clock.
+
+
+
+### The switch-latency shift is a floor, not a tail — and it is present from minute one
+
+Both checkpoints keep their full `switchSamples` (dropped = 0), so the two runs can be compared by phase without
+relying on the report's percentile fields:
+
+| phase | perf4h min / p50 / p95 / max | legs4h2 min / p50 / p95 / max |
+|---|---|---|
+| warmup (n = 585 in both) | 12.49 / **15.75** / 20.99 / 34.85 | 8.29 / **10.68** / 13.26 / 32.10 |
+| workload | 12.06 / **15.69** / 20.53 / 30.94 | 8.08 / **10.74** / 13.07 / 94.69 |
+
+Three things follow, and they are what the verdict has to say next to the gate row:
+
+- **The shift is additive and constant.** `min` moves too (8.08 → 12.06), so it is not a heavier tail; the tail
+  actually *shrank* (94.69 → 30.94). Every switch pays roughly 4-5 ms more, and the fastest switch is no exception.
+- **It is not drift and not a leak.** Warmup is the run's first 30 minutes at the lowest load, the sample count is
+  identical (585 each), and the gap is already fully present there (10.68 → 15.75). A within-run degradation would
+  start at parity and grow; this starts at +5 ms.
+- **It is not attributable to the host on its own.** The same machine ran both, and the non-Chromium console host —
+  which cannot have changed with a Chromium compositor fix — moved 1.48× while the GPU process moved 4.41× and the
+  UI-surface bundle 6.06×. A host-wide slowdown would move the console host by the same factor it moves the
+  compositor; 1.48× on that host does not account for +5 ms on a Chromium switch, so the remainder sits on the
+  bundle. That remainder is the term the pre-01:04 worktree A/B below is meant to separate, and the capture and
+  compositor commits (`a25d9f99` "restore native view canvas background and remove DOM fill", `133c54fa` "refuse a
+  capture whose view has no compositor surface", `2697a28c` "stop hung capturePage wedging guest canvas") are the
+  candidates that a fixed per-switch compositor cost would come from.
+
+The comparator's tail is also a single sample, not a distribution: its next-slowest switch is 25.33 ms, against the
+94.69 ms outlier at +48.8 min and a batch of 16-25 ms behind that. This run's top three are 34.85 / 30.94 / 26.91,
+and its worst sits in warmup at +16.6 min. So the two runs differ not in how bad their worst case is but in where
+the cost sits: the comparator had one stall and a 10.7 ms floor, this run has no stall and a 15.7 ms floor.
+
+### Why the memory rise and the CPU rise almost certainly have different owners
+
+`activeWorkingSetMB` runs higher in this run than in the comparator at every checkpoint (postWarmup → final:
+1571.77 → 1579.93 against 1503.57 → 1560.39), which is what fails the ≤ 1600 MB gate at 1607.08. That direction is
+exactly what the retention fix predicts: `renderChromeProfiles()` and `renderPhoneStatus()` stopped rebuilding
+their subtrees on every push, and the DOM they no longer throw away is memory they now keep. So the same change
+that removes per-push work also removes per-push garbage — memory up, work down.
+
+The CPU and GPU went *up* (2.488 → 7.039 s/min on identical leg-1 work; GPU 0 → 124.16 s on a 59-minute leg). A
+change that makes the app do less per push cannot produce that, and no per-workload term can either (leg 2 moved
+the injected volume 4× and CPU by +0.8%). So the memory side of this run is the toolbar fix working, and the CPU
+side is a different commit — which leaves the capture/compositor group named above as the candidate, not because
+it is convenient but because it is the only group in the delta that adds work rather than removing it.
+(`[INFERENCE]` — the split is inferred from the directions; the numbers on both sides are measured.)
+
+1. **Compile in a worktree at `08c4d541`, then A/B it against the current harness.** `08c4d541` (00:32:54) was
+   `HEAD` at the 01:04 compile, i.e. the tree the comparator (`legs4h2`) launched on at 01:41; `HEAD` now is
+   `2697a28c` (01:31:21). So **exactly two commits** — `0f8c51ca` "badge MCP risk and honor highlight color"
+   (which is also a browser/renderer commit: `toolbar.ts` +495 lines) and `2697a28c` (stop hung capturePage
+   wedging guest canvas) — entered this run's bundle that the comparator's
+   could not have had, alongside **14** `src/` edits made between **01:09:53 and 01:37:15** and **13** tracked files
+   currently modified. The strongest candidate — the change that moved background painting from a DOM fill onto the
+   native view's canvas and the compositor — sits in that group. `toolbar.ts` (06:10, uncommitted) is this plan's
+   retention fix and it *removes* work, so it cannot explain a cost increase. The worktree run is the only run that
+   separates this code term from the harness term; it needs its own `npm run compile` and must not run while this
+   soak holds the machine. The uncommitted residue is not reconstructible, so that run bounds the **committed** delta
+   rather than the whole one — and it is the only operation that removes the harness term from the host term.
+2. **Put the GPU facts in the artifact.** `app.getGPUFeatureStatus()` (compositing/video Hardware Accelerated — the
+   prior plan's own acceptance check) plus the GPU process's share of each leg's CPU, so a 4.41× GPU reading is
+   either reproduced or named as a path change instead of left to inference. The per-process rows the app already
+   emits carry neither GPU nor feature status.
+3. **State the latency gate's harness-term limit in the verdict.** A same-bundle control bounds the *host* term but
+   not the round-trip the harness itself takes through the browser-control port, which is where a slower reply lands
+   as a tail-switch stall. The verdict can say the tail is not a per-tab or per-push cost; it cannot say the
+   harness's own round trip is excluded while no same-bundle run under separate harness PIDs exists.
+4. **The fixed switch cost is a constant step; its owner is not `2697a28c`.** Per-switch
+   latency is load- and time-independent in both runs — over 1753 workload switches
+   `r(ms, CPU per minute) = +0.074` (16.18 ms in the lowest-CPU fifth vs 16.51 in the
+   highest), drift `+0.006 ms/min` over 90 minutes, with the comparator at `r = −0.024`,
+   `−0.001 ms/min` — so the +5.6 ms p50 shift is a **constant step in the switch path**,
+   not scaling work. The earlier attribution to `2697a28c` (removing
+   `isTemporarilyAttachedView` so every activation recycles) is **false**: that commit
+   only changes the capture-held path (`git show 2697a28c -- src/main/browser/native-tab-host.ts`,
+   13 lines). A soak switch does not hold a capture. The working-tree instrument that
+   names the step is the `switch-steps` row inside `switchTab` (six marks, collected as
+   `switchStepSamples`); the aborted `perf4h` run does not carry it. The staged A/B
+   worktrees (`AntiFan-wt-0f8c51ca`, `AntiFan-wt-08c4d541`) remain valid for *which commit
+   introduced the step* once a short workload leg is run with the new rows — they are not
+   a reason to ship a conditional-recycle patch first.
+
