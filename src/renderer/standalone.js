@@ -321,6 +321,48 @@ function commitTabReorder(sourceId, targetId) {
   renderTabs();
   if (api?.reorderTerminals) void api.reorderTerminals(sessions.map((x) => x.id));
 }
+window.addEventListener('pointermove', (e) => {
+  const drag = pointerTabDrag;
+  if (!drag || drag.pointerId !== e.pointerId) return;
+  const dx = e.clientX - drag.startX;
+  const dy = e.clientY - drag.startY;
+  if (!drag.active) {
+    if (dx * dx + dy * dy < 16) return;
+    drag.active = true;
+    dragSourceSessionId = drag.sessionId;
+    drag.wrap.classList.add('dragging');
+  }
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  if (tabsEl) tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+  const target = hit && hit.closest ? (hit.closest('.terminal-tab-category-header') || hit.closest('.terminal-tab-wrap')) : null;
+  if (target && target !== drag.wrap) target.classList.add('drag-over');
+});
+window.addEventListener('pointerup', (e) => {
+  const drag = pointerTabDrag;
+  if (!drag || drag.pointerId !== e.pointerId) return;
+  pointerTabDrag = null;
+  dragSourceSessionId = null;
+  drag.wrap.classList.remove('dragging');
+  if (tabsEl) tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+  if (!drag.active) return;
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  const header = hit && hit.closest ? hit.closest('.terminal-tab-category-header') : null;
+  if (header) {
+    commitCategoryDrop(drag.sessionId, header);
+    return;
+  }
+  const row = hit && hit.closest ? hit.closest('.terminal-tab-wrap') : null;
+  const targetId = row ? row.getAttribute('data-session-id') : '';
+  if (targetId) commitTabReorder(drag.sessionId, targetId);
+});
+window.addEventListener('pointercancel', () => {
+  if (!pointerTabDrag) return;
+  pointerTabDrag.wrap.classList.remove('dragging');
+  pointerTabDrag = null;
+  dragSourceSessionId = null;
+  if (tabsEl) tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+});
+
 
 
 function findSession(sessionId) {
@@ -3678,6 +3720,37 @@ function updateTabActivityUi(sessionId) {
 }
 
 /**
+ * A split row's tooltip names the tab it splits. The parent's name is live, so the
+ * lookup happens per render rather than being baked in when the row is created: a
+ * renamed parent has to show its new name in the child's tooltip.
+ */
+function splitGlyphTitle(session) {
+  const parent = session && session.splitOf ? findSession(session.splitOf) : null;
+  return (parent && parent.name)
+    ? `Pane chia đôi của "${parent.name}"`
+    : 'Pane chia đôi';
+}
+
+/** The tab-strip badge that opens the browser-tab affinity picker for one tab. */
+function createAffinityBadge(s) {
+  const badge = document.createElement('span');
+  badge.className = 'terminal-tab-affinity-badge unbound';
+  badge.setAttribute('data-session-id', s.id);
+  badge.textContent = '🎯 Gán Tab';
+  badge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
+  if (isSessionSleeping(s.id)) {
+    badge.className = 'terminal-tab-affinity-badge sleeping';
+    badge.textContent = '💤 Ngủ';
+    badge.title = 'Terminal đang ngủ — click để đánh thức';
+  }
+  badge.onclick = (e) => {
+    e.stopPropagation();
+    showAffinityPicker(s.id, badge);
+  };
+  return badge;
+}
+
+/**
  * Create-or-update the tab wrap for one session. Extracted from `renderTabs` so
  * the grouping pass can order wraps after every one of them exists.
  */
@@ -3692,50 +3765,14 @@ function ensureTerminalTabWrap(s, currentWraps) {
     wrap.draggable = false;
 
     // Pointer drag, not HTML5 drag. Windows routes HTML5 drag through OLE / DirectUI
-    // (DUI70.dll); that path null-deref'd the process (STATUS_ACCESS_VIOLATION,
-    // minidump ae140025) while a tab was dragged onto a group. Pointer events stay
-    // inside the renderer and never enter that native drag loop.
+    // (DUI70.dll); that path null-deref'd the process while a tab was dragged onto a
+    // group. No setPointerCapture: capturing then removing the row (a session
+    // broadcast mid-drag) swallows every later click in this page.
     wrap.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || s.splitOf) return;
+      if (e.target && e.target.closest && e.target.closest('.terminal-tab-close, .terminal-tab-affinity-badge')) return;
       pointerTabDrag = { sessionId: s.id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, wrap };
     });
-    wrap.addEventListener('pointermove', (e) => {
-      const drag = pointerTabDrag;
-      if (!drag || drag.pointerId !== e.pointerId || drag.sessionId !== s.id) return;
-      const dx = e.clientX - drag.startX;
-      const dy = e.clientY - drag.startY;
-      if (!drag.active) {
-        if (dx * dx + dy * dy < 16) return;
-        drag.active = true;
-        dragSourceSessionId = drag.sessionId;
-        wrap.classList.add('dragging');
-        try { wrap.setPointerCapture(e.pointerId); } catch {}
-      }
-      const hit = document.elementFromPoint(e.clientX, e.clientY);
-      tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
-      const target = hit && hit.closest ? (hit.closest('.terminal-tab-category-header') || hit.closest('.terminal-tab-wrap')) : null;
-      if (target && target !== wrap) target.classList.add('drag-over');
-    });
-    const finishPointerDrag = (e) => {
-      const drag = pointerTabDrag;
-      if (!drag || drag.pointerId !== e.pointerId || drag.sessionId !== s.id) return;
-      pointerTabDrag = null;
-      dragSourceSessionId = null;
-      wrap.classList.remove('dragging');
-      tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
-      if (!drag.active) return;
-      const hit = document.elementFromPoint(e.clientX, e.clientY);
-      const header = hit && hit.closest ? hit.closest('.terminal-tab-category-header') : null;
-      if (header) {
-        commitCategoryDrop(drag.sessionId, header);
-        return;
-      }
-      const row = hit && hit.closest ? hit.closest('.terminal-tab-wrap') : null;
-      const targetId = row ? row.getAttribute('data-session-id') : '';
-      if (targetId) commitTabReorder(drag.sessionId, targetId);
-    };
-    wrap.addEventListener('pointerup', finishPointerDrag);
-    wrap.addEventListener('pointercancel', finishPointerDrag);
 
     const b = document.createElement('button');
     b.type = 'button';
@@ -4820,7 +4857,17 @@ async function bootstrapTerminalState() {
 
   try {
     const listFn = api?.listTerminals || api?.listSessions;
-    const sessionList = await listFn?.();
+    // The daemon proxy warms its session cache asynchronously after connect; a
+    // list call that lands inside that window returns [] even though the host
+    // owns dozens of live sessions. Treating that as "no terminals" both hides
+    // every tab and mints a stray empty shell (the pile of "Terminal N" rows a
+    // restart used to leave behind). Retry briefly before believing the empty
+    // answer; only a still-empty list after the window means "really none".
+    let sessionList = await listFn?.();
+    for (let attempt = 0; (!Array.isArray(sessionList) || sessionList.length === 0) && attempt < 10; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      sessionList = await listFn?.();
+    }
     if (Array.isArray(sessionList) && sessionList.length > 0) {
       sessions = sessionList;
       if (!activeId || !sessions.some((item) => item.id === activeId)) {
@@ -4831,7 +4878,11 @@ async function bootstrapTerminalState() {
           activeId = sessions[0]?.id || '';
         }
       }
-      if (!initialPushReceived) {
+      // A push that lands while the host cache is still cold renders an empty strip.
+      // That must not suppress this corrective paint, or the sidebar stays blank until
+      // the next host broadcast. When a push did render the list, the wraps are already
+      // in the DOM and this is a no-op.
+      if (!initialPushReceived || tabsEl.querySelectorAll('.terminal-tab-wrap').length === 0) {
         renderTabs();
         syncTerminalPool(sessions, activeId);
       }
