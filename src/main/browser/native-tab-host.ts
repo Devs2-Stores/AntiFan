@@ -4,7 +4,7 @@
  * Multi-tab, Docked DevTools, GPU Lens, Font Finder, Device Emulation, Bookmarks,
  * AI Chat Sidebar (WebSocket Relay with Antigravity IDE), Global Shortcuts, and Context Menu.
  */
-import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net, session, safeStorage } from 'electron';
+import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net, session, safeStorage, screen } from 'electron';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
@@ -440,6 +440,9 @@ export class NativeTabHost extends EventEmitter {
   private toolbarView: WebContentsView;
   private frameBackdropView: WebContentsView | null = null;
   private sidebarView: WebContentsView | null = null;
+  /** Off-screen window that hosts a background pane for one raster so MCP capture does not paint that pane over the user's tab. */
+  private captureHostWindow: BrowserWindow | null = null;
+  private raisedCaptureView: WebContentsView | null = null;
   private popoutWindow: BrowserWindow | null = null;
   private terminalWindows: Map<number, BrowserWindow> = new Map();
   // Per-session coalescing buffer for 'antifan:terminal:data' fan-out. PTY bursts
@@ -3047,8 +3050,12 @@ export class NativeTabHost extends EventEmitter {
   private temporaryViewAttachCounts = new WeakMap<WebContentsView, { count: number; attachedByHelper: boolean }>();
 
   public isTabViewAttached(view: WebContentsView | null | undefined): boolean {
-    if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return false;
-    return Array.isArray(this.window.contentView.children) && this.window.contentView.children.includes(view);
+    if (!view) return false;
+    if (this.window && (typeof this.window.isDestroyed !== 'function' || !this.window.isDestroyed()) && this.window.contentView && Array.isArray(this.window.contentView.children) && this.window.contentView.children.includes(view)) {
+      return true;
+    }
+    const host = this.captureHostWindow;
+    return Boolean(host && (typeof host.isDestroyed !== 'function' || !host.isDestroyed()) && Array.isArray(host.contentView?.children) && host.contentView.children.includes(view));
   }
 
   /**
@@ -3068,10 +3075,10 @@ export class NativeTabHost extends EventEmitter {
    * (`frameBackdropView` `#060910` showing through) while DevTools still showed
    * the DOM; F5 healed because `did-finish-load` calls `updateLayout()` with the
    * window's content box. Recycle the layer (remove + attach) then run that
-   * same layout path. Never pin `getBounds()`: it is stale after DevTools dock
-   * or capture occlusion.
+   * same layout.
    */
   public reassertPresentedView(): void {
+    this.lowerRaisedCaptureView();
     if (this.isDisposed) return;
     if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
     // Guarded by their own fields: several tests build a host without running field
@@ -3102,6 +3109,8 @@ export class NativeTabHost extends EventEmitter {
     if (typeof wc.setBackgroundThrottling === 'function') {
       try { wc.setBackgroundThrottling(false); } catch {}
     }
+    this.enforceZOrder();
+    this.detachUnpresentedTabViews();
     this.enforceZOrder();
     // Authoritative bounds — same path F5 uses. Do not round-trip getBounds().
     this.updateLayout();
@@ -3138,6 +3147,25 @@ export class NativeTabHost extends EventEmitter {
     if (!view || !this.temporaryViewAttachCounts) return false;
     const state = this.temporaryViewAttachCounts.get(view);
     return Boolean(state && state.count > 0);
+  }
+
+  /**
+   * A tab view that is in the window but is neither the presented tab nor held by
+   * an in-flight attach-for-capture paints over the user's tab (measured: a white
+   * background pane covering the content area while MCP runs). Detach those.
+   * A temporarily-held view stays: the capture path owns its lifetime.
+   */
+  private detachUnpresentedTabViews(): void {
+    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView || !this.tabs) return;
+    const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    for (const tab of this.tabs.values()) {
+      for (const view of [tab.view, tab.mobileView]) {
+        if (!view || view === activeTab?.view || view === activeTab?.mobileView) continue;
+        if (this.isTemporarilyAttachedView(view)) continue;
+        if (!this.isTabViewAttached(view)) continue;
+        try { this.window.contentView.removeChildView(view); } catch {}
+      }
+    }
   }
 
   public async runWithAttachedTabView<T>(view: WebContentsView | null | undefined, action: () => Promise<T>, isMobile = false): Promise<T> {
@@ -3179,7 +3207,12 @@ export class NativeTabHost extends EventEmitter {
           this.temporaryViewAttachCounts.delete(view);
           const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
           const isActiveView = activeTab && (activeTab.view === view || activeTab.mobileView === view);
-          if (!isActiveView && current.attachedByHelper) {
+          // Detach whenever this view is no longer the presented tab. `attachedByHelper`
+          // is false when the view was already attached at entry (it was the active tab).
+          // A switch during the probe leaves that view in the tree — switchTab will not
+          // detach a temporarily-held view — and skipping the detach here is what leaves
+          // a second full-size pane painted over the tab the user is looking at.
+          if (!isActiveView) {
             try {
               if (this.window && (typeof this.window.isDestroyed !== 'function' || !this.window.isDestroyed()) && this.window.contentView && this.isTabViewAttached(view)) {
                 this.window.contentView.removeChildView(view);
@@ -3201,13 +3234,107 @@ export class NativeTabHost extends EventEmitter {
    * helper-attached background view is occluded. On Windows an occluded
    * WebContentsView produces no compositor frame, and Page.captureScreenshot
    * `{ fromSurface: true }` then waits out the 8s no-surface probe (measured:
-   * inactive bagamuioto + mdn video). Lift the capture view above the active
-   * tab and below chrome for the raster; `reassertPresentedView` restores.
-   * Does not change `activeTabId`.
+   * inactive bagamuioto + mdn video). Host the pane on an off-screen window for
+   * the raster so it is not painted over the user's tab. Does not change `activeTabId`.
    */
   public raiseViewForCapture(view: WebContentsView): void {
     if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
     if (!this.isTabViewAttached(view)) return;
+    if (this.raiseViewOnCaptureHost(view)) return;
+    // Host unavailable (tests, or BrowserWindow refused): fall back to the in-window
+    // lift. That paints the pane over the user's tab for the raster; reassert lowers it.
+    this.raiseViewInWindow(view);
+  }
+
+  /**
+   * Move the capture pane to a shown-but-off-screen window so Windows still
+   * composites a frame (an occluded in-window view does not) without covering
+   * the tab the user is looking at. Returns false when that window cannot be
+   * created; the caller then lifts in-window.
+   */
+  private raiseViewOnCaptureHost(view: WebContentsView): boolean {
+    const host = this.ensureCaptureHostWindow();
+    if (!host) return false;
+    const current = typeof view.getBounds === 'function' ? view.getBounds() : undefined;
+    const width = Math.max(1, Math.round(current?.width || 1280));
+    const height = Math.max(1, Math.round(current?.height || 800));
+    const origin = this.offscreenCaptureOrigin(width, height);
+    try {
+      host.setBounds({ x: origin.x, y: origin.y, width, height });
+      if (!host.isVisible()) host.showInactive();
+      if (this.isTabViewAttached(view)) this.window.contentView.removeChildView(view);
+      host.contentView.addChildView(view);
+      if (typeof view.setBounds === 'function') view.setBounds({ x: 0, y: 0, width, height });
+      this.raisedCaptureView = view;
+      const wc = view.webContents;
+      if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.invalidate === 'function') {
+        try { wc.invalidate(); } catch {}
+      }
+      return true;
+    } catch (err) {
+      console.warn('[native-tab-host] capture-host raise failed:', err);
+      this.raisedCaptureView = null;
+      return false;
+    }
+  }
+
+  private ensureCaptureHostWindow(): BrowserWindow | null {
+    if (this.captureHostWindow && (typeof this.captureHostWindow.isDestroyed !== 'function' || !this.captureHostWindow.isDestroyed())) {
+      return this.captureHostWindow;
+    }
+    try {
+      const host = new BrowserWindow({
+        show: false,
+        frame: false,
+        skipTaskbar: true,
+        focusable: false,
+        minimizable: false,
+        closable: false,
+        resizable: false,
+        width: 1280,
+        height: 800,
+        x: -16000,
+        y: -16000,
+        backgroundColor: '#000000',
+      });
+      this.captureHostWindow = host;
+      return host;
+    } catch (err) {
+      console.warn('[native-tab-host] capture host window unavailable:', err);
+      return null;
+    }
+  }
+
+  private offscreenCaptureOrigin(width: number, height: number): { x: number; y: number } {
+    let minX = 0;
+    let minY = 0;
+    try {
+      for (const display of screen.getAllDisplays()) {
+        minX = Math.min(minX, display.bounds.x);
+        minY = Math.min(minY, display.bounds.y);
+      }
+    } catch {}
+    return { x: minX - width - 64, y: minY - height - 64 };
+  }
+
+  /** Return a host-raised pane to the main window, below the presented tab. */
+  private lowerRaisedCaptureView(): void {
+    const view = this.raisedCaptureView;
+    if (!view) return;
+    this.raisedCaptureView = null;
+    const host = this.captureHostWindow;
+    try {
+      if (host && (typeof host.isDestroyed !== 'function' || !host.isDestroyed()) && Array.isArray(host.contentView?.children) && host.contentView.children.includes(view)) {
+        host.contentView.removeChildView(view);
+      }
+    } catch {}
+    if (!this.isTemporarilyAttachedView(view)) return;
+    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed())) return;
+    this.attachTabView(view, false);
+  }
+
+  private raiseViewInWindow(view: WebContentsView): void {
+    if (!this.window || !this.window.contentView) return;
     const contentView = this.window.contentView;
     try {
       if (typeof contentView.removeChildView === 'function') contentView.removeChildView(view);
@@ -8751,6 +8878,13 @@ export class NativeTabHost extends EventEmitter {
       this.terminalDataFlushTimer = null;
     }
     this.isDisposed = true;
+    try {
+      if (this.captureHostWindow && (typeof this.captureHostWindow.isDestroyed !== 'function' || !this.captureHostWindow.isDestroyed())) {
+        this.captureHostWindow.destroy();
+      }
+    } catch {}
+    this.captureHostWindow = null;
+    this.raisedCaptureView = null;
     this.automationHost?.dispose();
     this.asyncQaQueue?.abortAll();
     this.semanticRefRegistry?.destroy();

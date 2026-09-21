@@ -215,6 +215,10 @@ export class SessionRecord {
   public altScreen?: boolean;
   public altScreenScanTail?: string;
   public inputLineBuffer?: string;
+  /** Keystrokes buffered while the PTY start is deferred; flushed on spawn. */
+  public pendingInput?: string;
+  /** Set by wakeSession when the spawn is deferred: fold restoredTail into buffer once the live record exists. */
+  public wakeFoldPending?: boolean;
   public category?: string;
   public sleptAt?: number;
 
@@ -1202,7 +1206,16 @@ export class TerminalManager extends EventEmitter {
         reserved.sessionGeneration,
       );
     } catch {
-      return this.sessions.get(id) || reserved;
+      const failed = this.sessions.get(id) || reserved;
+      if (failed.wakeFoldPending) {
+        // The wake's spawn never materialized: put the session back to sleep so
+        // the transcript stays parked and a retry remains possible.
+        failed.wakeFoldPending = false;
+        failed.state = 'sleeping';
+        failed.sleptAt = Date.now();
+        this.emitSession();
+      }
+      return failed;
     }
     // The spawned record carries the restored transcript in restoredTail
     // (passed as restoredBuffer); identity fields are re-applied so tabs,
@@ -1212,6 +1225,10 @@ export class TerminalManager extends EventEmitter {
     live.splitOf = reserved.splitOf;
     live.capsuleId = reserved.capsuleId;
     live.category = reserved.category;
+    // spawn() replaced the reserved record. Flags and keystrokes parked on it
+    // do not survive that replacement unless they are copied onto the live one.
+    live.wakeFoldPending = reserved.wakeFoldPending;
+    live.pendingInput = reserved.pendingInput;
     live.lastSeq = reserved.lastSeq || 0;
     if (reserved.chunks && reserved.chunks.length > 0) {
       live.chunks = [...reserved.chunks];
@@ -1220,7 +1237,42 @@ export class TerminalManager extends EventEmitter {
       live.buffer = reserved.buffer;
       live.bufferBytes = reserved.bufferBytes;
     }
+    if (live.wakeFoldPending) {
+      live.wakeFoldPending = false;
+      if (live.restoredTail) {
+        live.buffer = live.restoredTail + live.buffer;
+        live.bufferBytes = Buffer.byteLength(live.buffer, 'utf8');
+        live.restoredTail = undefined;
+      }
+    }
+    if (live.pendingInput) {
+      const queued = live.pendingInput;
+      live.pendingInput = undefined;
+      try { live.pty?.write(queued); } catch {}
+      this.trackInputLine(live, queued);
+    }
     return live;
+  }
+
+  /**
+   * Creates the session record and reserves its generation without spawning the
+   * shell. `pty.spawn` blocks the calling thread for the whole process-start
+   * window (winpty agent + shell cold start), so user-facing paths register the
+   * record instantly and let the deferred queue start the PTY off the IPC path.
+   */
+  private createDeferredSession(
+    id: string,
+    cwd: string,
+    restoredBuffer = '',
+    initialCols?: number,
+    initialRows?: number,
+    minimumRows = MIN_TERMINAL_ROWS,
+    parentSessionId?: string,
+    parentGeneration?: number,
+  ): Session {
+    const generation = (this.sessionGenerations.get(id) || 0) + 1;
+    this.sessionGenerations.set(id, generation);
+    return this.createSessionRecord(id, cwd, restoredBuffer, initialCols, initialRows, minimumRows, parentSessionId, generation, parentGeneration);
   }
 
   private scheduleDeferredPtyStarts(ids: string[]): void {
@@ -1262,6 +1314,9 @@ export class TerminalManager extends EventEmitter {
       validCwd = process.cwd();
     }
     const shell = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/bash');
+    // -NoProfile skips $PROFILE evaluation and most AMSI script inspection on cold
+    // start; -NoLogo drops the banner. Both cut the synchronous spawn window.
+    const shellArgs: string[] = process.platform === 'win32' ? ['-NoProfile', '-NoLogo'] : [];
     let child: pty.IPty;
     const cols = Math.max(40, initialCols || this.lastCols || 120);
     const rows = Math.max(minimumRows, initialRows || this.lastRows || 30);
@@ -1306,9 +1361,9 @@ export class TerminalManager extends EventEmitter {
 
     const spawnWithCwd = (options: pty.IPtyForkOptions | pty.IWindowsPtyForkOptions, targetCwd: string): pty.IPty => {
       try {
-        return pty.spawn(shell, [], { ...options, cwd: targetCwd });
+        return pty.spawn(shell, shellArgs, { ...options, cwd: targetCwd });
       } catch {
-        return pty.spawn(shell, [], { ...options, cwd: os.homedir() });
+        return pty.spawn(shell, shellArgs, { ...options, cwd: os.homedir() });
       }
     };
 
@@ -1499,7 +1554,8 @@ export class TerminalManager extends EventEmitter {
       } else {
         const id = this.nextTerminalId();
         this.activeSessionId = id;
-        this.spawn(id, this.currentCwd);
+        this.createDeferredSession(id, this.currentCwd);
+        this.scheduleDeferredPtyStarts([id]);
       }
       this.persist();
       this.emitSession();
@@ -1520,18 +1576,30 @@ export class TerminalManager extends EventEmitter {
 
   public write(input: string): void {
     const s = this.resolveWritableSession(this.activeSessionId);
-    if (!s || !s.pty) return;
+    if (!s) return;
     // The keystroke must reach the shell before the detector runs: the detector
     // only observes, it never swallows, reorders, or delays input.
-    s.pty.write(input);
-    this.trackInputLine(s, input);
+    this.writeOrQueue(s, input);
   }
 
   public writeTo(id: string, input: string): void {
     const s = this.resolveWritableSession(id);
-    if (!s || !s.pty) return;
-    s.pty.write(input);
-    this.trackInputLine(s, input);
+    if (!s) return;
+    this.writeOrQueue(s, input);
+  }
+
+  /**
+   * Delivers input to a session whose shell may still be starting. A deferred
+   * spawn leaves `pty` null for a few hundred ms; the keystroke is parked on the
+   * record and flushed by ensureSessionPty the moment the shell exists.
+   */
+  private writeOrQueue(s: Session, input: string): void {
+    if (s.pty) {
+      s.pty.write(input);
+      this.trackInputLine(s, input);
+      return;
+    }
+    s.pendingInput = ((s.pendingInput || '') + input).slice(-INPUT_LINE_MAX_CHARS * 8);
   }
 
   /**
@@ -1547,6 +1615,12 @@ export class TerminalManager extends EventEmitter {
     if (record && !record.disposed && record.state === 'sleeping') {
       if (!this.wakeSession(id)) return undefined;
       return this.sessions.get(id);
+    }
+    if (record && !record.disposed && !record.pty) {
+      // A deferred PTY start must not be forced synchronous by the first
+      // keystroke: queue the start and let writeOrQueue park the input.
+      this.scheduleDeferredPtyStarts([id]);
+      return record;
     }
     return this.ensureSessionPty(id);
   }
@@ -1778,10 +1852,11 @@ export class TerminalManager extends EventEmitter {
       await this.safelyKillSession(targetSession);
       this.sessions.delete(id);
     }
-    const s = this.spawn(id, cwd || this.currentCwd);
+    const s = this.createDeferredSession(id, cwd || this.currentCwd);
     if (prevName) s.name = prevName;
     if (prevCapsuleId) s.capsuleId = prevCapsuleId;
     if (prevCategory) s.category = prevCategory;
+    this.scheduleDeferredPtyStarts([id]);
     this.persist();
     this.emitSession();
     this.emit('session-restarted', { id, generation: s.sessionGeneration });
@@ -1791,7 +1866,8 @@ export class TerminalManager extends EventEmitter {
     this.isDisposed = false;
     const id = this.nextTerminalId();
     this.activeSessionId = id;
-    const s = this.spawn(id, cwd || this.currentCwd);
+    const s = this.createDeferredSession(id, cwd || this.currentCwd);
+    this.scheduleDeferredPtyStarts([id]);
     this.persist();
     this.emitSession();
     this.emit('session-created', { id, generation: s.sessionGeneration });
@@ -1819,11 +1895,12 @@ export class TerminalManager extends EventEmitter {
     while (this.sessions.has(`split-${n}`)) n++;
     const id = `split-${n}`;
     const targetCols = Math.max(40, initialCols || this.lastCols || 120);
-    const targetRows = Math.max(MIN_SPLIT_TERMINAL_ROWS, initialRows || this.getInitialSplitRows(parent.pty?.rows));
-    const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS, parentId, parent.sessionGeneration);
+    const targetRows = Math.max(MIN_SPLIT_TERMINAL_ROWS, initialRows || this.getInitialSplitRows(parent.pty?.rows || parent.pendingRows));
+    const splitSession = this.createDeferredSession(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS, parentId, parent.sessionGeneration);
     splitSession.splitOf = parentId;
     splitSession.capsuleId = parent.capsuleId || this.currentCapsuleId;
     splitSession.category = parent.category;
+    this.scheduleDeferredPtyStarts([id]);
     this.persist();
     this.emitSession();
     this.emit('session-created', { id, parentId, generation: splitSession.sessionGeneration });
@@ -1933,25 +2010,19 @@ export class TerminalManager extends EventEmitter {
       const parent = this.sessions.get(s.splitOf);
       if (parent && !parent.disposed && parent.state === 'sleeping') this.wakeSession(s.splitOf);
     }
-    // ensureSessionPty replaces the reserved record with the spawned one, so the
-    // state flip and the event must be driven from the returned live record.
-    const live = this.ensureSessionPty(id);
-    if (!live || !live.pty) return false;
-    // The folded transcript returns to the live buffer. It is the SAME session
-    // continuing, not a previous run, so its history must travel in the field a
-    // running session persists: a `restoredTail` is display-only and is dropped
-    // from disk for a live session, which would lose the whole transcript if the
-    // user quit before the shell printed anything new.
-    if (live.restoredTail) {
-      live.buffer = live.restoredTail + live.buffer;
-      live.bufferBytes = Buffer.byteLength(live.buffer, 'utf8');
-      live.restoredTail = undefined;
-    }
-    live.state = 'running';
-    live.sleptAt = undefined;
+    // The shell start is deferred: `pty.spawn` blocks this thread for the whole
+    // process-start window, so the wake flips state and broadcasts immediately
+    // and the deferred queue materializes the PTY off the IPC path. The
+    // transcript fold is deferred with it (wakeFoldPending) — folding here would
+    // move restoredTail into buffer, and ensureSessionPty would then pass that
+    // buffer as restoredBuffer, double-copying the transcript.
+    s.wakeFoldPending = true;
+    s.state = 'running';
+    s.sleptAt = undefined;
+    this.scheduleDeferredPtyStarts([id]);
     this.schedulePersist(id);
     this.emitSession();
-    this.emit('session-woken', { id, generation: live.sessionGeneration });
+    this.emit('session-woken', { id, generation: s.sessionGeneration });
     return true;
   }
 

@@ -1192,9 +1192,16 @@ export class TabDevToolsHost {
     if (!view || typeof view.getBounds !== 'function' || typeof view.setBounds !== 'function') return;
     const bounds = view.getBounds();
     if (bounds && bounds.width > 0 && bounds.height > 0) return;
+    // The authoritative layout knows the pane's real box (toolbar offset, split
+    // frames, device presets). A {x:0,y:0} fallback lands the pane over the
+    // toolbar and, in split review, over the sibling pane.
+    if (this.ctx.applyTabDeviceEmulation) {
+      try { this.ctx.applyTabDeviceEmulation(tabId); return; } catch {}
+    }
     const content = this.ctx.getTabContentBounds ? this.ctx.getTabContentBounds(tabId, paneId) : undefined;
     if (!content || content.width < 1 || content.height < 1) return;
-    view.setBounds({ x: 0, y: 0, width: content.width, height: content.height });
+    const y = bounds && bounds.y > 0 ? bounds.y : 0;
+    view.setBounds({ x: bounds?.x || 0, y, width: content.width, height: content.height });
   }
 
   /**
@@ -1620,7 +1627,10 @@ export class TabDevToolsHost {
     if (!wc || wc.isDestroyed()) return '';
     if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
       if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
-        targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+        // Keep the pane's origin: a {x:0,y:0} clobber slides it over the toolbar
+        // and, in split review, over the sibling pane.
+        const origin = typeof targetPaneView.getBounds === 'function' ? targetPaneView.getBounds() : undefined;
+        targetPaneView.setBounds({ x: origin?.x || 0, y: origin?.y || 0, width: target.customViewport.width, height: target.customViewport.height });
       }
     } else {
       this.ensurePaneViewBounds(targetPaneView, targetId, effectivePane);
@@ -1720,7 +1730,8 @@ export class TabDevToolsHost {
           async () => {
             if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
               if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
-                targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+                const origin = typeof targetPaneView.getBounds === 'function' ? targetPaneView.getBounds() : undefined;
+                targetPaneView.setBounds({ x: origin?.x || 0, y: origin?.y || 0, width: target.customViewport.width, height: target.customViewport.height });
               }
             }
             try {
@@ -1753,6 +1764,10 @@ export class TabDevToolsHost {
           );
         } catch {}
       }
+      // The capture may have resized the pane (custom viewport, zero-size repair).
+      // The verification path restores layout in its own finally; this legacy path
+      // must too, or the clobbered bounds stay until the next manual resize.
+      try { this.ctx.updateLayout?.(); } catch {}
     }
   });
   }
@@ -1915,7 +1930,8 @@ export class TabDevToolsHost {
     const geometryTouched = mode !== 'viewport';
     if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
       if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
-        targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+        const origin = typeof targetPaneView.getBounds === 'function' ? targetPaneView.getBounds() : undefined;
+        targetPaneView.setBounds({ x: origin?.x || 0, y: origin?.y || 0, width: target.customViewport.width, height: target.customViewport.height });
       }
     } else {
       this.ensurePaneViewBounds(targetPaneView, targetId, effectivePane);
@@ -2262,7 +2278,8 @@ export class TabDevToolsHost {
             async () => {
               if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
                 if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
-                  targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+                  const origin = typeof targetPaneView.getBounds === 'function' ? targetPaneView.getBounds() : undefined;
+                  targetPaneView.setBounds({ x: origin?.x || 0, y: origin?.y || 0, width: target.customViewport.width, height: target.customViewport.height });
                 }
               }
               try {

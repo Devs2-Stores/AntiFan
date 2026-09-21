@@ -281,6 +281,47 @@ const collapsedCategories = new Set();
  * a link, a text selection) can never be read as a category assignment.
  */
 let dragSourceSessionId = null;
+let pointerTabDrag = null;
+
+function commitCategoryDrop(sourceId, header) {
+  if (!sourceId || !header) return;
+  const key = header.getAttribute('data-category') || UNCATEGORIZED_CATEGORY;
+  if (key === SLEEPING_CATEGORY) return;
+  const session = findSession(sourceId);
+  if (!session) return;
+  const target = key === UNCATEGORIZED_CATEGORY ? '' : key;
+  const wasSleeping = session.state === 'sleeping';
+  if ((session.category || '') !== target) applyCategoryToSession(sourceId, target, null);
+  // A closed/sleeping tab filed into a group must open immediately, otherwise the
+  // group render hides it in the sleep bucket and the drop looks like it vanished.
+  if (wasSleeping) {
+    wakeSleepingSession(sourceId, '');
+    activateTabLocally(sourceId);
+  }
+}
+
+function commitTabReorder(sourceId, targetId) {
+  if (!sourceId || !targetId || sourceId === targetId) return;
+  const fromIdx = sessions.findIndex((x) => x.id === sourceId);
+  const toIdx = sessions.findIndex((x) => x.id === targetId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const target = sessions[toIdx];
+  const source = sessions[fromIdx];
+  if (target && source && !target.splitOf && (source.category || '') !== (target.category || '')) {
+    applyCategoryToSession(sourceId, target.category || '', null);
+  }
+  if (source && source.state === 'sleeping') {
+    wakeSleepingSession(sourceId, '');
+    activateTabLocally(sourceId);
+  }
+  const [moved] = sessions.splice(fromIdx, 1);
+  const nextTo = sessions.findIndex((x) => x.id === targetId);
+  if (nextTo === -1) return;
+  sessions.splice(nextTo, 0, moved);
+  renderTabs();
+  if (api?.reorderTerminals) void api.reorderTerminals(sessions.map((x) => x.id));
+}
+
 
 function findSession(sessionId) {
   if (!sessionId || !Array.isArray(sessions)) return null;
@@ -1660,7 +1701,7 @@ function writeTermAsync(term, data) {
 // multi-megabyte transcript into a fresh pane only burns renderer parse frames on history
 // the scrollback discards anyway, so hydration writes a trailing window aligned to a line
 // boundary. The main process still owns the full transcript for delta recovery.
-const MAX_HYDRATION_WRITE_CHARS = 1024 * 1024;
+const MAX_HYDRATION_WRITE_CHARS = 256 * 1024;
 function sliceHydrationTail(snapshot) {
   if (!snapshot || snapshot.length <= MAX_HYDRATION_WRITE_CHARS) return snapshot || '';
   let raw = snapshot.slice(-MAX_HYDRATION_WRITE_CHARS);
@@ -3637,37 +3678,6 @@ function updateTabActivityUi(sessionId) {
 }
 
 /**
- * A split row's tooltip names the tab it splits. The parent's name is live, so the
- * lookup happens per render rather than being baked in when the row is created: a
- * renamed parent has to show its new name in the child's tooltip.
- */
-function splitGlyphTitle(session) {
-  const parent = session && session.splitOf ? findSession(session.splitOf) : null;
-  return (parent && parent.name)
-    ? `Pane chia đôi của "${parent.name}"`
-    : 'Pane chia đôi';
-}
-
-/** The tab-strip badge that opens the browser-tab affinity picker for one tab. */
-function createAffinityBadge(s) {
-  const badge = document.createElement('span');
-  badge.className = 'terminal-tab-affinity-badge unbound';
-  badge.setAttribute('data-session-id', s.id);
-  badge.textContent = '🎯 Gán Tab';
-  badge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
-  if (isSessionSleeping(s.id)) {
-    badge.className = 'terminal-tab-affinity-badge sleeping';
-    badge.textContent = '💤 Ngủ';
-    badge.title = 'Terminal đang ngủ — click để đánh thức';
-  }
-  badge.onclick = (e) => {
-    e.stopPropagation();
-    showAffinityPicker(s.id, badge);
-  };
-  return badge;
-}
-
-/**
  * Create-or-update the tab wrap for one session. Extracted from `renderTabs` so
  * the grouping pass can order wraps after every one of them exists.
  */
@@ -3679,52 +3689,53 @@ function ensureTerminalTabWrap(s, currentWraps) {
     wrap = document.createElement('div');
     wrap.className = `terminal-tab-wrap${isActive ? ' active' : ''}`;
     wrap.setAttribute('data-session-id', s.id);
-    wrap.draggable = true;
+    wrap.draggable = false;
 
-    // Drag & Drop Reordering
-    wrap.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('text/plain', s.id);
-      e.dataTransfer.effectAllowed = 'move';
-      dragSourceSessionId = s.id;
-      wrap.classList.add('dragging');
+    // Pointer drag, not HTML5 drag. Windows routes HTML5 drag through OLE / DirectUI
+    // (DUI70.dll); that path null-deref'd the process (STATUS_ACCESS_VIOLATION,
+    // minidump ae140025) while a tab was dragged onto a group. Pointer events stay
+    // inside the renderer and never enter that native drag loop.
+    wrap.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || s.splitOf) return;
+      pointerTabDrag = { sessionId: s.id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, wrap };
     });
-
-    wrap.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      wrap.classList.add('drag-over');
+    wrap.addEventListener('pointermove', (e) => {
+      const drag = pointerTabDrag;
+      if (!drag || drag.pointerId !== e.pointerId || drag.sessionId !== s.id) return;
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      if (!drag.active) {
+        if (dx * dx + dy * dy < 16) return;
+        drag.active = true;
+        dragSourceSessionId = drag.sessionId;
+        wrap.classList.add('dragging');
+        try { wrap.setPointerCapture(e.pointerId); } catch {}
+      }
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+      const target = hit && hit.closest ? (hit.closest('.terminal-tab-category-header') || hit.closest('.terminal-tab-wrap')) : null;
+      if (target && target !== wrap) target.classList.add('drag-over');
     });
-
-    wrap.addEventListener('dragleave', () => {
-      wrap.classList.remove('drag-over');
-    });
-
-    wrap.addEventListener('dragend', () => {
+    const finishPointerDrag = (e) => {
+      const drag = pointerTabDrag;
+      if (!drag || drag.pointerId !== e.pointerId || drag.sessionId !== s.id) return;
+      pointerTabDrag = null;
       dragSourceSessionId = null;
       wrap.classList.remove('dragging');
       tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
-    });
-
-    wrap.addEventListener('drop', (e) => {
-      e.preventDefault();
-      wrap.classList.remove('drag-over');
-      const sourceId = e.dataTransfer.getData('text/plain');
-      // Both ends resolve by SESSION ID. A raw DOM index would be shifted by the
-      // category headers interleaved between the wraps, corrupting the order.
-      const targetId = wrap.getAttribute('data-session-id');
-      if (sourceId && sourceId !== targetId) {
-        const fromIdx = sessions.findIndex((x) => x.id === sourceId);
-        const toIdx = sessions.findIndex((x) => x.id === targetId);
-        if (fromIdx !== -1 && toIdx !== -1) {
-          const [moved] = sessions.splice(fromIdx, 1);
-          sessions.splice(toIdx, 0, moved);
-          renderTabs();
-          if (api?.reorderTerminals) {
-            void api.reorderTerminals(sessions.map((x) => x.id));
-          }
-        }
+      if (!drag.active) return;
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      const header = hit && hit.closest ? hit.closest('.terminal-tab-category-header') : null;
+      if (header) {
+        commitCategoryDrop(drag.sessionId, header);
+        return;
       }
-    });
+      const row = hit && hit.closest ? hit.closest('.terminal-tab-wrap') : null;
+      const targetId = row ? row.getAttribute('data-session-id') : '';
+      if (targetId) commitTabReorder(drag.sessionId, targetId);
+    };
+    wrap.addEventListener('pointerup', finishPointerDrag);
+    wrap.addEventListener('pointercancel', finishPointerDrag);
 
     const b = document.createElement('button');
     b.type = 'button';
@@ -3947,16 +3958,8 @@ function ensureCategoryHeader(group) {
       header.addEventListener('drop', (e) => {
         e.preventDefault();
         header.classList.remove('drag-over');
-        // `findSession` rejects a foreign payload (a file path, a URL), so only a
-        // drag of a real tab can ever change a category.
         const sourceId = e.dataTransfer.getData('text/plain');
-        const session = sourceId ? findSession(sourceId) : null;
-        if (!session) return;
-        const key = header.getAttribute('data-category') || UNCATEGORIZED_CATEGORY;
-        const target = key === UNCATEGORIZED_CATEGORY ? '' : key;
-        // Already in this group: no IPC round-trip and no disk write.
-        if ((session.category || '') === target) return;
-        applyCategoryToSession(sourceId, target, null);
+        commitCategoryDrop(sourceId, header);
       });
     }
 
@@ -4605,7 +4608,7 @@ function renderTabs() {
       // A pane is moved by the tab that owns it, never on its own: a split cannot be
       // reordered away from its parent, and its group follows the parent's, so dragging a
       // pane row could only produce a drop the next render would undo.
-      wrap.draggable = !s.splitOf;
+      wrap.draggable = false;
       wrap.classList.toggle('is-category-collapsed', isCollapsed);
       applyCategoryChip(wrap, group, isSidebarLayout);
       updateTabActivityUi(s.id);
