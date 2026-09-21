@@ -7,6 +7,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 ## [v1.3.6] - Unreleased
 
 
+### Sửa lỗi — Chat theme không bao giờ được bảo phải dùng MCP trước khi sửa file
+- **Triệu chứng (user, session Seahorse2 `01a0c1aa`, không suy luận)**: ảnh + "Mất chữ Trang Search" → agent grep/sửa Liquid trước; MCP inspect chỉ chạy sau khi user bảo "Dùng AntiFAN MCP check lại". `theme.qa_validate` lần đầu trỏ tab Google, timeout 60s, không phải check.
+- **Nguyên nhân (đo)**: `SELF_QA_DIRECTIVE` chỉ nằm trong annotation-built prompt. Chat thường không có. Bridge AntiFan (`.omp/hooks/pre/`) **không chạy** khi cwd là `E:\Work\customizes\Seahorse2` (không có `.omp`). Hook user-scope `theme-qa-gate` chỉ nhắc **sau** khi đã ghi file theme, và nhắc 1/8 `tool_result` — phiên ngắn không bao giờ thấy.
+- **Sửa** (`C:\Users\Admin\.omp\agent\hooks\post\theme-qa-gate.ts`): `tool_result` đầu tiên trong cwd theme (`.antifan/` / `templates/` / `/customizes/`) nối một lần `[theme-qa-gate:mcp-first]` (tabs.list → inspect.dom → screenshot.viewport; sau edit thì qa_validate trên đúng tab). `context` tiêm cùng nội dung một lần. `REMIND_EVERY = 1`. `session_start` reset cờ.
+- **Bằng chứng**: `node --test --test-force-exit test/unit/theme-qa-gate-hook.test.mjs` — **26/26 pass** (22 cũ giữ xanh + 4 mới: MCP-first một lần trên tool_result không cần write, session_start re-inject, context tiêm 1 message, cwd không-theme không tiêm).
+
+
 
 ### Bổ sung — `switchTab` tách bước; ingest soak không còn nuốt row attribution
 - **Vấn đề (đo trên `perf4h`, không suy luận)**: soak 4 h bị abort lúc 08:40 local sau 109.1 phút workload (`real-soak-8h-perf4h-checkpoint.json`, 141 sample / 2727 switch). Gate latency đang hiệu lực (p50 ≤ 12 **và** p95 ≤ 18) **FAILS** (15.723 / 20.656); peak 1607.08 MB **FAILS**; slope renderer 0.1185 **không chấm** vì `slopeGateApplicable: false`. So với `legs4h2` leg 1, p50 switch **+5.6 ms** và độc lập tải/thời gian — một **bước cố định** trong `switchTab`, không phải việc scale. Giả thuyết gán bước đó cho `2697a28c` (gỡ `isTemporarilyAttachedView` nên mọi switch đều recycle) **sai tiền đề**: `git show` chỉ đổi hành vi khi *đang giữ* attach-for-capture; soak switch không giữ capture. `refusedProcessCount` 0→1 cũng không phải cây app lạ: đúng **một** sample (`python.exe` 18.58 MB) trên 141.

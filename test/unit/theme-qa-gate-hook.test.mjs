@@ -4,7 +4,7 @@
 // transpiled in-memory with the repo's own TypeScript, written to a throwaway
 // .cjs file and required. Each test loads a FRESH module instance (unique file
 // name => fresh require cache entry) so module-level state (pending map,
-// throttle counter, churn warning set) cannot leak between tests.
+// throttle counter, churn warning set, mcp-first flag) cannot leak between tests.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -27,9 +27,10 @@ const BYPASS_TOKENS = [
 ];
 const MICRO_TOKEN = "qaStatus: QA_MICRO_STATIC";
 const TTL_MS = 10 * 60_000;
-const REMIND_EVERY = 8;
+const REMIND_EVERY = 1;
 const GATE_REMINDER_SENTINEL = "QA GATE PENDING";
 const CHURN_SENTINEL = "theme-qa-gate:churn";
+const MCP_FIRST_SENTINEL = "theme-qa-gate:mcp-first";
 
 const hookSource = fs.readFileSync(HOOK_PATH, "utf8");
 const transpiled = ts.transpileModule(hookSource, {
@@ -65,7 +66,7 @@ function loadHook() {
   assert.equal(typeof factory, "function", "hook module must default-export a factory");
   const handlers = new Map();
   factory({ on: (event, handler) => handlers.set(event, handler) });
-  for (const event of ["tool_call", "tool_result", "context"]) {
+  for (const event of ["tool_call", "tool_result", "context", "session_start"]) {
     assert.equal(typeof handlers.get(event), "function", `hook must register a ${event} handler`);
   }
   return { handlers };
@@ -147,18 +148,15 @@ test("non-theme directories never arm the gate (reports/, plans/, docs/, scripts
   assert.equal(reminders, 0, "no reminder may be emitted for non-theme writes");
 });
 
-test("a real theme path arms the gate, and only 1 in 8 results carries the reminder", () => {
+test("a real theme path arms the gate, and every unmarked result carries the reminder", () => {
   const { handlers } = loadHook();
   const root = makeWorkspace();
   const ctx = { cwd: root };
   writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
-  const firstSeven = fire(handlers, ctx, REMIND_EVERY - 1);
-  assert.equal(firstSeven.reminders, 0, "the first 7 of 8 results stay silent");
-  const eighth = fire(handlers, ctx, 1);
-  assert.equal(eighth.reminders, 1, "the 8th result carries the reminder");
-  const remainingEight = fire(handlers, ctx, REMIND_EVERY);
-  assert.equal(remainingEight.reminders, 1, "the 16th result carries the reminder");
-  assert.equal(eighth.reminders + remainingEight.reminders, 2, "exactly 2 reminders in 16 results");
+  const first = fire(handlers, ctx, 1);
+  assert.equal(first.reminders, 1, "the first result after a theme write carries the reminder");
+  const nextTwo = fire(handlers, ctx, 2);
+  assert.equal(nextTwo.reminders, 2, "every subsequent unmarked result carries the reminder");
 });
 
 test("gate arming accepts cwd-relative paths and nested theme dirs", () => {
@@ -179,17 +177,16 @@ test("content shapes are preserved and a marked result is never double-appended"
   const rootA = makeWorkspace();
   const ctxA = { cwd: rootA };
   writeCall(shaped.handlers, ctxA, path.join(rootA, "sections", "hero.liquid"));
-  fire(shaped.handlers, ctxA, REMIND_EVERY - 1);
   const arrayRes = result(shaped.handlers, ctxA, [{ type: "text", text: "ok" }]);
   assert.ok(Array.isArray(arrayRes.content), "array content stays an array");
-  assert.equal(arrayRes.content.length, 2, "reminder is appended as one extra text part");
+  assert.equal(arrayRes.content.length, 2, "appended chunks land as one extra text part");
   assert.equal(count(resText(arrayRes), GATE_REMINDER_SENTINEL), 1);
+  assert.equal(count(resText(arrayRes), MCP_FIRST_SENTINEL), 1, "first result also carries MCP-first");
 
   const objectShape = loadHook();
   const rootB = makeWorkspace();
   const ctxB = { cwd: rootB };
   writeCall(objectShape.handlers, ctxB, path.join(rootB, "sections", "hero.liquid"));
-  fire(objectShape.handlers, ctxB, REMIND_EVERY - 1);
   const oddRes = result(objectShape.handlers, ctxB, { unexpected: true });
   assert.ok(Array.isArray(oddRes.content), "unknown content shapes are replaced, not crashed on");
   assert.equal(count(resText(oddRes), GATE_REMINDER_SENTINEL), 1);
@@ -200,24 +197,23 @@ test("an already-marked tool result is skipped for both string and array content
   const root = makeWorkspace();
   const ctx = { cwd: root };
   writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
-  fire(handlers, ctx, REMIND_EVERY - 1);
+  const first = result(handlers, ctx, "ok");
+  assert.equal(count(resText(first), GATE_REMINDER_SENTINEL), 1, "drain MCP-first + first reminder");
 
-  const eighth = result(handlers, ctx, "previous note\n[theme-qa-gate] QA GATE PENDING — stale copy");
-  assert.equal(eighth, undefined, "string content already carrying the marker is untouched");
+  const markedString = result(handlers, ctx, "previous note\n[theme-qa-gate] QA GATE PENDING — stale copy");
+  assert.equal(markedString, undefined, "string content already carrying the marker is untouched");
 
-  fire(handlers, ctx, REMIND_EVERY - 1);
-  const sixteenth = result(handlers, ctx, [
+  const markedArray = result(handlers, ctx, [
     { type: "text", text: "ok" },
     { type: "text", text: "[theme-qa-gate] QA GATE PENDING — stale copy" },
   ]);
-  assert.equal(sixteenth, undefined, "array content already carrying the marker is untouched");
+  assert.equal(markedArray, undefined, "array content already carrying the marker is untouched");
 
-  fire(handlers, ctx, REMIND_EVERY - 1);
-  const twentyFourth = result(handlers, ctx, "plain output");
+  const next = result(handlers, ctx, "plain output");
   assert.equal(
-    count(resText(twentyFourth), GATE_REMINDER_SENTINEL),
+    count(resText(next), GATE_REMINDER_SENTINEL),
     1,
-    "the throttle schedule keeps running after a deduped result"
+    "an unmarked result after a deduped result still reminds"
   );
 });
 
@@ -226,7 +222,6 @@ test("reminder text contains no bypass token and cannot clear the gate it descri
   const root = makeWorkspace();
   const ctx = { cwd: root };
   writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
-  fire(handlers, ctx, REMIND_EVERY - 1);
   const reminder = resText(result(handlers, ctx, "ok"));
   assert.equal(count(reminder, GATE_REMINDER_SENTINEL), 1);
 
@@ -304,7 +299,7 @@ test("TTL: a pending entry older than PENDING_TTL_MS is pruned; just inside it i
   }
 });
 
-test("TTL pruning does not reset the throttle into a burst when the gate re-arms", () => {
+test("TTL pruning does not leave the re-armed gate silent", () => {
   const { handlers } = loadHook();
   const root = makeWorkspace();
   const ctx = { cwd: root };
@@ -314,9 +309,7 @@ test("TTL pruning does not reset the throttle into a burst when the gate re-arms
     Date.now = () => realNow() + TTL_MS + 1000;
     assert.equal(fire(handlers, ctx, 2 * REMIND_EVERY).reminders, 0, "expired gate is silent");
     writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
-    const resumed = fire(handlers, ctx, REMIND_EVERY - 1);
-    assert.equal(resumed.reminders, 0, "re-armed gate does not immediately spam");
-    assert.equal(fire(handlers, ctx, 1).reminders, 1, "throttle schedule resumes at 1 in 8");
+    assert.equal(fire(handlers, ctx, 1).reminders, 1, "re-armed gate reminds on the next unmarked result");
   } finally {
     Date.now = realNow;
   }
@@ -353,7 +346,6 @@ test("churn hint and QA reminder compose into one tool_result", () => {
   fs.writeFileSync(bigAbs, bigFileBody(), "utf8");
 
   writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
-  fire(handlers, ctx, REMIND_EVERY - 1);
   writeCall(handlers, ctx, bigAbs);
   const text = resText(result(handlers, ctx, "ok"));
   assert.equal(count(text, GATE_REMINDER_SENTINEL), 1, "QA reminder present");
@@ -655,3 +647,56 @@ test("micro lane fail-closed: block-syntax and REM edits cannot be cleared by mi
 
   assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear whole-file REM");
 });
+
+test("first tool_result in a theme cwd injects MCP-first once, even without a write", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  const first = resText(result(handlers, ctx, "glob output"));
+  assert.equal(count(first, MCP_FIRST_SENTINEL), 1, "first result carries MCP-first");
+  assert.ok(first.includes("anti.browser.tabs.list"), "names the bind tool");
+  assert.ok(first.includes("anti.inspect.dom"), "names inspect");
+  assert.ok(first.includes("anti.screenshot.viewport"), "names screenshot");
+  assert.ok(first.includes("theme.qa_validate"), "names qa_validate");
+  assert.equal(count(first, GATE_REMINDER_SENTINEL), 0, "no write => no QA reminder");
+
+  const second = result(handlers, ctx, "another glob");
+  assert.equal(second, undefined, "second result is not injected again");
+});
+
+test("session_start re-enables MCP-first injection", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  assert.equal(count(resText(result(handlers, ctx, "a")), MCP_FIRST_SENTINEL), 1);
+  handlers.get("session_start")();
+  assert.equal(count(resText(result(handlers, ctx, "b")), MCP_FIRST_SENTINEL), 1, "reset re-injects");
+});
+
+test("context injects one MCP-first message in a theme cwd", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  const original = [{ role: "user", content: "sua banner" }];
+  const out = handlers.get("context")({ messages: original }, ctx);
+  assert.ok(out && Array.isArray(out.messages), "context returns messages");
+  assert.equal(out.messages.length, 2, "original plus one injected message");
+  assert.equal(out.messages[0], original[0], "original messages are kept");
+  assert.equal(out.messages[1].details.kind, "mcp-first");
+  assert.ok(String(out.messages[1].content).includes(MCP_FIRST_SENTINEL));
+
+  const again = handlers.get("context")({ messages: original }, ctx);
+  assert.equal(again, undefined, "second context call does not re-inject");
+});
+
+test("a cwd without .antifan, templates/, or /customizes/ does not get MCP-first", () => {
+  const { handlers } = loadHook();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-nontheme-"));
+  scratchDirs.push(root);
+  const ctx = { cwd: root };
+  const res = result(handlers, ctx, "glob output");
+  assert.equal(res, undefined, "non-theme cwd is not injected");
+  const out = handlers.get("context")({ messages: [{ role: "user", content: "hi" }] }, ctx);
+  assert.equal(out, undefined, "non-theme context is untouched");
+});
+
