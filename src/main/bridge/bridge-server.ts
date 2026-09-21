@@ -34,6 +34,7 @@ import { enforceProtectedDirectoryDacl, enforceProtectedFileDacl, resolveCurrent
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import { deriveCapsulePartition } from '../browser/browser-session-partition';
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
+import { isIdentityCookieName } from '../../shared/identity-cookie-patterns';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 export const OFFICIAL_COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
 
@@ -1511,9 +1512,17 @@ export class BridgeServer {
             let skippedCount = 0;
             let failedCount = 0;
             const persistSession = data.persistSessionCookies !== false;
+            // Identity cookies are refused ahead of every other filter, and
+            // ahead of every credential class that can reach this route - not
+            // only the companion extension grant. Overwriting the auth half of
+            // an already signed-in jar with another browser's copy is what
+            // invalidates the session server-side, so no caller is allowed to
+            // do it.
+            const identityCookies = rawCookies.filter((c: ExtensionCookieInput) => isIdentityCookieName(c.name));
+            const importableCookies = rawCookies.filter((c: ExtensionCookieInput) => !isIdentityCookieName(c.name));
             const candidateCookies = verifiedExtensionGrant
               ? (verifiedExtensionGrant.allowedDomains && verifiedExtensionGrant.allowedDomains.length > 0
-                  ? rawCookies.filter((c: ExtensionCookieInput) => {
+                  ? importableCookies.filter((c: ExtensionCookieInput) => {
                       const domain = c.domain ? (c.domain.startsWith('.') ? c.domain.slice(1) : c.domain) : '';
                       return verifiedExtensionGrant.allowedDomains.some(rawAllowed => {
                         const allowed = rawAllowed.startsWith('.') ? rawAllowed.slice(1) : rawAllowed;
@@ -1521,12 +1530,16 @@ export class BridgeServer {
                       });
                     })
                   : [])
-              : rawCookies;
-            // Cookies the grant's allowlist removed before the import loop are
-            // reported, never silently discarded: a response carrying only
-            // `totalReceived` and zeroed counters is indistinguishable from a
-            // successful empty sync, which is how a scope mismatch stays hidden.
+              : importableCookies;
+            // Everything removed before the import loop is reported, never
+            // silently discarded: a response carrying only `totalReceived` and
+            // zeroed counters is indistinguishable from a successful empty
+            // sync, which is how a scope mismatch stays hidden.
             const filteredCount = rawCookies.length - candidateCookies.length;
+            if (identityCookies.length > 0) {
+              const names = [...new Set(identityCookies.map((c) => c.name))].join(', ');
+              console.warn(`[antifan] cookie import refused ${identityCookies.length} identity cookie(s) (${names}) for ${requestedPartition || resolvedTargetTabId || 'unspecified target'}`);
+            }
             for (const cookie of candidateCookies) {
               const setDetails = extensionCookieImportSetDetails(cookie, { persistSessionCookies: persistSession });
               if (!setDetails) {
@@ -1553,6 +1566,7 @@ export class BridgeServer {
               skippedCount,
               failedCount,
               filteredCount,
+              authRejectedCount: identityCookies.length,
               totalReceived: rawCookies.length,
               targetTabId: resolvedTargetTabId ?? (data.tabId || 'unspecified'),
               targetPartition: requestedPartition || (resolvedTargetTabId ? `tab:${resolvedTargetTabId}` : 'unspecified'),

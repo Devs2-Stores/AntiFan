@@ -768,6 +768,32 @@
     return parseImpl(url, 3, suffixLookup, options, RESULT).domain;
   }
 
+  // src/shared/identity-cookie-patterns.ts
+  var IDENTITY_COOKIE_PATTERNS = [
+    // IdentityServer4: idsrv, idsrv.session, idsrv.device, idsrv.external, and the
+    // `idsv.device` spelling Haravan actually writes.
+    /^ids(v|rv)(\.|$)/i,
+    // ASP.NET Core auth and anti-forgery: .AspNetCore.Cookies, .AspNetCore.Antiforgery.*
+    /^\.?AspNetCore(\.|$)/i,
+    /^__RequestVerificationToken$/i,
+    // Platform admin sessions.
+    /^_secure_admin_session_id$/i,
+    /^sapo_admin_session$/i,
+    // Rotating identity tokens.
+    /^__Secure-[0-9]?PSIDTS$/i,
+    /^__Secure-[0-9]?PSIDRTS$/i,
+    /^__Secure-[0-9]?PSIDCC$/i
+  ];
+  function isIdentityCookieName(name) {
+    if (typeof name !== "string") return false;
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    for (const pattern of IDENTITY_COOKIE_PATTERNS) {
+      if (pattern.test(trimmed)) return true;
+    }
+    return false;
+  }
+
   // src/extension/domain-scoper.ts
   var SCOPE_PROFILES = {
     google: [
@@ -819,6 +845,9 @@
   function isCookieInScope(cookie, enabledProfiles2 = ["google", "ecommerce"], activeTabHostname = null, customDomains = []) {
     const rawDomain = (cookie.domain || "").replace(/^\./, "").trim().toLowerCase();
     if (!rawDomain) return false;
+    if (isIdentityCookieName(cookie.name)) {
+      return false;
+    }
     if (enabledProfiles2.includes("all") || enabledProfiles2.includes("*")) {
       return true;
     }

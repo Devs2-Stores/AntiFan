@@ -1,4 +1,5 @@
 import { getDomain } from 'tldts';
+import { isIdentityCookieName } from '../shared/identity-cookie-patterns';
 
 export const SCOPE_PROFILES: Record<string, RegExp[]> = {
   google: [
@@ -62,12 +63,18 @@ export function isCookieInScope(
 ): boolean {
   const rawDomain = (cookie.domain || '').replace(/^\./, '').trim().toLowerCase();
   if (!rawDomain) return false;
-  // 0. Wildcard or all profiles enabled
+  // 0. Identity cookies stay out of scope however the rest of the scope is
+  // configured: no profile, wildcard, active-tab match or custom domain may
+  // pull an auth cookie into a sync payload.
+  if (isIdentityCookieName(cookie.name)) {
+    return false;
+  }
+  // 1. Wildcard or all profiles enabled
   if (enabledProfiles.includes('all') || enabledProfiles.includes('*')) {
     return true;
   }
 
-  // 1. Active Tab eTLD+1 Isolation
+  // 2. Active Tab eTLD+1 Isolation
   if (activeTabHostname) {
     const activeRoot = extractEtldPlusOne(activeTabHostname);
     const cookieRoot = extractEtldPlusOne(rawDomain);
@@ -76,7 +83,7 @@ export function isCookieInScope(
     }
   }
 
-  // 2. Pre-configured Domain Profiles (Google, E-Commerce platforms)
+  // 3. Pre-configured Domain Profiles (Google, E-Commerce platforms)
   for (const profile of enabledProfiles) {
     const patterns = SCOPE_PROFILES[profile];
     if (patterns && patterns.some(pattern => pattern.test(rawDomain))) {
@@ -84,7 +91,7 @@ export function isCookieInScope(
     }
   }
 
-  // 3. Custom user-defined domains
+  // 4. Custom user-defined domains
   for (const custom of customDomains) {
     const cleanCustom = custom.replace(/^\./, '').trim().toLowerCase();
     if (cleanCustom && (rawDomain === cleanCustom || rawDomain.endsWith('.' + cleanCustom))) {

@@ -16,7 +16,7 @@ import {
   __resetExtensionStateForTesting,
   type BridgeAuth,
 } from '../../src/extension/background';
-import { SCOPE_PROFILES } from '../../src/extension/domain-scoper';
+import { SCOPE_PROFILES, isCookieInScope } from '../../src/extension/domain-scoper';
 import type { NativeTabHost } from '../../src/main/browser/native-tab-host';
 
 class MockCookieStore {
@@ -662,4 +662,79 @@ test('Companion Pipeline: default grant reaches every domain the companion exten
   } finally {
     server.dispose();
   }
+});
+
+test('Companion Pipeline: identity cookies are refused at the bridge for every credential class', async () => {
+  // Refusing the auth half of a signed-in jar is what keeps the session alive:
+  // overwriting `idsrv` with a second browser's copy splits it from the
+  // `idsrv.session` marker the server issued alongside it, and the server
+  // answers by logging the user out. The boundary must therefore hold for a
+  // caller holding the master bridge token too, not only for the companion
+  // grant, so `_haravan_session` and `cart` prove the storefront half still
+  // lands while `idsrv` and `idsrv.session` never reach the store.
+  const host = new MockTabHost();
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+  const targetPartition = 'persist:profile-default';
+  const payloadCookies = [
+    { name: 'idsrv', value: 'other-browser-identity', domain: '.accounts.haravan.com', path: '/' },
+    { name: 'idsrv.session', value: 'other-browser-marker', domain: '.accounts.haravan.com', path: '/' },
+    { name: 'cart', value: 'storefront-cart', domain: '.haravan.com', path: '/' },
+    { name: '_haravan_session', value: 'storefront-visit', domain: '.haravan.com', path: '/' },
+  ];
+
+  try {
+    const grant = server.issueExtensionGrant(targetPartition, ['haravan.com']);
+    const grantedRes = await fetch(`http://127.0.0.1:${port}/api/cookies/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${grant.grantToken}`,
+      },
+      body: JSON.stringify({ targetPartition, cookies: payloadCookies }),
+    });
+    assert.strictEqual(grantedRes.status, 200);
+    const grantedData = (await grantedRes.json()) as Record<string, unknown>;
+    assert.strictEqual(grantedData.importedCount, 2, 'storefront context must keep syncing');
+    assert.strictEqual(grantedData.authRejectedCount, 2, 'both identity cookies must be refused');
+    assert.strictEqual(grantedData.filteredCount, 2, 'refusals must be reported, never silently dropped');
+
+    const masterRes = await fetch(`http://127.0.0.1:${port}/api/cookies/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${server.getToken()}`,
+      },
+      body: JSON.stringify({ targetPartition, cookies: payloadCookies }),
+    });
+    assert.strictEqual(masterRes.status, 200);
+    const masterData = (await masterRes.json()) as Record<string, unknown>;
+    assert.strictEqual(masterData.importedCount, 2);
+    assert.strictEqual(masterData.authRejectedCount, 2);
+
+    const landedNames = (await host.session.cookies.get({})).map((c) => c.name);
+    assert.deepStrictEqual(landedNames, ['cart', '_haravan_session', 'cart', '_haravan_session']);
+  } finally {
+    server.dispose();
+  }
+});
+
+test('Companion Pipeline: identity cookies stay out of extension scope under every scope configuration', async () => {
+  // The sender is the cheaper place to stop the payload, but it must not depend
+  // on which profiles the user enabled. An identity cookie in scope means the
+  // companion re-pushes it on every service-worker wake and on every cookie
+  // change, so a wildcard profile or an actively focused admin tab must not be
+  // able to opt auth cookies back in.
+  const identityCookie = { name: 'idsrv.session', domain: '.accounts.haravan.com' };
+
+  assert.strictEqual(isCookieInScope(identityCookie, ['all']), false);
+  assert.strictEqual(isCookieInScope(identityCookie, ['*']), false);
+  assert.strictEqual(isCookieInScope(identityCookie, ['ecommerce']), false);
+  assert.strictEqual(isCookieInScope(identityCookie, ['ecommerce'], 'accounts.haravan.com'), false);
+  assert.strictEqual(isCookieInScope(identityCookie, ['ecommerce'], null, ['accounts.haravan.com']), false);
+
+  // The non-identity cookie on the very same host stays in scope, so the rule
+  // cannot be mistaken for a host-wide block.
+  assert.strictEqual(isCookieInScope({ name: 'cart', domain: '.haravan.com' }, ['ecommerce']), true);
+  assert.strictEqual(isCookieInScope({ name: 'cart', domain: '.haravan.com' }, ['all']), true);
 });
