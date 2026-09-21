@@ -91,7 +91,7 @@ function resolvePort(args) {
   return parsed;
 }
 
-function connect(url) {
+function connect(url, openTimeoutMs = Number(process.env.RETENTION_PROBE_OPEN_TIMEOUT_MS || 5000)) {
   const socket = new WebSocket(url);
   const pending = new Map();
   let nextId = 1;
@@ -120,11 +120,37 @@ function connect(url) {
       socket.send(JSON.stringify({ id, method, params }));
     });
   const closed = new Promise((resolve) => socket.once('close', resolve));
+  // Bounded: a stale target advertises a ws URL that accepts the TCP connect and then
+  // never completes the upgrade, so an unbounded `open` promise hangs the whole sample
+  // loop (measured on the app's blank agent page). A refused target must be reported as
+  // unsupported, the same as a refused counter, never waited on.
   const opened = new Promise((resolve, reject) => {
-    socket.once('open', resolve);
-    socket.once('error', reject);
+    const timer = setTimeout(() => reject(new Error(`ws open timed out after ${openTimeoutMs} ms`)), openTimeoutMs);
+    timer.unref?.();
+    socket.once('open', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.once('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
   });
-  return { socket, send, opened, closed, close: () => socket.close() };
+  return {
+    socket,
+    send,
+    opened,
+    closed,
+    // Terminate rather than close: a socket still CONNECTING never gets a close handshake,
+    // and the loop would wait on it while the next sample is already due.
+    close: () => {
+      try {
+        socket.terminate();
+      } catch {
+        try { socket.close(); } catch { /* already gone */ }
+      }
+    },
+  };
 }
 
 async function listPageTargets(port) {
@@ -144,7 +170,14 @@ async function sampleTarget(target, at = Date.now()) {
   const counters = {};
   const unsupported = [];
   try {
-    await cdp.opened;
+    try {
+      await cdp.opened;
+    } catch (err) {
+      // A target that never opens is reported, not dropped: an absent row reads as "this
+      // document is healthy" in the summary, which is the one thing it is not.
+      unsupported.push(`ws open: ${err.message}`);
+      return { at, url: target.url, title: target.title, id: target.id, counters, unsupported };
+    }
     await cdp.send('Performance.enable').catch(() => {});
     const dom = await cdp
       .send('Memory.getDOMCounters')
@@ -297,7 +330,20 @@ async function run(args) {
     if (i < args.samples - 1) await new Promise((r) => setTimeout(r, args.intervalMs));
   }
 
-  const result = { generatedAt: new Date().toISOString(), port, samples: args.samples, intervalMs: args.intervalMs, ...classifyRetention(samples) };
+  // `samples` used to be the *count* (`args.samples`), which overwrote nothing useful and left the
+  // artifact unable to answer its own question: the classifier compares the first and last counter
+  // of a window, and a process's counters step by thousands when the app injects or removes UI
+  // (measured: an app document read 5617 nodes at 01:44 and 4084 at 01:47), so a raw-series reader
+  // has to be able to fit the whole window instead. The count keeps its own name and the series
+  // rides beside it.
+  const result = {
+    generatedAt: new Date().toISOString(),
+    port,
+    sampleCount: args.samples,
+    intervalMs: args.intervalMs,
+    ...classifyRetention(samples),
+    samples: samples.map((s) => ({ at: s.at, stamp: new Date(s.at).toTimeString().slice(0, 8), targets: s.targets })),
+  };
   console.log('');
   console.log('=== retention class (exact counters are not noisy; the heap is a sawtooth) ===');
   for (const t of result.targets) {

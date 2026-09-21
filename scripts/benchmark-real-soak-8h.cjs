@@ -2,7 +2,8 @@
 // The child app accepts an injected master token only when ANTIFAN_BENCHMARK=1, so this harness mints
 // the token and passes it to the isolated instance it owns; nothing is read from or written to disk.
 
-const { randomUUID } = require('node:crypto');
+const crypto = require('node:crypto');
+const { randomUUID } = crypto;
 
 function redactCreds(val) {
   const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
@@ -29,6 +30,8 @@ const path = require('node:path');
 const http = require('node:http');
 const { spawn, execFile } = require('node:child_process');
 const { performance } = require('node:perf_hooks');
+// The same verdict the Electron launcher uses to decide whether it must compile before starting.
+const { inspectCompiledBundle } = require('./launch-guard.cjs');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const req = createRequire(path.join(PROJECT_ROOT, 'package.json'));
@@ -38,7 +41,55 @@ const appTreeMarkers = { projectRoot: PROJECT_ROOT, userDataDir: '' };
 const electronBin = req('electron');
 const WebSocket = req('ws');
 
-const TOTAL_MINUTES = parseFloat(process.env.SOAK_DURATION_MINUTES || '480');
+// The command line carries exactly two things, and a token this harness does not implement is
+// REFUSED rather than ignored: `--minutes 12` against a harness that reads
+// `SOAK_DURATION_MINUTES` used to launch the 480-minute default while the operator believed they
+// had asked for twelve minutes, and the artifact then carries a schedule nobody chose (run
+// `legs4h2`, 2026-09-21, was launched that way). Every other knob stays an environment
+// variable; the refusal names the accepted forms.
+const RUN_ARG_FORMS = '--print-legs | --minutes <n>';
+function parseRunArgs(argv) {
+  const parsed = { printLegs: false, durationMinutes: null };
+  for (let i = 0; i < argv.length; i++) {
+    const raw = argv[i];
+    if (raw === '--print-legs') {
+      parsed.printLegs = true;
+      continue;
+    }
+    if (raw === '--minutes' || raw.startsWith('--minutes=')) {
+      const value = raw.includes('=') ? raw.slice(raw.indexOf('=') + 1) : argv[++i];
+      const minutes = Number(value);
+      if (!Number.isFinite(minutes) || minutes <= 0) {
+        throw new Error(`--minutes needs a positive number of minutes, got "${value ?? ''}"`);
+      }
+      parsed.durationMinutes = minutes;
+      continue;
+    }
+    throw new Error(
+      `unknown argument "${raw}". Accepted: ${RUN_ARG_FORMS}. Every other knob is an environment variable ` +
+        `(SOAK_DURATION_MINUTES, SOAK_WARMUP_MINUTES, SOAK_LEGS, ...) — see the header of this script for the full list.`
+    );
+  }
+  return parsed;
+}
+// A required module must not read the *test runner's* argv, so the parse is entry-only; on the
+// entry path a refused argument exits here, before any Electron child or fixture port exists.
+const RUN_ARGV = (() => {
+  if (require.main !== module) return { printLegs: false, durationMinutes: null };
+  try {
+    return parseRunArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(`[soak] ${err.message}`);
+    process.exit(1);
+  }
+})();
+
+const DURATION_ENV = process.env.SOAK_DURATION_MINUTES;
+const TOTAL_MINUTES = RUN_ARGV.durationMinutes ?? parseFloat(DURATION_ENV || '480');
+// Which input set the duration: a run's requested duration is the one field a reader cannot
+// recover from the artifact's schedule, because a request smaller than warmup + recovery is
+// clamped by WORKLOAD_MINUTES' floor and then reads as a different run.
+const DURATION_SOURCE = RUN_ARGV.durationMinutes !== null ? 'argv --minutes' : DURATION_ENV ? 'env SOAK_DURATION_MINUTES' : 'default 480';
 const WARMUP_MINUTES = parseFloat(process.env.SOAK_WARMUP_MINUTES || '30');
 const RECOVERY_MINUTES = parseFloat(process.env.SOAK_RECOVERY_MINUTES || '30');
 const SAMPLE_INTERVAL_SECONDS = parseFloat(process.env.SOAK_SAMPLE_INTERVAL_SECONDS || '60');
@@ -50,13 +101,28 @@ const SAMPLE_INTERVAL_MS = SAMPLE_INTERVAL_SECONDS * 1000;
 const SWITCH_INTERVAL_MS = Math.max(50, parseInt(process.env.SOAK_SWITCH_INTERVAL_MS || '3000', 10));
 const BURST_INTERVAL_MS = Math.max(500, parseInt(process.env.SOAK_BURST_INTERVAL_MS || '30000', 10));
 const BURST_LINES = Math.max(1, parseInt(process.env.SOAK_BURST_LINES || '300', 10));
+// The fixture pages mutate their title and a text node on a timer, which is the
+// workload's only high-frequency page event: the title storm drives the app's
+// state broadcast. Exposing the tick makes that rate an experiment variable
+// instead of a constant nobody can isolate.
+// Declared above the leg parsing below because a leg's tick resolves against it.
+const FIXTURE_TICK_MS = Math.max(20, parseInt(process.env.SOAK_FIXTURE_TICK_MS || '200', 10));
+// A mode rather than a flag, because the two modes keep *different* drivers. `unique` is the
+// fixture's historical behaviour — a fresh title string on every tick — and is what every run
+// measured so far did. `static` holds the title constant while the timer and the DOM write keep
+// firing at the same tick. Bisecting the app UI renderer's slope after its burst-off leg still
+// measured +0.1806 MB/min against the baseline leg's +0.2417 (run `legs4h2`, 2026-09-21) leaves
+// the fixture's 5 Hz title churn as the remaining named driver, and separating interned strings
+// from raw timer churn needs both modes on the same run.
+const FIXTURE_TITLE_MODES = ['unique', 'static'];
+const FIXTURE_TITLE_MODE = FIXTURE_TITLE_MODES[0];
 // A slope over a whole workload can only say *that* a process grew, never which driver
 // grew it: host load, page set and the app's own background work all vary between runs.
 // Legs split the workload into consecutive segments that differ in one driver, so the
 // answer is the same process's slope changing when — and only when — that driver's knob
 // changes, inside one run. Parsed from
-// SOAK_LEGS="name:minutes:burstLines:burstIntervalMs,..."; unset means a single leg
-// carrying the base knobs, which keeps every historical run comparable.
+// SOAK_LEGS="name:minutes:burstLines:burstIntervalMs[:fixtureTickMs[:fixtureTitleMode[:switchIntervalMs]]],...";
+// unset means a single leg carrying the base knobs, which keeps every historical run comparable.
 const LEGS = parseWorkloadLegs(process.env.SOAK_LEGS);
 const EXTRA_APP_ARGS = parseExtraAppArgs(process.env.SOAK_APP_ARGS);
 const WORKLOAD_MINUTES = LEGS.length
@@ -67,14 +133,26 @@ const WORKLOAD_MINUTES = LEGS.length
 // otherwise append an unattributed coda that the last leg's slope would absorb.
 const RUN_MINUTES = WARMUP_MINUTES + WORKLOAD_MINUTES + RECOVERY_MINUTES;
 const TAB_ROUNDS = Math.max(1, parseInt(process.env.SOAK_TAB_ROUNDS || '1', 10));
-// The fixture pages mutate their title and a text node on a timer, which is the
-// workload's only high-frequency page event: the title storm drives the app's
-// state broadcast. Exposing the tick makes that rate an experiment variable
-// instead of a constant nobody can isolate.
-const FIXTURE_TICK_MS = Math.max(20, parseInt(process.env.SOAK_FIXTURE_TICK_MS || '200', 10));
 // A run tag suffixes both artifacts: an 8h soak, a 20m diagnostic and a re-run on a
 // fixed bundle must not overwrite each other's evidence.
 const REPORT_TAG = String(process.env.SOAK_REPORT_TAG || '').replace(/[^a-z0-9-]/gi, '').slice(0, 32);
+// The leg spec is the one part of this harness an operator writes by hand, and a misplaced
+// colon moves a leg boundary that every slope in the report is then attributed to. Printing the
+// parsed result — every knob resolved, defaults filled in — is how that string is checked
+// before a multi-hour run spends itself proving the wrong schedule. A leg refused by the parser
+// is visible here as a missing range; the refusal itself is warned about at parse time.
+function printResolvedLegs() {
+  console.log(`[soak] Requested duration: ${TOTAL_MINUTES} min (${DURATION_SOURCE})`);
+  console.log(`[soak] Base knobs: burstLines ${BURST_LINES} | burstIntervalMs ${BURST_INTERVAL_MS} | fixtureTickMs ${FIXTURE_TICK_MS} | fixtureTitleMode ${FIXTURE_TITLE_MODE} | switchIntervalMs ${SWITCH_INTERVAL_MS} | tabRounds ${TAB_ROUNDS}`);
+  if (!LEGS.length) {
+    console.log(`[soak] SOAK_LEGS unset: one implicit leg of ${WORKLOAD_MINUTES} minutes carrying the base knobs (run ${RUN_MINUTES} min = warmup ${WARMUP_MINUTES} + workload ${WORKLOAD_MINUTES} + recovery ${RECOVERY_MINUTES})`);
+    return;
+  }
+  console.log(`[soak] Legs: ${LEGS.length} | workload ${WORKLOAD_MINUTES} min | run ${RUN_MINUTES} min = warmup ${WARMUP_MINUTES} + workload ${WORKLOAD_MINUTES} + recovery ${RECOVERY_MINUTES}`);
+  LEGS.forEach((leg, index) => {
+    console.log(`[soak]   ${index + 1}. ${leg.name} | minutes ${leg.minutes} | burstLines ${leg.burstLines} | burstIntervalMs ${leg.burstIntervalMs} | fixtureTickMs ${leg.fixtureTickMs} | fixtureTitleMode ${leg.fixtureTitleMode} | switchIntervalMs ${leg.switchIntervalMs}`);
+  });
+}
 function spawnKeepAwakeProcess() {
   if (process.platform !== 'win32') return null;
   const psScript = `
@@ -161,6 +239,14 @@ const SWITCH_SAMPLE_CAP = 20000;
 // (production: 3 s) rather than per mutation — a 4 h run cannot approach this. The cap is a
 // guard, and a hit merely truncates the tail of an append-only cost series.
 const HISTORY_SAMPLE_CAP = 20000;
+
+// One row per switchTab while ANTIFAN_BENCHMARK=1 (the soak always sets it). A 4 h run at
+// one switch / 3 s is ~4,800 rows; the cap matches the switch-series cap so a truncated
+// attribution series is never read as complete. The dropped count is not a separate field
+// because the ingest is append-only and the analyzer treats a missing array as
+// `not collected`, not as 0.
+const SWITCH_STEP_SAMPLE_CAP = 20000;
+
 
 const REPORTS_DIR = path.join(PROJECT_ROOT, 'plans', 'reports', 'runtime-verification');
 fs.mkdirSync(REPORTS_DIR, { recursive: true });
@@ -423,12 +509,20 @@ async function sampleMetrics(rootPid, label, totalSuspendedMs = 0) {
   // unit of work rather than by bytes. Kept per pid so a window's cost can be attributed to
   // the same process identity the memory series names.
   const cpuByPid = {};
+  // The OS name of each process in the walk, beside its pid. The app's own telemetry names the
+  // processes that host WebContents; the terminal's pty chain (winpty-agent / conhost /
+  // powershell) is app-owned but is not a Chromium process, so no telemetry role covers it. On
+  // the 2026-09-21 diagnosis run that chain held 41-43% of the tree's CPU and every row of it
+  // printed as `unattributed`. The name is sampled here, so a report that prints it is reading a
+  // measurement rather than guessing a label.
+  const namesByPid = {};
   let treeCpuSeconds = 0;
   let cpuUnreadableProcessCount = 0;
   for (const r of tree) {
     const pid = Number(r.ProcessId);
     const seconds = readProcessCpuSeconds(r);
     cpuByPid[pid] = seconds;
+    namesByPid[pid] = String(r.Name || '');
     if (seconds === null) cpuUnreadableProcessCount++;
     else treeCpuSeconds += seconds;
   }
@@ -452,6 +546,7 @@ async function sampleMetrics(rootPid, label, totalSuspendedMs = 0) {
       treeCpuSeconds: Number(treeCpuSeconds.toFixed(3)),
       cpuUnreadableProcessCount,
       cpuByPid,
+      namesByPid,
     },
   };
 }
@@ -497,10 +592,13 @@ function createBenchmarkStreamIngest() {
   let pending = '';
   const samples = [];
   const history = [];
+  const switchSteps = [];
   return {
     samples,
     history,
+    switchSteps,
     push(chunk) {
+
       pending += chunk;
       // A line that never terminates must not grow without bound; benchmark lines
       // are small and newline-terminated, so anything larger is a partial write.
@@ -531,7 +629,24 @@ function createBenchmarkStreamIngest() {
           }
           continue;
         }
+        // Per-switch step timings from NativeTabHost.switchTab (`surface: tabs`,
+        // `name: switch-steps`). Without this branch the ingest keeps only `history` and
+        // `process` lines and the attribution the timer exists to produce never reaches
+        // the report.
+        if (metric?.surface === 'tabs' && metric?.name === 'switch-steps' && switchSteps.length < SWITCH_STEP_SAMPLE_CAP) {
+          const at = Date.parse(metric.ts);
+          if (Number.isFinite(at)) {
+            switchSteps.push({
+              at,
+              name: String(metric.name || ''),
+              value: Number(metric.value),
+              extra: metric.extra && typeof metric.extra === 'object' ? metric.extra : {},
+            });
+          }
+          continue;
+        }
         if (metric?.surface !== 'process' || !Array.isArray(metric?.extra?.processes)) continue;
+
         const at = Date.parse(metric.ts);
         if (!Number.isFinite(at)) continue;
         samples.push({
@@ -571,19 +686,50 @@ function parseExtraAppArgs(raw) {
   return text.split(/\s+/).filter(Boolean);
 }
 
+// A trailing knob that a leg leaves out — or skips with an empty field — resolves against the
+// run-level default without a word, because that is what the shorter spec has always meant.
+// One that is written and unusable is refused out loud and resolved to that same default: a
+// silently substituted rate would report the base regime's slope under a leg name that claims
+// otherwise, which is how a leg counter that read 0 priced a whole run's CPU against a zero
+// denominator. The field is refused, not the leg, so one typo costs one comparison.
+function resolveLegKnob(field, rawValue, fallback, minimum) {
+  const text = String(rawValue ?? '').trim();
+  if (!text) return fallback;
+  const parsed = parseInt(text, 10);
+  if (!Number.isFinite(parsed) || parsed < minimum) {
+    console.warn(`[soak] Leg ${field} "${text}" is not usable (integer >= ${minimum}); using ${fallback}`);
+    return fallback;
+  }
+  return parsed;
+}
+
+function resolveLegTitleMode(rawValue) {
+  const text = String(rawValue ?? '').trim();
+  if (!text) return FIXTURE_TITLE_MODE;
+  if (!FIXTURE_TITLE_MODES.includes(text)) {
+    console.warn(`[soak] Leg fixtureTitleMode "${text}" is not usable (one of ${FIXTURE_TITLE_MODES.join('|')}); using ${FIXTURE_TITLE_MODE}`);
+    return FIXTURE_TITLE_MODE;
+  }
+  return text;
+}
+
 // Legs are parsed before the workload length is known, so the shape is validated here
 // and the length is derived from the parsed minutes: an unparseable segment is dropped
 // rather than silently defaulted, because a dropped leg would relabel another leg's
 // samples and invert the attribution it exists to produce.
+// The three trailing knobs are what makes one run able to bisect the drivers the burst
+// volume cannot explain: the fixture's title churn (rate and mode) and the tab-switch
+// cadence. They are resolved here, at parse time, so the schedule, the page and the report
+// all read one value per leg instead of each re-deriving it.
 function parseWorkloadLegs(raw) {
   const legs = [];
   for (const segment of String(raw || '').split(',')) {
     const text = segment.trim();
     if (!text) continue;
-    const [name, minutes, lines, interval] = text.split(':');
+    const [name, minutes, lines, interval, fixtureTick, fixtureTitleMode, switchInterval] = text.split(':');
     const legMinutes = parseFloat(minutes);
     if (!name || !Number.isFinite(legMinutes) || legMinutes <= 0) {
-      console.warn(`[soak] Ignoring malformed leg "${text}" (expected name:minutes[:burstLines[:burstIntervalMs]])`);
+      console.warn(`[soak] Ignoring malformed leg "${text}" (expected name:minutes[:burstLines[:burstIntervalMs[:fixtureTickMs[:fixtureTitleMode[:switchIntervalMs]]]]])`);
       continue;
     }
     const parsedLines = parseInt(lines ?? '', 10);
@@ -593,6 +739,12 @@ function parseWorkloadLegs(raw) {
       minutes: legMinutes,
       burstLines: Number.isFinite(parsedLines) && parsedLines > 0 ? Math.max(1, parsedLines) : BURST_LINES,
       burstIntervalMs: Number.isFinite(parsedInterval) && parsedInterval > 0 ? Math.max(500, parsedInterval) : BURST_INTERVAL_MS,
+      // The 20 ms floor is the base knob's own, and the 50 ms switch floor is the base
+      // cadence's: a leg is a driver level inside the regime the base knobs already admit,
+      // never a level the harness has no measured behaviour for.
+      fixtureTickMs: resolveLegKnob('fixtureTickMs', fixtureTick, FIXTURE_TICK_MS, 20),
+      fixtureTitleMode: resolveLegTitleMode(fixtureTitleMode),
+      switchIntervalMs: resolveLegKnob('switchIntervalMs', switchInterval, SWITCH_INTERVAL_MS, 50),
     });
   }
   return legs;
@@ -756,6 +908,66 @@ function costPerUnit(cpuSeconds, units) {
 }
 
 
+// A soak measures whatever `.compiled` held while it ran, and a compile between two of its
+// windows silently replaces that code for every window after it (renderer documents are
+// re-loaded as tabs open and views are recreated). The digest is therefore taken at the start
+// and at the end: a run that drifts says so in its own payload instead of leaving a reader to
+// compare mtimes after the fact.
+const BUNDLE_DIR = path.join(PROJECT_ROOT, '.compiled');
+const BUNDLE_FILE_RE = /\.(js|cjs|mjs|html|css|json)$/i;
+function hashCompiledTree(dir = BUNDLE_DIR) {
+  const files = [];
+  const walk = (current) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && BUNDLE_FILE_RE.test(entry.name)) files.push(full);
+    }
+  };
+  walk(dir);
+  files.sort();
+  const hash = crypto.createHash('md5');
+  let bytes = 0;
+  for (const file of files) {
+    let content;
+    try {
+      content = fs.readFileSync(file);
+    } catch {
+      continue;
+    }
+    bytes += content.length;
+    hash.update(path.relative(dir, file).split(path.sep).join('/'));
+    hash.update('\0');
+    hash.update(content);
+  }
+  return { dir, files: files.length, bytes, md5: hash.digest('hex') };
+}
+
+/**
+ * The launcher compiles a stale bundle before the app starts (`main.cjs` runs `npm run compile`
+ * when the tree looks stale), which rewrites the code under measurement a few seconds into the
+ * run — the drift the digest above can only report after the fact. The same verdict the launcher
+ * uses is therefore checked before the first sample, so a graded run refuses to start on a tree
+ * that is about to move rather than measuring two bundles and calling it one.
+ */
+function bundlePreflight(verdict) {
+  if (verdict && verdict.state === 'fresh') return { ok: true, message: null };
+  const state = verdict ? verdict.state : 'unknown';
+  const reason = verdict ? verdict.reason : 'no verdict from the launcher guard';
+  return {
+    ok: false,
+    message:
+      `Refusing to start: the compiled bundle is ${state} (${reason}). The app compiles itself at launch when the tree ` +
+      'looks stale, so the code this run measures would change a few seconds in. Run `npm run compile` first.',
+  };
+}
+
 function buildReportPayload(meta) {
   const {
     startedAt,
@@ -776,10 +988,13 @@ function buildReportPayload(meta) {
     tabUrlById,
     processSamples,
     historySamples,
+    switchStepSamples,
     orphanPids,
     stdout,
     stderr,
+
     status,
+    bundle,
     teardownTelemetry,
     legs,
   } = meta;
@@ -816,6 +1031,25 @@ function buildReportPayload(meta) {
       const existingHasWebRole = existing && existing.role && existing.role !== existing.type;
       const effectiveRole = hasWebRole ? p.role : (existingHasWebRole ? existing.role : (p.role || effectiveType));
       processRoles.set(p.pid, { role: effectiveRole, type: effectiveType });
+    }
+  }
+  // Fills only the pids the telemetry stream left unnamed, and only from the executable name the
+  // process walk sampled, so a process whose name states nothing stays unattributed.
+  const ptyRoleForName = (name) => {
+    const n = String(name || '').toLowerCase();
+    if (!APP_PTY_EXECUTABLES.has(n)) return '';
+    if (n === 'conhost.exe' || n === 'openconsole.exe') return 'console host (pty child)';
+    if (n === 'powershell.exe' || n === 'pwsh.exe') return 'pty shell';
+    return 'pty agent';
+  };
+  for (const s of Array.isArray(samples) ? samples : []) {
+    const names = s.namesByPid;
+    if (!names) continue;
+    for (const [pid, name] of Object.entries(names)) {
+      const key = Number(pid);
+      if (processRoles.has(key)) continue;
+      const role = ptyRoleForName(name);
+      if (role) processRoles.set(key, { role, type: 'other' });
     }
   }
   const attachCpuRoles = (cpu) =>
@@ -916,6 +1150,14 @@ function buildReportPayload(meta) {
       open: isOpen,
       burstLines: leg.burstLines,
       burstIntervalMs: leg.burstIntervalMs,
+      // The fixture and switch knobs this leg ran under, resolved. A reader comparing two
+      // bisect runs cannot otherwise tell a flat slope produced by two drivers cancelling
+      // from one produced by two legs that were actually the same regime; a row built by
+      // hand (or read back from a payload that predates these knobs) resolves to the base
+      // knobs, which is what such a run did.
+      fixtureTickMs: leg.fixtureTickMs ?? FIXTURE_TICK_MS,
+      fixtureTitleMode: leg.fixtureTitleMode ?? FIXTURE_TITLE_MODE,
+      switchIntervalMs: leg.switchIntervalMs ?? SWITCH_INTERVAL_MS,
       startAt: leg.startAt,
       endAt: leg.endAt,
       observedFrom: leg.observedFrom ?? null,
@@ -991,6 +1233,10 @@ function buildReportPayload(meta) {
   const historyRows = (Array.isArray(historySamples) ? historySamples : []).filter(
     (row) => Number.isFinite(row?.value)
   );
+  const switchStepRows = (Array.isArray(switchStepSamples) ? switchStepSamples : []).filter(
+    (row) => Number.isFinite(row?.value)
+  );
+
   const summarizeHistory = (rows) => {
     if (!rows.length) return null;
     return {
@@ -1075,6 +1321,10 @@ function buildReportPayload(meta) {
     config: {
       totalMinutes: RUN_MINUTES,
       requestedTotalMinutes: TOTAL_MINUTES,
+      durationSource: DURATION_SOURCE,
+      // Present on the final payload only: a digest of the compiled tree the app loaded, taken
+      // when the run started and when it finished. `changedDuringRun` is the drift flag.
+      bundle: bundle ?? null,
       warmupMinutes: WARMUP_MINUTES,
       workloadMinutes: WORKLOAD_MINUTES,
       recoveryMinutes: RECOVERY_MINUTES,
@@ -1085,6 +1335,9 @@ function buildReportPayload(meta) {
       burstLines: BURST_LINES,
       tabRounds: TAB_ROUNDS,
       fixtureTickMs: FIXTURE_TICK_MS,
+      // The mode a leg that names none resolves to, beside the tick it schedules. Each leg's
+      // resolved values are in `legs` below.
+      fixtureTitleMode: FIXTURE_TITLE_MODE,
       sampleIntervalSeconds: SAMPLE_INTERVAL_SECONDS,
       reportTag: REPORT_TAG,
       // Switches the app was launched with beyond the app path and `--production`. Empty on
@@ -1211,7 +1464,9 @@ function buildReportPayload(meta) {
     samples,
     processSeries,
     historySamples: historyRows,
+    switchStepSamples: switchStepRows,
     legSlopes,
+
     slowSwitchSamples,
     switchSamples: switchSeries,
     switchSamplesDropped,
@@ -1227,6 +1482,17 @@ async function main() {
   console.log(`========================================================================`);
   console.log(`  AntiFan Browser Desktop — Real Multi-Process Soak Benchmark (${RUN_MINUTES}m)`);
   console.log(`  Warmup: ${WARMUP_MINUTES}m | Workload: ${WORKLOAD_MINUTES}m | Recovery: ${RECOVERY_MINUTES}m`);
+  console.log(`  Requested duration: ${TOTAL_MINUTES}m (${DURATION_SOURCE})`);
+  if (!LEGS.length && TOTAL_MINUTES !== RUN_MINUTES) {
+    // The requested duration is *not* the run length when it cannot hold a warmup and a
+    // recovery: WORKLOAD_MINUTES keeps a floor, so a short request runs long. Say which one is
+    // in force — the two differ by the warmup and the recovery, and the numbers above are what
+    // the artifact will be compared against.
+    console.warn(
+      `  [soak] Requested ${TOTAL_MINUTES}m is below warmup ${WARMUP_MINUTES}m + recovery ${RECOVERY_MINUTES}m: ` +
+        `running ${RUN_MINUTES}m with a ${WORKLOAD_MINUTES}m workload.`
+    );
+  }
   if (LEGS.length) {
     for (const [index, leg] of LEGS.entries()) {
       console.log(`    Leg ${index + 1}: ${leg.name} | ${leg.minutes}m | bursts ${leg.burstLines} lines / ${leg.burstIntervalMs}ms`);
@@ -1235,6 +1501,22 @@ async function main() {
   console.log(`========================================================================`);
 
   const startedAt = new Date().toISOString();
+  // Before anything is spawned: refuse a tree the launcher is about to recompile, then record the
+  // code this run actually measures.
+  const freshness = inspectCompiledBundle({
+    bundlePath: path.join(BUNDLE_DIR, 'src', 'main', 'index.js'),
+    buildInfoPath: path.join(BUNDLE_DIR, '.tsbuildinfo'),
+    sourceRoots: [path.join(PROJECT_ROOT, 'src')],
+    configFiles: [path.join(PROJECT_ROOT, 'tsconfig.json')],
+  });
+  const preflight = bundlePreflight(freshness);
+  if (!preflight.ok) {
+    console.error(`[soak] ${preflight.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  const bundleAtStart = hashCompiledTree();
+  console.log(`  Bundle: ${bundleAtStart.files} compiled files, ${(bundleAtStart.bytes / 1048576).toFixed(1)} MB, md5 ${bundleAtStart.md5}`);
   const soakDataDir = fs.existsSync('E:/Work')
     ? 'E:/Work/.antifan-soak-8h'
     : path.join(os.tmpdir(), 'antifan-soak-8h');
@@ -1352,6 +1634,7 @@ async function main() {
     tabUrlById,
     processSamples: benchmarkIngest.samples,
     historySamples: benchmarkIngest.history,
+    switchStepSamples: benchmarkIngest.switchSteps,
     requestCount: 0,
     switches: 0,
     bursts: 0,
@@ -1361,6 +1644,7 @@ async function main() {
     // derived from the workload samples in `buildReportPayload` and lands in
     // `stats.activeWorkloadMinutes`, so the two readings can never be confused by name.
     activeMinutesSinceStart: 0,
+
     stdout: '',
     stderr: '',
     teardownTelemetry,
@@ -1388,7 +1672,23 @@ async function main() {
     }
   });
 
+  // The pages this server hands out are the workload's only high-frequency driver, and a leg
+  // exists to change exactly that driver mid-run: the active leg is therefore kept here, in
+  // memory, and never read back from a file a teardown could race. `activeFixtureConfig` is
+  // written by the leg boundary below and read by both the page serve (so a tab opened inside
+  // a leg starts at that leg's rate instead of the previous one's) and the config route.
+  // `requestCount` counts page serves only: the config polls are control traffic at 1 Hz per
+  // tab, and folding them in would move a counter earlier soaks are read against.
+  let activeFixtureConfig = { tickMs: FIXTURE_TICK_MS, titleMode: FIXTURE_TITLE_MODE };
   fixtureServer = http.createServer((req_, res) => {
+    if ((req_.url || '').split('?')[0] === '/soak-fixture-config') {
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      });
+      res.end(JSON.stringify(activeFixtureConfig));
+      return;
+    }
     requestCount++;
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
@@ -1416,13 +1716,66 @@ async function main() {
         <div class="card">Item 4</div>
       </div>
       <script>
+        // Served with the adopting leg's own values, then re-read from the harness so a leg
+        // boundary reaches pages that are already open — a page cannot be re-armed otherwise.
         let count = 0;
-        setInterval(() => {
+        let tickMs = ${activeFixtureConfig.tickMs};
+        let mode = ${JSON.stringify(activeFixtureConfig.titleMode)};
+        let timer = null;
+        const ticker = document.getElementById('ticker');
+        const STATIC_TITLE = 'Store Home (static)';
+        const STATIC_TEXT = 'Tick: static';
+        function arm() {
+          // Cleared before re-arming: one tick timer per page, whatever the leg history was.
+          if (timer !== null) clearInterval(timer);
+          timer = setInterval(tick, tickMs);
+        }
+        function applyMode() {
+          // The constant is written once per adoption, never per tick: minting a fresh string
+          // every tick is precisely the churn \`static\` exists to remove, while the timer and
+          // the ticker write below keep the per-tick DOM work at the leg's rate. \`unique\`
+          // writes nothing here — its title is set by the tick, as it always was.
+          if (mode === 'static') document.title = STATIC_TITLE;
+        }
+        function tick() {
+          if (mode === 'static') {
+            if (ticker) ticker.textContent = STATIC_TEXT;
+            return;
+          }
           count++;
           document.title = 'Fixture [' + count + '] ' + location.pathname;
-          const el = document.getElementById('ticker');
-          if (el) el.textContent = 'Tick: ' + count + ' | ' + new Date().toISOString();
-        }, ${FIXTURE_TICK_MS});
+          if (ticker) ticker.textContent = 'Tick: ' + count + ' | ' + new Date().toISOString();
+        }
+        function adopt(next) {
+          const nextTick = Number(next && next.tickMs);
+          const nextMode = next && next.titleMode;
+          // A body this page cannot use is ignored, not applied partly: the last usable
+          // config keeps running, so a truncated response cannot silently drop a leg's rate.
+          if (!Number.isFinite(nextTick) || nextTick < 20) return;
+          if (nextMode !== 'unique' && nextMode !== 'static') return;
+          if (nextTick === tickMs && nextMode === mode) return;
+          tickMs = nextTick;
+          mode = nextMode;
+          applyMode();
+          arm();
+        }
+        function poll() {
+          fetch('/soak-fixture-config', { cache: 'no-store' })
+            .then((res) => (res.ok ? res.json() : null))
+            .then((next) => { if (next) adopt(next); })
+            .catch(() => {});
+        }
+        function start() {
+          applyMode();
+          arm();
+          poll();
+          // One poll interval for the page's lifetime, and only the tick timer is re-armed on
+          // adoption. A second poll interval per leg would multiply the request rate and make
+          // the app's own tab bookkeeping — the thing under measurement — depend on the leg count.
+          setInterval(poll, 1000);
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+        else start();
       </script>
     `);
   });
@@ -1434,6 +1787,26 @@ async function main() {
   fixturePort = fixtureServer.address().port;
   stateMeta.fixturePort = fixturePort;
   console.log(`[soak] Fixture server running at http://127.0.0.1:${fixturePort}`);
+
+  // Leg bookkeeping lives here, at the body's scope, and not beside the workload loop that
+  // builds it: the teardown closes the leg that is still open, and the teardown runs in a
+  // `finally` whose scope cannot see a binding declared inside the `try`. The run that exposed
+  // it (2026-09-21, tag `legs4h2`) finished four hours of measurement and then died with
+  // `ReferenceError: closeOpenLeg is not defined` at the final-report write, so the payload it
+  // had earned was never written and only the checkpoint survived. Every legs run lost its
+  // final report the same way.
+  // Legs cover the workload phase only: warmup and recovery run different work, so
+  // folding either into a leg would attribute its slope to the leg's knobs.
+  const legTimeline = [];
+  // The counter must target the timeline entry, not the scheduling object: `legAt` returns a
+  // spread copy of a `LEGS` entry, so `activeLeg.bursts++` incremented a throwaway and every
+  // leg reported 0 observed bursts — which then priced the whole run's CPU per line against a
+  // zero denominator (null), silently, on every bisect run.
+  let activeLegEntry = null;
+  function closeOpenLeg(at) {
+    const open = legTimeline[legTimeline.length - 1];
+    if (open && open.observedTo === null) open.observedTo = at;
+  }
 
   try {
     // 2. Launch Production Electron Runtime
@@ -1603,9 +1976,6 @@ async function main() {
   let nextBurstTime = startTime;
   let nextReloadTime = startTime;
   let lastCheckpointTime = startTime;
-  // Legs cover the workload phase only: warmup and recovery run different work, so
-  // folding either into a leg would attribute its slope to the leg's knobs.
-  const legTimeline = [];
   const legAt = (at) => {
     let cursor = warmupEndTime;
     for (const leg of LEGS) {
@@ -1617,15 +1987,6 @@ async function main() {
   };
   let activeLegName = null;
   let activeLegLabel = null;
-  // The counter must target the timeline entry, not the scheduling object: `legAt` returns a
-  // spread copy of a `LEGS` entry, so `activeLeg.bursts++` incremented a throwaway and every
-  // leg reported 0 observed bursts — which then priced the whole run's CPU per line against a
-  // zero denominator (null), silently, on every bisect run.
-  let activeLegEntry = null;
-  const closeOpenLeg = (at) => {
-    const open = legTimeline[legTimeline.length - 1];
-    if (open && open.observedTo === null) open.observedTo = at;
-  };
   const enterLeg = (leg, at) => {
     closeOpenLeg(at);
     // Ordinal, because a bisect may return to a regime it already ran
@@ -1637,6 +1998,9 @@ async function main() {
       ordinal,
       burstLines: leg.burstLines,
       burstIntervalMs: leg.burstIntervalMs,
+      fixtureTickMs: leg.fixtureTickMs,
+      fixtureTitleMode: leg.fixtureTitleMode,
+      switchIntervalMs: leg.switchIntervalMs,
       startAt: leg.startAt,
       endAt: leg.endAt,
       observedFrom: at,
@@ -1645,7 +2009,12 @@ async function main() {
     };
     legTimeline.push(entry);
     activeLegEntry = entry;
-    console.log(`[soak] Leg ${ordinal}: ${leg.name} | bursts ${leg.burstLines} lines / ${leg.burstIntervalMs}ms | until ${new Date(leg.endAt).toLocaleTimeString()}`);
+    // Handed to the fixture pages through the server's config route: the tick rate and the
+    // title mode are page-side drivers, and a page that kept the previous leg's rate would
+    // make two legs differ in burst volume while quietly sharing the driver under test.
+    // The switch cadence needs no broadcast — the workload loop re-reads it each tick.
+    activeFixtureConfig = { tickMs: leg.fixtureTickMs, titleMode: leg.fixtureTitleMode };
+    console.log(`[soak] Leg ${ordinal}: ${leg.name} | bursts ${leg.burstLines} lines / ${leg.burstIntervalMs}ms | fixture ${leg.fixtureTickMs}ms ${leg.fixtureTitleMode} | switch ${leg.switchIntervalMs}ms | until ${new Date(leg.endAt).toLocaleTimeString()}`);
     return `${leg.name}#${ordinal}`;
   };
   // Assigned by reference so a checkpoint mid-run already carries the leg boundaries
@@ -1680,6 +2049,9 @@ async function main() {
         nextBurstTime = now + (activeLeg ? activeLeg.burstIntervalMs : BURST_INTERVAL_MS);
       } else {
         activeLegLabel = null;
+        // No active leg means no leg schedule: the pages return to the base knobs, so a leg-less
+        // run and the phases outside the workload cannot inherit the last leg's regime.
+        activeFixtureConfig = { tickMs: FIXTURE_TICK_MS, titleMode: FIXTURE_TITLE_MODE };
         closeOpenLeg(workloadEndTime);
       }
     }
@@ -1707,7 +2079,11 @@ async function main() {
           switches++;
         }
       } catch {}
-      nextSwitchTime = now + SWITCH_INTERVAL_MS; // default 3s
+      // Re-read per tick rather than captured at leg entry: a switch timer restarted at the
+      // boundary would shift the cadence's phase and bill the leg for one irregular gap, and
+      // restarting it needs a timer this loop does not own. A leg that moves the cadence
+      // therefore takes effect at the next switch.
+      nextSwitchTime = now + (activeLeg ? activeLeg.switchIntervalMs : SWITCH_INTERVAL_MS);
     }
     // 2. Terminal Bursts (default every 30s in warmup & workload). The active leg owns
     // the volume, which is what makes the terminal path a variable instead of a
@@ -1856,8 +2232,16 @@ async function main() {
       stateMeta.error = executionError.message;
     }
 
+    const bundleAtEnd = hashCompiledTree();
+    if (bundleAtStart.md5 !== bundleAtEnd.md5) {
+      console.warn(
+        `[soak] Bundle drifted during the run: md5 ${bundleAtStart.md5} -> ${bundleAtEnd.md5} (${bundleAtEnd.files} files). ` +
+          `Windows after the change measured different code than the windows before it.`
+      );
+    }
     const finalPayload = buildReportPayload({
       ...stateMeta,
+      bundle: { start: bundleAtStart, end: bundleAtEnd, changedDuringRun: bundleAtStart.md5 !== bundleAtEnd.md5 },
       status: executionError ? 'failed' : (childExitedPrematurely ? 'failed' : 'completed'),
       executionError: executionError ? executionError.message : (childExitedPrematurely ? 'child_exited_prematurely' : undefined),
     });
@@ -1943,10 +2327,18 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch((err) => {
-    console.error('[soak] Fatal error:', redactCreds(err));
-    process.exitCode = 1;
-  });
+  if (RUN_ARGV.printLegs) {
+    // A dry path: it prints the schedule and returns before `main()`, so no Electron child is
+    // spawned and no port is bound. That matters beyond tidiness — the check exists to be run
+    // while a soak is in flight, and a check that launched a second app instance against the
+    // same data root would corrupt the measurement the first one is producing.
+    printResolvedLegs();
+  } else {
+    main().catch((err) => {
+      console.error('[soak] Fatal error:', redactCreds(err));
+      process.exitCode = 1;
+    });
+  }
 }
 
 // Exported so `test/unit/soak-latency-gate.test.mjs` and
@@ -1954,4 +2346,5 @@ if (require.main === module) {
 // contract instead of a copy of them — a re-implemented threshold or a re-implemented
 // truncation rule in a test passes while production fails.
 // Requiring this module does not start a run: the entry point is guarded above.
-module.exports = { FREEZE_SLO, evaluateFreezeVerdict, buildReportPayload, parseExtraAppArgs, EXTRA_APP_ARGS, parseWorkloadLegs, calculateCpuDeltas, costPerUnit, readProcessCpuSeconds };
+module.exports = { FREEZE_SLO, evaluateFreezeVerdict, buildReportPayload, parseExtraAppArgs, EXTRA_APP_ARGS, parseWorkloadLegs, parseRunArgs, hashCompiledTree, bundlePreflight, calculateCpuDeltas, costPerUnit, readProcessCpuSeconds, createBenchmarkStreamIngest };
+

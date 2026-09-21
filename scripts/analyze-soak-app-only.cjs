@@ -586,10 +586,34 @@ function cpuFrames(from, to) {
   );
 }
 
-/** Role per pid, from the app's own telemetry rows (never from the harness walk). */
+/** Role per pid: the app's own telemetry rows, plus an OS-sampled name for the pty chain. */
+// Roles the OS executable name states on its own. Kept beside the reader rather than imported
+// from the harness so this analyzer stays runnable against payloads written by either version.
+const PTY_ROLE_BY_NAME = {
+  'conhost.exe': 'console host (pty child)',
+  'openconsole.exe': 'console host (pty child)',
+  'powershell.exe': 'pty shell',
+  'pwsh.exe': 'pty shell',
+  'winpty.exe': 'pty agent',
+  'winpty-agent.exe': 'pty agent',
+};
+
 function roleByPid() {
   const map = new Map();
   for (const f of frames) for (const p of f.processes) if (p.role) map.set(String(p.pid), p.role);
+  // The terminal's pty chain is app-owned but is not a Chromium process, so the app's telemetry
+  // stream never names it; the harness samples the OS name beside each pid. Without this the
+  // CPU table printed that chain as `unattributed` while it held 41-43% of a run's CPU - the one
+  // row a reader needs in order to see where the per-line cost actually lands.
+  for (const s of samples) {
+    const names = s.namesByPid;
+    if (!names) continue;
+    for (const [pid, name] of Object.entries(names)) {
+      if (map.has(String(pid))) continue;
+      const role = PTY_ROLE_BY_NAME[String(name || '').toLowerCase()];
+      if (role) map.set(String(pid), role);
+    }
+  }
   if (report.rootPid != null && !map.has(String(report.rootPid))) {
     map.set(String(report.rootPid), 'browser (main)');
   }
@@ -1066,6 +1090,80 @@ function printHistory() {
   }
 }
 
+const SWITCH_STEP_KEYS = ['ensureView', 'attachSweep', 'layoutBroadcast', 'throttle', 'invalidateFocus', 'presentedView'];
+
+/**
+ * Per-switch attribution of NativeTabHost.switchTab. The aggregate `switched` number (and
+ * the harness RPC latency) show a per-switch cost and never name the step that paid it.
+ * The app emits one `tabs`/`switch-steps` row per switch with the six step readings in
+ * `extra`; the harness must carry those rows as `switchStepSamples` or this section prints
+ * `not collected` rather than a guessed 0.
+ */
+function printSwitchSteps() {
+  console.log('\n### switch-steps (per-switch attribution of NativeTabHost.switchTab)');
+  const raw = Array.isArray(report.switchStepSamples) ? report.switchStepSamples : [];
+  const rows = raw.filter((s) => Number.isFinite(s?.value) && s.extra && typeof s.extra === 'object');
+  if (rows.length === 0) {
+    console.log('  switch-steps: not collected in this report (no switchStepSamples present in payload)');
+    return;
+  }
+
+  const summarizeKey = (subset, key) => {
+    const vals = subset
+      .map((r) => (key === '_total' ? r.value : Number(r.extra?.[key])))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    if (vals.length === 0) return null;
+    return {
+      p50: quantile(vals, 0.5),
+      p95: quantile(vals, 0.95),
+      max: vals[vals.length - 1],
+      mean: vals.reduce((a, b) => a + b, 0) / vals.length,
+    };
+  };
+
+  const printBlock = (label, subset) => {
+    if (subset.length === 0) {
+      console.log(`  ${label}: 0 rows`);
+      return;
+    }
+    const total = summarizeKey(subset, '_total');
+    console.log(
+      `  ${label}: ${subset.length} switches | total p50 ${s3(total?.p50)} ms | p95 ${s3(total?.p95)} ms | max ${s3(total?.max)} ms | mean ${s3(total?.mean)} ms`,
+    );
+    console.log('    ' + 'step'.padEnd(18) + 'p50'.padEnd(12) + 'p95'.padEnd(12) + 'max'.padEnd(12) + 'mean'.padEnd(12) + 'share of mean');
+    const meanTotal = total && Number.isFinite(total.mean) && total.mean > 0 ? total.mean : null;
+    for (const key of SWITCH_STEP_KEYS) {
+      const s = summarizeKey(subset, key);
+      const share = s && meanTotal ? `${((s.mean / meanTotal) * 100).toFixed(1)}%` : 'n/a';
+      console.log(
+        '    ' +
+          key.padEnd(18) +
+          `${s3(s?.p50)}`.padEnd(12) +
+          `${s3(s?.p95)}`.padEnd(12) +
+          `${s3(s?.max)}`.padEnd(12) +
+          `${s3(s?.mean)}`.padEnd(12) +
+          share,
+      );
+    }
+  };
+
+  printBlock('all', rows);
+  const legRows = Array.isArray(report.legSlopes) ? report.legSlopes : [];
+  if (legRows.length > 0) {
+    console.log('  per leg:');
+    for (const leg of legRows) {
+      const from = Number.isFinite(leg.observedFrom) ? leg.observedFrom : leg.startAt;
+      const to = Number.isFinite(leg.observedTo) ? leg.observedTo : leg.endAt;
+      const inLeg = Number.isFinite(from) && Number.isFinite(to)
+        ? rows.filter((r) => r.at >= from && r.at <= to)
+        : [];
+      printBlock(`  leg ${leg.name}`, inLeg);
+    }
+  }
+}
+
+
 console.log(`report: ${reportArg ? path.resolve(reportArg) : DEFAULT_REPORT}`);
 console.log(`status: ${report.status} | started ${report.startedAt} | frames ${frames.length} | samples ${samples.length}`);
 if (report.config) console.log(`config: ${JSON.stringify(report.config)}`);
@@ -1097,5 +1195,7 @@ printRecoveryRelease();
 printCpu();
 printLegs();
 printHistory();
+printSwitchSteps();
+
 printSwitchTail();
 for (const label of ['workload', 'recovery']) printContaminated(label);

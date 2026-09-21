@@ -407,4 +407,103 @@ describe('soak payload — non-WebContents process role attribution', () => {
     assert.strictEqual(payload.historySamples.length, 1);
     assert.strictEqual(payload.historySamples[0].value, 15);
   });
+
+  it('exposes switchStepSamples on the payload root, and missing input is an empty array not a missing field', () => {
+    const payload = buildReportPayload({ ...baseMeta });
+    assert.ok(Array.isArray(payload.switchStepSamples));
+    assert.strictEqual(payload.switchStepSamples.length, 0);
+
+    const rows = [{
+      at: 1_789_000_000_000,
+      name: 'switch-steps',
+      value: 12.5,
+      extra: { ensureView: 0.2, attachSweep: 1.1, layoutBroadcast: 2.0, throttle: 0.4, invalidateFocus: 0.3, presentedView: 8.5 },
+    }];
+    const carried = buildReportPayload({ ...baseMeta, switchStepSamples: rows });
+    assert.strictEqual(carried.switchStepSamples.length, 1);
+    assert.strictEqual(carried.switchStepSamples[0].extra.presentedView, 8.5);
+  });
+});
+
+describe('soak ingest — switch-steps lines must not be dropped', () => {
+  const { createBenchmarkStreamIngest } = require('../../scripts/benchmark-real-soak-8h.cjs');
+
+  it('keeps tabs/switch-steps rows and still drops the aggregate switched row', () => {
+    const ingest = createBenchmarkStreamIngest();
+    ingest.push('[antifan-benchmark] {"surface":"tabs","name":"switch-steps","value":12.5,"ts":"2026-09-21T00:00:00.000Z","extra":{"presentedView":5.1,"throttle":0.4}}\n');
+    ingest.push('[antifan-benchmark] {"surface":"tabs","name":"switched","value":12.5,"ts":"2026-09-21T00:00:00.000Z"}\n');
+    ingest.push('[antifan-benchmark] {"surface":"history","name":"persist","value":3,"ts":"2026-09-21T00:00:00.000Z","extra":{"items":1}}\n');
+    assert.strictEqual(ingest.switchSteps.length, 1, 'switch-steps must be collected');
+    assert.strictEqual(ingest.switchSteps[0].extra.presentedView, 5.1);
+    assert.strictEqual(ingest.history.length, 1, 'history collection must be unchanged');
+    assert.strictEqual(ingest.samples.length, 0, 'the aggregate switched row is not a process sample');
+  });
+});
+
+
+/**
+ * Bundle identity — the payload must say which compiled tree the numbers describe.
+ *
+ * A soak measures whatever `.compiled` held while it ran, and a compile between two of its
+ * windows replaces that code for every document loaded after it, so a run that drifted reads as
+ * one measurement when it is two. The digest is the field that makes the drift visible; the two
+ * ways it fails silently are a digest that ignores file content (drift undetected) and one that
+ * ignores the file set (a deleted entry point undetected).
+ */
+describe('soak bundle identity — the compiled tree the run measured', () => {
+  const { hashCompiledTree } = require('../../scripts/benchmark-real-soak-8h.cjs');
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+
+  const stage = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'soak-bundle-'));
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'main.js'), 'module.exports = 1;\n');
+    fs.writeFileSync(path.join(dir, 'src', 'toolbar.html'), '<div></div>\n');
+    // Not part of the app's loaded code: the digest must not move when only this changes.
+    fs.writeFileSync(path.join(dir, 'src', 'toolbar.js.map'), '{"version":3}\n');
+    return dir;
+  };
+
+  it('digests the loaded files, ignores the rest, and is stable across calls', () => {
+    const dir = stage();
+    try {
+      const first = hashCompiledTree(dir);
+      const second = hashCompiledTree(dir);
+      assert.strictEqual(first.files, 2, 'only .js/.html/.css/.json are digested');
+      assert.strictEqual(first.md5, second.md5);
+      assert.ok(first.bytes > 0);
+
+      fs.writeFileSync(path.join(dir, 'src', 'toolbar.js.map'), '{"version":3,"changed":true}\n');
+      assert.strictEqual(hashCompiledTree(dir).md5, first.md5, 'a source map is not loaded code');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('changes when the code changes, and when a loaded file disappears', () => {
+    const dir = stage();
+    try {
+      const first = hashCompiledTree(dir);
+      fs.writeFileSync(path.join(dir, 'src', 'main.js'), 'module.exports = 2;\n');
+      const edited = hashCompiledTree(dir);
+      assert.notStrictEqual(edited.md5, first.md5, 'a changed byte must move the digest');
+
+      fs.rmSync(path.join(dir, 'src', 'toolbar.html'));
+      const removed = hashCompiledTree(dir);
+      assert.notStrictEqual(removed.md5, edited.md5);
+      assert.strictEqual(removed.files, 1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces the digest on the payload so drift is readable from the artifact', () => {
+    const bundle = { start: { md5: 'a', files: 1, bytes: 1 }, end: { md5: 'b', files: 1, bytes: 1 }, changedDuringRun: true };
+    const payload = buildReportPayload({ ...baseMeta, bundle });
+    assert.deepStrictEqual(payload.config.bundle, bundle);
+    // An in-progress payload carries no digest rather than an empty one that would read as clean.
+    assert.strictEqual(buildReportPayload({ ...baseMeta }).config.bundle, null);
+  });
 });
