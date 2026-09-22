@@ -559,6 +559,33 @@ Verdict with every gate, per-process evidence, and a changelog entry. The machin
 `plans/bottlenecks.json` ledger is scoped to build/gate/devloop/hygiene defects, so an app
 runtime perf finding is recorded in the verdict report rather than invented as a ledger row.
 
+## The peak-memory gate is decided by baseline load, not by retention
+
+`FREEZE_SLO.peakTotalWorkingSetMB` is 1600 and is graded on `metrics.activeWorkingSetMB.max` - the harness prints
+"Peak Max ... SLO <= 1600 MB" from that exact field (`scripts/benchmark-real-soak-8h.cjs:2271`). Measured across
+the series, the outcome is fixed by how much the app had loaded *before the workload began*:
+
+| run | `initialLoadedMB` (at load) | headroom to 1600 | `postWarmupMB` | `activeWorkingSetMB.max` | `memorySloSatisfied` |
+|---|---|---|---|---|---|
+| `night4h` | 1645.54 | **-46 MB** | 1672.5 | 1692.17 | false |
+| `4hfix6` | 1491.03 | +109 MB | 1510.6 | *null (killed)* | *true (never evaluated)* |
+| `4hfix7` | 1634.55 | **-35 MB** | 1605.19 | *null (killed)* | *true (never evaluated)* |
+| `4hfix9` | 1574.46 | **+26 MB** | 1643.48 | 1662.78 | false |
+
+Two runs - `night4h` and `4hfix7` - were **already over the bound on `initialLoadedMB` alone**, before a single
+workload burst. Baseline load varies by **155 MB across these four runs** (1491 to 1646) against a 1600 bound, so
+the headroom (26 to 109 MB) is smaller than the run-to-run variance of the thing being measured. A gate whose
+threshold sits inside the noise band of its own starting condition does not discriminate a leak; on this bundle it
+reports whether the boot-time walk happened to catch a large working set.
+
+**Do not read `memorySloSatisfied: true` on `4hfix6`/`4hfix7` as a pass.** Those are checkpoints from runs killed
+before the evaluator ran, and the field still holds its initialized value; `activeWorkingSetMB.max` is `null` in the
+same objects, which is the tell.
+
+**The series the two fixes actually target is flat.** `activeRendererWorkingSetMB` on `4hfix9` is min 807.76,
+p50 809.45, max **811.25** - a 3.5 MB spread over 41 samples - against `night4h`'s 778.21 / 797.34 / 831.25. The
+renderer does not grow measurably; the peak gate moves because the *baseline* moves.
+
 ## Acceptance criteria
 
 1. The 4h soak's report names the process that grew, by role and URL, not just by PID — and
@@ -2266,6 +2293,16 @@ measure → `git checkout HEAD -- src` → `npm run compile`. Both states are co
 working-tree overwrite of `src` is the operator's call, not this plan's - and it is the reason it waits rather than
 running now.
 
+**The control must also match the persisted state, not just the bundle.** The two post-fix bundles differ by
+exactly one terminal PTY tree as well as by their source (9 Electron processes in both; 1 vs 2 conhost /
+winpty-agent / powershell), and this codebase does persist terminal transcripts - so if the second PTY tree is a
+*restored session* rather than a code path, a bundle-only A/B would carry the same confound across the experiment
+and the "control" would reproduce ~9.6 ms for a reason that has nothing to do with the bundle. The A/B therefore
+controls **both** variables: same bundle, and the same app data root / persisted profile at boot (a clean or
+snapshotted profile, applied identically to both arms), with the PTY count recorded as a first-class observation
+alongside `switchLatencyWarmupMs.p50` and the sampler load. Three numbers per arm, or the experiment answers
+nothing.
+
 **A structural difference in the tree, and it is confounded with the bundle.** Counting `samples[].namesByPid`,
 the two runs differ by exactly one terminal PTY tree and nothing else:
 
@@ -2294,6 +2331,15 @@ graded). On the warmup band - the like-for-like band - `4hfix6`'s harness p50 of
 `4hfix9`'s **15.34** sits over it. Warmup is not the graded phase, so this is not the verdict; it is the reason the
 verdict cannot average the two bundles together or call the current bundle "the post-fix number" without saying
 which post-fix bundle is meant.
+
+**The profile holds in the workload phase (live, 09:25).** The question the warmup decomposition raises is whether
+real workload moves where the cost sits - if it did, the published shares would understate the verdict. It does
+not. Over the workload phase's first 190 step rows the order and the shares are the same: `attachSweep` **82.1 %**
+(9.862 ms) against warmup's 81.3 %, `presentedView` 5.6 % (0.677), `layoutBroadcast` 5.6 % (0.677),
+`invalidateFocus` 4.3 % (0.518), `throttle` 1.3 % (0.154), `ensureView` 0.3 % (0.035). The workload total is if
+anything *lower* than warmup - p50 **12.042** against 12.230, mean 12.016 against 12.400 - so `attachSweep` remains
+the whole story in both phases. Read that app-side 12.042 against a 12 ms bound of course only after adding the
+transport term back: the harness is the instrument the gate uses.
 
 **In-flight readout** (`4hfix6`, bundle `53f0fa88…`, warmup band only — the verdict number is the 180-minute
 workload phase): at 27 minutes in, n=376 warmup switches give p50 **9.83 ms** and p95 **14.17 ms**, against a gate
