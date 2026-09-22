@@ -652,7 +652,16 @@ The "bundle drift during measurement" risk is closed for this run with evidence 
 
 **`extension/background.js` has no runtime effect on this run, for a stronger reason than "not in `.compiled`".** It is a *generated* artifact - `scripts/build-extension.mjs` writes it and mirrors it to `%LOCALAPPDATA%\AntiFan\extension` - and its `M` carries **zero content change** (git `--numstat` empty; CRLF normalisation only). More decisively, the app never loads it: there is **no `loadExtension` or `load-extension` in `src/main/` or `main.cjs`**, and the soak's `appArgs` is `[]`. The extension runs in the user's Chrome and talks to the app over the bridge server, so it is outside the measured tree either way.
 
-**`worstProcessSlopeMBPerMin` 1.1461 breaches no gate.** `FREEZE_SLO` defines exactly six bounds - `overallSlopeMBPerMin` 0.35, `rendererSlopeMBPerMin` 0.15, `peakTotalWorkingSetMB` 1600, `switchLatencyP50Ms` 12, `switchLatencyP95Ms` 18, `maxOrphans` 0 - and **per-process slope is not one of them**. It is a reported field that names the culprit for criterion 1, not a threshold. Its value on pid 11648 (Browser) is the *lead*, and the 8-minute window that produced it is short, so it becomes the verdict's headline only if it persists through leg 3 (`burst-off`), where growth cannot be attributed to burst volume.
+**Correction (final payload, 12:41): the per-process measurement does exist, and it passes — my mid-run statement
+that "per-process slope is not gated" was read too narrowly.** `FREEZE_SLO` has no separate per-process *field*, but
+criterion 2's per-process maximum in **committed private bytes** is printed against `rendererSlopeMBPerMin` (0.15)
+and is the strictly tighter companion to the working-set walk (`benchmark-real-soak-8h.cjs:282-284`, `:2297`,
+`:1417-1420`). Final values: `appPrivateMaxSlopeMBPerMin` **0.1096** at pid 11648 `Browser` against 0.15 → **passes**;
+`worstProcessSlopeMBPerMin` (working set, the field I quoted mid-run) settled from 1.1461 to **0.1069**. Those two
+are different series, and the 1.1461 was an 8-minute window. Note also that neither enters `isPassed`
+(`:318` gates on `slopeOk`/`memoryOk`/`latencyOk`/`processOk`/`executionOk`/`teardownOk`, where `processOk` is the
+*orphan* gate at `:314`), so the per-process figure is criterion 2's measurement and a verdict input even though it
+is not one of the six pass/fail terms.
 
 **The badge fix postdates `night4h`, so renderer-slope comparisons across the two are bundle comparisons.** `3e6f7594` was uncommitted until 09:29 and its file predates `night4h`'s bundle, so `night4h`'s renderer series did **not** include the removed IPC round trips that `4hfix9`'s does. Any "the renderer slope improved/did not improve since night4h" sentence must say that both the fix and the bundle changed.
 
@@ -718,6 +727,29 @@ different claims, and this is exactly the class of mistake that let a fixed watc
 
 **Current health:** three heartbeats fresh at 09:31:48 (sampler 09:28:29, checkpoint and run log 09:31:22 - max gap
 3:19 against a 20-minute limit), 41 samples, leg 1 `baseline` open, harness pid 19672 unchanged since launch.
+
+## Run result - `4hfix9` completed 240/240 (2026-09-22 12:41)
+
+The run rode the **full 4 h 01 m** under the retry supervisor with zero `attempt.stalled` events, and exited **1**,
+which is the harness's FAIL verdict (`:2332`) rather than a crash - `executionOk: true`, `teardownOk: true`.
+Full verdict: **`plans/reports/runtime-verification/real-soak-4h-verdict-4hfix9.md`**.
+
+- **Bundle `2aacaa2c…`, `changedDuringRun: false`** - md5 identical at start and end, 419 files, 9,255,060 bytes.
+- 242 samples, 3766 switch samples, 32,232 workload switch samples across all legs (n=3232 in the graded window).
+- **Gates:** peak **FAIL** (`activeWorkingSetMB.max` 1670.30 vs 1600); latency **FAIL** (workload p50 **13.487** vs
+  12, p95 **20.853** vs 18); orphan / execution / teardown **PASS**; both slope gates **null** (`slopeGateApplicable:
+  false`, `privateSlopeMeasured: true`) because a leg run does not grade a blended slope.
+- **All three legs closed at ~60 min with switch count held and burst volume moved:** 35,700 / **142,800** / **5**
+  burst lines against 1075 / 1080 / 1077 switches, with app CPU **12.125 / 12.770 / 12.099 s/min** and **665.7 /
+  698.4 / 663.5 ms per switch**. A 28,560x burst range moves app CPU by under 5 %: **the switch cost is
+  workload-independent**, and in the quietest leg (5 burst lines in an hour) the app still spends 12.1 s/min.
+- **Criterion 2:** `rendererActiveSlopeMBPerMin` **-0.0117**; app-owned Tab sum private slope **+1.21** (warmup) →
+  **+0.02** (workload) → **+0.02** (recovery) MB/min - the growth is a **warmup fill**, flat afterwards.
+  Per-process max **0.1096** against 0.15 passes, while the same series' endpoint delta is 39.77 MB / 179 min =
+  **0.222 MB/min**; the pass is by the LSQ fit, not the endpoints.
+- **Criterion 3:** max 152.674 ms is reported, not graded. The harness names the page itself -
+  `Slowest Switch Destination: https://www.wikipedia.org (max 152.674ms, p95 26.192ms over 627 switches)` - and the
+  tail spans all three legs and both phases, so it is reproducible rather than a one-off.
 
 ## Acceptance criteria
 
