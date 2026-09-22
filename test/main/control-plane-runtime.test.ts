@@ -4,8 +4,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ControlPlaneRuntime, resolveArtifactStoreOptionsFromEnv } from '../../src/main/control-plane/control-plane-runtime';
-import { makeControlPlaneId } from '../../src/shared/control-plane-contracts';
+import { makeControlPlaneId, CapabilityError } from '../../src/shared/control-plane-contracts';
 import type { ExecutionBackend } from '../../src/main/agent/execution-backend';
+import type { TerminalManager } from '../../src/main/browser/terminal-manager';
 describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
   it('issues attempt attachments bound to authoritative runtime lease and host epoch', async () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-test-'));
@@ -286,5 +287,138 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
     assert.strictEqual(tuned.enableRetentionCleaner, true, 'env tuning must not disable retention');
     assert.strictEqual(tuned.maxArtifactBytes, 1048576);
     assert.strictEqual(tuned.maxRunBytes, undefined, 'a non-numeric override must be ignored');
+  });
+
+  it('scopes attachment-bound terminal capabilities to the calling attachment through the injected host authority', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-terminal-'));
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-terminal-ws-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+
+    const writes: Array<{ sessionId: string; input: string }> = [];
+    // The runtime joins its own attachment registry to the host authority; `allowsTab` /
+    // `isAgentTerminal` / `bind` are the host half, wired exactly as src/main/index.ts wires it.
+    const ownedByTab: Record<string, string> = { 'tab-mine': 'terminal-mine', 'tab-other': 'terminal-foreign' };
+    const terminal = {
+      writeTo: (sessionId: string, input: string) => {
+        writes.push({ sessionId, input });
+      },
+      getSession: (sessionId: string) => ({ id: sessionId, sessionGeneration: 1, state: 'live' }),
+      listSessions: () => [{ id: 'terminal-mine' }, { id: 'terminal-foreign' }, { id: 'terminal-user' }],
+      getActiveSessionId: () => 'terminal-mine',
+      closeSession: async () => true,
+      closeSplitSession: async () => true,
+      createSession: () => 'terminal-new',
+      createSplitSession: () => 'terminal-new-split',
+    } as unknown as TerminalManager;
+
+    try {
+      const runtime = new ControlPlaneRuntime({
+        projectId,
+        workspaceId,
+        dataRoot,
+        workspaceRoot,
+        terminal,
+        terminalAuthority: {
+          allowsTab: (tabId, terminalId) => ownedByTab[tabId] === terminalId,
+          isAgentTerminal: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
+          bind: () => true,
+        },
+      });
+      await runtime.initialize();
+
+      const lease = runtime.getLease();
+      const runId = makeControlPlaneId('run');
+      const attemptId = makeControlPlaneId('attempt');
+      const { launch } = await runtime.runs.attachments.issueAttachment(runId, attemptId, projectId, workspaceId, {
+        backendId: 'mcp',
+        lease,
+        leaseToken: lease.token,
+        tabId: 'tab-mine',
+        grant: 'write',
+      });
+      // Built literally rather than through `validateAttachment`: this case exercises the
+      // ownership join (registry record -> host authority), not attachment authentication,
+      // which the transport suites already cover. The attachment itself IS real, so the tab
+      // the gate resolves is the one the registry actually stored.
+      const context = {
+        attachmentId: launch.attachmentId,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        backendId: 'mcp',
+        hostEpoch: lease.hostEpoch,
+        invocationId: 'inv-terminal-scope',
+        lease,
+        leaseToken: lease.token,
+        grant: 'write' as const,
+      };
+
+      await runtime.capabilities.dispatch('terminal.write', { sessionId: 'terminal-mine', input: 'echo MINE\r\n' }, context);
+      assert.deepStrictEqual(writes.map((w) => w.sessionId), ['terminal-mine'], 'the attachment drives the terminal its tab owns');
+
+      await assert.rejects(
+        () =>
+          runtime.capabilities.dispatch(
+            'terminal.write',
+            { sessionId: 'terminal-foreign', input: 'echo STOLEN\r\n' },
+            context
+          ),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
+      );
+      assert.strictEqual(writes.length, 1, 'a refused write must never reach the PTY');
+
+      const listed = (await runtime.capabilities.dispatch('terminal.list', {}, context)) as {
+        sessions: Array<{ id: string }>;
+        omittedForeignAgentTerminals?: number;
+      };
+      assert.deepStrictEqual(
+        listed.sessions.map((s) => s.id),
+        ['terminal-mine', 'terminal-user'],
+        'the caller sees its own session and the user plane, never a foreign agent terminal'
+      );
+      assert.strictEqual(listed.omittedForeignAgentTerminals, 1);
+
+      // Fail-closed: a runtime wired without host authority cannot verify ownership, so an
+      // attachment-bound terminal call is refused instead of silently allowed unverified.
+      const unwired = new ControlPlaneRuntime({
+        projectId,
+        workspaceId,
+        dataRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-terminal-unwired-')),
+        workspaceRoot,
+        terminal,
+      });
+      await unwired.initialize();
+      const unwiredLease = unwired.getLease();
+      const unwiredAttemptId = makeControlPlaneId('attempt');
+      const unwiredLaunch = await unwired.runs.attachments.issueAttachment(
+        makeControlPlaneId('run'),
+        unwiredAttemptId,
+        projectId,
+        workspaceId,
+        { backendId: 'mcp', lease: unwiredLease, leaseToken: unwiredLease.token, tabId: 'tab-mine', grant: 'write' }
+      );
+      const unwiredContext = {
+        attachmentId: unwiredLaunch.launch.attachmentId,
+        runId: unwiredLaunch.record.runId,
+        attemptId: unwiredAttemptId,
+        projectId,
+        workspaceId,
+        backendId: 'mcp',
+        hostEpoch: unwiredLease.hostEpoch,
+        invocationId: 'inv-terminal-unwired',
+        lease: unwiredLease,
+        leaseToken: unwiredLease.token,
+        grant: 'write' as const,
+      };
+      await assert.rejects(
+        () => unwired.capabilities.dispatch('terminal.write', { sessionId: 'terminal-mine', input: 'x' }, unwiredContext),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
+      );
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 });

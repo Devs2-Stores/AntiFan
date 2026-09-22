@@ -951,22 +951,28 @@ export class TerminalManager extends EventEmitter {
     this.currentCapsuleId = capsuleId || 'default';
     if (cwd) this.currentCwd = cwd;
 
-    if (targetSessionId && this.sessions.has(targetSessionId)) {
+    // A running shell keeps the workspace identity it was created in: this switch may only adopt
+    // a session that already belongs to this capsule (or has no capsule yet). Adopting a foreign
+    // session re-parented a live shell into another project's workspace and typed `Set-Location`
+    // into it mid-command, which is how one project's agent ended up prompting in another
+    // project's terminal. A foreign target is left completely untouched; the branch below then
+    // resolves the session this capsule already owns, or spawns one dedicated to it.
+    const target = targetSessionId ? this.sessions.get(targetSessionId) : undefined;
+    const mayAdopt = target !== undefined
+      && (!target.capsuleId || target.capsuleId === this.currentCapsuleId);
+    if (mayAdopt && target) {
       // User explicitly targeted a specific session for this capsule/workspace folder
-      const target = this.sessions.get(targetSessionId);
-      if (target) {
-        target.capsuleId = this.currentCapsuleId;
-        if (cwd && !target.disposed) {
-          const oldCwd = target.cwd;
-          target.cwd = cwd;
-          if (oldCwd !== cwd) {
-            const isWin = process.platform === 'win32';
-            const cdCmd = isWin ? `Set-Location -LiteralPath "${cwd}"\r\n` : `cd "${cwd}"\n`;
-            try { target.pty?.write(cdCmd); } catch {}
-          }
+      target.capsuleId = this.currentCapsuleId;
+      if (cwd && !target.disposed) {
+        const oldCwd = target.cwd;
+        target.cwd = cwd;
+        if (oldCwd !== cwd) {
+          const isWin = process.platform === 'win32';
+          const cdCmd = isWin ? `Set-Location -LiteralPath "${cwd}"\r\n` : `cd "${cwd}"\n`;
+          try { target.pty?.write(cdCmd); } catch {}
         }
-        this.activeSessionId = targetSessionId;
       }
+      this.activeSessionId = target.id;
     } else {
       // Find an existing active/base session belonging to this capsule
       const matching = [...this.sessions.values()].find(s => !s.splitOf && s.capsuleId === this.currentCapsuleId);

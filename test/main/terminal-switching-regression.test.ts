@@ -530,7 +530,7 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
       await tm.closeSession(s1);
     }
   });
-  it('setCapsule targets the specified session when targetSessionId is passed and leaves other tabs intact', async () => {
+  it('adopts the targeted session only when it belongs to that capsule, and never re-parents a foreign one', async () => {
     // 0. Clean state
     tmInternal.sessions.clear();
     tmInternal.activeSessionId = '';
@@ -538,6 +538,12 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     const s1 = tm.createSession('E:/Work/project-1');
     const s2 = tm.createSession('E:/Work/project-2');
     assert.ok(s1 && s2);
+
+    // Workspace identity is assigned directly: `createSession` always stamps the manager's current
+    // capsule, and this test needs two different capsules without the spawn side effects a
+    // `setCapsule` on a half-built state would trigger.
+    tmInternal.sessions.get(s1)!.capsuleId = 'capsule-a';
+    tmInternal.sessions.get(s2)!.capsuleId = 'capsule-b';
 
     const pty1 = tmInternal.sessions.get(s1)?.pty;
     const pty2 = tmInternal.sessions.get(s2)?.pty;
@@ -550,22 +556,23 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     pty1.write = (data: string) => { pty1Writes.push(data); origPty1Write(data); };
     pty2.write = (data: string) => { pty2Writes.push(data); origPty2Write(data); };
 
-    // Set active in manager initially to s1
-    tm.switchSession(s1);
+    // 1. Same capsule: the user targets Terminal 1 for capsule-a's new workspace folder, so that
+    //    shell follows the folder and receives exactly one cd.
+    tm.setCapsule('capsule-a', 'E:/Work/project-target', s1);
     assert.strictEqual(tm.getActiveSessionId(), s1);
+    assert.strictEqual(tm.getSession(s1)?.cwd, 'E:/Work/project-target');
+    assert.strictEqual(pty1Writes.length, 1, 'Targeted session of the same capsule must receive exactly one cd/Set-Location command');
+    assert.match(pty1Writes[0] || '', /project-target/, 'Shell command must point to the new workspace directory');
 
-    // User in Terminal 2 opens workspace 'E:/Work/project-target'
-    tm.setCapsule('capsule-target', 'E:/Work/project-target', s2);
-
-    // Verify Terminal 2 was targeted and activated, while s1 was untouched
-    assert.strictEqual(tm.getActiveSessionId(), s2);
-    assert.strictEqual(tm.getSession(s2)?.cwd, 'E:/Work/project-target');
-    assert.strictEqual(tm.getSession(s1)?.cwd, 'E:/Work/project-1');
-
-    // Invariant: pty2 received the cd/Set-Location command, while pty1 received zero writes
-    assert.strictEqual(pty1Writes.length, 0, 'Untargeted session 1 must receive zero shell commands');
-    assert.strictEqual(pty2Writes.length, 1, 'Targeted session 2 must receive exactly one cd/Set-Location command');
-    assert.match(pty2Writes[0] || '', /project-target/, 'Shell command must point to the new workspace directory');
+    // 2. Foreign capsule: Terminal 1 belongs to capsule-a, so switching to capsule-b must not adopt
+    //    it. A running shell keeps the workspace identity it was created in — re-parenting it here
+    //    moved one project's agent terminal into another project's workspace.
+    tm.setCapsule('capsule-b', 'E:/Work/project-2', s1);
+    assert.strictEqual(tm.getSession(s1)?.cwd, 'E:/Work/project-target', 'Foreign session cwd must stay untouched');
+    assert.strictEqual(tm.getSession(s1)?.capsuleId, 'capsule-a', 'Foreign session capsule must stay untouched');
+    assert.strictEqual(pty1Writes.length, 1, 'A refused adoption must write nothing into the foreign shell');
+    assert.strictEqual(tm.getActiveSessionId(), s2, 'The switch must activate the session capsule-b already owns');
+    assert.strictEqual(pty2Writes.length, 0, 'Untargeted session must receive zero shell commands');
     await tm.closeSession(s1);
     await tm.closeSession(s2);
   });

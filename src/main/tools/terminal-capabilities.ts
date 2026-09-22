@@ -93,9 +93,105 @@ function sleepingWaitResult(sessionId: string, record: TerminalLifecycleProbe): 
   };
 }
 
+/**
+ * Where terminal ownership comes from, joined once per runtime.
+ *
+ * `ownerTabId` resolves the browser tab an attachment is bound to (the runtime's attachment
+ * registry); the rest is the host's live tab authority (NativeTabHost) — the same source the
+ * Bridge gate already reads. Joining them here keeps a single ownership record per plane instead
+ * of a second, drifting one inside this tool surface.
+ */
+export interface TerminalOwnershipPort {
+  ownerTabId(attachmentId: string): string | undefined;
+  allowsTab(tabId: string, terminalId: string): boolean;
+  isAgentTerminal(terminalId: string): boolean;
+  bind(terminalId: string, generation: number | undefined, tabId: string): boolean;
+}
+
+/**
+ * The host half of {@link TerminalOwnershipPort}: live tab authority without the attachment lookup
+ * the runtime owns. This is what the composition root injects.
+ */
+export type TerminalHostAuthority = Omit<TerminalOwnershipPort, 'ownerTabId'>;
+
+/**
+ * The terminal plane a caller may touch: unbound (lease-bound internal call, no attachment) or the
+ * attachment's own tab.
+ */
+type TerminalCallerScope =
+  | { bound: false }
+  | { bound: true; attachmentId: string; tabId: string; ownership: TerminalOwnershipPort };
+
+function callingAttachmentId(
+  context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+): string | undefined {
+  if (!context || !('attachmentId' in context)) return undefined;
+  const id = context.attachmentId;
+  return typeof id === 'string' && id.length > 0 ? id : undefined;
+}
+
+/**
+ * Resolve which terminal plane an attachment-bound caller may touch.
+ *
+ * Lease-bound internal calls stay exactly as they were: no attachment means no ownership question.
+ * An attachment must resolve to its bound tab — nothing can be attributed to a caller without one,
+ * and guessing would re-open the cross-project write this gate exists to stop — so an unattributable
+ * caller is refused instead of allowed unverified.
+ */
+function resolveTerminalCallerScope(
+  ownership: TerminalOwnershipPort | undefined,
+  context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+): TerminalCallerScope {
+  const attachmentId = callingAttachmentId(context);
+  if (!attachmentId) return { bound: false };
+  if (!ownership) {
+    throw new CapabilityError(
+      'TERMINAL_FORBIDDEN',
+      `Attachment "${attachmentId}" cannot be authorised for terminal access: this runtime is wired without host tab authority, so terminal ownership cannot be verified`
+    );
+  }
+  const tabId = ownership.ownerTabId(attachmentId);
+  if (!tabId) {
+    throw new CapabilityError(
+      'TERMINAL_FORBIDDEN',
+      `Attachment "${attachmentId}" is bound to no browser tab: it owns no terminal, and no terminal can be attributed to it`
+    );
+  }
+  return { bound: true, attachmentId, tabId, ownership };
+}
+
+/**
+ * Gate one terminal for the resolved caller.
+ *
+ * `operate` (write/resize/close/split) is owner-strict: a caller may not drive a shell it does not
+ * own, whether that shell belongs to another agent or to the user. `observe` (wait) also allows the
+ * user plane — reading what the user types is a legitimate read-only capability — while still
+ * refusing another attachment's private agent terminal.
+ */
+function assertTerminalOwnership(
+  scope: TerminalCallerScope,
+  terminalId: string,
+  mode: 'operate' | 'observe'
+): void {
+  if (!scope.bound) return;
+  const { ownership, tabId } = scope;
+  if (ownership.allowsTab(tabId, terminalId)) return;
+  const agentOwned = ownership.isAgentTerminal(terminalId);
+  if (mode === 'observe' && !agentOwned) return;
+  const plane = agentOwned ? "another attachment's agent terminal" : 'a user terminal';
+  throw new CapabilityError(
+    'TERMINAL_FORBIDDEN',
+    `Terminal "${terminalId}" is ${plane} and is not owned by tab "${tabId}" of attachment "${scope.attachmentId}": ` +
+      (mode === 'operate'
+        ? 'create a session of your own with terminal.create and operate that one'
+        : 'wait on your own sessions, or on user-plane terminals no agent owns')
+  );
+}
+
 export function registerTerminalCapabilities(
   catalogue: CapabilityCatalogue,
-  terminal: TerminalManager
+  terminal: TerminalManager,
+  ownership?: TerminalOwnershipPort
 ): void {
   catalogue.register<{ sessionId: string; input: string }, TerminalWriteResult>({
     name: 'terminal.write',
@@ -125,13 +221,17 @@ export function registerTerminalCapabilities(
       },
       required: ['sessionId', 'input'],
     },
-    execute: (params: { sessionId: string; input: string }) => {
+    execute: (
+      params: { sessionId: string; input: string },
+      context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+    ) => {
       if (!params.sessionId || typeof params.sessionId !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required');
       }
       if (typeof params.input !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'input string is required');
       }
+      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId, 'operate');
       const before = probeTerminalLifecycle(terminal, params.sessionId);
       const wasSleeping = before !== undefined && before.disposed !== true && before.state === 'sleeping';
       // Writing IS the wake path. `writeTo` runs the manager's own wake transition
@@ -190,10 +290,14 @@ export function registerTerminalCapabilities(
       },
       required: ['sessionId', 'cols', 'rows'],
     },
-    execute: (params: { sessionId: string; cols: number; rows: number }) => {
+    execute: (
+      params: { sessionId: string; cols: number; rows: number },
+      context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+    ) => {
       if (!params.sessionId || typeof params.sessionId !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required');
       }
+      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId, 'operate');
       terminal.resizeTo(params.sessionId, params.cols, params.rows);
       return { resized: true };
     },
@@ -237,6 +341,7 @@ export function registerTerminalCapabilities(
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       const signal = context && 'signal' in context ? context.signal : undefined;
+      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId, 'observe');
       // A sleeping session must never reach the wait path: materializing its shell
       // would let a read-only MCP wait (or a Haravan barrier awaitSync) silently
       // undo the nap and re-spawn a PTY. Answer with an explicit, actionable,
@@ -249,7 +354,10 @@ export function registerTerminalCapabilities(
     },
   });
 
-  catalogue.register<{ paged?: boolean }, { sessions: unknown[]; activeSessionId: string }>({
+  catalogue.register<
+    { paged?: boolean },
+    { sessions: unknown[]; activeSessionId: string; omittedForeignAgentTerminals?: number }
+  >({
     name: 'terminal.list',
     description: 'List active terminal sessions with bounded wire summary and incarnation metadata',
     risk: 'read',
@@ -274,20 +382,41 @@ export function registerTerminalCapabilities(
         paged: { type: 'boolean', description: 'Whether to page buffers according to wire budget' },
       },
     },
-    execute: (params: { paged?: boolean }) => {
+    execute: (
+      params: { paged?: boolean },
+      context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+    ) => {
+      const sessions = terminal.listSessions(params.paged ?? true);
+      const scope = resolveTerminalCallerScope(ownership, context);
+      if (!scope.bound) {
+        return { sessions, activeSessionId: terminal.getActiveSessionId() };
+      }
+      // An attachment sees its own sessions and the user plane. Another attachment's agent terminal
+      // is not part of its world: listing is how a caller discovers what to address, so a session it
+      // may not operate must not be advertised to it in the first place.
+      const visible = sessions.filter((session) => {
+        const id = (session as { id?: string } | undefined)?.id;
+        if (!id) return true;
+        return scope.ownership.allowsTab(scope.tabId, id) || !scope.ownership.isAgentTerminal(id);
+      });
+      const omitted = sessions.length - visible.length;
       return {
-        sessions: terminal.listSessions(params.paged ?? true),
+        sessions: visible,
         activeSessionId: terminal.getActiveSessionId(),
+        ...(omitted > 0 ? { omittedForeignAgentTerminals: omitted } : {}),
       };
     },
   });
 
-  catalogue.register<{
-    cwd?: string;
-    parentId?: string;
-    initialCols?: number;
-    initialRows?: number;
-  }, { sessionId: string }>({
+  catalogue.register<
+    {
+      cwd?: string;
+      parentId?: string;
+      initialCols?: number;
+      initialRows?: number;
+    },
+    { sessionId: string; ownerBound?: boolean; message?: string }
+  >({
     name: 'terminal.create',
     description: 'Create a new base or split terminal PTY session',
     risk: 'write',
@@ -315,11 +444,60 @@ export function registerTerminalCapabilities(
         initialRows: { type: 'number' },
       },
     },
-    execute: (params: { cwd?: string; parentId?: string; initialCols?: number; initialRows?: number }) => {
+    execute: async (
+      params: { cwd?: string; parentId?: string; initialCols?: number; initialRows?: number },
+      context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+    ) => {
+      // Ownership is resolved BEFORE a shell exists: a session created for a caller that cannot be
+      // attributed to a tab would be an ownerless terminal inside the shared namespace — precisely
+      // the session any other project's attachment could then reach.
+      const scope = resolveTerminalCallerScope(ownership, context);
+      if (scope.bound && params.parentId) {
+        // Splitting IS operating the parent: a split of a shell this caller does not own would put a
+        // new PTY in a foreign workspace and then claim that workspace's tab for it.
+        assertTerminalOwnership(scope, params.parentId, 'operate');
+      }
+      // The manager's declared contract is synchronous, but the daemon-backed facade the
+      // composition root installs as the canonical instance (see DaemonTerminalProxy)
+      // exposes these same names as ASYNC methods. Reading the return value without
+      // awaiting it therefore put a Promise where the wire contract promises a string, and
+      // the tool answered `{"sessionId":{}}` — the caller lost the only handle to the
+      // terminal it had just created. Awaiting is correct for both shapes.
       const id = params.parentId
-        ? terminal.createSplitSession(params.parentId, params.cwd, params.initialCols, params.initialRows)
-        : terminal.createSession(params.cwd);
-      return { sessionId: id };
+        ? await terminal.createSplitSession(params.parentId, params.cwd, params.initialCols, params.initialRows)
+        : await terminal.createSession(params.cwd);
+      if (typeof id !== 'string' || !id) {
+        // An empty id is a refusal, not a handle: `createSplitSession` reports an
+        // unusable parent (missing, disposed, or itself a split) that way. Fabricating
+        // `{ sessionId: '' }` would hand the caller a target that resolves to nothing.
+        throw new CapabilityError(
+          'EXECUTION_ERROR',
+          params.parentId
+            ? `No session id was issued: parent "${params.parentId}" is missing, disposed, or already a split`
+            : 'No session id was issued for the new terminal session'
+        );
+      }
+      if (!scope.bound) return { sessionId: id };
+      // A split already inherits its parent's tab through the host's own `session-created` hook, and
+      // re-binding it would evict that tab from its parent. Only an unattributed session is claimed.
+      if (scope.ownership.isAgentTerminal(id)) {
+        return { sessionId: id, ownerBound: true };
+      }
+      const generation = probeTerminalLifecycle(terminal, id)?.sessionGeneration;
+      const ownerBound = scope.ownership.bind(
+        id,
+        typeof generation === 'number' ? generation : undefined,
+        scope.tabId
+      );
+      return ownerBound
+        ? { sessionId: id, ownerBound }
+        : {
+            sessionId: id,
+            ownerBound,
+            message:
+              `Session "${id}" was created but could not be bound to tab "${scope.tabId}": ` +
+              `its tab no longer exists, so this attachment does not own it and its own writes to it are refused.`,
+          };
     },
   });
 
@@ -350,10 +528,14 @@ export function registerTerminalCapabilities(
       },
       required: ['sessionId'],
     },
-    execute: async (params: { sessionId: string; isSplit?: boolean }) => {
+    execute: async (
+      params: { sessionId: string; isSplit?: boolean },
+      context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+    ) => {
       if (!params.sessionId || typeof params.sessionId !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required');
       }
+      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId, 'operate');
       const closed = params.isSplit
         ? await terminal.closeSplitSession(params.sessionId)
         : await terminal.closeSession(params.sessionId);

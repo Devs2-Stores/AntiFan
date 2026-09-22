@@ -475,6 +475,18 @@ async function createWindow(): Promise<void> {
     dataRoot: StorageLocations.getControlPlaneDir(),
     allowEval: ALLOW_EVAL,
     terminal: terminalManager,
+    // Terminal ownership for attachment-bound calls: the host's live tab affinity is the single
+    // source of truth already used by the Bridge gate, so both planes refuse a foreign shell the
+    // same way. Without this the control plane had no owner notion at all and every attachment
+    // shared one terminal namespace.
+    terminalAuthority: {
+      allowsTab: (tabId, terminalId) => tabHost!.isTerminalAllowedForTab(tabId, terminalId),
+      isAgentTerminal: (terminalId) => {
+        const affinity = tabHost!.getTerminalAgentAffinity(terminalId);
+        return Boolean(affinity && affinity.status === 'alive');
+      },
+      bind: (terminalId, generation, tabId) => tabHost!.bindTerminalAgentAffinity(terminalId, generation, tabId),
+    },
     artifactStoreOptions: resolveArtifactStoreOptionsFromEnv(),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),

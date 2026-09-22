@@ -19,7 +19,7 @@ import type { DeviceControlPort, DeviceRegistryPort } from '../device/device-con
 import { WorkspaceFilePort } from '../tools/workspace-file-port';
 import { registerFileCapabilities } from '../tools/file-capabilities';
 import { registerArtifactCapabilities } from '../tools/artifact-capabilities';
-import { registerTerminalCapabilities } from '../tools/terminal-capabilities';
+import { registerTerminalCapabilities, type TerminalHostAuthority, type TerminalOwnershipPort } from '../tools/terminal-capabilities';
 import { registerCoreCapabilities, createLazyCorePort } from '../tools/core-capabilities';
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
@@ -56,6 +56,13 @@ export interface ControlPlaneRuntimeOptions {
    * instance only for test helpers that don't construct a full composition root.
    */
   terminal?: TerminalManager;
+  /**
+   * Host-side tab authority (live browser-tab affinity of a terminal) the runtime joins to its own
+   * attachment registry so an attachment-bound terminal call is scoped to the terminals its tab
+   * owns. Omitted in test helpers that construct a runtime without the host; an attachment-bound
+   * call is then refused rather than allowed unverified.
+   */
+  terminalAuthority?: TerminalHostAuthority;
   /**
    * Artifact capacity overrides (root is always owned by the runtime). Populated ONLY by explicit
    * canary/benchmark startup configuration; production leaves it undefined so the default limits stand.
@@ -216,7 +223,7 @@ export class ControlPlaneRuntime {
     registerFileCapabilities(this.capabilities, this.files, () => this.getWorkspaceRoot(), this.themeTransactions);
     registerThemeTransactionCapabilities(this.capabilities, this.themeTransactions, () => this.getWorkspaceRoot());
     registerArtifactCapabilities(this.capabilities, this.artifacts);
-    registerTerminalCapabilities(this.capabilities, this.terminal);
+    registerTerminalCapabilities(this.capabilities, this.terminal, this.composeTerminalOwnership(options.terminalAuthority));
     registerCoreCapabilities(this.capabilities, createLazyCorePort());
     this.workflowRegistry = new WorkflowRegistry(path.join(options.dataRoot, 'workflows'));
     this.workflowEngine = new WorkflowEngine({
@@ -226,6 +233,27 @@ export class ControlPlaneRuntime {
     registerWorkflowCapabilities(this.capabilities, this.workflowEngine);
   }
 
+  /**
+   * Bind the host's tab authority to this runtime's attachment registry.
+   *
+   * Ownership has exactly one source of truth per plane: the attachment registry knows which browser
+   * tab an attachment is bound to, the host knows which tab currently drives which terminal. Joining
+   * them here is what lets an agent-created filter "the terminals I own" without a second, drifting
+   * ownership record — and what makes a foreign project's live shell unreachable by construction
+   * rather than by a policy check somewhere else.
+   */
+  private composeTerminalOwnership(host?: TerminalHostAuthority): TerminalOwnershipPort | undefined {
+    if (!host) return undefined;
+    return {
+      ownerTabId: (attachmentId) => {
+        const record = this.runs.attachments.getRecord(attachmentId);
+        return record?.tabId || record?.browserTarget?.tabId;
+      },
+      allowsTab: (tabId, terminalId) => host.allowsTab(tabId, terminalId),
+      isAgentTerminal: (terminalId) => host.isAgentTerminal(terminalId),
+      bind: (terminalId, generation, tabId) => host.bind(terminalId, generation, tabId),
+    };
+  }
   public async initialize(): Promise<void> {
     const t0 = performance.now();
     await this.runs.attachments.initialize(this.leaseState.runtimeId);
