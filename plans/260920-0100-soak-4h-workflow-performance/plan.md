@@ -2133,14 +2133,29 @@ Total switch mean **12.460 ms**, p50 **12.239**, p95 **14.816**, max **20.289** 
 to 12.361 ms, so the decomposition closes to within a 0.099 ms head - the transport term the earlier open item
 worried about is under a tenth of a millisecond here.
 
-**Population caveat, and a retraction of an earlier reading of this table.** `switchStepSamples` is **1:1 with
-switches**, not a subsample: at 09:13 the checkpoint holds `steps=535` against the harness's `switches=534`. So the
-gap between this table's p50 (12.239) and the harness's warmup p50 (15.34) is **not** a population effect - it is
-that the two numbers were read six minutes apart. At 09:02 the checkpoint held 357 step rows with p50 12.239; at
-09:13 it held 535 with the harness reporting 15.34 over the same 534. Same population, later window, higher
-number: the switches in the run's last warmup minutes are slower than its first twenty. The mechanism is
-measured below rather than assumed. The *shares* in this table come from their own rows and are what the table is
-for; the authoritative switch number is always the harness's.
+**Population caveat, and the retraction of two earlier readings of this table.** `switchStepSamples` is **1:1 with
+switches**, not a subsample: at 09:13 the checkpoint holds `steps=535` against the harness's `switches=534`. That
+retracts the "subsample under-reports the total" reading. It does **not** replace it with a late-run slowdown
+either, which was the next guess: measured over all 535 rows the per-5-minute p50 is flat - 12.92, 12.25, 12.07,
+12.04, 12.39, **11.96**, 12.42 - and first-357 p50 12.24 against rest-178 p50 12.27. Same population, same window,
+and the app-side p50 does not move across the run.
+
+**So the 12.24-vs-15.34 gap is a transport term, and it is the one the earlier open item was looking for.** The app
+marks its own switch at p50 12.24 ms; the harness observes the same 534 switches at p50 15.34 ms. The difference -
+**~3.1 ms** - is spent outside the app's marks, between the harness's stimulus and the app's first mark or on the
+way back. The plan's earlier reading that the head was "under a tenth of a millisecond" measured the head *inside*
+the app's own number (total − Σ marks = 0.099 ms), which is a different quantity from this cross-instrument gap;
+both are true and they are not the same term.
+
+**And the transport term grew with the bundle.** `4hfix6`: app-side p50 8.279 / harness 9.621 → 1.34 ms.
+`4hfix7`: 12.006 / 14.03 → 2.02 ms. `4hfix9`: 12.239 / 15.34 → 3.10 ms. The app-side cost and the harness-visible
+cost both rose, so this is not the harness measuring a fixed overhead onto a slower switch.
+
+**Which phase the gate grades.** `FREEZE_SLO.switchLatencyP50Ms` is **12** and `switchLatencyP95Ms` is **18**
+(`scripts/benchmark-real-soak-8h.cjs:226`), graded on the **workload** phase (`:2294`, `latencyMaxGated: false`).
+The warmup bands compared in the table below are not themselves the gated number - they are the like-for-like band
+across runs, which is why they are used for the bundle comparison and why the gated number only arrives with the
+180-minute workload.
 
 Against `night4h` (unfixed, band 0-10 min, p50 45.82 = `attachSweep` 26.689 + `presentedView` 16.677 +
 `ensureView` 0.034 + ~1.4 head), the shape of the switch has changed rather than merely shrunk:
@@ -2165,24 +2180,40 @@ payload. Launch times bracket the compiles: `native-tab-host.js` recompiled 07:4
 So fixes 1+2 took the warmup band **47.599 → 9.621** (4.95×), and the next bundle took it **9.621 → 15.34**
 (+59 %). The second delta is not a band or population effect: `stats.openedTabs` is **6 in every run**, the same
 six URLs appear in `switchLatencyByTab`, `switchIntervalMs` is 3000 throughout, and the per-tab p50 is uniformly
-higher - 8.58-11.22 in `4hfix6` against 12.57-17.50 in `4hfix7`/`4hfix9`. It is already present in each run's
-first 5-minute band (9.4 vs 13.4), so it is not host load arriving later in the night.
+higher - 8.58-11.22 in `4hfix6` against 12.57-17.50 in `4hfix7`/`4hfix9`.
+
+**But it is most likely host load, and an earlier version of this section was wrong to rule that out.** It argued
+"present in each run's first 5-minute band (9.4 vs 13.4), so not load arriving later" - which proves nothing,
+because the load difference is present from the first row too. Measured from each run's own sampler log:
+
+| run | window (UTC) | load mean | rows >= 90 % | external procs | app procs |
+|---|---|---|---|---|---|
+| `4hfix6` | 00:46:26 - 01:12:11 | **63.5 %** | **1/6** | 18 | 9 - 10 |
+| `4hfix7` | 01:21:00 - 01:26:14 | 94.0 % | 1/2 | 18 | 8 - 11 |
+| `4hfix9` | 01:41:06 - 02:17:59 | **94.4 %** | **7/8** | 18 | 10 - 11 |
+
+The run that measured 9.621 ms ran on a machine at two-thirds the load of the one that measured 15.34 ms, with the
+same 18 external processes present in both. The app's own workload is fixed by config, so that difference is
+external. A uniform ~1.5x on every tab and every mark is what contention on this 4-core/8-thread host produces, so
+**host load is the leading explanation and the bundle regression is not established.** The mark spread above stops
+being evidence against load for the same reason - contention is uniform, so of course it spreads; `throttle` is the
+one mark that is a *scheduled wait* rather than work, and a wait compressing under contention is not obviously
+impossible on a throttled/lowered-clock host.
 
 **What is not established: the cause.** The committed source delta is exactly one file -
 `git diff --stat c55e894c 4260226a` is `CHANGELOG.md`, `plan.md`, `src/main/index.ts` - and that change is a
 `close` listener plus two `refusesWindowClose()` guards on `closed`/`window-all-closed`. None of those three runs
-per switch, so on inspection the code delta does not explain a per-switch cost. Against that, the per-mark deltas
-are spread rather than concentrated - `ensureView` +13 %, `attachSweep` +47 %, `layoutBroadcast` +51 %,
-`presentedView` +26 %, `invalidateFocus` +103 %, `throttle` **-32 %** - the shape of a generally slower switch
-rather than of one path someone made slow, and a wait that *shrinks* is not what a busier host produces either.
-Both readings stay open, and the second one matters most because `attachSweep` carries 80 % of the absolute cost.
+per switch, so on inspection the code delta does not explain a per-switch cost. Neither candidate is excluded, and
+the honest state is: **measured, bundle-correlated, load-correlated, cause open.**
 
 **The discriminator, to run after the verdict (the plan's own rule forbids a recompile before it):** rebuild
 `c55e894c` and measure the same warmup band with the same harness - same tab set, same switch interval, one
-variable, the bundle. The harness takes its knobs from the environment (`scripts/benchmark-real-soak-8h.cjs:87-138`);
-with `SOAK_LEGS` unset the warmup band is driven by the base knobs, which are exactly leg 1's driver
-(`SOAK_SWITCH_INTERVAL_MS` 3000, `SOAK_BURST_LINES` 300, `SOAK_BURST_INTERVAL_MS` 30000), so a short run measures a
-band comparable to the table above at ~36 minutes instead of four hours:
+variable, the bundle. **And record the load it ran at**, because the comparison above shows load alone can carry a
+1.5x; a control that is not load-matched cannot separate the two. The harness takes its knobs from the environment
+(`scripts/benchmark-real-soak-8h.cjs:87-138`); with `SOAK_LEGS` unset the warmup band is driven by the base knobs,
+which are exactly leg 1's driver (`SOAK_SWITCH_INTERVAL_MS` 3000, `SOAK_BURST_LINES` 300,
+`SOAK_BURST_INTERVAL_MS` 30000), so a short run measures a band comparable to the table above at ~36 minutes
+instead of four hours:
 
 ```
 # one variable: the bundle. `SOAK_LEGS` deliberately unset so workload is 5 min, not 180.
@@ -2199,6 +2230,35 @@ the host/runtime, and every cross-run switch number from this night needs a load
 measure → `git checkout HEAD -- src` → `npm run compile`. Both states are committed, so nothing can be lost, but a
 working-tree overwrite of `src` is the operator's call, not this plan's - and it is the reason it waits rather than
 running now.
+
+**A structural difference in the tree, and it is confounded with the bundle.** Counting `samples[].namesByPid`,
+the two runs differ by exactly one terminal PTY tree and nothing else:
+
+| run | processes | electron | conhost | winpty-agent | powershell |
+|---|---|---|---|---|---|
+| `4hfix6` | 12 | **9** | 1 | 1 | 1 |
+| `4hfix7` | 15 | **9** | 2 | 2 | 2 |
+| `4hfix9` | 15 | **9** | 2 | 2 | 2 |
+
+The Electron set is **identical (9) in every run**; only the PTY trees differ, and it is structural rather than a
+leak - constant across all 30 samples of each run and already present at each run's first sample (25 s after launch
+for `4hfix6`, 41 s for `4hfix9`). `terminalEventsCount` moves with it: 408 in `4hfix6`, 1275 in `4hfix9`.
+
+**Caveat, because it cuts both ways:** the host is littered with orphaned PTY trees - `Get-CimInstance` shows
+conhost/powershell pairs surviving from 09-21 22:27, 22:28, 23:29 and 02:49, and five conhosts created inside
+`4hfix9`'s own launch window. `4hfix6` counting exactly one set from its tree while host-wide orphans existed means
+the walk is the app tree and not host-wide, but the *number of PTY trees the app tree ends up with* is evidently
+sensitive to the machine's state. So this is recorded as **what differs**, not as an established cause: it cannot be
+separated from the bundle, because both changed at the same launch boundary - every run on bundle `53f0fa88` that
+could have discriminated (`4hfix2`-`4hfix5`) wrote a final payload with **zero usable samples** (`n=0`), so they
+carry the bundle id and no measurement.
+
+**Consequence for the gate - this is why the delta matters more than its size.** The graded bound is p50 **12 ms** /
+p95 **18 ms** on the **workload** phase (`benchmark-real-soak-8h.cjs:226`, `:311`, `:2294`; max is reported but not
+graded). On the warmup band - the like-for-like band - `4hfix6`'s harness p50 of **9.621** sits under that bound and
+`4hfix9`'s **15.34** sits over it. Warmup is not the graded phase, so this is not the verdict; it is the reason the
+verdict cannot average the two bundles together or call the current bundle "the post-fix number" without saying
+which post-fix bundle is meant.
 
 **In-flight readout** (`4hfix6`, bundle `53f0fa88…`, warmup band only — the verdict number is the 180-minute
 workload phase): at 27 minutes in, n=376 warmup switches give p50 **9.83 ms** and p95 **14.17 ms**, against a gate
