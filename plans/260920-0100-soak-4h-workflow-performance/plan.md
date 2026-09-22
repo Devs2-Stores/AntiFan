@@ -751,6 +751,17 @@ Full verdict: **`plans/reports/runtime-verification/real-soak-4h-verdict-4hfix9.
 - **Criterion 3:** max 152.674 ms is reported, not graded. The harness names the page itself -
   `Slowest Switch Destination: https://www.wikipedia.org (max 152.674ms, p95 26.192ms over 627 switches)` - and the
   tail spans all three legs and both phases, so it is reproducible rather than a one-off.
+- **Criterion 5 - `npm run compile` and the touched suites.** `npm run compile` exits **0**. The renderer suite was
+  **red on a clean checkout** (3 failures) and is now **145 passing / 0 failing**. `f4d90277` moved the strip from
+  HTML5 drag to a pointer drag and left three tests driving the removed path, which a wrap can no longer satisfy -
+  it is never `draggable` and carries no `dragstart`/`drop` listener by design, because the HTML5 path null-deref'd
+  the process on Windows. The harness could not express the gesture at all (only window `keydown` was captured, no
+  `document.elementFromPoint`, and `FakeElement` had no `closest`, which is what resolves a drop), so those three
+  capabilities were added and the tests migrated to pointerdown -> move -> pointerup. The header's HTML5 `drop`
+  stays covered, because an external payload (a file) is the one drag the strip does not originate. **No source
+  changed** - the fix is the tests plus harness only. One expectation changed meaning: `f4d90277` also made a tab
+  dropped on a tab adopt that tab's group, which is what makes a cross-group reorder observable rather than undone
+  by the next render; the ordering assertion now states that, and the group order still never reshuffles.
 
 ## Acceptance criteria
 
