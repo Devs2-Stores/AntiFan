@@ -2133,10 +2133,52 @@ Total switch mean **12.460 ms**, p50 **12.239**, p95 **14.816**, max **20.289** 
 to 12.361 ms, so the decomposition closes to within a 0.099 ms head - the transport term the earlier open item
 worried about is under a tenth of a millisecond here.
 
+**Population caveat, so the two p50s are not read side by side.** These 357 rows are the *step-mark* subsample the
+checkpoint holds, and the harness's own count for the same run is 534 warmup switches at p50 **15.34 ms**
+(`metrics.switchLatencyWarmupMs`). The subsample is therefore the faster two-thirds: it under-reports the total by
+~3 ms while the *shares* - and the identification of `attachSweep` as 80.9 % of the cost - come from its own rows,
+which is what this table is for. The authoritative switch number is the harness's, not this one.
+
 Against `night4h` (unfixed, band 0-10 min, p50 45.82 = `attachSweep` 26.689 + `presentedView` 16.677 +
 `ensureView` 0.034 + ~1.4 head), the shape of the switch has changed rather than merely shrunk:
 `presentedView` fell from **36 % to 5.8 %** of a switch and `attachSweep` from 58 % to **80.9 %**. The two fixes
 moved the terms they targeted; what is left is now almost entirely the attach sweep itself.
+
+### Regression between the two post-fix bundles (measured; cause open, not guessed)
+
+The runs in this series do not share a bundle, and the two *post-fix* ones differ by more than a fix number:
+
+| run | launched (local) | bundle | warmup switches | warmup p50 |
+|---|---|---|---|---|
+| `night4h` | 09-21 00:59 | `46f1f609…` (pre-fix) | 530 | 47.599 |
+| `4hfix6` | 07:46:12 | `53f0fa88…` (fix 1+2) | 566 | **9.621** |
+| `4hfix7` | 08:20:29 | `2aacaa2c…` (+ fix 3) | 180 | 14.03 |
+| `4hfix9` | 08:40:41 | `2aacaa2c…` (+ fix 3) | 534 | **15.34** |
+
+The md5s are the wrapper's own `Bundle:` lines (`4hfix6-run.log:9`, `4hfix9-run.log:9`); `night4h`'s is from its
+payload. Launch times bracket the compiles: `native-tab-host.js` recompiled 07:40:04 (fixes 1 and 2, committed
+07:52 as `c55e894c`), `main/index.js` recompiled 08:20:09 (fix 3, committed 08:22 as `4260226a`).
+
+So fixes 1+2 took the warmup band **47.599 → 9.621** (4.95×), and the next bundle took it **9.621 → 15.34**
+(+59 %). The second delta is not a band or population effect: `stats.openedTabs` is **6 in every run**, the same
+six URLs appear in `switchLatencyByTab`, `switchIntervalMs` is 3000 throughout, and the per-tab p50 is uniformly
+higher - 8.58-11.22 in `4hfix6` against 12.57-17.50 in `4hfix7`/`4hfix9`. It is already present in each run's
+first 5-minute band (9.4 vs 13.4), so it is not host load arriving later in the night.
+
+**What is not established: the cause.** The committed source delta is exactly one file -
+`git diff --stat c55e894c 4260226a` is `CHANGELOG.md`, `plan.md`, `src/main/index.ts` - and that change is a
+`close` listener plus two `refusesWindowClose()` guards on `closed`/`window-all-closed`. None of those three runs
+per switch, so on inspection the code delta does not explain a per-switch cost. Against that, the per-mark deltas
+are spread rather than concentrated - `ensureView` +13 %, `attachSweep` +47 %, `layoutBroadcast` +51 %,
+`presentedView` +26 %, `invalidateFocus` +103 %, `throttle` **-32 %** - the shape of a generally slower switch
+rather than of one path someone made slow, and a wait that *shrinks* is not what a busier host produces either.
+Both readings stay open, and the second one matters most because `attachSweep` carries 80 % of the absolute cost.
+
+**The discriminator, to run after the verdict (the plan's own rule forbids a recompile before it):** rebuild
+`c55e894c` into `.compiled` and measure the same warmup band with the same harness - same tab set, same switch
+interval, one variable, the bundle. If `c55e894c` reproduces ~9.6 ms the delta is the code and `attachSweep` is
+where to look; if it reproduces ~15 ms the delta is the host/runtime, and every cross-run switch number from this
+night needs a load caveat.
 
 **In-flight readout** (`4hfix6`, bundle `53f0fa88…`, warmup band only — the verdict number is the 180-minute
 workload phase): at 27 minutes in, n=376 warmup switches give p50 **9.83 ms** and p95 **14.17 ms**, against a gate
