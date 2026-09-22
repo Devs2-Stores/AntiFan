@@ -2343,6 +2343,40 @@ view attaches a switch performs, each of which lays out a view. Nothing here is 
 risk rule forbids a recompile between launch and verdict — the workload numbers from the run in flight decide
 whether it is worth opening at all.
 
+#### The target investigated (2026-09-22, verdict delivered — the recompile block is lifted)
+
+The verdict landed and is committed (`d32e0b23`, corrected `41c8f9f0`), so the block above no longer applies and the
+target was opened and read. **Three JS-side explanations were tested and all three are dead:**
+
+1. **Dead locals.** `presentedWasAttached` / `presentedMobileWasAttached` (`native-tab-host.ts:4743-4744`) look
+   unused inside the sweep — they are **live**: `:4833` passes them to `reassertPresentedView({ recyclePresentedLayer,
+   recycleMobileLayer })`, the fix that stopped the re-assert recycling a visual it had just made.
+2. **A re-stack every switch from the unconditional `enforceZOrder()` in `attachTabView` (`:3441`).** Falsified:
+   `enforceZOrder` early-returns when the relative order already matches (`:3504`, `if (!needsReorder ||
+   firstOutOfOrderIdx === -1) return;`), and `attachTabView` picks `insertIndex` = `sidebarView`'s index
+   (`:3429-3430`), so the resulting stack is already the desired one. The three-removes/three-adds/three-invalidates
+   the comment at `:3423-3427` describes was the *pre-fix-2* behaviour; fix 2 removed it.
+3. **Redundant native array materialisations** (the detach loop's per-tab `contentView.children.includes` and the
+   orphan sweep's `Array.from(children)`). ~11 materialisations per switch at ~0.3 switches/s — negligible, and not
+   a candidate for a 10 ms term.
+
+**What `attachSweep` actually is, per switch, in the steady state** (from reading the path; the *timing* split is
+`[INFERENCE]` because measuring it needs a run): `attachTabView(target.view)` performs **one `addChildView`** — the
+outgoing view is still a child at that moment, and the chosen index already satisfies z-order, so `enforceZOrder`
+early-returns; the detach loop performs **one `removeChildView`** for the outgoing tab; the orphan sweep detaches
+nothing; the re-assert is a no-op. **Zero reorders.** So the 10.077 ms is one add + one remove **plus whatever
+Windows spends tearing down and rebuilding the compositor surface of the pane being shown** — the code's own
+comment at `:3066-3068` states the mechanism: a view outside the window has no compositor surface, so its renderer
+receives no BeginFrame.
+
+**Consequence — the JS side is exhausted and the gate cannot pass from here.** Only two levers remain, and both
+change the design that exists to prevent a known regression: (a) keep the outgoing pane's surface alive, which is
+what the detach exists to avoid (a view outside the window paints the window background — the reported "trang"
+pane), or (b) overlap the surface rebuild with the rest of the switch. Neither may be applied blind: the leg
+harness (`SOAK_LEGS`) exists to measure exactly this, and fix 1+2 only earned their place because a run measured
+them. Also note the gate is not reachable by shaving elsewhere: the **app-side** p50 is **12.239 ms against a 12 ms
+bound** before the harness's ~3.1 ms transport term is added, so `switchLatencyP50Ms` fails on this term alone.
+
 ### The step decomposition on the fixed bundle (live, `4hfix9` warmup, n=357)
 
 The six marks this plan added for `switchTab` are present and additive on the fixed bundle, so the switch's cost is
