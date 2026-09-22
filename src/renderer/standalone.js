@@ -241,6 +241,18 @@ function benchRecordPaint(sessionId) {
 const initialQuerySessionId = urlParams.get('sessionId') || '';
 let activeId = initialQuerySessionId || '';
 let sessions = [];
+/**
+ * The halves of the last `antifan:tabs:updated` broadcast.
+ *
+ * `renderTabs()` runs on the session push, which arrives at 5 Hz, and its badge repaint used to
+ * pull both halves back over IPC (`getTabs()` + `getTerminalAffinities()`) even though the
+ * broadcast had just delivered them — ~144,000 round trips and 144,000 deserializations in the
+ * renderer over a 4 h soak, on the one process whose committed bytes are what grows. Passing the
+ * delivered pair is the same data the broadcast already rendered from, so the badges cannot go
+ * stale relative to today's behaviour; only the round trips go away.
+ */
+let deliveredTabs = null;
+let deliveredAffinities = null;
 let contextTargetSessionId = '';
 let globalResizeObserver = null;
 const MIN_TERMINAL_COLS = 40;
@@ -4685,7 +4697,7 @@ function renderTabs() {
       }
     }
   }
-  updateAffinityBadges();
+  updateAffinityBadges(deliveredTabs, deliveredAffinities);
 }
 
 let initialPushReceived = false;
@@ -4740,7 +4752,10 @@ api?.onTerminalSession((state) => {
 });
 api?.onTabsUpdated?.(async (payload) => {
   const tabs = payload?.tabs;
-  updateAffinityBadges(tabs, payload?.terminalAffinities);
+  const affinities = payload?.terminalAffinities;
+  if (Array.isArray(tabs)) deliveredTabs = tabs;
+  if (affinities && typeof affinities === 'object') deliveredAffinities = affinities;
+  updateAffinityBadges(tabs, affinities);
   const popover = document.getElementById('affinityPickerPopover');
   if (popover && popover.style.display === 'block') {
     const currentSid = popover.getAttribute('data-active-session-id') || activeId;
