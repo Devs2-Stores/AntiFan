@@ -735,7 +735,8 @@ which is the harness's FAIL verdict (`:2332`) rather than a crash - `executionOk
 Full verdict: **`plans/reports/runtime-verification/real-soak-4h-verdict-4hfix9.md`**.
 
 - **Bundle `2aacaa2c…`, `changedDuringRun: false`** - md5 identical at start and end, 419 files, 9,255,060 bytes.
-- 242 samples, 3766 switch samples, 32,232 workload switch samples across all legs (n=3232 in the graded window).
+- 242 samples, 3766 switch samples = 534 warmup + **3232 workload**, and the three legs' counts are
+  1075 + 1080 + 1077 = **3232** - so the graded workload window *is* the three legs, and the accounting closes exactly.
 - **Gates:** peak **FAIL** (`activeWorkingSetMB.max` 1670.30 vs 1600); latency **FAIL** (workload p50 **13.487** vs
   12, p95 **20.853** vs 18); orphan / execution / teardown **PASS**; both slope gates **null** (`slopeGateApplicable:
   false`, `privateSlopeMeasured: true`) because a leg run does not grade a blended slope.
