@@ -2200,6 +2200,14 @@ being evidence against load for the same reason - contention is uniform, so of c
 one mark that is a *scheduled wait* rather than work, and a wait compressing under contention is not obviously
 impossible on a throttled/lowered-clock host.
 
+**What the load actually was.** The sampler's `external=18p` / ~2.4 GB resolves to **Google Chrome** - the host
+reports chrome at exactly 18 processes / 1946 MB - and it was present at 18 processes in all three windows. The
+machine also carried Figma (10), Zalo (9), iTunes, Orca (8), pythonw (2), 36 `node` processes and this session's
+own OMP harness (11 processes / 2635 MB) concurrently. So the gated workload phase now in flight is being measured
+on a developer's shared workstation at ~94 % load, not on a quiet machine, and the verdict has to say so rather
+than present its switch percentiles as a clean number. It also means a workload p50 above the 12 ms bound would not
+by itself indict the code - which is exactly why the bundle-vs-load discriminator has to be load-matched.
+
 **What is not established: the cause.** The committed source delta is exactly one file -
 `git diff --stat c55e894c 4260226a` is `CHANGELOG.md`, `plan.md`, `src/main/index.ts` - and that change is a
 `close` listener plus two `refusesWindowClose()` guards on `closed`/`window-all-closed`. None of those three runs
