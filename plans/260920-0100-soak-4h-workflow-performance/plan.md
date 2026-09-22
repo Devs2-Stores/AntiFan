@@ -2133,11 +2133,14 @@ Total switch mean **12.460 ms**, p50 **12.239**, p95 **14.816**, max **20.289** 
 to 12.361 ms, so the decomposition closes to within a 0.099 ms head - the transport term the earlier open item
 worried about is under a tenth of a millisecond here.
 
-**Population caveat, so the two p50s are not read side by side.** These 357 rows are the *step-mark* subsample the
-checkpoint holds, and the harness's own count for the same run is 534 warmup switches at p50 **15.34 ms**
-(`metrics.switchLatencyWarmupMs`). The subsample is therefore the faster two-thirds: it under-reports the total by
-~3 ms while the *shares* - and the identification of `attachSweep` as 80.9 % of the cost - come from its own rows,
-which is what this table is for. The authoritative switch number is the harness's, not this one.
+**Population caveat, and a retraction of an earlier reading of this table.** `switchStepSamples` is **1:1 with
+switches**, not a subsample: at 09:13 the checkpoint holds `steps=535` against the harness's `switches=534`. So the
+gap between this table's p50 (12.239) and the harness's warmup p50 (15.34) is **not** a population effect - it is
+that the two numbers were read six minutes apart. At 09:02 the checkpoint held 357 step rows with p50 12.239; at
+09:13 it held 535 with the harness reporting 15.34 over the same 534. Same population, later window, higher
+number: the switches in the run's last warmup minutes are slower than its first twenty. The mechanism is
+measured below rather than assumed. The *shares* in this table come from their own rows and are what the table is
+for; the authoritative switch number is always the harness's.
 
 Against `night4h` (unfixed, band 0-10 min, p50 45.82 = `attachSweep` 26.689 + `presentedView` 16.677 +
 `ensureView` 0.034 + ~1.4 head), the shape of the switch has changed rather than merely shrunk:
