@@ -3237,6 +3237,18 @@ export class BrowserControlPort {
   openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
+    if (boundTabId && this.host.hasTab && !this.host.hasTab(boundTabId)) {
+      // An anchor that no longer exists cannot adopt anything: `adoptChildTab` refuses an
+      // identifier that is not a live tab, and reporting that refusal as a quota breach sends
+      // the caller hunting for tabs to close while its own managed set holds one id (measured:
+      // a session whose bound tab was closed mid-session received "browser tab quota reached"
+      // with 1 counted tab). The two failures have different recoveries, so they are reported
+      // apart: a dead anchor is rebound, a full session closes a tab.
+      throw new CapabilityError('TARGET_STALE', `Cannot open a tab for session '${boundTabId}': the session's anchor tab no longer exists, so a new tab has nothing to be adopted into. Rebind the session to a live tab (anti.browser.rebind_target), then retry.`, {
+        boundTabId,
+        recovery: 'anti.browser.rebind_target',
+      });
+    }
     if (boundTabId && this.host.getManagedTabIds) {
       // The same pruning source the adopt path counts: a closed tab can never be
       // counted here and ignored there.
@@ -3266,13 +3278,28 @@ export class BrowserControlPort {
         this.host.closeTab?.(tabId);
         // Re-read the same pruned source the gate and the adopt path count, so
         // the refusal reports the set the host actually refused on.
+        // Report the state that was measured, never the limit by default. The gate above
+        // already refuses a counted set that reaches the limit, so this branch is the
+        // safety net for a host that says no for any other reason: naming a quota that was
+        // not reached there hides the real recovery.
         const counted = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : undefined;
-        throw new CapabilityError('POLICY_DENIED', `Browser tab '${tabId}' could not be adopted into session '${boundTabId}' (browser tab quota reached); the tab was closed instead of leaking outside the session`, {
+        const used = counted ? counted.size : undefined;
+        const countedTabIds = counted ? [...counted].slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX) : [];
+        if (used !== undefined && used >= SESSION_TAB_LIMIT) {
+          throw new CapabilityError('POLICY_DENIED', `Browser tab '${tabId}' could not be adopted into session '${boundTabId}' (browser tab quota reached, ${used}/${SESSION_TAB_LIMIT}); the tab was closed instead of leaking outside the session`, {
+            tabId,
+            boundTabId,
+            used,
+            limit: SESSION_TAB_LIMIT,
+            countedTabIds,
+          });
+        }
+        throw new CapabilityError('SESSION_STALE', `Browser tab '${tabId}' could not be adopted into session '${boundTabId}' although its anchor is live (${used ?? 'unknown'} of ${SESSION_TAB_LIMIT} counted tabs); the tab was closed instead of leaking outside the session`, {
           tabId,
           boundTabId,
-          used: counted?.size ?? SESSION_TAB_LIMIT,
+          used,
           limit: SESSION_TAB_LIMIT,
-          countedTabIds: counted ? [...counted].slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX) : [],
+          countedTabIds,
         });
       }
     }

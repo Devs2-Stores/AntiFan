@@ -3077,7 +3077,12 @@ export class NativeTabHost extends EventEmitter {
    * window's content box. Recycle the layer (remove + attach) then run that
    * same layout.
    */
-  public reassertPresentedView(): void {
+  public reassertPresentedView(options: { recyclePresentedLayer?: boolean; recycleMobileLayer?: boolean } = {}): void {
+    // The drop-and-re-add exists for a view that may already be occluded, or that a capture is
+    // holding. A caller that attached the view itself, moments earlier in the same operation, has
+    // that visual already, so it opts out and pays neither the remove nor the re-allocation.
+    const recyclePresentedLayer = options.recyclePresentedLayer !== false;
+    const recycleMobileLayer = options.recycleMobileLayer !== false;
     this.lowerRaisedCaptureView();
     if (this.isDisposed) return;
     if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
@@ -3093,7 +3098,7 @@ export class NativeTabHost extends EventEmitter {
       // to lay it out before its renderer can commit a frame.
       this.layOutDetachedView(activeTab.view);
       recordLifecycleEvent('tabhost.presentedViewReattached', { tabId: this.activeTabId });
-    } else {
+    } else if (recyclePresentedLayer) {
       // Recycle even when an attach-for-capture count is held. A leaked or hung
       // capture used to skip this and leave the user on a white DirectComposition
       // canvas until F5. Recycle is remove+add — the view stays attached.
@@ -3102,7 +3107,7 @@ export class NativeTabHost extends EventEmitter {
     if (activeTab.state.splitMode && activeTab.mobileView?.webContents && !activeTab.mobileView.webContents.isDestroyed()) {
       if (!this.isTabViewAttached(activeTab.mobileView)) {
         this.attachTabView(activeTab.mobileView, true);
-      } else {
+      } else if (recycleMobileLayer) {
         this.recyclePresentedLayer(activeTab.mobileView, true);
       }
     }
@@ -3415,10 +3420,14 @@ export class NativeTabHost extends EventEmitter {
     if (view.webContents && typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed()) return;
     try {
       const children = Array.isArray(this.window.contentView.children) ? this.window.contentView.children : [];
-      let insertIndex = 0;
-      if (this.frameBackdropView && children.includes(this.frameBackdropView)) {
-        insertIndex = children.indexOf(this.frameBackdropView) + 1;
-      }
+      // Where the pane belongs is already written down in `enforceZOrder`: above every other
+      // child, below the shell chrome. Inserting it at the backdrop instead leaves it beneath
+      // the tab views this switch is replacing, and the order check then re-stacks this view,
+      // the sidebar and the toolbar on every switch - three removes, three adds and three
+      // invalidates spent producing an order this insert can produce directly.
+      let insertIndex = children.length;
+      const shellAbove = [this.sidebarView, this.toolbarView].find((shell) => shell && children.includes(shell));
+      if (shellAbove) insertIndex = children.indexOf(shellAbove);
       if (isMobile && this.activeTabId) {
         const activeTab = this.tabs.get(this.activeTabId);
         if (activeTab?.view && children.includes(activeTab.view)) {
@@ -4727,6 +4736,13 @@ export class NativeTabHost extends EventEmitter {
 
       this.activeTabId = targetId;
 
+      // Whether these views were presented before this switch touched them. An already attached
+      // view may be occluded or held by a capture, so the re-assert below still drops and re-adds
+      // it to force a new DirectComposition visual; a view this switch is about to attach has that
+      // visual by construction, and re-creating it was the single most expensive step of a switch.
+      const presentedWasAttached = this.isTabViewAttached(target.view);
+      const presentedMobileWasAttached = this.isTabViewAttached(target.mobileView);
+
       // Safely attach target active tab views FIRST before detaching old views
       // to maintain a continuous valid view hierarchy and avoid focus access violations
       this.attachTabView(target.view, false);
@@ -4814,7 +4830,7 @@ export class NativeTabHost extends EventEmitter {
         try { target.mobileView.webContents.invalidate(); } catch {}
       }
       stepMark = markSwitchStep(stepBucket, 'invalidateFocus', stepMark);
-      this.reassertPresentedView();
+      this.reassertPresentedView({ recyclePresentedLayer: presentedWasAttached, recycleMobileLayer: presentedMobileWasAttached });
       stepMark = markSwitchStep(stepBucket, 'presentedView', stepMark);
       if (isBenchmarkEnabled()) {
         recordBenchmark({ surface: 'tabs', name: 'switched', value: performance.now() - switchStartMs, extra: { attachedViews: this.countAttachedViews() } });

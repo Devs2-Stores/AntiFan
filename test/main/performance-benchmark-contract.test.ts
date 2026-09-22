@@ -2,18 +2,26 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
   BENCHMARK_LINE_PREFIX,
+  BENCHMARK_ALLOW_WINDOW_CLOSE_ENV,
   isBenchmarkEnabled,
   recordBenchmark,
   parseBenchmarkLine,
+  refusesWindowClose,
   startEventLoopDelayMonitor,
   type BenchmarkMetric,
 } from '../../src/main/benchmark/telemetry';
 
 const REAL_ENV = process.env.ANTIFAN_BENCHMARK;
+const REAL_ALLOW_CLOSE = process.env[BENCHMARK_ALLOW_WINDOW_CLOSE_ENV];
 
 function setBenchmarkMode(value: string | undefined): void {
   if (value === undefined) delete process.env.ANTIFAN_BENCHMARK;
   else process.env.ANTIFAN_BENCHMARK = value;
+}
+
+function setAllowWindowClose(value: string | undefined): void {
+  if (value === undefined) delete process.env[BENCHMARK_ALLOW_WINDOW_CLOSE_ENV];
+  else process.env[BENCHMARK_ALLOW_WINDOW_CLOSE_ENV] = value;
 }
 
 function captureLog(): { lines: string[]; restore: () => void } {
@@ -28,9 +36,27 @@ function captureLog(): { lines: string[]; restore: () => void } {
 describe('Benchmark telemetry contract (Phase 1)', () => {
   beforeEach(() => {
     setBenchmarkMode('0');
+    setAllowWindowClose(undefined);
   });
   afterEach(() => {
     setBenchmarkMode(REAL_ENV);
+    setAllowWindowClose(REAL_ALLOW_CLOSE);
+  });
+
+  it('refuses the main-window close only while a benchmark run owns the app', () => {
+    // Normal startup keeps the user's close: nothing about a consumer run is a measurement.
+    setBenchmarkMode(undefined);
+    assert.strictEqual(refusesWindowClose(), false);
+
+    // A benchmark run owns its window — one stray close ends hours of measurement.
+    setBenchmarkMode('1');
+    assert.strictEqual(refusesWindowClose(), true);
+
+    // The escape hatch is exactly `1`, so an unset-or-garbage value cannot silently disarm the guard.
+    setAllowWindowClose('0');
+    assert.strictEqual(refusesWindowClose(), true);
+    setAllowWindowClose('1');
+    assert.strictEqual(refusesWindowClose(), false);
   });
 
   it('is disabled unless ANTIFAN_BENCHMARK=1 or --benchmark is present', () => {

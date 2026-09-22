@@ -265,6 +265,91 @@ describe('Presented view invariant', () => {
     assert.ok(presented.invalidateCalls >= 1, 'the view must still be invalidated after the recycle');
   });
 
+  it('a switch onto a tab the window is not presenting must not drop the visual it just attached', () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host, children } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+    let removes = 0;
+    let adds = 0;
+    const moved: Array<{ view: unknown; kind: 'add' | 'remove' }> = [];
+    const origRemove = host.window.contentView.removeChildView.bind(host.window.contentView);
+    const origAdd = host.window.contentView.addChildView.bind(host.window.contentView);
+    host.window.contentView.removeChildView = (view: unknown) => {
+      removes += 1;
+      moved.push({ view, kind: 'remove' });
+      origRemove(view);
+    };
+    host.window.contentView.addChildView = (view: unknown, index?: number) => {
+      adds += 1;
+      moved.push({ view, kind: 'add' });
+      origAdd(view, index);
+    };
+
+    assert.strictEqual(host.isTabViewAttached(background.tab.view), false, 'the background tab starts off screen');
+    assert.strictEqual(host.switchTab('tab-bg'), true, 'the switch must be accepted');
+
+    assert.deepStrictEqual(children, [background.tab.view], 'the switched-to tab must be the presented view afterwards');
+    assert.strictEqual(
+      moved.filter((op) => op.kind === 'add' && op.view === background.tab.view).length,
+      1,
+      'the target view is attached once for the switch'
+    );
+    assert.strictEqual(
+      moved.filter((op) => op.kind === 'remove' && op.view === background.tab.view).length,
+      0,
+      'the switch must not tear down and re-create the visual it just attached'
+    );
+    assert.strictEqual(
+      moved.filter((op) => op.kind === 'remove' && op.view === presented.tab.view).length,
+      1,
+      'the pane being replaced is the one that leaves the window'
+    );
+    assert.ok(background.invalidateCalls >= 1, 'the switched-to view must still be repainted');
+  });
+
+  it('a switch must not re-stack the shell chrome it never touched', () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const sidebar = { webContents: { isDestroyed: () => false } };
+    const toolbar = { webContents: { isDestroyed: () => false } };
+    const { host, children } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view, sidebar, toolbar],
+    });
+    host.sidebarView = sidebar;
+    host.toolbarView = toolbar;
+
+    const moved: unknown[] = [];
+    const origRemove = host.window.contentView.removeChildView.bind(host.window.contentView);
+    const origAdd = host.window.contentView.addChildView.bind(host.window.contentView);
+    host.window.contentView.removeChildView = (view: unknown) => {
+      moved.push(view);
+      origRemove(view);
+    };
+    host.window.contentView.addChildView = (view: unknown, index?: number) => {
+      moved.push(view);
+      origAdd(view, index);
+    };
+
+    assert.strictEqual(host.switchTab('tab-bg'), true, 'the switch must be accepted');
+
+    // The chrome is what bounds a tab pane from above, so the pane is inserted under it and the
+    // order check has nothing left to move. Re-stacking the chrome per switch costs a remove, an
+    // add and an invalidate for each shell view, on every switch.
+    assert.deepStrictEqual(children, [background.tab.view, sidebar, toolbar], 'the switched-to pane sits under the chrome');
+    assert.deepStrictEqual(
+      moved.filter((view) => view === sidebar || view === toolbar),
+      [],
+      'presenting a tab must not detach and re-add the toolbar or the sidebar'
+    );
+    assert.strictEqual(moved.filter((view) => view === background.tab.view).length, 1, 'the target pane is inserted once');
+  });
+
   it('a leaked attach-for-capture count must not skip recycling the presented compositor layer', async () => {
     const presented = createTestTab('tab-visible');
     const { host, children } = createPresentedHost({

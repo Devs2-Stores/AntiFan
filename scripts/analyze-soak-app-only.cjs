@@ -1108,9 +1108,20 @@ function printSwitchSteps() {
     return;
   }
 
+  // The six marks do not cover the whole switch: everything from `switchStartMs` to the
+  // first mark is unattributed. Carrying the residue as a row of its own keeps the table
+  // additive (Σ rows = total) instead of letting an unmarked step hide behind the marks.
+  const withHead = rows.map((r) => {
+    const stepSum = SWITCH_STEP_KEYS.reduce((acc, k) => {
+      const value = Number(r.extra?.[k]);
+      return acc + (Number.isFinite(value) ? value : 0);
+    }, 0);
+    return { ...r, _head: Number(r.value) - stepSum };
+  });
+
   const summarizeKey = (subset, key) => {
     const vals = subset
-      .map((r) => (key === '_total' ? r.value : Number(r.extra?.[key])))
+      .map((r) => (key === '_total' ? r.value : key === '_head' ? r._head : Number(r.extra?.[key])))
       .filter(Number.isFinite)
       .sort((a, b) => a - b);
     if (vals.length === 0) return null;
@@ -1133,12 +1144,12 @@ function printSwitchSteps() {
     );
     console.log('    ' + 'step'.padEnd(18) + 'p50'.padEnd(12) + 'p95'.padEnd(12) + 'max'.padEnd(12) + 'mean'.padEnd(12) + 'share of mean');
     const meanTotal = total && Number.isFinite(total.mean) && total.mean > 0 ? total.mean : null;
-    for (const key of SWITCH_STEP_KEYS) {
+    for (const key of [...SWITCH_STEP_KEYS, '_head']) {
       const s = summarizeKey(subset, key);
       const share = s && meanTotal ? `${((s.mean / meanTotal) * 100).toFixed(1)}%` : 'n/a';
       console.log(
         '    ' +
-          key.padEnd(18) +
+          (key === '_head' ? 'unmarked (head)' : key).padEnd(18) +
           `${s3(s?.p50)}`.padEnd(12) +
           `${s3(s?.p95)}`.padEnd(12) +
           `${s3(s?.max)}`.padEnd(12) +
@@ -1146,9 +1157,18 @@ function printSwitchSteps() {
           share,
       );
     }
+    const stepMeanSum = [...SWITCH_STEP_KEYS, '_head'].reduce((acc, key) => {
+      const s = summarizeKey(subset, key);
+      return acc + (s ? s.mean : 0);
+    }, 0);
+    if (meanTotal) {
+      console.log(
+        `    Σ rows mean ${s3(stepMeanSum)} ms vs total mean ${s3(meanTotal)} ms (residual ${s3(meanTotal - stepMeanSum)} ms from per-sample quantiles)`,
+      );
+    }
   };
 
-  printBlock('all', rows);
+  printBlock('all', withHead);
   const legRows = Array.isArray(report.legSlopes) ? report.legSlopes : [];
   if (legRows.length > 0) {
     console.log('  per leg:');
@@ -1156,7 +1176,7 @@ function printSwitchSteps() {
       const from = Number.isFinite(leg.observedFrom) ? leg.observedFrom : leg.startAt;
       const to = Number.isFinite(leg.observedTo) ? leg.observedTo : leg.endAt;
       const inLeg = Number.isFinite(from) && Number.isFinite(to)
-        ? rows.filter((r) => r.at >= from && r.at <= to)
+        ? withHead.filter((r) => r.at >= from && r.at <= to)
         : [];
       printBlock(`  leg ${leg.name}`, inLeg);
     }

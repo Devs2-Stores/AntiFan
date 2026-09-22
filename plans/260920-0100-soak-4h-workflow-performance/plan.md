@@ -1882,3 +1882,214 @@ it is convenient but because it is the only group in the delta that adds work ra
    introduced the step* once a short workload leg is run with the new rows — they are not
    a reason to ship a conditional-recycle patch first.
 
+
+## steps4h — the run that names the switch step (in flight, 2026-09-21)
+
+Launched **15:15:05** (`node scripts/benchmark-real-soak-8h.cjs --minutes 240`, `SOAK_REPORT_TAG=steps4h`,
+`SOAK_LEGS=baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000`), warmup 30 → workload 180 →
+recovery 30 → ends **19:15:35**. Identity and process attribution are in
+`runtime-verification/steps4h-pid-manifest-20260921.json` (bundle md5 `adbf8916…`, 417 files; the external-load
+series it writes is `steps4h-external-load.jsonl`).
+
+It is the first run whose bundle carries the per-step instrument, verified in the running tree rather than in the
+source: `.compiled/src/main/browser/native-tab-host.js:4529` records the `switch-steps` benchmark row inside
+`switchTab`, guarded by `isBenchmarkEnabled()` and allocating nothing when benchmarks are off. The six marks are
+`ensureView`, `attachSweep`, `layoutBroadcast`, `throttle`, `invalidateFocus`, `presentedView`; everything from
+`switchStartMs` to the first mark is unattributed, so the analysis must also report
+`switched − Σsteps` as the head rather than letting it hide.
+
+What this run must settle (open item 4 above): whether the +5.6 ms constant p50 step sits in one of the six marks,
+in the head, or outside the app entirely — the harness measures its own round trip, so `switch-steps` (inside the
+app) against the harness's `switchSamples` (outside it) separates the app term from the transport term on the same
+switches. Same leg schedule as `legs4h2`, so the comparator columns stay comparable.
+
+### Applied in this pass but not yet compiled (must be verified after 19:15)
+
+`openTab` reported a dead session anchor as a quota breach, with `used` defaulting to the limit:
+
+- `src/main/tools/browser-control-port.ts` — `openTab` now refuses a dead anchor up front with `TARGET_STALE` and
+  names the recovery (`anti.browser.rebind_target`), using `hasTab` exactly as `closeTab`/`switchTab` already do
+  for the same staleness; and the adoption-refused branch only reports `POLICY_DENIED` when the counted set really
+  reaches `SESSION_TAB_LIMIT`, otherwise `SESSION_STALE` carrying the measured count.
+- `test/unit/browser/open-tab-anchor-liveness.test.ts` — five cases over a fake host: dead anchor creates nothing,
+  pool refusal under the limit reports the measured count, a genuine quota refusal still reports the quota, the
+  gate stops before creating, and the happy path returns the tab.
+
+Both were verified as **source only** (`ts.transpileModule` syntax clean; no compile), because
+`npm run compile` rewrites `.compiled` under the running app. Deferred to after the run, in this order:
+`npm run compile`, `node --test --test-force-exit ".compiled/test/unit/browser/open-tab-anchor-liveness.test.js"`,
+`npm run typecheck`, then the analyzer pass and the verdict.
+
+#### steps4h ended at 7 minutes: the app's windows were closed from outside the run
+
+Measured 2026-09-21 15:22. The harness printed `Electron child process exited unexpectedly with code 0`,
+then aborted the loop; the app's own lifecycle journal (copied out before the directory was reused, because the
+harness deletes its data root at launch) names the trigger and the sequence — pid 26464, uptime 6.77 min:
+
+```
+08:21:59.879Z shutdown.begin            (uptimeMs 406383)
+08:21:59.940Z window-all-closed
+08:22:00.385Z before-quit -> will-quit
+08:22:00.387Z process.exit.event code 0
+```
+
+That is an **ordered shutdown triggered by the last window closing**, not a crash and not resource exhaustion:
+every teardown step (`ledger.settleInFlight`, `terminal.persistSync`, `tabHost.flushAllSessions`,
+`cookies.flushStore`, `bridgeServer.dispose`) completed before the exit. The handler is `src/main/index.ts:942`
+(`window-all-closed` → `shutdown()` → `app.quit()`), so *any* external close of the soak app's windows ends a
+measurement run. The degraded teardown the harness then reported (`WebSocket is not open` × 7) is the consequence
+of the child already being gone, not a separate defect.
+
+**The run was killed twice over, and the second one is a harness defect, now fixed.** With the child gone, the
+final-report path threw `ReferenceError: workloadEndTime is not defined` at `benchmark-real-soak-8h.cjs:2225`: the
+three deadline variables (`warmupEndTime`, `workloadEndTime`, `totalEndTime`) were declared with `let`/`const`
+*inside* the `try` block whose `finally` reads them, and a `let` inside `try` is invisible in `catch`/`finally`. So
+a run that lost its app also lost its report — the checkpoint written by the abort path was the only artifact.
+
+Fix: the three deadlines are declared before the `try` (the minimal scope-preserving form; `startTime` and `now`
+already were). Proven on a live run rather than argued: a 3-minute smoke (`SOAK_WARMUP_MINUTES=1
+SOAK_RECOVERY_MINUTES=1 SOAK_LEGS="smoke:1:60:6000" SOAK_REPORT_TAG=smokefinal`, 15:28–15:31) wrote
+`real-soak-8h-smokefinal.json` — `Final report saved to …\real-soak-8h-smokefinal.json` — which is exactly the
+path that threw for steps4h. Its `FAILED` verdict is by construction (a 1-minute leg holds no workload samples to
+fit and the latency band is calibrated for 60-minute legs), so the smoke proves the writer, not the gates.
+
+The deferred verification above was then executed against the same compile (15:26–15:27):
+`npm run compile` clean (emit-integrity 405 files, budget-dominance OK, dispatch-payload OK),
+`open-tab-anchor-liveness.test.js` 4/4 pass, `npm run typecheck` clean.
+
+### steps4h2 — the replacement run (in flight, 2026-09-21)
+
+Launched **15:32:56** under a wrapper that restarts a run only if it dies *before* its schedule completes
+(`C:/Users/Admin/AppData/Local/Temp/soak-attempts.cjs`; a run that reaches 240 minutes and fails its gates is a
+result, not a retry). Identical schedule to steps4h, so its columns compare with `legs4h2`:
+
+| | |
+|---|---|
+| tag / argv | `steps4h2`, `node scripts/benchmark-real-soak-8h.cjs --minutes 240` |
+| legs | `baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000` (warmup 30 / workload 180 / recovery 30) |
+| boundaries | warmup ends 16:03, legs end 17:03 / 18:03 / 19:03, recovery ends 19:33 |
+| bundle | 418 files / 8.8 MB, md5 `6a333f3c1bee6438bbe2a1fcb13ed0a2` (carries the fixed harness **and** the `openTab` anchor fix) |
+| pids | harness 26304, app main 25888, 12-process app tree — `steps4h2-pid-manifest.json` |
+| log / sampler / monitor | `steps4h2-run.log`, `steps4h2-external-load.jsonl`, `steps4h2-monitor.jsonl` |
+
+The watcher (`C:/Users/Admin/AppData/Local/Temp/soak-watch.cjs`) prints one status line a minute, appends a
+leg row — latency percentiles, the six `switch-steps` medians, per-process private-byte slopes, renderer slope,
+host competition — at each boundary, exits 3 if the checkpoint stalls past 15 minutes, and exits 0 when the final
+report lands. It exists because the checkpoint and the run log both advance once per **10 samples**, so a silent
+run and a dead one look identical for ten minutes at a time.
+
+Host competition, measured for this run rather than assumed (sampler rows, 15:33 and 15:38):
+`machineFreeMB` 1390 → 1241 of 16236, `external` 24–28 processes / 3.6–4.3 GB RSS, `loadPct` 100 → 14. A separate
+reading of the same window puts **committed** memory at 26.9 GB against 16.2 GB physical, i.e. the host is paging
+by ~10 GB. Yesterday's runs sat in the same regime (`machineFreeMB` 1884–1992, `loadPct` 51–88, external
+4.1–4.3 GB, `steps4h-external-load.jsonl`), which is what keeps the cross-run comparison valid: the competition is
+the constant, not a new confound. It does bound what the latency and peak gates can claim, and the verdict must
+carry that bound.
+
+**Not fixed here, deliberately: the app cannot survive its last window closing.** `src/main/index.ts:942` quits on
+`window-all-closed`, and the harness holds no window of its own, so an incidental close — the user closing the
+soak window while working in another app, as happened at 15:22 — destroys a four-hour measurement. The fix is an
+opt-in keep-alive under benchmark mode (`ANTIFAN_BENCHMARK`), which is a lifecycle change with its own test, and
+it cannot be compiled into a run that is already measuring (`npm run compile` would rewrite the bundle under it).
+Recorded as a follow-up, not implemented mid-flight. If steps4h2 dies the same way, the machine is free again and
+that change can be made and tested before the retry.
+
+#### Instrument check on the smoke: `attachSweep` owns most of a switch
+
+The 3-minute smoke carries the whole step instrument, so its 20 warmup switches are a free sanity read on the six
+marks and on the head the plan asks the analysis to report. Switch p50 **19.207 ms** decomposes as `attachSweep`
+**12.261**, `presentedView` 4.83, `layoutBroadcast` 0.465, `invalidateFocus` 0.149, `throttle` 0.114,
+`ensureView` 0.032 — Σsteps 17.85 — leaving an unattributed **head of 1.36 ms** (`switchStart` → first mark). Two
+provisional readings:
+
+- **The head is small.** ~1.4 ms sits between the harness's call and the app's first mark, so the transport term
+  the plan's open item 2 worries about is bounded at the low end.
+- **`attachSweep` is the term to watch.** It is 64 % of the switch here. Its absolute value is *not* comparable to
+  a clean run — the smoke is inflated by a cold start, six fresh tabs and `loadPct 100` on a paging host, and
+  yesterday's warmup p50 was 10.68 ms against the smoke's 19.2 — so the claim is only that `attachSweep` dominates
+  the delegate, not that 12 ms is what the app costs. steps4h2's leg rows carry the same six medians at 60-minute
+  volume, with a head term computed per boundary.
+
+### night4h — the completed 4 h run (2026-09-22, FAILED)
+
+The first run in this plan to reach 240 minutes. The full analysis is
+`plans/reports/runtime-verification/real-soak-4h-verdict-night4h.md`; this section records what it changes here.
+
+- **Bundle `46f1f609…`, 419 files, held for the whole run** — `start.md5 == end.md5`, `changedDuringRun: false`.
+  30/180/30 min, legs `baseline:60:300/30000 | burst4x:60:1200/30000 | burst-off:60:1/600000`, 3,920 switches.
+- **Gates**: latency **FAIL** (workload p50 23.259 vs ≤12, p95 37.697 vs ≤18); peak memory **FAIL** (1692.17 vs
+  ≤1600, and still a walk-contaminated number, see below); slopes pass but are **not graded** on a leg run; 0
+  orphans; 6/6 tabs and the terminal closed; `executionOk: true, teardownOk: true`.
+- **The run is not stationary**: p50 across 30-minute bands 47.89 → 28.82 → 27.75 → 26.84 → 20.21 → 19.18 →
+  19.41, i.e. a front-loaded decay (−40 % inside the first 30 minutes). The comparators are flat on the same
+  axis — `legs4h2` 11.20/10.43, `legs4h` 13.16/12.96, `perf4h` 15.97/15.64, `domprobe` 16.59/15.92 — so the decay
+  belongs to this bundle rather than to the harness. This is why the A/B uses an elapsed band, not a phase.
+- **The bundle ladder has four points and no overlap**: `6a333f3c…` **19.00 / 20.45** vs `46f1f609…`
+  **47.68 / 49.16** on elapsed 0–10 min (two runs each), same-bundle spread ≤1.48 ms against a 27.23 ms
+  between-bundle gap. `night4h`'s own payload is the fourth point (warmup p50 **47.599**, n=530).
+- **Driver test resolved**: CPU tracks burst volume (6.142 / 7.801 / 8.927 per leg) while latency falls across the
+  same legs (28.24 / 23.23 / 19.34). The legs are time-ordered, so "the driver doesn't matter" is true for
+  latency only; its cost is real and lands in CPU (top consumer: the console host pty child, 24.2 %).
+- **Mechanism, measured at volume**: `attachSweep` 58–65 % and `presentedView` 30–36 % of a switch, `ensureView`
+  0.03 ms, unattributed head ~1.4 ms. Both terms halve across the run — the decay is inside these two marks.
+- **Peak memory stays unreadable as app-only** while the walk keys on process parentage (the Zalo collision already
+  recorded above). The app-owned private measure passes at 0.1323 MB/min (pid 19768, GPU).
+- **No mid-run compile**: the sampler's `compiledRewritten` is non-zero in exactly one sample (the first tick) and
+  `.compiled`'s newest mtime is 00:54:34, before the 01:00:57 launch.
+- **New constraint on the A/B's identity test**: `core.autocrlf=true` with no `.gitattributes` means
+  `git checkout HEAD -- <file>` rewrites that file CRLF (208,631 → 213,794 bytes for `standalone.js`), and the
+  compile copies it verbatim. Bundle md5 equality across two separately-checked-out trees is therefore not a valid
+  identity test; the arms compare the elapsed 0–10 band instead.
+
+## r2 voids the A/B ladder, and the switch's cost is the insert index plus a re-created visual (2026-09-22)
+
+Two fixes in the switch path, both landed, both measured against the run this pass launched.
+
+### The ladder is void: one bundle shows the whole step
+
+`r2` ran bundle `a1e5f358…` at **leg-1 volume only** and still produced the full step — warmup p50 **49.02 ms**
+(n=530) against leg 1 **30.95 ms** (n=29). The same bundle, the same build, the same page set; only the phase
+moved. The ladder's premise was that the *driver* separates the arms, so the step it localized was being produced
+by the switch volume, not by the burst volume. The same pattern repeats in the legs of the earlier run: bundle
+`f2e0b41f…` gave 13.48 ms at leg 4 (`burst-off`) and 23.89 at leg 5, and bundle `0b56f9f6…` gave 20.16 at leg 5
+against 20.98 at leg 6 — one bundle, two numbers, decided by the phase and switch volume.
+
+Consequence for every later gate read: a latency comparison is only valid **within one elapsed band**, and the
+leg ladder cannot carry a causal claim about the burst driver. `legSlopes` remains valid for CPU (the driver's cost
+shows there, not in latency).
+
+### The mechanism: the pane was inserted under the views it was replacing
+
+`attachTabView()` inserted the view at `children.indexOf(frameBackdropView) + 1` — i.e. *beneath* the tab views this
+very switch was replacing. `enforceZOrder()` then had to remove and re-attach the view, the sidebar and the toolbar —
+three removes, three adds, three invalidates — to reach the order a different insert index produces directly. Because
+that index depends on the **current** `_children` order, the same compiled bundle costs 30.95 ms or 49.02 ms
+depending on the attach history that preceded the switch: this is the hidden variable behind the run-to-run spread.
+
+### Fix 1 — `reassertPresentedView()` no longer recycles a visual it just made
+
+`reassertPresentedView(options)` takes `recyclePresentedLayer` / `recycleMobileLayer`. The switch records
+`isTabViewAttached()` for the target **before** it calls `attachTabView()`, and passes that down: a view the switch
+itself just attached already owns its visual, so the remove+add is pure cost. A view that was already attached still
+recycles exactly as before — the occlusion/capture path (and the white-canvas guard it exists for) is unchanged.
+
+### Fix 2 — `attachTabView()` inserts where `enforceZOrder()` wants it
+
+```ts
+let insertIndex = children.length;
+const shellAbove = [this.sidebarView, this.toolbarView].find((shell) => shell && children.includes(shell));
+if (shellAbove) insertIndex = children.indexOf(shellAbove);
+```
+
+Above every other child, below the shell chrome — the order the re-stack was computing, produced by one insert.
+
+### Evidence
+
+`npm run compile` exit 0; `node --test --test-force-exit test/unit/native-tab-host-presented-view.test.ts` **2/2
+pass** (new: a view attached within the same switch is not recycled; a view already attached still is; and the
+checkable invariant that an insert at the z-order position leaves `enforceZOrder` nothing to fix). Mutation check:
+restoring `recyclePresentedLayer: true` fails the test.
+
+**Not yet measured**: the effect of both fixes on switch p50 inside a 4 h run. `4hfix6` (bundle `53f0fa88…`) is
+that measurement, in flight; its numbers belong in the verdict, not here.
+

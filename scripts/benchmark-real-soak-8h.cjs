@@ -1807,6 +1807,12 @@ async function main() {
     const open = legTimeline[legTimeline.length - 1];
     if (open && open.observedTo === null) open.observedTo = at;
   }
+  // Same scope rule as `closeOpenLeg` above: the final report runs in `finally`, so every
+  // binding it reads must survive the try block. These three are assigned once the app is
+  // up (the deadline is measured from app readiness, not from harness start).
+  let warmupEndTime = 0;
+  let workloadEndTime = 0;
+  let totalEndTime = 0;
 
   try {
     // 2. Launch Production Electron Runtime
@@ -1963,9 +1969,13 @@ async function main() {
   }
 
   const startTime = Date.now();
-  let warmupEndTime = startTime + WARMUP_MINUTES * 60 * 1000;
-  let workloadEndTime = warmupEndTime + WORKLOAD_MINUTES * 60 * 1000;
-  let totalEndTime = workloadEndTime + RECOVERY_MINUTES * 60 * 1000;
+  // Assigned here, but declared before the `try` because the final report is written from
+  // `finally`, and a `let` inside the try block is not in scope there: the abort path died
+  // with `ReferenceError: workloadEndTime is not defined` after the app exited early, which
+  // discarded the very report that would have said why the run ended.
+  warmupEndTime = startTime + WARMUP_MINUTES * 60 * 1000;
+  workloadEndTime = warmupEndTime + WORKLOAD_MINUTES * 60 * 1000;
+  totalEndTime = workloadEndTime + RECOVERY_MINUTES * 60 * 1000;
   totalSuspendedMs = 0;
   let consecutiveSampleErrors = 0;
 

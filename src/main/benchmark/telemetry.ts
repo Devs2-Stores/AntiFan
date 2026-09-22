@@ -36,6 +36,30 @@ export function isBenchmarkEnabled(): boolean {
   return process.env.ANTIFAN_BENCHMARK === '1' || argvRequestsBenchmark;
 }
 
+/**
+ * Opt-out for the benchmark-mode window guard below. A value of exactly `1`
+ * restores normal close semantics; anything else (including unset) keeps the
+ * guard on.
+ */
+export const BENCHMARK_ALLOW_WINDOW_CLOSE_ENV = 'ANTIFAN_BENCHMARK_ALLOW_WINDOW_CLOSE';
+
+/**
+ * Whether the main window's close must be refused because a benchmark run owns it.
+ *
+ * In benchmark mode the app is a measurement, not a session someone is using:
+ * `window-all-closed` quits (src/main/index.ts) and the main window's `closed`
+ * quits with it, so one stray close — an ALT+F4, a taskbar close, another
+ * window manager — ends a multi-hour run and takes every tab the run was
+ * measuring with it. Two runs were lost exactly there before this guard.
+ *
+ * Nothing legitimate depends on closing it: the soak harness ends the app with
+ * a process-tree kill, which no window handler can veto.
+ */
+export function refusesWindowClose(): boolean {
+  if (!isBenchmarkEnabled()) return false;
+  return process.env[BENCHMARK_ALLOW_WINDOW_CLOSE_ENV] !== '1';
+}
+
 export interface BenchmarkMetric {
   /** scenario/surface name, e.g. 'startup', 'tabs', 'terminal', 'bridge', 'artifact' */
   surface: string;
