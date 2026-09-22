@@ -2164,11 +2164,15 @@ beyond these runs: silent deaths at around the half-hour mark in this harness ha
 app-side cause must not be inferred from "the app is gone and no error was logged" alone.
 
 **What this retracts.** Fix 3's evidence was `4hfix6`, and `4hfix6` was not a window close. The window-close class
-is still real and still has its own evidence (`steps4h`, below, whose app journal shows an ordered self-shutdown),
-so fix 3 is kept - re-anchored on `steps4h` - but the claim "the cause of `4hfix6`'s death" is withdrawn here and in
-the changelog, and the harness's `SIGTERM` path is what made the two deaths *look* app-side: the harness installs a
-`SIGTERM` handler that aborts through the teardown lifecycle, so an externally killed run still ends with closed
-tabs and a clean-looking shutdown trail.
+is still real, and the chain that keeps fix 3 is mechanical rather than narrative: the harness ends every teardown
+with `taskkill /PID <child.pid> /T /F` (`benchmark-real-soak-8h.cjs:2208`), and a forced kill cannot produce the
+ordered sequence `steps4h`'s app journal recorded - `shutdown.begin` (uptimeMs 406383) → `window-all-closed` →
+`before-quit -> will-quit` → `process.exit.event code 0`, with every teardown step completing first. The app
+therefore closed its own last window; the harness force-killed a process that had already exited. Two deaths, two
+different causes, and only one of them is a defect in the app. The claim "the cause of `4hfix6`'s death" is
+withdrawn here and in the changelog, and the harness's `SIGTERM` path is what made the watchdog deaths *look*
+app-side: the harness installs a `SIGTERM` handler that aborts through the teardown lifecycle, so an externally
+killed run still ends with closed tabs and a clean-looking shutdown trail.
 
 **Fix.** The limit is 20 minutes, and the watchdog now takes the **newest mtime across the three heartbeats the run
 actually emits** - sampler row, checkpoint, run log - so the coarsest of them can no longer be read as a hang. A
