@@ -2229,6 +2229,12 @@ on a developer's shared workstation at ~94 % load, not on a quiet machine, and t
 than present its switch percentiles as a clean number. It also means a workload p50 above the 12 ms bound would not
 by itself indict the code - which is exactly why the bundle-vs-load discriminator has to be load-matched.
 
+**And this session is part of that load**, so it is part of the measurement. The OMP harness is 11 processes /
+2635 MB of the machine's total, and the rule for the graded workload phase (09:11:22 - 12:11:22) is therefore: no
+compiles, no full-tree walks, no CPU-heavy probes from here until the workload ends - only bounded reads of the
+run's own artifacts. A run whose switch percentiles are graded over a phase in which the measuring session was
+also a CPU consumer would not support the number it prints, and the harness cannot attribute that away.
+
 **What is not established: the cause.** The committed source delta is exactly one file -
 `git diff --stat c55e894c 4260226a` is `CHANGELOG.md`, `plan.md`, `src/main/index.ts` - and that change is a
 `close` listener plus two `refusesWindowClose()` guards on `closed`/`window-all-closed`. None of those three runs
