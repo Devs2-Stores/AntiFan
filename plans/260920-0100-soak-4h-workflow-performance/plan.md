@@ -2106,12 +2106,37 @@ restoring `recyclePresentedLayer: true` fails the test.
 
 ### Next target, recorded rather than applied
 
-The two fixes took the two named terms down; the remaining one is now `attachSweep` itself — **9.76 ms of a
-~14 ms switch (≈70 %)** in `4hfix7`'s warmup band, down 4× from 26.689 but still the largest term, with
-`presentedView` at 0.78 ms and everything else under 1 ms. It is the attach sweep: the N view attaches a switch
-performs, each of which lays out a view. Nothing here is applied, because the plan's own risk rule forbids a
-recompile between launch and verdict — the workload numbers from the run in flight decide whether it is worth
-opening at all.
+The two fixes took the two named terms down; the remaining one is now `attachSweep` itself — **10.077 ms of a
+12.460 ms switch (80.9 %)** in `4hfix9`'s warmup band, down ~2.6× from 26.689 but still the largest term by an
+order of magnitude, with `presentedView` at 0.725 ms and everything else under 1 ms. It is the attach sweep: the N
+view attaches a switch performs, each of which lays out a view. Nothing here is applied, because the plan's own
+risk rule forbids a recompile between launch and verdict — the workload numbers from the run in flight decide
+whether it is worth opening at all.
+
+### The step decomposition on the fixed bundle (live, `4hfix9` warmup, n=357)
+
+The six marks this plan added for `switchTab` are present and additive on the fixed bundle, so the switch's cost is
+named rather than inferred. `4hfix9`'s first checkpoint, warmup band, `switchStepSamples` (`extra` carries the
+marks):
+
+| mark | mean | share | p50 |
+|---|---|---|---|
+| `attachSweep` | **10.077 ms** | **80.9 %** | 9.991 |
+| `layoutBroadcast` | 0.833 | 6.7 % | 0.678 |
+| `presentedView` | 0.725 | 5.8 % | 0.662 |
+| `invalidateFocus` | 0.517 | 4.1 % | 0.305 |
+| `throttle` | 0.158 | 1.3 % | 0.134 |
+| `ensureView` | 0.051 | 0.4 % | 0.037 |
+| head (total − Σ marks) | 0.099 | 0.8 % | — |
+
+Total switch mean **12.460 ms**, p50 **12.239**, p95 **14.816**, max **20.289** over these 357 rows. The marks sum
+to 12.361 ms, so the decomposition closes to within a 0.099 ms head - the transport term the earlier open item
+worried about is under a tenth of a millisecond here.
+
+Against `night4h` (unfixed, band 0-10 min, p50 45.82 = `attachSweep` 26.689 + `presentedView` 16.677 +
+`ensureView` 0.034 + ~1.4 head), the shape of the switch has changed rather than merely shrunk:
+`presentedView` fell from **36 % to 5.8 %** of a switch and `attachSweep` from 58 % to **80.9 %**. The two fixes
+moved the terms they targeted; what is left is now almost entirely the attach sweep itself.
 
 **In-flight readout** (`4hfix6`, bundle `53f0fa88…`, warmup band only — the verdict number is the 180-minute
 workload phase): at 27 minutes in, n=376 warmup switches give p50 **9.83 ms** and p95 **14.17 ms**, against a gate
