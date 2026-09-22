@@ -575,6 +575,27 @@ runtime perf finding is recorded in the verdict report rather than invented as a
 4. Every gate the previous run passed still passes (no pass bought by weakening a gate).
 5. `npm run compile` and the touched test suites are green.
 
+**Gate constants, taken from source rather than from this list.** A verdict grades against `FREEZE_SLO`
+(`scripts/benchmark-real-soak-8h.cjs:222-229`):
+
+```
+overallSlopeMBPerMin    0.35
+rendererSlopeMBPerMin   0.15
+peakTotalWorkingSetMB   1600
+switchLatencyP50Ms      12
+switchLatencyP95Ms      18
+maxOrphans              0
+```
+
+The evaluated booleans are `slopeSloSatisfied`, `privateSlopeSloSatisfied`, `memorySloSatisfied`,
+`latencySloSatisfied`, `orphanSloSatisfied`, `executionSloSatisfied`, `teardownSloSatisfied`
+(`:1455-1457`, printed at `:2332`).
+
+**Criterion 3 above is stale in two ways and must not be used as written.** The harness does **not** gate the switch
+*max* - it reports it and sets `latencyMaxGated: false` (`:333`) - and the latency gate is scoped to the **workload**
+phase (`:2294`), not accumulated across both phases. Where this list and `FREEZE_SLO` disagree, `FREEZE_SLO` is what
+a run actually passes or fails; the verdict uses `FREEZE_SLO` and says so.
+
 ## Risks
 
 - **Restart during the soak**: the run is long; a machine sleep invalidates it. The
