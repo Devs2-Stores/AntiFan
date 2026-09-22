@@ -45,7 +45,7 @@ import { IosDeviceAdapter } from './device/ios-device-adapter';
 import { validateControlPlaneId } from '../shared/control-plane-contracts';
 import { assertDeadlineChain } from '../shared/deadline-chain';
 import { preparePersistentProfile, ProfileMigrationError, ProfileOwnership, ProfileOwnershipError, type PersistentProfileResult, type ProfileLease } from './browser/profile-ownership';
-import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled } from './benchmark/telemetry';
+import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled, refusesWindowClose, BENCHMARK_ALLOW_WINDOW_CLOSE_ENV } from './benchmark/telemetry';
 import type { ActionSequenceParams } from './browser/tab-automation-host';
 import {
   recordLifecycleEvent,
@@ -507,12 +507,31 @@ async function createWindow(): Promise<void> {
   };
   mainWindow.once('ready-to-show', showMainWindow);
   showFallbackTimer = setTimeout(showMainWindow, 300);
+  // A benchmark run owns its window (see `refusesWindowClose`): an incidental close would end the
+  // measurement and destroy the tabs it was measuring. Refusing here — rather than surviving
+  // `window-all-closed` — keeps the window, its views and its tabs alive.
+  mainWindow.on('close', (event) => {
+    if (!refusesWindowClose() || isShuttingDown) return;
+    event.preventDefault();
+    recordLifecycleEvent('window-close.refused', { reason: 'benchmark run owns the window' });
+    console.warn(`[antifan] Benchmark mode: main window close refused; the run owns it (set ${BENCHMARK_ALLOW_WINDOW_CLOSE_ENV}=1 to override).`);
+  });
   mainWindow.on('closed', async () => {
     if (showFallbackTimer) {
       clearTimeout(showFallbackTimer);
       showFallbackTimer = null;
     }
     mainWindow = null;
+    // Electron fires `closed` before `window-all-closed`, so the keep-alive in that handler never
+    // gets its turn: a benchmark run that loses its window — to an incidental close, a renderer
+    // crash or an OS action — would still shut down here and discard the whole measurement. The run
+    // owns its process, so it records the loss and keeps going; a run that finishes windowless is a
+    // finding for the report, not a reason to lose the artifact.
+    if (refusesWindowClose() && !isShuttingDown) {
+      recordLifecycleEvent('window-closed.ignored', { reason: 'benchmark keep-alive' });
+      console.warn('[antifan] Benchmark mode: main window closed; the run continues without a window.');
+      return;
+    }
     await shutdown();
     app.quit();
   });
@@ -941,6 +960,15 @@ function shutdown(): Promise<void> {
 
 app.on('window-all-closed', async () => {
   recordLifecycleEvent('window-all-closed', {});
+  // Reached only when a window was destroyed despite the close guard (e.g. a renderer crash took
+  // it). Quitting there would discard the run's whole artifact, so the benchmark keeps the process
+  // alive and records the fact loudly instead — a run with no window is a finding, not a reason to
+  // lose the measurement.
+  if (refusesWindowClose()) {
+    recordLifecycleEvent('window-all-closed.ignored', { reason: 'benchmark keep-alive' });
+    console.warn('[antifan] Benchmark mode: window-all-closed ignored; the run continues without a window.');
+    return;
+  }
   await shutdown();
   if (process.platform !== 'darwin') {
     app.quit();

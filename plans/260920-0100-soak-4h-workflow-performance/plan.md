@@ -2073,6 +2073,12 @@ depending on the attach history that preceded the switch: this is the hidden var
 itself just attached already owns its visual, so the remove+add is pure cost. A view that was already attached still
 recycles exactly as before — the occlusion/capture path (and the white-canvas guard it exists for) is unchanged.
 
+This is **not** the patch this plan retracted (`2697a28c` read as "make recycle conditional on a stale
+presentation"). That retraction stands on its own reasoning: a soak switch does not hold a capture, so a
+capture-shaped condition would never fire. The predicate here is not staleness but **provenance** — it isolates
+exactly the case the retraction did not consider, the view this same switch attached moments earlier — and the
+step marks already name that case: `presentedView` is 36 % of a switch on the measured bundle.
+
 ### Fix 2 — `attachTabView()` inserts where `enforceZOrder()` wants it
 
 ```ts
@@ -2083,6 +2089,14 @@ if (shellAbove) insertIndex = children.indexOf(shellAbove);
 
 Above every other child, below the shell chrome — the order the re-stack was computing, produced by one insert.
 
+### How the two fixes were chosen
+
+They are not guesses at the switch path; they are the two marked sub-steps. On the measured bundle a switch's
+p50 decomposes as `attachSweep` **26.689 ms (58 %)** + `presentedView` **16.677 ms (36 %)** + `ensureView` 0.034 ms,
+against a ~1.4 ms head. Fix 2 changes what `attachTabView()` — which runs inside `attachSweep` — does to the child
+order; fix 1 removes the remove-and-re-add — which is `presentedView` — for the view the switch just attached.
+Together the marked terms are 94 % of a switch.
+
 ### Evidence
 
 `npm run compile` exit 0; `node --test --test-force-exit test/unit/native-tab-host-presented-view.test.ts` **2/2
@@ -2090,6 +2104,10 @@ pass** (new: a view attached within the same switch is not recycled; a view alre
 checkable invariant that an insert at the z-order position leaves `enforceZOrder` nothing to fix). Mutation check:
 restoring `recyclePresentedLayer: true` fails the test.
 
-**Not yet measured**: the effect of both fixes on switch p50 inside a 4 h run. `4hfix6` (bundle `53f0fa88…`) is
-that measurement, in flight; its numbers belong in the verdict, not here.
+**In-flight readout** (`4hfix6`, bundle `53f0fa88…`, warmup band only — the verdict number is the 180-minute
+workload phase): at 27 minutes in, n=376 warmup switches give p50 **9.83 ms** and p95 **14.17 ms**, against a gate
+of p50 ≤ 12 / p95 ≤ 18. Step means: `attachSweep` **6.735 ms** (was 26.689) and `presentedView` **0.581 ms**
+(was 16.677) — the two marked terms the fixes target, moved 4× and 29×. The same phase on the older bundles read
+47.599 (night4h) and 49.02 (r2). Max is 101.03 ms, a warmup outlier to characterise in the verdict;
+`slowSwitchSamples` carries the ten worst.
 
