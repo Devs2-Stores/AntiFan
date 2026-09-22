@@ -58,6 +58,39 @@ const headers = (harness: StandaloneHarness): FakeElement[] =>
   harness.tabsRoot.querySelectorAll('.terminal-tab-category-header');
 
 /**
+ * The strip drags with POINTER events, not HTML5 drag & drop. `f4d90277` replaced the
+ * HTML5 path because Windows routes it through OLE / DirectUI (DUI70.dll) and it
+ * null-deref'd the process while a tab was dragged onto a group. A wrap is therefore
+ * never `draggable` and carries no `dragstart`/`drop` listener of its own; the gesture is
+ * a pointerdown on the source row, a move past the 4px threshold, then a pointerup over
+ * whatever the cursor resolves to. Only a category HEADER still answers an HTML5 `drop`,
+ * because an external drag (a file) is the one payload the strip does not originate.
+ */
+const POINTER_ID = 7;
+
+const pressRow = (harness: StandaloneHarness, row: FakeElement): void => {
+  row.dispatch('pointerdown', { button: 0, pointerId: POINTER_ID, clientX: 100, clientY: 100 });
+};
+
+/** A move only becomes a drag past 4px — the strip compares squared distance to 16. */
+const dragRowOver = (harness: StandaloneHarness, over: FakeElement | null): void => {
+  harness.setElementFromPoint(over);
+  harness.dispatchWindowPointer('pointermove', { pointerId: POINTER_ID, clientX: 140, clientY: 140 });
+};
+
+const releaseOver = (harness: StandaloneHarness, over: FakeElement | null): void => {
+  harness.setElementFromPoint(over);
+  harness.dispatchWindowPointer('pointerup', { pointerId: POINTER_ID, clientX: 140, clientY: 140 });
+};
+
+/** The whole gesture: press the row owning `sessionId`, drag it, release over `over`. */
+const dragRowOnto = (harness: StandaloneHarness, sessionId: string, over: FakeElement | null): void => {
+  pressRow(harness, wrapFor(harness, sessionId));
+  dragRowOver(harness, over);
+  releaseOver(harness, over);
+};
+
+/**
  * The strip's tabs bucketed under the header that precedes them. A wrap is a SIBLING of
  * a header, not a child, so membership is positional and has to be read that way.
  */
@@ -254,7 +287,7 @@ describe('Renderer terminal tab categories', () => {
     const header = headers(harness)[1];
     assert.ok(header);
     assert.strictEqual(header.getAttribute('data-category'), '__uncategorized__');
-    header.dispatch('drop', { dataTransfer: dataTransfer('s3') });
+    dragRowOnto(harness, 's3', header);
     assert.deepStrictEqual(
       sessionIds(harness),
       ['s1', 's2', 's3'],
@@ -263,17 +296,22 @@ describe('Renderer terminal tab categories', () => {
 
     // Dropping onto a tab resolves both ends by session id, not by DOM index —
     // indices would be shifted by the header interleaved between the wraps.
-    wrapFor(harness, 's1').dispatch('drop', { dataTransfer: dataTransfer('s3') });
+    dragRowOnto(harness, 's3', wrapFor(harness, 's1'));
     assert.deepStrictEqual(sessionIds(harness), ['s3', 's1', 's2']);
     assert.deepStrictEqual(plain(lastArgs(harness, 'reorderTerminals')?.[0] as string[] | undefined), ['s3', 's1', 's2']);
 
-    // The re-render keeps each tab inside its own group, and — because a group
-    // keeps the slot it first appeared in — the group order is unchanged even
-    // though the leading tab now belongs to the uncategorised group.
+    // A drop onto a tab adopts THAT tab's group. Without it the next render would file
+    // the tab back under its own header and the drag would read as undone — the same
+    // "a drag a later render would undo is not an affordance" rule the pane test states.
+    assert.strictEqual(harness.getSessions().find((s) => s.id === 's3')?.category, 'Build');
+
+    // The re-render keeps each tab inside its own group, and — because a group keeps the
+    // slot it first appeared in — the group order is unchanged even though a tab moved
+    // between groups.
     const flattened = harness.tabsRoot.children
       .filter((el) => el.matches('.terminal-tab-category-header') || el.matches('.terminal-tab-wrap'))
       .map((el) => el.getAttribute('data-category') ?? el.getAttribute('data-session-id'));
-    assert.deepStrictEqual(flattened, ['Build', 's1', '__uncategorized__', 's3', 's2']);
+    assert.deepStrictEqual(flattened, ['Build', 's3', 's1', '__uncategorized__', 's2']);
     assert.deepStrictEqual(
       headers(harness).map((header) => header.getAttribute('data-category')),
       ['Build', '__uncategorized__'],
@@ -299,16 +337,19 @@ describe('Renderer terminal tab categories', () => {
     };
     const buildHeader = findHeader('Build');
 
-    // A dragover with no tab drag in flight must not arm the header, so an
-    // unrelated drag (a file, a link) can never become a category drop.
-    buildHeader.dispatch('dragover', { dataTransfer: dataTransfer('s3') });
+    // A move with no tab drag in flight must not arm the header, so a drag the strip is
+    // not driving — a file, a link, a text selection — can never become a category drop.
+    harness.setElementFromPoint(buildHeader);
+    harness.dispatchWindowPointer('pointermove', { pointerId: POINTER_ID, clientX: 140, clientY: 140 });
     assert.strictEqual(buildHeader.classList.contains('drag-over'), false);
 
-    wrapFor(harness, 's3').dispatch('dragstart', { dataTransfer: dataTransfer('s3') });
-    buildHeader.dispatch('dragover', { dataTransfer: dataTransfer('s3') });
+    // Arming is pointer-driven: only a real tab drag in flight lights the header up.
+    pressRow(harness, wrapFor(harness, 's3'));
+    dragRowOver(harness, buildHeader);
     assert.strictEqual(buildHeader.classList.contains('drag-over'), true, 'a live tab drag arms the header');
 
-    buildHeader.dispatch('drop', { dataTransfer: dataTransfer('s3') });
+    // Releasing over the header files the tab there.
+    releaseOver(harness, buildHeader);
     assert.strictEqual(buildHeader.classList.contains('drag-over'), false, 'the highlight is cleared');
     assert.strictEqual(harness.getSessions().find((s) => s.id === 's3')?.category, 'Build');
     assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['s3', 'Build']);
@@ -331,7 +372,7 @@ describe('Renderer terminal tab categories', () => {
     assert.strictEqual(countCalls(harness, 'setCategory'), writes, 'a non-session payload changes nothing');
 
     // Dropping on the uncategorised header releases the tab back to ungrouped.
-    findHeader('__uncategorized__').dispatch('drop', { dataTransfer: dataTransfer('s3') });
+    dragRowOnto(harness, 's3', findHeader('__uncategorized__'));
     assert.strictEqual(harness.getSessions().find((s) => s.id === 's3')?.category, undefined);
     assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['s3', undefined]);
   });
@@ -561,6 +602,34 @@ describe('Renderer bulk affinity badges', () => {
     assert.strictEqual(countCalls(harness, 'getTabs'), fetchesBefore, 'the broadcast list must not be re-fetched');
     assert.strictEqual(countCalls(harness, 'getTerminalAffinities'), affinityFetchesBefore, 'the broadcast map must not be re-fetched');
     assert.match(wrapFor(harness, 'c1').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '', /Live/);
+  });
+
+  it('repaints badges from the delivered broadcast on the 5 Hz session push', async () => {
+    const harness = loadStandalone();
+    await flush();
+    seed(harness, [{ id: 'd1', name: 'D', state: 'running' }], 'd1');
+    harness.renderTabs();
+    await flush();
+
+    // The tab broadcast carries both halves, and it is what the badges render from.
+    harness.emitTabsUpdated({
+      tabs: [{ id: 'tab-push', title: 'Pushed', url: 'https://example.com' }],
+      terminalAffinities: { d1: { tabId: 'tab-push', managedTabIds: ['tab-push'], status: 'alive' } },
+    });
+    await flush();
+    harness.apiCalls.length = 0;
+
+    // `renderTabs()` runs from the session push, which arrives at 5 Hz. Both halves are already in
+    // this process, so a re-fetch here is two `invoke`s plus two payload deserializations per push
+    // — ~144,000 over one 4 h soak — inside the renderer whose committed bytes are what grows.
+    for (let push = 0; push < 5; push += 1) {
+      harness.emitSession({ sessions: [{ id: 'd1', name: 'D', state: 'running' }], activeSessionId: 'd1' });
+      await flush();
+    }
+
+    assert.strictEqual(countCalls(harness, 'getTabs'), 0, 'a session push must not re-fetch the tab list');
+    assert.strictEqual(countCalls(harness, 'getTerminalAffinities'), 0, 'a session push must not re-fetch the affinity map');
+    assert.match(wrapFor(harness, 'd1').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '', /Pushed/, 'the delivered broadcast still decorates the badge');
   });
 });
 
@@ -1103,14 +1172,29 @@ describe('Renderer split panes follow the tab that owns them', () => {
     seed(harness, [
       { id: 's1', name: 'App', category: 'Build', state: 'running' },
       { id: 's2', name: 'App split-1', splitOf: 's1', state: 'running' },
+      { id: 's3', name: 'Other', category: 'Build', state: 'running' },
     ], 's1');
     harness.assign("applyCategories(['Build', 'Deploy'])");
     harness.renderTabs();
 
+    // The crash fix stands: no wrap is an HTML5 drag source (`f4d90277`), because Windows
+    // routes that path through OLE / DirectUI (DUI70.dll) and it null-deref'd the process
+    // mid-drag. Reordering is the pointer gesture below, so this asserts the safety
+    // invariant rather than the affordance.
+    assert.strictEqual(wrapFor(harness, 's1').draggable, false, 'a wrap must never be an HTML5 drag source');
+    assert.strictEqual(wrapFor(harness, 's2').draggable, false, 'a pane must never be an HTML5 drag source');
+
     // A drag a later render would undo is not an affordance: the parent's row is the
-    // handle for the family, so the pane refuses to start a drag at all.
-    assert.strictEqual(wrapFor(harness, 's2').draggable, false, 'a pane must not drag on its own');
-    assert.strictEqual(wrapFor(harness, 's1').draggable, true, 'the owning tab still reorders');
+    // handle for the family, so pressing a pane never arms a drag — and since the strip
+    // reorders only from an armed pointer drag, the pane cannot reorder anything.
+    dragRowOnto(harness, 's2', wrapFor(harness, 's3'));
+    assert.deepStrictEqual(lastArgs(harness, 'reorderTerminals'), undefined, 'a pane must not drag on its own');
+    assert.deepStrictEqual(sessionIds(harness), ['s1', 's2', 's3'], 'nothing moved');
+
+    // The owning tab is the handle, so the very same gesture from it does reorder.
+    dragRowOnto(harness, 's1', wrapFor(harness, 's3'));
+    assert.deepStrictEqual(sessionIds(harness), ['s2', 's1', 's3'], 'the owning tab still reorders');
+    assert.deepStrictEqual(plain(lastArgs(harness, 'reorderTerminals')?.[0] as string[] | undefined), ['s2', 's1', 's3']);
     assert.deepStrictEqual(lastArgs(harness, 'setCategory'), undefined, 'nothing was written by the render');
   });
 

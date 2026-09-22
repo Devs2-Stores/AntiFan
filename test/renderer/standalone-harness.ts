@@ -81,6 +81,8 @@ export interface KeyEventLike {
   pointerId?: number;
   clientX?: number;
   clientY?: number;
+  /** 0 = primary button. The strip's `pointerdown` guard refuses every other button. */
+  button?: number;
   preventDefault: () => void;
   stopPropagation: () => void;
   target?: unknown;
@@ -267,6 +269,23 @@ export class FakeElement {
     });
   }
 
+  /**
+   * Closest ancestor-or-self matching `selector`, mirroring `Element.closest`. The strip
+   * resolves a drag's drop target by walking up from whatever
+   * `document.elementFromPoint` returned, and its pointer guard uses the selector-list
+   * form (`.a, .b`) to exempt the close button and the affinity badge, so both the walk
+   * and the comma form have to work here.
+   */
+  public closest(selector: string): FakeElement | null {
+    const alternatives = selector.split(',').map(part => part.trim()).filter(Boolean);
+    let node: FakeElement | null = this;
+    while (node) {
+      if (alternatives.some(alternative => node!.matches(alternative))) return node;
+      node = node.parent;
+    }
+    return null;
+  }
+
   public addEventListener(type: string, listener: (event: KeyEventLike) => void): void {
     (this.listeners[type] ??= []).push(listener);
   }
@@ -423,6 +442,10 @@ export interface StandaloneHarness {
   tabsRoot: FakeElement;
   windowKeydownListeners: Array<(event: KeyEventLike) => boolean | void>;
   documentKeydownListeners: Array<(event: KeyEventLike) => boolean | void>;
+  /** Declare what `document.elementFromPoint` resolves to for the next pointer event. */
+  setElementFromPoint: (el: FakeElement | null) => void;
+  /** Dispatch a window-level pointer event through the renderer's own listeners. */
+  dispatchWindowPointer: (type: string, event: Partial<KeyEventLike>) => void;
   assign(expression: string): void;
   read<T>(expression: string): T;
   processIncomingChunk: (viewState: unknown, chunk: Chunk, isSplit: boolean) => Promise<void>;
@@ -504,6 +527,11 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   const tabLayoutButtonElement = elementById('btnTerminalTabLayout');
 
   const documentKeydownListeners: Array<(event: KeyEventLike) => boolean | void> = [];
+  // What `document.elementFromPoint` resolves to, set per test by `setElementFromPoint`.
+  // Every stub element reports the same `getBoundingClientRect`, so coordinates cannot
+  // discriminate between rows; declaring the hit instead keeps the renderer's own
+  // `closest()` walk — the part that decides drop target vs. no drop — fully exercised.
+  let elementFromPointHit: FakeElement | null = null;
   const documentStub = {
     getElementById: elementById,
     createElement: (tagName: string) => new FakeElement(tagName),
@@ -511,6 +539,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     body: new FakeElement('body', 'body'),
     documentElement: new FakeElement('html', 'html'),
     head: new FakeElement('head', 'head'),
+    elementFromPoint: () => elementFromPointHit,
     addEventListener: (type: string, listener: (event: KeyEventLike) => boolean | void) => {
       if (type === 'keydown') documentKeydownListeners.push(listener);
     },
@@ -526,6 +555,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   };
 
   const windowKeydownListeners: Array<(event: KeyEventLike) => boolean | void> = [];
+  const windowPointerListeners: Array<{ type: string; listener: (event: KeyEventLike) => boolean | void }> = [];
   const terminals: FakeTerminal[] = [];
   const webLinksHandlers: Array<(event: unknown, uri: string) => void> = [];
   const windowStub: Record<string, unknown> = {
@@ -535,6 +565,12 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     innerHeight: 900,
     addEventListener: (type: string, listener: (event: KeyEventLike) => boolean | void) => {
       if (type === 'keydown') windowKeydownListeners.push(listener);
+      // The strip drags with pointer events bound on `window`, so those listeners have to
+      // be captured as well: without them the gesture the renderer actually ships cannot
+      // be driven from a test at all.
+      else if (type === 'pointermove' || type === 'pointerup' || type === 'pointercancel') {
+        windowPointerListeners.push({ type, listener });
+      }
     },
     removeEventListener: () => {},
     requestAnimationFrame: (callback: (time: number) => void) => setTimeout(() => callback(Date.now()), 0),
@@ -661,6 +697,15 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     tabsRoot: tabsRootElement,
     windowKeydownListeners,
     documentKeydownListeners,
+    setElementFromPoint: (el: FakeElement | null) => {
+      elementFromPointHit = el;
+    },
+    dispatchWindowPointer: (type: string, event: Partial<KeyEventLike>) => {
+      const payload: KeyEventLike = { key: '', preventDefault: () => {}, stopPropagation: () => {}, ...event };
+      for (const entry of [...windowPointerListeners]) {
+        if (entry.type === type) entry.listener(payload);
+      }
+    },
     assign: (expression: string) => {
       vm.runInContext(expression, context);
     },
