@@ -653,6 +653,42 @@ processes), and **no foreign pid appears**. `activeWorkingSetMB` therefore measu
 The contamination caveat still stands for the **host-load** series - the sampler reads machine-wide
 `Processor(_Total)`, and those orphans do consume CPU there - but not for the harness's memory series.
 
+## Verdict inputs read mid-run (09:32)
+
+**Both offline analyzers are preflighted against this payload's shape**, so the verdict is not the first time they
+run. `recompute-soak-metrics.cjs` reports `memory round-trip: AGREES` - its own guard that the recomputed memory
+metrics equal the original's - and writes a sidecar instead of overwriting the payload, which stays byte-identical
+as the record of what the run reported. `analyze-soak-app-only.cjs` prints both memory views labelled and works on
+an in-progress checkpoint.
+
+**App-owned memory: the renderers do not grow; the Browser process does.** Over the workload window
+(02:11:31 - 02:20:31, 9 frames) the app's own Tab sum is **falling** - `privateBytesMB` LSQ **-0.29 MB/min**,
+`workingSetMB` LSQ -0.14 - with every tab at or below 0.27 MB/m in committed terms except one. The largest
+committed grower in the app-owned series is the **Browser** process, pid 11648, at **+1.10 MB/min**, which is
+exactly what the report's own fields name: `worstProcessSlopeMBPerMin` **1.1461**, `worstProcessPid` 11648,
+`worstProcessRole` `"Browser"`. Criterion 2's bound is 0.15 MB/min on the renderer, and the app-owned renderer
+series is *negative* on the workload window.
+
+**The warmup window behaves differently, and the verdict must report both.** In the warmup window (01:55:31 -
+02:10:31) the Browser's private slope is **-1.89 MB/m** and the Tab sum is **+0.83 MB/m** (WS +0.96) - the opposite
+signs to the workload window. The post-GC floor analysis says the warmup rise is not GC-heap noise: the floor slope
+is 1.09 MB/min against the raw 0.96 (amplitude/drift 1.0x), so the floor itself climbs. Criterion 2 says "on the
+fixed bundle" and criterion 3 says "on the workload phase", and these two readings are why that scoping is load
+-bearing rather than pedantic.
+
+**Criterion 3's tail is tab-correlated, and that is the characterisation it asks for.** The maximum switch is
+**152.674 ms** (02:14:03, phase workload, leg `baseline#1`) - and it is not a one-off: of the ten slowest switches
+the **four largest** (152.674, 116.403, 108.131, 85.081 ms) are all tab **`f012e6f1-…`** (wikipedia), which owns
+five of the top eight. The phase ceilings agree - warmup max 116.403, workload max 152.674, same tab again. Per
+phase: warmup n=534 p50 15.34 / p95 25.273; workload n=177 p50 15.117 / p95 24.997. So the tail is a property of
+**one page**, present in both phases, not of the switch path and not of a phase transition - which is the evidence
+criterion 3's second branch asks for. The harness reports this max and does not gate it (`latencyMaxGated: false`),
+so it is a finding for the report, not a gate failure.
+
+**And the harness's `switchLatencyMs` block mixes the two phases** (min 10.311, p50 15.117) while the memory gates
+are workload-scoped - the mismatch the plan already flags above. The app-side workload p50, 12.042, sits **~3.07 ms**
+below the harness's workload p50 of 15.117: the same transport term, measured a second time by an independent path.
+
 ## Acceptance criteria
 
 1. The 4h soak's report names the process that grew, by role and URL, not just by PID — and
