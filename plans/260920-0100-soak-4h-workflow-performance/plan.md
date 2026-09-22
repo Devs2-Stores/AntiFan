@@ -652,16 +652,21 @@ The "bundle drift during measurement" risk is closed for this run with evidence 
 
 **`extension/background.js` has no runtime effect on this run, for a stronger reason than "not in `.compiled`".** It is a *generated* artifact - `scripts/build-extension.mjs` writes it and mirrors it to `%LOCALAPPDATA%\AntiFan\extension` - and its `M` carries **zero content change** (git `--numstat` empty; CRLF normalisation only). More decisively, the app never loads it: there is **no `loadExtension` or `load-extension` in `src/main/` or `main.cjs`**, and the soak's `appArgs` is `[]`. The extension runs in the user's Chrome and talks to the app over the bridge server, so it is outside the measured tree either way.
 
-**Correction (final payload, 12:41): the per-process measurement does exist, and it passes — my mid-run statement
-that "per-process slope is not gated" was read too narrowly.** `FREEZE_SLO` has no separate per-process *field*, but
-criterion 2's per-process maximum in **committed private bytes** is printed against `rendererSlopeMBPerMin` (0.15)
-and is the strictly tighter companion to the working-set walk (`benchmark-real-soak-8h.cjs:282-284`, `:2297`,
-`:1417-1420`). Final values: `appPrivateMaxSlopeMBPerMin` **0.1096** at pid 11648 `Browser` against 0.15 → **passes**;
+**Correction (final payload, 12:41): the per-process measurement does exist, and it is under its bound — though,
+on this leg run, not graded. My mid-run statement that "per-process slope is not gated" was read too narrowly.**
+`FREEZE_SLO` has no separate per-process *field*, but criterion 2's per-process maximum in **committed private
+bytes** is printed against `rendererSlopeMBPerMin` (0.15) and is the strictly tighter companion to the working-set
+walk (`benchmark-real-soak-8h.cjs:282-284`, `:2297`, `:1417-1420`). Final values: `appPrivateMaxSlopeMBPerMin`
+**0.1096** at pid 11648 `Browser` against 0.15 → **under the bound**;
 `worstProcessSlopeMBPerMin` (working set, the field I quoted mid-run) settled from 1.1461 to **0.1069**. Those two
-are different series, and the 1.1461 was an 8-minute window. Note also that neither enters `isPassed`
-(`:318` gates on `slopeOk`/`memoryOk`/`latencyOk`/`processOk`/`executionOk`/`teardownOk`, where `processOk` is the
-*orphan* gate at `:314`), so the per-process figure is criterion 2's measurement and a verdict input even though it
-is not one of the six pass/fail terms.
+are different series, and the 1.1461 was an 8-minute window. **Neither series reaches `isPassed` on this run, and
+the reason is not the one I gave mid-run.** `:318` gates on `slopeOk` / `memoryOk` / `latencyOk` / `processOk` /
+`executionOk` / `teardownOk`; `processOk` at `:314` is the **orphan** gate (`processQuerySuccess && orphans <=
+maxOrphans`, printed as `orphanSloSatisfied` at `:1458`) and has nothing to do with slopes; and on a leg run **both**
+slope terms are `null` (`:293-299`), which `isPassed`'s `slopeOk !== false` passes straight through. So
+`appPrivateMaxSlopeMBPerMin` is criterion 2's **measurement** and *is* verdict-forming on a single-leg run — it feeds
+`privateSlopeOk` -> `slopeOk` -> `isPassed` — but on this leg run it is **displayed only**. Do not report
+"processOk: true" as though it were the slope gate; it means **zero orphans**.
 
 **The badge fix postdates `night4h`, so renderer-slope comparisons across the two are bundle comparisons.** `3e6f7594` was uncommitted until 09:29 and its file predates `night4h`'s bundle, so `night4h`'s renderer series did **not** include the removed IPC round trips that `4hfix9`'s does. Any "the renderer slope improved/did not improve since night4h" sentence must say that both the fix and the bundle changed.
 

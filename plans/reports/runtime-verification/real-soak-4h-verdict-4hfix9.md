@@ -71,11 +71,17 @@ app-owned `processSeries`:
 **The entire growth is a warmup fill.** After warmup the app-owned series is flat to two decimal places, and it
 falls in recovery. That is the shape of caches filling and then plateauing, not of a retention leak.
 
-**The per-process measurement passes, and the estimator matters.** The graded app-owned per-process maximum is
-`appPrivateMaxSlopeMBPerMin` = **0.1096 MB/min** at pid 11648 (`Browser`), against the 0.15 bound — a pass. But the
+**The per-process measurement is under its bound, and the estimator matters.** The app-owned per-process maximum is
+`appPrivateMaxSlopeMBPerMin` = **0.1096 MB/min** at pid 11648 (`Browser`), against the 0.15 bound — under it. It is
+**not graded on this run**: `4hfix9` is a leg run, so `privateSlopeOk` and `slopeOk` are both `null`
+(`benchmark-real-soak-8h.cjs:293-299`) and `isPassed`'s `slopeOk !== false` passes them through. The same bound
+*is* verdict-forming on a single-leg run, where the value feeds `privateSlopeOk` -> `slopeOk` -> `isPassed` (`:318`);
+here it is displayed only (`:2297`). Do not read `processOk: true` as this gate — `processOk` is the **orphan** gate
+(`:314`, printed as `orphanSloSatisfied`). But the
 same series' endpoint delta is `deltaPrivateMB` **39.77 MB over 179 min = 0.222 MB/min**, which is **above** 0.15.
-The pass comes from the least-squares fit on a decelerating curve; the endpoints alone would fail. Anyone quoting
-"0.1096 ≤ 0.15" should quote the 0.222 alongside it. Both are in the payload (`metrics.perProcessSlopes[0]`).
+What puts it under the bound is the least-squares fit on a decelerating curve, not the endpoints: measured
+endpoint-to-endpoint the same series would breach. Anyone quoting "0.1096 <= 0.15" should quote the 0.222 alongside
+it. Both are in the payload (`metrics.perProcessSlopes[0]`).
 
 `activeRendererWorkingSetMB` is min 784.46 / p50 802.65 / **max 811.25** — a 27 MB spread over 242 samples.
 
