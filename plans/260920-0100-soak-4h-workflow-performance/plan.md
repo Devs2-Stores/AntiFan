@@ -586,6 +586,40 @@ same objects, which is the tell.
 p50 809.45, max **811.25** - a 3.5 MB spread over 41 samples - against `night4h`'s 778.21 / 797.34 / 831.25. The
 renderer does not grow measurably; the peak gate moves because the *baseline* moves.
 
+## Mid-run attribution, leg 1 open (09:26, `4hfix9`)
+
+Acceptance criterion 1 asks the report to name the process that grew **by role and URL, not by PID**. The harness
+already carries that series: `processSeries` (40 entries, one per sample) holds `{pid, type, role, url,
+workingSetMB, privateBytesMB}` per process, so the naming requirement is met by construction rather than by a
+parent-pid walk.
+
+**Growth over the series, first sample to last (39.0 min, name resolution for free):**
+
+| process (role) | URL | WS first → last | private first → last |
+|---|---|---|---|
+| Browser | - | 216.16 → **235.62** (**+19.46**) | 133.04 → 154.00 (+20.96) |
+| GPU | - | 193.73 → 196.42 (+2.69) | 165.27 → **147.55** (**-17.72**) |
+| Utility | - | 128.78 → 128.75 (-0.03) | 14.64 → 14.66 (+0.02) |
+| Tab `chrome:standalone+toolbar+frame-backdrop` | `file:///…/.compiled/src/renderer/standalone.html` | 167.94 → 172.89 (**+4.95**) | 58.45 → 63.70 (+5.25) |
+
+**The renderer the two fixes touch is the shell, and it grew ~5 MB in 39 min.** The harness's own fitted
+`rendererActiveSlopeMBPerMin` is **0.0692** against criterion 2's 0.15 bound, and `overallActiveSlopeMBPerMin` is
+**0.1212** against 0.35. The largest single grower by working set is the **Browser** process (+19.46 MB), largely
+offset in private terms by the GPU's **-17.72 MB** - which is why the net slope stays near 0.12 rather than tracking
+the Browser term. Both readings are mid-run and provisional; the verdict uses the final payload.
+
+**Leg-scoped CPU too** - `legSlopes[0]` is leg `baseline`, open, 9.39 observed minutes, **19 bursts / 177 switches /
+5700 burst lines**, CPU **13.339 s/min** split GPU `20264` **23.0 %**, the app shell `25888` **21.9 %** (that is
+`standalone.html` again - the same process the renderer slope names), Browser **15.5 %**, `store-home` tab group
+**15.1 %**. Process identity, page set and switch rate are held per leg, so a leg-over-leg move in that split is
+attributable to the burst volume that differs.
+
+**A mid-run checkpoint's SLO booleans are not verdicts.** In this checkpoint `slopeSloSatisfied` and
+`privateSlopeSloSatisfied` are `null` (never evaluated), while `latencySloSatisfied` and `orphanSloSatisfied` read
+`false` against inputs that do not exist yet - `switchLatencyWorkloadMs` is still undefined at 177 workload rows and
+the workload p50 prints as undefined. Only the raw slopes and the raw counters are meaningful mid-run; the booleans
+become a verdict when the final payload is written. Reading them now would manufacture a failure.
+
 ## Acceptance criteria
 
 1. The 4h soak's report names the process that grew, by role and URL, not just by PID — and
@@ -2302,6 +2336,26 @@ controls **both** variables: same bundle, and the same app data root / persisted
 snapshotted profile, applied identically to both arms), with the PTY count recorded as a first-class observation
 alongside `switchLatencyWarmupMs.p50` and the sampler load. Three numbers per arm, or the experiment answers
 nothing.
+
+**The PTY tree's cost is measurable, and it accounts for the baseline memory step.** This is not incidental to the
+gate that failed on baseline load - it *is* that step, measured two independent ways:
+
+| | `4hfix6` (1 PTY tree) | `4hfix9` (2 PTY trees) | delta |
+|---|---|---|---|
+| `initialLoadedMB`, before any workload | 1491.03 | 1574.46 | **+83.43 MB** |
+| PTY-tree working set (`other` bucket: conhost + winpty-agent + powershell) | 203.91 | 285.66 | **+81.75 MB** |
+
++83.43 MB of baseline load and +81.75 MB of directly-measured PTY working set are the same quantity seen twice, to
+within 2 %. That makes "one extra or restored terminal session" the leading single explanation for two things that
+looked separate: the 1600 MB peak breach (baseline 1574 + the tree's ~82 = ~1656, against an observed max of
+1662.78) and, plausibly, the switch-latency step. **It also sharpens the discriminator requirement above:** if the
+second session is *restored* rather than created, a bundle-only A/B reproduces the confound in both arms and the
+experiment answers nothing.
+
+**What it does not explain:** `4hfix7`'s baseline is 1634.55, a further +60 MB beyond `4hfix9`'s 1574.46 with the
+same 2-tree layout, so the PTY term accounts for the `4hfix6` → `4hfix9` step and not for run-to-run baseline
+variance as a whole. The honest statement is that the extra tree is *a* measured ~82 MB contributor, not the sole
+one.
 
 **A structural difference in the tree, and it is confounded with the bundle.** Counting `samples[].namesByPid`,
 the two runs differ by exactly one terminal PTY tree and nothing else:
