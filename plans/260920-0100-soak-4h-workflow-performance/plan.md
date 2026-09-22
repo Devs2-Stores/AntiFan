@@ -2178,10 +2178,27 @@ rather than of one path someone made slow, and a wait that *shrinks* is not what
 Both readings stay open, and the second one matters most because `attachSweep` carries 80 % of the absolute cost.
 
 **The discriminator, to run after the verdict (the plan's own rule forbids a recompile before it):** rebuild
-`c55e894c` into `.compiled` and measure the same warmup band with the same harness - same tab set, same switch
-interval, one variable, the bundle. If `c55e894c` reproduces ~9.6 ms the delta is the code and `attachSweep` is
-where to look; if it reproduces ~15 ms the delta is the host/runtime, and every cross-run switch number from this
-night needs a load caveat.
+`c55e894c` and measure the same warmup band with the same harness - same tab set, same switch interval, one
+variable, the bundle. The harness takes its knobs from the environment (`scripts/benchmark-real-soak-8h.cjs:87-138`);
+with `SOAK_LEGS` unset the warmup band is driven by the base knobs, which are exactly leg 1's driver
+(`SOAK_SWITCH_INTERVAL_MS` 3000, `SOAK_BURST_LINES` 300, `SOAK_BURST_INTERVAL_MS` 30000), so a short run measures a
+band comparable to the table above at ~36 minutes instead of four hours:
+
+```
+# one variable: the bundle. `SOAK_LEGS` deliberately unset so workload is 5 min, not 180.
+SOAK_WARMUP_MINUTES=30 SOAK_RECOVERY_MINUTES=1 SOAK_DURATION_MINUTES=36 \
+SOAK_REPORT_TAG=ab-oldbundle node scripts/benchmark-real-soak-8h.cjs --minutes 36
+```
+
+Compare `metrics.switchLatencyWarmupMs.p50` against `4hfix9`'s 15.34 and `4hfix6`'s 9.621. If `c55e894c`
+reproduces ~9.6 ms the delta is the code and `attachSweep` is where to look; if it reproduces ~15 ms the delta is
+the host/runtime, and every cross-run switch number from this night needs a load caveat before it is compared.
+
+**This step mutates the working tree, so it needs the operator's go-ahead.** The bundle the harness loads is
+`.compiled` at the repo root, so switching bundles means `git checkout c55e894c -- src` → `npm run compile` →
+measure → `git checkout HEAD -- src` → `npm run compile`. Both states are committed, so nothing can be lost, but a
+working-tree overwrite of `src` is the operator's call, not this plan's - and it is the reason it waits rather than
+running now.
 
 **In-flight readout** (`4hfix6`, bundle `53f0fa88…`, warmup band only — the verdict number is the 180-minute
 workload phase): at 27 minutes in, n=376 warmup switches give p50 **9.83 ms** and p95 **14.17 ms**, against a gate
