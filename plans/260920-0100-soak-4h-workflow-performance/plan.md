@@ -643,15 +643,18 @@ The "bundle drift during measurement" risk is closed for this run with evidence 
   empty - the `M` is a CRLF-normalisation artifact) and neither it nor
   `test/renderer/terminal-tab-categories-sleep.test.ts` exists under `.compiled`.
 
-**Foreign processes do not contaminate the byte series - the walk is app-scoped.** Two Electron trees from earlier
-attempts are alive on the box: pids 5704 / 16696 from 09-21 22:28 (a crashpad handler and a `terminal-daemon`
-entry point carrying `--handshake E:\Work\.antifan-data\daemon-host\daemon-handshake.json`), and a full tree rooted
-at 28324 from 09-22 00:37, all of it under `--user-data-dir="E:\Work\.antifan-data\Profile"`. The harness's
-`processSeries` last sample lists only its own **15** pids under `rootPid` 11648 (page set
-`store-home`/`google.com`/`example.com`/`wikipedia` plus the `standalone.html` shell and the GPU/utility/network
-processes), and **no foreign pid appears**. `activeWorkingSetMB` therefore measures the app's own tree.
-The contamination caveat still stands for the **host-load** series - the sampler reads machine-wide
-`Processor(_Total)`, and those orphans do consume CPU there - but not for the harness's memory series.
+**Foreign processes: no foreign pid appears in the samples inspected - which is a weaker claim than "the walk is app-scoped", and the difference matters.** `analyze-soak-app-only.cjs` exists precisely because `samples[].byType` / `totalWorkingSetMB` is a parent-pid tree walk that **can swallow processes that are not the app's** ("Windows reuses the pid of a dead parent, so an unrelated Electron app can end up inside the tree") - and *the gates read that view*. What is established here is the observation, not the mechanism: in the samples inspected, the walk lists its own pid set under `rootPid` 11648 and no foreign pid appears - and two foreign trees do exist to be caught: pids 5704 / 16696 from 09-21 22:28 (a crashpad handler plus a `terminal-daemon` entry point carrying
+`--handshake E:\Work\.antifan-data\daemon-host\daemon-handshake.json`), and a **full second app instance** rooted at 28324 from 09-22 00:37, all under `--user-data-dir="E:\Work\.antifan-data\Profile"`. **So run the analyzer over every sample at verdict time** before calling the measured `activeWorkingSetMB` app-only; the one-sample check is not sufficient evidence for the mechanism.
+
+**Do not kill those trees before the verdict.** Removing them mid-run would change host load and alter the very series being measured; they are recorded here as a documented confound with pids, start times and profile dirs, and cleaned up only after.
+
+**And the resident process set does not explain the load delta, because it was present for both runs.** A `Win32_Process` pass over `node.exe` finds ~24 processes from a **09-21 22:28 - 23:44** session, all still alive: 11 `antifan-agent.cjs mcp` / `antifan-omp-mcp.cjs` pairs, 6 `npx` MCP server pairs from the npm cache, and singles (`9router`, `haravan-upload-toolkit` gateway, a `--max-old-space-size=6144` process, four `@local/ha…`, `serve-demo.js`). Add the second Electron app instance (28324, 00:37). All of it **predates `4hfix6`** (07:46 - 08:12 local) as well as `4hfix9`, so it is a constant across the load comparison and cannot be what moved load from 63.5 % to 94.4 %. That points the load delta at **activity** rather than residency - consistent with this session's `tsc` compile and file edits at 08:19 - 08:22, immediately before `4hfix9`'s window. The 115 MB / 2635 MB figure already in the plan is the resident cost of that set; it is a pressure term, not the differentiator.
+
+**`extension/background.js` has no runtime effect on this run, for a stronger reason than "not in `.compiled`".** It is a *generated* artifact - `scripts/build-extension.mjs` writes it and mirrors it to `%LOCALAPPDATA%\AntiFan\extension` - and its `M` carries **zero content change** (git `--numstat` empty; CRLF normalisation only). More decisively, the app never loads it: there is **no `loadExtension` or `load-extension` in `src/main/` or `main.cjs`**, and the soak's `appArgs` is `[]`. The extension runs in the user's Chrome and talks to the app over the bridge server, so it is outside the measured tree either way.
+
+**`worstProcessSlopeMBPerMin` 1.1461 breaches no gate.** `FREEZE_SLO` defines exactly six bounds - `overallSlopeMBPerMin` 0.35, `rendererSlopeMBPerMin` 0.15, `peakTotalWorkingSetMB` 1600, `switchLatencyP50Ms` 12, `switchLatencyP95Ms` 18, `maxOrphans` 0 - and **per-process slope is not one of them**. It is a reported field that names the culprit for criterion 1, not a threshold. Its value on pid 11648 (Browser) is the *lead*, and the 8-minute window that produced it is short, so it becomes the verdict's headline only if it persists through leg 3 (`burst-off`), where growth cannot be attributed to burst volume.
+
+**The badge fix postdates `night4h`, so renderer-slope comparisons across the two are bundle comparisons.** `3e6f7594` was uncommitted until 09:29 and its file predates `night4h`'s bundle, so `night4h`'s renderer series did **not** include the removed IPC round trips that `4hfix9`'s does. Any "the renderer slope improved/did not improve since night4h" sentence must say that both the fix and the bundle changed.
 
 ## Verdict inputs read mid-run (09:32)
 
