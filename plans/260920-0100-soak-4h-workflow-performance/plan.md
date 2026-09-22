@@ -2138,8 +2138,8 @@ run's *warmup* p50.
 ## The attempt harness killed three healthy runs (2026-09-22, defect introduced and fixed in this pass)
 
 `4hfix7` launched 08:20:29 and was gone at 11.01 minutes, in warmup, with `burstsByPhase.workload: 0`. That is the
-same shape as `4hfix6`'s death, so the immediate read was "the window-close path again" and fix 3 was extended on
-that reading. It was wrong. Both were killed by the wrapper's own stall watchdog, which states so itself:
+same shape as `4hfix6`'s death, so the immediate read was "the window-close path again", and fix 3 was extended on
+that reading. That reading was wrong: both deaths were the same watchdog, and the wrapper states it itself:
 
 ```
 soak-4hfix-d  {"event":"attempt.stalled","tag":"4hfix6","idleMinutes":5.01}
@@ -2185,10 +2185,10 @@ a bare signal would leave the app holding the bridge port for the retry the wrap
 was found) produced **no completed payload and no gate number**, so none of them is cited as a gate result. What
 they do carry is warmup-band *measurement* taken while the app was healthy - the 566 switches behind `4hfix6`'s
 9.62 ms p50 were recorded over 31 minutes of normal operation and an external `SIGTERM` at the end does not
-retroactively invalidate them. They are in-flight readings, superseded by `4hfix9` (same fix set, one more gated
-change, and a run that can finish), and the band table above is recomputed against `4hfix9` below rather than
-resting on a run the harness itself killed. Their logs, checkpoints and sampler rows stay on disk as the run
-identities they were.
+retroactively invalidate them. The table above is labelled as what it is: an in-flight reading from a run the
+harness killed, not a gate result. `4hfix9` carries the same fix set plus one gated change and is a run that can
+finish, so it is the run the verdict's band comes from. Their logs, checkpoints and sampler rows stay on disk as
+the run identities they were.
 
 **Relaunch.** `4hfix9` / `4hfix10` / `4hfix11` (wrapper `soak-4hfix-g`), same compiled bundle `2aacaa2c…`. `4hfix9`
 started 08:40:40: bundle `2aacaa2c11df5a9331ede42f7b0b4747`, 419 files, bridge connected on 20129 (app pid 11648),
