@@ -620,6 +620,39 @@ attributable to the burst volume that differs.
 the workload p50 prints as undefined. Only the raw slopes and the raw counters are meaningful mid-run; the booleans
 become a verdict when the final payload is written. Reading them now would manufacture a failure.
 
+## Bundle identity: measured equals delivered (closed 09:30)
+
+The "bundle drift during measurement" risk is closed for this run with evidence rather than assertion:
+
+- The harness recorded bundle `2aacaa2c…` (419 compiled files, 8.8 MB) at launch and `.compiled` was last
+  written **03:24:50**, **5 h 16 m before the 08:40:42 launch** - so no compile touched the measured tree while the
+  run is live.
+- **One runtime-relevant file was dirty, and the run was measuring it.** `src/renderer/standalone.js` (+17/-2), and
+  `.compiled/src/renderer/standalone.js` was **byte-identical to the dirty working tree** (`cmp -s` clean; both
+  carry `deliveredTabs` five times, both mtime 03:24:50). So the graded bundle contained an **uncommitted** fix, and
+  a rebuild from `HEAD` would have produced a *different* bundle than the one being graded - the exact
+  stale-final hazard the plan names. Committed as **`3e6f7594`**; `src` is now clean, so measured and delivered
+  agree. The commit does not touch `.compiled`, so the live run is unaffected.
+- The fix is functional, not an inert argument pass: `updateAffinityBadges(deliveredTabs, deliveredAffinities)`
+  (`src/renderer/standalone.js:2805`) takes the pair and resolves from it when it is an array, falling back to
+  `api.getTabs()` / `api.getTerminalAffinities()` only when a caller holds neither (`:2821-2826`); `renderTabs()`
+  passes them (`:4697`); the broadcast assigns them (`:4756-4757`). The two comments in the file state different
+  volumes for the same saving ("~144,000 round trips" versus "~106,800 and ~72,000"); the *mechanism* is what the
+  change claims, and the estimates are the author's, not this plan's.
+- The two other dirty paths are inert here: `extension/background.js` has **zero content change** (git `--numstat`
+  empty - the `M` is a CRLF-normalisation artifact) and neither it nor
+  `test/renderer/terminal-tab-categories-sleep.test.ts` exists under `.compiled`.
+
+**Foreign processes do not contaminate the byte series - the walk is app-scoped.** Two Electron trees from earlier
+attempts are alive on the box: pids 5704 / 16696 from 09-21 22:28 (a crashpad handler and a `terminal-daemon`
+entry point carrying `--handshake E:\Work\.antifan-data\daemon-host\daemon-handshake.json`), and a full tree rooted
+at 28324 from 09-22 00:37, all of it under `--user-data-dir="E:\Work\.antifan-data\Profile"`. The harness's
+`processSeries` last sample lists only its own **15** pids under `rootPid` 11648 (page set
+`store-home`/`google.com`/`example.com`/`wikipedia` plus the `standalone.html` shell and the GPU/utility/network
+processes), and **no foreign pid appears**. `activeWorkingSetMB` therefore measures the app's own tree.
+The contamination caveat still stands for the **host-load** series - the sampler reads machine-wide
+`Processor(_Total)`, and those orphans do consume CPU there - but not for the harness's memory series.
+
 ## Acceptance criteria
 
 1. The 4h soak's report names the process that grew, by role and URL, not just by PID — and
