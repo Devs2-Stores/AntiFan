@@ -692,6 +692,33 @@ so it is a finding for the report, not a gate failure.
 are workload-scoped - the mismatch the plan already flags above. The app-side workload p50, 12.042, sits **~3.07 ms**
 below the harness's workload p50 of 15.117: the same transport term, measured a second time by an independent path.
 
+## The live watchdog carries the fix - verified by survival, not by the file
+
+The supervisor that killed `4hfix6` (at 31.01 min) and `4hfix7` (at 11.01 min) was the one with `stallLimitMs = 5 min`
+compared against the **sampler's mtime alone**, while the sampler's own cadence is 309-314 s - so idle crossed 300 s
+for 9-14 s per cycle and a 60-second poll caught it with probability ~15-23 %.
+
+Two facts establish that tonight's supervisor does not have that logic:
+
+1. **No `attempt.stalled` event has ever been emitted for `4hfix9`** - the only file on the box containing that
+   string is the script itself.
+2. **The run has survived 51 minutes with the *same* harness pid (19672) it started with.** Under the documented old
+   mechanism, surviving ~51 polls has probability on the order of **10^-5**. There has been no restart to mask a
+   kill.
+
+The current script's `stallLimitMs` is `20 * 60 * 1000` with the newest-of-three-heartbeats logic
+(`soak-attempts.cjs:77`, `:80-82`), which is consistent with that survival.
+
+**Caveat, and it is a real one:** the script's mtime is **08:45:55**, five minutes *after* the supervisor process
+started at **08:40:40**. Node compiles at startup, so the module as loaded is the 08:40:40 version, and **whatever
+that later write changed is not active for tonight's run** - it would apply to the next launch, not this one. The
+survival evidence says the 20-minute/newest-of-three logic was already present at 08:40:40, so the protection is
+live; the point is recorded because "the file on disk has the fix" and "the running process has the fix" are
+different claims, and this is exactly the class of mistake that let a fixed watchdog kill two healthy runs.
+
+**Current health:** three heartbeats fresh at 09:31:48 (sampler 09:28:29, checkpoint and run log 09:31:22 - max gap
+3:19 against a 20-minute limit), 41 samples, leg 1 `baseline` open, harness pid 19672 unchanged since launch.
+
 ## Acceptance criteria
 
 1. The 4h soak's report names the process that grew, by role and URL, not just by PID — and
