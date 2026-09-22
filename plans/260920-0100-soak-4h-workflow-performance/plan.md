@@ -2104,10 +2104,90 @@ pass** (new: a view attached within the same switch is not recycled; a view alre
 checkable invariant that an insert at the z-order position leaves `enforceZOrder` nothing to fix). Mutation check:
 restoring `recyclePresentedLayer: true` fails the test.
 
+### Next target, recorded rather than applied
+
+The two fixes took the two named terms down; the remaining one is now `attachSweep` itself — **9.76 ms of a
+~14 ms switch (≈70 %)** in `4hfix7`'s warmup band, down 4× from 26.689 but still the largest term, with
+`presentedView` at 0.78 ms and everything else under 1 ms. It is the attach sweep: the N view attaches a switch
+performs, each of which lays out a view. Nothing here is applied, because the plan's own risk rule forbids a
+recompile between launch and verdict — the workload numbers from the run in flight decide whether it is worth
+opening at all.
+
 **In-flight readout** (`4hfix6`, bundle `53f0fa88…`, warmup band only — the verdict number is the 180-minute
 workload phase): at 27 minutes in, n=376 warmup switches give p50 **9.83 ms** and p95 **14.17 ms**, against a gate
 of p50 ≤ 12 / p95 ≤ 18. Step means: `attachSweep` **6.735 ms** (was 26.689) and `presentedView` **0.581 ms**
 (was 16.677) — the two marked terms the fixes target, moved 4× and 29×. The same phase on the older bundles read
 47.599 (night4h) and 49.02 (r2). Max is 101.03 ms, a warmup outlier to characterise in the verdict;
-`slowSwitchSamples` carries the ten worst.
+`slowSwitchSamples` carries the ten worst. The band grew to n=566 by the time the run was killed, p50 **9.62** /
+p95 **15.32** — the table below uses that larger band, and it is the last reading `4hfix6` can give.
+
+The same-phase comparison against the unfixed bundle, on the same instrument, is the sharpest form of that
+readout — `night4h`'s warmup band against the fixed bundle's, before either was touched by a workload. `4hfix6`
+was killed externally at 31.01 minutes (see the section below: the harness watchdog, not the app), so its numbers
+are an in-flight reading and not a gate result:
+
+| warmup band | n | p50 | p95 | p99 | max | switches > 35 ms |
+|---|---|---|---|---|---|---|
+| `night4h` (bundle `46f1f609`, unfixed) | 530 | 47.60 | 59.24 | 67.70 | 132.32 | **454 (85.7 %)** |
+| `4hfix6` (bundle `53f0fa88`, fixed, in-flight) | 566 | **9.62** | **15.32** | **25.87** | 101.03 | **2 (0.35 %)** |
+
+4.9× on p50, 3.9× on p95, and the population above the 35 ms line falls from 85.7 % to 0.35 % — the tail is gone
+as a *class*, not trimmed. `night4h`'s workload p50, the number that failed the gate at 23.259 ms, is 2.4× this
+run's *warmup* p50.
+
+## The attempt harness killed three healthy runs (2026-09-22, defect introduced and fixed in this pass)
+
+`4hfix7` launched 08:20:29 and was gone at 11.01 minutes, in warmup, with `burstsByPhase.workload: 0`. That is the
+same shape as `4hfix6`'s death, so the immediate read was "the window-close path again" and fix 3 was extended on
+that reading. It was wrong. Both were killed by the wrapper's own stall watchdog, which states so itself:
+
+```
+soak-4hfix-d  {"event":"attempt.stalled","tag":"4hfix6","idleMinutes":5.01}
+soak-4hfix-d  {"event":"attempt.finished","tag":"4hfix6","code":null,"signal":"SIGTERM","elapsedMinutes":31.01,...}
+soak-4hfix-e  {"event":"attempt.stalled","tag":"4hfix7","idleMinutes":5.25}
+soak-4hfix-e  {"event":"attempt.finished","tag":"4hfix7","code":null,"signal":"SIGTERM","elapsedMinutes":11.01,...}
+```
+
+**Cause.** The watchdog compared `stallLimitMs = 5 * 60 * 1000` against the **sampler file's mtime**, and the
+comment above it justified the number with a false premise - "the sampler appends a row a minute". The sampler's
+cadence is `INTERVAL_MS` (300 s by default) **plus** the duration of its own PowerShell process walk, so its rows
+land 309-314 s apart, i.e. *past* the limit on every tick. The watchdog was therefore set below the heartbeat it
+watched. `4hfix6`'s rows (00:46:26, 00:51:35, 00:56:47, 01:01:55, 01:07:03, 01:12:11) and `4hfix7`'s (01:21:00,
+01:26:14) are the measurement of that cadence.
+
+**Why it fired at 11 and at 31 minutes rather than at 5, and why that is not a dead sampler.** After each write,
+`idle` crosses 300 s only in the **9-14 s** before the next row lands, while the watchdog asks every **60 s** - so it
+fires with probability ~15-23 % per cycle, and the cycle it lands on is the death time. Both recorded `idleMinutes`
+sit just above the limit (5.01, 5.25) rather than at 10-30 minutes, which is the signature of a sampler that is
+**alive and slightly slower than the limit**; a dead sampler would have produced a much larger idle. One consequence
+beyond these runs: silent deaths at around the half-hour mark in this harness have a mechanical explanation, and an
+app-side cause must not be inferred from "the app is gone and no error was logged" alone.
+
+**What this retracts.** Fix 3's evidence was `4hfix6`, and `4hfix6` was not a window close. The window-close class
+is still real and still has its own evidence (`steps4h`, below, whose app journal shows an ordered self-shutdown),
+so fix 3 is kept - re-anchored on `steps4h` - but the claim "the cause of `4hfix6`'s death" is withdrawn here and in
+the changelog, and the harness's `SIGTERM` path is what made the two deaths *look* app-side: the harness installs a
+`SIGTERM` handler that aborts through the teardown lifecycle, so an externally killed run still ends with closed
+tabs and a clean-looking shutdown trail.
+
+**Fix.** The limit is 20 minutes, and the watchdog now takes the **newest mtime across the three heartbeats the run
+actually emits** - sampler row, checkpoint, run log - so the coarsest of them can no longer be read as a hang. A
+genuine hang still trips it: nothing in the run writes for 20 minutes. The kill path is now a **tree kill**
+(`taskkill /PID <pid> /T /F`) instead of `child.kill()`: the case the watchdog exists for is a *wedged* harness, and
+a wedged harness never reaches its own `SIGTERM` handler - the one that runs the teardown and taskkills the app - so
+a bare signal would leave the app holding the bridge port for the retry the wrapper is about to start.
+
+**Consequence for the evidence.** `4hfix6` (31 min), `4hfix7` (11 min) and `4hfix8` (stopped deliberately once this
+was found) produced **no completed payload and no gate number**, so none of them is cited as a gate result. What
+they do carry is warmup-band *measurement* taken while the app was healthy - the 566 switches behind `4hfix6`'s
+9.62 ms p50 were recorded over 31 minutes of normal operation and an external `SIGTERM` at the end does not
+retroactively invalidate them. They are in-flight readings, superseded by `4hfix9` (same fix set, one more gated
+change, and a run that can finish), and the band table above is recomputed against `4hfix9` below rather than
+resting on a run the harness itself killed. Their logs, checkpoints and sampler rows stay on disk as the run
+identities they were.
+
+**Relaunch.** `4hfix9` / `4hfix10` / `4hfix11` (wrapper `soak-4hfix-g`), same compiled bundle `2aacaa2c…`. `4hfix9`
+started 08:40:40: bundle `2aacaa2c11df5a9331ede42f7b0b4747`, 419 files, bridge connected on 20129 (app pid 11648),
+6 tabs, terminal session, 9 app processes, warmup until 09:11:22, workload 09:11:22 → 12:11:22, recovery → ≈12:41,
+verdict after that.
 
