@@ -27,8 +27,6 @@ function createTestHost() {
     goForward: () => {},
     canGoBack: (): boolean => true,
     canGoForward: (): boolean => false,
-    enableDeviceEmulation: (_cfg?: any) => {},
-    disableDeviceEmulation: () => {},
     setZoomFactor: (_z?: number) => {},
     capturePage: async () => ({
       toPNG: () => Buffer.from('desktop-png'),
@@ -52,8 +50,6 @@ function createTestHost() {
     goForward: () => {},
     canGoBack: (): boolean => true,
     canGoForward: (): boolean => false,
-    enableDeviceEmulation: (_cfg?: any) => {},
-    disableDeviceEmulation: () => {},
     setZoomFactor: (_z?: number) => {},
     capturePage: async () => ({
       toPNG: () => Buffer.from('mobile-png'),
@@ -87,6 +83,7 @@ function createTestHost() {
   };
 
   host.touchEmulationStates = new WeakMap();
+  host.pendingEmulationDeferrals = new WeakMap();
   host.activeTabId = 'tab-split-1';
   host.tabs = new Map([['tab-split-1', { state, view: desktopView, focusedPane: 'desktop' }]]);
   host.tabOrder = ['tab-split-1'];
@@ -119,10 +116,9 @@ function createTestHost() {
   };
   host.window = {
     contentView: {
-      // A real child list, not a no-op pair: the host's native emulation primitives
-      // refuse to touch a WebContents whose view has no platform widget, and this list
-      // is what tells an attached view from a detached one. Without it every view reads
-      // as surface-less, which no production tab ever is.
+      // A real child list, not a no-op pair: the host's attach helpers and the
+      // emulation layout path read it to tell an attached view from a detached one.
+      // Without it every view reads as surface-less, which no production tab ever is.
       children: [] as unknown[],
       addChildView: (view: any, index?: number) => {
         const children: any[] = host.window.contentView.children;
@@ -147,7 +143,6 @@ function createTestHost() {
   host.isSidebarOpen = false;
   host.isBookmarkBarVisible = false;
   host.appliedClipRadius = new WeakMap();
-  host.emulatedWebContents = new WeakSet();
   host.diagnosticsManager = { recordConsole: () => {}, recordFailure: () => {}, clear: () => {}, deleteTab: () => {} };
   host.broadcastState = () => {};
   host.updateLayout = () => {
@@ -327,33 +322,40 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.strictEqual(screenshot, Buffer.from('mobile-png').toString('base64'));
   });
 
-  it('disables split review cleanly and restores single-view state', () => {
+  it('disables split review cleanly and restores single-view state', async () => {
     const { host, state, desktopWc, mobileWc, mobileView } = createTestHost();
     const tab = host.tabs.get('tab-split-1');
     tab.state.splitMode = true;
     tab.mobileView = mobileView;
-    (host as any).emulatedWebContents.add(desktopWc);
     let removedChild = false;
     let mobileDestroyed = false;
-    let emulationDisabled = false;
     let zoomRestored = false;
+    const cdpCalls: Array<{ cmd: string; params: Record<string, unknown> }> = [];
 
     host.window.contentView.removeChildView = (v: any) => {
       if (v === mobileView) removedChild = true;
     };
     mobileWc.destroy = () => { mobileDestroyed = true; };
-    desktopWc.disableDeviceEmulation = () => { emulationDisabled = true; };
+    desktopWc.debugger = Object.assign(new EventEmitter(), {
+      isAttached: () => true,
+      attach: () => {},
+      sendCommand: async (cmd: string, params: Record<string, unknown>) => { cdpCalls.push({ cmd, params }); },
+    }) as unknown as typeof desktopWc.debugger;
     desktopWc.setZoomFactor = (_z?: number) => {
       if (_z === 1.0) zoomRestored = true;
     };
 
     const res = host.toggleSplitReview('tab-split-1', false);
+    await new Promise<void>((resolve) => { setImmediate(resolve); });
     assert.strictEqual(res, false);
     assert.strictEqual(state.splitMode, false);
     assert.strictEqual(tab.mobileView, undefined);
     assert.strictEqual(removedChild, true);
     assert.strictEqual(mobileDestroyed, true);
-    assert.strictEqual(emulationDisabled, true);
+    assert.ok(
+      cdpCalls.some((c) => c.cmd === 'Emulation.clearDeviceMetricsOverride'),
+      'Returning to single view must clear the metrics override through the DevTools agent'
+    );
     assert.strictEqual(zoomRestored, true);
   });
   it('does NOT close tab when disabling split review even when mobile view emits destroyed/close events', () => {
@@ -619,21 +621,19 @@ describe('NativeTabHost Split Review Integration', () => {
     const tab = tabs.get('tab-split-1')!;
     tab.state.splitMode = true;
     tab.mobileView = { webContents: mobileWc, setBounds: () => {} } as any;
-    // Emulation reaches the platform only through a view that is a child of the window;
-    // production never drives this path for a pane without a surface (a native emulation
-    // call there faults the browser process), so both panes are attached first.
+    // The emulation path reads the window's child list to lay the panes out, so both
+    // panes are attached first — the same state production drives this path in.
     host.window.contentView.addChildView(tab.view);
     host.window.contentView.addChildView(tab.mobileView);
 
     let desktopUaSet = '';
     let mobileUaSet = '';
-    let mobileEmulationConfig: any = null;
+    let mobileEmulationConfig: { cmd: string; params: Record<string, unknown> } | undefined;
     let cdpCalls: Array<{ cmd: string; params: any }> = [];
     let mobileClippingScript = '';
 
     desktopWc.setUserAgent = (ua: string) => { desktopUaSet = ua; };
     mobileWc.setUserAgent = (ua: string) => { mobileUaSet = ua; };
-    mobileWc.enableDeviceEmulation = (cfg: any) => { mobileEmulationConfig = cfg; };
     mobileWc.executeJavaScript = async (script: string) => {
       if (script.includes('antifan-device-clip')) mobileClippingScript = script;
       return '';
@@ -650,8 +650,10 @@ describe('NativeTabHost Split Review Integration', () => {
     await new Promise<void>((resolve) => { setTimeout(resolve, 10); });
 
     assert.ok(mobileUaSet.includes('iPhone') || mobileUaSet.includes('Mobile'), 'Mobile pane must receive mobile User-Agent');
-    assert.ok(mobileEmulationConfig !== null, 'Mobile pane must enable device emulation');
-    assert.strictEqual(mobileEmulationConfig.screenPosition, 'mobile');
+    mobileEmulationConfig = cdpCalls.find((c) => c.cmd === 'Emulation.setDeviceMetricsOverride');
+    assert.ok(mobileEmulationConfig, 'Mobile pane must receive the CDP metrics override');
+    assert.strictEqual(mobileEmulationConfig?.params?.mobile, true);
+    assert.strictEqual(typeof mobileEmulationConfig?.params?.scale, 'number', 'The fit-preview scale must ride the same override');
     
     // Invariant: Clean web standards without contain:paint DOM clipping
     assert.match(mobileClippingScript, /style\.remove\(\)/);

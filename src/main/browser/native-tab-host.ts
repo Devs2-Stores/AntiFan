@@ -683,11 +683,14 @@ export class NativeTabHost extends EventEmitter {
     return this.automationHost;
   }
   private appliedClipRadius = new WeakMap<Electron.WebContents, number>();
-  private emulatedWebContents = new WeakSet<Electron.WebContents>();
   private touchEmulationStates = new WeakMap<Electron.WebContents, {
     desired: boolean;
     settled: boolean;
     promise: Promise<void>;
+  }>();
+  private pendingEmulationDeferrals = new WeakMap<Electron.WebContents, {
+    preset: DevicePreset | null | undefined;
+    scale: number;
   }>();
   private destroyOwnedWebContents(wc: Electron.WebContents | null | undefined): void {
     if (!wc || wc.isDestroyed()) return;
@@ -696,36 +699,6 @@ export class NativeTabHost extends EventEmitter {
     destroyableWebContents.destroy?.();
   }
 
-
-  /**
-   * Native device emulation reaches into the WebContents' platform widget. A view
-   * that is not a child of the window has no such widget, and applying emulation to
-   * it dereferences a null render widget host view, killing the whole browser
-   * process — observed as STATUS_ACCESS_VIOLATION, "read of 0x0", while a background
-   * tab's viewport was being set. `try`/`catch` cannot intercept a native fault.
-   *
-   * A view without a surface keeps the CDP emulation applied by
-   * `applyCdpDeviceEmulationState`, which is what defines its layout viewport; the
-   * native half lands on the next `updateLayout()` once the view is displayable.
-   *
-   * @param view The view that owns `wc`. When supplied and detached, refuse.
-   */
-  private safeEnableDeviceEmulation(
-    wc: Electron.WebContents | null | undefined,
-    params: Parameters<Electron.WebContents['enableDeviceEmulation']>[0],
-    view?: WebContentsView | null
-  ): void {
-    if (view && !this.isTabViewAttached(view)) return;
-    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
-    try {
-      if (typeof wc.enableDeviceEmulation === 'function') {
-        wc.enableDeviceEmulation(params);
-        this.emulatedWebContents.add(wc);
-      }
-    } catch (err) {
-      console.error('[native-tab-host] safeEnableDeviceEmulation error:', err);
-    }
-  }
 
   /** Benchmark-mode helper: counts attached desktop+mobile views; no behavior. */
   private countAttachedViews(): number {
@@ -855,23 +828,6 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  private safeDisableDeviceEmulation(wc: Electron.WebContents | null | undefined, view?: WebContentsView | null): void {
-    // Native disable has the same platform-surface requirement as the enable half.
-    // Returning before the bookkeeping keeps `emulatedWebContents` truthful: the
-    // emulation is still on, so a later call made while the view is attached retries.
-    if (view && !this.isTabViewAttached(view)) return;
-    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
-    if (!this.emulatedWebContents.has(wc)) return;
-    try {
-      if (typeof wc.disableDeviceEmulation === 'function') {
-        wc.disableDeviceEmulation();
-      }
-    } catch (err) {
-      console.error('[native-tab-host] safeDisableDeviceEmulation error:', err);
-    } finally {
-      this.emulatedWebContents.delete(wc);
-    }
-  }
 
   private getCanGoBack(wc: Electron.WebContents | null | undefined): boolean {
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return false;
@@ -5619,15 +5575,7 @@ export class NativeTabHost extends EventEmitter {
         const desktopUA = getPresetUserAgent(desktopPreset, this.defaultUserAgent);
         this.setSafeUserAgent(tab.view.webContents, desktopUA || this.defaultUserAgent);
         this.applyCdpTouchEmulation(tab.view.webContents, false);
-        this.applyCdpDeviceEmulationState(tab.view.webContents, desktopPreset);
-        this.safeEnableDeviceEmulation(tab.view.webContents, {
-          screenPosition: 'desktop',
-          screenSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
-          viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: splitLayout.desktop.deviceScaleFactor,
-          viewSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
-          scale: splitLayout.desktop.scale,
-        }, tab.view);
+        this.applyCdpDeviceEmulationState(tab.view.webContents, desktopPreset, splitLayout.desktop.scale);
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
         try {
           if (!tab.view.webContents.isDestroyed()) {
@@ -5648,21 +5596,12 @@ export class NativeTabHost extends EventEmitter {
         const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
         this.setSafeUserAgent(tab.mobileView.webContents, mobileUA || IPHONE_USER_AGENT);
         this.applyCdpTouchEmulation(tab.mobileView.webContents, true);
-        this.applyCdpDeviceEmulationState(tab.mobileView.webContents, mobilePreset);
+        this.applyCdpDeviceEmulationState(tab.mobileView.webContents, mobilePreset, splitLayout.mobile.scale);
         try {
           if (!tab.mobileView.webContents.isDestroyed()) {
             tab.mobileView.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
           }
         } catch {}
-
-        this.safeEnableDeviceEmulation(tab.mobileView.webContents, {
-          screenPosition: 'mobile',
-          screenSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
-          viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: splitLayout.mobile.deviceScaleFactor,
-          viewSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
-          scale: splitLayout.mobile.scale,
-        }, tab.mobileView);
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
         try {
           if (!tab.mobileView.webContents.isDestroyed()) {
@@ -5733,7 +5672,7 @@ export class NativeTabHost extends EventEmitter {
         const ua = getPresetUserAgent(preset, preset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent);
         this.setSafeUserAgent(tab.view.webContents, ua || this.defaultUserAgent);
         this.applyCdpTouchEmulation(tab.view.webContents, Boolean(preset.mobile));
-        this.applyCdpDeviceEmulationState(tab.view.webContents, preset);
+        this.applyCdpDeviceEmulationState(tab.view.webContents, preset, renderScale);
         if (preset.mobile) {
           try {
             if (!tab.view.webContents.isDestroyed()) {
@@ -5742,14 +5681,6 @@ export class NativeTabHost extends EventEmitter {
           } catch {}
         }
 
-        this.safeEnableDeviceEmulation(tab.view.webContents, {
-          screenPosition: preset.mobile ? 'mobile' : 'desktop',
-          screenSize: { width: preset.width, height: preset.height },
-          viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: preset.deviceScaleFactor || (preset.category === 'desktop' ? 1 : 2),
-          viewSize: { width: preset.width, height: preset.height },
-          scale: renderScale,
-        }, tab.view);
         // Guest canvas stays the UA default white on every preset, including rounded
         // phones. A transparent view (`#00000000`) lets frameBackdropView `#060910`
         // show through any page that leaves html/body unpainted — the collection
@@ -5791,7 +5722,6 @@ export class NativeTabHost extends EventEmitter {
         this.applyCdpTouchEmulation(tab.view.webContents, false);
         this.applyCdpDeviceEmulationState(tab.view.webContents, null);
         this.setSafeUserAgent(tab.view.webContents, this.defaultUserAgent);
-        this.safeDisableDeviceEmulation(tab.view.webContents, tab.view);
 
         const userZoom = tab.state.zoomFactor || 1.0;
         try {
@@ -5857,6 +5787,15 @@ export class NativeTabHost extends EventEmitter {
   private async applyCdpTouchEmulationState(wc: Electron.WebContents, enableTouch: boolean): Promise<void> {
     try {
       if (!wc.debugger) return;
+      // Same renderer gate as applyCdpDeviceEmulationState: a touch override sent to
+      // a WebContents with no committed document never resolves on this Electron
+      // build (the DevTools agent has no target to answer), which would park the
+      // per-tab CDP queue in draining for 5s. Touch emulation is meaningless before
+      // first paint anyway, so skip rather than defer — the metrics override that
+      // follows on did-finish-load re-arms touch through the same call sites.
+      try {
+        if (typeof wc.getURL === 'function' && wc.getURL().length === 0) return;
+      } catch {}
       if (!enableTouch) {
         if (wc.debugger.isAttached()) {
           await this.getDevToolsHost().sendCdpCommand(wc, 'Emulation.setTouchEmulationEnabled', {
@@ -5886,50 +5825,117 @@ export class NativeTabHost extends EventEmitter {
       }
     } catch {}
   }
+  /**
+   * All device emulation state goes through the DevTools agent's Emulation domain:
+   * size, device pixel ratio, screen size, and the fit-preview scale are fields of
+   * the same `DeviceEmulationParams` the native `WebContents.enableDeviceEmulation`
+   * used to carry. The native API is gone because it dereferences the view's render
+   * widget host without a null check — a view whose frame host has no widget (never
+   * attached, pre-commit, or renderer gone) kills the whole browser process
+   * (STATUS_ACCESS_VIOLATION, read of 0x0), and no JS-observable guard can prove
+   * the widget exists before the call.
+   *
+   * The CDP path is NOT unconditionally safe either: a live probe on this Electron
+   * build shows `Emulation.setDeviceMetricsOverride` sent to a WebContents that has
+   * never committed a navigation (no renderer yet — detached or attached-but-not-
+   * loaded) terminates the process the same way. The only reliable gate is whether
+   * the view has a committed document, which `getURL()` answers: empty means no
+   * renderer exists to emulate. When there is no document yet the override is
+   * deferred to `did-finish-load`, which is also the earliest moment the emulation
+   * can take visual effect anyway.
+   *
+   * @param preset The device preset to emulate; `null` clears the override.
+   * @param scale  The fit-preview scale the layout computed for this pane
+   *               (1 = exact size, <1 = shrunk preview). Same Blink field the
+   *               native call carried.
+   */
   private async applyCdpDeviceEmulationState(
     wc: Electron.WebContents,
-    preset?: DevicePreset | null
+    preset?: DevicePreset | null,
+    scale = 1
   ): Promise<void> {
-    if (!wc || (wc as unknown as { isDestroyed?: () => boolean }).isDestroyed?.() || !wc.debugger) return;
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) || !wc.debugger) return;
+    if (typeof wc.isCrashed === 'function' && wc.isCrashed()) return;
+
+    // No committed document → no renderer → the metrics override dereferences a
+    // missing widget and kills the process. Defer to first load; a clear on a
+    // never-emulated view is a no-op and needs no deferral.
+    let hasDocument = false;
     try {
-      if (!wc.debugger.isAttached()) {
-        try {
-          wc.debugger.attach('1.3');
-        } catch {}
+      hasDocument = typeof wc.getURL === 'function' && wc.getURL().length > 0;
+    } catch {}
+    if (!hasDocument) {
+      if (!preset) return;
+      // updateLayout can call this several times before first commit; keep one
+      // pending deferral per WebContents and let the latest preset win.
+      const pending = this.pendingEmulationDeferrals.get(wc);
+      if (pending) {
+        pending.preset = preset;
+        pending.scale = scale;
+        return;
       }
-      if (!wc.debugger.isAttached()) return;
+      const deferral = { preset, scale };
+      this.pendingEmulationDeferrals.set(wc, deferral);
+      const onLoaded = () => {
+        this.pendingEmulationDeferrals.delete(wc);
+        void this.applyCdpDeviceEmulationState(wc, deferral.preset, deferral.scale);
+      };
+      try {
+        wc.once('did-finish-load', onLoaded);
+        // A failed navigation never fires did-finish-load; drop the listener so a
+        // later successful load is not double-armed by repeated calls.
+        wc.once('did-fail-load', () => {
+          this.pendingEmulationDeferrals.delete(wc);
+          try { wc.removeListener('did-finish-load', onLoaded); } catch {}
+        });
+      } catch {}
+      return;
+    }
 
-      const devTools = this.getDevToolsHost();
-      if (preset && (preset.mobile || preset.category === 'mobile' || preset.category === 'tablet')) {
-        const ua = getPresetUserAgent(preset, IPHONE_USER_AGENT) || IPHONE_USER_AGENT;
-        const platform = getPresetPlatform(preset);
-        const dpr = preset.deviceScaleFactor || 3;
-        const targetW = Math.round(preset.width || 390);
-        const targetH = Math.round(preset.height || 844);
+    {
+      try {
+        if (!wc.debugger.isAttached()) {
+          try {
+            wc.debugger.attach('1.3');
+          } catch {}
+        }
+        if (!wc.debugger.isAttached()) return;
 
-        await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
-          userAgent: ua,
-          acceptLanguage: 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-          platform,
-        }).catch(() => {});
+        const devTools = this.getDevToolsHost();
+        if (preset && preset.width && preset.height) {
+          const mobileLike = Boolean(preset.mobile || preset.category === 'mobile' || preset.category === 'tablet');
+          const ua = getPresetUserAgent(preset, mobileLike ? IPHONE_USER_AGENT : this.defaultUserAgent) || this.defaultUserAgent;
+          const platform = getPresetPlatform(preset);
+          const dpr = preset.deviceScaleFactor || (mobileLike ? 3 : 1);
+          const targetW = Math.round(preset.width);
+          const targetH = Math.round(preset.height);
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
 
-        await devTools.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', {
-          width: targetW,
-          height: targetH,
-          deviceScaleFactor: dpr,
-          mobile: true,
-          screenWidth: targetW,
-          screenHeight: targetH,
-        }).catch(() => {});
-      } else {
-        await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
-        await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
-          userAgent: this.defaultUserAgent,
-          platform: 'Win32',
-        }).catch(() => {});
+          await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
+            userAgent: ua,
+            acceptLanguage: 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+            platform,
+          }).catch(() => {});
+
+          await devTools.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', {
+            width: targetW,
+            height: targetH,
+            deviceScaleFactor: dpr,
+            mobile: mobileLike,
+            screenWidth: targetW,
+            screenHeight: targetH,
+            scale: safeScale,
+          }).catch(() => {});
+        } else {
+          await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
+          await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
+            userAgent: this.defaultUserAgent,
+            platform: 'Win32',
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.warn('[native-tab-host] applyCdpDeviceEmulationState error:', err);
       }
-    } catch (err) {
-      console.warn('[native-tab-host] applyCdpDeviceEmulationState error:', err);
     }
   }
 
@@ -8241,22 +8247,24 @@ export class NativeTabHost extends EventEmitter {
     const targetSelector = opts.selector ? JSON.stringify(opts.selector) : 'null';
 
     // Every breakpoint below emulates a size and then reads that size back through the
-    // document. A background tab's view sits outside the window, so the emulation is
-    // refused for want of a platform surface and the page keeps laying out against a
-    // detached, zero-width box: every reading then claims the document overflows, at
-    // every breakpoint, for every page. Run the sweep inside a temporary in-place
-    // attach — behind the active tab's view, released when the call returns — so each
-    // measurement describes a real surface without the tab ever becoming the visible one.
+    // document. A background tab's view sits outside the window: its renderer is
+    // throttled and its layout is not presented, so a reading taken there can describe
+    // a stale or zero-width box instead of the override just applied. Run the sweep
+    // inside a temporary in-place attach — behind the active tab's view, released when
+    // the call returns — so each measurement describes a live surface without the tab
+    // ever becoming the visible one.
     const sweepBreakpoints = async (): Promise<void> => {
       for (const bp of testBreakpoints) {
-        this.safeEnableDeviceEmulation(wc, {
-          screenPosition: bp.mobile ? 'mobile' : 'desktop',
-          screenSize: { width: bp.width, height: bp.height },
-          viewPosition: { x: 0, y: 0 },
+        await this.applyCdpDeviceEmulationState(wc, {
+          id: `sweep-${bp.id}`,
+          name: bp.name,
+          width: bp.width,
+          height: bp.height,
           deviceScaleFactor: bp.deviceScaleFactor || (bp.mobile ? 2 : 1),
-          viewSize: { width: bp.width, height: bp.height },
-          scale: 1,
-        }, tab.view);
+          mobile: bp.mobile,
+          category: bp.mobile ? 'mobile' : 'desktop',
+        }, 1);
+
 
         await new Promise((resolve) => setTimeout(resolve, 60));
 
@@ -8330,11 +8338,11 @@ export class NativeTabHost extends EventEmitter {
       try {
         await sweepBreakpoints();
       } finally {
-        // The emulation this sweep applied is undone while the view still holds the
-        // surface that let it land, and the tab is handed back to its own preset through
-        // the same restoration the visible-tab path always used.
+        // The override this sweep applied is cleared while the view still presents a
+        // live surface, and the tab is handed back to its own preset through the same
+        // restoration the visible-tab path always used.
         try {
-          this.safeDisableDeviceEmulation(wc, tab.view);
+          await this.applyCdpDeviceEmulationState(wc, null);
           if (previousPreset && previousPreset !== 'responsive') {
             this.setDevicePreset(targetId, previousPreset);
           } else {
@@ -8412,17 +8420,10 @@ export class NativeTabHost extends EventEmitter {
       const wc = tab.view.webContents;
 
       await this.applyCdpTouchEmulation(wc, mobile);
-      const customPreset: DevicePreset = {
-        id: tab.state.devicePresetId || `custom-${w}x${h}`,
-        name: `Custom (${w}x${h})`,
-        width: w,
-        height: h,
-        deviceScaleFactor: resolvedDpr,
-        mobile,
-        category: mobile ? 'mobile' : (w < 1024 ? 'tablet' : 'desktop'),
-        platform: isIphoneDimensions || mobile ? 'iPhone' : undefined,
-      };
-      await this.applyCdpDeviceEmulationState(wc, customPreset);
+      // The CDP override (including the fit-preview scale) is applied by
+      // `applyTabDeviceEmulation`, which `updateLayout`/`runWithAttachedTabView` just
+      // ran for this tab. Re-applying it here without the computed scale would reset
+      // `scale` to 1 and break the preview shrink.
       if (wc && typeof wc.executeJavaScript === 'function') {
         try {
           await wc.executeJavaScript(`

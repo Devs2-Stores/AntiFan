@@ -275,33 +275,46 @@ describe('NativeTabHost initial navigation history', () => {
   });
 });
 
-// Native device emulation reaches into a view's platform widget. A view that is not a
-// child of the window has none, and calling it there dereferences a null render widget
-// host view and takes the whole browser process down (STATUS_ACCESS_VIOLATION, read of
-// 0x0) - a native fault no try/catch can intercept, which is why the refusal has to
-// happen before the call rather than around it. These cases pin the refusal, that a
-// refused native call leaves the emulation bookkeeping truthful so a later call made
-// while the view is attached still retries, and the split-tab shape behind the crash.
-describe('NativeTabHost device emulation requires a platform surface', () => {
-  const EMULATION_PARAMS = {
-    screenSize: { width: 390, height: 844 },
-    viewSize: { width: 390, height: 844 },
-    deviceScaleFactor: 3,
-    scale: 1,
-  };
+// Device emulation no longer touches the native `WebContents.enableDeviceEmulation`
+// API at all: that call dereferences the view's render widget host without a null
+// check, so a view whose frame host has no widget (never attached, pre-commit, or
+// renderer gone) takes the whole browser process down (STATUS_ACCESS_VIOLATION,
+// read of 0x0) — a native fault no try/catch can intercept and no JS-observable
+// guard can prevent. Every parameter the native call carried, including the
+// fit-preview scale, now rides `Emulation.setDeviceMetricsOverride` through the
+// DevTools agent, whose handler checks the widget and answers with a protocol
+// error instead of dereferencing it. These cases pin the CDP contract: the
+// override carries size and scale, clearing goes through the same channel, and
+// no native emulation call is ever made — attached or detached.
+describe('NativeTabHost device emulation rides the DevTools agent', () => {
+  let nextWcId = 1;
 
   function createEmulationHost() {
     const host = Object.create(NativeTabHost.prototype) as TestHost;
-    const calls: string[] = [];
+    const cdpCalls: Array<{ wc: string; method: string; params: Record<string, unknown> }> = [];
+    const nativeCalls: string[] = [];
     const makeWc = (name: string) => ({
+      id: nextWcId++,
       isDestroyed: () => false,
+      getURL: () => `https://example.test/${name}`,
       getUserAgent: () => 'default-ua',
       setUserAgent: () => {},
       setZoomFactor: () => {},
       insertCSS: async () => 'clip-key',
       executeJavaScript: async () => true,
-      enableDeviceEmulation: () => { calls.push(`enable:${name}`); },
-      disableDeviceEmulation: () => { calls.push(`disable:${name}`); },
+      on: () => {},
+      debugger: {
+        isAttached: () => true,
+        attach: () => {},
+        once: () => {},
+        on: () => {},
+        sendCommand: async (method: string, params: Record<string, unknown>) => {
+          cdpCalls.push({ wc: name, method, params });
+        },
+      },
+      // Spies, not stubs: production must never reach either native API again.
+      enableDeviceEmulation: () => { nativeCalls.push(`enable:${name}`); },
+      disableDeviceEmulation: () => { nativeCalls.push(`disable:${name}`); },
     });
     const makeView = (webContents: unknown) => ({
       webContents,
@@ -329,70 +342,113 @@ describe('NativeTabHost device emulation requires a platform surface', () => {
         },
       },
     };
-    host.emulatedWebContents = new WeakSet();
     host.appliedClipRadius = new Map();
     host.touchEmulationStates = new Map();
+    host.pendingEmulationDeferrals = new Map();
     host.tabs = new Map();
     host.activeTabId = 'tab-desktop';
     host.isSidebarOpen = false;
     host.defaultUserAgent = 'default-ua';
     host.broadcastState = () => {};
-    return { host, calls, children, desktopWc, mobileWc, desktopView, mobileView };
+    return { host, cdpCalls, nativeCalls, children, desktopWc, mobileWc, desktopView, mobileView };
   }
 
-  it('refuses native emulation for a view with no platform surface', () => {
-    const { host, calls, desktopWc, desktopView } = createEmulationHost();
-    host.tabs.set('tab-desktop', { state: { splitMode: false }, view: desktopView });
+  const flushCdp = () => new Promise<void>((resolve) => { setImmediate(resolve); });
 
-    host.safeEnableDeviceEmulation(desktopWc, EMULATION_PARAMS, desktopView);
-
-    assert.deepStrictEqual(calls, []);
-    assert.strictEqual(host.emulatedWebContents.has(desktopWc), false);
-  });
-
-  it('applies native emulation once the view is a child of the window', () => {
-    const { host, calls, children, desktopWc, desktopView } = createEmulationHost();
+  it('applies the full emulation override through CDP, including the fit-preview scale', async () => {
+    const { host, cdpCalls, nativeCalls, children, desktopView } = createEmulationHost();
+    host.tabs.set('tab-desktop', { state: { id: 'tab-desktop', splitMode: false, devicePresetId: 'phone-iphone15pro', zoomFactor: 1 }, view: desktopView });
     children.push(desktopView);
 
-    host.safeEnableDeviceEmulation(desktopWc, EMULATION_PARAMS, desktopView);
+    host.applyTabDeviceEmulation(host.tabs.get('tab-desktop'), 400, 300, 74);
+    await flushCdp();
 
-    assert.deepStrictEqual(calls, ['enable:desktop']);
-    assert.strictEqual(host.emulatedWebContents.has(desktopWc), true);
+    const metrics = cdpCalls.find((c) => c.method === 'Emulation.setDeviceMetricsOverride');
+    assert.ok(metrics, 'the preset must reach the DevTools agent as a metrics override');
+    assert.strictEqual(metrics?.params.mobile, true);
+    assert.strictEqual(typeof metrics?.params.width, 'number');
+    // 390x844 into a 400x300 pane fits at ~0.355: the shrink the native call used to
+    // carry must arrive on the same override, not a second channel.
+    assert.ok(
+      typeof metrics?.params.scale === 'number' && metrics.params.scale > 0 && metrics.params.scale < 1,
+      `fit-preview scale must ride the override, got ${String(metrics?.params.scale)}`
+    );
+    assert.deepStrictEqual(nativeCalls, [], 'no native device-emulation call may be made');
   });
 
-  it('defers the native disable while detached so the emulation state stays truthful', () => {
-    const { host, calls, children, desktopWc, desktopView } = createEmulationHost();
+  it('clears the override through CDP when the tab has no preset', async () => {
+    const { host, cdpCalls, nativeCalls, children, desktopView } = createEmulationHost();
+    host.tabs.set('tab-desktop', { state: { id: 'tab-desktop', splitMode: false, devicePresetId: 'responsive', zoomFactor: 1 }, view: desktopView });
     children.push(desktopView);
-    host.safeEnableDeviceEmulation(desktopWc, EMULATION_PARAMS, desktopView);
 
-    children.length = 0;
-    host.safeDisableDeviceEmulation(desktopWc, desktopView);
-    // No native call, and the WebContents is still recorded as emulated: clearing the
-    // record here would strand the platform in its emulated state forever.
-    assert.deepStrictEqual(calls, ['enable:desktop']);
-    assert.strictEqual(host.emulatedWebContents.has(desktopWc), true);
+    host.applyTabDeviceEmulation(host.tabs.get('tab-desktop'), 1600, 900, 74);
+    await flushCdp();
 
-    children.push(desktopView);
-    host.safeDisableDeviceEmulation(desktopWc, desktopView);
-    assert.deepStrictEqual(calls, ['enable:desktop', 'disable:desktop']);
-    assert.strictEqual(host.emulatedWebContents.has(desktopWc), false);
+    assert.ok(
+      cdpCalls.some((c) => c.method === 'Emulation.clearDeviceMetricsOverride'),
+      'a preset-less tab must clear the metrics override through the DevTools agent'
+    );
+    assert.deepStrictEqual(nativeCalls, [], 'no native device-emulation call may be made');
   });
 
-  it('never applies native emulation to a split tab\'s detached pane', () => {
-    const run = (attachMobile: boolean) => {
-      const { host, calls, children, desktopView, mobileView } = createEmulationHost();
-      const tab = { state: { splitMode: true, zoomFactor: 1 }, view: desktopView, mobileView };
+  it('emulates a detached pane through CDP without any native call', async () => {
+    const run = async (attachMobile: boolean) => {
+      const { host, cdpCalls, nativeCalls, children, desktopView, mobileView } = createEmulationHost();
+      const tab = { state: { id: 'tab-desktop', splitMode: true, zoomFactor: 1 }, view: desktopView, mobileView };
       host.tabs.set('tab-desktop', tab);
       children.push(desktopView);
       if (attachMobile) children.push(mobileView);
 
       host.applyTabDeviceEmulation(tab, 1600, 900, 74);
-      return calls;
+      await flushCdp();
+      return { cdpCalls, nativeCalls };
     };
 
-    // With both panes attached the split path does emulate the mobile pane, so the
-    // absence below is the attachment guard and not an earlier return on the path.
-    assert.ok(run(true).includes('enable:mobile'), 'an attached mobile pane is emulated');
-    assert.deepStrictEqual(run(false).filter((call) => call === 'enable:mobile'), []);
+    // Attached or detached, the DevTools agent answers a protocol error instead of
+    // dereferencing a missing widget — the pane is emulated identically either way,
+    // which is exactly what makes the detached path safe now.
+    const attached = await run(true);
+    assert.ok(
+      attached.cdpCalls.some((c) => c.wc === 'mobile' && c.method === 'Emulation.setDeviceMetricsOverride'),
+      'an attached mobile pane is emulated through CDP'
+    );
+    assert.deepStrictEqual(attached.nativeCalls, []);
+
+    const detached = await run(false);
+    assert.ok(
+      detached.cdpCalls.some((c) => c.wc === 'mobile' && c.method === 'Emulation.setDeviceMetricsOverride'),
+      'a detached mobile pane is emulated through CDP without a native call'
+    );
+    assert.deepStrictEqual(detached.nativeCalls, []);
   });
+  it('defers the override until first commit instead of touching a renderer-less view', async () => {
+    // The crash this guards: Emulation.setDeviceMetricsOverride sent to a
+    // WebContents with no committed document kills the process the same way the
+    // native API did. The gate is getURL() — empty means no renderer exists, so
+    // the override must wait for did-finish-load.
+    const { host, cdpCalls, nativeCalls, children, desktopView } = createEmulationHost();
+    const wc = desktopView.webContents as { getURL: () => string; once: (ev: string, fn: () => void) => void };
+    let committed = false;
+    const loadListeners: Array<() => void> = [];
+    wc.getURL = () => (committed ? 'https://example.test/loaded' : '');
+    wc.once = (_ev: string, fn: () => void) => { loadListeners.push(fn); };
+
+    host.tabs.set('tab-desktop', { state: { id: 'tab-desktop', splitMode: false, devicePresetId: 'phone-iphone15pro', zoomFactor: 1 }, view: desktopView });
+    children.push(desktopView);
+
+    host.applyTabDeviceEmulation(host.tabs.get('tab-desktop'), 400, 300, 74);
+    await flushCdp();
+    assert.strictEqual(cdpCalls.length, 0, 'no CDP command may reach a renderer-less view');
+    assert.ok(loadListeners.length > 0, 'the override must be deferred to did-finish-load');
+
+    committed = true;
+    for (const fn of loadListeners) fn();
+    await flushCdp();
+    assert.ok(
+      cdpCalls.some((c) => c.method === 'Emulation.setDeviceMetricsOverride'),
+      'the deferred override must apply once the document commits'
+    );
+    assert.deepStrictEqual(nativeCalls, []);
+  });
+
 });

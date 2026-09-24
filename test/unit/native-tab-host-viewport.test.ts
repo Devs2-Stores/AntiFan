@@ -31,14 +31,16 @@ function isCdpMatchedStylesPayload(val: unknown): val is CdpMatchedStylesPayload
   return typeof val === 'object' && val !== null && 'matchedCSSRules' in val;
 }
 
-interface EmulationParams {
-  screenPosition?: string;
-  screenSize?: { width: number; height: number };
-  viewPosition?: { x: number; y: number };
-  deviceScaleFactor?: number;
-  viewSize?: { width: number; height: number };
-  scale?: number;
+interface CdpEmulationCall {
+  method: string;
+  params: Record<string, unknown>;
 }
+
+let nextWebContentsId = 1;
+
+// CDP sends are queued behind a microtask hop inside applyCdpDeviceEmulationState;
+// assertions on recorded wire params must let that hop run first.
+const flushCdp = () => new Promise<void>((resolve) => { setImmediate(resolve); });
 
 interface TestWindowShape {
   isDestroyed: () => boolean;
@@ -51,17 +53,14 @@ const WINDOW_CONTENT_BOX = { x: 0, y: 0, width: 1280, height: 800 };
 
 interface TestHostShape {
   tabs: Map<string, NativeTabRecord>;
+  pendingEmulationDeferrals: WeakMap<object, unknown>;
   activeTabId: string;
   defaultUserAgent: string;
   window?: TestWindowShape;
-  emulationCalls: EmulationParams[];
-  disabledEmulationCount: number;
   updateLayoutCallCount: number;
   updateLayout: () => void;
   getToolbarHeight: () => number;
   applyTabDeviceEmulation: (tab: NativeTabRecord, availableWidth: number, availableHeight: number, toolbarHeight: number) => void;
-  safeEnableDeviceEmulation: (wc: unknown, params: EmulationParams) => void;
-  safeDisableDeviceEmulation: (wc: unknown) => void;
   setSafeUserAgent: (wc: unknown, ua: string) => void;
   touchEmulationPromise: Promise<void>;
   applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
@@ -72,7 +71,7 @@ interface TestHostShape {
   broadcastState: () => void;
 }
 
-function createTestTabRecord(id: string): NativeTabRecord & { backgroundColors: string[] } {
+function createTestTabRecord(id: string): NativeTabRecord & { backgroundColors: string[]; cdpCalls: CdpEmulationCall[] } {
   const state: AntiFanTab = {
     id,
     url: 'https://store.example.com',
@@ -83,10 +82,25 @@ function createTestTabRecord(id: string): NativeTabRecord & { backgroundColors: 
     zoomFactor: 1.0,
   };
 
+  const cdpCalls: CdpEmulationCall[] = [];
   const mockWebContents = {
+    id: nextWebContentsId++,
     isDestroyed: () => false,
+    getURL: () => 'https://example.test/page',
     setZoomFactor: (_factor: number) => {},
     insertCSS: async (_css: string) => '',
+    on: () => {},
+    // Device emulation rides the DevTools agent now; the stub records what the
+    // host sends so tests assert the wire params instead of a native API spy.
+    debugger: {
+      isAttached: () => true,
+      attach: () => {},
+      once: () => {},
+      on: () => {},
+      sendCommand: async (method: string, params: Record<string, unknown>) => {
+        cdpCalls.push({ method, params });
+      },
+    },
   };
 
   const backgroundColors: string[] = [];
@@ -102,6 +116,7 @@ function createTestTabRecord(id: string): NativeTabRecord & { backgroundColors: 
   return {
     view: mockView as unknown as NativeTabRecord['view'],
     backgroundColors,
+    cdpCalls,
     state,
   };
 }
@@ -109,6 +124,7 @@ function createTestTabRecord(id: string): NativeTabRecord & { backgroundColors: 
 function createTestHost(): TestHostShape {
   const host = Object.create(NativeTabHost.prototype) as TestHostShape;
   host.tabs = new Map<string, NativeTabRecord>();
+  host.pendingEmulationDeferrals = new WeakMap();
   host.activeTabId = 'tab-1';
   host.defaultUserAgent = 'MockDesktopUA';
   // A window the host can measure, without a contentView: these cases exercise the
@@ -118,8 +134,6 @@ function createTestHost(): TestHostShape {
     isDestroyed: () => false,
     getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }),
   };
-  host.emulationCalls = [];
-  host.disabledEmulationCount = 0;
   host.updateLayoutCallCount = 0;
   host.broadcastCount = 0;
   // Real NativeTabHost.broadcastState needs toolbarView/tabOrder/persistence;
@@ -129,12 +143,6 @@ function createTestHost(): TestHostShape {
     host.broadcastCount++;
   };
 
-  host.safeEnableDeviceEmulation = (_wc: unknown, params: EmulationParams) => {
-    host.emulationCalls.push(params);
-  };
-  host.safeDisableDeviceEmulation = (_wc: unknown) => {
-    host.disabledEmulationCount++;
-  };
   host.setSafeUserAgent = (_wc: unknown, _ua: string) => {};
   host.touchEmulationPromise = Promise.resolve();
   host.applyCdpTouchEmulation = (_wc: unknown, _enabled: boolean) => host.touchEmulationPromise;
@@ -181,13 +189,19 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(host.updateLayoutCallCount, 1);
     assert.strictEqual(host.broadcastCount, 1, 'MCP viewport change must broadcast so the toolbar Device cluster re-renders');
 
-    // Verify safeEnableDeviceEmulation was called with synthesized preset parameters (proves regression fix)
-    assert.strictEqual(host.emulationCalls.length, 1);
-    const emu = host.emulationCalls[0];
-    assert.strictEqual(emu?.screenPosition, 'mobile');
-    assert.deepStrictEqual(emu?.screenSize, { width: 375, height: 667 });
-    assert.strictEqual(emu?.deviceScaleFactor, 2);
-    assert.strictEqual(host.disabledEmulationCount, 0, 'Must NOT fall back to disabling device emulation');
+    await flushCdp();
+    // The CDP metrics override carries the synthesized viewport (proves regression fix)
+    const metricsCall = tab.cdpCalls.find((call) => call.method === 'Emulation.setDeviceMetricsOverride');
+    assert.ok(metricsCall, 'setViewportSize must route the viewport through the CDP metrics override');
+    assert.strictEqual(metricsCall?.params.width, 375);
+    assert.strictEqual(metricsCall?.params.height, 667);
+    assert.strictEqual(metricsCall?.params.deviceScaleFactor, 2);
+    assert.strictEqual(metricsCall?.params.mobile, true);
+    assert.strictEqual(
+      tab.cdpCalls.some((call) => call.method === 'Emulation.clearDeviceMetricsOverride'),
+      false,
+      'Must NOT fall back to clearing the device metrics override'
+    );
   });
 
   it('clears customViewport when switching to a standard device preset', async () => {
@@ -258,10 +272,12 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
       deviceScaleFactor: 2,
     });
     assert.strictEqual(backgroundTab.state.devicePresetId, 'custom-375x812');
-    assert.strictEqual(host.emulationCalls.length, 1);
-    const emu = host.emulationCalls[0];
-    assert.strictEqual(emu?.screenPosition, 'mobile');
-    assert.deepStrictEqual(emu?.screenSize, { width: 375, height: 812 });
+    await flushCdp();
+    const metricsCall = backgroundTab.cdpCalls.find((call) => call.method === 'Emulation.setDeviceMetricsOverride');
+    assert.ok(metricsCall, 'The background tab must receive the CDP metrics override');
+    assert.strictEqual(metricsCall?.params.mobile, true);
+    assert.strictEqual(metricsCall?.params.width, 375);
+    assert.strictEqual(metricsCall?.params.height, 812);
     assert.strictEqual(host.broadcastCount, 1, 'Background-tab viewport changes must broadcast too');
   });
   it('BrowserControlPort.setViewport delegates reload to host.setViewportSize without calling host.reloadAndWait twice', async () => {
@@ -558,11 +574,24 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     // A refused request must leave no geometry behind, so the view records every box it is
     // given and the emulation records the box it is handed.
     const appliedBounds: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const backgroundCdpCalls: CdpEmulationCall[] = [];
     backgroundTab.view = {
       webContents: {
+        id: nextWebContentsId++,
         isDestroyed: () => false,
+        getURL: () => 'https://example.test/bg',
         setZoomFactor: (_factor: number) => {},
         insertCSS: async (_css: string) => '',
+        on: () => {},
+        debugger: {
+          isAttached: () => true,
+          attach: () => {},
+          once: () => {},
+          on: () => {},
+          sendCommand: async (method: string, params: Record<string, unknown>) => {
+            backgroundCdpCalls.push({ method, params });
+          },
+        },
       },
       setBounds: (rect: { x: number; y: number; width: number; height: number }) => {
         appliedBounds.push({ ...rect });
@@ -620,7 +649,13 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
       'The emulation box must be the box the window actually gives the tab'
     );
     assert.deepStrictEqual(backgroundTab.customViewport, { width: 411, height: 866, mobile: true, deviceScaleFactor: 2 });
-    assert.deepStrictEqual(host.emulationCalls[0]?.screenSize, { width: 411, height: 866 }, 'The requested viewport is what the tab emulates');
+    await flushCdp();
+    const appliedMetrics = backgroundCdpCalls.find((call) => call.method === 'Emulation.setDeviceMetricsOverride');
+    assert.deepStrictEqual(
+      { width: appliedMetrics?.params.width, height: appliedMetrics?.params.height },
+      { width: 411, height: 866 },
+      'The requested viewport is what the tab emulates'
+    );
     assert.deepStrictEqual(
       appliedBounds,
       [{ x: Math.floor((WINDOW_CONTENT_BOX.width - 411) / 2), y: TOOLBAR_HEIGHT, width: 411, height: 866 }],
@@ -772,7 +807,6 @@ describe('Attach-for-capture pane layout', () => {
     getToolbarHeight: () => number;
     applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
     applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
-    safeDisableDeviceEmulation: (wc: unknown, view?: unknown) => void;
     setSafeUserAgent: (wc: unknown, ua: string) => void;
     runWithAttachedTabView: <T>(view: unknown, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
     isTabViewAttached: (view: unknown) => boolean;
@@ -841,7 +875,6 @@ describe('Attach-for-capture pane layout', () => {
     host.getToolbarHeight = () => TOOLBAR_HEIGHT;
     host.applyDeviceCornerClipping = (_wc: unknown, _radius: number) => {};
     host.applyCdpTouchEmulation = (_wc: unknown, _enabled: boolean) => Promise.resolve();
-    host.safeDisableDeviceEmulation = (_wc: unknown, _view?: unknown) => {};
     host.setSafeUserAgent = (_wc: unknown, _ua: string) => {};
     return host;
   }
@@ -925,12 +958,20 @@ describe('Responsive sweep surface', () => {
   }
 
   interface SweepWebContents {
+    id: number;
     isDestroyed: () => boolean;
+    getURL: () => string;
     setZoomFactor: (factor: number) => void;
     insertCSS: (css: string) => Promise<string>;
     invalidate: () => void;
-    enableDeviceEmulation: (params: EmulationParams) => void;
-    disableDeviceEmulation: () => void;
+    on: () => void;
+    debugger: {
+      isAttached: () => boolean;
+      attach: () => void;
+      once: () => void;
+      on: () => void;
+      sendCommand: (method: string, params: Record<string, unknown>) => Promise<void>;
+    };
     executeJavaScript: (script: string) => Promise<Record<string, unknown>>;
   }
 
@@ -953,8 +994,8 @@ describe('Responsive sweep surface', () => {
   interface SweepHost {
     tabs: Map<string, NativeTabRecord>;
     activeTabId: string;
+    pendingEmulationDeferrals: WeakMap<object, unknown>;
     defaultUserAgent: string;
-    emulatedWebContents: WeakSet<Electron.WebContents>;
     isSidebarOpen: boolean;
     sidebarWidth: number;
     window: SweepWindow;
@@ -1004,18 +1045,31 @@ describe('Responsive sweep surface', () => {
     // script does: against whatever emulation the tab actually carries at that moment.
     const view: SweepView = {
       webContents: {
+        id: nextWebContentsId++,
         isDestroyed: () => false,
+        getURL: () => 'https://example.test/sweep',
         setZoomFactor: (_factor: number) => {},
         insertCSS: async (_css: string) => '',
         invalidate: () => {},
-        enableDeviceEmulation: (params: EmulationParams) => {
-          const box = params.viewSize ? { width: params.viewSize.width, height: params.viewSize.height } : null;
-          liveEmulation = box;
-          emulationCalls.push({ width: box ? box.width : 0, height: box ? box.height : 0, attached: children.includes(view) });
-        },
-        disableDeviceEmulation: () => {
-          disableCount += 1;
-          liveEmulation = null;
+        on: () => {},
+        // The emulation the sweep applies now travels the DevTools agent: the stub
+        // records the wire params and mirrors them into the layout the page probe
+        // reads back, the same way the real override resizes the document's box.
+        debugger: {
+          isAttached: () => true,
+          attach: () => {},
+          once: () => {},
+          on: () => {},
+          sendCommand: async (method: string, params: Record<string, unknown>) => {
+            if (method === 'Emulation.setDeviceMetricsOverride') {
+              const box = { width: Number(params.width) || 0, height: Number(params.height) || 0 };
+              liveEmulation = box;
+              emulationCalls.push({ width: box.width, height: box.height, attached: children.includes(view) });
+            } else if (method === 'Emulation.clearDeviceMetricsOverride') {
+              disableCount += 1;
+              liveEmulation = null;
+            }
+          },
         },
         executeJavaScript: async (_script: string) => {
           const clientWidth = liveEmulation ? liveEmulation.width : 0;
@@ -1046,12 +1100,20 @@ describe('Responsive sweep surface', () => {
 
     const activeView: SweepView = {
       webContents: {
+        id: nextWebContentsId++,
         isDestroyed: () => false,
+        getURL: () => 'https://example.test/active',
         setZoomFactor: (_factor: number) => {},
         insertCSS: async (_css: string) => '',
         invalidate: () => {},
-        enableDeviceEmulation: (_params: EmulationParams) => {},
-        disableDeviceEmulation: () => {},
+        on: () => {},
+        debugger: {
+          isAttached: () => true,
+          attach: () => {},
+          once: () => {},
+          on: () => {},
+          sendCommand: async () => {},
+        },
         executeJavaScript: async (_script: string) => ({}),
       },
       setBounds: (_rect: { x: number; y: number; width: number; height: number }) => {},
@@ -1064,11 +1126,9 @@ describe('Responsive sweep surface', () => {
 
     const host = Object.create(NativeTabHost.prototype) as unknown as SweepHost;
     host.tabs = new Map<string, NativeTabRecord>();
+    host.pendingEmulationDeferrals = new WeakMap();
     host.activeTabId = 'tab-active';
     host.defaultUserAgent = 'MockDesktopUA';
-    // The real emulation guards read this bookkeeping, so the harness keeps it real: the
-    // sweep's emulation only lands if the tab's view genuinely has a surface.
-    host.emulatedWebContents = new WeakSet<Electron.WebContents>();
     host.isSidebarOpen = false;
     host.sidebarWidth = 0;
     host.window = {
