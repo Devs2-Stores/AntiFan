@@ -39,8 +39,6 @@ const definitions = [
   ['anti.agent.cursor.hover', 'Move visual Agent Cursor to hover over an element in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.agent.cursor.highlight', 'Highlight a DOM element with visual Agent Cursor overlay in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.agent.cursor.clear', 'Clear all active Agent Cursor overlays in live AntiFan Desktop tab.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
-  ['browser_find', 'Search the accessibility snapshot of the current page for text, pattern, query, or a regular expression.', { text: { type: 'string' }, pattern: { type: 'string' }, query: { type: 'string' }, regex: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, maxMatches: { type: 'number' } }, [], [], 'tabId'],
-  ['browser_press_key', 'Send native keyboard key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Control+a) to the active tab', { key: { type: 'string' }, tabId: { type: 'string' } }, ['key'], [], 'tabId'],
   // Tier-2 device surface: the physical phone, driven directly over WebDriverAgent. These rows are
   // advertised under their catalogue names, so dispatch is unchanged and no routing row is needed.
   ['device.list', 'List iOS devices attached to this host (live enumeration over the USB multiplexer). Tier-2 surface: the real phone, not a Chromium pane.', {}],
@@ -536,10 +534,10 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.trace.interaction': 'browser.trace_interaction',
   'anti.inspect.page_inventory': 'browser.page-inventory',
   'anti.agent.sequence': 'browser.agent-sequence',
-  // browser_find needs no row: the catalogue registers it under its own name
-  // with an execute/policy identical to browser.find (both call
-  // browser.agentFind under the same short-passive read policy), so routing to
-  // the registration is behaviour-preserving and keeps pattern/query honest.
+  // browser_find / browser_press_key were removed from the catalogue per
+  // AGENTS.md §3.1 (namespace isolation): the browser_* snake_case namespace
+  // belongs to standalone Playwright MCP. Canonical names are browser.find
+  // and browser.keyboard-press.
   'anti.artifact.read': 'artifact.read',
   'artifact_read': 'artifact.read',
   'anti.artifact.stat': 'artifact.stat',
@@ -1555,6 +1553,8 @@ const TERMINAL_PAIRING_ERRORS = new Set([
   'LAN_ACCESS_FORBIDDEN',
   'SECRETS_IN_URL_FORBIDDEN',
   'PAYLOAD_TOO_LARGE',
+  'TERMINAL_TAB_CLOSED',
+  'BRIDGE_UNREACHABLE',
 ]);
 
 function pairingFailureParts(err) {
@@ -1571,6 +1571,7 @@ function isTerminalPairingFailure(err) {
   for (const code of TERMINAL_PAIRING_ERRORS) {
     if (msg.includes(code)) return true;
   }
+  if (/ECONNREFUSED/i.test(msg) || /ECONNREFUSED/i.test(errorCode || '')) return true;
   return false;
 }
 
@@ -1966,6 +1967,41 @@ async function autohealSession() {
             const attached = tabResult.find((t) => t.attached) || tabResult.find((t) => !t.offscreen) || tabResult[0];
             if (attached && attached.id) {
               resolvedTabId = attached.id;
+            }
+          }
+          if (resolvedTabId) {
+            const rebindId = 'rebind-' + crypto.randomUUID();
+            const rebindResult = await new Promise((resolve) => {
+              const timer = setTimeout(() => {
+                ws.removeListener('message', onMsg);
+                resolve(null);
+              }, 3000);
+              const onMsg = (raw) => {
+                try {
+                  const resp = JSON.parse(raw.toString());
+                  if (resp && resp.id === rebindId) {
+                    clearTimeout(timer);
+                    ws.removeListener('message', onMsg);
+                    resolve(resp.data || null);
+                  }
+                } catch {}
+              };
+              ws.on('message', onMsg);
+              ws.send(JSON.stringify({
+                id: rebindId,
+                method: 'antifan.capability.dispatch',
+                params: {
+                  name: 'browser.rebind-target',
+                  attachmentId: pairedExchange.attachmentId,
+                  attachmentSecret: pairedExchange.secret,
+                  authorityRevision: pairedExchange.authorityRevision,
+                  params: { tabId: resolvedTabId },
+                },
+              }));
+            });
+            const replacementRev = rebindResult?.replacementAuthorityRevision || rebindResult?.authorityRevision;
+            if (replacementRev) {
+              pairedExchange.authorityRevision = replacementRev;
             }
           }
         } catch {}

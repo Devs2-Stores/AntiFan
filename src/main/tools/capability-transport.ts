@@ -166,7 +166,6 @@ export const FRESH_INSPECTION_CAPABILITIES: ReadonlySet<string> = new Set([
   'antifan_agent_snapshot',
   // Element search in snapshot / DOM
   'browser.find',
-  'browser_find',
   'anti.inspect.find',
   'antifan_find',
 ]);
@@ -175,7 +174,7 @@ export const FRESH_INSPECTION_CAPABILITIES: ReadonlySet<string> = new Set([
  * Pattern matching inspection capability names that operate on the DOM,
  * accessibility snapshot, or element search surfaces.
  */
-export const FRESH_INSPECTION_NAME_PATTERN = /^(?:browser\.(?:dom|snapshot|agent-snapshot|find)|anti\.inspect\..+|antifan_(?:get_dom|agent_snapshot|find)|anti\.browser\.snapshot|browser_find)(?:[._-].*)?$/;
+export const FRESH_INSPECTION_NAME_PATTERN = /^(?:browser\.(?:dom|snapshot|agent-snapshot|find)|anti\.inspect\..+|antifan_(?:get_dom|agent_snapshot|find)|anti\.browser\.snapshot)(?:[._-].*)?$/;
 
 /**
  * Determines whether a capability dispatch should be treated as a fresh inspection.

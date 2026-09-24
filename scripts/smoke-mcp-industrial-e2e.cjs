@@ -763,9 +763,9 @@ async function runMcpLiveE2ETest() {
     assert.equal(tabHost.getActiveTabId(), tabId, 'Active tab must remain invariant after refused captures');
     mainWindow.show();
     await new Promise((resolve) => setTimeout(resolve, 250));
-    // Locate textarea via browser_find on new tab over MCP
-    console.log('[Milestone 6] Locating textarea ref on new tab via browser_find...');
-    const findResp = await callMcp(302, 'browser_find', { text: 'Special delivery notes', tabId: createdTabId });
+    // Locate textarea via browser.find on new tab over MCP
+    console.log('[Milestone 6] Locating textarea ref on new tab via browser.find...');
+    const findResp = await callMcp(302, 'browser.find', { text: 'Special delivery notes', tabId: createdTabId });
     assert.equal(findResp.error, undefined);
     assert.equal(findResp.result?.isError, undefined);
     const parsedFind = JSON.parse(findResp.result?.content?.[0]?.text || '{}');

@@ -821,7 +821,25 @@ async function createWindow(): Promise<void> {
         await localIpcServer.start(bridgePort, () => {
           const activeCapsule = capsuleManager?.getActive();
           const activePartition = tabHost!.getSharedProfilePartition('clean');
-          const grant = bridgeServer!.issueExtensionGrant(activePartition, DEFAULT_EXTENSION_ALLOWED_DOMAINS);
+          const allowedDomains = new Set<string>(DEFAULT_EXTENSION_ALLOWED_DOMAINS);
+          if (tabHost) {
+            for (const tab of tabHost.getTabList()) {
+              if (!tab?.url) continue;
+              try {
+                const parsed = new URL(tab.url);
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+                const host = parsed.hostname.toLowerCase().trim();
+                if (
+                  host &&
+                  !host.includes('*') &&
+                  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i.test(host)
+                ) {
+                  allowedDomains.add(host);
+                }
+              } catch {}
+            }
+          }
+          const grant = bridgeServer!.issueExtensionGrant(activePartition, Array.from(allowedDomains));
           return {
             token: grant.grantToken,
             port: bridgePort,

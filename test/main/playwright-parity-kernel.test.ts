@@ -1088,35 +1088,38 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.strictEqual((pressEvent?.params as any)?.y, 270, 'Click Y coordinate must match resolved center Y');
   });
 
-  it('14. browser_find canonical Playwright MCP schema validation', async () => {
+  it('14. browser.find canonical Playwright schema validation and browser_find absence', async () => {
     const { catalogue, target, ctx } = createParityHarness();
 
-    // Verify canonical route exists in catalogue
-    assert.ok(catalogue.get('browser_find'), 'browser_find must be registered');
+    // Verify canonical route exists in catalogue and deprecated alias is absent
+    assert.strictEqual(catalogue.get('browser_find'), undefined, 'browser_find must not be registered');
+    assert.ok(catalogue.get('browser.find'), 'browser.find must be registered');
     assert.ok(catalogue.get('anti.inspect.find'), 'anti.inspect.find must be registered');
     assert.ok(catalogue.get('antifan_find'), 'antifan_find must be registered');
 
     // Error case: both text and regex provided
     await assert.rejects(async () => {
-      await catalogue.dispatch('browser_find', {
+      await catalogue.dispatch('browser.find', {
         text: 'hello',
         regex: '/hello/',
         tabId: target.tabId,
       }, ctx);
-    }, (err: any) => {
-      assert.strictEqual(err.code, 'INVALID_ARGUMENT');
-      assert.ok(err.message.includes('Provide either "text" or "regex", not both'));
+    }, (err: unknown) => {
+      const error = err as { code?: string; message?: string };
+      assert.strictEqual(error.code, 'INVALID_ARGUMENT');
+      assert.ok(error.message?.includes('Provide either "text" or "regex", not both'));
       return true;
     });
 
     // Error case: neither text nor regex provided
     await assert.rejects(async () => {
-      await catalogue.dispatch('browser_find', {
+      await catalogue.dispatch('browser.find', {
         tabId: target.tabId,
       }, ctx);
-    }, (err: any) => {
-      assert.strictEqual(err.code, 'INVALID_ARGUMENT');
-      assert.ok(err.message.includes('Either "text" or "regex" must be provided'));
+    }, (err: unknown) => {
+      const error = err as { code?: string; message?: string };
+      assert.strictEqual(error.code, 'INVALID_ARGUMENT');
+      assert.ok(error.message?.includes('Either "text" or "regex" must be provided'));
       return true;
     });
   });
@@ -1197,15 +1200,16 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.throws(() => parseKeyCombo('Control+Shift+'), /Incomplete or malformed key combination/);
   });
 
-  it('17. browser_press_key canonical Playwright MCP dispatch and execution', async () => {
+  it('17. browser.keyboard-press canonical dispatch and execution and browser_press_key absence', async () => {
     const { catalogue, target, ctx } = createParityHarness();
 
-    assert.ok(catalogue.get('browser_press_key'), 'browser_press_key must be registered');
+    assert.strictEqual(catalogue.get('browser_press_key'), undefined, 'browser_press_key must not be registered');
+    assert.ok(catalogue.get('browser.keyboard-press'), 'browser.keyboard-press must be registered');
 
-    const pressRes = (await catalogue.dispatch('browser_press_key', {
+    const pressRes = (await catalogue.dispatch('browser.keyboard-press', {
       key: 'Control+a',
       tabId: target.tabId,
-    }, ctx)) as any;
+    }, ctx)) as { success?: boolean; key?: string };
 
     assert.strictEqual(pressRes?.success, true);
     assert.strictEqual(pressRes?.key, 'Control+a');
@@ -1269,8 +1273,6 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       require('path').resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs'),
       'utf8'
     );
-    assert.ok(ompScript.includes("'browser_find'"), 'Must declare browser_find in OMP MCP tools');
-    assert.ok(ompScript.includes("'browser_press_key'"), 'Must declare browser_press_key in OMP MCP tools');
     assert.ok(ompScript.includes("['anti.agent.cursor.type'"), 'Must declare anti.agent.cursor.type');
     assert.ok(ompScript.includes("ref: { type: 'string' }"), 'Cursor tools must include ref: { type: "string" }');
     assert.ok(ompScript.includes("['file.write'"), 'Must expose authenticated workspace mutation');

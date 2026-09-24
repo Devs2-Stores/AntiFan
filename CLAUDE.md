@@ -30,6 +30,7 @@ This repository enforces the **Triad Architecture (v1.2.0 Hardened)** specified 
 - `NEVER` execute destructive VCS, filesystem, or live remote theme push commands without explicit approval: `git reset --hard`, `git clean -fd/x`, `git checkout -- .`, `rm -rf`, `git push --force`, `haravan theme push*`, `shopify theme push*`, or uncoordinated `pkill/taskkill`.
 - **Escape Hatch (Fail-Closed):** If required context, credentials, or dependencies are missing, DO NOT guess—STOP immediately, report exact missing prerequisites, and request user input.
 - **Circuit Breaker:** If 3 consecutive tool calls fail to advance state (or get stuck in identical syntax errors), stop and flip to `BLOCKED`.
+- **Tool Fallback:** AntiFan MCP is the primary browser surface; Playwright MCP (`mcp__playwright_browser_*`) is the sanctioned fallback per `AGENTS.md §3.1`. Every fallback call MUST carry a recorded reason via `anti.telemetry.record_fallback` (or a verbatim reason in the reply when the bridge is fully offline), and its evidence is labeled `[PLAYWRIGHT-FALLBACK]` — never AntiFan-verified.
 
 ## 4. Downstream Rules
 - Software Development: `.cursor/rules/development-rules.md`

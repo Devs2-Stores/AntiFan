@@ -2234,7 +2234,7 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectStyles');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
+      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -2243,7 +2243,7 @@ export class TabAutomationHost {
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const wc = this.ctx.getTabWebContents(targetId, effectivePane);
       if (!wc || wc.isDestroyed()) {
-        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Target WebContents is destroyed or unavailable');
+        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable');
       }
 
       let descriptor: SemanticElementDescriptor | undefined;
@@ -2305,7 +2305,7 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectRegion');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
+      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -2314,7 +2314,7 @@ export class TabAutomationHost {
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const wc = this.ctx.getTabWebContents(targetId, effectivePane);
       if (!wc || wc.isDestroyed()) {
-        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Target WebContents is destroyed or unavailable');
+        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable');
       }
 
       let descriptor: SemanticElementDescriptor | undefined;
@@ -2375,7 +2375,7 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectFont');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
+      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -2384,7 +2384,7 @@ export class TabAutomationHost {
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const wc = this.ctx.getTabWebContents(targetId, effectivePane);
       if (!wc || wc.isDestroyed()) {
-        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Target WebContents is destroyed or unavailable');
+        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable');
       }
 
       let descriptor: SemanticElementDescriptor | undefined;
@@ -2500,7 +2500,7 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectPageGlobal');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
+      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -2509,7 +2509,7 @@ export class TabAutomationHost {
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const wc = this.ctx.getTabWebContents(targetId, effectivePane);
       if (!wc || wc.isDestroyed()) {
-        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Target WebContents is destroyed or unavailable');
+        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable');
       }
 
       // Sanitize property chain: must be a safe identifier or dot-separated path

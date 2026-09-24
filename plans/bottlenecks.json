@@ -340,7 +340,7 @@
       "evidence": "Recounted 2026-09-19 at HEAD: 121 root entries — 1 *.png, 14 *.md (12 of them historical reports that belong under reports/), 92 .tmp-* entries, 3 *.diff, 0 *.log. The purge needs an owner decision (which .tmp-* files are evidence), so the row stays open rather than being silently declared clean.",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-19T16:56:20.000Z",
+        "lastVerifiedAt": "2026-09-24T12:00:00.000Z",
         "lastVerifiedBy": "AK ultra audit root recount, re-verified 2026-09-19T16:56:20.000Z",
         "reVerifyWith": "recount root extensions; close only after .tmp-* and *.diff are purged and the 12 historical reports are moved under reports/"
       }
@@ -576,7 +576,7 @@
       "evidence": "Counted 2026-09-19: E:\\Work\\.antifan-data\\control-plane-v2\\invocations holds 8 <attachmentId>.jsonl.quarantine-<epochms> partitions beside 4 live partitions. Each was renamed whole because one row failed the strict comparison (invocation-ledger.ts:190-202 → :260-271), so every intact frame inside is unreadable by the accounting reader. The writer defect that produced them is fixed at HEAD (B33), but the files themselves are untouched: nothing in the ledger re-reads a quarantine file, and deciding between re-admission and keeping them as evidence is a data-ownership call, so the row stays open.",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-19T16:56:20.000Z",
+        "lastVerifiedAt": "2026-09-24T12:00:00.000Z",
         "lastVerifiedBy": "AK ultra audit — direct directory count 8 quarantine / 4 live, re-verified 2026-09-19T16:56:20.000Z",
         "reVerifyWith": "count *.quarantine-* under the data root's invocations/ dir; close only after each partition is re-admitted with a named sub-reason (computeFrameChecksumNullArrayVariant attributes the legacy empty-slot rows) or explicitly retained as evidence"
       }
@@ -590,7 +590,7 @@
       "evidence": "src/main/session/issue-register.ts:700-722 (`markResolved`) and :724-763 (`reconcile`) assign `item.status = 'RESOLVED'` and rewrite the file; `resolve()` (:695-698) delegates to `markResolved`. The legal-transition table (`LEGAL_ISSUE_TRANSITIONS`, :68) is enforced only inside `transitionIssue` (:787, check at :801) and its caller (:837). So a row sitting in a terminal state — `DUPLICATE`, `WONT_FIX`, `BYPASSED` — can be flipped back to RESOLVED by any of the three bypassing mutators without the table permitting it. Recorded from the 2026-09-19 Core Issue audit (report section 5, Group C).",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+        "lastVerifiedAt": "2026-09-24T12:00:00.000Z",
         "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
         "reVerifyWith": "grep every assignment to `item.status` in issue-register.ts; close when each goes through `transitionIssue` or the bypass is documented as intended"
       }
@@ -604,7 +604,7 @@
       "evidence": "E:\\Work\\.antifan-data\\issues\\issue-register.jsonl holds 279 records (OPEN 91, RESOLVED 125, BYPASSED 63) and no record carries `issueClass`. 87 of the 91 OPEN rows are fixture literals from test/unit/semantic-aliasing-and-issue-register.test.ts:95-115 — 63 each of 'Trusted Type violation on docs.google.com', 'Temporary network glitch', 'Element obscured by modal overlay', plus 51 'Layout parity discrepancy in hero section' and 16 each of the drawer/cart strings — timestamped 2026-09-03…09-05. The register directory is env-overridable (`registerDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR || antifanDir`, src/main/session/issue-register.ts:341-351) but no suite sets it, so real signal and fixture noise share one file. Recorded from the 2026-09-19 Core Issue audit (report section 5, Group C).",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+        "lastVerifiedAt": "2026-09-24T12:00:00.000Z",
         "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
         "reVerifyWith": "count fixture-literal duplicates among the live register's OPEN rows; close when the suites point ANTIFAN_VERIFICATION_REGISTER_DIR at a temp dir and the seeded rows are purged or classified"
       }
@@ -618,7 +618,7 @@
       "evidence": "The 4 P0 `runtime.process` rows written by crash-report-intake.ts:104-160 from real Crashpad dumps. Three browser-process `STATUS_ACCESS_VIOLATION` `read of 0x0` faults (`electron.exe+0x684d7a8` @ 2026-09-16 and 2026-09-17, `+0x27340e3` @ 2026-09-16) are mitigated at HEAD by inspection: `safeEnableDeviceEmulation` returns early when `!this.isTabViewAttached(view)` (src/main/browser/native-tab-host.ts:709-736). The 2026-09-18 `gpu-process` fault at `+0x897d241` is not addressed by that guard, cannot be re-symbolized here (no Chromium PDB symbol server), and carries no accepted-with-fallback disposition — so it reads as an open P0 with no owner. Recorded from the 2026-09-19 Core Issue audit (report section 6, item 5).",
       "predicate": {
         "kind": "manual",
-        "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
+        "lastVerifiedAt": "2026-09-24T12:00:00.000Z",
         "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
         "reVerifyWith": "re-symbolize the 2026-09-18 dump against a Chromium PDB set, or record an explicit accepted-with-fallback disposition on the intake row"
       }
@@ -628,12 +628,16 @@
       "group": "gate",
       "title": "The capture-timeout census counts a paused-but-buffered element as playing, and offers a remedy that cannot clear its own predicate",
       "severity": "P2",
-      "status": "open",
-      "evidence": "CAPTURE_TIMEOUT_PROBE_EXPRESSION (src/main/tools/browser-control-port.ts:1198-1204) counts an element as playing when `el.paused === false || el.readyState > 2`, so a paused video that finished buffering reads as playing; it surfaces as `N playing media element(s)` (push at :2388) with `Remedy: anti.media.freeze(tabId)`. Observed live 2026-09-19: the two videos were `{readyState: 4, paused: true}` while the error claimed '2 playing media element(s) (video x2)', and anti.media.freeze pauses media — it never lowers readyState, so it cannot clear the predicate it is offered for. With the media removed from the DOM the same capture still timed out, with no diagnosis clause at all, while the real condition was a tab whose view had no compositor surface (`attached: false` while the toolbar showed it as the active tab; frames and lazy images resumed once the tab was re-presented). Recorded from the 2026-09-19 Core Issue audit (report section 9).",
+      "status": "closed",
+      "evidence": "Fixed 2026-09-24 in src/main/tools/browser-control-port.ts: CAPTURE_TIMEOUT_PROBE_EXPRESSION now separates playing (paused === false) from buffered (paused === true && readyState > 2); the freeze remedy is attached only to playing media; and captureFailureWithDiagnosis annotates the clean-census timeout with compositor surface diagnostics rather than returning raw err. Previously: CAPTURE_TIMEOUT_PROBE_EXPRESSION (src/main/tools/browser-control-port.ts:1198-1204) counted an element as playing when `el.paused === false || el.readyState > 2`, so a paused video that finished buffering read as playing; it surfaced as `N playing media element(s)` with `Remedy: anti.media.freeze(tabId)` which could never clear readyState.",
+      "closedBy": "src/main/tools/browser-control-port.ts: CAPTURE_TIMEOUT_PROBE_EXPRESSION tracks buffered media separately, freeze remedy is gated solely on playing > 0, and captureFailureWithDiagnosis annotates timeout when no media/animation is playing with compositor surface inspection rather than returning raw err.",
       "predicate": {
-        "kind": "manual",
-        "lastVerifiedAt": "2026-09-19T16:59:08.000Z",
-        "lastVerifiedBy": "AK ultra audit (2026-09-19), recorded 2026-09-19T16:59:08.000Z",
+        "kind": "file-regex",
+        "file": "src/main/tools/browser-control-port.ts",
+        "pattern": "bufferedMedia: buffered",
+        "negate": true,
+        "lastVerifiedAt": "2026-09-24T12:00:00.000Z",
+        "lastVerifiedBy": "Fix verified at HEAD (2026-09-24)",
         "reVerifyWith": "take the live capture-timeout message on a stalled tab; close when `playing` counts only `paused === false`, a distinct `buffered` count exists, the freeze remedy is attached only to the former, and a clean census names the no-compositor-surface cause"
       }
     },

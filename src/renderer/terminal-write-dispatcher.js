@@ -110,6 +110,8 @@ function sliceUtf8Bytes(str, maxBytes) {
 class TerminalWriteDispatcher {
     requestFrame;
     cancelFrame;
+    activeFrames = new Map();
+    nextFrameId = 0;
     maxFrameBytes;
     constructor(options) {
         this.maxFrameBytes = options?.maxFrameBytes ?? exports.MAX_FRAME_WRITE_BYTES;
@@ -118,19 +120,21 @@ class TerminalWriteDispatcher {
         }
         else if (typeof requestAnimationFrame === 'function') {
             this.requestFrame = (cb) => {
+                const handle = ++this.nextFrameId;
                 let fired = false;
                 let timeoutId = null;
                 const rafId = requestAnimationFrame(() => {
                     if (!fired) {
                         fired = true;
-                        if (timeoutId)
-                            clearTimeout(timeoutId);
+                        this.activeFrames.delete(handle);
+                        clearTimeout(timeoutId);
                         cb();
                     }
                 });
                 timeoutId = setTimeout(() => {
                     if (!fired) {
                         fired = true;
+                        this.activeFrames.delete(handle);
                         try {
                             cancelAnimationFrame(rafId);
                         }
@@ -138,7 +142,8 @@ class TerminalWriteDispatcher {
                         cb();
                     }
                 }, 16);
-                return rafId;
+                this.activeFrames.set(handle, { rafId, timeoutId });
+                return handle;
             };
         }
         else {
@@ -149,10 +154,21 @@ class TerminalWriteDispatcher {
         }
         else if (typeof cancelAnimationFrame === 'function') {
             this.cancelFrame = (id) => {
-                try {
-                    cancelAnimationFrame(id);
+                const frame = this.activeFrames.get(id);
+                if (frame) {
+                    this.activeFrames.delete(id);
+                    try {
+                        cancelAnimationFrame(frame.rafId);
+                    }
+                    catch { }
+                    clearTimeout(frame.timeoutId);
                 }
-                catch { }
+                else {
+                    try {
+                        cancelAnimationFrame(id);
+                    }
+                    catch { }
+                }
             };
         }
         else {
@@ -166,6 +182,7 @@ class TerminalWriteDispatcher {
             queueByteLength: 0,
             isWriting: false,
             writeRafId: null,
+            writeGeneration: 0,
             onPostWrite,
         };
     }
@@ -252,11 +269,15 @@ class TerminalWriteDispatcher {
         const payload = parts.join('');
         target.queueByteLength = Math.max(0, target.queueByteLength - accumulatedBytes);
         target.isWriting = true;
+        const gen = target.writeGeneration;
         let writeCallbackSettled = false;
         const onComplete = () => {
             if (writeCallbackSettled)
                 return;
             writeCallbackSettled = true;
+            if (target.writeGeneration !== gen) {
+                return;
+            }
             target.isWriting = false;
             try {
                 target.onPostWrite?.();
@@ -277,6 +298,7 @@ class TerminalWriteDispatcher {
         }
     }
     cancel(target) {
+        target.writeGeneration = (target.writeGeneration || 0) + 1;
         if (target.writeRafId !== null) {
             this.cancelFrame(target.writeRafId);
             target.writeRafId = null;

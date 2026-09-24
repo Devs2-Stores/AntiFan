@@ -219,8 +219,9 @@ describe('Phase 01: Canonical Authority Contracts, Effect Policy & MCP Envelopes
       'browser.keyboard-press',
       'antifan_keyboard_press',
       'browser.send-keyboard-press',
-      'browser_press_key',
     ];
+
+    assert.strictEqual(catalogue.get('browser_press_key'), undefined, 'browser_press_key must not be registered');
 
     for (const name of keyboardAliases) {
       const cap = catalogue.get(name);

@@ -247,8 +247,8 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
         'browser.keyboard-press',
         'antifan_keyboard_press',
         'browser.send-keyboard-press',
-        'browser_press_key',
       ];
+      assert.strictEqual(catalogue.get('browser_press_key'), undefined, 'browser_press_key must not be registered');
       for (const capName of keyboardCaps) {
         const registered = catalogue.get(capName);
         assert.ok(registered, `Capability ${capName} must be registered`);

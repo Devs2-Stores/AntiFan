@@ -261,8 +261,8 @@ async function runParitySmokeTest() {
     assert.strictEqual(entry.fallbackTool, 'browser_file_upload');
     assert.strictEqual(entry.fallbackResult, 'SUCCESS');
     console.log('[Parity Smoke Test] Milestone 5 SUCCESS: Telemetry record written and content verified.');
-    // Milestone 6: Semantic Snapshot Targeted Find via anti.inspect.find / browser_find
-    console.log('[Parity Smoke Test] Milestone 6: Finding elements via anti.inspect.find and browser_find...');
+    // Milestone 6: Semantic Snapshot Targeted Find via anti.inspect.find / browser.find
+    console.log('[Parity Smoke Test] Milestone 6: Finding elements via anti.inspect.find and browser.find...');
     try {
       const findRes = await catalogue.dispatch('anti.inspect.find', {
         text: 'Checkout',
@@ -274,8 +274,8 @@ async function runParitySmokeTest() {
       assert.strictEqual(findRes?.matches?.[0]?.id, 'checkout-btn');
       assert.ok(findRes?.formattedText?.includes('Proceed to Checkout'));
 
-      // Canonical browser_find Playwright MCP query
-      const pwFindRes = await catalogue.dispatch('browser_find', {
+      // Canonical browser.find query
+      const pwFindRes = await catalogue.dispatch('browser.find', {
         regex: '/checkout/i',
         tabId,
       }, { ...ctx, grant: 'read' });

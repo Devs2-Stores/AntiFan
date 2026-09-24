@@ -701,23 +701,19 @@ export class IssueRegister {
     this.readIssuesForMutation();
     const item = this.issues.find((i) => i.id === id);
     if (!item) return false;
-    item.status = 'RESOLVED';
-    item.resolvedAt = Date.now();
+    const resolvedItem = this.transitionIssue(item.id, 'RESOLVED', { force: true, notes });
     if (evidenceRef) {
       if (Array.isArray(evidenceRef)) {
-        item.evidenceRefs = [...new Set([...(item.evidenceRefs || []), ...evidenceRef])];
-        if (evidenceRef.length > 0 && !item.evidenceRef) {
-          item.evidenceRef = evidenceRef[0];
+        resolvedItem.evidenceRefs = [...new Set([...(resolvedItem.evidenceRefs || []), ...evidenceRef])];
+        if (evidenceRef.length > 0 && !resolvedItem.evidenceRef) {
+          resolvedItem.evidenceRef = evidenceRef[0];
         }
       } else {
-        item.evidenceRef = evidenceRef;
-        item.evidenceRefs = [...new Set([...(item.evidenceRefs || []), evidenceRef])];
+        resolvedItem.evidenceRef = evidenceRef;
+        resolvedItem.evidenceRefs = [...new Set([...(resolvedItem.evidenceRefs || []), evidenceRef])];
       }
+      this.rewriteFile();
     }
-    if (notes) {
-      item.notes = item.notes ? `${item.notes}; ${notes}` : notes;
-    }
-    this.rewriteFile();
     return true;
   }
 
@@ -748,8 +744,9 @@ export class IssueRegister {
 
     for (const item of toResolve) {
       if (item.status !== 'RESOLVED') {
-        item.status = 'RESOLVED';
-        item.resolvedAt = Date.now();
+        this.transitionIssue(item.id, 'RESOLVED', { force: true, notes });
+      } else if (notes) {
+        item.notes = item.notes ? `${item.notes}; ${notes}` : notes;
       }
       if (evidenceRef) {
         if (Array.isArray(evidenceRef)) {
@@ -809,6 +806,9 @@ export class IssueRegister {
     }
 
     item.status = to;
+    if (to === 'RESOLVED' && !item.resolvedAt) {
+      item.resolvedAt = Date.now();
+    }
     if (opts?.notes) {
       item.notes = item.notes ? `${item.notes}; ${opts.notes}` : opts.notes;
     }
@@ -899,9 +899,8 @@ export class IssueRegister {
     if (options?.qaSemantics) {
       issue.qaSemantics = mapQaSemantics({ ...options.qaSemantics, claimId });
       if (options.reflectVerdict !== false && issue.qaSemantics.effectiveVerdict === 'PASS') {
-        issue.status = 'RESOLVED';
         const note = `[QA PASS via claim ${claimId}]`;
-        issue.notes = issue.notes ? `${issue.notes}; ${note}` : note;
+        this.transitionIssue(issue.id, 'RESOLVED', { force: true, notes: note });
       }
     } else if (verification) {
       this.applyVerificationVerdictToIssue(issue, verification);
@@ -945,9 +944,8 @@ export class IssueRegister {
     }
 
     if (mapping.effectiveVerdict === 'PASS' && issue.status === 'VERIFYING') {
-      issue.status = 'RESOLVED';
       const note = `[QA PASS: ${mapping.pathA}]`;
-      issue.notes = issue.notes ? `${issue.notes}; ${note}` : note;
+      this.transitionIssue(issue.id, 'RESOLVED', { force: true, notes: note });
     }
 
     this.rewriteFile();
@@ -969,9 +967,11 @@ export class IssueRegister {
     });
 
     if (verification.verdict === 'VERIFIED') {
-      issue.status = 'RESOLVED';
+      if (!this.issues.some((i) => i.id === issue.id)) {
+        this.issues.push(issue);
+      }
       const note = `[VERIFIED via claim ${verification.id}]`;
-      issue.notes = issue.notes ? `${issue.notes}; ${note}` : note;
+      this.transitionIssue(issue.id, 'RESOLVED', { force: true, notes: note });
     }
   }
 

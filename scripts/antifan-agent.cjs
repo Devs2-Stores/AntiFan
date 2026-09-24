@@ -233,6 +233,8 @@ const TERMINAL_PAIRING_ERRORS = new Set([
   'LAN_ACCESS_FORBIDDEN',
   'SECRETS_IN_URL_FORBIDDEN',
   'PAYLOAD_TOO_LARGE',
+  'TERMINAL_TAB_CLOSED',
+  'BRIDGE_UNREACHABLE',
 ]);
 
 function pairingFailureParts(err) {
@@ -249,6 +251,7 @@ function isTerminalPairingFailure(err) {
   for (const code of TERMINAL_PAIRING_ERRORS) {
     if (msg.includes(code)) return true;
   }
+  if (/ECONNREFUSED/i.test(msg) || /ECONNREFUSED/i.test(errorCode || '')) return true;
   return false;
 }
 

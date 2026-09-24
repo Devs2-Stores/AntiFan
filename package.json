@@ -37,7 +37,7 @@
     "audit": "node scripts/check-bottlenecks.mjs",
     "plans:check": "node scripts/check-plans.mjs",
     "test:fast": "node --test --test-force-exit \".compiled/test/*.test.js\" \".compiled/test/unit/**/*.test.js\" \".compiled/test/benchmark/**/*.test.js\" \".compiled/test/renderer/**/*.test.js\" \".compiled/src/**/*.test.js\" \"test/unit/*.test.mjs\"",
-    "test:canary": "node --test --test-force-exit \"test/unit/canary-*.test.mjs\"",
+    "test:canary": "node --test --test-force-exit \"test/unit/canary/*.test.mjs\"",
     "test:file": "node --test --test-force-exit",
     "test:integration": "node --test --test-force-exit \".compiled/test/integration/**/*.test.js\"",
     "test:unit": "node --test --test-force-exit \"test/unit/*.test.mjs\" \".compiled/test/unit/**/*.test.js\"",

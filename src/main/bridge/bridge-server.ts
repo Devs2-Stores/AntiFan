@@ -1027,6 +1027,30 @@ export class BridgeServer {
                     'refused with POLICY_DENIED. Send requestedGrant in /api/pairing/exchange to avoid this.'
                 );
               }
+              const suppliedTabId = typeof data.tabId === 'string' && data.tabId.trim() ? data.tabId.trim() : undefined;
+              const autoTabId = typeof this.tabHost.getAutomationTabId === 'function' ? this.tabHost.getAutomationTabId() : undefined;
+              const activeTabId = typeof this.tabHost.getActiveTabId === 'function' ? this.tabHost.getActiveTabId() : undefined;
+
+              const effectiveTabId =
+                suppliedTabId ||
+                binding?.browserTarget?.tabId ||
+                (autoTabId && this.hostTabExists(autoTabId) ? autoTabId : undefined) ||
+                (activeTabId && this.hostTabExists(activeTabId) ? activeTabId : undefined);
+
+              const browserTarget: BrowserTarget | undefined = effectiveTabId
+                ? {
+                    projectId,
+                    workspaceId,
+                    runtimeId: lease.runtimeId,
+                    tabId: effectiveTabId,
+                    browserEpoch: binding?.browserTarget?.browserEpoch ?? lease.hostEpoch ?? 1,
+                    documentGeneration: (typeof this.tabHost.getDocumentGeneration === 'function'
+                      ? this.tabHost.getDocumentGeneration(effectiveTabId)
+                      : undefined) ?? binding?.browserTarget?.documentGeneration ?? 1,
+                    ...(binding?.browserTarget?.url ? { url: binding.browserTarget.url } : {}),
+                  }
+                : undefined;
+
               const { launch } = await this.attachmentRegistry.issueAttachment(
                 runId,
                 attemptId,
@@ -1037,7 +1061,10 @@ export class BridgeServer {
                   lease,
                   leaseToken: lease.token,
                   grant,
-                  browserTarget: binding?.browserTarget,
+                  tabId: effectiveTabId,
+                  browserTarget,
+                  browserEpoch: browserTarget?.browserEpoch,
+                  documentGeneration: browserTarget?.documentGeneration,
                   ttlMs: 3_600_000,
                 }
               );
@@ -1398,7 +1425,16 @@ export class BridgeServer {
           try {
             const data = JSON.parse(body || '{}');
             const rawRemoved = Array.isArray(data.removed) ? data.removed : [];
-            if (rawRemoved.length > 0) {
+            const rawCookies: ExtensionCookieInput[] = Array.isArray(data.cookies)
+              ? data.cookies
+              : (Array.isArray(data.upserted) ? data.upserted : []);
+            // Removals are unsupported, but a mixed batch must not drop the
+            // upserts it carries: a user logout (cause 'explicit') otherwise
+            // rejects every legitimate cookie in the same delta. Only a batch
+            // that is *purely* removals is refused outright — that contract is
+            // pinned by native-messaging-e2e-pipeline.test.ts.
+            const removalsSkipped = rawRemoved.length;
+            if (removalsSkipped > 0 && rawCookies.length === 0) {
               res.writeHead(400, responseHeaders);
               res.end(JSON.stringify({
                 success: false,
@@ -1407,9 +1443,9 @@ export class BridgeServer {
               }));
               return;
             }
-            const rawCookies: ExtensionCookieInput[] = Array.isArray(data.cookies)
-              ? data.cookies
-              : (Array.isArray(data.upserted) ? data.upserted : []);
+            if (removalsSkipped > 0) {
+              console.warn(`[antifan] /api/cookies/import: ignoring ${removalsSkipped} removal entr${removalsSkipped === 1 ? 'y' : 'ies'} in mixed batch; hydrating ${rawCookies.length} upsert(s)`);
+            }
             const requestedPartition = typeof data.partition === 'string' && data.partition.trim()
               ? data.partition.trim()
               : (typeof data.targetPartition === 'string' && data.targetPartition.trim()
@@ -2099,7 +2135,9 @@ export class BridgeServer {
                       tabId = affinity.tabId;
                     } else {
                       const closedNotice = affinity.lastUrl ? `(${affinity.lastUrl})` : `(${affinity.tabId})`;
-                      throw new Error(`TERMINAL_TAB_CLOSED: The tab previously attached to this terminal ${closedNotice} was closed. Please rebind or specify a tabId.`);
+                      console.warn(
+                        `[antifan] startSession: tab previously attached to terminal ${terminalSessionId}#${terminalGen} ${closedNotice} was closed or dead; auto-provisioning a replacement agent tab.`
+                      );
                     }
                   }
                 }

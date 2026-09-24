@@ -344,12 +344,12 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
     assert.strictEqual(typeResp.result?.isError, undefined);
   });
 
-  it('5. Dispatches Playwright canonical browser_find and browser_press_key over OMP MCP proxy', async () => {
-    const findResp = await sendMcpToolCall(5, 'browser_find', { text: 'Buy Now' });
+  it('5. Dispatches canonical browser.find and browser.keyboard-press over OMP MCP proxy', async () => {
+    const findResp = await sendMcpToolCall(5, 'browser.find', { text: 'Buy Now' });
     assert.strictEqual(findResp.error, undefined);
     assert.strictEqual(findResp.result?.isError, undefined);
 
-    const pressResp = await sendMcpToolCall(6, 'browser_press_key', { key: 'Control+a' });
+    const pressResp = await sendMcpToolCall(6, 'browser.keyboard-press', { key: 'Control+a' });
     assert.strictEqual(pressResp.error, undefined);
     assert.strictEqual(pressResp.result?.isError, undefined);
   });

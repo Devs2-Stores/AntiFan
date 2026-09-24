@@ -110,7 +110,7 @@ test('core.health is callable through MCP dispatch and reports a reason code', a
   assert.ok(result.gates && typeof result.gates === 'object', 'health must carry the gate results it summarised');
 });
 
-test('retired browser_find routing row is behaviour-preserving: registration and browser.find call the same port method', () => {
+test('retired browser_find routing row is behaviour-preserving: alias is absent and canonical browser.find calls port method', () => {
   const { CapabilityCatalogue } = require(path.join(COMPILED, 'main/tools/capability-catalogue.js'));
   const { BrowserControlPort } = require(path.join(COMPILED, 'main/tools/browser-control-port.js'));
   const { makeControlPlaneId } = require(path.join(COMPILED, 'shared/control-plane-contracts.js'));
@@ -134,26 +134,21 @@ test('retired browser_find routing row is behaviour-preserving: registration and
   });
   registerBrowserCapabilities(catalogue, recordingPort, undefined, () => ROOT);
 
-  const params = { text: 'needle', pattern: 'needle', query: 'needle', tabId: 'tab-1' };
-  for (const name of ['browser.find', 'browser_find']) {
-    calls.length = 0;
-    catalogue.get(name).execute(params, {});
-    assert.deepEqual(calls, [['agentFind', params]], `${name} must call agentFind with the params unchanged`);
-  }
+  // Deprecated non-canonical aliases must be absent from catalogue
+  assert.equal(catalogue.get('browser_find'), undefined, 'browser_find must not be registered');
+  assert.equal(catalogue.get('browser_press_key'), undefined, 'browser_press_key must not be registered');
 
-  // Dispatch parity alone does not prove the params are reachable: a client can
-  // only pass what the advertised schema declares. agentFind accepts tabId,
-  // paneId and maxMatches, so the schema must expose them.
+  // Canonical browser.find must dispatch correctly
+  const params = { text: 'needle', pattern: 'needle', query: 'needle', tabId: 'tab-1' };
+  calls.length = 0;
+  catalogue.get('browser.find').execute(params, {});
+  assert.deepEqual(calls, [['agentFind', params]], 'browser.find must call agentFind with the params unchanged');
+
+  // Targeting properties must be present on canonical browser.find
   const TARGETING = ['tabId', 'paneId', 'maxMatches'];
-  const catalogueProps = catalogue.get('browser_find').inputSchema.properties;
+  const catalogueProps = catalogue.get('browser.find').inputSchema.properties;
   for (const prop of TARGETING) {
-    assert.ok(prop in catalogueProps, `catalogue browser_find schema must advertise ${prop}`);
-  }
-  const advertised = (proxy.definitions || []).find((row) => row[0] === 'browser_find');
-  assert.ok(advertised, 'browser_find must still be advertised');
-  const advertisedProps = advertised[2] || {};
-  for (const prop of TARGETING) {
-    assert.ok(prop in advertisedProps, `advertised browser_find schema must expose ${prop}`);
+    assert.ok(prop in catalogueProps, `catalogue browser.find schema must advertise ${prop}`);
   }
 });
 

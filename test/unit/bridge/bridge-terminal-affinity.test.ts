@@ -117,13 +117,18 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     assert.strictEqual(resp.data?.tabId, 'tab-alive');
   });
 
-  it('2. Fails closed with TERMINAL_TAB_CLOSED when bound tab was closed', async () => {
+  it('2. Auto-provisions a fresh agent tab when the bound tab was closed', async () => {
+    lastSessionCreatedOpts = null;
     const resp = await rpcCall('antifan.cli.startSession', {
       terminalSessionId: 'term-closed',
     });
 
-    assert.strictEqual(resp.success, false);
-    assert.ok(resp.error.includes('TERMINAL_TAB_CLOSED'));
+    // A dead affinity must not deadlock the session: the bridge falls through to
+    // auto-provisioning a dedicated ephemeral agent tab instead of throwing
+    // TERMINAL_TAB_CLOSED at a caller that cannot yet rebind.
+    assert.strictEqual(resp.success, true);
+    assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-created');
+    assert.strictEqual(resp.data?.tabId, 'tab-created');
   });
 
   it('3. Auto-provisions a dedicated agent tab for an unbound terminal, never adopting the user active tab', async () => {

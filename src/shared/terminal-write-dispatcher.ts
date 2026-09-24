@@ -19,6 +19,7 @@ export interface TerminalWriteTarget {
   queueByteLength: number;
   isWriting: boolean;
   writeRafId: number | null;
+  writeGeneration: number;
   onPostWrite?: () => void;
 }
 
@@ -123,6 +124,8 @@ export function sliceUtf8Bytes(str: string, maxBytes: number): { head: string; t
 export class TerminalWriteDispatcher {
   private readonly requestFrame: (callback: () => void) => number;
   private readonly cancelFrame: (id: number) => void;
+  private readonly activeFrames = new Map<number, { rafId: number; timeoutId: number | NodeJS.Timeout | null }>();
+  private nextFrameId = 0;
   public readonly maxFrameBytes: number;
 
   constructor(options?: TerminalDispatcherOptions) {
@@ -132,23 +135,27 @@ export class TerminalWriteDispatcher {
       this.requestFrame = options.requestFrame;
     } else if (typeof requestAnimationFrame === 'function') {
       this.requestFrame = (cb) => {
+        const handle = ++this.nextFrameId;
         let fired = false;
-        let timeoutId: any = null;
+        let timeoutId: number | NodeJS.Timeout | null = null;
         const rafId = requestAnimationFrame(() => {
           if (!fired) {
             fired = true;
-            if (timeoutId) clearTimeout(timeoutId);
+            this.activeFrames.delete(handle);
+            clearTimeout(timeoutId as unknown as NodeJS.Timeout);
             cb();
           }
         });
         timeoutId = setTimeout(() => {
           if (!fired) {
             fired = true;
+            this.activeFrames.delete(handle);
             try { cancelAnimationFrame(rafId); } catch {}
             cb();
           }
         }, 16);
-        return rafId;
+        this.activeFrames.set(handle, { rafId, timeoutId });
+        return handle;
       };
     } else {
       this.requestFrame = (cb) => setTimeout(cb, 16) as unknown as number;
@@ -158,7 +165,14 @@ export class TerminalWriteDispatcher {
       this.cancelFrame = options.cancelFrame;
     } else if (typeof cancelAnimationFrame === 'function') {
       this.cancelFrame = (id) => {
-        try { cancelAnimationFrame(id); } catch {}
+        const frame = this.activeFrames.get(id);
+        if (frame) {
+          this.activeFrames.delete(id);
+          try { cancelAnimationFrame(frame.rafId); } catch {}
+          clearTimeout(frame.timeoutId as unknown as NodeJS.Timeout);
+        } else {
+          try { cancelAnimationFrame(id); } catch {}
+        }
       };
     } else {
       this.cancelFrame = (id) => clearTimeout(id as unknown as NodeJS.Timeout);
@@ -171,6 +185,7 @@ export class TerminalWriteDispatcher {
       queueByteLength: 0,
       isWriting: false,
       writeRafId: null,
+      writeGeneration: 0,
       onPostWrite,
     };
   }
@@ -266,10 +281,14 @@ export class TerminalWriteDispatcher {
     target.queueByteLength = Math.max(0, target.queueByteLength - accumulatedBytes);
     target.isWriting = true;
 
+    const gen = target.writeGeneration;
     let writeCallbackSettled = false;
     const onComplete = () => {
       if (writeCallbackSettled) return;
       writeCallbackSettled = true;
+      if (target.writeGeneration !== gen) {
+        return;
+      }
       target.isWriting = false;
       try {
         target.onPostWrite?.();
@@ -290,6 +309,7 @@ export class TerminalWriteDispatcher {
     }
   }
   public cancel(target: TerminalWriteTarget): void {
+    target.writeGeneration = (target.writeGeneration || 0) + 1;
     if (target.writeRafId !== null) {
       this.cancelFrame(target.writeRafId);
       target.writeRafId = null;

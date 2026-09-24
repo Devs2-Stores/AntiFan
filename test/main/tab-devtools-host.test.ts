@@ -1533,6 +1533,54 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     await Promise.resolve();
   });
 
+  it('32b. a background verification timeout restores the presented tab exactly once', async () => {
+    const { ctx } = createMockContext();
+    ctx.createTab('https://example.com/bg');
+    let attached = false;
+    let attachDepth = 0;
+    const events: string[] = [];
+    const { promise: screenshotPromise, resolve: resolveScreenshot } = Promise.withResolvers<unknown>();
+    const mockWc = {
+      id: 802,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      executeJavaScript: async () => undefined,
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) => method === 'Page.captureScreenshot'
+          ? screenshotPromise
+          : Promise.resolve({ result: { value: { dpr: 1, vw: 4, vh: 4 } } }),
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => mockWc;
+    ctx.isTabViewAttached = () => attachDepth > 0;
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>): Promise<T> => {
+      attachDepth += 1;
+      try {
+        return await action();
+      } finally {
+        attachDepth -= 1;
+      }
+    };
+    ctx.raiseViewForCapture = () => { events.push('raise'); };
+    ctx.reassertPresentedView = () => { events.push('restore'); };
+    const devTools = new TabDevToolsHost(ctx);
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop', { timeoutMs: 20 }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+    );
+    assert.deepStrictEqual(events, ['raise', 'restore']);
+
+    resolveScreenshot({ data: makePng(4, 4).toString('base64') });
+    await Promise.resolve();
+  });
+
   it('33. verification capture uses CDP even if native raster would hang', async () => {
     const { ctx } = createMockContext();
     let attached = false;
@@ -1618,4 +1666,95 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(reasserts >= 1, 'a timed-out viewport capture must reassert the presented view');
   });
 
+
+  it('35. viewport capture raises an attached background view for the raster and restores the user tab', async () => {
+    const { ctx } = createMockContext();
+    ctx.createTab('https://example.com/background');
+    const events: string[] = [];
+    let attachDepth = 0;
+    let raisedWhileAttached = false;
+    let rasteredWhileAttached = false;
+    let restoredWhileAttached = false;
+    ctx.isTabViewAttached = () => attachDepth > 0;
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>): Promise<T> => {
+      events.push('attach');
+      attachDepth += 1;
+      try {
+        return await action();
+      } finally {
+        attachDepth -= 1;
+        events.push('release');
+      }
+    };
+    ctx.raiseViewForCapture = () => {
+      raisedWhileAttached = attachDepth > 0;
+      events.push('raise');
+    };
+    ctx.reassertPresentedView = () => {
+      restoredWhileAttached = attachDepth > 0;
+      events.push('restore');
+    };
+    const devTools = new TabDevToolsHost(ctx);
+    const internals = devTools as unknown as {
+      sendCdpCommand: (wc: unknown, method: string) => Promise<unknown>;
+    };
+    internals.sendCdpCommand = async (_wc, method) => {
+      if (method === 'Page.captureScreenshot') {
+        rasteredWhileAttached = attachDepth > 0;
+        events.push('raster');
+        return { data: makePng(4, 3).toString('base64') };
+      }
+      return {};
+    };
+
+    const data = await devTools.captureScreenshot(undefined, 'tab-2', 'desktop');
+
+    assert.ok(data.length > 0);
+    assert.strictEqual(raisedWhileAttached, true, 'the capture view must still be attached when it is raised');
+    assert.strictEqual(rasteredWhileAttached, true, 'the raster must run while the capture view owns a surface');
+    assert.strictEqual(restoredWhileAttached, true, 'the user tab must be restored before the temporary surface is released');
+    assert.ok(events.indexOf('raise') < events.indexOf('raster'), 'the background surface must be raised before the raster');
+    assert.ok(events.indexOf('raster') < events.indexOf('restore'), 'the presented user tab must be restored after the raster');
+  });
+
+  it('36. background viewport timeout restores the user tab exactly once before releasing the capture surface', async () => {
+    const { ctx } = createMockContext();
+    ctx.createTab('https://example.com/background');
+    const events: string[] = [];
+    let attachDepth = 0;
+    ctx.isTabViewAttached = () => attachDepth > 0;
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>): Promise<T> => {
+      events.push('attach');
+      attachDepth += 1;
+      try {
+        return await action();
+      } finally {
+        attachDepth -= 1;
+        events.push('release');
+      }
+    };
+    ctx.raiseViewForCapture = () => { events.push('raise'); };
+    ctx.reassertPresentedView = () => {
+      assert.ok(attachDepth > 0, 'the user tab must be restored while the temporary capture surface is still owned');
+      events.push('restore');
+    };
+    const devTools = new TabDevToolsHost(ctx);
+    const internals = devTools as unknown as {
+      sendCdpCommand: (wc: unknown, method: string) => Promise<unknown>;
+    };
+    internals.sendCdpCommand = async (_wc, method) => {
+      if (method === 'Page.captureScreenshot') {
+        throw new Error('CDP command Page.captureScreenshot timed out after 4000ms');
+      }
+      return {};
+    };
+
+    await assert.rejects(
+      () => devTools.captureScreenshot(undefined, 'tab-2', 'desktop'),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+    );
+    assert.strictEqual(events.filter((event) => event === 'restore').length, 1, 'a background timeout must restore the user tab exactly once');
+    assert.ok(events.indexOf('raise') < events.indexOf('restore'), 'the capture surface must be raised before restore');
+    assert.ok(events.indexOf('restore') < events.lastIndexOf('release'), 'restore must precede the outer capture-surface release');
+  });
 });

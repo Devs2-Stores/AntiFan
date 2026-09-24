@@ -7,6 +7,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 ## [v1.3.6] - Unreleased
 
 
+### Sửa bảo mật — Terminal: scope mọi lệnh terminal gắn attachment về đúng tab sở hữu (commit `0cf4e68f`)
+- **Vấn đề**: trước bản sửa, một attachment MCP đã pair có thể điều khiển terminal thuộc tab/agent khác — không có kiểm tra sở hữu giữa attachment và tab.
+- **Sửa**: `resolveTerminalCallerScope` trong `src/main/tools/terminal-capabilities.ts` phân giải `ownerTabId(attachmentId)` qua `TerminalOwnershipPort` (`src/main/control-plane/control-plane-runtime.ts`); attachment không gắn tab nào bị từ chối với `TERMINAL_FORBIDDEN`. `operate` (write/resize/close/split) owner-strict; `observe` (wait) cho phép user plane nhưng chặn terminal riêng của attachment khác.
+- **Bằng chứng**: `test/main/` suite xanh; regression mới phát hiện 2026-09-24 (attachment pair qua `/api/pairing/exchange` chưa ghi `tabId` vào record ⇒ `TERMINAL_FORBIDDEN`) được vá trong cùng loạt sửa này — proxy giờ dispatch `browser.rebind-target` để ghi `tabId` vào `AttachmentRegistry` (`capability-transport.ts` → `updateAttachmentTab`).
+
+
 ### Tối ưu — Switch tab: bỏ vòng recycle vô ích và chèn pane đúng chỗ mà z-order muốn (2 bản sửa, có test)
 - **Bậc thang A/B của plan bị chính dữ liệu vô hiệu (đo, không suy luận)**: `r2` chạy **đúng bundle** `a1e5f358…` mà chỉ ở volume của leg 1 vẫn cho **49.02 ms** (warmup, n=530) / **30.95 ms** (leg 1, n=29) — tức bước switch tái hiện **trong cùng một bundle** khi đổi giai đoạn. Cùng bundle `f2e0b41f…` cho 13.48 (leg 4 `burst-off`) / 23.89 (leg 5), và cùng bundle `0b56f9f6…` cho 20.16 (leg 5) / 20.98 (leg 6). Vậy "thang A/B định vị được bước" là **sai**; đại lượng quyết định là **giai đoạn/khối lượng switch**, không phải driver burst — và mọi so sánh phải đọc trong cùng band elapsed.
 - **Cơ chế (đọc từ chính đường switch)**: `attachTabView()` chèn view vào `contentView.children` tại **index của frameBackdrop + 1**, tức *dưới* các tab view mà cú switch này đang thay thế. `enforceZOrder()` sau đó phải **tháo và gắn lại** view, sidebar và toolbar — ba remove, ba add, ba invalidate — để dựng đúng thứ tự mà chính phép chèn kia có thể dựng trực tiếp. Chỉ số chèn phụ thuộc thứ tự `_children` **hiện tại**, nên cùng một bản compile cho 30.95 ms hay 49.02 ms tùy lịch sử attach trước đó: đây là biến ẩn đứng sau khác biệt liên-run.

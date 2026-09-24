@@ -81,7 +81,7 @@ describe('Fresh Inspection Capabilities & Classification Contract', () => {
     return { catalogue, attachmentRegistry, transport, browserPort };
   }
 
-  it('FRESH_INSPECTION_CAPABILITIES contains all 7 canonical and original names', () => {
+  it('FRESH_INSPECTION_CAPABILITIES contains canonical and original names, excluding browser_find', () => {
     const originalNames = [
       'browser.dom',
       'anti.inspect.dom',
@@ -89,7 +89,6 @@ describe('Fresh Inspection Capabilities & Classification Contract', () => {
       'anti.inspect.snapshot',
       'browser.snapshot',
       'browser.find',
-      'browser_find',
     ];
     for (const name of originalNames) {
       assert.strictEqual(
@@ -98,6 +97,11 @@ describe('Fresh Inspection Capabilities & Classification Contract', () => {
         `FRESH_INSPECTION_CAPABILITIES must contain original name '${name}'`
       );
     }
+    assert.strictEqual(
+      FRESH_INSPECTION_CAPABILITIES.has('browser_find'),
+      false,
+      'FRESH_INSPECTION_CAPABILITIES must not contain browser_find'
+    );
   });
 
   it('FRESH_INSPECTION_CAPABILITIES contains known aliases matching the inspection invariant', () => {
@@ -194,7 +198,7 @@ describe('Fresh Inspection Capabilities & Classification Contract', () => {
     assert.strictEqual(isFreshInspectionCapability('anti.inspect.dom', readPolicy), true);
     assert.strictEqual(isFreshInspectionCapability('anti.inspect.snapshot', readPolicy), true);
     assert.strictEqual(isFreshInspectionCapability('browser.find', readPolicy), true);
-    assert.strictEqual(isFreshInspectionCapability('browser_find', readPolicy), true);
+    assert.strictEqual(isFreshInspectionCapability('browser_find', readPolicy), false);
   });
 
   it('isFreshInspectionCapability fails closed on write effect or eval risk', () => {

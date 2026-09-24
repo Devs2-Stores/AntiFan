@@ -1696,6 +1696,21 @@ export class TabDevToolsHost {
             }
           }
 
+          // A helper-attached background view is still occluded by the user's tab.
+          // Move it to the capture host for exactly this raster so fromSurface sees
+          // a compositor frame without changing the visible active tab.
+          const shouldRaiseForRaster = !isForeground && !isOffscreenTarget && Boolean(targetPaneView);
+          if (shouldRaiseForRaster) {
+            this.ctx.raiseViewForCapture?.(targetPaneView);
+            try {
+              await this.evalJs(
+                'new Promise(r => { const t = setTimeout(r, 60); if (typeof requestAnimationFrame === "function") { requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); } })',
+                targetId,
+                effectivePane
+              );
+            } catch {}
+          }
+
           // `fromSurface` is always true: Chromium's native-window snapshot path
           // (fromSurface:false) dereferences the target's native window, which an
           // offscreen (OSR) agent tab does not have, and that dereference kills the
@@ -1716,11 +1731,19 @@ export class TabDevToolsHost {
               return cdpRes.data;
             }
           } catch (err) {
-            try { this.ctx.reassertPresentedView?.(); } catch {}
+            if (!shouldRaiseForRaster) {
+              try { this.ctx.reassertPresentedView?.(); } catch {}
+            }
             throw this.toCaptureError(err, `Page.captureScreenshot (viewport) on tab '${targetId}'`);
+          } finally {
+            if (shouldRaiseForRaster) {
+              try { this.ctx.reassertPresentedView?.(); } catch {}
+            }
           }
 
-          try { this.ctx.reassertPresentedView?.(); } catch {}
+          if (!shouldRaiseForRaster) {
+            try { this.ctx.reassertPresentedView?.(); } catch {}
+          }
           return '';
         };
 
@@ -2222,7 +2245,9 @@ export class TabDevToolsHost {
             // view is still attached: the compositor stopped committing frames.
             // Re-assert restores z-order and invalidates so the user sees the page
             // again instead of a white content box (measured: dienmaycholon.com).
-            this.ctx.reassertPresentedView?.();
+            if (!shouldRaiseForRaster) {
+              this.ctx.reassertPresentedView?.();
+            }
             throw this.toCaptureError(err, `Page.captureScreenshot (${mode}) on tab '${targetId}'`);
           } finally {
             if (shouldRaiseForRaster) {

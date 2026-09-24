@@ -1,5 +1,5 @@
 {
-  "totalTools": 52,
+  "totalTools": 129,
   "categories": {
     "browser": [
       {
@@ -19,17 +19,17 @@
       },
       {
         "name": "anti.browser.tabs.create",
-        "description": "Open a new tab in live AntiFan Desktop Browser GUI without stealing focus.",
+        "description": "Open a new tab in live AntiFan Desktop Browser GUI without stealing focus by default.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "url": {
               "type": "string"
+            },
+            "activate": {
+              "type": "boolean"
             }
-          },
-          "required": [
-            "url"
-          ]
+          }
         },
         "category": "browser"
       },
@@ -52,6 +52,38 @@
       {
         "name": "anti.browser.tabs.close",
         "description": "Close a tab in live AntiFan Desktop Browser GUI by tabId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tabId"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.rebind_target",
+        "description": "Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tabId"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.set_automation_target",
+        "description": "Set the primary automation target tab for this session (authority rotation via CAS).",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -130,6 +162,19 @@
         "category": "browser"
       },
       {
+        "name": "anti.browser.get_viewport",
+        "description": "Get the bound tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "browser"
+      },
+      {
         "name": "anti.browser.evaluate",
         "description": "Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set.",
         "inputSchema": {
@@ -137,6 +182,10 @@
           "properties": {
             "expression": {
               "type": "string"
+            },
+            "expressionFile": {
+              "type": "string",
+              "description": "Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression"
             },
             "tabId": {
               "type": "string"
@@ -153,8 +202,63 @@
               "description": "Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)"
             }
           },
+          "oneOf": [
+            {
+              "required": [
+                "expression"
+              ]
+            },
+            {
+              "required": [
+                "expressionFile"
+              ]
+            }
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.evaluate_frame",
+        "description": "Execute JavaScript inside a child frame selected by frameUrl substring.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "expression": {
+              "type": "string"
+            },
+            "expressionFile": {
+              "type": "string",
+              "description": "Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression"
+            },
+            "frameUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          },
           "required": [
-            "expression"
+            "frameUrl"
+          ],
+          "oneOf": [
+            {
+              "required": [
+                "expression"
+              ]
+            },
+            {
+              "required": [
+                "expressionFile"
+              ]
+            }
           ]
         },
         "category": "browser"
@@ -187,6 +291,135 @@
           "required": [
             "width",
             "height"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "browser.get-viewport",
+        "description": "Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tabId": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "browser"
+      },
+      {
+        "name": "browser.wait",
+        "description": "Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, or legacy condition states",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "condition": {
+              "type": "string",
+              "enum": [
+                "selector",
+                "url",
+                "navigation",
+                "dom-stable",
+                "network",
+                "actionability",
+                "generation",
+                "ref",
+                "document_loaded",
+                "url_match",
+                "network_idle",
+                "dom_stable"
+              ],
+              "description": "Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation (or legacy aliases)"
+            },
+            "selector": {
+              "type": "string",
+              "description": "CSS selector to wait for"
+            },
+            "ref": {
+              "type": "string",
+              "description": "Semantic reference token (@e1) to wait for"
+            },
+            "urlPattern": {
+              "type": "string",
+              "description": "URL pattern or substring to match"
+            },
+            "url": {
+              "type": "string",
+              "description": "Alias for urlPattern"
+            },
+            "minGeneration": {
+              "type": "number",
+              "description": "Minimum document generation to wait for (generation or navigation condition)"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "attached",
+                "visible",
+                "actionable",
+                "detached",
+                "hidden"
+              ]
+            },
+            "timeoutMs": {
+              "type": "number",
+              "description": "Timeout in milliseconds (5000 default, 30000 max)"
+            },
+            "idleWindowMs": {
+              "type": "number",
+              "description": "Debounce idle window in milliseconds (500 default)"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          },
+          "required": [
+            "condition"
+          ]
+        },
+        "category": "browser"
+      },
+      {
+        "name": "anti.browser.dump_dom",
+        "description": "Stream clean or raw page DOM directly to a workspace file with zero MCP transport truncation and Windows-safe atomic writes.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "outputPath": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "clean": {
+              "type": "boolean",
+              "default": true
+            },
+            "materialize": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "outputPath"
           ]
         },
         "category": "browser"
@@ -448,7 +681,7 @@
       },
       {
         "name": "anti.screenshot.full_page",
-        "description": "Capture canonical CDP full-page evidence (entire document scroll height) and stage it under the evidence lease.",
+        "description": "Capture canonical PNG full-page evidence (entire document scroll height) and stage it under the evidence lease.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -465,12 +698,17 @@
             "format": {
               "type": "string",
               "enum": [
-                "png",
-                "jpeg"
+                "png"
               ]
             },
             "quality": {
               "type": "number"
+            },
+            "leaseToken": {
+              "type": "string"
+            },
+            "expectedUrl": {
+              "type": "string"
             }
           }
         },
@@ -521,6 +759,9 @@
             "baselineScreenshotRef": {
               "type": "string"
             },
+            "baselineRef": {
+              "type": "string"
+            },
             "comparisonTabId": {
               "type": "string"
             },
@@ -565,6 +806,36 @@
             "fullPage": {
               "type": "boolean",
               "description": "Capture and compare entire document scroll height"
+            },
+            "useDefaultWidgetMasks": {
+              "type": "boolean"
+            },
+            "leaseToken": {
+              "type": "string"
+            },
+            "trackedSelectors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "heightTolerance": {
+              "type": "number"
+            },
+            "allowHeightDrift": {
+              "type": "boolean"
+            },
+            "maxGeometryDeltaPx": {
+              "type": "number"
+            },
+            "expectedUrl": {
+              "type": "string"
+            },
+            "expectedTargetUrl": {
+              "type": "string"
+            },
+            "expectedBaselineUrl": {
+              "type": "string"
             },
             "tabId": {
               "type": "string"
@@ -758,6 +1029,43 @@
           }
         },
         "category": "theme"
+      },
+      {
+        "name": "anti.theme.export_clean",
+        "description": "Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "outputPath": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            },
+            "clean": {
+              "type": "boolean",
+              "default": true
+            },
+            "materialize": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "outputPath"
+          ]
+        },
+        "category": "theme"
       }
     ],
     "verification": [
@@ -795,7 +1103,8 @@
                 "INTERACTION",
                 "LAYOUT",
                 "RESPONSIVE",
-                "CUSTOM"
+                "CUSTOM",
+                "VISUAL"
               ]
             },
             "actor": {
@@ -887,10 +1196,35 @@
           "type": "object",
           "properties": {
             "verdict": {
+              "type": "string",
+              "enum": [
+                "VERIFIED",
+                "PARTIAL",
+                "REJECTED",
+                "INCONCLUSIVE",
+                "UNVERIFIED"
+              ]
+            },
+            "actor": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "user"
+              ]
+            },
+            "tabId": {
               "type": "string"
             },
-            "category": {
-              "type": "string"
+            "stalemateState": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "STALEMATE",
+                "EXEMPTION_WAIVED"
+              ]
+            },
+            "limit": {
+              "type": "number"
             }
           }
         },
@@ -915,6 +1249,10 @@
             },
             "y": {
               "type": "number"
+            },
+            "force": {
+              "type": "boolean",
+              "description": "Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target"
             },
             "tabId": {
               "type": "string"
@@ -948,6 +1286,10 @@
             "y": {
               "type": "number"
             },
+            "force": {
+              "type": "boolean",
+              "description": "Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target"
+            },
             "tabId": {
               "type": "string"
             },
@@ -979,6 +1321,10 @@
             },
             "clear": {
               "type": "boolean"
+            },
+            "force": {
+              "type": "boolean",
+              "description": "Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target"
             },
             "tabId": {
               "type": "string"
@@ -1043,6 +1389,10 @@
             },
             "y": {
               "type": "number"
+            },
+            "force": {
+              "type": "boolean",
+              "description": "Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target"
             },
             "tabId": {
               "type": "string"
@@ -1170,6 +1520,62 @@
             "refOrSelector",
             "filePaths"
           ]
+        },
+        "category": "agent_cursor"
+      },
+      {
+        "name": "anti.agent.drag",
+        "description": "Drag a control (price slider, range handle, drag-to-reorder row) from one element/coordinate to another with a bounded interpolated pointer gesture. A press-and-release at the destination alone does not move a slider library.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "fromRef": {
+              "type": "string",
+              "description": "Origin semantic ref (@e1) from a snapshot"
+            },
+            "fromSelector": {
+              "type": "string",
+              "description": "Origin CSS selector"
+            },
+            "fromX": {
+              "type": "number"
+            },
+            "fromY": {
+              "type": "number"
+            },
+            "toRef": {
+              "type": "string",
+              "description": "Destination semantic ref (@e1)"
+            },
+            "toSelector": {
+              "type": "string",
+              "description": "Destination CSS selector"
+            },
+            "toX": {
+              "type": "number"
+            },
+            "toY": {
+              "type": "number"
+            },
+            "steps": {
+              "type": "number",
+              "description": "Interpolated pointer-move steps, clamped to 4..20 (default 10)"
+            },
+            "force": {
+              "type": "boolean",
+              "description": "Skip the occlusion and animation-stability gates for a knowingly covered target"
+            },
+            "tabId": {
+              "type": "string"
+            },
+            "paneId": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile"
+              ]
+            }
+          }
         },
         "category": "agent_cursor"
       },
@@ -1313,6 +1719,9 @@
                 "desktop",
                 "mobile"
               ]
+            },
+            "maxMatches": {
+              "type": "number"
             }
           }
         },
@@ -1333,6 +1742,176 @@
           },
           "required": [
             "key"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.list",
+        "description": "List iOS devices attached to this host (live enumeration over the USB multiplexer). Tier-2 surface: the real phone, not a Chromium pane.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.status",
+        "description": "Read physical device readiness gates (attachment, trust, Developer Mode, UI Automation, WebDriverAgent) plus the current device binding. Reports absence honestly instead of failing, so \"not set up\" is never mistaken for \"broken\".",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "deviceId": {
+              "type": "string",
+              "description": "Device UDID; omit when exactly one device is attached"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.open_safari",
+        "description": "Establish the Safari automation surface on the device (ensure the WebDriverAgent session) and return the bound device target, optionally deep-linking to a url.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "deviceId": {
+              "type": "string",
+              "description": "Device UDID; omit when exactly one device is attached"
+            },
+            "url": {
+              "type": "string",
+              "description": "Optional url to open on the device (deep-link; no load wait)"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.navigate",
+        "description": "Open a url in Safari on the real device. This is a deep-link: it returns immediately and never waits for load, so follow it with device.wait when a settled page matters.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.reload",
+        "description": "Re-open the last url this surface navigated to. WebDriverAgent exposes no refresh route and no URL readback, so reload is refused when no url is remembered.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.screenshot",
+        "description": "Capture real-device screenshot evidence (the actual panel pixels a human would see) into the artifact store as a Tier-2 receipt.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.tap",
+        "description": "Tap a point on the device panel. Coordinates are CSS points (the device viewport space), not raw pixels.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.swipe",
+        "description": "Swipe on the device panel with a native gesture; momentum scrolling is produced by the device and nothing is emulated.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "x1": {
+              "type": "number"
+            },
+            "y1": {
+              "type": "number"
+            },
+            "x2": {
+              "type": "number"
+            },
+            "y2": {
+              "type": "number"
+            },
+            "durationMs": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x1",
+            "y1",
+            "x2",
+            "y2"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.type",
+        "description": "Type text through the native keyboard into the currently focused field (tap the input first; WebDriverAgent types into the active element).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "device.wait",
+        "description": "Wait on the real device: 'timeout' sleeps; 'page_loaded'/'stable' sample frames until rendering stops changing. That is a rendering heuristic, not a load or network-idle guarantee.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "timeout",
+                "page_loaded",
+                "stable"
+              ]
+            },
+            "value": {
+              "type": "number",
+              "description": "Milliseconds for type 'timeout'"
+            },
+            "timeoutMs": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "type"
           ]
         },
         "category": "other"
@@ -1434,7 +2013,7 @@
       },
       {
         "name": "anti.media.freeze",
-        "description": "Freeze or unfreeze dynamic media (videos, audios, CSS animations, requestAnimationFrame) in tab to enable deterministic visual comparisons.",
+        "description": "Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1453,6 +2032,1326 @@
               "description": "True to freeze media and pause animations; false to resume"
             }
           }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.query",
+        "description": "Query the local Super Core evidence store: anchored claims filtered by text/platform/unit/kind. Platform filter excludes untagged claims unless includeGlobal.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "unitId": {
+              "type": "string"
+            },
+            "unitIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "number"
+            },
+            "includeGlobal": {
+              "type": "boolean"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.context_pack",
+        "description": "Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope. Packs dedupe on (task, platform, sessionId, scope).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "unitIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "limit": {
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "includeGlobal": {
+              "type": "boolean"
+            },
+            "scope": {
+              "type": "string",
+              "description": "Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack."
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.recommend",
+        "description": "Recommend from evidence: Context Pack + recommendation or explicit abstention.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "unitIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "includeGlobal": {
+              "type": "boolean"
+            },
+            "scope": {
+              "type": "string",
+              "description": "Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack."
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.receipt",
+        "description": "Issue a Decision Receipt binding task context and evidence revisions. Refused when Core unavailable.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "packId": {
+              "type": "string"
+            },
+            "recommendation": {
+              "type": "string"
+            },
+            "abstained": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "task",
+            "recommendation"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.ingest_outcome",
+        "description": "Ingest a verified outcome as a case + pending candidate (never auto-promoted).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "context": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "verificationRef": {
+              "type": "string"
+            },
+            "unitId": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task",
+            "outcome"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.adjudicate",
+        "description": "Adjudicate a candidate (PROMOTE/REJECT/SUPERSEDE) with explicit authority. Refused when Core unavailable.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "candidateId": {
+              "type": "string"
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "PROMOTE",
+                "REJECT",
+                "SUPERSEDE"
+              ]
+            },
+            "authority": {
+              "type": "string"
+            },
+            "rationale": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "production",
+                "acceptance-test"
+              ]
+            }
+          },
+          "required": [
+            "candidateId",
+            "decision",
+            "authority"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.stats",
+        "description": "Return Super Core store counts for verification.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.health",
+        "description": "Aggregated Core Health: status, reasonCode, stats, audit, decay and phase gates. Read-only.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "staleDays": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.reuse_metric",
+        "description": "Historical reuse for a task: found + injected + outcome-linked counts, each witnessed by rows. Read-only.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.domain",
+        "description": "Return a domain view (units, claims, eligible skills, gaps) or insufficient-evidence.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.invalidate",
+        "description": "Mark claims stale when their source changed or was deleted.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "entryId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.revoke",
+        "description": "Revoke claims derived from a restricted source (permission propagation).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "entryId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.snapshot",
+        "description": "Create a release snapshot for regression/rollback.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.rollback",
+        "description": "Restore claims/candidates to a release snapshot.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "releaseId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "releaseId"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_experience_node",
+        "description": "Record an experience graph node (CLIENT_REQUEST, PROJECT, TASK, CONTEXT, DECISION, IMPLEMENTATION, ARTIFACT, VERIFICATION, PRODUCTION, FEEDBACK, LESSON).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "refId": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "context": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_experience_edge",
+        "description": "Record an experience graph edge between two nodes.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "fromNodeId": {
+              "type": "string"
+            },
+            "toNodeId": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "fromNodeId",
+            "toNodeId",
+            "kind"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.experience_chain",
+        "description": "Traverse the experience graph from a node (BFS, depth-bounded).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "fromNodeId": {
+              "type": "string"
+            },
+            "depth": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "fromNodeId"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_anti_pattern",
+        "description": "Record an anti-pattern: what not to do, symptoms, evidence, affected platform, replacement.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "whatNotToDo": {
+              "type": "string"
+            },
+            "symptoms": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "string"
+            },
+            "affectedPlatform": {
+              "type": "string"
+            },
+            "replacement": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.anti_patterns",
+        "description": "List anti-patterns, optionally filtered by platform/status.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_workaround",
+        "description": "Record a workaround: problem, condition, solution, reason, platform, version, evidence.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "problem": {
+              "type": "string"
+            },
+            "condition": {
+              "type": "string"
+            },
+            "solution": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "problem"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.workarounds",
+        "description": "List workarounds, optionally filtered by platform/stillValid.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string"
+            },
+            "stillValid": {
+              "type": "boolean"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_fix_pattern",
+        "description": "Record a fix pattern: before, after, why, evidence, lesson.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "before": {
+              "type": "string"
+            },
+            "after": {
+              "type": "string"
+            },
+            "why": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "string"
+            },
+            "lesson": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.fix_patterns",
+        "description": "List fix patterns.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.find_similar",
+        "description": "Find similar claims, cases, decisions, anti-patterns, workarounds, fix patterns for a task. Platform filter excludes untagged rows unless includeGlobal.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "number"
+            },
+            "includeGlobal": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.classify_uncertainty",
+        "description": "Classify uncertainty level for a claim or task.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "claimId": {
+              "type": "string"
+            },
+            "task": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.decay_check",
+        "description": "Check for stale/aging claims beyond a threshold.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "staleDays": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.corpus_audit",
+        "description": "Run a corpus completion audit (read-only evaluation).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.candidates",
+        "description": "List adjudication candidates (default PENDING).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.knowledge_gaps",
+        "description": "Classify per-platform knowledge gaps: NO_EVIDENCE (never had claims), STALE (claims exist, none fresh), CONFLICTED (claims + unresolved conflicts), NONE.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "staleDays": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.check_phase_gate",
+        "description": "Check a phase gate (coverage, evidence, conflict, temporal, promotion, regression).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "phase": {
+              "type": "string"
+            },
+            "gate": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "phase",
+            "gate"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.resolve_conflict",
+        "description": "Resolve or classify a conflict (GENERAL_RULE, CONTEXTUAL_RULE, LEGACY_RULE, EXCEPTION, CONFLICTED, UNRESOLVED).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "classification": {
+              "type": "string",
+              "enum": [
+                "GENERAL_RULE",
+                "CONTEXTUAL_RULE",
+                "LEGACY_RULE",
+                "EXCEPTION",
+                "CONFLICTED",
+                "UNRESOLVED"
+              ]
+            },
+            "note": {
+              "type": "string"
+            },
+            "resolved": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "classification"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_regression",
+        "description": "Record a core regression definition; core.replay_regression re-executes its checks against live state and writes the result.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "newKnowledge": {
+              "type": "string"
+            },
+            "affectedRules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "affectedCases": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "affectedRecommendations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.replay_regression",
+        "description": "Re-execute a recorded regression's checks against live state and write replayResult + replayedAt.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "regressionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "regressionId"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_observation",
+        "description": "Record a raw observation (source, kind, payload) into the learning loop.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "payload": {}
+          },
+          "required": [
+            "source",
+            "kind"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_principle",
+        "description": "Record a personal engineering principle.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "statement": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "derivedFrom": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "statement"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.principles",
+        "description": "List principles.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_hidden_requirement",
+        "description": "Record a hidden requirement inferred from a task.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "explicitReq": {
+              "type": "string"
+            },
+            "inferredReq": {
+              "type": "string"
+            },
+            "likelihood": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.hidden_requirements",
+        "description": "List hidden requirements.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_commercial",
+        "description": "Record commercial intelligence for a task type.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "taskType": {
+              "type": "string"
+            },
+            "quote": {
+              "type": "number"
+            },
+            "scope": {
+              "type": "string"
+            },
+            "estimate": {
+              "type": "number"
+            },
+            "actual": {
+              "type": "number"
+            },
+            "risk": {
+              "type": "string"
+            },
+            "revisionCount": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "taskType"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.commercial_intel",
+        "description": "List commercial intelligence records.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "taskType": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_tool",
+        "description": "Record tool intelligence.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "problemSolved": {
+              "type": "string"
+            },
+            "workflowStage": {
+              "type": "string"
+            },
+            "inputs": {
+              "type": "string"
+            },
+            "outputs": {
+              "type": "string"
+            },
+            "failureModes": {
+              "type": "string"
+            },
+            "timeSaved": {
+              "type": "number"
+            },
+            "maintenanceCost": {
+              "type": "number"
+            },
+            "roi": {
+              "type": "number"
+            },
+            "usageFrequency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.tool_intel",
+        "description": "List tool intelligence records.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_archetype",
+        "description": "Record a project archetype.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "maturityLevel": {
+              "type": "number"
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.archetypes",
+        "description": "List archetypes.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_platform_semantic",
+        "description": "Record a platform semantic fact.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string"
+            },
+            "semanticRole": {
+              "type": "string"
+            },
+            "propertyName": {
+              "type": "string"
+            },
+            "cssFact": {
+              "type": "string"
+            },
+            "semanticTruth": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "semanticRole"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.platform_semantics",
+        "description": "List platform semantics.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string"
+            },
+            "semanticRole": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_practice_parity",
+        "description": "Record declared vs observed practice parity.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "practice": {
+              "type": "string"
+            },
+            "declared": {
+              "type": "string"
+            },
+            "observed": {
+              "type": "string"
+            },
+            "gap": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "practice"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.practice_parity",
+        "description": "List practice parity records.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "practice": {
+              "type": "string"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.record_skill_version",
+        "description": "Record a skill version/failure/fix/production event.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "skillId": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "failure": {
+              "type": "string"
+            },
+            "fix": {
+              "type": "string"
+            },
+            "production": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "skillId"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.skill_genealogy",
+        "description": "List skill version history.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "skillId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "skillId"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.context_pack_v2",
+        "description": "Build an enriched Context Pack: claims + rules + historical cases + pitfalls + workarounds + recommended pattern + uncertainty + confidence.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "unitIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "limit": {
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "includeGlobal": {
+              "type": "boolean"
+            },
+            "scope": {
+              "type": "string",
+              "description": "Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack."
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "core.receipt_v2",
+        "description": "Issue an enriched Decision Receipt: evidence revisions + why + historical cases + risks + alternatives + uncertainty + confidence.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "packId": {
+              "type": "string"
+            },
+            "recommendation": {
+              "type": "string"
+            },
+            "abstained": {
+              "type": "boolean"
+            },
+            "platform": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task",
+            "recommendation"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "terminal.write",
+        "description": "Write raw input text to an active PTY terminal session. Writing to a SLEEPING session wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Target terminal session ID"
+            },
+            "input": {
+              "type": "string",
+              "description": "Data/commands to write into PTY stdin"
+            }
+          },
+          "required": [
+            "sessionId",
+            "input"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "terminal.resize",
+        "description": "Resize terminal rows and columns for an active PTY session",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Target terminal session ID"
+            },
+            "cols": {
+              "type": "number",
+              "description": "Terminal columns"
+            },
+            "rows": {
+              "type": "number",
+              "description": "Terminal rows"
+            }
+          },
+          "required": [
+            "sessionId",
+            "cols",
+            "rows"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "terminal.wait",
+        "description": "Wait for output-match pattern, process exit, or silence on a terminal session. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Terminal session ID"
+            },
+            "condition": {
+              "type": "string",
+              "enum": [
+                "output-match",
+                "exit",
+                "silence"
+              ]
+            },
+            "pattern": {
+              "type": "string",
+              "description": "Regex pattern for output-match"
+            },
+            "sessionGeneration": {
+              "type": "number",
+              "description": "Expected session incarnation"
+            },
+            "afterSeq": {
+              "type": "number",
+              "description": "Sequence cursor"
+            },
+            "silenceMs": {
+              "type": "number",
+              "description": "Silence duration threshold in milliseconds"
+            },
+            "timeoutMs": {
+              "type": "number",
+              "description": "Wait deadline in milliseconds"
+            }
+          },
+          "required": [
+            "sessionId",
+            "condition"
+          ]
+        },
+        "category": "other"
+      },
+      {
+        "name": "terminal.list",
+        "description": "List active terminal sessions with bounded wire summary and incarnation metadata",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "paged": {
+              "type": "boolean",
+              "description": "Whether to page buffers according to wire budget"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "terminal.create",
+        "description": "Create a new base or split terminal PTY session",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "cwd": {
+              "type": "string"
+            },
+            "parentId": {
+              "type": "string"
+            },
+            "initialCols": {
+              "type": "number"
+            },
+            "initialRows": {
+              "type": "number"
+            }
+          }
+        },
+        "category": "other"
+      },
+      {
+        "name": "terminal.close",
+        "description": "Close a terminal session and safely terminate its process tree",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Session ID to close"
+            },
+            "isSplit": {
+              "type": "boolean",
+              "description": "Whether target is a split session"
+            }
+          },
+          "required": [
+            "sessionId"
+          ]
         },
         "category": "other"
       }
@@ -1475,17 +3374,17 @@
     },
     {
       "name": "anti.browser.tabs.create",
-      "description": "Open a new tab in live AntiFan Desktop Browser GUI without stealing focus.",
+      "description": "Open a new tab in live AntiFan Desktop Browser GUI without stealing focus by default.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string"
+          },
+          "activate": {
+            "type": "boolean"
           }
-        },
-        "required": [
-          "url"
-        ]
+        }
       }
     },
     {
@@ -1506,6 +3405,36 @@
     {
       "name": "anti.browser.tabs.close",
       "description": "Close a tab in live AntiFan Desktop Browser GUI by tabId.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ]
+      }
+    },
+    {
+      "name": "anti.browser.rebind_target",
+      "description": "Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ]
+      }
+    },
+    {
+      "name": "anti.browser.set_automation_target",
+      "description": "Set the primary automation target tab for this session (authority rotation via CAS).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1601,7 +3530,7 @@
     },
     {
       "name": "anti.screenshot.full_page",
-      "description": "Capture canonical CDP full-page evidence (entire document scroll height) and stage it under the evidence lease.",
+      "description": "Capture canonical PNG full-page evidence (entire document scroll height) and stage it under the evidence lease.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1618,12 +3547,17 @@
           "format": {
             "type": "string",
             "enum": [
-              "png",
-              "jpeg"
+              "png"
             ]
           },
           "quality": {
             "type": "number"
+          },
+          "leaseToken": {
+            "type": "string"
+          },
+          "expectedUrl": {
+            "type": "string"
           }
         }
       }
@@ -1695,6 +3629,18 @@
       }
     },
     {
+      "name": "anti.browser.get_viewport",
+      "description": "Get the bound tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
       "name": "anti.agent.cursor.click",
       "description": "Move visual Agent Cursor and click an element in live AntiFan Desktop tab without stealing visual focus.",
       "inputSchema": {
@@ -1711,6 +3657,10 @@
           },
           "y": {
             "type": "number"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target"
           },
           "tabId": {
             "type": "string"
@@ -1743,6 +3693,10 @@
           "y": {
             "type": "number"
           },
+          "force": {
+            "type": "boolean",
+            "description": "Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target"
+          },
           "tabId": {
             "type": "string"
           },
@@ -1773,6 +3727,10 @@
           },
           "clear": {
             "type": "boolean"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target"
           },
           "tabId": {
             "type": "string"
@@ -1835,6 +3793,10 @@
           },
           "y": {
             "type": "number"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target"
           },
           "tabId": {
             "type": "string"
@@ -1923,6 +3885,9 @@
               "desktop",
               "mobile"
             ]
+          },
+          "maxMatches": {
+            "type": "number"
           }
         }
       }
@@ -1942,6 +3907,166 @@
         },
         "required": [
           "key"
+        ]
+      }
+    },
+    {
+      "name": "device.list",
+      "description": "List iOS devices attached to this host (live enumeration over the USB multiplexer). Tier-2 surface: the real phone, not a Chromium pane.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "device.status",
+      "description": "Read physical device readiness gates (attachment, trust, Developer Mode, UI Automation, WebDriverAgent) plus the current device binding. Reports absence honestly instead of failing, so \"not set up\" is never mistaken for \"broken\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "Device UDID; omit when exactly one device is attached"
+          }
+        }
+      }
+    },
+    {
+      "name": "device.open_safari",
+      "description": "Establish the Safari automation surface on the device (ensure the WebDriverAgent session) and return the bound device target, optionally deep-linking to a url.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "Device UDID; omit when exactly one device is attached"
+          },
+          "url": {
+            "type": "string",
+            "description": "Optional url to open on the device (deep-link; no load wait)"
+          }
+        }
+      }
+    },
+    {
+      "name": "device.navigate",
+      "description": "Open a url in Safari on the real device. This is a deep-link: it returns immediately and never waits for load, so follow it with device.wait when a settled page matters.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "device.reload",
+      "description": "Re-open the last url this surface navigated to. WebDriverAgent exposes no refresh route and no URL readback, so reload is refused when no url is remembered.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "device.screenshot",
+      "description": "Capture real-device screenshot evidence (the actual panel pixels a human would see) into the artifact store as a Tier-2 receipt.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "device.tap",
+      "description": "Tap a point on the device panel. Coordinates are CSS points (the device viewport space), not raw pixels.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ]
+      }
+    },
+    {
+      "name": "device.swipe",
+      "description": "Swipe on the device panel with a native gesture; momentum scrolling is produced by the device and nothing is emulated.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x1": {
+            "type": "number"
+          },
+          "y1": {
+            "type": "number"
+          },
+          "x2": {
+            "type": "number"
+          },
+          "y2": {
+            "type": "number"
+          },
+          "durationMs": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ]
+      }
+    },
+    {
+      "name": "device.type",
+      "description": "Type text through the native keyboard into the currently focused field (tap the input first; WebDriverAgent types into the active element).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "device.wait",
+      "description": "Wait on the real device: 'timeout' sleeps; 'page_loaded'/'stable' sample frames until rendering stops changing. That is a rendering heuristic, not a load or network-idle guarantee.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "timeout",
+              "page_loaded",
+              "stable"
+            ]
+          },
+          "value": {
+            "type": "number",
+            "description": "Milliseconds for type 'timeout'"
+          },
+          "timeoutMs": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "type"
         ]
       }
     },
@@ -2151,6 +4276,61 @@
       }
     },
     {
+      "name": "anti.agent.drag",
+      "description": "Drag a control (price slider, range handle, drag-to-reorder row) from one element/coordinate to another with a bounded interpolated pointer gesture. A press-and-release at the destination alone does not move a slider library.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fromRef": {
+            "type": "string",
+            "description": "Origin semantic ref (@e1) from a snapshot"
+          },
+          "fromSelector": {
+            "type": "string",
+            "description": "Origin CSS selector"
+          },
+          "fromX": {
+            "type": "number"
+          },
+          "fromY": {
+            "type": "number"
+          },
+          "toRef": {
+            "type": "string",
+            "description": "Destination semantic ref (@e1)"
+          },
+          "toSelector": {
+            "type": "string",
+            "description": "Destination CSS selector"
+          },
+          "toX": {
+            "type": "number"
+          },
+          "toY": {
+            "type": "number"
+          },
+          "steps": {
+            "type": "number",
+            "description": "Interpolated pointer-move steps, clamped to 4..20 (default 10)"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Skip the occlusion and animation-stability gates for a knowingly covered target"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
       "name": "anti.inspect.snapshot",
       "description": "Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering).",
       "inputSchema": {
@@ -2184,6 +4364,10 @@
           "expression": {
             "type": "string"
           },
+          "expressionFile": {
+            "type": "string",
+            "description": "Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression"
+          },
           "tabId": {
             "type": "string"
           },
@@ -2199,8 +4383,62 @@
             "description": "Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)"
           }
         },
+        "oneOf": [
+          {
+            "required": [
+              "expression"
+            ]
+          },
+          {
+            "required": [
+              "expressionFile"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "anti.browser.evaluate_frame",
+      "description": "Execute JavaScript inside a child frame selected by frameUrl substring.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "expressionFile": {
+            "type": "string",
+            "description": "Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression"
+          },
+          "frameUrl": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        },
         "required": [
-          "expression"
+          "frameUrl"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "expression"
+            ]
+          },
+          {
+            "required": [
+              "expressionFile"
+            ]
+          }
         ]
       }
     },
@@ -2374,6 +4612,9 @@
           "baselineScreenshotRef": {
             "type": "string"
           },
+          "baselineRef": {
+            "type": "string"
+          },
           "comparisonTabId": {
             "type": "string"
           },
@@ -2419,6 +4660,36 @@
             "type": "boolean",
             "description": "Capture and compare entire document scroll height"
           },
+          "useDefaultWidgetMasks": {
+            "type": "boolean"
+          },
+          "leaseToken": {
+            "type": "string"
+          },
+          "trackedSelectors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "heightTolerance": {
+            "type": "number"
+          },
+          "allowHeightDrift": {
+            "type": "boolean"
+          },
+          "maxGeometryDeltaPx": {
+            "type": "number"
+          },
+          "expectedUrl": {
+            "type": "string"
+          },
+          "expectedTargetUrl": {
+            "type": "string"
+          },
+          "expectedBaselineUrl": {
+            "type": "string"
+          },
           "tabId": {
             "type": "string"
           },
@@ -2434,7 +4705,7 @@
     },
     {
       "name": "anti.media.freeze",
-      "description": "Freeze or unfreeze dynamic media (videos, audios, CSS animations, requestAnimationFrame) in tab to enable deterministic visual comparisons.",
+      "description": "Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2624,6 +4895,96 @@
       }
     },
     {
+      "name": "browser.get-viewport",
+      "description": "Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "browser.wait",
+      "description": "Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, or legacy condition states",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "condition": {
+            "type": "string",
+            "enum": [
+              "selector",
+              "url",
+              "navigation",
+              "dom-stable",
+              "network",
+              "actionability",
+              "generation",
+              "ref",
+              "document_loaded",
+              "url_match",
+              "network_idle",
+              "dom_stable"
+            ],
+            "description": "Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation (or legacy aliases)"
+          },
+          "selector": {
+            "type": "string",
+            "description": "CSS selector to wait for"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Semantic reference token (@e1) to wait for"
+          },
+          "urlPattern": {
+            "type": "string",
+            "description": "URL pattern or substring to match"
+          },
+          "url": {
+            "type": "string",
+            "description": "Alias for urlPattern"
+          },
+          "minGeneration": {
+            "type": "number",
+            "description": "Minimum document generation to wait for (generation or navigation condition)"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "attached",
+              "visible",
+              "actionable",
+              "detached",
+              "hidden"
+            ]
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Timeout in milliseconds (5000 default, 30000 max)"
+          },
+          "idleWindowMs": {
+            "type": "number",
+            "description": "Debounce idle window in milliseconds (500 default)"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          }
+        },
+        "required": [
+          "condition"
+        ]
+      }
+    },
+    {
       "name": "file.read",
       "description": "Read a file relative to the authoritative workspace root.",
       "inputSchema": {
@@ -2749,7 +5110,8 @@
               "INTERACTION",
               "LAYOUT",
               "RESPONSIVE",
-              "CUSTOM"
+              "CUSTOM",
+              "VISUAL"
             ]
           },
           "actor": {
@@ -2833,18 +5195,1377 @@
       }
     },
     {
+      "name": "anti.theme.export_clean",
+      "description": "Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "outputPath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "clean": {
+            "type": "boolean",
+            "default": true
+          },
+          "materialize": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "outputPath"
+        ]
+      }
+    },
+    {
+      "name": "anti.browser.dump_dom",
+      "description": "Stream clean or raw page DOM directly to a workspace file with zero MCP transport truncation and Windows-safe atomic writes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "outputPath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "paneId": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ]
+          },
+          "clean": {
+            "type": "boolean",
+            "default": true
+          },
+          "materialize": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "outputPath"
+        ]
+      }
+    },
+    {
       "name": "anti.verification.list",
       "description": "List recorded verification claims and their current verdicts.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "verdict": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "PARTIAL",
+              "REJECTED",
+              "INCONCLUSIVE",
+              "UNVERIFIED"
+            ]
+          },
+          "actor": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "user"
+            ]
+          },
+          "tabId": {
             "type": "string"
           },
-          "category": {
+          "stalemateState": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "STALEMATE",
+              "EXEMPTION_WAIVED"
+            ]
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.query",
+      "description": "Query the local Super Core evidence store: anchored claims filtered by text/platform/unit/kind. Platform filter excludes untagged claims unless includeGlobal.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "unitId": {
+            "type": "string"
+          },
+          "unitIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "includeGlobal": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.context_pack",
+      "description": "Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope. Packs dedupe on (task, platform, sessionId, scope).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "unitIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limit": {
+            "type": "number"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "includeGlobal": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack."
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "core.recommend",
+      "description": "Recommend from evidence: Context Pack + recommendation or explicit abstention.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "unitIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "includeGlobal": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack."
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "core.receipt",
+      "description": "Issue a Decision Receipt binding task context and evidence revisions. Refused when Core unavailable.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "string"
+          },
+          "abstained": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task",
+          "recommendation"
+        ]
+      }
+    },
+    {
+      "name": "core.ingest_outcome",
+      "description": "Ingest a verified outcome as a case + pending candidate (never auto-promoted).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "verificationRef": {
+            "type": "string"
+          },
+          "unitId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task",
+          "outcome"
+        ]
+      }
+    },
+    {
+      "name": "core.adjudicate",
+      "description": "Adjudicate a candidate (PROMOTE/REJECT/SUPERSEDE) with explicit authority. Refused when Core unavailable.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "candidateId": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "PROMOTE",
+              "REJECT",
+              "SUPERSEDE"
+            ]
+          },
+          "authority": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "production",
+              "acceptance-test"
+            ]
+          }
+        },
+        "required": [
+          "candidateId",
+          "decision",
+          "authority"
+        ]
+      }
+    },
+    {
+      "name": "core.stats",
+      "description": "Return Super Core store counts for verification.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "core.health",
+      "description": "Aggregated Core Health: status, reasonCode, stats, audit, decay and phase gates. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "staleDays": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.reuse_metric",
+      "description": "Historical reuse for a task: found + injected + outcome-linked counts, each witnessed by rows. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "core.domain",
+      "description": "Return a domain view (units, claims, eligible skills, gaps) or insufficient-evidence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "core.invalidate",
+      "description": "Mark claims stale when their source changed or was deleted.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entryId": {
+            "type": "string"
+          },
+          "path": {
             "type": "string"
           }
         }
+      }
+    },
+    {
+      "name": "core.revoke",
+      "description": "Revoke claims derived from a restricted source (permission propagation).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entryId": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.snapshot",
+      "description": "Create a release snapshot for regression/rollback.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.rollback",
+      "description": "Restore claims/candidates to a release snapshot.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "releaseId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "releaseId"
+        ]
+      }
+    },
+    {
+      "name": "core.record_experience_node",
+      "description": "Record an experience graph node (CLIENT_REQUEST, PROJECT, TASK, CONTEXT, DECISION, IMPLEMENTATION, ARTIFACT, VERIFICATION, PRODUCTION, FEEDBACK, LESSON).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "refId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      }
+    },
+    {
+      "name": "core.record_experience_edge",
+      "description": "Record an experience graph edge between two nodes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fromNodeId": {
+            "type": "string"
+          },
+          "toNodeId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fromNodeId",
+          "toNodeId",
+          "kind"
+        ]
+      }
+    },
+    {
+      "name": "core.experience_chain",
+      "description": "Traverse the experience graph from a node (BFS, depth-bounded).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fromNodeId": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "fromNodeId"
+        ]
+      }
+    },
+    {
+      "name": "core.record_anti_pattern",
+      "description": "Record an anti-pattern: what not to do, symptoms, evidence, affected platform, replacement.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "whatNotToDo": {
+            "type": "string"
+          },
+          "symptoms": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "affectedPlatform": {
+            "type": "string"
+          },
+          "replacement": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "core.anti_patterns",
+      "description": "List anti-patterns, optionally filtered by platform/status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_workaround",
+      "description": "Record a workaround: problem, condition, solution, reason, platform, version, evidence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "problem": {
+            "type": "string"
+          },
+          "condition": {
+            "type": "string"
+          },
+          "solution": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "problem"
+        ]
+      }
+    },
+    {
+      "name": "core.workarounds",
+      "description": "List workarounds, optionally filtered by platform/stillValid.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "stillValid": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_fix_pattern",
+      "description": "Record a fix pattern: before, after, why, evidence, lesson.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "before": {
+            "type": "string"
+          },
+          "after": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "lesson": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.fix_patterns",
+      "description": "List fix patterns.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.find_similar",
+      "description": "Find similar claims, cases, decisions, anti-patterns, workarounds, fix patterns for a task. Platform filter excludes untagged rows unless includeGlobal.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "includeGlobal": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "core.classify_uncertainty",
+      "description": "Classify uncertainty level for a claim or task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.decay_check",
+      "description": "Check for stale/aging claims beyond a threshold.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "staleDays": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.corpus_audit",
+      "description": "Run a corpus completion audit (read-only evaluation).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "core.candidates",
+      "description": "List adjudication candidates (default PENDING).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.knowledge_gaps",
+      "description": "Classify per-platform knowledge gaps: NO_EVIDENCE (never had claims), STALE (claims exist, none fresh), CONFLICTED (claims + unresolved conflicts), NONE.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "staleDays": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.check_phase_gate",
+      "description": "Check a phase gate (coverage, evidence, conflict, temporal, promotion, regression).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "phase": {
+            "type": "string"
+          },
+          "gate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "gate"
+        ]
+      }
+    },
+    {
+      "name": "core.resolve_conflict",
+      "description": "Resolve or classify a conflict (GENERAL_RULE, CONTEXTUAL_RULE, LEGACY_RULE, EXCEPTION, CONFLICTED, UNRESOLVED).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "GENERAL_RULE",
+              "CONTEXTUAL_RULE",
+              "LEGACY_RULE",
+              "EXCEPTION",
+              "CONFLICTED",
+              "UNRESOLVED"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "resolved": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "classification"
+        ]
+      }
+    },
+    {
+      "name": "core.record_regression",
+      "description": "Record a core regression definition; core.replay_regression re-executes its checks against live state and writes the result.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "newKnowledge": {
+            "type": "string"
+          },
+          "affectedRules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectedCases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectedRecommendations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "core.replay_regression",
+      "description": "Re-execute a recorded regression's checks against live state and write replayResult + replayedAt.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "regressionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "regressionId"
+        ]
+      }
+    },
+    {
+      "name": "core.record_observation",
+      "description": "Record a raw observation (source, kind, payload) into the learning loop.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "payload": {}
+        },
+        "required": [
+          "source",
+          "kind"
+        ]
+      }
+    },
+    {
+      "name": "core.record_principle",
+      "description": "Record a personal engineering principle.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "statement": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "derivedFrom": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement"
+        ]
+      }
+    },
+    {
+      "name": "core.principles",
+      "description": "List principles.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_hidden_requirement",
+      "description": "Record a hidden requirement inferred from a task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "explicitReq": {
+            "type": "string"
+          },
+          "inferredReq": {
+            "type": "string"
+          },
+          "likelihood": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "core.hidden_requirements",
+      "description": "List hidden requirements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_commercial",
+      "description": "Record commercial intelligence for a task type.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "taskType": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "number"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "estimate": {
+            "type": "number"
+          },
+          "actual": {
+            "type": "number"
+          },
+          "risk": {
+            "type": "string"
+          },
+          "revisionCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "taskType"
+        ]
+      }
+    },
+    {
+      "name": "core.commercial_intel",
+      "description": "List commercial intelligence records.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "taskType": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_tool",
+      "description": "Record tool intelligence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "problemSolved": {
+            "type": "string"
+          },
+          "workflowStage": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "string"
+          },
+          "outputs": {
+            "type": "string"
+          },
+          "failureModes": {
+            "type": "string"
+          },
+          "timeSaved": {
+            "type": "number"
+          },
+          "maintenanceCost": {
+            "type": "number"
+          },
+          "roi": {
+            "type": "number"
+          },
+          "usageFrequency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "core.tool_intel",
+      "description": "List tool intelligence records.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_archetype",
+      "description": "Record a project archetype.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "maturityLevel": {
+            "type": "number"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "core.archetypes",
+      "description": "List archetypes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_platform_semantic",
+      "description": "Record a platform semantic fact.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "semanticRole": {
+            "type": "string"
+          },
+          "propertyName": {
+            "type": "string"
+          },
+          "cssFact": {
+            "type": "string"
+          },
+          "semanticTruth": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "semanticRole"
+        ]
+      }
+    },
+    {
+      "name": "core.platform_semantics",
+      "description": "List platform semantics.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "semanticRole": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_practice_parity",
+      "description": "Record declared vs observed practice parity.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "practice": {
+            "type": "string"
+          },
+          "declared": {
+            "type": "string"
+          },
+          "observed": {
+            "type": "string"
+          },
+          "gap": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "practice"
+        ]
+      }
+    },
+    {
+      "name": "core.practice_parity",
+      "description": "List practice parity records.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "practice": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "core.record_skill_version",
+      "description": "Record a skill version/failure/fix/production event.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "skillId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "failure": {
+            "type": "string"
+          },
+          "fix": {
+            "type": "string"
+          },
+          "production": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "skillId"
+        ]
+      }
+    },
+    {
+      "name": "core.skill_genealogy",
+      "description": "List skill version history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "skillId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "skillId"
+        ]
+      }
+    },
+    {
+      "name": "core.context_pack_v2",
+      "description": "Build an enriched Context Pack: claims + rules + historical cases + pitfalls + workarounds + recommended pattern + uncertainty + confidence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "unitIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limit": {
+            "type": "number"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "includeGlobal": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack."
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "core.receipt_v2",
+      "description": "Issue an enriched Decision Receipt: evidence revisions + why + historical cases + risks + alternatives + uncertainty + confidence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "string"
+          },
+          "abstained": {
+            "type": "boolean"
+          },
+          "platform": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task",
+          "recommendation"
+        ]
+      }
+    },
+    {
+      "name": "terminal.write",
+      "description": "Write raw input text to an active PTY terminal session. Writing to a SLEEPING session wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Target terminal session ID"
+          },
+          "input": {
+            "type": "string",
+            "description": "Data/commands to write into PTY stdin"
+          }
+        },
+        "required": [
+          "sessionId",
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "terminal.resize",
+      "description": "Resize terminal rows and columns for an active PTY session",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Target terminal session ID"
+          },
+          "cols": {
+            "type": "number",
+            "description": "Terminal columns"
+          },
+          "rows": {
+            "type": "number",
+            "description": "Terminal rows"
+          }
+        },
+        "required": [
+          "sessionId",
+          "cols",
+          "rows"
+        ]
+      }
+    },
+    {
+      "name": "terminal.wait",
+      "description": "Wait for output-match pattern, process exit, or silence on a terminal session. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Terminal session ID"
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "output-match",
+              "exit",
+              "silence"
+            ]
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Regex pattern for output-match"
+          },
+          "sessionGeneration": {
+            "type": "number",
+            "description": "Expected session incarnation"
+          },
+          "afterSeq": {
+            "type": "number",
+            "description": "Sequence cursor"
+          },
+          "silenceMs": {
+            "type": "number",
+            "description": "Silence duration threshold in milliseconds"
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Wait deadline in milliseconds"
+          }
+        },
+        "required": [
+          "sessionId",
+          "condition"
+        ]
+      }
+    },
+    {
+      "name": "terminal.list",
+      "description": "List active terminal sessions with bounded wire summary and incarnation metadata",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paged": {
+            "type": "boolean",
+            "description": "Whether to page buffers according to wire budget"
+          }
+        }
+      }
+    },
+    {
+      "name": "terminal.create",
+      "description": "Create a new base or split terminal PTY session",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cwd": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          },
+          "initialCols": {
+            "type": "number"
+          },
+          "initialRows": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "terminal.close",
+      "description": "Close a terminal session and safely terminate its process tree",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Session ID to close"
+          },
+          "isSplit": {
+            "type": "boolean",
+            "description": "Whether target is a split session"
+          }
+        },
+        "required": [
+          "sessionId"
+        ]
       }
     }
   ]

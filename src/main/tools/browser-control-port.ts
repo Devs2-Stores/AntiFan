@@ -1198,12 +1198,16 @@ const MEDIA_FREEZE_BOUND_MS = 4_000;
 const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
   const media = Array.from(document.querySelectorAll('video, audio'));
   let playing = 0;
+  let buffered = 0;
   const tags = {};
   for (const el of media) {
     if (el.paused === false) {
       playing++;
       const tag = el.tagName ? String(el.tagName).toLowerCase() : 'media';
       tags[tag] = (tags[tag] || 0) + 1;
+    }
+    if (el.paused === true && el.readyState > 2) {
+      buffered++;
     }
   }
   let infiniteAnimations = 0;
@@ -1232,7 +1236,7 @@ const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
       if (!paused && s.querySelector('animate, animateTransform, animateMotion, set')) smil++;
     }
   } catch {}
-  return { playing, tags, infiniteAnimations, infiniteAnimationsByClass, smil };
+  return { playing, buffered, tags, infiniteAnimations, infiniteAnimationsByClass, smil };
 })()`;
 
 /**
@@ -2342,6 +2346,7 @@ export class BrowserControlPort {
 
     let probed = false;
     let playing = 0;
+    let buffered = 0;
     let infiniteAnimations = 0;
     let smil = 0;
     const mediaTags: Record<string, number> = {};
@@ -2355,9 +2360,12 @@ export class BrowserControlPort {
         );
         if (sample && typeof sample === 'object') {
           probed = true;
-          const census = sample as { playing?: unknown; tags?: unknown; infiniteAnimations?: unknown; infiniteAnimationsByClass?: unknown; smil?: unknown };
+          const census = sample as { playing?: unknown; buffered?: unknown; tags?: unknown; infiniteAnimations?: unknown; infiniteAnimationsByClass?: unknown; smil?: unknown };
           if (typeof census.playing === 'number' && Number.isFinite(census.playing) && census.playing > 0) {
             playing = Math.floor(census.playing);
+          }
+          if (typeof census.buffered === 'number' && Number.isFinite(census.buffered) && census.buffered > 0) {
+            buffered = Math.floor(census.buffered);
           }
           if (census.tags && typeof census.tags === 'object' && !Array.isArray(census.tags)) {
             for (const [tag, count] of Object.entries(census.tags as Record<string, unknown>)) {
@@ -2396,7 +2404,25 @@ export class BrowserControlPort {
       observed.push(`${count} infinite ${label} animation(s)`);
     }
     if (smil > 0) observed.push(`${smil} SVG SMIL animation(s)`);
-    if (observed.length === 0 && !location.label) return err;
+    let surfaceStatus: string | undefined;
+    if (observed.length === 0) {
+      if (typeof this.host.hasTab === 'function' && !this.host.hasTab(tabId)) {
+        surfaceStatus = 'tab is not attached';
+      } else if (typeof this.host.isTabOffscreen === 'function' && this.host.isTabOffscreen(tabId)) {
+        surfaceStatus = 'tab is offscreen with no window compositor surface';
+      } else if (typeof this.host.readRenderSurface === 'function') {
+        try {
+          const surface = await raceWithTimeout<RenderSurfaceSnapshot | null>(
+            this.host.readRenderSurface(tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS).catch(() => null),
+            RENDER_SURFACE_PROBE_BOUND_MS,
+            () => null
+          );
+          if (surface && (!Number.isFinite(surface.vw) || !Number.isFinite(surface.vh) || surface.vw < 1 || surface.vh < 1)) {
+            surfaceStatus = `tab reports no laid-out surface (${surface.vw}x${surface.vh} CSS px, cause ${classifyRenderSurfaceCause(surface)})`;
+          }
+        } catch {}
+      }
+    }
 
     // The remedy is branched on the census that was just taken: it names the
     // dominant class actually running, and a page with no observed animation
@@ -2422,11 +2448,12 @@ export class BrowserControlPort {
     // Never claim the probe *saw* nothing when it never ran: an unobserved tab is
     // reported as unobserved, because a draining target refuses the probe and that
     // absence is itself the reason the tab may still be unusable.
+    const surfaceClause = surfaceStatus ? ` (${surfaceStatus})` : ' (possibly no compositor surface)';
     const observedClause = observed.length > 0
       ? `tab has ${observed.join(', ')}`
       : probed
-        ? 'the probe observed no playing media and no endless animation'
-        : 'the probe could not observe the tab (it may still be draining a timed-out CDP command)';
+        ? `the probe observed no playing media and no endless animation${surfaceClause}`
+        : `the probe could not observe the tab (it may still be draining a timed-out CDP command)${surfaceClause}`;
     const locationClause = location.label ? ` on '${location.label}'` : '';
     const message = `${original} | CAPTURE_TIMEOUT: capture did not settle: ${observedClause}${locationClause}. Remedy: ${remedy}.`;
 
@@ -2440,12 +2467,14 @@ export class BrowserControlPort {
       diagnosis: {
         probe: probed ? 'observed' : 'unavailable',
         playingMedia: playing,
+        bufferedMedia: buffered,
         mediaTags,
         infiniteAnimations,
         infiniteAnimationsByClass: animationClasses,
         smil,
         tabLocation: location.label,
         remedy,
+        ...(surfaceStatus ? { surfaceStatus } : {}),
       },
     });
   }
