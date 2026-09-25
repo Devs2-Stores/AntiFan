@@ -490,6 +490,8 @@ body, html {
   justify-content: center;
   width: 18px;
   height: 18px;
+  padding: 0;
+  border: 0;
   border-radius: 4px;
   cursor: pointer;
   color: #38bdf8;
@@ -499,7 +501,7 @@ body, html {
   opacity: 0.85;
 }
 
-.tab-audio-btn:hover {
+.tab-audio-btn:hover:not(:disabled) {
   opacity: 1;
   background: rgba(56, 189, 248, 0.15);
   color: #7dd3fc;
@@ -509,9 +511,14 @@ body, html {
   color: #ef4444;
 }
 
-.tab-audio-btn.muted:hover {
+.tab-audio-btn.muted:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
+}
+
+.tab-audio-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .tab-audio-btn.playing svg {
@@ -1057,6 +1064,26 @@ body, html {
   border-color: rgba(56, 189, 248, 0.5) !important;
   color: #38bdf8 !important;
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+}
+
+.nav-btn.muted:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.nav-btn.muted:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.24);
+  color: #fca5a5;
+}
+
+.btn-mute .mute-icon-muted,
+.btn-mute.muted .mute-icon-unmuted {
+  display: none;
+}
+
+.btn-mute.muted .mute-icon-muted {
+  display: initial;
 }
 
 .omnibox-wrapper {

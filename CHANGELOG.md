@@ -6,6 +6,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Thêm — Mute cố định theo website
+- Nút loa luôn hiện cạnh Reload, cho phép tắt/bật âm thanh cả khi website chưa phát tiếng; icon gạch chéo và `aria-pressed` phản ánh trạng thái.
+- Lưu theo hostname HTTP/HTTPS trong `saved-tabs.json`; đồng bộ các tab cùng hostname và hai khung Desktop/Mobile. Giữ lựa chọn qua reload, điều hướng và khởi động lại; hostname khác không bị ảnh hưởng. Trang nội bộ như `about:blank` không hỗ trợ nút này.
+- Kiểm chứng: `npm run compile`; 41/41 test host liên quan; `node scripts/run-electron.cjs test/e2e/site-mute-smoke.cjs` chạy trên Electron thật với profile tạm, kiểm tra nút ở 960px, nhiều tab/split, điều hướng, tiến trình mới và xóa lựa chọn khi bật tiếng lại.
+
+
 
 ### Sửa bảo mật — Terminal: scope mọi lệnh terminal gắn attachment về đúng tab sở hữu (commit `0cf4e68f`)
 - **Vấn đề**: trước bản sửa, một attachment MCP đã pair có thể điều khiển terminal thuộc tab/agent khác — không có kiểm tra sở hữu giữa attachment và tab.

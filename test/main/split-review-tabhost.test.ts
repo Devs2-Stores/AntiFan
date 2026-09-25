@@ -28,6 +28,8 @@ function createTestHost() {
     canGoBack: (): boolean => true,
     canGoForward: (): boolean => false,
     setZoomFactor: (_z?: number) => {},
+    setAudioMuted: (_muted: boolean) => {},
+    isCurrentlyAudible: () => false,
     capturePage: async () => ({
       toPNG: () => Buffer.from('desktop-png'),
     }),
@@ -51,6 +53,8 @@ function createTestHost() {
     canGoBack: (): boolean => true,
     canGoForward: (): boolean => false,
     setZoomFactor: (_z?: number) => {},
+    setAudioMuted: (_muted: boolean) => {},
+    isCurrentlyAudible: () => false,
     capturePage: async () => ({
       toPNG: () => Buffer.from('mobile-png'),
     }),
@@ -87,6 +91,7 @@ function createTestHost() {
   host.activeTabId = 'tab-split-1';
   host.tabs = new Map([['tab-split-1', { state, view: desktopView, focusedPane: 'desktop' }]]);
   host.tabOrder = ['tab-split-1'];
+  host.mutedSites = new Set<string>();
   host.recentlyClosedTabs = [];
   host.splitCoordinator = new SplitNavigationCoordinator();
   host.transcriptSyncer = { dispose: () => {}, getActiveSessionId: () => 'auto' };
@@ -168,6 +173,31 @@ function createTestHost() {
 }
 
 describe('NativeTabHost Split Review Integration', () => {
+  it('keeps the current document muted until navigation commits and restores audio after an aborted muted destination', () => {
+    const { host, desktopWc, state } = createTestHost();
+    let currentUrl = 'https://example.com/';
+    let muted = false;
+    desktopWc.getURL = () => currentUrl;
+    desktopWc.setAudioMuted = (value: boolean) => { muted = value; };
+    host.mutedSites.add('example.com');
+    const tab = host.tabs.get(state.id);
+    privateHost.setupTabWebContentsEvents.call(host, state.id, tab.view, state, 'desktop');
+    assert.strictEqual(muted, true);
+
+    desktopWc.emit('did-start-navigation', {}, 'https://other.test/', false, true);
+    assert.strictEqual(muted, true, 'old muted document must not play during an in-flight navigation');
+    currentUrl = 'https://other.test/';
+    desktopWc.emit('did-navigate', {}, currentUrl, 200, 'OK');
+    assert.strictEqual(muted, false);
+    assert.strictEqual(state.isMuted, false);
+
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/', false, true);
+    assert.strictEqual(muted, true, 'muted destination must be silenced before it can autoplay');
+    desktopWc.emit('did-stop-loading');
+    assert.strictEqual(muted, false, 'aborted navigation must restore the unchanged unmuted document');
+    assert.strictEqual(state.isMuted, false);
+  });
+
   it('never records the isolation window\'s own blocked resources as page defects', () => {
     // Both channels matter. The failure channel carries the blocked URL; the
     // console channel reports the *document* as the source of

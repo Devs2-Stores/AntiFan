@@ -121,6 +121,16 @@ const TERMINAL_COLLAPSED_CATEGORIES_MAX = 64;
 const TERMINAL_CATEGORIES_MAX = 64;
 const TERMINAL_CATEGORY_NAME_MAX = 48;
 
+
+function getMuteSite(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+    return parsed.hostname.replace(/\.$/, '') || undefined;
+  } catch {
+    return undefined;
+  }
+}
 /**
  * Normalize a persisted or renderer-supplied group list: strings only, trimmed,
  * non-empty, de-duplicated case-insensitively — two names differing only in case
@@ -482,6 +492,7 @@ export class NativeTabHost extends EventEmitter {
   private tabs: Map<string, NativeTabRecord> = new Map();
   private tabOrder: string[] = [];
   private activeTabId: string = '';
+  private mutedSites = new Set<string>();
 
   public bookmarks: BookmarkItem[] = [];
   private readonly diagnosticsManager = new TabDiagnosticsManager();
@@ -891,6 +902,7 @@ export class NativeTabHost extends EventEmitter {
       try {
         const raw = fs.readFileSync(savedTabsPath, 'utf8');
         const data = JSON.parse(raw);
+        this.restoreMutedSites(data.mutedSites);
         if (typeof data.isSidebarOpen === 'boolean') {
           this.isSidebarOpen = data.isSidebarOpen;
         }
@@ -1190,6 +1202,10 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.SET_SPLIT_PRESET, (_event, { tabId, paneId, presetId }: { tabId?: string; paneId: SplitPaneId; presetId: string }) => this.setSplitPreset(tabId || this.activeTabId, paneId, presetId));
     ipcMain.handle(TOOLBAR_CHANNELS.SET_SPLIT_FOCUSED_PANE, (_event, { tabId, paneId }: { tabId?: string; paneId: SplitPaneId }) => this.setSplitFocusedPane(tabId || this.activeTabId, paneId));
     ipcMain.handle(TOOLBAR_CHANNELS.SET_ZOOM, (_event, { tabId, zoom }: { tabId?: string; zoom: number }) => this.setZoom(tabId || this.activeTabId, zoom));
+    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_MUTE, (event, tabId?: string) => {
+      if (event.sender !== this.toolbarView.webContents) return false;
+      return this.toggleSiteMute(tabId ?? this.activeTabId);
+    });
     ipcMain.on('antifan:tab-wheel-zoom', (event, { isZoomIn }: { isZoomIn: boolean }) => {
       const senderWc = event.sender;
       for (const [id, t] of this.tabs.entries()) {
@@ -3892,6 +3908,17 @@ export class NativeTabHost extends EventEmitter {
     paneId: SplitPaneId = 'desktop'
   ): void {
     const wc = view.webContents;
+    this.applySiteMute(wc, state, paneId, state.url);
+    const updateAudible = () => {
+      const tab = this.tabs.get(id);
+      state.isAudible = Boolean(tab && (
+        (!tab.view.webContents.isDestroyed() && tab.view.webContents.isCurrentlyAudible()) ||
+        (tab.mobileView && !tab.mobileView.webContents.isDestroyed() && tab.mobileView.webContents.isCurrentlyAudible())
+      ));
+      this.broadcastState();
+    };
+    wc.on('media-started-playing', updateAudible);
+    wc.on('media-paused', updateAudible);
     let loadingSafetyTimer: NodeJS.Timeout | null = null;
     const clearLoadingTimer = () => {
       if (loadingSafetyTimer) {
@@ -3918,6 +3945,7 @@ export class NativeTabHost extends EventEmitter {
     wc.on('did-stop-loading', () => {
       clearLoadingTimer();
       state.isLoading = false;
+      this.applySiteMute(wc, state, paneId, wc.getURL());
       this.networkTracker.retireDocumentRequests(id, paneId);
       const currentTab = this.tabs.get(id);
       const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
@@ -3973,6 +4001,11 @@ export class NativeTabHost extends EventEmitter {
       });
     });
     wc.on('did-start-navigation', (_event, navUrl, isInPlace, isMainFrame) => {
+      // Silence a muted destination before it can autoplay, but do not unmute
+      // the old document until a different destination has actually committed.
+      if (isMainFrame && this.mutedSites.has(getMuteSite(navUrl) || '')) {
+        wc.setAudioMuted(true);
+      }
       const semanticKey = makeTargetKey(id, paneId);
       if (!this.semanticDocumentGenerations) this.semanticDocumentGenerations = new Map();
       this.semanticDocumentGenerations.set(semanticKey, (this.semanticDocumentGenerations.get(semanticKey) || 1) + 1);
@@ -4004,7 +4037,7 @@ export class NativeTabHost extends EventEmitter {
         this.bumpMutationRevision(id);
       }
     });
-    wc.on('will-redirect', (event, redirectUrl) => {
+    wc.on('will-redirect', (event, redirectUrl, _isInPlace, isMainFrame) => {
       // Fail-closed unified navigation policy on server redirects — a 30x
       // must never escape the same allowlist as direct navigation.
       const rawRedirect = String(redirectUrl || '');
@@ -4014,6 +4047,8 @@ export class NativeTabHost extends EventEmitter {
       }
       if (!isAllowedNavigation(rawRedirect)) {
         event.preventDefault();
+      } else if (isMainFrame && this.mutedSites.has(getMuteSite(rawRedirect) || '')) {
+        wc.setAudioMuted(true);
       }
     });
     wc.on('will-navigate', (event, navigationUrl) => {
@@ -4197,6 +4232,7 @@ export class NativeTabHost extends EventEmitter {
         ? currentUrl
         : navUrl;
       const cleanUrl = cleanRestoredUrl(chosenUrl);
+      this.applySiteMute(wc, state, paneId, cleanUrl);
 
       if (typeof httpResponseCode === 'number' && httpResponseCode >= 400) {
         const origin = computeOrigin(cleanUrl, currentUrl);
@@ -5752,6 +5788,42 @@ export class NativeTabHost extends EventEmitter {
     const availableHeight = Math.max(0, height - toolbarHeight);
     this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
   }
+  private restoreMutedSites(value: unknown): void {
+    this.mutedSites = new Set(Array.isArray(value)
+      ? value.filter((site): site is string => typeof site === 'string' && getMuteSite(`https://${site}`) === site)
+      : []);
+  }
+
+  private applySiteMute(wc: Electron.WebContents, state: AntiFanTab, paneId: SplitPaneId, url: string): void {
+    if (wc.isDestroyed()) return;
+    const site = getMuteSite(url);
+    const muted = site !== undefined && this.mutedSites.has(site);
+    wc.setAudioMuted(muted);
+    if (paneId === 'desktop') state.isMuted = muted;
+  }
+
+  private toggleSiteMute(tabId: string): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab || tab.view.webContents.isDestroyed()) return false;
+    const site = getMuteSite(tab.view.webContents.getURL());
+    if (!site) return false;
+    if (this.mutedSites.has(site)) this.mutedSites.delete(site);
+    else this.mutedSites.add(site);
+    for (const record of this.tabs.values()) {
+      const desktop = record.view.webContents;
+      if (!desktop.isDestroyed() && getMuteSite(desktop.getURL()) === site) {
+        this.applySiteMute(desktop, record.state, 'desktop', desktop.getURL());
+      }
+      const mobile = record.mobileView?.webContents;
+      if (mobile && !mobile.isDestroyed() && getMuteSite(mobile.getURL()) === site) {
+        this.applySiteMute(mobile, record.state, 'mobile', mobile.getURL());
+      }
+    }
+    this.schedulePersist();
+    this.broadcastState();
+    return true;
+  }
+
   public setZoom(tabId: string, zoomFactor: number): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
@@ -7740,6 +7812,7 @@ export class NativeTabHost extends EventEmitter {
       activeTabId: persistedActiveTabId,
       tabs: tabList,
       bookmarks: this.bookmarks,
+      mutedSites: Array.from(this.mutedSites),
       activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
       sidebarWidth: this.sidebarWidth,
       isSidebarOpen: this.isSidebarOpen,
@@ -7815,6 +7888,7 @@ export class NativeTabHost extends EventEmitter {
         const raw = fs.readFileSync(filePath, 'utf8');
         const data = JSON.parse(raw);
         if (data) {
+          this.restoreMutedSites(data.mutedSites);
           if (typeof data.sidebarWidth === 'number' && data.sidebarWidth >= 260 && data.sidebarWidth <= 850) {
             this.sidebarWidth = data.sidebarWidth;
           }

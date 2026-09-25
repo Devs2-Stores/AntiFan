@@ -242,6 +242,7 @@ function resetHost(): void {
   host.isDisposed = false;
   host.persistTimer = null;
   host.bookmarks = [];
+  host.mutedSites = new Set<string>();
   host.terminalTabLayout = 'horizontal';
   host.terminalSidebarWidth = 220;
   host.terminalCollapsedCategories = [];

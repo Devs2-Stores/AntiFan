@@ -1248,6 +1248,7 @@ const btnNewTab = document.getElementById('btnNewTab')!;
 const btnBack = document.getElementById('btnBack') as HTMLButtonElement;
 const btnForward = document.getElementById('btnForward') as HTMLButtonElement;
 const btnReload = document.getElementById('btnReload') as HTMLButtonElement;
+const btnMute = document.getElementById('btnMute') as HTMLButtonElement | null;
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;
 const btnClearOmnibox = document.getElementById('btnClearOmnibox') as HTMLButtonElement;
 const deviceSelect = document.getElementById('deviceSelect') as HTMLSelectElement;
@@ -2756,7 +2757,7 @@ interface TabElementRefs {
   icon: HTMLImageElement | null;
   statusDot: HTMLElement | null;
   titleSpan: HTMLElement | null;
-  audioBtn: HTMLElement | null;
+  audioBtn: HTMLButtonElement | null;
   agentBadge: HTMLElement | null;
 }
 
@@ -2769,7 +2770,7 @@ function cacheTabRefs(tabEl: HTMLElement): TabElementRefs {
     icon: tabEl.querySelector<HTMLImageElement>('.tab-icon'),
     statusDot: tabEl.querySelector<HTMLElement>('.tab-status-dot'),
     titleSpan: tabEl.querySelector<HTMLElement>('.tab-title'),
-    audioBtn: tabEl.querySelector<HTMLElement>('.tab-audio-btn'),
+    audioBtn: tabEl.querySelector<HTMLButtonElement>('.tab-audio-btn'),
     agentBadge: tabEl.querySelector<HTMLElement>('.tab-agent-badge'),
   };
   tabRefsCache.set(tabEl, refs);
@@ -2818,7 +2819,7 @@ function renderTabs() {
         <img class="tab-icon" src="" alt=""/>
         <span class="tab-title"></span>
         <span class="tab-agent-badge" style="display:none;">🤖 AGENT</span>
-        <span class="tab-audio-btn" style="display:none;" title="Tắt tiếng tab"></span>
+        <button type="button" class="tab-audio-btn" style="display:none;" title="Tắt tiếng website — lựa chọn được lưu cho website này" aria-label="Tắt tiếng website" aria-pressed="false" disabled></button>
         <span class="tab-status-dot done" title="Ready"></span>
         <span class="tab-close" title="Close Tab"></span>
       `;
@@ -2835,9 +2836,16 @@ function renderTabs() {
         });
       }
 
-      tabEl.querySelector('.tab-audio-btn')?.addEventListener('click', (e) => {
+      tabEl.querySelector('.tab-audio-btn')?.addEventListener('click', async (e) => {
         e.stopPropagation();
-        getApi()?.toggleMute(tab.id);
+        try {
+          if (!(await getApi()?.toggleMute(tab.id))) {
+            showToolbarToast('Không thể lưu lựa chọn âm thanh cho website này.');
+          }
+        } catch (err) {
+          console.error('[antifan toolbar] Failed to update website mute:', err);
+          showToolbarToast('Không thể lưu lựa chọn âm thanh cho website này.');
+        }
       });
 
       tabEl.addEventListener('click', (e) => {
@@ -2847,6 +2855,7 @@ function renderTabs() {
         getApi()?.switchTab(tab.id);
       });
       tabEl.addEventListener('keydown', (e) => {
+        if (e.target !== tabEl) return;
         const tabs = Array.from(tabList.querySelectorAll<HTMLElement>('.tab'));
         const currIdx = tabs.indexOf(tabEl);
         if (e.key === 'ArrowRight') {
@@ -2997,14 +3006,27 @@ function renderTabs() {
     if (audioBtn) {
       const audioDisplay = tab.isAudible || tab.isMuted ? 'inline-flex' : 'none';
       if (audioBtn.style.display !== audioDisplay) audioBtn.style.display = audioDisplay;
+      const pressed = String(!!tab.isMuted);
+      if (audioBtn.getAttribute('aria-pressed') !== pressed) audioBtn.setAttribute('aria-pressed', pressed);
       if (tab.isAudible || tab.isMuted) {
+        let canMute = false;
+        try {
+          const url = new URL(tab.url);
+          canMute = (url.protocol === 'http:' || url.protocol === 'https:') && !!url.hostname.replace(/\.+$/, '');
+        } catch {
+          // Internal and invalid URLs have no website preference.
+        }
+        if (audioBtn.disabled !== !canMute) audioBtn.disabled = !canMute;
+        const audioTitle = canMute
+          ? `${tab.isMuted ? 'Bật' : 'Tắt'} tiếng website — lựa chọn được lưu cho website này`
+          : 'Tắt tiếng theo website chỉ hỗ trợ HTTP/HTTPS — lựa chọn được lưu cho website này';
+        if (audioBtn.title !== audioTitle) audioBtn.title = audioTitle;
         const audioClass = tab.isMuted ? 'tab-audio-btn muted' : 'tab-audio-btn playing';
         if (audioBtn.className !== audioClass) {
           audioBtn.className = audioClass;
-          audioBtn.title = tab.isMuted ? 'Bật tiếng tab (Muted)' : 'Tắt tiếng tab (Đang phát âm thanh)';
           audioBtn.innerHTML = tab.isMuted
-            ? `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`
-            : `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`;
+            ? `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`
+            : `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`;
         }
       }
     }
@@ -3076,6 +3098,26 @@ function renderTabs() {
 
 function updateControls() {
   const activeTab = currentTabs.find((t) => t.id === activeTabId);
+  if (btnMute) {
+    let canMute = false;
+    try {
+      if (activeTab?.url) {
+        const url = new URL(activeTab.url);
+        canMute = (url.protocol === 'http:' || url.protocol === 'https:') && !!url.hostname.replace(/\.+$/, '');
+      }
+    } catch {
+      // Internal and invalid URLs have no website preference.
+    }
+    const isMuted = canMute && !!activeTab?.isMuted;
+    if (btnMute.disabled !== !canMute) btnMute.disabled = !canMute;
+    if (btnMute.classList.contains('muted') !== isMuted) btnMute.classList.toggle('muted', isMuted);
+    const pressed = String(isMuted);
+    if (btnMute.getAttribute('aria-pressed') !== pressed) btnMute.setAttribute('aria-pressed', pressed);
+    const muteTitle = canMute
+      ? `${isMuted ? 'Bật' : 'Tắt'} tiếng website — lựa chọn được lưu cho website này`
+      : 'Tắt tiếng theo website chỉ hỗ trợ HTTP/HTTPS — lựa chọn được lưu cho website này';
+    if (btnMute.title !== muteTitle) btnMute.title = muteTitle;
+  }
   if (activeTab) {
     if (document.activeElement !== urlInput && urlInput) {
       const targetUrl = activeTab.url === 'about:blank' ? '' : activeTab.url;
@@ -3222,6 +3264,19 @@ if (btnReload) {
   btnReload.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     getApi()?.reloadWindow();
+  });
+}
+if (btnMute) {
+  btnMute.addEventListener('click', async () => {
+    if (btnMute.disabled || !activeTabId) return;
+    try {
+      if (!(await getApi()?.toggleMute(activeTabId))) {
+        showToolbarToast('Không thể lưu lựa chọn âm thanh cho website này.');
+      }
+    } catch (err) {
+      console.error('[antifan toolbar] Failed to update website mute:', err);
+      showToolbarToast('Không thể lưu lựa chọn âm thanh cho website này.');
+    }
   });
 }
 
