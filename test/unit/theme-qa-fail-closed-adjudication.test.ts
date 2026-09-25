@@ -937,4 +937,48 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       'A real measurement must never be reported as a layout overflow evidence gap'
     );
   });
+
+  it('16. A clean run never reports an interaction result it did not measure', async () => {
+    const ports = createMockPorts();
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-interactions-unmeasured',
+      attemptId: 'att-interactions-unmeasured',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+
+    assert.ok(
+      !('interactions' in report.checklist),
+      'the engine must not synthesize an interaction outcome'
+    );
+    assert.strictEqual(report.summary.passed, true, 'an unmeasured dimension must not fail a clean run');
+    assert.strictEqual(report.summary.verdict, 'PASS');
+    assert.strictEqual(report.qaMatrix?.dimensions.interactiveOperability.score, null);
+    assert.ok(report.qaMatrix?.dimensions.interactiveOperability.details.includes('unmeasured'));
+    assert.strictEqual(report.qaMatrix?.dimensions.domSemantics.score, null);
+    assert.strictEqual(report.qaMatrix?.dimensions.cssModularity.score, null);
+  });
+
+  it('17. Explicitly requesting the unmeasured interactions check yields INCONCLUSIVE, never a false PASS or FAIL', async () => {
+    const ports = createMockPorts();
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-interactions-requested',
+      attemptId: 'att-interactions-requested',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      enabledChecks: { interactions: true },
+    });
+
+    assert.strictEqual(report.summary.passed, false, 'a requested-but-unmeasured check cannot certify PASS');
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+    assert.strictEqual(report.summary.criticalCount, 0, 'missing measurement is not an observed defect');
+    assert.ok(
+      report.findings?.evidenceGaps?.some((g) => g.includes('interactions')),
+      'the reason must be recorded as an evidence gap'
+    );
+  });
 });

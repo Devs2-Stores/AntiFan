@@ -207,4 +207,35 @@ describe('ThemeQaWorkflow.computeQaMatrix Viewports Contract', () => {
     assert.strictEqual(matrix.overallScore, null);
     assert.strictEqual(matrix.coverage?.measuredDimensions, 0);
   });
+
+  it('never grades domSemantics or cssModularity from the overflow result', () => {
+    const matrix = ThemeQaWorkflow.computeQaMatrix(defaultSummary, defaultChecklist);
+
+    assert.strictEqual(matrix.dimensions.domSemantics.score, null);
+    assert.strictEqual(matrix.dimensions.cssModularity.score, null);
+    assert.ok(matrix.dimensions.domSemantics.details.includes('unmeasured'));
+    assert.ok(matrix.dimensions.cssModularity.details.includes('unmeasured'));
+    assert.ok(!matrix.dimensions.domSemantics.details.includes('validated'));
+    assert.ok(!matrix.dimensions.cssModularity.details.includes('Modular section CSS'));
+  });
+
+  it('reports interactive operability as unmeasured when no caller supplies a probe result', () => {
+    const { interactions: _absent, ...checklistWithoutInteractions } = defaultChecklist;
+    const matrix = ThemeQaWorkflow.computeQaMatrix(
+      defaultSummary,
+      checklistWithoutInteractions as unknown as Parameters<typeof ThemeQaWorkflow.computeQaMatrix>[1]
+    );
+
+    assert.strictEqual(matrix.dimensions.interactiveOperability.score, null);
+    assert.ok(matrix.dimensions.interactiveOperability.details.includes('unmeasured'));
+    assert.ok(!matrix.dimensions.interactiveOperability.details.includes('CleanTabProbe'));
+  });
+
+  it('marks a caller-supplied interaction result as caller-supplied instead of implying this workflow probed it', () => {
+    const matrix = ThemeQaWorkflow.computeQaMatrix(defaultSummary, defaultChecklist);
+
+    assert.strictEqual(matrix.dimensions.interactiveOperability.score, 100);
+    assert.ok(matrix.dimensions.interactiveOperability.details.includes('supplied by the caller'));
+    assert.ok(!matrix.dimensions.interactiveOperability.details.includes('CleanTabProbe'));
+  });
 });

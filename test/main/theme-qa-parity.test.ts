@@ -185,7 +185,10 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
 
       assert.strictEqual(report.summary.passed, false);
       assert.strictEqual(report.checklist.layout, false);
-      assert.strictEqual(report.checklist.interactions, false);
+      assert.ok(
+        !('interactions' in report.checklist),
+        'an overflow/HS result must never be reported as an interaction outcome'
+      );
       assert.strictEqual(report.summary.criticalCount >= 2, true);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

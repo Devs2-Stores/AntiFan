@@ -173,7 +173,7 @@ async function runSmokeThemeQaGate() {
     console.log('[Theme QA Smoke] ThemeQaReport generated successfully:');
     console.log(`  - Platform: ${report.findings.platform.platform}`);
     console.log(`  - Diagnostics check: ${report.checklist.diagnostics ? 'PASS' : 'FAIL (Expected)'}`);
-    console.log(`  - Interactions check: ${report.checklist.interactions ? 'PASS' : 'FAIL (Expected)'}`);
+    console.log(`  - Interactions check: ${typeof report.checklist.interactions === 'boolean' ? (report.checklist.interactions ? 'PASS' : 'FAIL') : 'UNMEASURED (this workflow runs no interaction probe)'}`);
     console.log(`  - Artifacts count: ${report.artifacts.length}`);
 
     console.log('[Theme QA Smoke] Step 5: Verifying tracker-isolation window bookkeeping...');
@@ -221,7 +221,11 @@ async function runSmokeThemeQaGate() {
     console.log(`[Theme QA Smoke] Unreleased window surfaced: ${JSON.stringify(releaseFailureReport.trackerIsolation)}`);
 
     assert.strictEqual(report.checklist.diagnostics, false); // Because of Liquid error
-    assert.strictEqual(report.checklist.interactions, false); // Because of HS-01 / HS-02 error
+    assert.ok(
+      !('interactions' in report.checklist),
+      'an HS rule violation must be reported as hsCompliant, never as an interaction result'
+    );
+    assert.strictEqual(report.checklist.hsCompliant, false); // Because of HS-01 / HS-02 error
     assert.ok(report.artifacts.some((a) => a.kind === 'report'));
 
     // 6. Verify PII Sanitization in report

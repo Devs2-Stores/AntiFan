@@ -138,6 +138,7 @@ Coding agents (Antigravity, Claude Code, Cursor) can invoke Theme QA tools over 
 
 - `theme.qa_validate` / `antifan_theme_qa_validate`: Runs full inspection (Liquid errors, layout overflow, broken assets, HS rules, CDP diagnostics) and generates a structured report artifact.
 - Kết quả luôn kèm `summary` object (`summary.passed`, `summary.totalIssues`, `summary.criticalCount`). Diagnostics third-party (GTM, FB Pixel, chat widget) chỉ là warning — không fail gate; lỗi first-party/theme-asset (console level ≥ 3, network Chromium âm trừ ERR_ABORTED) hoặc main-frame failure mới tính critical.
+- Report chỉ chứng nhận thứ đã đo: `qaMatrix` giữ `domSemantics`, `cssModularity` và `interactiveOperability` ở `score: null` kèm mô tả "unmeasured" vì workflow không chạy scanner tương ứng, và `checklist.interactions` chỉ xuất hiện khi có kết quả probe thật từ caller (không suy ra từ HS scan). Bật `enabledChecks.interactions` khi chưa có phép đo trả về `INCONCLUSIVE` kèm evidence gap, không phải PASS/FAIL.
 - `theme.debug_bundle` / `antifan_theme_debug_bundle`: Returns immediate diagnostic scan results without staging reports.
 
 ### PII Sanitization Guarantee

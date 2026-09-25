@@ -19,7 +19,12 @@ export interface ThemeQaChecklist {
   layout: boolean;
   responsive: boolean;
   overflow: boolean;
-  interactions: boolean;
+  /**
+   * Present only when a caller supplies a real interaction probe result. This
+   * workflow runs no interaction probe of its own, and the Haravan HTML scan is
+   * reported as `hsCompliant` — never as interactive operability.
+   */
+  interactions?: boolean;
   diagnostics: boolean;
   liquidClean?: boolean;
   assetsValid?: boolean;
@@ -171,7 +176,9 @@ export function sanitizePii(text: string): string {
   if (!text) return text;
   return text
     .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/g, '[REDACTED_EMAIL]')
-    .replace(/(?:\+?84|0)(?:3|5|7|8|9)[0-9]{8}/g, '[REDACTED_PHONE]')
+    // Digit boundaries keep the pattern off longer numeric fields (e.g. a 13-digit
+    // epoch), which would otherwise leave a bare token and break the JSON report.
+    .replace(/(?<!\d)(?:\+?84|0)(?:3|5|7|8|9)[0-9]{8}(?!\d)/g, '[REDACTED_PHONE]')
     .replace(/(?:bearer\s+|token=)[a-zA-Z0-9_\-\.]{20,}/gi, '[REDACTED_TOKEN]');
 }
 function rethrowTargetLifecycleError(error: unknown): void {
@@ -1035,27 +1042,44 @@ export class ThemeQaWorkflow {
       layout: !overflowResult.hasOverflow,
       responsive: !overflowResult.hasOverflow,
       overflow: !overflowResult.hasOverflow,
-      interactions: hsResult.passed,
       diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets && !serverCrashResult.hasCrash && diagnosticIssues.length === 0,
       liquidClean: !liquidResult.hasErrors,
       assetsValid: !assetResult.hasBrokenAssets,
       hsCompliant: hsResult.passed,
     };
 
-    // Filter which checks participate in the overall summary verdict if caller specified enabled checks
+    // Filter which checks participate in the overall summary verdict if caller specified enabled checks.
+    // Only measured entries participate: an absent entry is an unmeasured dimension, and letting
+    // `undefined` into this list would read as a definite failure.
     const activeChecklistEntries: boolean[] = [];
     const enabled = input.enabledChecks;
+    const pushMeasured = (value: boolean | undefined): void => {
+      if (typeof value === 'boolean') activeChecklistEntries.push(value);
+    };
+    // A caller that explicitly enables a check this workflow cannot measure has a
+    // missing-evidence gap, not an observed failure.
+    const explicitlyRequestedUnmeasured: string[] = [];
     if (enabled) {
-      if (enabled.layout !== false) activeChecklistEntries.push(checklist.layout);
-      if (enabled.responsive !== false) activeChecklistEntries.push(checklist.responsive);
-      if (enabled.overflow !== false) activeChecklistEntries.push(checklist.overflow);
-      if (enabled.interactions !== false) activeChecklistEntries.push(checklist.interactions);
-      if (enabled.diagnostics !== false) activeChecklistEntries.push(checklist.diagnostics);
-      if (enabled.liquidClean !== false) activeChecklistEntries.push(checklist.liquidClean);
-      if (enabled.assetsValid !== false) activeChecklistEntries.push(checklist.assetsValid);
-      if (enabled.hsCompliant !== false) activeChecklistEntries.push(checklist.hsCompliant);
+      if (enabled.layout !== false) pushMeasured(checklist.layout);
+      if (enabled.responsive !== false) pushMeasured(checklist.responsive);
+      if (enabled.overflow !== false) pushMeasured(checklist.overflow);
+      if (enabled.interactions !== false) {
+        pushMeasured(checklist.interactions);
+        if (enabled.interactions === true && typeof checklist.interactions !== 'boolean') {
+          explicitlyRequestedUnmeasured.push('interactions');
+        }
+      }
+      if (enabled.diagnostics !== false) pushMeasured(checklist.diagnostics);
+      if (enabled.liquidClean !== false) pushMeasured(checklist.liquidClean);
+      if (enabled.assetsValid !== false) pushMeasured(checklist.assetsValid);
+      if (enabled.hsCompliant !== false) pushMeasured(checklist.hsCompliant);
     } else {
-      activeChecklistEntries.push(...Object.values(checklist));
+      for (const value of Object.values(checklist)) pushMeasured(value);
+    }
+    if (explicitlyRequestedUnmeasured.length > 0) {
+      evidenceGaps.push(
+        `Requested check(s) not measured by this workflow: ${explicitlyRequestedUnmeasured.join(', ')}; cannot certify a verdict for them`
+      );
     }
 
     const overflowIssueCount = overflowResult.culprits.length > 0 ? overflowResult.culprits.length : (overflowResult.hasOverflow ? 1 : 0);
@@ -1251,26 +1275,24 @@ export class ThemeQaWorkflow {
       ? Math.max(0, 100 - Math.round((((vpTablet.mismatchPercent || 0) + (vpMobile.mismatchPercent || 0)) / responsiveMeasuredCount) * 10))
       : null;
 
-    const domSemanticsScore = typeof checklist.layout === 'boolean'
-      ? (checklist.layout ? 98 : 70)
-      : null;
-    const domSemanticsDetails = typeof checklist.layout === 'boolean'
-      ? (checklist.layout ? 'Semantic tags and clean tree structure validated' : 'DOM tree issues detected')
-      : 'DOM semantics unmeasured';
+    // This workflow runs no semantic-tree, stylesheet-modularity or interaction probe.
+    // The layout overflow check and the Haravan HTML scan measure other things, so they
+    // must not be dressed up as those dimensions: an unmeasured dimension stays null
+    // instead of receiving an invented grade.
+    const domSemanticsScore: number | null = null;
+    const domSemanticsDetails = 'DOM semantics unmeasured (this workflow runs no semantic-tree scanner)';
 
-    const cssModularityScore = typeof checklist.responsive === 'boolean'
-      ? (checklist.responsive ? 96 : 65)
-      : null;
-    const cssModularityDetails = typeof checklist.responsive === 'boolean'
-      ? 'Modular section CSS and responsive breakpoints'
-      : 'CSS modularity unmeasured';
+    const cssModularityScore: number | null = null;
+    const cssModularityDetails = 'CSS modularity unmeasured (this workflow runs no stylesheet-modularity scanner)';
 
     const interactiveScore = typeof checklist.interactions === 'boolean'
       ? (checklist.interactions ? 100 : 50)
       : null;
     const interactiveDetails = typeof checklist.interactions === 'boolean'
-      ? (checklist.interactions ? 'All hover, sliders, and modals pass CleanTabProbe' : 'Interactive failures')
-      : 'Interactive operability unmeasured';
+      ? (checklist.interactions
+        ? 'Interaction probe result supplied by the caller (this workflow runs no interaction probe)'
+        : 'Interaction probe failures supplied by the caller (this workflow runs no interaction probe)')
+      : 'Interactive operability unmeasured (no interaction probe executed in this run)';
 
     // Compliance details describe actual scan scope/results. liquidClean absent is UNKNOWN, not clean.
     // Even true only certifies that scanner's checks, not all Haravan compliance or runtime execution.
