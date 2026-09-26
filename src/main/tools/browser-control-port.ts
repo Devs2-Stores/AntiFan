@@ -1189,54 +1189,66 @@ const MEDIA_FREEZE_BOUND_MS = 4_000;
  * Read-only DOM census for a capture that never settled on the compositor.
  *
  * Counts the conditions that keep `Page.captureScreenshot` from producing a
- * stable frame — media that is actually playing (`paused === false`), endless animations
- * classified by their real constructor (`CSSAnimation` vs the WAAPI `Animation`
- * class `Element.animate` produces), and SVG SMIL — and reports a count per
- * media tag. It never reads element text, never touches storage or the network,
- * and returns counts only.
+ * stable frame — media that is actually playing (`paused === false`), endless
+ * animations classified by their real constructor (`CSSAnimation` vs the WAAPI
+ * `Animation` class `Element.animate` produces), and SVG SMIL — and reports a
+ * count per media tag. It also runs a 350ms requestAnimationFrame census:
+ * a window presenter that stopped issuing BeginFrames leaves this flag false
+ * while the page's own `visibilityState` still reports "visible", which
+ * separates "page never stopped moving" from "window stopped producing
+ * frames" — the two causes need opposite remedies. It never reads element
+ * text, never touches storage or the network, and returns counts only.
  */
 const CAPTURE_TIMEOUT_PROBE_EXPRESSION = `(() => {
-  const media = Array.from(document.querySelectorAll('video, audio'));
-  let playing = 0;
-  let buffered = 0;
-  const tags = {};
-  for (const el of media) {
-    if (el.paused === false) {
-      playing++;
-      const tag = el.tagName ? String(el.tagName).toLowerCase() : 'media';
-      tags[tag] = (tags[tag] || 0) + 1;
-    }
-    if (el.paused === true && el.readyState > 2) {
-      buffered++;
-    }
-  }
-  let infiniteAnimations = 0;
-  const infiniteAnimationsByClass = {};
+  const { promise, resolve } = Promise.withResolvers();
+  let rafFired = false;
   try {
-    const animations = typeof document.getAnimations === 'function' ? document.getAnimations() : [];
-    for (const animation of animations) {
-      let iterations = 1;
-      try {
-        const effect = animation.effect;
-        const timing = effect && typeof effect.getTiming === 'function' ? effect.getTiming() : null;
-        if (timing && typeof timing.iterations === 'number') iterations = timing.iterations;
-      } catch {}
-      if (animation.playState === 'paused' || animation.playState === 'idle') continue;
-      if (iterations === Infinity) {
-        infiniteAnimations++;
-        const cls = animation && animation.constructor && animation.constructor.name ? String(animation.constructor.name) : 'Animation';
-        infiniteAnimationsByClass[cls] = (infiniteAnimationsByClass[cls] || 0) + 1;
+    requestAnimationFrame(() => { rafFired = true; });
+  } catch {}
+  setTimeout(() => {
+    const media = Array.from(document.querySelectorAll('video, audio'));
+    let playing = 0;
+    let buffered = 0;
+    const tags = {};
+    for (const el of media) {
+      if (el.paused === false) {
+        playing++;
+        const tag = el.tagName ? String(el.tagName).toLowerCase() : 'media';
+        tags[tag] = (tags[tag] || 0) + 1;
+      }
+      if (el.paused === true && el.readyState > 2) {
+        buffered++;
       }
     }
-  } catch {}
-  let smil = 0;
-  try {
-    for (const s of Array.from(document.querySelectorAll('svg'))) {
-      const paused = typeof s.animationsPaused === 'function' ? s.animationsPaused() : false;
-      if (!paused && s.querySelector('animate, animateTransform, animateMotion, set')) smil++;
-    }
-  } catch {}
-  return { playing, buffered, tags, infiniteAnimations, infiniteAnimationsByClass, smil };
+    let infiniteAnimations = 0;
+    const infiniteAnimationsByClass = {};
+    try {
+      const animations = typeof document.getAnimations === 'function' ? document.getAnimations() : [];
+      for (const animation of animations) {
+        let iterations = 1;
+        try {
+          const effect = animation.effect;
+          const timing = effect && typeof effect.getTiming === 'function' ? effect.getTiming() : null;
+          if (timing && typeof timing.iterations === 'number') iterations = timing.iterations;
+        } catch {}
+        if (animation.playState === 'paused' || animation.playState === 'idle') continue;
+        if (iterations === Infinity) {
+          infiniteAnimations++;
+          const cls = animation && animation.constructor && animation.constructor.name ? String(animation.constructor.name) : 'Animation';
+          infiniteAnimationsByClass[cls] = (infiniteAnimationsByClass[cls] || 0) + 1;
+        }
+      }
+    } catch {}
+    let smil = 0;
+    try {
+      for (const s of Array.from(document.querySelectorAll('svg'))) {
+        const paused = typeof s.animationsPaused === 'function' ? s.animationsPaused() : false;
+        if (!paused && s.querySelector('animate, animateTransform, animateMotion, set')) smil++;
+      }
+    } catch {}
+    resolve({ playing, buffered, tags, infiniteAnimations, infiniteAnimationsByClass, smil, rafFired });
+  }, 350);
+  return promise;
 })()`;
 
 /**
@@ -2345,6 +2357,7 @@ export class BrowserControlPort {
     const location = diagnosticTabLocation(rawUrl);
 
     let probed = false;
+    let rafStalled = false;
     let playing = 0;
     let buffered = 0;
     let infiniteAnimations = 0;
@@ -2360,7 +2373,8 @@ export class BrowserControlPort {
         );
         if (sample && typeof sample === 'object') {
           probed = true;
-          const census = sample as { playing?: unknown; buffered?: unknown; tags?: unknown; infiniteAnimations?: unknown; infiniteAnimationsByClass?: unknown; smil?: unknown };
+          const census = sample as { playing?: unknown; buffered?: unknown; tags?: unknown; infiniteAnimations?: unknown; infiniteAnimationsByClass?: unknown; smil?: unknown; rafFired?: unknown };
+          if (census.rafFired === false) rafStalled = true;
           if (typeof census.playing === 'number' && Number.isFinite(census.playing) && census.playing > 0) {
             playing = Math.floor(census.playing);
           }
@@ -2403,9 +2417,15 @@ export class BrowserControlPort {
       const label = cls === 'Animation' ? 'WAAPI' : cls === 'CSSAnimation' ? 'CSS' : cls;
       observed.push(`${count} infinite ${label} animation(s)`);
     }
-    if (smil > 0) observed.push(`${smil} SVG SMIL animation(s)`);
     let surfaceStatus: string | undefined;
-    if (observed.length === 0) {
+    if (rafStalled) {
+      // Measured on this app: a window presenter that stopped issuing BeginFrames
+      // keeps reporting a visible, restored window while the renderer still
+      // answers, and no amount of media freezing produces the frame the raster
+      // waits for. Only a presentation change (focus, move) restarts production.
+      surfaceStatus = 'the window compositor produced no frame while the page still answered (requestAnimationFrame stalled with visibilityState visible)';
+    }
+    if (surfaceStatus === undefined && observed.length === 0) {
       if (typeof this.host.hasTab === 'function' && !this.host.hasTab(tabId)) {
         surfaceStatus = 'tab is not attached';
       } else if (typeof this.host.isTabOffscreen === 'function' && this.host.isTabOffscreen(tabId)) {
@@ -2426,23 +2446,30 @@ export class BrowserControlPort {
 
     // The remedy is branched on the census that was just taken: it names the
     // dominant class actually running, and a page with no observed animation
-    // class gets no animation remedy at all.
+    // class gets no animation remedy at all. A stalled frame census dominates:
+    // with the presenter issuing no BeginFrames, no media freeze can produce the
+    // frame the raster waits for, so the freeze remedies are withheld in favor of
+    // the one remedy that restarts frame production.
     const remedyParts: string[] = [];
-    if (playing > 0) remedyParts.push('pause the playing media');
-    if (classEntries.length > 0) {
-      const dominantClass = classEntries[0]?.[0] ?? 'Animation';
-      remedyParts.push(
-        dominantClass === 'Animation'
-          ? 'pause the running WAAPI animation(s) (Element.animate)'
-          : dominantClass === 'CSSAnimation'
-            ? 'pause the running CSS animation(s)'
-            : `pause the running ${dominantClass} animation(s)`
-      );
+    if (!rafStalled) {
+      if (playing > 0) remedyParts.push('pause the playing media');
+      if (classEntries.length > 0) {
+        const dominantClass = classEntries[0]?.[0] ?? 'Animation';
+        remedyParts.push(
+          dominantClass === 'Animation'
+            ? 'pause the running WAAPI animation(s) (Element.animate)'
+            : dominantClass === 'CSSAnimation'
+              ? 'pause the running CSS animation(s)'
+              : `pause the running ${dominantClass} animation(s)`
+        );
+      }
+      if (smil > 0 && classEntries.length === 0) remedyParts.push('pause the SVG SMIL animation(s)');
     }
-    if (smil > 0 && classEntries.length === 0) remedyParts.push('pause the SVG SMIL animation(s)');
-    const remedy = remedyParts.length > 0
-      ? `anti.media.freeze(tabId) to ${remedyParts.join(' and ')}, then retry`
-      : 'retry the capture; the probe observed no playing media and no running animation class to freeze';
+    const remedy = rafStalled
+      ? 'focus or move the AntiFan window once to restart frame production, or restart the app, then retry'
+      : remedyParts.length > 0
+        ? `anti.media.freeze(tabId) to ${remedyParts.join(' and ')}, then retry`
+        : 'retry the capture; the probe observed no playing media and no running animation class to freeze';
 
     const original = err instanceof Error ? err.message : String(err);
     // Never claim the probe *saw* nothing when it never ran: an unobserved tab is
@@ -2455,7 +2482,8 @@ export class BrowserControlPort {
         ? `the probe observed no playing media and no endless animation${surfaceClause}`
         : `the probe could not observe the tab (it may still be draining a timed-out CDP command)${surfaceClause}`;
     const locationClause = location.label ? ` on '${location.label}'` : '';
-    const message = `${original} | CAPTURE_TIMEOUT: capture did not settle: ${observedClause}${locationClause}. Remedy: ${remedy}.`;
+    const frameClause = rafStalled ? ' — the window compositor produced no frame while the page still answered' : '';
+    const message = `${original} | CAPTURE_TIMEOUT: capture did not settle: ${observedClause}${locationClause}${frameClause}. Remedy: ${remedy}.`;
 
     const inherited = err && typeof err === 'object' && 'details' in err && (err as { details?: unknown }).details
       && typeof (err as { details?: unknown }).details === 'object'
@@ -2466,6 +2494,7 @@ export class BrowserControlPort {
       code: 'CAPTURE_TIMEOUT',
       diagnosis: {
         probe: probed ? 'observed' : 'unavailable',
+        frameProduction: rafStalled ? 'stalled' : probed ? 'alive' : 'unavailable',
         playingMedia: playing,
         bufferedMedia: buffered,
         mediaTags,
