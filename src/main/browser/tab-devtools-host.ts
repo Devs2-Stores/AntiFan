@@ -1907,17 +1907,22 @@ export class TabDevToolsHost {
    *
    * A starved windowed target gets one bounded repair ladder — invalidate the
    * compositor state, then re-present the view — each verified by a re-probe
-   * before the capture proceeds. A target that stays starved is refused with
-   * CAPTURE_FRAME_STARVATION before the CDP command is dispatched, so the
-   * CDP queue stays clean and the next tool call is answered immediately
-   * instead of hitting TARGET_BUSY_DRAINING.
+   * before the capture proceeds. A pane that was raised onto the capture host
+   * skips the re-present step: reassertPresentedView lowers a raised pane back
+   * under the presented tab (its first act is lowerRaisedCaptureView), so for
+   * a raised pane that step is a dismantle, not a repair — the raise itself
+   * already invalidated a fresh surface. A target that stays starved is
+   * refused with CAPTURE_FRAME_STARVATION before the CDP command is
+   * dispatched, so the CDP queue stays clean and the next tool call is
+   * answered immediately instead of hitting TARGET_BUSY_DRAINING.
    */
   private async ensureFramesForRaster(
     wc: Electron.WebContents,
     targetId: string,
     effectivePane: SplitPaneId | undefined,
     mode: CaptureMode,
-    isOffscreenTarget: boolean
+    isOffscreenTarget: boolean,
+    raisedForCapture: boolean
   ): Promise<void> {
     if (isOffscreenTarget) {
       recordLifecycleEvent('capture.frameGate', {
@@ -1944,10 +1949,12 @@ export class TabDevToolsHost {
       recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'invalidate', window: windowState });
       return;
     }
-    try { this.ctx.reassertPresentedView?.(); steps.push('reassert'); } catch {}
-    if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
-      recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'reassert', window: windowState });
-      return;
+    if (!raisedForCapture) {
+      try { this.ctx.reassertPresentedView?.(); steps.push('reassert'); } catch {}
+      if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
+        recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'reassert', window: windowState });
+        return;
+      }
     }
 
     recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, steps, window: windowState });
@@ -2376,7 +2383,7 @@ export class TabDevToolsHost {
           // timed-out inside the command it is quarantined as draining and
           // every later command waits out the drain window (both measured).
           const rasterStartedAt = Date.now();
-          await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget);
+          await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, shouldRaiseForRaster);
           try {
             captureRes = await this.sendCdpCommand<{ data?: string }>(
               wc,

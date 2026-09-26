@@ -33,5 +33,33 @@
 ## Open / not yet proven
 
 - `goal-runner` supervisor-kill tests passed both lane runs, but their mechanism under load was not diagnosed; if they flake again the fix is likely the 20 s `waitFor` vs `spawnNode`+`killTree` on a busy box.
-- `native-tab-host` viewport/pane changes are proven only by unit test; no live Electron run re-verified the pane yet.
+- `native-tab-host` viewport/pane changes are proven by unit test and by the live Electron smoke below; the `WebContentsView` guard itself is headless-only (its live path is the same `typeof` check that never trips in a real Electron).
 - `browser-control-port.ts` stays at HEAD — the dead-anchor contract is *port-level refusal* and *transport-level self-heal*; anyone touching `openTab` must keep both tests green.
+
+## Review follow-up (same day, post-commit review)
+
+The code-review pass over `71bb54ec^..00fc50c4` confirmed all four acceptance
+criteria and flagged two concerns; both were addressed:
+
+- **Misleading commit message on the frame-gate commit** — the message
+  described "capture a background tab through CDP when not attached" while the
+  diff implements the compositor frame-liveness gate (`ensureFramesForRaster`,
+  `CAPTURE_FRAME_STARVATION`) + lifecycle logging. Reworded locally before any
+  push (history was still unpushed: `main` ahead of `origin/main` by 8).
+- **Repair-ladder ordering hazard** — the gate's re-present step called
+  `reassertPresentedView` even for a pane that `raiseViewForCapture` had just
+  moved onto the capture host window. Reassert's first act is
+  `lowerRaisedCaptureView`, so the "repair" dismantled the fresh surface and
+  moved the pane back under the presented tab where it cannot raster. Fix:
+  `ensureFramesForRaster` now takes `raisedForCapture` and a raised pane stops
+  the ladder at the compositor invalidate; a still-starved raised pane is
+  refused with `CAPTURE_FRAME_STARVATION` exactly as before. Regression test
+  `never lowers a pane raised for capture` — mutation-proved: replacing the
+  guard with `if (true)` in the compiled output fails exactly the
+  `reassertPresentedView` assertion.
+
+Live verification also closed one open item: `node scripts/run-electron.cjs
+test/e2e/site-mute-smoke.cjs` — real Electron, temp profile, multi-tab/split,
+navigation — **passed** (exit 0, "[SMOKE-MUTE] All site-mute smoke checks
+passed successfully"), exercising the pane attach/release path that the
+re-assert gate changed.
