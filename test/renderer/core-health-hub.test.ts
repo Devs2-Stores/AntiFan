@@ -18,7 +18,7 @@ import { createRequire } from 'node:module';
 interface JsdomLike { window: Window & { eval: (src: string) => unknown } }
 type JsdomCtor = new (html: string, options?: { runScripts?: string; url?: string }) => JsdomLike;
 
-function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
+function loadJsdom(): { JSDOM: JsdomCtor } {
   const req = createRequire(__filename);
   // ANTIFAN_JSDOM points at a dir containing node_modules/jsdom and wins first;
   // the default lookup (junctioned node_modules) is the fallback.
@@ -29,7 +29,7 @@ function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
     const resolved = req.resolve('jsdom', { paths: searchPaths });
     return { JSDOM: (req(resolved) as { JSDOM: JsdomCtor }).JSDOM };
   } catch (err) {
-    return { error: String(err instanceof Error ? err.message : err) };
+    throw new Error(`jsdom is a declared devDependency and a hard prerequisite of this suite; resolution failed (searched: ${searchPaths.join(', ')}): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -135,8 +135,7 @@ async function flush(rounds = 8) {
 }
 
 async function loadToolbar(state: unknown) {
-  const { JSDOM, error } = loadJsdom();
-  if (!JSDOM) throw new Error(`jsdom unavailable: ${error}`);
+  const { JSDOM } = loadJsdom();
   const html = fs.readFileSync(path.join(RENDERER_DIR, 'toolbar.html'), 'utf8');
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' });
   const win = dom.window;
@@ -152,7 +151,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   after(() => { dom?.window.close(); });
 
   test('five surfaces live inside #workflowHubOverlay — no second overlay', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -169,7 +167,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   });
 
   test('Health surface: seeded DEGRADED renders status + reasonCode, not a percentage', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -190,7 +187,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   });
 
   test('Bridge surface: missing telemetry → UNKNOWN + unknowns visible', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -205,7 +201,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   });
 
   test('Task Run surface: selecting a pack loads its real trace via IPC', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -227,7 +222,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   });
 
   test('Root cause surface: groups open issues with severity-driven status', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -241,7 +235,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   });
 
   test('Regression surface: a failed replay renders DEGRADED/REGRESSION_FAILED with its rows', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -257,7 +250,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   });
 
   test('Task-run badge counts task_runs rows only, not packs or cases', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -267,7 +259,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   });
 
   test('Root cause P2 maps to WARN rather than DEGRADED', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const state = {
       ...DEGRADED_STATE,
       rootCauses: {
@@ -295,7 +286,6 @@ describe('Core Health surfaces inside the existing Hub', () => {
   });
 
   test('Prompt overlay includes a hidden multiline field for JSON authoring', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(DEGRADED_STATE);
     dom = ctx.dom;
     const doc = ctx.doc;

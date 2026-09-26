@@ -38,7 +38,7 @@ type JsdomWindow = Window & typeof globalThis & {
 interface JsdomLike { window: JsdomWindow }
 type JsdomCtor = new (html: string, options?: { runScripts?: string; url?: string }) => JsdomLike;
 
-function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
+function loadJsdom(): { JSDOM: JsdomCtor } {
   const req = createRequire(__filename);
   // ANTIFAN_JSDOM points at a dir containing node_modules/jsdom and wins first;
   // the default lookup (junctioned node_modules) is the fallback.
@@ -49,7 +49,7 @@ function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
     const resolved = req.resolve('jsdom', { paths: searchPaths });
     return { JSDOM: (req(resolved) as { JSDOM: JsdomCtor }).JSDOM };
   } catch (err) {
-    return { error: String(err instanceof Error ? err.message : err) };
+    throw new Error(`jsdom is a declared devDependency and a hard prerequisite of this suite; resolution failed (searched: ${searchPaths.join(', ')}): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -299,8 +299,7 @@ async function settle(rounds = 3) {
 interface HubContext { dom: JsdomLike; win: JsdomWindow; doc: Document }
 
 async function loadToolbar(state: unknown, mode: DispatchMode = 'resolve'): Promise<HubContext> {
-  const { JSDOM, error } = loadJsdom();
-  if (!JSDOM) throw new Error(`jsdom unavailable: ${error}`);
+  const { JSDOM } = loadJsdom();
   const html = fs.readFileSync(path.join(RENDERER_DIR, 'toolbar.html'), 'utf8');
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' });
   const win = dom.window;
@@ -334,7 +333,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   after(() => { dom?.window.close(); });
 
   test('R1 — the tab is a nav button inside the single .hub-nav-strip (no second overlay)', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(measuredPayload());
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -355,7 +353,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R2 — both arms wired: rows render, overview selected, detail pane filled', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(measuredPayload());
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -385,7 +382,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R3 — margin label, truncation label and the Phase-1 covered window render', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
 
     const plain = await loadToolbar(measuredPayload());
     dom = plain.dom;
@@ -421,7 +417,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R4 — UNMEASURED with no rows: one notice, zero .hub-list-item, never a 0', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(unmeasuredPayload(STORE_LABEL, 'READ_BUDGET_EXCEEDED', ['budget-expired', STORE_LABEL]));
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -439,7 +434,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R4b — storePath === null renders the reasonCode copy, never "null" and never a path', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(unmeasuredPayload(null, 'NO_DATA_ROOT_RESOLVED', ['no-data-root-resolved']));
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -453,7 +447,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R4c — UNMEASURED with a non-null census discloses the read facts it holds', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(unmeasuredWithCensusPayload());
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -484,7 +477,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R4d — UNMEASURED with census: null is unchanged: reasonCode copy only', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(unmeasuredPayload(STORE_LABEL, 'READ_BUDGET_EXCEEDED', ['budget-expired', STORE_LABEL]));
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -505,7 +497,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R4e — escaping covers the census-derived read facts', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const hostileOutcome = '<img src=x onerror="window.__pwned=1">';
     const ctx = await loadToolbar(unmeasuredWithCensusPayload({ ceiling: '<script>x</script>' }, hostileOutcome));
     dom = ctx.dom;
@@ -533,7 +524,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R4f — a non-numeric census count is never rendered as a number', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     // A hostile or malformed count is not a count: the read-fact line must not fall
     // back to a fabricated figure, it simply carries no count field.
     const ctx = await loadToolbar(unmeasuredWithCensusPayload({ observedFiles: '<b>99</b>', filesRead: null }));
@@ -551,7 +541,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R4g — the real store label renders verbatim and carries no path separator', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(unmeasuredPayload('invocations', 'READ_BUDGET_EXCEEDED', ['budget-expired', 'invocations']));
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -582,7 +571,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R4h — an odd-but-legal label renders verbatim: the label is never pattern-matched', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     // Legal under Phase 1's rule (no separator, no drive letter) yet nothing like the
     // canonical 'invocations': 206 characters with spaces. Whatever the service hands
     // over is what the surface shows, whole.
@@ -604,7 +592,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R5 — the detail pane shows the per-name latency pair and error histogram', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(measuredPayload());
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -626,7 +613,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R6 — a rejected invoke degrades to UNMEASURED with zero unhandled rejections', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const rejections: unknown[] = [];
     const onRejection = (reason: unknown) => { rejections.push(reason); };
     process.on('unhandledRejection', onRejection);
@@ -646,7 +632,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R6b — an absent bridge method degrades to UNMEASURED + NO_DATA', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const rejections: unknown[] = [];
     const onRejection = (reason: unknown) => { rejections.push(reason); };
     process.on('unhandledRejection', onRejection);
@@ -667,7 +652,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R7 — the search box filters name rows only and hides no disclosure', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(measuredPayload());
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -688,7 +672,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R7b — a search that matches nothing still renders the UNMEASURED notice', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(unmeasuredPayload(STORE_LABEL, 'READ_BUDGET_EXCEEDED', ['budget-expired']));
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -705,7 +688,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('the dispatch refresh never leaves its rows on another active tab', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(measuredPayload());
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -719,7 +701,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R8 — markup seeded into name/errors creates no element and no attribute', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(markupPayload());
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -743,7 +724,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('R9 — rows survive a close/re-open of the Hub and a row is still selected', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(measuredPayload());
     dom = ctx.dom;
     const doc = ctx.doc;
@@ -762,7 +742,6 @@ describe('MCP Dispatch tab inside the existing Hub', () => {
   });
 
   test('structural — the tab is deliberately absent from HUB_CORE_TABS', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     assert.ok(fs.existsSync(SOURCE_TOOLBAR_TS), `source toolbar.ts must exist at ${SOURCE_TOOLBAR_TS}`);
     const source = fs.readFileSync(SOURCE_TOOLBAR_TS, 'utf8');
     const coreTabs = /const HUB_CORE_TABS: HubTab\[\] = \[([^\]]*)\]/.exec(source);
@@ -794,7 +773,6 @@ function normalizeText(value: string | null | undefined): string {
 
 describe('MCP Dispatch provenance disclosure (the framing of the honest hole)', () => {
   test('R10 — the line renders beside the rows and is declared exactly once, in markup', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(measuredPayload());
     await openMcpDispatchTab(ctx);
     const el = ctx.doc.getElementById('mcpDispatchProvenance');
@@ -811,7 +789,6 @@ describe('MCP Dispatch provenance disclosure (the framing of the honest hole)', 
   });
 
   test('R10b — the text is identical for a measured payload, an unmeasured one and none at all', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const measured = await loadToolbar(measuredPayload());
     await openMcpDispatchTab(measured);
     const withRows = normalizeText(measured.doc.getElementById('mcpDispatchProvenance')?.textContent);
@@ -833,7 +810,6 @@ describe('MCP Dispatch provenance disclosure (the framing of the honest hole)', 
   });
 
   test('R10c — the line follows the tab: shown on mcp-dispatch, hidden on every other tab', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const ctx = await loadToolbar(measuredPayload());
     const doc = ctx.doc;
     const el = doc.getElementById('mcpDispatchProvenance') as HTMLElement;

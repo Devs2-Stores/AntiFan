@@ -25,7 +25,7 @@ import { createRequire } from 'node:module';
 interface JsdomLike { window: Window & { eval: (src: string) => unknown } }
 type JsdomCtor = new (html: string, options?: { runScripts?: string; url?: string }) => JsdomLike;
 
-function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
+function loadJsdom(): { JSDOM: JsdomCtor } {
   const req = createRequire(__filename);
   const searchPaths = process.env.ANTIFAN_JSDOM
     ? [process.env.ANTIFAN_JSDOM, path.dirname(__filename)]
@@ -34,7 +34,7 @@ function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
     const resolved = req.resolve('jsdom', { paths: searchPaths });
     return { JSDOM: (req(resolved) as { JSDOM: JsdomCtor }).JSDOM };
   } catch (err) {
-    return { error: String(err instanceof Error ? err.message : err) };
+    throw new Error(`jsdom is a declared devDependency and a hard prerequisite of this suite; resolution failed (searched: ${searchPaths.join(', ')}): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -182,8 +182,7 @@ interface LoadToolbarOptions {
 
 async function loadToolbar(options: LoadToolbarOptions = {}): Promise<ToolbarHandle> {
   const { openUrl = `${DEFAULT_ORIGIN}/`, workspacePath = DEFAULT_WORKSPACE, hangWorkspace = false } = options;
-  const { JSDOM, error } = loadJsdom();
-  if (!JSDOM) throw new Error(`jsdom unavailable: ${error}`);
+  const { JSDOM } = loadJsdom();
   const html = fs.readFileSync(path.join(RENDERER_DIR, 'toolbar.html'), 'utf8');
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://antifan.local/' });
   const win = dom.window;
@@ -230,7 +229,6 @@ async function loadToolbar(options: LoadToolbarOptions = {}): Promise<ToolbarHan
 }
 describe('Theme Studio page-by-page checklist', () => {
   test('both studio tabs are siblings inside the body, so tab switching can work', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, dom } = await loadToolbar();
     try {
       const checklistTab = doc.getElementById('themeTabChecklist');
@@ -246,7 +244,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('renders one card per page group with every item carrying a QA point', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, dom } = await loadToolbar();
     try {
       const list = doc.getElementById('themeChecklistList');
@@ -272,7 +269,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('page filter narrows the list to that page group only', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, dom } = await loadToolbar();
     try {
       const list = doc.getElementById('themeChecklistList');
@@ -295,7 +291,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('toggle-all completes a page, persists it, and the uncompleted filter hides it', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, win, dom } = await loadToolbar();
     try {
       const list = doc.getElementById('themeChecklistList');
@@ -339,7 +334,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('report export writes one markdown section per page and one line per item', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, clipboard, dom } = await loadToolbar();
     try {
       (doc.getElementById('themeChecklistList')?.querySelector('.theme-btn-toggle-all') as HTMLElement).click();
@@ -363,7 +357,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('per-page scan navigates, runs QA, and hands the report to the findings tab', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, calls, dom, runTimers } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/` });
     try {
       // Home is already open; the cart is not, so the card must open it before scanning.
@@ -386,7 +379,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('the product card refuses to open or scan a route that does not exist', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     // Storefront open on the home page: no product page exists to scan.
     const { doc, calls, dom, runTimers } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/` });
     try {
@@ -408,7 +400,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('the product card scans the product page that is actually open', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, calls, dom, runTimers } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/products/ao-thun` });
     try {
       const pdpCard = (Array.from(doc.querySelectorAll('.theme-phase-card')) as HTMLElement[])[2];
@@ -426,7 +417,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('progress follows the storefront, not the window', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, dom, api } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/` });
     try {
       const list = doc.getElementById('themeChecklistList');
@@ -454,7 +444,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('an unresolvable workspace still gets its own scope, never a bare origin key', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, win, dom } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, workspacePath: '' });
     try {
       const list = doc.getElementById('themeChecklistList');
@@ -474,7 +463,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('the same project reported with different path casing keeps one scope', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, win, dom, api } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, workspacePath: 'E:\\Work\\Themes\\Shop-A' });
     try {
       const list = doc.getElementById('themeChecklistList');
@@ -497,7 +485,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('the toolbar stays usable when the workspace query never answers', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, win, dom, runTimers } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, hangWorkspace: true });
     try {
       // Boot must not wait on the workspace: the toolbar is already interactive.
@@ -527,7 +514,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('a local dev port shared by two theme projects keeps two separate checklists', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     // 127.0.0.1:9292 is the fixed local storefront port, so both projects present the
     // same origin; only the workspace tells them apart.
     const localPort = 'http://127.0.0.1:9292';
@@ -563,7 +549,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('page card can be collapsed and expanded by clicking header', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, dom } = await loadToolbar();
     try {
       const list = doc.getElementById('themeChecklistList');
@@ -590,7 +575,6 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('supports full CRUD: add new item, edit it, and delete it with persistence', async (t) => {
-    if (!loadJsdom().JSDOM) { t.skip(`jsdom unavailable: ${loadJsdom().error}`); return; }
     const { doc, win, dom } = await loadToolbar();
     try {
       // 1. CREATE: Open dialog, submit form

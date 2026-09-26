@@ -20,7 +20,7 @@ interface JsdomWindow {
   window: Window & typeof globalThis;
   getInternalVMContext: () => vm.Context;
 }
-function loadJsdom(): (new (html: string, options: Record<string, unknown>) => JsdomWindow) | null {
+function loadJsdom(): new (html: string, options: Record<string, unknown>) => JsdomWindow {
   const req = createRequire(__filename);
   const searchPaths = process.env.ANTIFAN_JSDOM
     ? [process.env.ANTIFAN_JSDOM, path.dirname(__filename)]
@@ -28,8 +28,8 @@ function loadJsdom(): (new (html: string, options: Record<string, unknown>) => J
   try {
     const resolved = req.resolve('jsdom', { paths: searchPaths });
     return (req(resolved) as { JSDOM: (new (html: string, options: Record<string, unknown>) => JsdomWindow) }).JSDOM;
-  } catch {
-    return null;
+  } catch (err) {
+    throw new Error(`jsdom is a declared devDependency and a hard prerequisite of this suite; resolution failed (searched: ${searchPaths.join(', ')}): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -176,7 +176,6 @@ describe('Per-tab terminal memory in Popup Annotation', () => {
 
   it('offers only running base sessions as annotation targets (no sleeping, no split pane)', async (t) => {
     const JSDOM = loadJsdom();
-    if (!JSDOM) { t.skip('jsdom unavailable'); return; }
     const host = createHost(['tab-1']);
     host.setTabTerminalSession('tab-1', sessionA);
     liveSessions = [

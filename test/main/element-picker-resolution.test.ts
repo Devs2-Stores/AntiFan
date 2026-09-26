@@ -24,7 +24,7 @@ type JsdomCtor = new (html: string, options?: Record<string, unknown>) => JsdomL
  * test honors ANTIFAN_JSDOM (a dir containing node_modules/jsdom) and skips
  * with the resolution error as the named blocker.
  */
-function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
+function loadJsdom(): { JSDOM: JsdomCtor } {
   const req = createRequire(__filename);
   const searchPaths = process.env.ANTIFAN_JSDOM
     ? [process.env.ANTIFAN_JSDOM, path.dirname(__filename)]
@@ -35,7 +35,7 @@ function loadJsdom(): { JSDOM?: JsdomCtor; error?: string } {
     const jsdomModule = req(resolved) as unknown as { JSDOM: JsdomCtor };
     return { JSDOM: jsdomModule.JSDOM };
   } catch (err) {
-    return { error: String(err instanceof Error ? err.message : err) };
+    throw new Error(`jsdom is a declared devDependency and a hard prerequisite of this suite; resolution failed (searched: ${searchPaths.join(', ')}): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -305,11 +305,7 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
   const promptOf = (h: PickerHarness, modal: Element): string => modalTextarea(h, modal).value;
 
   it('defaults to the Direct Edit tag with the caret after it, and the Core tick flips the tag slot', async (t) => {
-    const { JSDOM, error } = loadJsdom();
-    if (!JSDOM) {
-      t.skip(`jsdom unavailable: ${error}`);
-      return;
-    }
+    const { JSDOM } = loadJsdom();
     const h = createPickerHarness(JSDOM);
     const modal = h.openModal();
     assert.ok(modal, 'clicking a target must open the annotation modal');
@@ -344,11 +340,7 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
   });
 
   it('keeps the typed request across chip toggles and never duplicates a mode tag', async (t) => {
-    const { JSDOM, error } = loadJsdom();
-    if (!JSDOM) {
-      t.skip(`jsdom unavailable: ${error}`);
-      return;
-    }
+    const { JSDOM } = loadJsdom();
     const h = createPickerHarness(JSDOM);
     const modal = h.openModal();
     assert.ok(modal);
@@ -385,11 +377,7 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
   });
 
   it('Copy Prompt publishes copyOnly artifacts to the clipboard without terminal dispatch', async (t) => {
-    const { JSDOM, error } = loadJsdom();
-    if (!JSDOM) {
-      t.skip(`jsdom unavailable: ${error}`);
-      return;
-    }
+    const { JSDOM } = loadJsdom();
     const h = createPickerHarness(JSDOM);
     const modal = h.openModal();
     assert.ok(modal);
@@ -411,11 +399,7 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
   });
 
   it('Send publishes without copyOnly and leaves the clipboard to the host', async (t) => {
-    const { JSDOM, error } = loadJsdom();
-    if (!JSDOM) {
-      t.skip(`jsdom unavailable: ${error}`);
-      return;
-    }
+    const { JSDOM } = loadJsdom();
     const h = createPickerHarness(JSDOM);
     const modal = h.openModal();
     assert.ok(modal);
@@ -437,11 +421,7 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
   });
 
   it('refuses a body-less prompt: no publish, error surfaced, modal stays open', async (t) => {
-    const { JSDOM, error } = loadJsdom();
-    if (!JSDOM) {
-      t.skip(`jsdom unavailable: ${error}`);
-      return;
-    }
+    const { JSDOM } = loadJsdom();
     const h = createPickerHarness(JSDOM);
     const modal = h.openModal();
     assert.ok(modal);
@@ -810,11 +790,7 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
   });
 
   it('an oversized class-matched wrapper cannot swallow picking of its children', async (t) => {
-    const { JSDOM, error } = loadJsdom();
-    if (!JSDOM) {
-      t.skip(`jsdom unavailable: ${error}`);
-      return;
-    }
+    const { JSDOM } = loadJsdom();
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
       runScripts: 'outside-only',
       url: 'https://m-n-bakery.myharavan.com/collections/original-collection',
