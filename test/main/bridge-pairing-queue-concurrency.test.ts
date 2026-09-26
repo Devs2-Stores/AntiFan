@@ -317,7 +317,12 @@ describe('pairing codes stay single-use and isolated while clients pair concurre
       try {
         const port = await server.start();
         const dir = queueDirOf(server);
-        await waitFor(() => queueDepth(dir) >= 2, WARMUP_BUDGET_MS, 'queue with two live codes');
+        // The constructor refill runs in the background. Awaiting it is deterministic where a
+        // wall-clock warm-up budget is not: minting a challenge writes its file only after
+        // icacls and PowerShell have set the DACL, and that cost multiplies when the lane runs
+        // every other suite beside this one.
+        await server.replenishPairingQueue();
+        assert.ok(queueDepth(dir) >= 2, `precondition: the queue must hold two live codes (saw ${queueDepth(dir)})`);
 
         const [a, b] = await Promise.all([
           postJson(port, '/api/pairing/challenge', {}, BURST_BUDGET_MS),

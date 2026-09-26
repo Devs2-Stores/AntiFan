@@ -137,13 +137,21 @@ async function waitFor(check, label, timeoutMs = 5000) {
   }
 }
 
-const waitForAttempts = (dir, count) => waitFor(
+const waitForAttempts = (dir, count, timeoutMs = 5000) => waitFor(
   () => {
     const found = attemptsIn(dir);
     return found.length >= count ? found : null;
   },
   `${count} attempt record(s) in ${dir}`,
+  timeoutMs,
 );
+
+// The drain that rotates, prunes and appends runs on the proxy's single async
+// queue, so under a loaded machine (the full lane runs ~1400 files in parallel)
+// the first line can take well past the 5 s default. The budget only widens the
+// settle barrier: the exact file-count and survivor assertions that follow are
+// what judge the ring, and a real rotation defect still fails them.
+const ROTATION_SETTLE_BUDGET_MS = 30000;
 
 function runReader(dir) {
   const args = [PROXY, '--core-attempts', '--json'];

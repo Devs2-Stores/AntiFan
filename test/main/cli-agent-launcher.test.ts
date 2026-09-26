@@ -268,7 +268,12 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     const cliSession = await runtime.createCliSession({
       grant: 'write',
       ownerPid: 11223,
-      ttlMs: 50,
+      // The TTL only has to outlive this test's own pre-renewal steps: at 50 ms a loaded
+      // machine (the full lane runs ~1400 files in parallel) spent the window before the
+      // first renewal was attempted, so renewal and the wrong-PID probe both failed with
+      // ATTACHMENT_STALE. The renewal window is `now + extensionMs` and never stacks, so
+      // the extension below is what proves the advance.
+      ttlMs: 30000,
     });
 
     const initialExpiresAt = cliSession.launch.expiresAt;
@@ -281,14 +286,14 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     );
 
     // 2. Correct renewal advances expiresAt strictly
-    const renewResult = await runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 11223 });
+    const renewResult = await runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 60000, ownerPid: 11223 });
     assert.ok(renewResult.expiresAt > initialExpiresAt, 'Renewed expiresAt must advance');
     assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(cliSession.launch.attachmentId, cliSession.launch.secret), true, 'Secret remains valid after renewal');
 
-    // 3. Simulate the clock advancing past the original 50ms TTL while the
+    // 3. Simulate the clock advancing past the original 30s TTL while the
     // renewed window is still open — no real-time sleep.
     const renewedRecord = runtime.runs.attachments.getAttachment(cliSession.launch.attachmentId)!;
-    renewedRecord.expiresAt = Date.now() + 100; // renewed extension was 500ms; pretend 400ms elapsed
+    renewedRecord.expiresAt = Date.now() + 100; // renewed window was 60s; pretend most of it elapsed
 
     // Must still validate successfully because of renewal!
     const validated = runtime.runs.attachments.validateAttachment({
