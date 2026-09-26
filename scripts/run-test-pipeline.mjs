@@ -34,6 +34,8 @@ const TEST_LANES = [
   // force-exit variant stays available as `test:e2e` for local iteration.
   'test:e2e:strict',
   'smoke:terminal',
+  'smoke:site-mute',
+  'smoke:media-freeze',
   'test:terminal-transport',
   'test:terminal-rename',
   'test:mcp-dispatch-hub',

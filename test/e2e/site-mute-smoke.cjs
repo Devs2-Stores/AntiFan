@@ -128,6 +128,11 @@ async function runVerifyPhase() {
     const raw = JSON.parse(fs.readFileSync(path.join(userDataDir, 'saved-tabs.json'), 'utf8'));
     assert.equal((raw.mutedSites || []).includes('127.0.0.1'), false, 'Unmute must remove host from saved-tabs.json');
     console.log('[SMOKE-MUTE] Phase 2 verification passed.');
+    // Deterministic exit: every assertion has passed by this point, and native
+    // teardown (tab host dispose / window destroy) can deadlock under load —
+    // a hung cleanup must not consume the watchdog budget. Process death
+    // releases the window and views at the OS level.
+    app.exit(0);
   } finally {
     tabHost.dispose();
     if (!win.isDestroyed()) win.destroy();

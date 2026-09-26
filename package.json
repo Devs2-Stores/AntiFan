@@ -70,6 +70,8 @@
     "smoke:multitasking": "npm run compile && node scripts/run-electron.cjs scripts/smoke-background-multitasking.cjs",
     "smoke:parity": "npm run compile && node scripts/run-electron.cjs scripts/smoke-playwright-parity.cjs",
     "smoke:terminal": "node scripts/run-electron.cjs test/e2e/terminal-recovery-smoke.cjs && node scripts/run-electron.cjs test/e2e/terminal-renderer-smoke.cjs && node scripts/run-electron.cjs test/e2e/terminal-split-hydration-probe.cjs",
+    "smoke:site-mute": "node scripts/run-electron.cjs test/e2e/site-mute-smoke.cjs",
+    "smoke:media-freeze": "node scripts/run-electron.cjs scripts/smoke-media-freeze.cjs",
     "test:terminal-transport": "node scripts/run-electron.cjs test/e2e/terminal-transport-sync.cjs",
     "test:terminal-rename": "node scripts/run-electron.cjs test/e2e/terminal-rename-space.test.cjs",
     "test:mcp-dispatch-hub": "node scripts/run-electron.cjs test/e2e/mcp-dispatch-hub-probe.cjs",
