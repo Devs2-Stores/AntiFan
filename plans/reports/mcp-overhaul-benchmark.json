@@ -1,63 +1,63 @@
 {
-  "timestamp": "2026-09-20T08:12:44.638Z",
+  "timestamp": "2026-09-26T11:46:55.293Z",
   "target": "local-synthetic-storefront (Node.js HTTP server with dynamic DOM hydration)",
   "platform": "win32",
   "arch": "x64",
   "benchmark": {
     "totalCalls": 20,
-    "meanMs": 14.2,
-    "p50Ms": 11.68,
-    "p95Ms": 20.59,
-    "maxMs": 50.43,
+    "meanMs": 16,
+    "p50Ms": 13.79,
+    "p95Ms": 15.96,
+    "maxMs": 55.25,
     "tailSamplesOver500ms": 0,
     "heartbeatMs": 1000,
     "samplesMs": [
-      13.4,
-      14.2,
-      50.4,
-      13.7,
-      20.6,
+      14.8,
+      14.4,
+      55.3,
+      13.6,
+      12.6,
+      13.8,
       12,
-      11.2,
-      12.3,
-      11,
+      12.8,
+      13.3,
+      13.1,
+      16,
+      14.3,
       11.7,
-      11.5,
-      11.7,
-      11.3,
-      11.2,
-      11.4,
-      11,
-      12,
-      10.6,
-      11.9,
-      10.9
+      13.8,
+      14.5,
+      15.8,
+      14.4,
+      15.3,
+      12.8,
+      15.9
     ]
   },
   "actionabilityTest": {
     "hydrationDelayMs": 120,
-    "actionWaitMs": 329.33,
+    "actionWaitMs": 234.96,
     "waitedSuccessfully": true
   },
   "stability": {
     "cycles": 50,
-    "burstMs": 836.73,
+    "burstMs": 858.49,
     "failedDispatches": 0,
     "proxyRssSamplesMb": [
       {
         "at": "pre-burst",
-        "mb": 144.29
+        "mb": 141.1
       },
       {
         "at": "mid-burst",
-        "mb": 144.54
+        "mb": 141.3
       },
       {
         "at": "post-burst",
-        "mb": 144.62
+        "mb": 141.46
       }
     ],
-    "proxyRssSlopeBytesPerCycle": 7045.1,
+    "proxyRssSlopeBytesPerCycle": 7700.5,
     "proxyRssSlopeCeilingBytesPerCycle": 2097152,
     "proxyRssSlopeVerdict": "PASS"
   },
