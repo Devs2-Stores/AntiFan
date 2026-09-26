@@ -118,6 +118,7 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
       },
       (err: unknown) => {
         assert.ok(err instanceof CapabilityError);
+        assert.strictEqual((err as CapabilityError).code, 'WAIT_ABORTED', 'an aborted wait must surface WAIT_ABORTED, not an unrelated CapabilityError');
         return true;
       }
     );

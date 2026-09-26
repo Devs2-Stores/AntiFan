@@ -39,11 +39,12 @@ describe('Preview Protocol & Watcher Suite', () => {
     });
 
     it('rejects absolute paths, drive letters, and parent traversals in buildPreviewUrl', () => {
-      assert.throws(() => buildPreviewUrl('cap-123', '/absolute/path.html'));
-      assert.throws(() => buildPreviewUrl('cap-123', 'C:\\Windows\\win.ini'));
-      assert.throws(() => buildPreviewUrl('cap-123', '../escape.html'));
-      assert.throws(() => buildPreviewUrl('cap-123', 'sub/../../escape.html'));
-      assert.throws(() => buildPreviewUrl('', 'index.html'));
+      // Error validators pin the refusal reason: an unexpected TypeError would otherwise pass.
+      assert.throws(() => buildPreviewUrl('cap-123', '/absolute/path.html'), /Forbidden: Absolute, drive-letter, or UNC/);
+      assert.throws(() => buildPreviewUrl('cap-123', 'C:\\Windows\\win.ini'), /Forbidden: Absolute, drive-letter, or UNC/);
+      assert.throws(() => buildPreviewUrl('cap-123', '../escape.html'), /Forbidden path segment/);
+      assert.throws(() => buildPreviewUrl('cap-123', 'sub/../../escape.html'), /Forbidden path segment/);
+      assert.throws(() => buildPreviewUrl('', 'index.html'), /Invalid capsuleId/);
     });
 
     it('parses valid antifan-preview:// URLs into capsuleId and relativePath', () => {
@@ -51,11 +52,10 @@ describe('Preview Protocol & Watcher Suite', () => {
       assert.strictEqual(parsed.capsuleId, 'cap-xyz');
       assert.strictEqual(parsed.relativePath, '/docs/readme.md');
     });
-
     it('rejects encoded traversal separators and null bytes in parsePreviewUrl', () => {
-      assert.throws(() => parsePreviewUrl('antifan-preview://cap-xyz/sub%2fsecret.txt'));
-      assert.throws(() => parsePreviewUrl('antifan-preview://cap-xyz/sub%5csecret.txt'));
-      assert.throws(() => parsePreviewUrl('antifan-preview://cap-xyz/null%00byte.txt'));
+      assert.throws(() => parsePreviewUrl('antifan-preview://cap-xyz/sub%2fsecret.txt'), /Encoded path separator/);
+      assert.throws(() => parsePreviewUrl('antifan-preview://cap-xyz/sub%5csecret.txt'), /Encoded path separator/);
+      assert.throws(() => parsePreviewUrl('antifan-preview://cap-xyz/null%00byte.txt'), /Malformed URL encoding|Forbidden/);
     });
   });
 

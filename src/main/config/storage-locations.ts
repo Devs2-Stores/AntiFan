@@ -6,7 +6,17 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+
 import { enforceProtectedDirectoryDacl, resolveCurrentUserSid } from '../security/windows-acl';
+
+/**
+ * The Chromium default-session cache budgets the main process launches with
+ * (`--disk-cache-size` / `--media-cache-size` in src/main/index.ts). Exported so
+ * the constrained-disk contract is assertable in tests instead of being a
+ * path-string formatting detail.
+ */
+export const DISK_CACHE_BYTES = 134_217_728; // 128 MB
+export const MEDIA_CACHE_BYTES = 67_108_864; // 64 MB
 export function validateDataRootPath(inputPath: string): string {
   const trimmed = (inputPath || '').trim();
   if (!trimmed) {

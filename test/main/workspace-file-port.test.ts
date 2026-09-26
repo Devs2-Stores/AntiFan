@@ -13,9 +13,11 @@ describe('Workspace file port', () => {
       fs.writeFileSync(path.join(root, 'theme.css'), 'body { color: red; }'); // 20 bytes
       const port = new WorkspaceFilePort();
       assert.strictEqual(port.read(root, 'theme.css').content, 'body { color: red; }');
-      assert.throws(() => port.read(root, '../outside.txt'), (error: unknown) => error instanceof CapabilityError);
-      assert.throws(() => port.read(root, '/etc/passwd'), (error: unknown) => error instanceof CapabilityError);
-      assert.throws(() => port.read(root, 'C:\\Windows\\System32\\cmd.exe'), (error: unknown) => error instanceof CapabilityError);
+      // Relative traversal escapes the root → OUTSIDE_WORKSPACE; absolute and drive-letter
+      // paths are refused earlier as INVALID_ARGUMENT (a relative workspace path is required).
+      assert.throws(() => port.read(root, '../outside.txt'), (error: unknown) => error instanceof CapabilityError && (error as CapabilityError).code === 'OUTSIDE_WORKSPACE');
+      assert.throws(() => port.read(root, '/etc/passwd'), (error: unknown) => error instanceof CapabilityError && (error as CapabilityError).code === 'INVALID_ARGUMENT');
+      assert.throws(() => port.read(root, 'C:\\Windows\\System32\\cmd.exe'), (error: unknown) => error instanceof CapabilityError && (error as CapabilityError).code === 'INVALID_ARGUMENT');
       
       // Non-existent path throws FILE_NOT_FOUND (fail closed, no empty-success)
       assert.throws(
@@ -55,7 +57,7 @@ describe('Workspace file port', () => {
       );
 
       // Reject traversal write
-      await assert.rejects(async () => port.write(root, '../../evil.sh', 'rm -rf /'), (error: unknown) => error instanceof CapabilityError);
+      await assert.rejects(async () => port.write(root, '../../evil.sh', 'rm -rf /'), (error: unknown) => error instanceof CapabilityError && (error as CapabilityError).code === 'OUTSIDE_WORKSPACE');
       const validRunId = makeControlPlaneId('run');
       const validAttemptId = makeControlPlaneId('attempt');
       const validProjectId = makeControlPlaneId('project');

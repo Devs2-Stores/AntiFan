@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { StorageLocations } from '../../src/main/config/storage-locations';
+import { StorageLocations, DISK_CACHE_BYTES, MEDIA_CACHE_BYTES } from '../../src/main/config/storage-locations';
 import { AsyncThemeQaQueue } from '../../src/main/qa/async-qa-job-queue';
 
 /** Mirrors the stale-work error the QA queue recognises by code. */
@@ -31,6 +31,10 @@ describe('Low-Spec Hardware Optimization', () => {
     assert.ok(networkCacheDir.includes('Profile-cache'));
     assert.ok(networkCacheDir.includes('network'));
     assert.ok(gpuCacheDir.includes('gpu'));
+    // The actual budget the main process launches Chromium with (index.ts
+    // appendSwitch): a path-shaped cache dir proves nothing about constraint.
+    assert.strictEqual(DISK_CACHE_BYTES, 134_217_728, 'disk cache must be capped at 128 MB');
+    assert.strictEqual(MEDIA_CACHE_BYTES, 67_108_864, 'media cache must be capped at 64 MB');
   });
 
   it('supersedes an in-flight job synchronously and keeps the newer generation active', { timeout: 5000 }, async () => {

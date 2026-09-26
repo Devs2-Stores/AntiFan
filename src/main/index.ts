@@ -21,7 +21,7 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 import { registerPreviewProtocolHandler } from './server/preview-protocol-handler';
-import { StorageLocations } from './config/storage-locations';
+import { StorageLocations, DISK_CACHE_BYTES, MEDIA_CACHE_BYTES } from './config/storage-locations';
 import { WorkspaceCapsuleManager } from './project/workspace-capsule';
 import { NativeTabHost } from './browser/native-tab-host';
 import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, redactCredentials } from './bridge/bridge-server';
@@ -219,8 +219,8 @@ app.commandLine.appendSwitch('enable-fast-unload');
 app.commandLine.appendSwitch('enable-tcp-fast-open');
 app.commandLine.appendSwitch('renderer-process-limit', '4');
 app.commandLine.appendSwitch('process-per-site');
-app.commandLine.appendSwitch('disk-cache-size', '134217728'); // 128 MB
-app.commandLine.appendSwitch('media-cache-size', '67108864');  // 64 MB
+app.commandLine.appendSwitch('disk-cache-size', String(DISK_CACHE_BYTES)); // 128 MB
+app.commandLine.appendSwitch('media-cache-size', String(MEDIA_CACHE_BYTES));  // 64 MB
 app.commandLine.appendSwitch('disable-gpu-memory-buffer-video-frames');
 app.commandLine.appendSwitch('enable-features', 'PasswordManager,Autofill,SmoothScrolling,ParallelDownloading,BackForwardCache,AsyncImageDecoding');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
