@@ -1228,7 +1228,13 @@ describe('Responsive sweep surface', () => {
     // The tab's own state comes back: the emulation is undone where it landed, and the
     // prior layout is restored through the path the visible-tab case always used.
     assert.strictEqual(harness.liveEmulation(), null, 'No breakpoint emulation may survive the sweep');
-    assert.strictEqual(harness.disableCount(), 1, 'Undoing the emulation must reach the tab instead of being refused by a detached view');
-    assert.strictEqual(harness.updateLayoutCount(), 1, 'The tab is handed back to its prior layout exactly as before');
+    // Two clears reach the tab, and both are required: the attach lays the background tab
+    // out at its own baseline (responsive = no override), then the sweep removes the last
+    // breakpoint override it applied. Asserting one clear pinned the baseline as a bug.
+    assert.strictEqual(harness.disableCount(), 2, 'The attach baseline and the sweep teardown must both reach the tab instead of being refused by a detached view');
+    // Two restores, both deliberate: the sweep hands the tab back through the visible-tab
+    // path, and releasing the temporary attach re-asserts the presented view — that second
+    // layout is what puts the user's active tab back in the window.
+    assert.strictEqual(harness.updateLayoutCount(), 2, 'The sweep teardown and the attach release must each restore the layout');
   });
 });

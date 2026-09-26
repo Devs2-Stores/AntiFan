@@ -659,6 +659,11 @@ export class NativeTabHost extends EventEmitter {
         reassertPresentedView: () => this.reassertPresentedView(),
         raiseViewForCapture: (view) => this.raiseViewForCapture(view),
         isWindowRenderable: () => !this.window.isDestroyed() && this.window.isVisible() && !this.window.isMinimized(),
+        getWindowPresentationState: () => ({
+          visible: !this.window.isDestroyed() && this.window.isVisible(),
+          minimized: !this.window.isDestroyed() && this.window.isMinimized(),
+          maximized: !this.window.isDestroyed() && this.window.isMaximized(),
+        }),
       });
     }
     return this.devToolsHost;
@@ -3199,8 +3204,13 @@ export class NativeTabHost extends EventEmitter {
           // Releasing a temporary attach must not leave the presented tab outside the
           // window. The release used to invalidate the active view only, and an invalidate
           // on a detached view repaints nothing, so the pane stayed blank until something
-          // else happened to activate that tab again.
-          this.reassertPresentedView();
+          // else happened to activate that tab again. A helper that attached nothing — the
+          // view was already presented and is still the active one — mutated no view stack,
+          // and re-asserting there recycles the layer the user is looking at and relays it
+          // out under them, so only a release that changed the tree re-asserts the invariant.
+          if (current.attachedByHelper || !isActiveView) {
+            this.reassertPresentedView();
+          }
         }
       }
     }
@@ -3488,7 +3498,12 @@ export class NativeTabHost extends EventEmitter {
         if (typeof contentView.addChildView === 'function') {
           contentView.addChildView(v);
         }
-        if (v instanceof WebContentsView && !v.webContents.isDestroyed() && typeof v.webContents.invalidate === 'function') {
+        // `WebContentsView` is a real constructor inside Electron and resolves to a string
+        // path outside it, where the `node --test` doubles carry only the structural surface.
+        // Checking for the constructor before the `instanceof` keeps the strict check in the
+        // app and stops a TypeError from skipping the invalidate below in every headless run.
+        const isElectronView = typeof WebContentsView === 'function' && v instanceof WebContentsView;
+        if (isElectronView && !v.webContents.isDestroyed() && typeof v.webContents.invalidate === 'function') {
           try { v.webContents.invalidate(); } catch {}
         }
       } catch (err) {
