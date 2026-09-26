@@ -737,12 +737,35 @@ test('U10 percentiles are nearest-rank over the sorted sample', () => {
   assert.deepEqual(result.rows[0].latency, { count: 10, p50Ms: 5, p95Ms: 10 });
 });
 
-test('U10b two folds over the same frames are deep-equal', () => {
+test('U10b folds a settled-error frame and an unknown-state frame into one pinned row', () => {
   const frames = [
     frameBody({ attachmentId: 'a', idempotencyKey: 'k1', state: 'settled', error: { code: 'E' } }),
     frameBody({ attachmentId: 'b', idempotencyKey: 'k2', state: 'unknown' }),
   ];
-  assert.deepEqual(aggregateByName(frames), aggregateByName(frames));
+  // The pinned row proves the fold itself: a full-output snapshot catches a changed
+  // composite, miscounted states, a mis-bucketed error, or a shifted latency sample —
+  // none of which a self-comparison could ever see.
+  assert.deepEqual(aggregateByName(frames), {
+    rows: [
+      {
+        name: 'anti.browser.evaluate',
+        calls: 2,
+        frames: 2,
+        superseded: 0,
+        states: { settled: 1, unknown: 1 },
+        errors: { E: 1 },
+        latency: { count: 1, p50Ms: 250, p95Ms: 250 },
+        excludedLatency: { count: 1, p50Ms: 250, p95Ms: 250 },
+        firstSeen: '2026-09-17T03:00:00.000Z',
+        lastSeen: '2026-09-17T03:00:00.000Z',
+        lowerBound: false,
+      },
+    ],
+    lowerBound: false,
+    excludedLatency: { count: 1, p50Ms: 250, p95Ms: 250 },
+    firstSeen: '2026-09-17T03:00:00.000Z',
+    lastSeen: '2026-09-17T03:00:00.000Z',
+  });
 });
 
 test('U14 a keyless frame is counted and never folded under an undefined name', () => {

@@ -99,9 +99,18 @@ test('scanRenderFailures flags a marker inside title text', () => {
   assert.deepEqual(rulesOf(result), ['UNRENDERED_OUTPUT']);
 });
 
-test('scanRenderFailures is deterministic for the same document', () => {
-  const html = readFixture(path.join('render', 'unrendered-text.html'));
-  assert.deepEqual(scanRenderFailures(html), scanRenderFailures(html));
+test('scanRenderFailures pins the fixture document verdict', () => {
+  const result = scanRenderFailures(readFixture(path.join('render', 'unrendered-text.html')));
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    result.failures.map(({ rule, count }) => ({ rule, count })),
+    [
+      { rule: 'UNRENDERED_OUTPUT', count: 1 },
+      { rule: 'UNRENDERED_TAG', count: 2 },
+    ],
+  );
+  assert.match(result.failures[0].example, /^line 8: /);
+  assert.match(result.failures[1].example, /^line 9: /);
 });
 
 test('scanRenderFailures tolerates a non-string argument', () => {
@@ -181,8 +190,23 @@ test('validateThemeSchemas refuses a directory that does not exist without throw
   assert.deepEqual(result.sections, []);
 });
 
-test('validateThemeSchemas is deterministic for the same theme', () => {
-  assert.deepEqual(validateThemeSchemas(fixtureTheme('theme-broken')), validateThemeSchemas(fixtureTheme('theme-broken')));
+test('validateThemeSchemas pins the broken theme verdict', () => {
+  const result = validateThemeSchemas(fixtureTheme('theme-broken'));
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.schemaFiles, [{ path: 'config/settings_schema.json', ok: true, error: null }]);
+  assert.deepEqual(
+    result.sections.map((section) => ({ path: section.path, ok: section.ok })),
+    [
+      { path: 'sections/bad-schema.html', ok: false },
+      { path: 'sections/hero.html', ok: true },
+      { path: 'sections/promo.html', ok: false },
+      { path: 'sections/truncated.html', ok: false },
+    ],
+  );
+  assert.ok(
+    result.sections.every((section) => (section.ok ? section.error === null : section.error !== null)),
+    'a failed section must explain itself and a passing one must carry no error',
+  );
 });
 
 test('checkSettingsBinding accepts reads that resolve, including nested block settings', () => {
@@ -378,6 +402,15 @@ test('checkHaravanLiquidContracts refuses duplicate paginate blocks (HARAVAN_DUP
   }
 });
 
+test('checkSettingsBinding pins the clean theme result shape', () => {
+  assert.deepEqual(checkSettingsBinding(fixtureTheme('theme-clean')), {
+    ok: true,
+    undeclared: [],
+    dead: [],
+    failures: [],
+  });
+});
+
 test('checkSettingsBinding tolerates a theme directory that does not exist', () => {
   assert.deepEqual(checkSettingsBinding(fixtureTheme('theme-absent')), {
     ok: true,
@@ -387,9 +420,6 @@ test('checkSettingsBinding tolerates a theme directory that does not exist', () 
   });
 });
 
-test('checkSettingsBinding is deterministic for the same theme', () => {
-  assert.deepEqual(checkSettingsBinding(fixtureTheme('theme-clean')), checkSettingsBinding(fixtureTheme('theme-clean')));
-});
 
 test('checkAssetReferences resolves literals against assets/ and static/', () => {
   const result = checkAssetReferences(fixtureTheme('theme-clean'));
@@ -452,6 +482,17 @@ test('checkAssetReferences tolerates a theme directory that does not exist', () 
   });
 });
 
-test('checkAssetReferences is deterministic for the same theme', () => {
-  assert.deepEqual(checkAssetReferences(fixtureTheme('theme-broken')), checkAssetReferences(fixtureTheme('theme-broken')));
+test('checkAssetReferences pins the broken theme verdict', () => {
+  assert.deepEqual(checkAssetReferences(fixtureTheme('theme-broken')), {
+    ok: false,
+    localMissing: [
+      { ref: 'also-missing.png', files: ['layout/theme.liquid'] },
+      { ref: 'missing.css', files: ['snippets/broken.liquid'] },
+    ],
+    remote: [
+      { ref: '//cdn.example.com/legacy/analytics.js', origin: '//cdn.example.com', files: ['snippets/broken.liquid'] },
+      { ref: 'https://cdn.example.com/lib/remote.js', origin: 'https://cdn.example.com', files: ['snippets/broken.liquid'] },
+    ],
+    counts: { localPresent: 1, localMissing: 2, remote: 2 },
+  });
 });
