@@ -5,6 +5,17 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 ---
 
 ## [v1.3.6] - Unreleased
+### Sửa hạ tầng kiểm thử — Ultra-audit: 7 đợt sửa theo kongming-gate (commits `b1a7faa5`..`304691d8`)
+- **Nguồn**: verifier union 31 phát hiện (5 Critical, 11 Important) từ 5 candidate audit độc lập, checkpoint kongming phê duyệt từng batch; UF-24 bị CUT, 8 phát hiện DEFER theo kế hoạch.
+- **Batch 1 — pipeline nói thật (`b1a7faa5`)**: lane timeout giờ map `timedOut` thành exit 1 (trước đây `spawnSync` timeout trả `status: null` → `finish()` đổi thành 0 → pipeline xanh dù lane treo); filter failed tính cả `timedOut`. Chứng minh hành vi: `test:canary --lane-timeout-ms 50` → lane "failed", `timeout: true`, **EXIT=1**. Thêm lane `test:super-core` (37/37) vào pipeline thay vì un-exclude `packages/` khỏi root tsconfig. `core-health-service.test.ts`: catch-skip che mất lỗi thật — danh sách copy thiếu `terms.ts` (đường import `./terms.js` hỏng) — sửa gốc, test chạy thật 2/2.
+- **Batch 2 — thay tautology (`deb1c432`)**: 4 test `f(x)` so với chính `f(x)` (theme-checks) + 1 fold aggregate tự-so (mcp-dispatch) đổi thành verdict cụ thể; mutation-proof trên `.compiled` (sed `calls: group.keys.size + 1` → fail, restore → 78/78 xanh).
+- **Batch 3 — skip-guard cứng (`784dfd09`)**: EPERM catch thành `t.skip` kèm guard-narrowing code; `filePort.write` được `await`; placeholder rỗng bị bỏ; test fallback-recorder gộp về `test/main/` (11/11), bản `src/main` 139 LOC trùng bị xóa.
+- **Batch 4 — xóa 5 canary root (`5b58e26b`)**: chứng minh byte-trùng (diff 0 dòng) với `test/unit/canary/`; test:canary 59/59 trước và sau.
+- **Batch 5 — jsdom fail-loud (`4386c261`)**: 5 helper `loadJsdom()` ném lỗi rõ ràng thay vì `t.skip` ≈50 ca chết; 75/75 pass, 0 skip.
+- **Batch 6 — đăng ký 2 smoke mồ côi (`95db37ef`)**: `smoke:site-mute` + `smoke:media-freeze` vào TEST_LANES; flake teardown site-mute (child treo sau khi pass hết, 2/5 lần) sửa bằng exit deterministic sau khi pass — 4/4 run sạch.
+- **Batch 7 — ghim mã lỗi/budget (`304691d8`)**: probe thật phát hiện contract khác đề xuất audit — traversal tương đối → `OUTSIDE_WORKSPACE`, path tuyệt đối → `INVALID_ARGUMENT`; budget cache 128/64 MB export thành `DISK_CACHE_BYTES`/`MEDIA_CACHE_BYTES` và được assert. 4/4 mutation-proof bắt được đột biến.
+- **Bằng chứng tổng**: full pipeline **16/16 lane PASS** (14 lane cũ + 2 smoke mới), exit 0, 348.05 s — `smoke:site-mute` 9.7 s, `smoke:media-freeze` 1.4 s; test:fast 1398 pass/5 skip (số skip giảm từ 6 vì catch-skip Batch 1 giờ chạy thật), test:main 482/0, test:canary 59/0.
+
 
 ### Thêm — Mute cố định theo website
 - Nút loa luôn hiện cạnh Reload, cho phép tắt/bật âm thanh cả khi website chưa phát tiếng; icon gạch chéo và `aria-pressed` phản ánh trạng thái.
