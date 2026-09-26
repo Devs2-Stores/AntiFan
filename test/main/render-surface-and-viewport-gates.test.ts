@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort, SESSION_TAB_LIMIT } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
 import type { NativeTabRecord } from '../../src/main/browser/native-tab-host';
@@ -284,10 +284,19 @@ describe('Session-scoped tab listing and adoption', () => {
   it('closes and fails a tab the session cannot adopt instead of leaking it', () => {
     const { host, calls } = buildHost({ adoptReturns: false });
     const port = new BrowserControlPort(host);
+    // The quota gate refuses a counted set that reaches the limit before creating anything,
+    // so a refusal below the limit is reported with the count that was measured: naming the
+    // quota here would send the caller hunting for tabs to close.
+    let refusal: CapabilityError | undefined;
     assert.throws(
       () => port.openTab({ url: 'about:blank' }, { target: TARGET }),
-      (err: unknown) => (err instanceof CapabilityError ? err.code === 'POLICY_DENIED' : false)
+      (err: unknown) => {
+        refusal = err instanceof CapabilityError ? err : undefined;
+        return refusal?.code === 'SESSION_STALE';
+      }
     );
+    assert.strictEqual(refusal?.details?.used, 1, 'the refusal reports the tab the session actually owns');
+    assert.strictEqual(refusal?.details?.limit, SESSION_TAB_LIMIT);
     assert.deepStrictEqual(calls.close, ['tab-new'], 'the unadoptable tab must be closed');
   });
 });

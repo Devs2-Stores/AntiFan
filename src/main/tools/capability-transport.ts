@@ -644,6 +644,7 @@ export class CapabilityTransportAdapter {
       // stale. Only a live replacement named by the host for this exact tab is accepted,
       // and the attachment is rotated below so the rebind is durable, not per-call.
       let healedBoundTabId: string | undefined;
+      const isOpenTab = intent.name === 'browser.open-tab' || intent.name === 'antifan_open_tab' || intent.name === 'anti.browser.tabs.create';
       const staleBoundTabId = authContext.browserTarget?.tabId;
       if (staleBoundTabId && !this.catalogue.resolveTabId(staleBoundTabId)) {
         const replacement = this.catalogue.resolveFailoverTabId(staleBoundTabId);
@@ -665,6 +666,15 @@ export class CapabilityTransportAdapter {
             documentGeneration: liveDocGen,
           };
           healedBoundTabId = replacement;
+        } else if (isOpenTab) {
+          // Opening a tab is the one recovery that needs no live anchor: the tab it
+          // returns becomes this session's target, and the dispatch result is rotated
+          // onto the attachment below. Handing the dead id to the port would make it
+          // refuse — that refusal is for a caller asking for a tab bound to the dead
+          // one, not for the recovery from it (measured: a session whose tab the user
+          // closed could not open a tab again, so `anti.browser.tabs.create` returned
+          // success:false and the session stayed stranded).
+          authContext.browserTarget = undefined;
         } else {
           // Bound tab is gone and the host named no replacement: capabilities that
           // require a browser target will fail on the dead tab, but management
@@ -695,7 +705,6 @@ export class CapabilityTransportAdapter {
       }
       const p = intent.params as Record<string, unknown> | undefined;
       const isSetTarget = intent.name === 'browser.set-automation-target' || intent.name === 'antifan_set_automation_target';
-      const isOpenTab = intent.name === 'browser.open-tab' || intent.name === 'antifan_open_tab' || intent.name === 'anti.browser.tabs.create';
       const isSwitchTab = intent.name === 'browser.switch-tab' || intent.name === 'antifan_switch_tab' || intent.name === 'anti.browser.tabs.activate';
       const isNavigate = intent.name === 'browser.navigate' || intent.name === 'antifan_navigate' || intent.name === 'anti.browser.navigate';
       const isReload = intent.name === 'browser.reload' || intent.name === 'antifan_reload' || intent.name === 'anti.browser.reload';

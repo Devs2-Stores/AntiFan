@@ -9,9 +9,22 @@ import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { AntiFanTab, SplitPaneId } from '../../src/shared/contracts';
 
 interface MockWebContents {
+  id: number;
   isDestroyed: () => boolean;
   sendInputEvent: (event: unknown) => void;
   setBackgroundThrottling: (throttling: boolean) => void;
+  // Every live WebContents carries this in Electron. A background user tab is captured
+  // through CDP Page.captureScreenshot (capturePage on an occluded view never commits a
+  // frame), so the double has to model it or the capture path cannot run at all.
+  debugger: {
+    isAttached: () => boolean;
+    attach: (protocolVersion?: string) => void;
+    detach: () => void;
+    once: (event: string, listener: (...args: unknown[]) => void) => void;
+    on: (event: string, listener: (...args: unknown[]) => void) => void;
+    removeListener: (event: string, listener: (...args: unknown[]) => void) => void;
+    sendCommand: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+  };
   capturePage: (rect?: unknown) => Promise<{
     isEmpty: () => boolean;
     toPNG: () => { toString: (fmt: string) => string; length?: number };
@@ -19,6 +32,8 @@ interface MockWebContents {
   }>;
   executeJavaScript: (script: string, ...args: unknown[]) => Promise<unknown>;
 }
+
+let nextMockWcId = 900;
 
 interface MockTabRecord {
   state: AntiFanTab;
@@ -59,8 +74,33 @@ function createMockWebContents(): MockWebContents & {
   const inputEvents: unknown[] = [];
   const throttlingHistory: boolean[] = [];
   let capturePageCalls = 0;
+  const id = nextMockWcId++;
+  let debuggerAttached = false;
 
   return {
+    id,
+    debugger: {
+      isAttached: () => debuggerAttached,
+      attach: () => {
+        debuggerAttached = true;
+      },
+      detach: () => {
+        debuggerAttached = false;
+      },
+      once: () => {},
+      on: () => {},
+      removeListener: () => {},
+      // A raster is what the capture path exists to hand back, so the protocol double
+      // answers the one command the assertion reads: a non-empty base64 PNG.
+      sendCommand: async (method: string) => {
+        if (method === 'Page.captureScreenshot') {
+          return {
+            data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          };
+        }
+        return {};
+      },
+    },
     inputEvents,
     throttlingHistory,
     get capturePageCalls() {
