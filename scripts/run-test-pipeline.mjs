@@ -26,6 +26,7 @@ const TEST_LANES = [
   'test:canary',
   'test:fast',
   'test:site-clone',
+  'test:super-core',
   'test:integration',
   'test:main',
   // The e2e lane runs without --test-force-exit: with the suite's watchdogs and teardown paths
@@ -44,6 +45,8 @@ const TEST_LANES = [
 const KNOWN_LANES = new Set([
   ...STATIC_LANES,
   ...TEST_LANES,
+  // 'test:unit' is a developer convenience subset — test:fast runs the same unit globs
+  // plus renderer/benchmark/src suites, so running both in the pipeline would duplicate work.
   'test:unit',
   'test:e2e',
   'test:probes',
@@ -103,10 +106,13 @@ function parseArgs(argv) {
     else options.lanes.push(arg);
   }
   if (options.help) return options;
-
   if (options.lanes.length === 0) {
+    // Bare invocation (including `npm run verify`) runs the full TEST_LANES set, which
+    // already starts with the STATIC_LANES gates — `--verify` only changes behavior
+    // when lanes are named explicitly, by prepending those gates to the selection.
     options.lanes = [...TEST_LANES];
-  } else if (options.verify) {
+  }
+  if (options.verify) {
     for (const staticLane of [...STATIC_LANES].reverse()) {
       if (!options.lanes.includes(staticLane)) {
         options.lanes.unshift(staticLane);
@@ -142,7 +148,9 @@ function runLane(lane, timeoutMs) {
       clearTimeout(timer);
       resolve({
         lane,
-        status: status === null ? 1 : status,
+        // A timed-out lane must never report green: if the child races its own exit to 0
+        // while the kill tree lands, the timeout verdict still wins.
+        status: timedOut ? 1 : (status === null ? 1 : status),
         signal: signal ?? null,
         timedOut,
         ms: Date.now() - startedAt,
@@ -189,7 +197,7 @@ Known lanes:
     if (lane === 'compile' && result.status !== 0) compileFailed = true;
   }
 
-  const failed = results.filter((entry) => !entry.skipped && entry.status !== 0);
+  const failed = results.filter((entry) => !entry.skipped && (entry.status !== 0 || entry.timedOut));
   const summary = {
     lanes: results.map((entry) => ({
       lane: entry.lane,

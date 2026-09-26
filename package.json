@@ -31,6 +31,7 @@
     "typecheck:site-clone": "tsc -p packages/site-clone --noEmit",
     "build:site-clone": "tsc -p packages/site-clone",
     "test:site-clone": "npm run build:site-clone && node --test packages/site-clone/dist/**/*.test.js",
+    "test:super-core": "npm test --prefix packages/super-core",
     "discover:assets": "npm run build:site-clone && node scripts/run-asset-discovery.cjs",
     "clone:site": "npm run build:site-clone && node scripts/clone-site.mjs",
     "serve:clone": "node scripts/serve-clone.mjs",

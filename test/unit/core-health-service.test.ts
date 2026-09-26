@@ -429,7 +429,7 @@ describe('CoreHealthService real CLI path', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-core-cli-'));
     const pkgDir = path.join(tmp, 'packages', 'super-core');
     fs.mkdirSync(pkgDir, { recursive: true });
-    for (const f of ['index.ts', 'schema.ts']) {
+    for (const f of ['index.ts', 'schema.ts', 'terms.ts']) {
       const src = path.join(REPO_ROOT, 'packages', 'super-core', 'src', f);
       if (!fs.existsSync(src)) {
         t.skip(`super-core source ${f} is absent from this checkout`);
@@ -447,9 +447,11 @@ describe('CoreHealthService real CLI path', () => {
     try {
       execFileSync(process.execPath, [path.join(REPO_ROOT, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', pkgDir], { stdio: 'pipe' });
     } catch (err) {
-      t.skip(`super-core sources do not compile right now (sibling WIP): ${String(err).slice(0, 200)}`);
+      // A broken super-core build must fail loudly here, not skip: the pipeline's
+      // test:super-core lane gates the same sources, so a compile error means the
+      // repo is red and this contract is unverified.
       fs.rmSync(tmp, { recursive: true, force: true });
-      return;
+      assert.fail(`super-core sources must compile for this test (pipeline lane test:super-core gates the same build): ${String(err).slice(0, 400)}`);
     }
     const scriptsDir = path.join(tmp, 'scripts');
     fs.mkdirSync(scriptsDir, { recursive: true });
