@@ -5,6 +5,15 @@ import * as zlib from 'node:zlib';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
 import { CaptureError } from '../../src/main/verification/visual-capture';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../src/shared/contracts';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+// The frame-liveness gate and raster timing log through the main lifecycle
+// journal; point it at a scratch runtime dir so unit tests never append to the
+// user's real journal.
+const RUNTIME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-tabdevtools-runtime-'));
+process.env.ANTIFAN_RUNTIME_DIR = RUNTIME_DIR;
 
 /**
  * Structurally complete PNG with real zlib-compressed IDAT data so the
@@ -1756,5 +1765,94 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(events.filter((event) => event === 'restore').length, 1, 'a background timeout must restore the user tab exactly once');
     assert.ok(events.indexOf('raise') < events.indexOf('restore'), 'the capture surface must be raised before restore');
     assert.ok(events.indexOf('restore') < events.lastIndexOf('release'), 'restore must precede the outer capture-surface release');
+  });
+
+  describe('captureVerificationScreenshot frame-liveness gate', () => {
+    interface FrameGateOptions {
+      /** What the in-page rAF census answers for each probe. */
+      frameAlive: () => boolean;
+      /** Side effect of the repair ladder's invalidate step. */
+      onInvalidate?: () => void;
+    }
+
+    function createFrameGateContext(opts: FrameGateOptions) {
+      const { ctx, mockWc, tabs } = createMockContext();
+      const probes: boolean[] = [];
+      let invalidates = 0;
+      (mockWc as { executeJavaScript: (script: string) => Promise<unknown> }).executeJavaScript = async (script: string) => {
+        if (script.includes('requestAnimationFrame') && script.includes('withResolvers')) {
+          const alive = opts.frameAlive();
+          probes.push(alive);
+          return alive;
+        }
+        return undefined;
+      };
+      (mockWc as unknown as Record<string, unknown>).invalidate = () => {
+        invalidates++;
+        opts.onInvalidate?.();
+      };
+      return { ctx, tabs, probes, invalidates: () => invalidates };
+    }
+
+    function withCdpDouble(devTools: TabDevToolsHost): string[] {
+      const methods: string[] = [];
+      (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
+        methods.push(method);
+        if (method === 'Runtime.evaluate') return { result: { value: { dpr: 2, vw: 3, vh: 2 } } };
+        if (method === 'Page.captureScreenshot') return { data: makePng(6, 4).toString('base64') };
+        return {};
+      };
+      return methods;
+    }
+
+    it('refuses with CAPTURE_FRAME_STARVATION before any dispatch, keeping the CDP queue clean', async () => {
+      const { ctx, probes, invalidates } = createFrameGateContext({ frameAlive: () => false });
+      const devTools = new TabDevToolsHost(ctx);
+      const methods = withCdpDouble(devTools);
+
+      await assert.rejects(
+        () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop'),
+        (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_FRAME_STARVATION' && /no frame|compositor/.test(err.message)
+      );
+      assert.ok(probes.length >= 2, 'the gate must have probed at entry and again before dispatch');
+      assert.strictEqual(invalidates(), 1, 'the repair ladder must have tried one compositor invalidate');
+      assert.strictEqual(methods.includes('Page.captureScreenshot'), false, 'a starved presenter must never receive the dispatch');
+      assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), false, 'the refusal happens before dispatch, so the target never enters the drain quarantine');
+    });
+
+    it('recovers through the invalidate repair step and completes the capture', async () => {
+      let alive = false;
+      const { ctx } = createFrameGateContext({ frameAlive: () => alive, onInvalidate: () => { alive = true; } });
+      const devTools = new TabDevToolsHost(ctx);
+      const methods = withCdpDouble(devTools);
+
+      const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop');
+      assert.strictEqual(envelope.backend, 'cdp');
+      assert.strictEqual(envelope.captureMode, 'viewport');
+      assert.strictEqual(methods.includes('Page.captureScreenshot'), true, 'the recovered presenter must receive the dispatch');
+    });
+
+    it('skips the gate for an offscreen target whose rasters come from the OSR surface', async () => {
+      const { ctx, tabs } = createFrameGateContext({ frameAlive: () => false });
+      const tab = tabs.get('tab-1');
+      assert.ok(tab);
+      tab.state.offscreen = true;
+      const devTools = new TabDevToolsHost(ctx);
+      const methods = withCdpDouble(devTools);
+
+      const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop');
+      assert.strictEqual(envelope.backend, 'cdp');
+      assert.strictEqual(methods.includes('Page.captureScreenshot'), true, 'offscreen captures keep their pre-gate behavior even when the probe reads starved');
+    });
+
+    it('passes an alive presenter straight to the dispatch', async () => {
+      const { ctx } = createFrameGateContext({ frameAlive: () => true });
+      const devTools = new TabDevToolsHost(ctx);
+      const methods = withCdpDouble(devTools);
+
+      const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop');
+      assert.strictEqual(envelope.backend, 'cdp');
+      assert.strictEqual(methods.includes('Page.captureScreenshot'), true);
+    });
   });
 });

@@ -13,6 +13,7 @@ import { GPU_LENS_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { dispatchAnnotationToTerminal, stripDeliveryMode } from './annotation-dispatch';
+import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 import { AnnotationManager } from '../bridge/annotation-manager';
 import { TerminalManager, selectAnnotationTargets } from './terminal-manager';
 import type { NativeTabRecord } from './native-tab-host';
@@ -73,6 +74,33 @@ const NATIVE_VIEWPORT_RASTER_BOUND_MS = 4_000;
 const NO_SURFACE_CAPTURE_PROBE_BOUND_MS = 8_000;
 
 /**
+ * Budget for one compositor-liveness probe: requestAnimationFrame fires within a
+ * vsync (~16ms) on a window whose presenter produces frames, so this ceiling only
+ * has to absorb a busy main thread. A starved window presenter (measured: the
+ * window compositor stops committing frames after a raster timed out once, or
+ * while parked on a workspace Windows does not drive) keeps
+ * `document.visibilityState` at "visible" while issuing no BeginFrames at all,
+ * so this probe — not the renderer's own flag — is the authoritative liveness
+ * signal. The expression resolves true the moment one frame lands, so a healthy
+ * target pays one vsync, not the ceiling.
+ */
+const FRAME_LIVENESS_PROBE_EXPRESSION = `(() => {
+  const { promise, resolve } = Promise.withResolvers();
+  const timer = setTimeout(() => resolve(false), 300);
+  try {
+    requestAnimationFrame(() => { clearTimeout(timer); resolve(true); });
+  } catch { resolve(false); }
+  return promise;
+})()`;
+
+/**
+ * evalJs budget for the liveness probe: the in-page expression settles within
+ * 300ms by its own timer, so this ceiling only has to absorb the wrapper's
+ * round-trip on a contended renderer.
+ */
+const FRAME_LIVENESS_PROBE_EVAL_BOUND_MS = 800;
+
+/**
  * A render surface is measured only when the probe found a viewport: a view with no
  * compositor surface lays its document out against a zero-width box and reports 0x0,
  * which is the absence of a measurement, never a geometry of 0x0. Every decision that
@@ -111,6 +139,14 @@ export interface TabDevToolsContext {
   updateLayout?: () => void;
   applyTabDeviceEmulation?: (tabId: string) => void;
   isTabViewAttached?: (view: Electron.WebContentsView | null | undefined) => boolean;
+  /**
+   * Presentation facts of the host window (visible / minimized / maximized) for
+   * capture diagnosis. isVisible() && !isMinimized() does not mean the window's
+   * presenter is being driven: a compositor that stopped committing frames keeps
+   * reporting a visible, restored window, and only the measured liveness of the
+   * presenter distinguishes the two.
+   */
+  getWindowPresentationState?: () => { visible: boolean; minimized: boolean; maximized: boolean };
   /** True while the host window is on screen (visible, not minimized, not destroyed). */
   isWindowRenderable?: () => boolean;
   /**
@@ -1833,6 +1869,98 @@ export class TabDevToolsHost {
   }
 
   /**
+   * One compositor-liveness reading. `true` means a frame landed inside the
+   * probe window, `false` means the page answered but no frame arrived, and
+   * `null` means the probe itself could not run (renderer busy or draining) —
+   * null is deliberately fail-open: an unreadable probe must not refuse a
+   * capture that might succeed, it only loses the measurement.
+   */
+  private async probeFrameLiveness(tabId: string, paneId: SplitPaneId | undefined): Promise<boolean | null> {
+    try {
+      const res = await this.evalJs(
+        FRAME_LIVENESS_PROBE_EXPRESSION,
+        tabId,
+        paneId,
+        false,
+        FRAME_LIVENESS_PROBE_EVAL_BOUND_MS
+      );
+      return res === true ? true : res === false ? false : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Frame-liveness gate for the CDP raster. Page.captureScreenshot with
+   * fromSurface:true waits for a compositor frame; on a window whose presenter
+   * stopped issuing BeginFrames it waits out the whole bound, times out as
+   * CAPTURE_TIMEOUT, and then wedges the target's CDP transport behind a
+   * 5s draining quarantine (both measured on this app). The renderer keeps
+   * answering while this happens, so the probe is the only signal that
+   * separates "raster is slow" from "raster can never produce a frame".
+   *
+   * An offscreen (OSR) target is exempt: its rasters come from the OSR
+   * surface, whose BeginFrame source is independent of the window presenter,
+   * and no baseline ties an OSR rAF reading to raster success. Offscreen
+   * captures keep their pre-gate behavior, with the probe reading logged for
+   * diagnosis only.
+   *
+   * A starved windowed target gets one bounded repair ladder — invalidate the
+   * compositor state, then re-present the view — each verified by a re-probe
+   * before the capture proceeds. A target that stays starved is refused with
+   * CAPTURE_FRAME_STARVATION before the CDP command is dispatched, so the
+   * CDP queue stays clean and the next tool call is answered immediately
+   * instead of hitting TARGET_BUSY_DRAINING.
+   */
+  private async ensureFramesForRaster(
+    wc: Electron.WebContents,
+    targetId: string,
+    effectivePane: SplitPaneId | undefined,
+    mode: CaptureMode,
+    isOffscreenTarget: boolean
+  ): Promise<void> {
+    if (isOffscreenTarget) {
+      recordLifecycleEvent('capture.frameGate', {
+        tabId: targetId,
+        paneId: effectivePane,
+        mode,
+        engine: 'offscreen',
+        probe: await this.probeFrameLiveness(targetId, effectivePane),
+      });
+      return;
+    }
+    const initial = await this.probeFrameLiveness(targetId, effectivePane);
+    if (initial !== false) return;
+
+    const windowState = this.ctx.getWindowPresentationState?.();
+    const steps: string[] = [];
+    try {
+      if (typeof wc.invalidate === 'function' && !(typeof wc.isDestroyed === 'function' && wc.isDestroyed())) {
+        wc.invalidate();
+        steps.push('invalidate');
+      }
+    } catch {}
+    if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
+      recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'invalidate', window: windowState });
+      return;
+    }
+    try { this.ctx.reassertPresentedView?.(); steps.push('reassert'); } catch {}
+    if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
+      recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'reassert', window: windowState });
+      return;
+    }
+
+    recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, steps, window: windowState });
+    const window = windowState
+      ? `window is ${windowState.minimized ? 'minimized' : windowState.maximized ? 'maximized' : 'restored'} and ${windowState.visible ? 'visible' : 'not visible'}`
+      : 'window presentation unknown';
+    throw new CaptureError(
+      'CAPTURE_FRAME_STARVATION',
+      `Page.captureScreenshot (${mode}) on tab '${targetId}' would hang: the window's compositor produced no frame for its renderer (requestAnimationFrame stalled while the renderer still answered), so no raster can ever complete and every further CDP command on this target would wait out its bound. Observed: ${window}. Remedy: focus or move the AntiFan window once to restart frame production, or restart the app, then retry.`
+    );
+  }
+
+  /**
    * Raster of the view's own composited surface, bounded so a view that cannot
    * produce one falls through to the CDP path instead of stalling the capture at
    * the caller's bound. Returns the encoded bytes plus whether the raster
@@ -1976,6 +2104,20 @@ export class TabDevToolsHost {
     let lastQuiescence: PreCaptureQuiescenceResult | undefined;
     try {
       captureEnvelope = await this.ctx.withTabAgentWorking(targetId, async () => {
+        // Post-freeze frame-liveness reading (instrumentation only): this is the
+        // first spot that can separate a tab that already arrived frame-starved
+        // (tool-layer media freeze or a wedged window presenter) from one the
+        // host steps starved later. Foreground/offscreen targets only — probing a
+        // background tab pays an attach cycle, and attach churn is a suspect.
+        if (isForeground || isOffscreenTarget) {
+          recordLifecycleEvent('capture.frameProbe', {
+            at: 'entry',
+            tabId: targetId,
+            paneId: effectivePane,
+            mode,
+            probe: await this.probeFrameLiveness(targetId, effectivePane),
+          });
+        }
         // Screenshot Guard: Temporarily suppress agent overlay & visual cursor during capture
         try {
           await this.evalJs(
@@ -2227,6 +2369,14 @@ export class TabDevToolsHost {
             } catch {}
           }
           let captureRes: { data?: string } | undefined;
+
+          // Frame-liveness gate: refuse the dispatch when the presenter cannot
+          // produce the frame Page.captureScreenshot waits for. Timed-out here
+          // (before the command is sent) the target's CDP queue stays clean;
+          // timed-out inside the command it is quarantined as draining and
+          // every later command waits out the drain window (both measured).
+          const rasterStartedAt = Date.now();
+          await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget);
           try {
             captureRes = await this.sendCdpCommand<{ data?: string }>(
               wc,
@@ -2244,16 +2394,45 @@ export class TabDevToolsHost {
             // A timed-out raster can leave the presented pane blank even though the
             // view is still attached: the compositor stopped committing frames.
             // Re-assert restores z-order and invalidates so the user sees the page
-            // again instead of a white content box (measured: dienmaycholon.com).
+            // again instead of a white content box (measured: dienmaycholan.com).
             if (!shouldRaiseForRaster) {
               this.ctx.reassertPresentedView?.();
             }
+            // Instrumentation and best-effort revive: the raster burned its whole
+            // bound, so record whether frames were already dead at that point (the
+            // gate may have been bypassed by an offscreen exemption or a probe that
+            // could not run) and nudge the compositor once before the typed error
+            // propagates. Background targets are skipped: probing them here pays
+            // another attach cycle inside this capture's own attach scope.
+            const postTimeoutProbe =
+              isForeground || isOffscreenTarget ? await this.probeFrameLiveness(targetId, effectivePane) : 'skipped-background';
+            recordLifecycleEvent('capture.raster', {
+              tabId: targetId,
+              paneId: effectivePane,
+              mode,
+              engine: 'surface',
+              boundMs: cdpBoundMs,
+              outcome: 'timeout',
+              postTimeoutProbe,
+              window: this.ctx.getWindowPresentationState?.(),
+            });
+            try {
+              if (typeof wc.invalidate === 'function' && !(typeof wc.isDestroyed === 'function' && wc.isDestroyed())) wc.invalidate();
+            } catch {}
             throw this.toCaptureError(err, `Page.captureScreenshot (${mode}) on tab '${targetId}'`);
           } finally {
             if (shouldRaiseForRaster) {
               this.ctx.reassertPresentedView?.();
             }
           }
+          recordLifecycleEvent('capture.raster', {
+            tabId: targetId,
+            paneId: effectivePane,
+            mode,
+            engine: 'surface',
+            boundMs: cdpBoundMs,
+            ms: Date.now() - rasterStartedAt,
+          });
 
           if (!captureRes || typeof captureRes.data !== 'string' || captureRes.data.length === 0) {
             throw new CaptureError('CAPTURE_EMPTY_PAYLOAD', `CDP Page.captureScreenshot returned an empty payload on tab '${targetId}'`);
