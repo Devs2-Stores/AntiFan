@@ -7,7 +7,7 @@ import { WorkspaceFilePort } from '../../src/main/tools/workspace-file-port';
 import { CapabilityError, makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 
 describe('Workspace file port', () => {
-  it('rejects absolute/traversal writes and stages bounded attachments', async () => {
+  it('rejects absolute/traversal writes and stages bounded attachments', async (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-files-'));
     try {
       fs.writeFileSync(path.join(root, 'theme.css'), 'body { color: red; }'); // 20 bytes
@@ -115,7 +115,11 @@ describe('Workspace file port', () => {
           (error: unknown) => error instanceof CapabilityError && (error as CapabilityError).code === 'OUTSIDE_WORKSPACE'
         );
       } catch (symlinkErr: unknown) {
-        if ((symlinkErr as { code?: string })?.code !== 'EPERM') throw symlinkErr;
+        const code = symlinkErr instanceof Error && 'code' in symlinkErr && typeof symlinkErr.code === 'string'
+          ? symlinkErr.code
+          : undefined;
+        if (code !== 'EPERM') throw symlinkErr;
+        t.skip(`host cannot create junctions (${code}); staged-attachment reparse check not exercised`);
       } finally {
         fs.rmSync(outsideDir, { recursive: true, force: true });
       }
@@ -135,7 +139,11 @@ describe('Workspace file port', () => {
         );
         assert.strictEqual(fs.existsSync(path.join(outsideParentDir, testRunId)), false, 'No directory must be created in outside target');
       } catch (symlinkErr: unknown) {
-        if ((symlinkErr as { code?: string })?.code !== 'EPERM') throw symlinkErr;
+        const code = symlinkErr instanceof Error && 'code' in symlinkErr && typeof symlinkErr.code === 'string'
+          ? symlinkErr.code
+          : undefined;
+        if (code !== 'EPERM') throw symlinkErr;
+        t.skip(`host cannot create junctions (${code}); parent-symlink reparse check not exercised`);
       } finally {
         fs.rmSync(outsideParentDir, { recursive: true, force: true });
         fs.rmSync(parentRoot, { recursive: true, force: true });

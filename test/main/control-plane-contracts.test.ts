@@ -25,7 +25,7 @@ describe('Control-plane contracts', () => {
     }
   });
 
-  it('validates launch path and rejects non-existent or outside paths', () => {
+  it('validates launch path and rejects non-existent or outside paths', (t) => {
     const root = path.resolve('test-fixture-launch');
     const sub = path.join(root, 'sub');
     fs.mkdirSync(sub, { recursive: true });
@@ -46,11 +46,17 @@ describe('Control-plane contracts', () => {
         } finally {
           try { fs.unlinkSync(link); } catch {}
         }
-      } catch (linkErr: any) {
-        // If host cannot create symlinks/junctions due to privileges or FS unsupported type, skip gracefully
-        if (linkErr.code !== 'EPERM' && linkErr.code !== 'EACCES' && linkErr.code !== 'ENOSYS' && linkErr.code !== 'EINVAL') {
+      } catch (linkErr) {
+        // An unprivileged host cannot create symlinks/junctions — report the bypass
+        // as a skip instead of swallowing it: the reparse-traversal assertion below
+        // never ran here, and a silent green would lie about that.
+        const code = linkErr instanceof Error && 'code' in linkErr && typeof linkErr.code === 'string'
+          ? linkErr.code
+          : undefined;
+        if (code !== 'EPERM' && code !== 'EACCES' && code !== 'ENOSYS' && code !== 'EINVAL') {
           throw linkErr;
         }
+        t.skip(`host cannot create symlinks/junctions (${code}); reparse-traversal check not exercised`);
       }
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

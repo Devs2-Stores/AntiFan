@@ -614,11 +614,6 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       assert.ok(payload.length > 0, 'the capture must still produce a raster');
     });
 
-    it('skips live Electron window HW composited validation (covered by Phase 6 Windows runtime certification)', (t) => {
-      t.skip(
-        'Skipped: Full live Electron GPU composited window capture and offscreen pixel rendering is covered by Phase 6 Windows runtime certification'
-      );
-    });
   });
 
   // =========================================================================

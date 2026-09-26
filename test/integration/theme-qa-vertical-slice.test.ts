@@ -91,7 +91,7 @@ describe('Theme QA vertical slice', () => {
       artifacts,
       reload: (value) => browser.reload(value),
     });
-    filePort.write(root, 'theme.css', 'body { color: red; }');
+    await filePort.write(root, 'theme.css', 'body { color: red; }');
     const report = await workflow.validate({
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
