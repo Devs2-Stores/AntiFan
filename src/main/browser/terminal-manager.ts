@@ -1674,6 +1674,29 @@ export class TerminalManager extends EventEmitter {
         const agent = (ptyInstance as any)._agent;
         const agentPid = agent?._pid;
 
+        // The sockets below are destroyed while writes can still be queued on them.
+        // A queued write whose peer is already gone surfaces later as an async
+        // 'error' (EPIPE) on the SOCKET, not on the pty object, so the no-op above
+        // cannot catch it: without a listener here it escapes as an unhandled
+        // exception and kills whatever the process was doing at that moment
+        // (measured: a lane run died at `closeSession` with `write EPIPE` from
+        // `Socket._writeGeneric`, attributed to the test that was awaiting it).
+        type SuspendableSocket = { on?: (event: string, listener: () => void) => unknown };
+        const socketOwner = ptyInstance as unknown as {
+          _socket?: SuspendableSocket;
+          _agent?: { _inSocket?: SuspendableSocket; _outSocket?: SuspendableSocket };
+        };
+        const socketCandidates = [
+          socketOwner._agent?._inSocket,
+          socketOwner._agent?._outSocket,
+          socketOwner._socket,
+        ];
+        for (const socket of socketCandidates) {
+          if (socket && typeof socket.on === 'function') {
+            try { socket.on('error', () => {}); } catch {}
+          }
+        }
+
         // 1. Kill ptyInstance first while pipes are intact
         try { ptyInstance.kill(); } catch {}
 
