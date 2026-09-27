@@ -50,11 +50,20 @@ proven by lane, never reproduced by hand on the live app" — the first live exe
 - Pass-after: `tab-devtools-host` suite **48/48**; `npm run compile` exit 0 (emit integrity,
   MCP budget, extension, dispatch-payload checks); `npm run test:main` **1417 pass / 0 fail /
   1 skip** (1418 tests). Code review: DONE, no concerns, no critical issues.
+- Live post-fix proof (2026-09-27, after restarting the app onto the rebuilt `.compiled`):
+  the exact repro re-run on the restored session — another tab active, cart tab background,
+  authority rotated to it, `anti.screenshot.full_page` on the background tab — returned a
+  PNG capture twice in a row, no starvation refusal. The target-state matrix then covered
+  every case: foreground capture on the active tab (PNG), full-page capture on a tab never
+  activated since restore (PNG — the in-window lift also revives a pane with no prior
+  presentation this boot), and the active-tab invariant — after every background lift the
+  storefront pane still reports `attached: true, active: true` via `get_viewport`, so no
+  capture rotates the user's active tab. Restart side effects: the terminal daemon was
+  killed with the old tree (it is a child of the main process) and respawned by the new
+  instance; in-app terminal sessions and the agent MCP proxies hosted in them died with it.
 
 ## Open / not yet proven
 
-- Live post-fix proof needs an app restart (the running instance still executes the old
-  compiled main process): restart, then re-run a full-page capture on a background tab.
 - The off-screen capture host remains host-first for the initial raise; on Windows it will
   effectively always fall through to the in-window lift after ~0.7 s of probing. If that
   latency matters, a follow-up can skip the host on win32 — not done here to keep the change
