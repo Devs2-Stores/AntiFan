@@ -10,6 +10,7 @@ import {
   type WorkspaceSnapshotManifest,
   type WorkspaceRollbackResult,
 } from './workspace-snapshot-rollback';
+import { evaluateThreeAxisStop, MAX_REPAIR_ITERATIONS } from './three-axis-stop';
 
 interface RepairSessionState {
   sessionId: string;
@@ -47,6 +48,8 @@ export interface ThemeRepairVerificationResult {
   revision: string;
   remainingRepairs: number;
   rollbackResult?: WorkspaceRollbackResult;
+  /** Present when the session stopped retrying deterministically (3-axis criteria) or via circuit breaker. */
+  stopReason?: 'STOP_CRITERIA_EXCEEDED' | 'CIRCUIT_BREAKER_TRIPPED';
 }
 
 export class ThemeQaRepairCoordinator {
@@ -182,7 +185,10 @@ export class ThemeQaRepairCoordinator {
         // An inconclusive verification still consumed this revision: a retry without
         // further edits is a replay, not new evidence.
         session.lastVerifiedRevision = revision;
-        session.status = 'awaiting_fix';
+        // Missing-evidence retries are bounded like failed retries: a session that still
+        // cannot produce complete evidence after the iteration cap stops accepting new
+        // verification rounds (m_d axis of the 3-axis stop criteria).
+        session.status = session.verificationAttempts >= MAX_REPAIR_ITERATIONS ? 'blocked' : 'awaiting_fix';
         throw new CapabilityError('SETTLE_INCOMPLETE', 'Repair verification lacks complete regression evidence');
       }
       session.lastVerifiedRevision = revision;
@@ -222,8 +228,31 @@ export class ThemeQaRepairCoordinator {
         }
       }
 
-      session.status = report.summary.passed ? 'verified' : transition.tripped ? 'blocked' : 'awaiting_fix';
+      // Deterministic 3-axis stop evaluation (Jev-Mem stopping criteria). The
+      // contradiction axis is already terminal via the R0 rollback above; the
+      // remaining axes bound the retry loop independently of the circuit breaker.
+      const stopDecision = evaluateThreeAxisStop(
+        {
+          sufficiency: report.summary.passed ? 1 : 0,
+          missingness: report.findings?.evidenceGaps?.length ?? 0,
+          contradiction: hasRegressions ? 1 : 0,
+        },
+        session.verificationAttempts,
+        MAX_REPAIR_ITERATIONS
+      );
+      const stopBlocked = !report.summary.passed && stopDecision.action === 'ABORT_BLOCKED';
+      session.status = report.summary.passed
+        ? 'verified'
+        : stopBlocked || transition.tripped
+          ? 'blocked'
+          : 'awaiting_fix';
       if (session.status === 'verified') this.sessions.delete(input.sessionId);
+
+      const stopReason = stopBlocked
+        ? ('STOP_CRITERIA_EXCEEDED' as const)
+        : !report.summary.passed && transition.tripped
+          ? ('CIRCUIT_BREAKER_TRIPPED' as const)
+          : undefined;
 
       return {
         success: report.summary.passed,
@@ -232,7 +261,8 @@ export class ThemeQaRepairCoordinator {
         rolledBack: false,
         status: session.status,
         revision,
-        remainingRepairs: transition.remainingRepairs,
+        remainingRepairs: stopBlocked ? 0 : transition.remainingRepairs,
+        ...(stopReason !== undefined ? { stopReason } : {}),
       };
     } catch (err) {
       if (session.status === 'verifying') session.status = 'awaiting_fix';
