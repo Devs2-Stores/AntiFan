@@ -1820,14 +1820,14 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), false, 'the refusal happens before dispatch, so the target never enters the drain quarantine');
     });
 
-    it('never lowers a pane raised for capture: the repair ladder stops at invalidate', async () => {
+    it('never reasserts a pane raised for capture: the ladder re-raises it in-window instead', async () => {
       const { ctx, probes, invalidates } = createFrameGateContext({ frameAlive: () => false });
       // tab-2 is created while activeTabId stays 'tab-1', so the capture runs the
       // background path and the pane is raised for the raster.
       ctx.createTab('https://example.com/background');
-      let raises = 0;
+      const raiseCalls: Array<{ inWindow?: boolean } | undefined> = [];
       let reasserts = 0;
-      ctx.raiseViewForCapture = () => { raises += 1; };
+      ctx.raiseViewForCapture = (_view: unknown, opts?: { inWindow?: boolean }) => { raiseCalls.push(opts); };
       ctx.reassertPresentedView = () => { reasserts += 1; };
       const devTools = new TabDevToolsHost(ctx);
       const methods = withCdpDouble(devTools);
@@ -1836,11 +1836,32 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         () => devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop'),
         (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_FRAME_STARVATION'
       );
-      assert.strictEqual(raises, 1, 'a background pane must be raised onto the capture host before the raster');
+      assert.strictEqual(raiseCalls.length, 2, 'a background pane is raised onto the capture host, then re-raised in-window when it stays starved');
+      assert.strictEqual(raiseCalls[0], undefined, 'the first raise takes the capture host');
+      assert.deepStrictEqual(raiseCalls[1], { inWindow: true }, 'the repair ladder re-raises the starved pane into the real window');
       assert.strictEqual(invalidates(), 1, 'the repair ladder must have tried one compositor invalidate');
       assert.strictEqual(reasserts, 0, 'reassertPresentedView lowers a raised pane back into occlusion, so the ladder must not call it for a raised pane');
-      assert.ok(probes.length >= 2, 'the gate must have probed at entry and again after the invalidate');
+      assert.ok(probes.length >= 3, 'the gate must have probed at entry, after the invalidate, and after the in-window lift');
       assert.strictEqual(methods.includes('Page.captureScreenshot'), false, 'a starved raised pane must never reach the dispatch');
+    });
+
+    it('recovers a capture-host-starved background pane through the in-window lift and completes the capture', async () => {
+      let alive = false;
+      let inWindowLifts = 0;
+      const { ctx } = createFrameGateContext({ frameAlive: () => alive });
+      // tab-2 is created while activeTabId stays 'tab-1', so the capture runs the
+      // background path: host raise -> starved probes -> in-window lift -> frames.
+      ctx.createTab('https://example.com/background');
+      ctx.raiseViewForCapture = (_view: unknown, opts?: { inWindow?: boolean }) => {
+        if (opts?.inWindow) { alive = true; inWindowLifts += 1; }
+      };
+      const devTools = new TabDevToolsHost(ctx);
+      const methods = withCdpDouble(devTools);
+
+      const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop');
+      assert.strictEqual(envelope.backend, 'cdp');
+      assert.strictEqual(methods.includes('Page.captureScreenshot'), true, 'the lifted pane must receive the dispatch');
+      assert.strictEqual(inWindowLifts, 1, 'the starved pane must be presented in the real window exactly once');
     });
 
     it('recovers through the invalidate repair step and completes the capture', async () => {

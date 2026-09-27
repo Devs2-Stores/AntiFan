@@ -159,8 +159,11 @@ export interface TabDevToolsContext {
    * Lift a helper-attached background view above the user's tab for one raster.
    * Occluded WebContentsViews on Windows produce no compositor frame.
    * Does not change the active tab. Pair with reassertPresentedView after the CDP call.
+   * `inWindow: true` presents the view in the real window even when the capture
+   * host could take it — the frame gate's repair ladder uses that after a host
+   * raise left the pane frame-starved.
    */
-  raiseViewForCapture?: (view: Electron.WebContentsView) => void;
+  raiseViewForCapture?: (view: Electron.WebContentsView, opts?: { inWindow?: boolean }) => void;
 }
 export interface TabDevToolsStats {
   attachedWebContentsCount: number;
@@ -1911,10 +1914,14 @@ export class TabDevToolsHost {
    * skips the re-present step: reassertPresentedView lowers a raised pane back
    * under the presented tab (its first act is lowerRaisedCaptureView), so for
    * a raised pane that step is a dismantle, not a repair — the raise itself
-   * already invalidated a fresh surface. A target that stays starved is
-   * refused with CAPTURE_FRAME_STARVATION before the CDP command is
-   * dispatched, so the CDP queue stays clean and the next tool call is
-   * answered immediately instead of hitting TARGET_BUSY_DRAINING.
+   * already invalidated a fresh surface. A raised pane that stays starved
+   * after the invalidate is instead re-raised into the real window: the
+   * off-screen capture host is not a surface the Windows compositor drives
+   * either (measured live — the main window maximized and visible, the raised
+   * pane still starved), while the presented window is. A target that stays
+   * starved after the ladder is refused with CAPTURE_FRAME_STARVATION before
+   * the CDP command is dispatched, so the CDP queue stays clean and the next
+   * tool call is answered immediately instead of hitting TARGET_BUSY_DRAINING.
    */
   private async ensureFramesForRaster(
     wc: Electron.WebContents,
@@ -1922,7 +1929,8 @@ export class TabDevToolsHost {
     effectivePane: SplitPaneId | undefined,
     mode: CaptureMode,
     isOffscreenTarget: boolean,
-    raisedForCapture: boolean
+    raisedForCapture: boolean,
+    targetPaneView?: Electron.WebContentsView | null
   ): Promise<void> {
     if (isOffscreenTarget) {
       recordLifecycleEvent('capture.frameGate', {
@@ -1955,6 +1963,18 @@ export class TabDevToolsHost {
         recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'reassert', window: windowState });
         return;
       }
+    } else if (targetPaneView) {
+      // The capture host parks the pane on a fully off-screen window, and that
+      // is not a surface the Windows compositor drives either (measured live:
+      // the raised pane starves while the main window is maximized and
+      // visible). Present the pane in the real window for this one raster —
+      // the same in-window lift the host-unavailable fallback uses; reassert
+      // lowers it after the dispatch.
+      try { this.ctx.raiseViewForCapture?.(targetPaneView, { inWindow: true }); steps.push('in-window-lift'); } catch {}
+      if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
+        recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'in-window-lift', window: windowState });
+        return;
+      }
     }
 
     recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, steps, window: windowState });
@@ -1963,7 +1983,7 @@ export class TabDevToolsHost {
       : 'window presentation unknown';
     throw new CaptureError(
       'CAPTURE_FRAME_STARVATION',
-      `Page.captureScreenshot (${mode}) on tab '${targetId}' would hang: the window's compositor produced no frame for its renderer (requestAnimationFrame stalled while the renderer still answered), so no raster can ever complete and every further CDP command on this target would wait out its bound. Observed: ${window}. Remedy: focus or move the AntiFan window once to restart frame production, or restart the app, then retry.`
+      `Page.captureScreenshot (${mode}) on tab '${targetId}' would hang: the window's compositor produced no frame for its renderer (requestAnimationFrame stalled while the renderer still answered), so no raster can ever complete and every further CDP command on this target would wait out its bound. Observed: ${window}; repair steps tried: ${steps.join(', ') || 'none'}. Remedy: focus or move the AntiFan window once to restart frame production, or restart the app, then retry.`
     );
   }
 
@@ -2383,7 +2403,7 @@ export class TabDevToolsHost {
           // timed-out inside the command it is quarantined as draining and
           // every later command waits out the drain window (both measured).
           const rasterStartedAt = Date.now();
-          await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, shouldRaiseForRaster);
+          await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, shouldRaiseForRaster, targetPaneView);
           try {
             captureRes = await this.sendCdpCommand<{ data?: string }>(
               wc,

@@ -657,7 +657,7 @@ export class NativeTabHost extends EventEmitter {
         applyTabDeviceEmulation: (tabId: string) => this.applyTabDeviceEmulationForTab(tabId),
         isTabViewAttached: (view) => this.isTabViewAttached(view),
         reassertPresentedView: () => this.reassertPresentedView(),
-        raiseViewForCapture: (view) => this.raiseViewForCapture(view),
+        raiseViewForCapture: (view, opts) => this.raiseViewForCapture(view, opts),
         isWindowRenderable: () => !this.window.isDestroyed() && this.window.isVisible() && !this.window.isMinimized(),
         getWindowPresentationState: () => ({
           visible: !this.window.isDestroyed() && this.window.isVisible(),
@@ -3223,13 +3223,23 @@ export class NativeTabHost extends EventEmitter {
    * `{ fromSurface: true }` then waits out the 8s no-surface probe (measured:
    * inactive bagamuioto + mdn video). Host the pane on an off-screen window for
    * the raster so it is not painted over the user's tab. Does not change `activeTabId`.
+   *
+   * The off-screen host is itself not a surface the Windows compositor drives
+   * (measured live: a raised pane starves while the main window is maximized
+   * and visible), so `inWindow: true` skips the host and presents the pane in
+   * the real window — the frame gate's repair ladder reaches for that after a
+   * host raise left the pane starved.
    */
-  public raiseViewForCapture(view: WebContentsView): void {
+  public raiseViewForCapture(view: WebContentsView, opts?: { inWindow?: boolean }): void {
     if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
-    if (!this.isTabViewAttached(view)) return;
-    if (this.raiseViewOnCaptureHost(view)) return;
-    // Host unavailable (tests, or BrowserWindow refused): fall back to the in-window
-    // lift. That paints the pane over the user's tab for the raster; reassert lowers it.
+    if (this.raisedCaptureView !== view && !this.isTabViewAttached(view)) return;
+    if (!opts?.inWindow && this.raiseViewOnCaptureHost(view)) return;
+    // Host unavailable (tests, or BrowserWindow refused), not preferred, or
+    // starved: fall back to the in-window lift. That paints the pane over the
+    // user's tab for the raster; reassert lowers it. A pane currently parked
+    // on the capture host comes back to the window first — a view parented to
+    // the host cannot be lifted inside this window.
+    if (this.raisedCaptureView === view) this.lowerRaisedCaptureView();
     this.raiseViewInWindow(view);
   }
 
