@@ -1,0 +1,53 @@
+language: en-US
+reviews:
+  profile: chill
+  path_filters:
+    # Agent worktrees / probe scratch — never review
+    - "!/.tmp*"
+    - "!/.tmp*/**"
+    - "!/.probe-tmp/**"
+    - "!/tmp/**"
+    - "!/scratch/**"
+    - "!/_verify/**"
+    # Cloned customer themes & customization copies — out of scope
+    - "!/clone/**"
+    - "!/clones/**"
+    - "!/customizes/**"
+    # Evidence / telemetry / data dumps
+    - "!/.super-core/**"
+    - "!/.antifan/**"
+    - "!/.canary/**"
+    - "!/.goal-*"
+    - "!/.goal-*/**"
+    - "!/.goal-runs/**"
+    - "!/.omp/**"
+    - "!/plans/**/*.json"
+    - "!/reports/**/*.json"
+    - "!/reports/**/*.png"
+    # Build output & lockfile
+    - "!/.compiled/**"
+    - "!/package-lock.json"
+    # Root-level HTML captures
+    - "!/*.html"
+  path_instructions:
+    - path: src/main/**
+      instructions: |
+        - Electron main process. Flag IPC handlers without input validation,
+          unbounded listener registration, and process/teardown leaks.
+        - Repo contract: never suggest killing processes this app does not own.
+    - path: src/preload/**
+      instructions: |
+        - contextBridge security boundary. Flag any Node/shell capability
+          exposed to renderer without an explicit allowlist.
+    - path: test/**
+      instructions: |
+        - Flag tests that pin incidental behavior or weaken assertions to pass.
+        - e2e tests must assert observable output/state, not just non-throwing.
+    - path: Storefront/**/*.liquid
+      instructions: |
+        - Platform is Haravan (Shopify-like Liquid, NOT Shopify). Do not flag
+          Haravan-specific objects or filters as undefined.
+        - Liquid has no object literals and no parenthesized arithmetic;
+          never suggest JS/TS syntax inside Liquid tags.
+        - {% assign %}/{% capture %} are template-global; do not flag reuse
+          across snippet/include boundaries as redeclaration.
