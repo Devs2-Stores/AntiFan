@@ -10,6 +10,7 @@ tags: [qa, theme, stopping-criteria, deterministic]
 # Theme QA 3-Axis Stop Config (Jev-Mem stopping criteria)
 
 ## Status
+- **Ship:** PR #3 — https://github.com/Devs2-Stores/AntiFan/pull/3 (branch `feat/project-windows-and-theme-qa-stop`, target `main`).
 - **Phase 1 (implement + test + review):** done — see `phase-01-implement-three-axis-stop.md` validation results and `plans/journals/2026-09-27-theme-qa-three-axis-stop.md`. Acceptance 1-6, 8 hold; acceptance 7 (freeze cert) is blocked by a pre-existing, unrelated cert-harness defect.
 
 ## Outcome
