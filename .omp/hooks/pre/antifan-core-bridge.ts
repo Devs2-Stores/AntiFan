@@ -76,6 +76,15 @@ interface CorePack {
 	claims: Array<Record<string, unknown>>;
 	conflicts: Array<Record<string, unknown>>;
 	unknowns: Array<Record<string, unknown>>;
+	/** Read-side store hygiene piggybacked on pack — see Core contextPack(diagnostics). */
+	diagnostics?: {
+		staleClaims: number;
+		agingClaims: number;
+		gapKinds: Array<{ platform: string; kind: string }>;
+		pendingCount: number;
+		pendingTop: Array<{ candidateId: string; statement?: string; caseTask?: string; platform?: string | null }>;
+		healthy: boolean;
+	} | null;
 	generatedAt: string;
 }
 
@@ -651,10 +660,24 @@ function renderPackContent(pack: CorePack, taskHash: string, projectRoot: string
 		claimCount: pack.claims.length,
 		conflictCount: pack.conflicts.length,
 		unknowns: pack.unknowns,
+		diagnostics: pack.diagnostics ?? null,
 		claims,
 		conflicts: pack.conflicts.slice(0, 10),
 	};
 	let text = `[AntiFan Core context pack ${pack.packId} — permissionScope=${pack.permissionScope}]\n`;
+	// Diagnostics banner: read-side hygiene surfacing. Silent when the store is
+	// healthy — a green banner on every turn is the alert-fatigue failure mode.
+	const diag = pack.diagnostics;
+	if (diag && !diag.healthy) {
+		const parts: string[] = [];
+		if (diag.staleClaims > 0) parts.push(`${diag.staleClaims} stale claim(s)`);
+		for (const g of diag.gapKinds) parts.push(`${g.platform}: ${g.kind}`);
+		if (diag.pendingCount > 0) {
+			const ids = diag.pendingTop.map((c) => c.candidateId).join(", ");
+			parts.push(`${diag.pendingCount} PENDING candidate(s) awaiting adjudication${ids ? ` (oldest: ${ids})` : ""} — promote/reject needs explicit human authority via core.adjudicate`);
+		}
+		text += `[Core Health: ${parts.join(" | ")}]\n`;
+	}
 	text += JSON.stringify(body, null, 1);
 	if (text.length > MAX_PACK_CHARS) {
 		text = `${text.slice(0, MAX_PACK_CHARS)}\n…[truncated at ${MAX_PACK_CHARS} chars]`;
@@ -978,6 +1001,9 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 					// silently drops the correct evidence, which is worse than the
 					// extra claims it would avoid.
 					...(platform ? { platform } : {}),
+					// Read-side hygiene: store health/gaps/PENDING ride the pack —
+					// this hook is the only guaranteed caller per turn.
+					diagnostics: true,
 				}),
 				{ cliPath, cwd: state.projectRoot, timeoutMs: envInt("ANTIFAN_CORE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS, 30_000) },
 			);
@@ -1168,6 +1194,9 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			recordEvent("BRIDGE_SESSION_SHUTDOWN", {
 				coreStatus: state.coreStatus,
 				turnsCompleted: state.turnsCompleted,
+				// Triage audit trail: candidate IDs surfaced to this session so a
+				// human reviewer can adjudicate without re-querying the store.
+				pendingCandidates: state.pack?.diagnostics?.pendingTop?.map((c) => c.candidateId) ?? [],
 			});
 			// Release the pack identity: a shutdown session must not pin the pack
 			// for whatever runs next.

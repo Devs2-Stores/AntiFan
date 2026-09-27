@@ -180,7 +180,7 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     READ_POLICY, (p: Parameters<CoreStorePort['query']>[0]) => core.query(p));
 
   reg('core.context_pack', 'Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope.',
-    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' }, scope: { type: 'string', description: 'Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack.' } }, required: ['task'] },
+    { type: 'object', properties: { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' }, diagnostics: { type: 'boolean' }, scope: { type: 'string', description: 'Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack.' } }, required: ['task'] },
     READ_POLICY, (p: Parameters<CoreStorePort['contextPack']>[0]) => core.contextPack(p));
 
   reg('core.recommend', 'Recommend from evidence: Context Pack + recommendation or explicit abstention.',

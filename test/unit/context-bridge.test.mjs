@@ -191,6 +191,56 @@ test('core available: before_agent_start returns one pack message with identity'
 	});
 });
 
+test('pack diagnostics surface store debt in the banner and shutdown telemetry', async () => {
+	const dir = tmpDir('core-bridge-diag-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		// Seed real pending debt through the real CLI — diagnostics must read the
+		// same store the pack was built from, not a fixture row.
+		const seeded = spawnSync(process.execPath, [path.join(REPO, 'scripts', 'antifan-core.cjs'), 'outcome', JSON.stringify({ task: 'haravan settings fix', outcome: 'worked', platform: 'haravan' })], {
+			cwd: REPO,
+			env: { ...process.env, SUPER_CORE_DB: db },
+			encoding: 'utf8',
+		});
+		assert.equal(seeded.status, 0, seeded.stderr);
+
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('audit the haravan theme sections', { cwd: REPO });
+		assert.equal(messages.length, 1);
+		const msg = messages[0];
+		assert.ok(msg.content.includes('[Core Health:'), 'unhealthy store surfaces a banner');
+		assert.ok(msg.content.includes('PENDING candidate'), 'banner names the adjudication debt');
+		assert.ok(msg.content.includes('core.adjudicate'), 'banner names the human-authority path');
+		const body = JSON.parse(msg.content.slice(msg.content.indexOf('\n{') + 1));
+		assert.equal(body.diagnostics.pendingCount, 1);
+		assert.equal(body.diagnostics.healthy, false);
+
+		// Shutdown telemetry carries the surfaced candidate IDs for triage.
+		await h.emit('session_shutdown');
+		const shutdown = h.entries.find((e) => e.data?.event === 'BRIDGE_SESSION_SHUTDOWN');
+		assert.ok(shutdown, 'shutdown event recorded');
+		assert.equal(shutdown.data.pendingCandidates.length, 1, 'surfaced candidate ID lands in the triage trail');
+	});
+});
+
+test('healthy store stays silent: pack carries diagnostics but no banner', async () => {
+	const dir = tmpDir('core-bridge-healthy-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('audit the haravan theme sections', { cwd: REPO });
+		assert.equal(messages.length, 1);
+		const msg = messages[0];
+		assert.ok(!msg.content.includes('[Core Health:'), 'healthy store renders no hygiene banner');
+		const body = JSON.parse(msg.content.slice(msg.content.indexOf('\n{') + 1));
+		assert.equal(body.diagnostics.healthy, true, 'diagnostics still ride the pack');
+	});
+});
+
 test('project root resolves by walking up from a subdirectory cwd', async () => {
 	const dir = tmpDir('core-bridge-subdir-');
 	await withEnv({ SUPER_CORE_DB: path.join(dir, 'core.db'), ANTIFAN_CORE_BRIDGE_LOG: path.join(dir, 'events.jsonl'), ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {

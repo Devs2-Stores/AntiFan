@@ -750,6 +750,50 @@ test('replayRegression re-executes recorded checks against live state', () => {
   core.close();
 });
 
+test('contextPack diagnostics piggyback store hygiene, scoped and opt-in', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+
+  // Opt-in: without the flag the pack carries no hygiene payload at all.
+  const plain = core.contextPack({ task: 'settings schema' });
+  assert.equal(plain.diagnostics, null, 'diagnostics omitted unless requested');
+
+  // Scoped: a sapo pack sees the sapo gap (unresolved conflict) and only
+  // sapo-platform pending debt.
+  core.ingestOutcome({ task: 'sapo settings fix', outcome: 'worked', platform: 'sapo' });
+  core.ingestOutcome({ task: 'haravan settings fix', outcome: 'worked', platform: 'haravan' });
+  const scoped = core.contextPack({ task: 'settings schema', platform: 'sapo', diagnostics: true }) as {
+    diagnostics: { staleClaims: number; gapKinds: Array<{ platform: string; kind: string }>; pendingCount: number; pendingTop: Array<{ candidateId: string; platform: string | null }>; healthy: boolean };
+  };
+  assert.ok(scoped.diagnostics, 'diagnostics present when requested');
+  assert.equal(scoped.diagnostics.healthy, false, 'sapo conflict + pending debt is not healthy');
+  const sapoGap = scoped.diagnostics.gapKinds.find((g) => g.platform === 'sapo');
+  assert.equal(sapoGap?.kind, 'CONFLICTED', 'sapo gap surfaces in the pack');
+  // Out-of-scope gaps are excluded: a foreign platform the caller cannot act
+  // on must not appear here and must not flip healthy.
+  assert.ok(scoped.diagnostics.gapKinds.every((g) => g.platform === 'sapo'), 'gapKinds scoped to the pack platform');
+  assert.equal(scoped.diagnostics.pendingCount, 1, 'only the sapo-platform candidate counts');
+  assert.equal(scoped.diagnostics.pendingTop[0].platform, 'sapo');
+  // Diagnostics are a view, never a mutation: the candidate stays PENDING.
+  assert.equal((core.candidates() as Array<{ status: string }>).length, 2, 'surfacing does not adjudicate');
+
+  // Healthy: fresh claims, no unresolved conflict for the scope, no pending.
+  const clean = openCore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'core-clean-')), 'core.db'));
+  const healthyPack = clean.contextPack({ task: 'anything', diagnostics: true }) as { diagnostics: { healthy: boolean; pendingCount: number } };
+  assert.equal(healthyPack.diagnostics.pendingCount, 0);
+  assert.equal(healthyPack.diagnostics.healthy, true, 'empty store with no debt reads healthy');
+  clean.close();
+
+  // Level-0 invariant: adjudicate refuses empty authority before even looking
+  // up the candidate, fails closed on unknown candidate and bad scope.
+  assert.throws(() => core.adjudicate({ candidateId: 'cand-nope', decision: 'PROMOTE', authority: '' }), /authority required/);
+  assert.throws(() => core.adjudicate({ candidateId: 'cand-nope', decision: 'PROMOTE', authority: 't' }), /unknown candidate/);
+  const cand = (core.candidates() as Array<{ candidateId: string }>)[0];
+  assert.throws(() => core.adjudicate({ candidateId: cand.candidateId, decision: 'PROMOTE', authority: 't', scope: 'staging' as never }), /invalid scope/);
+  core.close();
+});
+
 test('the store opens under the locked concurrent-access mode', () => {
   // The runner, the MCP server and the app all open this one file, so the mode is the
   // condition for them not to collide. Journal mode is a property of the file, so a

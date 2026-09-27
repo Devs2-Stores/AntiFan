@@ -57,7 +57,16 @@ function collapseDuplicateStatements<
 
 
 export interface QueryOpts { text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string; }
-export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string; }
+export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string; diagnostics?: boolean; }
+export interface PackDiagnostics {
+  staleClaims: number;
+  agingClaims: number;
+  gapKinds: Array<{ platform: string; kind: string }>;
+  pendingCount: number;
+  pendingTop: Array<{ candidateId: string; statement: string; createdAt: string; platform: string | null; caseTask: string | null }>;
+  /** true when no stale claims, no non-NONE gaps, zero pending debt. Gates the bridge banner. */
+  healthy: boolean;
+}
 export interface OutcomeInput { task: string; context?: string; outcome: string; verificationRef?: string; unitId?: string; platform?: string; namespace?: CoreNamespace; }
 
 // A regression check is a re-executable invariant over live store state.
@@ -620,6 +629,56 @@ export class Core {
     this.db.prepare(`INSERT INTO packs(packId,task,platform,claimIdsJson,createdAt,taskHash,sessionId,lastIssuedAt,scopeKey) VALUES (?,?,?,?,?,?,?,?,?)
       ON CONFLICT(packId) DO UPDATE SET claimIdsJson=excluded.claimIdsJson, lastIssuedAt=excluded.lastIssuedAt`)
       .run(packId, opts.task, opts.platform ?? null, JSON.stringify(claims.map((c) => c.claimId)), issuedAt, taskHash, sessionId, issuedAt, scopeKey);
+    // Store hygiene rides the pack because the pack is the one caller that
+    // already fires on every agent turn (before_agent_start bridge hook).
+    // health(), decayCheck(), knowledgeGaps() and candidates() are otherwise
+    // dedicated calls nobody makes. Opt-in so existing callers keep the small
+    // payload; the bridge asks for it explicitly. Pure reads — diagnostics
+    // never mutate and never adjudicate.
+    let diagnostics: PackDiagnostics | null = null;
+    if (opts.diagnostics) {
+      // Diagnostics describe THIS pack's scope, not the whole store: an
+      // un-actionable foreign-platform gap or decay row must not flip healthy —
+      // that is the permanent red-banner failure mode. Store-wide hygiene is
+      // the job of health()/corpusAudit(), which stay unscoped.
+      const diagUnits = opts.unitIds?.length ? opts.unitIds : projectScope?.unitIds;
+      const decay = this.decayCheck({ platform: opts.platform, unitIds: diagUnits, includeGlobal: opts.includeGlobal });
+      const gaps = this.knowledgeGaps({ platform: opts.platform });
+      // PENDING candidates scoped like the conflict surface: explicit units
+      // win, then platform (via the case's platform tag); with neither, the
+      // whole queue counts.
+      const pendingWhere: string[] = ["c.status = 'PENDING'"];
+      const pendingArgs: unknown[] = [];
+      const pendingUnits = opts.unitIds?.length ? opts.unitIds : projectScope?.unitIds;
+      if (pendingUnits?.length) {
+        pendingWhere.push(`cs.unitId IN (${pendingUnits.map(() => '?').join(',')})`);
+        pendingArgs.push(...pendingUnits);
+      } else if (opts.platform) {
+        pendingWhere.push(opts.includeGlobal ? "(cs.platform = ? OR cs.platform IS NULL)" : 'cs.platform = ?');
+        pendingArgs.push(opts.platform);
+      }
+      const pendingTotal = (this.db.prepare(
+        `SELECT COUNT(*) AS n FROM candidates c LEFT JOIN cases cs ON cs.caseId = c.caseId WHERE ${pendingWhere.join(' AND ')}`
+      ).get(...pendingArgs as never[]) as { n: number }).n;
+      // node:sqlite .all() returns Record<string,unknown>[]; the SELECT list is
+      // the shape contract, asserted once here for the whole row set.
+      const pendingTop = this.db.prepare(
+        `SELECT c.candidateId, c.statement, c.createdAt, cs.platform, cs.task AS caseTask
+         FROM candidates c LEFT JOIN cases cs ON cs.caseId = c.caseId
+         WHERE ${pendingWhere.join(' AND ')} ORDER BY c.createdAt ASC LIMIT 3`
+      ).all(...pendingArgs as never[]) as PackDiagnostics['pendingTop'];
+      const gapKinds = (gaps.gaps as PackDiagnostics['gapKinds'])
+        .filter((g) => g.kind !== 'NONE');
+      diagnostics = {
+        staleClaims: decay.stale.length,
+        agingClaims: decay.aging.length,
+        gapKinds,
+        pendingCount: pendingTotal,
+        pendingTop,
+        // healthy gates the banner: nothing stale, no gaps, no pending debt.
+        healthy: decay.stale.length === 0 && gapKinds.length === 0 && pendingTotal === 0,
+      };
+    }
     return {
       packId,
       task: opts.task,
@@ -631,7 +690,7 @@ export class Core {
       claims,
       conflicts,
       unknowns,
-      generatedAt: now(),
+      diagnostics,
     };
   }
 
@@ -714,6 +773,12 @@ export class Core {
 
   adjudicate(opts: { candidateId: string; decision: 'PROMOTE' | 'REJECT' | 'SUPERSEDE'; authority: string; rationale?: string; scope?: 'production' | 'acceptance-test' }) {
     if (!['PROMOTE', 'REJECT', 'SUPERSEDE'].includes(opts.decision)) throw new Error(`invalid decision ${opts.decision}; must be PROMOTE|REJECT|SUPERSEDE`);
+    // Adjudication is the only promotion path, so its authority is the
+    // fail-closed boundary itself: an empty or missing authority must refuse
+    // before the candidate lookup — a bad candidateId cannot launder a
+    // verdict with no human behind it.
+    if (typeof opts.authority !== 'string' || opts.authority.trim().length === 0)
+      throw new Error('authority required — adjudication needs an explicit human authority');
     const scope = opts.scope ?? 'production';
     if (scope !== 'production' && scope !== 'acceptance-test') throw new Error(`invalid scope ${scope}`);
     const cand = this.db.prepare('SELECT * FROM candidates WHERE candidateId = ?').get(opts.candidateId) as { status: string } | undefined;
@@ -1039,18 +1104,45 @@ export class Core {
   }
 
   // ---- v4: Knowledge Decay (§36) ---------------------------------------------
-  decayCheck(opts?: { staleDays?: number }) {
+  decayCheck(opts?: { staleDays?: number; platform?: string; unitIds?: string[]; includeGlobal?: boolean }) {
     const staleDays = opts?.staleDays ?? 90;
     const cutoff = new Date(Date.now() - staleDays * 86400_000).toISOString();
+    // Diagnostics is a caller-scoped contract: when a platform or units are
+    // given, decay outside that scope must not flip the pack's healthy gate —
+    // un-actionable cross-platform debt is the alert-fatigue failure mode.
+    const staleWhere: string[] = [
+      "status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED')",
+      "(lastSeen IS NULL OR lastSeen < ?) AND createdAt < ?",
+    ];
+    const staleArgs: unknown[] = [cutoff, cutoff];
+    const agingWhere: string[] = ['agingSince IS NOT NULL AND agingSince < ?'];
+    const agingArgs: unknown[] = [cutoff];
+    if (opts?.unitIds?.length) {
+      const ph = opts.unitIds.map(() => '?').join(',');
+      staleWhere.push(`unitId IN (${ph})`);
+      staleArgs.push(...opts.unitIds);
+      agingWhere.push(`unitId IN (${ph})`);
+      agingArgs.push(...opts.unitIds);
+    } else if (opts?.platform) {
+      // includeGlobal parity with pendingWhere: a platform-scoped pack still
+      // sees platform-agnostic (NULL) claims when it opted into global content;
+      // without the flag, NULL-platform decay stays out of scope.
+      const platformCond = opts.includeGlobal
+        ? '(contextPlatform = ? OR contextPlatform IS NULL)'
+        : 'contextPlatform = ?';
+      staleWhere.push(platformCond);
+      staleArgs.push(opts.platform);
+      agingWhere.push(platformCond);
+      agingArgs.push(opts.platform);
+    }
     const stale = this.db.prepare(
       `SELECT claimId, statement, status, lastSeen, createdAt FROM claims
-       WHERE status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED')
-       AND (lastSeen IS NULL OR lastSeen < ?) AND createdAt < ?`,
-    ).all(cutoff, cutoff);
+       WHERE ${staleWhere.join(' AND ')}`,
+    ).all(...staleArgs as never[]);
     const aging = this.db.prepare(
       `SELECT claimId, statement, status, agingSince FROM claims
-       WHERE agingSince IS NOT NULL AND agingSince < ?`,
-    ).all(cutoff);
+       WHERE ${agingWhere.join(' AND ')}`,
+    ).all(...agingArgs as never[]);
     return { stale, aging, cutoff };
   }
 
@@ -1101,7 +1193,7 @@ export class Core {
   // Per-platform gap signal. Three distinct kinds, never collapsed into one
   // number: NO_EVIDENCE (never had claims), STALE (has claims, none fresh),
   // CONFLICTED (has claims + unresolved conflicts). NONE = covered.
-  knowledgeGaps(opts?: { staleDays?: number }) {
+  knowledgeGaps(opts?: { staleDays?: number; platform?: string }) {
     const staleDays = opts?.staleDays ?? 90;
     const cutoff = new Date(Date.now() - staleDays * 86400_000).toISOString();
     const platforms = (this.db.prepare(
@@ -1116,7 +1208,11 @@ export class Core {
          UNION SELECT platform FROM platform_semantics WHERE platform IS NOT NULL
        ) ORDER BY p`,
     ).all() as Array<{ p: string }>).map((r) => r.p);
-    const gaps = platforms.map((platform) => {
+    const gaps = platforms
+      // A platform-scoped pack reports only its own platform's gap; an
+      // out-of-scope gap the caller cannot act on must not flip healthy.
+      .filter((p) => !opts?.platform || p === opts.platform)
+      .map((platform) => {
       const active = (this.db.prepare(
         `SELECT COUNT(*) AS n FROM claims WHERE contextPlatform = ?
          AND status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED')`,

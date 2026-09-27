@@ -229,6 +229,13 @@ Third, the wrap point is **not the only place a `core.*` call can end**. `invoke
 
 This section is scoped to MCP dispatch accounting and the proxy attempt store.
 
+### `core.context_pack` diagnostics (read-side hygiene)
+
+`contextPack({diagnostics: true})` returns an extra `diagnostics` payload computed from pure reads — `{staleClaims, agingClaims, gapKinds, pendingCount, pendingTop (≤3 oldest), healthy}` — piggybacked on the pack because the bridge's `before_agent_start` pack call is the only guaranteed per-turn caller. PENDING candidates scope the same way conflicts do: explicit `unitIds`, else `platform` (via the owning case's platform tag), else the whole queue. `healthy` gates the bridge banner: the injected message shows `[Core Health: …]` only when debt exists; a clean store adds no banner. `session_shutdown` records the surfaced candidate IDs in `BRIDGE_SESSION_SHUTDOWN.pendingCandidates` for triage. Adjudication itself never changes: `core.adjudicate` requires a non-empty human `authority` and refuses empty values before the candidate lookup.
+
+Every diagnostics field is scoped to the pack: `staleClaims`/`agingClaims` filter `decayCheck` by `unitIds`→`platform`, `gapKinds` keeps only the pack's platform, and `pendingCount`/`pendingTop` scope the same way conflicts do (explicit `unitIds`, else `platform` via the owning case's platform tag, else the whole queue). An out-of-scope gap or decay row can never flip `healthy` — that is the deliberate anti-alert-fatigue contract; store-wide hygiene is the job of `core.health`/`corpusAudit`, which stay unscoped.
+
+
 ---
 
 ## Agent-facing call contracts (remediation soak)
