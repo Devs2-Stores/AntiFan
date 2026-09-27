@@ -22,6 +22,12 @@ const CONFLICT_CLASSIFICATIONS = new Set(['GENERAL_RULE', 'CONTEXTUAL_RULE', 'LE
  *  another unit differs only in spacing/line-wrap, never in what it asserts. */
 const normalizeStatement = (s: unknown): string => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '');
 
+/** Gate-canonical principle key: trim + lowercase + collapse whitespace —
+ *  identical to the predicate checkPhaseGate('principles') uses, so the hash
+ *  column and the gate agree on identity by construction. */
+const normalizePrinciple = (s: unknown): string => (typeof s === 'string' ? s.trim().toLowerCase().replace(/\s+/g, ' ') : '');
+const principleHash = (statement: string): string => crypto.createHash('sha1').update(normalizePrinciple(statement)).digest('hex');
+
 /**
  * Collapse claims that assert the same sentence, keeping the strongest row (the
  * input is already ranked) and recording how many copies it stands for. Namespace
@@ -134,9 +140,61 @@ export class Core {
     }
     this.db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)').run('schemaVersion', String(v));
     this.db.exec(POST_SCHEMA_SQL);
+    this.consolidatePrinciples();
   }
 
   close() { this.db.close(); }
+
+  /**
+   * Backfill statementHash and collapse duplicate normalized statements.
+   * Runs after every open (cheap no-op once clean): for each duplicate group
+   * keep the earliest row that carries an anchor, preferring a row with
+   * source set; merge the discarded rows' anchors into the keeper's
+   * derivedFrom as a JSON list so per-unit provenance survives dedupe.
+   * Then create the UNIQUE index — deferred to here because it can only
+   * exist once the table is clean.
+   */
+  private consolidatePrinciples() {
+    const rows = this.db.prepare('SELECT principleId, statement, source, derivedFrom, createdAt FROM principles ORDER BY createdAt ASC').all() as Array<{ principleId: string; statement: string; source: string | null; derivedFrom: string | null; createdAt: string }>;
+    const keep = new Map<string, { principleId: string; sources: string[]; anchored: boolean; createdAt: string }>();
+    const drop: string[] = [];
+    for (const r of rows) {
+      const h = principleHash(r.statement);
+      if (!h) { drop.push(r.principleId); continue; }
+      const cur = keep.get(h);
+      const source = r.source ?? r.derivedFrom ?? '';
+      if (!cur) {
+        keep.set(h, { principleId: r.principleId, sources: source ? [source] : [], anchored: source !== '', createdAt: r.createdAt });
+      } else {
+        if (source) cur.sources.push(source);
+        // Prefer an anchored keeper; earliest createdAt wins on ties (rows
+        // arrive in ascending order, so only replace when current is bare).
+        if (!cur.anchored && source !== '') {
+          drop.push(cur.principleId);
+          cur.principleId = r.principleId;
+          cur.anchored = true;
+        } else {
+          drop.push(r.principleId);
+        }
+      }
+    }
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [h, k] of keep) {
+        this.db.prepare('UPDATE principles SET statementHash = ?, derivedFrom = ? WHERE principleId = ?')
+          .run(h, JSON.stringify(k.sources), k.principleId);
+      }
+      if (drop.length) {
+        const del = this.db.prepare('DELETE FROM principles WHERE principleId = ?');
+        for (const p of drop) del.run(p);
+      }
+      this.db.exec('COMMIT');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK'); } catch { /* unwound */ }
+      throw err;
+    }
+    this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_principles_statementhash ON principles(statementHash)');
+  }
 
   stats() {
     const c = (t: string) => (this.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
@@ -250,8 +308,16 @@ export class Core {
           .run(l.fixId ?? `fix-${uuid()}`, l.before ?? null, l.after ?? null, l.why ?? null, l.evidence ?? null, l.lesson ?? null, l.platform ?? null, l.createdAt ?? now());
       }
       for (const l of jsonl(path.join(reportsDir, 'principles.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO principles(principleId,statement,source,derivedFrom,status,createdAt) VALUES (?,?,?,?,?,?)')
-          .run(l.principleId ?? `prin-${uuid()}`, l.statement, l.source ?? null, l.derivedFrom ?? null, l.status ?? 'OBSERVED', l.createdAt ?? now());
+        // Content-addressed insert: a repeat of the same normalized sentence
+        // merges its provenance into the existing row instead of stacking a
+        // duplicate. `changes > 0` means a new hash was written.
+        const src = l.source ?? null;
+        const df = l.derivedFrom ?? null;
+        const res = this.db.prepare('INSERT OR IGNORE INTO principles(principleId,statement,source,derivedFrom,status,createdAt,statementHash) VALUES (?,?,?,?,?,?,?)')
+          .run(l.principleId ?? `prin-${uuid()}`, l.statement, src, df, l.status ?? 'OBSERVED', l.createdAt ?? now(), principleHash(l.statement));
+        if (res.changes === 0) {
+          this.mergePrincipleProvenance(l.statement, src, df);
+        }
       }
       for (const l of jsonl(path.join(reportsDir, 'hidden-requirements.jsonl'))) {
         this.db.prepare('INSERT OR REPLACE INTO hidden_requirements(reqId,task,explicitReq,inferredReq,likelihood,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
@@ -1284,22 +1350,29 @@ export class Core {
       // load-bearing: a unique normalized statement (dedupe) and an anchor
       // (source or derivedFrom). A corpus that stores the same principle ten
       // times, or a principle with no provenance, fails this gate — the same
-      // fail-closed posture as `evidence`.
-      const rows = this.db.prepare('SELECT statement, source, derivedFrom FROM principles').all() as Array<{ statement: string | null; source: string | null; derivedFrom: string | null }>;
-      const seen = new Set<string>();
-      let duplicates = 0;
-      let unanchored = 0;
-      for (const r of rows) {
-        const normalized = (r.statement ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-        if (normalized.length > 0) {
-          if (seen.has(normalized)) duplicates += 1;
-          else seen.add(normalized);
-        }
-        const anchored = (r.source != null && r.source !== '') || (r.derivedFrom != null && r.derivedFrom !== '');
-        if (!anchored) unanchored += 1;
-      }
-      passed = duplicates === 0 && unanchored === 0 ? 1 : 0;
-      detail = `${duplicates} duplicate normalized statement(s), ${unanchored} unanchored principle(s) (of ${rows.length})`;
+      // fail-closed posture as `evidence`. statementHash is content-addressed
+      // (sha1 of the normalized key below), so the duplicate check is an
+      // indexed aggregate instead of an O(N) row scan; a NULL hash belongs to
+      // a pre-v12 row and counts only against itself.
+      const dupGroups = (this.db.prepare(
+        `SELECT COUNT(*) AS n FROM (
+           SELECT COALESCE(statementHash, 'legacy:' || principleId) AS h, COUNT(*) AS c
+           FROM principles WHERE TRIM(statement) != ''
+           GROUP BY h HAVING c > 1)`,
+      ).get() as { n: number }).n;
+      const dupRows = (this.db.prepare(
+        `SELECT COALESCE(SUM(c - 1), 0) AS n FROM (
+           SELECT COALESCE(statementHash, 'legacy:' || principleId) AS h, COUNT(*) AS c
+           FROM principles WHERE TRIM(statement) != ''
+           GROUP BY h HAVING c > 1)`,
+      ).get() as { n: number }).n;
+      const unanchored = (this.db.prepare(
+        `SELECT COUNT(*) AS n FROM principles
+         WHERE (source IS NULL OR source = '') AND (derivedFrom IS NULL OR derivedFrom = '' OR derivedFrom = '[]')`,
+      ).get() as { n: number }).n;
+      const total = (this.db.prepare('SELECT COUNT(*) AS n FROM principles').get() as { n: number }).n;
+      passed = dupGroups === 0 && unanchored === 0 ? 1 : 0;
+      detail = `${dupRows} duplicate normalized statement(s), ${unanchored} unanchored principle(s) (of ${total})`;
     } else {
       passed = 0;
       detail = `unknown gate '${gate}' — fail closed`;
@@ -1494,9 +1567,45 @@ export class Core {
   // ---- v4: Principles (§23) -----------------------------------------------------
   recordPrinciple(opts: { statement: string; source?: string; derivedFrom?: string }) {
     const principleId = `prin-${uuid()}`;
-    this.db.prepare('INSERT INTO principles(principleId,statement,source,derivedFrom,status,createdAt) VALUES (?,?,?,?,?,?)')
-      .run(principleId, opts.statement, opts.source ?? null, opts.derivedFrom ?? null, 'OBSERVED', now());
+    const res = this.db.prepare('INSERT OR IGNORE INTO principles(principleId,statement,source,derivedFrom,status,createdAt,statementHash) VALUES (?,?,?,?,?,?,?)')
+      .run(principleId, opts.statement, opts.source ?? null, opts.derivedFrom ?? null, 'OBSERVED', now(), principleHash(opts.statement));
+    if (res.changes === 0) {
+      const existing = this.mergePrincipleProvenance(opts.statement, opts.source ?? null, opts.derivedFrom ?? null);
+      return { principleId: existing };
+    }
     return { principleId };
+  }
+
+  /**
+   * Fold a repeat observation into the keeper row: append unseen provenance
+   * (source/derivedFrom strings) to derivedFrom's JSON list, preserving the
+   * scalar-or-list shape the column already tolerated. Returns the keeper id.
+   */
+  private mergePrincipleProvenance(statement: string, source: string | null, derivedFrom: string | null) {
+    const row = this.db.prepare('SELECT principleId, source, derivedFrom FROM principles WHERE statementHash = ?').get(principleHash(statement)) as { principleId: string; source: string | null; derivedFrom: string | null } | undefined;
+    if (!row) return null;
+    const incoming = [source, derivedFrom].filter((s): s is string => !!s && s !== '');
+    if (incoming.length) {
+      // derivedFrom may hold a plain string or a JSON list (consolidation
+      // writes lists); flatten both shapes so a second merge doesn't nest
+      // a JSON blob inside the list.
+      let prior: string[] = row.source ? [row.source] : [];
+      if (row.derivedFrom) {
+        try {
+          const parsed = JSON.parse(row.derivedFrom);
+          prior.push(...(Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [row.derivedFrom]));
+        } catch {
+          prior.push(row.derivedFrom);
+        }
+      }
+      const merged = [...new Set([...prior, ...incoming])];
+      if (!row.source && source) {
+        this.db.prepare('UPDATE principles SET source = ?, derivedFrom = ? WHERE principleId = ?').run(source, JSON.stringify(merged.filter((s) => s !== source)), row.principleId);
+      } else {
+        this.db.prepare('UPDATE principles SET derivedFrom = ? WHERE principleId = ?').run(JSON.stringify(merged), row.principleId);
+      }
+    }
+    return row.principleId;
   }
 
   principles(opts?: { status?: string }) {

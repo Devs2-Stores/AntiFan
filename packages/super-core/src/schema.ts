@@ -2,7 +2,7 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export const CORE_NAMESPACES = ['PLATFORM_KNOWLEDGE', 'ANTIFAN_ENGINEERING', 'PERSONAL_PRACTICE'] as const;
 export type CoreNamespace = typeof CORE_NAMESPACES[number];
@@ -460,6 +460,7 @@ CREATE TABLE IF NOT EXISTS principles (
   source TEXT,
   derivedFrom TEXT,
   status TEXT NOT NULL DEFAULT 'OBSERVED',
+  statementHash TEXT,
   createdAt TEXT NOT NULL
 );
 
@@ -729,5 +730,17 @@ ${NAMESPACE_BACKFILL_SQL}`,
     // for. Existing rows carry NULL — their identity predates scoping.
     from: 10, to: 11,
     sql: `ALTER TABLE packs ADD COLUMN scopeKey TEXT;`,
+  },
+
+  {
+    // Principle identity is content-addressed: the same normalized sentence
+    // asserted in ten annotation files is ONE principle with provenance, not
+    // ten rows. statementHash (sha1 of the gate's normalized key) is backfilled
+    // in code after migrations run — SQLite cannot hash — and existing
+    // duplicates collapse during the same pass, before the UNIQUE index can be
+    // created. INSERT OR IGNORE on statementHash gives every writer a
+    // first-writer-wins merge path instead of per-file duplication.
+    from: 11, to: 12,
+    sql: `ALTER TABLE principles ADD COLUMN statementHash TEXT;`,
   },
 ];
