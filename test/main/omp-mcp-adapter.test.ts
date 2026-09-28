@@ -1184,4 +1184,89 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     assert.ok(content.includes('expectedBaselineUrl'), 'MCP schema must expose expectedBaselineUrl for route verification');
     assert.ok(content.includes('maxGeometryDeltaPx'), 'MCP schema must expose maxGeometryDeltaPx for structural comparison');
   });
+
+  it('declares a real owner pid: bootstrap/env wins, else the agent client process that spawned the proxy', async () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+    const renewParams: any[] = [];
+    wss.on('connection', (socket) => {
+      socket.send(JSON.stringify({ type: 'event', event: 'antifan:init', data: { status: 'ok' } }));
+      socket.on('message', (raw) => {
+        let msg: any;
+        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        if (msg.method !== 'antifan.cli.renewSession') return;
+        renewParams.push(msg.params);
+        socket.send(JSON.stringify({ id: 'hb', success: true, data: { expiresAt: Date.now() + 7_200_000 } }));
+      });
+    });
+
+    // Each run starts the proxy, waits for its first heartbeat renewal, then stops it.
+    const firstRenew = async (env: NodeJS.ProcessEnv) => {
+      const child = spawn(process.execPath, [scriptPath], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+      const exited = new Promise<number>((resolve) => child.once('exit', (code) => resolve(code ?? -1)));
+      try {
+        await withDeadline(
+          new Promise<void>((resolve) => {
+            const check = () => { if (renewParams.length >= 1) resolve(); else setImmediate(check); };
+            check();
+          }),
+          'heartbeat renewal'
+        );
+      } finally {
+        child.kill();
+        await exited;
+      }
+      return renewParams[renewParams.length - 1];
+    };
+
+    const baseEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
+        port,
+        secret: 'test-secret-ownerpid',
+        attachmentId: 'binding-ownerpid-test',
+        runId: 'r-ownerpid',
+        attemptId: 'a-ownerpid',
+        projectId: 'p-ownerpid',
+        workspaceId: 'w-ownerpid',
+      }),
+      ANTIFAN_HEARTBEAT_MS: '150',
+    };
+    // Determinism: the env channel is an explicit declaration, so a host-set value must
+    // not leak into the fallback case.
+    delete baseEnv.ANTIFAN_OWNER_PID;
+
+    try {
+      // No declared owner anywhere: the pid the desktop binds is the agent client that
+      // spawned the bridge — this test process — never the proxy itself.
+      const fallbackParams = await firstRenew(baseEnv);
+      assert.strictEqual(fallbackParams.ownerPid, process.pid, 'pid-less bootstrap must bind the spawning agent client process (process.ppid)');
+
+      // An explicit env declaration keeps precedence over the process fallback.
+      renewParams.length = 0;
+      const envParams = await firstRenew({ ...baseEnv, ANTIFAN_OWNER_PID: '777777' });
+      assert.strictEqual(envParams.ownerPid, 777777, 'ANTIFAN_OWNER_PID is the declared owner when no bootstrap pid exists');
+
+      // A bootstrap-declared pid outranks the env, unchanged from the pairing contract.
+      renewParams.length = 0;
+      const bootstrapParams = await firstRenew({
+        ...baseEnv,
+        ANTIFAN_OWNER_PID: '777777',
+        ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
+          port,
+          secret: 'test-secret-ownerpid',
+          attachmentId: 'binding-ownerpid-test',
+          ownerPid: 555555,
+        }),
+      });
+      assert.strictEqual(bootstrapParams.ownerPid, 555555, 'the bootstrap declaration is the owner');
+    } finally {
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
 });

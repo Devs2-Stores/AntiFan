@@ -348,12 +348,26 @@ function resolveFailoverCandidates() {
   return [...pinnedCandidates, ...discovered].sort(compareBridgeCandidates);
 }
 
+// The owner the desktop reclaims a dead session through. A renewal that names no pid
+// leaves the registry with a binding it can never prove is orphaned (its close gate
+// keeps counting the record as live use, so the window can never close). The caller's
+// declared pid wins; ANTIFAN_OWNER_PID follows; the final fallback is the agent client
+// process that spawned this bridge — never this bridge process itself, whose own death
+// would make the binding look owned by a corpse nobody watches.
+function resolveOwnerPid(declared) {
+  if (declared) return declared;
+  const fromEnv = process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined;
+  if (fromEnv) return fromEnv;
+  const ppid = process.ppid;
+  return typeof ppid === 'number' && Number.isInteger(ppid) && ppid > 0 ? ppid : undefined;
+}
+
 function getBootstrap() {
   if (dynamicBootstrap && dynamicBootstrap.secret) {
     if (currentAuthorityRevision) {
       dynamicBootstrap.authorityRevision = currentAuthorityRevision;
     }
-    return dynamicBootstrap;
+    return { ...dynamicBootstrap, ownerPid: resolveOwnerPid(dynamicBootstrap.ownerPid) };
   }
   const fromChannel = rawBootstrapFromChannel();
   if (fromChannel) {
@@ -365,7 +379,7 @@ function getBootstrap() {
       ...b,
       tabId: process.env.ANTIFAN_BOUND_TAB_ID || b.tabId || undefined,
       authorityRevision: currentAuthorityRevision || b.authorityRevision,
-      ownerPid: b.ownerPid || (process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined),
+      ownerPid: resolveOwnerPid(b.ownerPid),
     };
   }
   if (process.env.ANTIFAN_ATTACHMENT_SECRET) {
@@ -382,7 +396,7 @@ function getBootstrap() {
       attemptId: process.env.ANTIFAN_ATTEMPT_ID,
       projectId: process.env.ANTIFAN_PROJECT_ID,
       workspaceId: process.env.ANTIFAN_WORKSPACE_ID,
-      ownerPid: process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined,
+      ownerPid: resolveOwnerPid(undefined),
     };
   }
   return null;
@@ -2087,6 +2101,12 @@ async function autohealSession() {
         workspaceId: session.workspaceId,
         tabId: session.tabId,
         token: candidate.token || session.secret,
+        // A pairing-minted session carries no declared owner (startSession answers
+        // `runtimePid` — the bridge's own pid, which must never be bound as owner), so
+        // resolve here: env declaration first, then the spawning agent client pid.
+        // Heartbeats read `bootstrap.ownerPid` verbatim; a missing one persists a
+        // binding nothing can reclaim.
+        ownerPid: resolveOwnerPid(undefined),
       };
       currentAuthorityRevision = session.authorityRevision;
 

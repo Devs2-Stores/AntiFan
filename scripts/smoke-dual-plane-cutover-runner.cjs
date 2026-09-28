@@ -77,17 +77,167 @@ async function runGate(name, command) {
   };
 }
 
+/**
+ * The body of a method, found by brace matching from its signature.
+ *
+ * A regex cannot do this job here: `persistBridgeInfo` is `async`, its return type is
+ * `Promise<void>` rather than `void`, and its body nests braces. The scan that used
+ * `/private persistBridgeInfo\(\):\s*void\s*{([\s\S]*?)\n\s*}/` matched nothing, so the
+ * credential check below it could never fire for any body content.
+ *
+ * String literals and comments are skipped so a brace inside them cannot unbalance the
+ * count; a return type's generic braces (`Promise<{…}>`) are skipped by tracking angle
+ * depth before the body opens.
+ */
+function methodBody(source, name) {
+  // A call site is indistinguishable from a declaration by name alone (`this.persistBridgeInfo()`),
+  // so require a declaration shape — optional modifiers straight before the name — and then demand a
+  // body: candidates whose parameter list is followed by `;` are overloads or calls and are skipped.
+  const re = new RegExp(
+    `(?:^|[\\s;}])(?:(?:public|private|protected|static|async|readonly|override|abstract|declare)\\s+)*${name}\\s*\\(`,
+    'gm',
+  );
+  for (let m; (m = re.exec(source)); ) {
+    const body = bodyAfterParams(source, m.index + m[0].length);
+    if (body !== null) return body;
+  }
+  return null;
+}
+
+function bodyAfterParams(source, afterParen) {
+  // String literals and comments are blanked (same length, same indices) so a brace inside
+  // them cannot unbalance the count and a word inside them cannot look like code.
+  const masked = stripNonCode(source);
+  // Find the first `{` at angle depth 0 after the parameter list: that is the body.
+  let i = masked.indexOf(')', afterParen);
+  if (i === -1) return null;
+  let angles = 0;
+  let open = -1;
+  for (let k = i + 1; k < masked.length; k++) {
+    const ch = masked[k];
+    if (ch === '<') angles++;
+    else if (ch === '>') angles = Math.max(0, angles - 1);
+    else if (ch === '{' && angles === 0) {
+      open = k;
+      break;
+    } else if (ch === ';') return null; // an overload signature or a call, not a body
+  }
+  if (open === -1) return null;
+  let depth = 0;
+  for (let k = open; k < masked.length; k++) {
+    if (masked[k] === '{') depth++;
+    else if (masked[k] === '}') {
+      depth--;
+      if (depth === 0) return source.slice(open + 1, k);
+    }
+  }
+  return null;
+}
+
+/** The source with every string literal and comment blanked to spaces, indices unchanged. */
+function stripNonCode(source) {
+  const out = source.split('');
+  const blank = (from, to) => {
+    for (let k = from; k <= to && k < out.length; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  for (let k = 0; k < source.length; k++) {
+    const ch = source[k];
+    if (ch === '/' && source[k + 1] === '/') {
+      const nl = source.indexOf('\n', k);
+      const end = nl === -1 ? source.length - 1 : nl - 1;
+      blank(k, end);
+      k = end;
+    } else if (ch === '/' && source[k + 1] === '*') {
+      const close = source.indexOf('*/', k + 2);
+      const end = close === -1 ? source.length - 1 : close + 1;
+      blank(k, end);
+      k = end;
+    } else if (ch === "'" || ch === '"' || ch === '`') {
+      let s = k + 1;
+      for (; s < source.length; s++) {
+        if (source[s] === '\\') s++;
+        else if (source[s] === ch) break;
+      }
+      blank(k, Math.min(s, source.length - 1));
+      k = Math.min(s, source.length - 1);
+    }
+  }
+  return out.join('');
+}
+
+/**
+ * The credential-name scan for the bridge discovery file. Exported so a caller can prove
+ * it can still fail: a scan that silently matches nothing is worse than no scan, because
+ * the "bridge.json carries no secrets" claim is read as checked.
+ */
+function scanBridgeInfoBody(source) {
+  const file = 'src/main/bridge/bridge-server.ts';
+  const body = methodBody(source, 'persistBridgeInfo');
+  if (body === null) {
+    return [
+      {
+        label: 'bridge-info-scan-unavailable',
+        file,
+        line: 0,
+        source: 'persistBridgeInfo body could not be located',
+        forbidden: true,
+        description:
+          'The non-secret discovery guarantee is scanned in this method; a rename or reshape must fail this gate, never pass it unseen.',
+      },
+    ];
+  }
+  // A credential *field name* persisted into the object, not the word appearing in prose:
+  // the body logs the phrase "non-secret bridge info", and a substring test would read that
+  // as a violated guarantee. Strings and comments are blanked, then the name must sit in
+  // key position.
+  const codeOnly = stripNonCode(body);
+  if (/(?:^|[\s,{;])(token|secret|pairingCode|masterSecret)\s*[?:]/im.test(codeOnly)) {
+    return [
+      {
+        label: 'persisted-secret-in-bridge-info',
+        file,
+        line: 0,
+        source: 'persistBridgeInfo body contains credential field name',
+        forbidden: true,
+        description: 'bridge.json must be non-secret discovery metadata only.',
+      },
+    ];
+  }
+  return [];
+}
+
+/** The matching line plus the few lines above it, where its own comment lives. */
+function statementContext(lines, idx) {
+  return lines.slice(Math.max(0, idx - 3), idx + 1).join('\n');
+}
+
 function checkStaticAbsence() {
   const findings = [];
 
   const scanSource = (relPaths, label, pattern, forbid = true, description, allow) => {
     for (const rel of relPaths) {
       const abs = path.join(rootDir, rel);
-      if (!fs.existsSync(abs)) continue;
+      if (!fs.existsSync(abs)) {
+        // A scan that cannot read its subject has not cleared it: a moved or deleted file
+        // must fail the gate, or a refactor retires the guarantee without a trace.
+        findings.push({
+          label,
+          file: rel,
+          line: 0,
+          source: 'file not found',
+          forbidden: forbid,
+          description: `${description} (scanned file is missing, so nothing was cleared)`,
+        });
+        continue;
+      }
       const content = fs.readFileSync(abs, 'utf8');
       const lines = content.split(/\r?\n/);
       lines.forEach((line, idx) => {
-        if (allow && allow(line)) return;
+        // The exception a scan allows is usually stated by the statement's own comment, which
+        // sits on an earlier line: the negative test that proves a refusal has to issue the
+        // forbidden call, and it says so one or two lines above. Reading only the matching line
+        // reports that assertion as the violation it exists to check.
+        if (allow && allow(line, statementContext(lines, idx))) return;
         if (pattern.test(line)) {
           findings.push({
             label,
@@ -130,17 +280,7 @@ function checkStaticAbsence() {
   //    The static scan would match the function name itself, so check the body
   //    of persistBridgeInfo() for any credential field name.
   const persistBody = fs.readFileSync(path.join(rootDir, 'src/main/bridge/bridge-server.ts'), 'utf8');
-  const persistMatch = persistBody.match(/private persistBridgeInfo\(\):\s*void\s*{([\s\S]*?)\n\s*}/);
-  if (persistMatch && /(token|secret|pairingCode|masterSecret)/i.test(persistMatch[1])) {
-    findings.push({
-      label: 'persisted-secret-in-bridge-info',
-      file: 'src/main/bridge/bridge-server.ts',
-      line: 0,
-      source: 'persistBridgeInfo body contains credential field name',
-      forbidden: true,
-      description: 'bridge.json must be non-secret discovery metadata only.',
-    });
-  }
+  findings.push(...scanBridgeInfoBody(persistBody));
 
   // 4. No shared-world privileged preload expose (contextIsolation preserved).
   //    Comment-only mentions (e.g. documenting the removed bridge) are allowed.
@@ -154,13 +294,22 @@ function checkStaticAbsence() {
   );
 
   // 5. No credentials in URL query patterns remaining in scripts (migrated to headers).
+  //    This file is skipped: it holds the pattern that defines the violation, so scanning it
+  //    reports the scanner's own regex literal as a query string carrying a token.
   const scriptsDir = path.join(rootDir, 'scripts');
-  const scriptFiles = fs.readdirSync(scriptsDir).filter((f) => /\.(cjs|mjs|js)$/.test(f));
+  const selfName = path.basename(__filename);
+  const scriptFiles = fs
+    .readdirSync(scriptsDir)
+    .filter((f) => /\.(cjs|mjs|js)$/.test(f) && f !== selfName);
   for (const f of scriptFiles) {
     const content = fs.readFileSync(path.join(scriptsDir, f), 'utf8');
     const lines = content.split(/\r?\n/);
     lines.forEach((line, idx) => {
-      if (/\?token=|[?&](token|secret|code)=/.test(line) && !/SECRETS_IN_URL|FORBIDDEN|isAllowedNavigation|redactCredential|redact|sanitize/i.test(line)) {
+      const context = statementContext(lines, idx);
+      if (
+        /\?token=|[?&](token|secret|code)=/.test(line) &&
+        !/SECRETS_IN_URL|FORBIDDEN|isAllowedNavigation|redactCredential|redact|sanitize/i.test(context)
+      ) {
         findings.push({
           label: 'secret-in-url-query',
           file: `scripts/${f}`,
@@ -331,7 +480,11 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error('[certify:dual-plane] Runner failure:', err);
-  process.exit(1);
-});
+module.exports = { checkStaticAbsence, scanBridgeInfoBody, methodBody };
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[certify:dual-plane] Runner failure:', err);
+    process.exit(1);
+  });
+}

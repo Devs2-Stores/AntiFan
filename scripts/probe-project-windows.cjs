@@ -237,11 +237,22 @@ async function run() {
     'the second project window',
   );
   const betaKey = betaEntry.ownerKey;
-  observations.secondWindow = betaEntry;
+  // A window the user asked for must reach the user: the shell is built hidden, so only Main's own
+  // presentation shows it. Waiting for it here is also what keeps the agent-intent presentation
+  // delta below about the agent window and nothing else.
+  const presentedBeta = await waitFor(
+    () => {
+      const entry = authority.snapshot().find((candidate) => candidate.ownerKey === betaKey);
+      return entry && entry.visible === true ? entry : false;
+    },
+    'the second project window to be presented',
+  );
+  observations.secondWindow = presentedBeta;
 
   await check('the project-open channel opens a second window with its own authority', () => {
     expect(secondOpenResult && secondOpenResult.status === 'OPENED', `openProject returned ${JSON.stringify(secondOpenResult)}`);
     expect(authority.browserShellCount() === 2, `browserShellCount() was ${authority.browserShellCount()}`);
+    expect(presentedBeta.visible === true, `the window the user opened is not visible (${JSON.stringify(presentedBeta.visible)})`);
     expect(betaEntry.windowId !== bootstrapEntry.windowId, `both windows reported id ${betaEntry.windowId}`);
     expect(betaEntry.hostOwnerKey === betaKey, `second window host key was '${betaEntry.hostOwnerKey}'`);
     expect(betaEntry.title.startsWith(BETA.name), `second window title was '${betaEntry.title}'`);
@@ -390,7 +401,7 @@ async function run() {
     expect(JSON.stringify(before.map((entry) => entry.focused)) === JSON.stringify(after.map((entry) => entry.focused)), 'a refused activation moved window focus');
   });
 
-  await check('a tab page is not a chrome surface: every cross-window channel refuses it', async () => {
+  await check('a tab page is refused on every cross-window channel: its surface is the page, not chrome', async () => {
     const pageContents = authority.hostForTab(tabA)?.getTabWebContents(tabA, 'desktop');
     expect(pageContents && !pageContents.isDestroyed(), 'the tab page has no webContents to send from');
     const refusals = [];
@@ -408,8 +419,12 @@ async function run() {
       refusals.push({ channel, code });
     }
     observations.pageRefusals = refusals;
+    // A page's sender resolves to its own window with surface 'tab' (host.surfaceForWebContents),
+    // which is how the router reports it: attributed, and allowed on no route. That is the pinned
+    // behaviour — `test/main/project-open-surface-authorization.test.ts` asserts the same code for
+    // this exact case — so a mismatch here is a routed page, never an unknown sender.
     for (const refusal of refusals) {
-      expect(refusal.code === 'UNKNOWN_CHROME_SENDER', `${refusal.channel} refused a page with ${String(refusal.code)}`);
+      expect(refusal.code === 'CHROME_SURFACE_MISMATCH', `${refusal.channel} refused a page with ${String(refusal.code)}`);
     }
   });
 
