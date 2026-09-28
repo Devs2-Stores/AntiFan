@@ -135,6 +135,16 @@ export interface ApplicationMenuOptions {
    * rather than offering an action that would do nothing.
    */
   openProjectPicker?: (window: BrowserWindow | null) => void;
+  /**
+   * Main's shared-terminal-manager surface: the Unassigned window, whose sidebar is the one
+   * terminal list that reaches every project and where a row is filed under another capsule.
+   *
+   * No chrome route opens that window kind — a renderer that could ask would be asking for a
+   * window no project owns — so a native menu click, which reaches Main directly, is what makes
+   * the manager reachable at all. Omitting the callback leaves the entry visibly disabled rather
+   * than offering an action that would do nothing.
+   */
+  openSharedTerminalManager?: (window: BrowserWindow | null) => void;
 }
 
 /**
@@ -526,6 +536,16 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
     {
       label: 'Terminal',
       submenu: [
+        {
+          label: 'Cửa sổ Terminal chung (Shared Terminal Manager)',
+          accelerator: 'CmdOrCtrl+Shift+M',
+          // Same honesty as "Mở dự án…": the accelerator stays reserved, and an un-injected
+          // opener disables the entry instead of offering a click that would do nothing.
+          enabled: typeof options?.openSharedTerminalManager === 'function',
+          click: (_item, focusedWindow: BaseWindow | undefined) =>
+            options?.openSharedTerminalManager?.((focusedWindow as BrowserWindow | undefined) ?? null),
+        },
+        { type: 'separator' },
         {
           label: 'Toggle Sidebar Terminal',
           accelerator: 'CmdOrCtrl+Alt+B',

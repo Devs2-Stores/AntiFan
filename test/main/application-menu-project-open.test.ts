@@ -1,11 +1,13 @@
 /**
- * The application menu's "Mở dự án…" entry.
+ * The application menu's two window-opening entries: File's "Mở dự án…" and Terminal's
+ * "Cửa sổ Terminal chung (Shared Terminal Manager)".
  *
  * A project window is the only window this build boots, and the sidebar chip that asks Main
  * to open a project is therefore the *only* project entry the user could reach — which is
- * why the menu carries one too, on the window the user actually clicked in. The menu cannot
- * build itself outside Electron, so the transport is stubbed while the template, the click
- * routing and the injected picker stay the production paths.
+ * why the menu carries one too, on the window the user actually clicked in. The Unassigned
+ * manager shell has no chrome entry at all, so the Terminal entry is its only door. The menu
+ * cannot build itself outside Electron, so the transport is stubbed while the template, the
+ * click routing and the injected openers stay the production paths.
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
@@ -84,6 +86,20 @@ function openProjectItem(): CapturedItem {
   return item;
 }
 
+function terminalItems(): CapturedItem[] {
+  const template = capturedTemplates[capturedTemplates.length - 1];
+  assert.ok(template, 'a menu template must have been captured');
+  const terminal = template.find((item) => item.label === 'Terminal');
+  assert.ok(terminal?.submenu, 'the Terminal section must be a submenu');
+  return terminal.submenu;
+}
+
+function sharedManagerItem(): CapturedItem {
+  const item = terminalItems().find((entry) => entry.label === 'Cửa sổ Terminal chung (Shared Terminal Manager)');
+  assert.ok(item, 'the Terminal menu must offer the shared Terminal Manager window');
+  return item;
+}
+
 const hostDouble = { createTab: () => 'tab-created' };
 
 describe('application menu: Mở dự án…', () => {
@@ -122,5 +138,50 @@ describe('application menu: Mở dự án…', () => {
 
     const labels = fileItems().map((item) => item.label ?? item.type);
     assert.deepStrictEqual(labels.slice(0, 4), ['Mở dự án…', 'separator', 'New Tab', 'Reopen Closed Tab']);
+  });
+});
+
+describe('application menu: Cửa sổ Terminal chung (Shared Terminal Manager)', () => {
+  it('offers the entry with a free accelerator, and hands the opener the window the user clicked in', () => {
+    const asked: Array<BrowserWindow | null> = [];
+    capturedTemplates = [];
+
+    appMenu.buildApplicationMenu({ id: 1 } as unknown as BrowserWindow, hostDouble as never, {
+      openSharedTerminalManager: (window) => asked.push(window),
+    });
+
+    const item = sharedManagerItem();
+    assert.strictEqual(item.accelerator, 'CmdOrCtrl+Shift+M', 'the manager window needs a shortcut the user can learn');
+    assert.notStrictEqual(item.enabled, false, 'an injected opener makes the entry usable');
+
+    const windowB = { id: 2 } as unknown as BrowserWindow;
+    item.click?.(undefined, windowB);
+    assert.deepStrictEqual(asked, [windowB], 'the opener is told which window the user clicked in');
+  });
+
+  it('stays inert and visibly disabled when no opener is injected', () => {
+    capturedTemplates = [];
+
+    appMenu.buildApplicationMenu({ id: 1 } as unknown as BrowserWindow, hostDouble as never);
+
+    const item = sharedManagerItem();
+    assert.strictEqual(item.enabled, false, 'a menu entry that cannot open the manager must not look available');
+    assert.doesNotThrow(() => item.click?.(undefined, { id: 2 }));
+  });
+
+  it('leaves the per-window terminal commands as they were, and keeps the manager a separate command', () => {
+    capturedTemplates = [];
+    appMenu.buildApplicationMenu({ id: 1 } as unknown as BrowserWindow, hostDouble as never, {
+      openSharedTerminalManager: () => undefined,
+    });
+
+    const labels = terminalItems().map((item) => item.label ?? item.type);
+    assert.deepStrictEqual(labels, [
+      'Cửa sổ Terminal chung (Shared Terminal Manager)',
+      'separator',
+      'Toggle Sidebar Terminal',
+      'Toggle Terminal Workbench',
+      'Pop out Terminal Workbench',
+    ]);
   });
 });

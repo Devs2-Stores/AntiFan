@@ -4302,6 +4302,15 @@ body, html {
   word-break: break-word;
 }
 
+/* The route out of a vetoed close: distinct from the sky-blue controls, because it is an
+   instruction to the user rather than a handle Main offers on the blocking work. */
+.close-refusal-reason-hint {
+  margin-top: 6px;
+  color: #fbbf24;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 .close-refusal-controls {
   margin-top: 6px;
   padding-top: 6px;

@@ -4,7 +4,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { PROJECT_WINDOW_CHANNELS } from '../shared/contracts';
-import type { CloseRefusalNotice, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
+import type { CloseRefusalNotice, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
 
 const CHANNELS = {
   GET_INITIAL_STATE: 'antifan:toolbar:get-initial-state',
@@ -125,6 +125,22 @@ const toolbarApi = {
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.TABS_SEARCH, { query } satisfies { query: string }),
   activateProjectTab: (tabId: string): Promise<ProjectTabActivationResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.TABS_SEARCH_ACTIVATE, { tabId } satisfies { tabId: string }),
+
+  // The in-window project picker. `listProjects` reads the same inventory Main's own
+  // dialog is built from, `onProjectOpenPicker` is the push that asks this chrome to host
+  // the modal, and the answer echoes Main's requestId back with the user's choice — the
+  // only three calls the modal needs, each one channel and one payload shape.
+  listProjects: (): Promise<ProjectOpenListResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_LIST),
+  onProjectOpenPicker: (callback: (payload: ProjectOpenPickerPush) => void) => {
+    const handler = (_event: unknown, payload: ProjectOpenPickerPush) => callback(payload);
+    ipcRenderer.on(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER, handler);
+    return () => {
+      ipcRenderer.removeListener(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER, handler);
+    };
+  },
+  answerProjectOpenPicker: (payload: ProjectOpenPickerAnswerPayload) =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER_ANSWER, payload),
 
   // A refused close or quit is Main's decision arriving for display only: the callback
   // returns nothing and the channel carries no reply, so a chrome cannot answer, approve or

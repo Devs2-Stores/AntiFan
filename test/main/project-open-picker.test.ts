@@ -14,6 +14,7 @@ import {
   collectProjectOpenCandidates,
   projectOpenDialogSpec,
   projectOpenChoiceFor,
+  projectOpenWireChoice,
   PROJECT_OPEN_FOLDER_LABEL,
   PROJECT_OPEN_CANCEL_LABEL,
 } from '../../src/main/project/project-open-picker';
@@ -67,15 +68,17 @@ describe('project open picker inventory', () => {
     assert.deepStrictEqual(candidates, [{ projectId: 'project-both', title: 'Both' }]);
   });
 
-  it('carries the workspace path in every label that has one, even without a clash', () => {
-    // The dialog's detail line is dropped on Windows, so the path is the button text's
-    // only way to tell the user which directory a project stands for.
+  it('keeps the workspace path off the button and inside the candidate record', () => {
+    // A long "name — path" button is what made the native row unreadable; the path still
+    // travels with the candidate so `projectOpenDialogSpec` can list it in `detail`.
     const candidates = collectProjectOpenCandidates({
       registryProjects: [{ id: 'project-solo', name: 'Solo', state: 'open' }],
       describe: describeById({ 'project-solo': { title: 'Solo', pathLabel: 'E:\\Work\\solo' } }),
     });
 
-    assert.deepStrictEqual(candidates, [{ projectId: 'project-solo', title: 'Solo — E:\\Work\\solo' }]);
+    assert.deepStrictEqual(candidates, [
+      { projectId: 'project-solo', title: 'Solo', pathLabel: 'E:\\Work\\solo' },
+    ]);
   });
 
   it('falls back to the project id when two projects repeat the exact same label', () => {
@@ -94,11 +97,11 @@ describe('project open picker inventory', () => {
 
     assert.deepStrictEqual(
       candidates.map((candidate) => candidate.title).sort(),
-      ['Twin — E:\\Work\\shared — project-twin-a', 'Twin — E:\\Work\\shared — project-twin-b'],
+      ['Twin — project-twin-a', 'Twin — project-twin-b'],
     );
   });
 
-  it('qualifies a title shared by two projects, with the workspace path when the record has one', () => {
+  it('disambiguates a shared title with the id and keeps a unique one plain', () => {
     const candidates = collectProjectOpenCandidates({
       registryProjects: [
         { id: 'project-1', name: 'Theme', state: 'open' },
@@ -113,10 +116,10 @@ describe('project open picker inventory', () => {
     });
 
     assert.deepStrictEqual(candidates, [
-      { projectId: 'project-1', title: 'Theme — E:\\Work\\one' },
-      { projectId: 'project-2', title: 'Theme — E:\\Work\\two' },
+      { projectId: 'project-1', title: 'Theme — project-1', pathLabel: 'E:\\Work\\one' },
+      { projectId: 'project-2', title: 'Theme — project-2', pathLabel: 'E:\\Work\\two' },
       { projectId: 'project-3', title: 'Unique' },
-    ], 'an ambiguous title carries its workspace, and an unambiguous one stays plain');
+    ], 'an ambiguous title falls back on the stable id, and an unambiguous one stays plain');
   });
 
   it('falls back to the project id when a shared title has no workspace path', () => {
@@ -197,5 +200,30 @@ describe('project open picker dialog', () => {
     assert.deepStrictEqual(projectOpenChoiceFor(spec, -1), { kind: 'cancelled' });
     assert.deepStrictEqual(projectOpenChoiceFor(spec, 1.5), { kind: 'cancelled' });
     assert.deepStrictEqual(projectOpenChoiceFor(spec, Number.NaN), { kind: 'cancelled' });
+  });
+
+  it('lists each workspace path in the detail line under the name it belongs to', () => {
+    const spec = projectOpenDialogSpec([
+      { projectId: 'project-a', title: 'Alpha', pathLabel: 'E:\\Work\\alpha' },
+      { projectId: 'project-b', title: 'Beta' },
+    ]);
+    assert.match(spec.detail, /Alpha — E:\\Work\\alpha/);
+    assert.doesNotMatch(spec.detail, /Beta —/, 'a project with no recorded path adds no line');
+    assert.deepStrictEqual(spec.buttons, ['Alpha', 'Beta', PROJECT_OPEN_FOLDER_LABEL, PROJECT_OPEN_CANCEL_LABEL],
+      'the button itself never carries the path');
+  });
+
+  it('reads a renderer answer only when it names an id the spec offered', () => {
+    const spec = projectOpenDialogSpec([
+      { projectId: 'project-a', title: 'Alpha' },
+      { projectId: 'project-b', title: 'Beta' },
+    ]);
+
+    assert.deepStrictEqual(projectOpenWireChoice(spec, { kind: 'project', projectId: 'project-b' }), { kind: 'project', projectId: 'project-b' });
+    assert.deepStrictEqual(projectOpenWireChoice(spec, { kind: 'folder' }), { kind: 'folder' });
+    assert.deepStrictEqual(projectOpenWireChoice(spec, { kind: 'cancelled' }), { kind: 'cancelled' });
+    assert.deepStrictEqual(projectOpenWireChoice(spec, { kind: 'project', projectId: 'project-never-offered' }), { kind: 'cancelled' });
+    assert.deepStrictEqual(projectOpenWireChoice(spec, undefined), { kind: 'cancelled' });
+    assert.deepStrictEqual(projectOpenWireChoice(spec, 'project-a'), { kind: 'cancelled' });
   });
 });

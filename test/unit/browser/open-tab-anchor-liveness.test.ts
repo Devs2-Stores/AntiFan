@@ -234,12 +234,45 @@ describe('Opening a tab for a session', () => {
     assert.deepStrictEqual(createCalls, []);
   });
 
-  it('refuses routed creation with POLICY_DENIED naming the Unassigned state when capsule has no project/workspace, and never calls createTab', () => {
+  it('opens a routed creation inside the anchor own capsule when that capsule is Unassigned', () => {
+    // The anchor's capsule claims no project/workspace: there is no affiliation to conflict
+    // with, and the child is pinned to the anchor's own capsule, so the creation proceeds
+    // there instead of being refused.
     const { port, created, createCalls } = makeHarness({
       anchorAlive: true,
       adopt: true,
       owned: ['tab-anchor'],
       affiliation: { capsuleId: 'capsule-unassigned' },
+    });
+    const routedTarget: BrowserTarget = {
+      tabId: 'tab-anchor',
+      documentGeneration: 1,
+      browserEpoch: 1,
+      runtimeId: 'rt-test',
+      projectId: 'project-alpha',
+      workspaceId: 'workspace-one',
+    };
+
+    const result = port.openTab({}, { target: routedTarget });
+
+    assert.deepStrictEqual(result, { tabId: 'tab-created-1' });
+    assert.deepStrictEqual(created, ['tab-created-1']);
+    assert.equal(createCalls.length, 1);
+    const firstCall = createCalls[0];
+    assert.ok(firstCall);
+    assert.equal(firstCall.options?.capsuleId, 'capsule-unassigned');
+    assert.equal(firstCall.options?.anchorTabId, 'tab-anchor');
+  });
+
+  it('refuses routed creation with POLICY_DENIED when the Unassigned anchor names no capsule to pin, and never calls createTab', () => {
+    // An unnamed capsule cannot pin the child, so `createTab` would fall back to the window's
+    // or the active capsule - the inheritance this gate exists to prevent. That case is what
+    // still fails closed, and it fails before anything is allocated.
+    const { port, created, createCalls } = makeHarness({
+      anchorAlive: true,
+      adopt: true,
+      owned: ['tab-anchor'],
+      affiliation: {},
     });
     const routedTarget: BrowserTarget = {
       tabId: 'tab-anchor',

@@ -73,8 +73,8 @@ function applyShellScope(source) {
   renderShellScopeChip();
 
   // A manager shell presents terminals from many capsules and labels them by capsule, so it
-  // needs the id→name index before it can name what it is showing. One read per shell; a shell
-  // that owns a project never asks, because its own capsule is the only one its rows can be in.
+  // needs the id→name index before it can name what it is showing. The picker refreshes
+  // these labels when opened; project shells do not need the cross-project label map.
   if (isSharedManagerShell()) {
     void ensureCapsuleIndex().then((changed) => {
       if (changed && typeof renderTabs === 'function') renderTabs();
@@ -793,7 +793,6 @@ function isCapsuleGroupKey(key) {
 /** Capsule id -> { id, name, workspacePath, projectId } behind the rows on screen. */
 let capsuleIndex = new Map();
 let capsuleIndexLoaded = false;
-let capsuleIndexError = '';
 let capsuleIndexPending = null;
 
 /** Normalize one capsule row. `resolvedProjectId` is Main's additively resolved affiliation
@@ -812,20 +811,12 @@ function capsuleEntryOf(capsule) {
   };
 }
 
-/**
- * Read the capsule list into `capsuleIndex`, once per shell unless `force` asks for a fresh
- * read (the picker does, so a capsule created in another window is offered without a restart).
- *
- * Resolves with whether the index changed and never rejects: a failed read is recorded in
- * `capsuleIndexError` and shown where the list would have been, because a picker that silently
- * offers nothing is indistinguishable from a store with no projects in it.
- */
-function ensureCapsuleIndex(force) {
-  if (capsuleIndexPending && !force) return capsuleIndexPending;
+/** Load capsule labels for the shared manager's grouping, not project destinations. */
+function ensureCapsuleIndex(force = false) {
+  if (capsuleIndexPending) return capsuleIndexPending;
   if (capsuleIndexLoaded && !force) return Promise.resolve(false);
   const read = (async () => {
     if (!api?.listCapsules) {
-      capsuleIndexError = 'preload thiếu listCapsules';
       capsuleIndexLoaded = true;
       return false;
     }
@@ -833,7 +824,6 @@ function ensureCapsuleIndex(force) {
       const reply = await api.listCapsules();
       const rows = reply && typeof reply === 'object' && Array.isArray(reply.capsules) ? reply.capsules : null;
       if (!rows) {
-        capsuleIndexError = 'Danh sách dự án trả về không hợp lệ';
         capsuleIndexLoaded = true;
         return false;
       }
@@ -843,11 +833,9 @@ function ensureCapsuleIndex(force) {
         if (entry) next.set(entry.id, entry);
       }
       capsuleIndex = next;
-      capsuleIndexError = '';
       capsuleIndexLoaded = true;
       return true;
-    } catch (err) {
-      capsuleIndexError = bridgeErrorText(err);
+    } catch {
       capsuleIndexLoaded = true;
       return false;
     }
@@ -2340,20 +2328,51 @@ function attachWebglAddon(_term) {
   return null;
 }
 
-function attachWebLinksAddon(term) {
+/**
+ * Open a URL clicked inside a terminal pane, in the project window that owns the session.
+ *
+ * A terminal's URL belongs to the session's owning project, not to whichever window happens to be
+ * focused when the click lands — that ownership is what Main's owner-keyed `openTerminalLink` route
+ * exists to enforce, and every session has an owner key (an unassigned shell included), so Main
+ * always has an answer. There is therefore no fallback: a refusal, a malformed answer, a bridge
+ * failure or a preload that lacks the route are all reported instead of being resolved locally,
+ * because opening the tab here is the focused-window behaviour the route removes.
+ */
+function openTerminalLinkFromPane(currentSessionId, uri) {
+  if (!uri) return;
+  // Reported exactly like the sibling handover route does when its preload method is missing: a
+  // drifted preload is a build fault, and the user reads why nothing happened.
+  if (typeof api?.openTerminalLink !== 'function') {
+    showTerminalNotice('Không mở được liên kết: preload thiếu openTerminalLink');
+    return;
+  }
+  const sessionId = typeof currentSessionId === 'function' ? currentSessionId() : currentSessionId;
+  if (!sessionId) {
+    showTerminalNotice('Không mở được liên kết: chưa xác định được phiên terminal');
+    return;
+  }
+  Promise.resolve()
+    .then(() => api.openTerminalLink(sessionId, uri))
+    .then((result) => {
+      // Main answers a typed outcome; anything that is not an explicit success has to be said
+      // out loud here, because nothing else in the flow will.
+      if (!result || result.ok !== true) {
+        showTerminalNotice(
+          (result && typeof result.message === 'string' && result.message)
+            || 'Không mở được liên kết của terminal này'
+        );
+      }
+    })
+    .catch((err) => {
+      showTerminalNotice(`Không mở được liên kết: ${bridgeErrorText(err)}`);
+    });
+}
+
+function attachWebLinksAddon(term, currentSessionId) {
   try {
     const Ctor = window.WebLinksAddon?.WebLinksAddon || globalThis.WebLinksAddon?.WebLinksAddon;
     if (typeof Ctor === 'function') {
-      const linkHandler = (_event, uri) => {
-        if (!uri) return;
-        if (api?.createTab) {
-          api.createTab(uri).catch(() => {
-            api?.openExternal?.(uri);
-          });
-        } else if (api?.openExternal) {
-          api.openExternal(uri);
-        }
-      };
+      const linkHandler = (_event, uri) => openTerminalLinkFromPane(currentSessionId, uri);
       const addon = new Ctor(linkHandler);
       term.loadAddon(addon);
       return addon;
@@ -2542,7 +2561,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
   sTerm.loadAddon(sFit);
   sTerm.open(paneEl);
   const webglAddon = attachWebglAddon(sTerm);
-  const webLinksAddon = attachWebLinksAddon(sTerm);
+  const webLinksAddon = attachWebLinksAddon(sTerm, () => sessionId);
   setupTerminalClipboard(sTerm, () => sessionId);
 
   mainPane.appendChild(paneEl);
@@ -3107,7 +3126,7 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
   splitTerm.loadAddon(splitFitAddon);
   splitTerm.open(splitHost);
   splitWebglAddon = attachWebglAddon(splitTerm);
-  splitWebLinksAddon = attachWebLinksAddon(splitTerm);
+  splitWebLinksAddon = attachWebLinksAddon(splitTerm, () => splitId);
   setupTerminalClipboard(splitTerm, () => splitId);
 
   splitTerm.onData((data) => {
@@ -3667,8 +3686,7 @@ let activeCapsulePickerClose = null;
  *  rather than replaced by a guess. */
 const ASSIGN_REFUSAL_TEXT = {
   INVALID_PAYLOAD: 'Yêu cầu chuyển Terminal không hợp lệ',
-  UNKNOWN_CAPSULE: 'Dự án này không còn tồn tại',
-  CAPSULE_WITHOUT_PROJECT: 'Dự án này chưa gắn hồ sơ dự án nên không mở được cửa sổ',
+  PROJECT_UNAVAILABLE: 'Dự án không còn tồn tại hoặc hồ sơ workspace đang bị trùng, chưa xác định được đích',
   TARGET_WINDOW_ABSENT: 'Cửa sổ của dự án đích chưa mở',
   UNKNOWN_SESSION: 'Terminal này đã đóng hoặc không còn tồn tại',
   TRANSFER_UNAVAILABLE: 'Tiến trình hiện tại không chuyển được Terminal',
@@ -3717,25 +3735,12 @@ function compareCapsuleNames(a, b) {
   }
 }
 
-/** Capsules that can receive a terminal first, then in name order. A store of hundreds of
- *  capsules mixes folders with project-bearing ones, and interleaving the rows that only
- *  explain why they cannot be picked with the ones a pick acts on makes the list harder to
- *  scan than it has to be. */
-function compareCapsuleEntries(a, b) {
-  const rankA = capsuleProjectIdOf(a) ? 0 : 1;
-  const rankB = capsuleProjectIdOf(b) ? 0 : 1;
-  if (rankA !== rankB) return rankA - rankB;
-  return compareCapsuleNames(a, b);
-}
 
 /**
  * The searchable project picker.
  *
- * Modelled on `showCategoryPicker` — same popover conventions, same click-outside dismissal,
- * the authoritative value coming from Main's `session` broadcast — with the one difference a
- * store of hundreds of capsules forces: a filter field. Rows are rebuilt from the query, the
- * session's own capsule is marked and refuses to be re-picked, and a capsule that cannot be
- * opened is shown with its reason instead of offering an action that would come back refused.
+ * Uses the same Main-owned project inventory as Open Project, never the historical
+ * capsule store. Main reports whether each project's ownership can be resolved safely.
  */
 function showCapsulePicker(sessionId, anchorEl) {
   const popover = document.getElementById('capsulePickerPopover');
@@ -3743,6 +3748,8 @@ function showCapsulePicker(sessionId, anchorEl) {
 
   const session = findSession(sessionId);
   const currentCapsuleId = capsuleIdOf(session);
+  const currentOwner = typeof session?.ownerKey === 'string' ? session.ownerKey : '';
+  const currentProjectId = currentOwner.startsWith('project:') ? currentOwner.slice('project:'.length) : '';
 
   if (activeCapsulePickerClose) activeCapsulePickerClose();
   popover.innerHTML = '';
@@ -3775,7 +3782,7 @@ function showCapsulePicker(sessionId, anchorEl) {
   list.setAttribute('aria-label', 'Danh sách dự án');
   popover.appendChild(list);
 
-  let entries = Array.from(capsuleIndex.values()).sort(compareCapsuleEntries);
+  let entries = [];
   /** Rows that can actually be picked this paint, in paint order. */
   let pickable = [];
   let highlighted = -1;
@@ -3793,7 +3800,10 @@ function showCapsulePicker(sessionId, anchorEl) {
     while (list.firstChild) list.removeChild(list.firstChild);
   };
 
-  const isPickableEntry = (entry) => entry.id !== currentCapsuleId && Boolean(capsuleProjectIdOf(entry));
+  const isCurrentEntry = (entry) => currentProjectId
+    ? entry.projectId === currentProjectId
+    : Boolean(currentCapsuleId && entry.id === currentCapsuleId);
+  const isPickableEntry = (entry) => !isCurrentEntry(entry) && Boolean(entry.projectId) && entry.canAssignTerminal !== false;
 
   const clearHighlight = () => {
     highlighted = -1;
@@ -3829,13 +3839,14 @@ function showCapsulePicker(sessionId, anchorEl) {
     for (const entry of shown) {
       const item = document.createElement('div');
       item.className = 'terminal-capsule-picker-item';
-      item.setAttribute('data-capsule-id', entry.id);
+      item.setAttribute('data-project-id', entry.projectId);
+      if (entry.id) item.setAttribute('data-capsule-id', entry.id);
       item.setAttribute('role', 'option');
       item.setAttribute('aria-selected', 'false');
 
       const dot = document.createElement('span');
       dot.className = 'terminal-capsule-picker-dot';
-      dot.style.background = derivedCategoryColorOf(entry.id);
+      dot.style.background = derivedCategoryColorOf(entry.projectId);
       const name = document.createElement('span');
       name.className = 'terminal-capsule-picker-name';
       name.textContent = entry.name;
@@ -3847,10 +3858,7 @@ function showCapsulePicker(sessionId, anchorEl) {
         item.appendChild(pathEl);
       }
 
-      if (!isPickableEntry(entry) && entry.id === currentCapsuleId) {
-        // The session's own capsule is the one pick that would be a no-op, so it is named as
-        // the current state and offers nothing: a row that looks pickable but refuses is worse
-        // than one that says why it does not.
+      if (isCurrentEntry(entry)) {
         item.classList.add('active', 'is-disabled');
         item.setAttribute('aria-disabled', 'true');
         const current = document.createElement('span');
@@ -3863,9 +3871,9 @@ function showCapsulePicker(sessionId, anchorEl) {
         item.setAttribute('aria-disabled', 'true');
         const blocked = document.createElement('span');
         blocked.className = 'terminal-capsule-picker-blocked';
-        blocked.textContent = 'chưa gắn dự án';
+        blocked.textContent = 'hồ sơ dự án không rõ ràng';
         item.appendChild(blocked);
-        item.title = 'Dự án này chưa gắn hồ sơ dự án nên không có cửa sổ để chuyển Terminal tới';
+        item.title = 'Hồ sơ workspace của dự án cần được xác định rõ trước khi nhận Terminal';
       } else {
         item.setAttribute('aria-disabled', 'false');
         item.title = `Mở cửa sổ dự án “${entry.name}” rồi chuyển Terminal này sang đó`;
@@ -3889,14 +3897,11 @@ function showCapsulePicker(sessionId, anchorEl) {
       return;
     }
 
-    const currentLabel = currentCapsuleId ? capsuleLabelOf(currentCapsuleId) : '';
+    const currentLabel = entries.find(isCurrentEntry)?.name || '';
     const shownNote = matched.length > shown.length ? ` — hiển thị ${shown.length}/${matched.length}` : '';
     const hintParts = query
       ? [`${matched.length}/${entries.length} dự án khớp “${query}”${shownNote}`]
       : [`${entries.length} dự án${currentLabel ? ` — hiện tại: ${currentLabel}` : ''}${shownNote}`];
-    // The list on screen is the last one Main answered with. Saying so beats passing a stale
-    // list off as current, and beats dropping rows that are still real.
-    if (capsuleIndexError) hintParts.push('danh sách có thể đã cũ');
     setHint(hintParts.join(' — '));
   };
 
@@ -3985,21 +3990,307 @@ function showCapsulePicker(sessionId, anchorEl) {
   }, 10);
   activeCapsulePickerClose = close;
 
-  if (capsuleIndexError && entries.length === 0) paintError(capsuleIndexError);
-  else paint();
-
-  // A fresh read on every open: a capsule created in another window since the last load has to
-  // be offered without restarting, and Main is the only side that knows about it. A refresh that
-  // fails over a usable cached list is reported in the hint rather than replacing the rows.
-  void ensureCapsuleIndex(true).then(() => {
-    if (closed) return;
-    entries = Array.from(capsuleIndex.values()).sort(compareCapsuleEntries);
-    if (capsuleIndexError && entries.length === 0) paintError(capsuleIndexError);
-    else paint();
-  });
+  setHint('Đang tải danh sách dự án…');
+  if (isSharedManagerShell()) {
+    void ensureCapsuleIndex(true).then((changed) => {
+      if (changed) renderTabs();
+    });
+  }
+  void (async () => {
+    try {
+      if (!api?.listProjects) throw new Error('preload thiếu listProjects');
+      const reply = await api.listProjects();
+      if (closed) return;
+      if (!Array.isArray(reply?.candidates)) throw new Error('Danh sách dự án trả về không hợp lệ');
+      entries = reply.candidates.map((project) => ({
+        id: project.capsuleId || '',
+        projectId: project.projectId,
+        canAssignTerminal: project.canAssignTerminal,
+        name: project.name,
+        workspacePath: project.workspacePath || '',
+      })).sort(compareCapsuleNames);
+      paint();
+    } catch (err) {
+      if (!closed) paintError(bridgeErrorText(err));
+    }
+  })();
 
   try { input.focus(); } catch {}
 }
+
+// ---------------------------------------------------------------------------
+// The in-window "Mở dự án" picker.
+//
+// Main pushes `PROJECT_OPEN_PICKER` with a requestId when something in this window asks to
+// open a project without naming one; this modal is what answers it. One click on a row is
+// the answer — the id, the folder chooser, or a dismissal goes back over
+// `PROJECT_OPEN_PICKER_ANSWER` and Main maps it through the same choice the native dialog
+// would have produced. The requestId is echoed verbatim: it is the only thing that ties
+// this answer to the request Main is waiting on.
+// ---------------------------------------------------------------------------
+
+const projectOpenOverlay = document.getElementById('projectOpenOverlay');
+const projectOpenInput = document.getElementById('projectOpenInput');
+const projectOpenResults = document.getElementById('projectOpenResults');
+const projectOpenFolderBtn = document.getElementById('projectOpenFolder');
+const projectOpenCancelBtn = document.getElementById('projectOpenCancel');
+
+/** The request this modal is answering right now, or '' when closed. */
+let projectOpenRequestId = '';
+/** Candidate rows in paint order (the same entries the row elements point at). */
+let projectOpenCandidates = [];
+let projectOpenRowElements = [];
+/**
+ * The candidates in the SAME order as `projectOpenRowElements`. A filter repaints both,
+ * so the keyboard cursor indexes the list the user can see: reading the raw inventory here
+ * would answer Enter with whatever project the filter pushed off screen.
+ */
+let projectOpenRowCandidates = [];
+let projectOpenActiveIndex = -1;
+/** The element that held focus before the modal took it, restored on close. */
+let projectOpenReturnFocus = null;
+
+/** The interactive elements Tab cycles through while the modal is up. */
+function projectOpenFocusables() {
+  return [projectOpenInput, projectOpenFolderBtn, projectOpenCancelBtn].filter(Boolean);
+}
+
+/** One answer per request: the payload leaves exactly once, then the modal closes. */
+function answerProjectOpen(choice) {
+  if (!projectOpenRequestId) return;
+  const payload = { requestId: projectOpenRequestId, choice };
+  projectOpenRequestId = '';
+  hideProjectOpenPicker();
+  // The invoke's result is deliberately unread: Main ignores late and duplicate answers,
+  // and the modal has already told the user the picker is done.
+  Promise.resolve(api?.answerProjectOpenPicker?.(payload)).catch(() => {});
+}
+
+function hideProjectOpenPicker() {
+  if (projectOpenOverlay) projectOpenOverlay.style.display = 'none';
+  projectOpenRequestId = '';
+  projectOpenCandidates = [];
+  projectOpenRowElements = [];
+  projectOpenRowCandidates = [];
+  projectOpenActiveIndex = -1;
+  document.removeEventListener('keydown', onProjectOpenKeydown, true);
+  const returnTo = projectOpenReturnFocus;
+  projectOpenReturnFocus = null;
+  // Focus goes back to whatever had it: the modal took it once, it gives it back once.
+  if (returnTo && typeof returnTo.focus === 'function' && document.contains && document.contains(returnTo)) {
+    try { returnTo.focus(); } catch {}
+  }
+}
+
+/** Highlighted row state: the keyboard cursor, painted as the row the user can see. */
+function setProjectOpenActive(index) {
+  projectOpenActiveIndex = index;
+  for (let i = 0; i < projectOpenRowElements.length; i += 1) {
+    const el = projectOpenRowElements[i];
+    if (!el) continue;
+    const selected = i === index;
+    el.classList.toggle('is-highlighted', selected);
+    el.setAttribute('aria-selected', selected ? 'true' : 'false');
+  }
+  if (projectOpenInput) {
+    if (index >= 0) projectOpenInput.setAttribute('aria-activedescendant', `projectOpenOption${index}`);
+    else projectOpenInput.removeAttribute('aria-activedescendant');
+  }
+  const active = index >= 0 ? projectOpenRowElements[index] : null;
+  if (active && typeof active.scrollIntoView === 'function') {
+    try { active.scrollIntoView({ block: 'nearest' }); } catch {}
+  }
+}
+
+function moveProjectOpenActive(delta) {
+  if (projectOpenRowElements.length === 0) return;
+  const next = projectOpenActiveIndex < 0
+    ? (delta > 0 ? 0 : projectOpenRowElements.length - 1)
+    : (projectOpenActiveIndex + delta + projectOpenRowElements.length) % projectOpenRowElements.length;
+  setProjectOpenActive(next);
+}
+
+/** The single state row when the list cannot offer rows: loading, empty, filtered-empty, error. */
+function paintProjectOpenMessage(state, text) {
+  if (!projectOpenResults) return;
+  projectOpenResults.textContent = '';
+  while (projectOpenResults.firstChild) projectOpenResults.removeChild(projectOpenResults.firstChild);
+  projectOpenRowElements = [];
+  projectOpenRowCandidates = [];
+  projectOpenActiveIndex = -1;
+  projectOpenResults.dataset.state = state;
+  const el = document.createElement('div');
+  el.className = 'project-open-message';
+  el.textContent = text;
+  projectOpenResults.appendChild(el);
+}
+
+/**
+ * Row markup is built with createElement/textContent, never an HTML string: names and
+ * paths are project data, and a picker surface is exactly where untrusted text would
+ * otherwise be re-parsed as markup.
+ */
+function paintProjectOpenRows() {
+  if (!projectOpenResults) return;
+  const query = projectOpenInput ? projectOpenInput.value : '';
+  const tokens = parseSearchTokens(query);
+  const matched = projectOpenCandidates.filter((candidate) => tokens.every((token) => tokenMatchesHaystack(
+    token,
+    `${foldForSearch(candidate.name)} ${foldForSearch(candidate.workspacePath)} ${foldForSearch(candidate.projectId)}`,
+  )));
+  if (matched.length === 0) {
+    paintProjectOpenMessage(query ? 'no-results' : 'empty', query
+      ? `Không có dự án nào khớp “${query}”`
+      : 'Chưa có dự án nào — chọn một thư mục để mở nó thành dự án mới');
+    return;
+  }
+  projectOpenResults.textContent = '';
+  while (projectOpenResults.firstChild) projectOpenResults.removeChild(projectOpenResults.firstChild);
+  projectOpenRowElements = [];
+  projectOpenRowCandidates = matched;
+  matched.forEach((candidate, index) => {
+    const row = document.createElement('div');
+    row.className = `project-open-row${candidate.isCurrent ? ' is-current' : ''}`;
+    row.id = `projectOpenOption${index}`;
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', 'false');
+    row.setAttribute('data-project-id', candidate.projectId);
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'project-open-row-name';
+    nameEl.textContent = candidate.name || candidate.projectId;
+    row.appendChild(nameEl);
+    if (candidate.isCurrent) {
+      const currentEl = document.createElement('span');
+      currentEl.className = 'project-open-row-current';
+      currentEl.textContent = '✓ Hiện tại';
+      nameEl.appendChild(document.createTextNode(' '));
+      nameEl.appendChild(currentEl);
+    }
+    const pathEl = document.createElement('div');
+    pathEl.className = 'project-open-row-path';
+    pathEl.textContent = candidate.workspacePath || '';
+    row.appendChild(pathEl);
+
+    row.addEventListener('mouseenter', () => setProjectOpenActive(index));
+    // One click is the whole interaction: the answer leaves on the click, there is no
+    // selection-then-confirm step for a second click to complete.
+    row.addEventListener('click', () => {
+      answerProjectOpen({ kind: 'project', projectId: candidate.projectId });
+    });
+    projectOpenResults.appendChild(row);
+    projectOpenRowElements.push(row);
+  });
+  projectOpenResults.dataset.state = 'results';
+  // The first row is highlighted, never picked: Enter opens what the user can see is
+  // selected, and a click is what opens without the keyboard.
+  setProjectOpenActive(0);
+}
+
+/**
+ * Open the modal for one pushed request. A push that arrives while another request is
+ * still open supersedes it: the older request is answered as dismissed first, so Main is
+ * never left waiting on a modal this surface already replaced.
+ */
+async function openProjectOpenPicker(payload) {
+  if (!projectOpenOverlay || !api?.answerProjectOpenPicker) return;
+  const requestId = payload && typeof payload === 'object' && typeof payload.requestId === 'string'
+    ? payload.requestId
+    : '';
+  if (!requestId) return;
+  if (projectOpenRequestId) answerProjectOpen({ kind: 'cancelled' });
+  projectOpenRequestId = requestId;
+  projectOpenReturnFocus = document.activeElement || null;
+  projectOpenOverlay.style.display = 'flex';
+  if (projectOpenInput) {
+    projectOpenInput.value = '';
+    projectOpenInput.removeAttribute('aria-activedescendant');
+  }
+  paintProjectOpenMessage('loading', 'Đang tải danh sách dự án…');
+  document.addEventListener('keydown', onProjectOpenKeydown, true);
+  try { projectOpenInput?.focus(); } catch {}
+
+  projectOpenCandidates = [];
+  try {
+    const result = await api?.listProjects?.();
+    // A newer request may have replaced this one while the inventory was in flight:
+    // only the request still on screen may repaint.
+    if (projectOpenRequestId !== requestId) return;
+    const raw = result && typeof result === 'object' && Array.isArray(result.candidates) ? result.candidates : [];
+    projectOpenCandidates = raw
+      .filter((candidate) => candidate && typeof candidate === 'object' && typeof candidate.projectId === 'string' && candidate.projectId)
+      .map((candidate) => ({
+        projectId: candidate.projectId,
+        name: typeof candidate.name === 'string' && candidate.name ? candidate.name : candidate.projectId,
+        workspacePath: typeof candidate.workspacePath === 'string' ? candidate.workspacePath : '',
+        isCurrent: candidate.isCurrent === true,
+      }));
+    paintProjectOpenRows();
+  } catch {
+    if (projectOpenRequestId !== requestId) return;
+    paintProjectOpenMessage('error', 'Không đọc được danh sách dự án — chọn thư mục hoặc huỷ');
+  }
+}
+
+/**
+ * Keyboard for the open modal: Esc dismisses, Enter picks the highlighted row, the arrows
+ * move the highlight, and Tab cycles inside the modal rather than escaping to the chrome
+ * behind it. Bound at document level in the capture phase so a focused xterm or strip
+ * control cannot swallow the dismissal first.
+ */
+function onProjectOpenKeydown(e) {
+  if (!projectOpenRequestId) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    answerProjectOpen({ kind: 'cancelled' });
+    return;
+  }
+  if (e.key === 'Enter') {
+    // A focused footer button keeps its native click: Enter on "Chọn thư mục…" means the
+    // folder chooser, not the highlighted row.
+    const focused = typeof document !== 'undefined' ? document.activeElement : null;
+    if (focused === projectOpenFolderBtn || focused === projectOpenCancelBtn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const candidate = projectOpenRowCandidates[projectOpenActiveIndex];
+    if (candidate) answerProjectOpen({ kind: 'project', projectId: candidate.projectId });
+    return;
+  }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    e.stopPropagation();
+    moveProjectOpenActive(e.key === 'ArrowDown' ? 1 : -1);
+    return;
+  }
+  if (e.key === 'Tab') {
+    const focusables = projectOpenFocusables();
+    if (focusables.length === 0) return;
+    const focused = typeof document !== 'undefined' ? document.activeElement : null;
+    const index = focusables.indexOf(focused);
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.shiftKey) {
+      const next = index <= 0 ? focusables[focusables.length - 1] : focusables[index - 1];
+      try { next?.focus(); } catch {}
+    } else {
+      const next = index < 0 || index === focusables.length - 1 ? focusables[0] : focusables[index + 1];
+      try { next?.focus(); } catch {}
+    }
+  }
+}
+
+projectOpenInput?.addEventListener('input', () => {
+  if (!projectOpenRequestId) return;
+  paintProjectOpenRows();
+});
+projectOpenFolderBtn?.addEventListener('click', () => answerProjectOpen({ kind: 'folder' }));
+projectOpenCancelBtn?.addEventListener('click', () => answerProjectOpen({ kind: 'cancelled' }));
+projectOpenOverlay?.addEventListener('click', (e) => {
+  if (e.target === projectOpenOverlay) answerProjectOpen({ kind: 'cancelled' });
+});
+api?.onProjectOpenPicker?.((payload) => { void openProjectOpenPicker(payload); });
+
 
 /**
  * Move one terminal into a capsule's window, as the user asked for it.
@@ -4012,12 +4303,10 @@ function showCapsulePicker(sessionId, anchorEl) {
 async function assignSessionToCapsule(sessionId, entry) {
   // A pane has no window of its own: the move is the tab's, so the whole family travels with it.
   const baseId = findSession(sessionId)?.splitOf || sessionId;
-  const capsuleId = entry && typeof entry.id === 'string' ? entry.id : '';
-  const capsuleLabel = (entry && entry.name) || capsuleId;
   const projectId = capsuleProjectIdOf(entry);
-  if (!capsuleId) return false;
-  if (!api?.assignTerminalCapsule) {
-    showTerminalNotice('Không chuyển được Terminal: preload thiếu assignTerminalCapsule');
+  const capsuleLabel = (entry && entry.name) || projectId;
+  if (!api?.assignTerminalProject) {
+    showTerminalNotice('Không chuyển được Terminal: preload thiếu assignTerminalProject');
     return false;
   }
   if (!api?.openProject) {
@@ -4055,13 +4344,13 @@ async function assignSessionToCapsule(sessionId, entry) {
 
     let reply;
     try {
-      reply = await api.assignTerminalCapsule(baseId, capsuleId);
+      reply = await api.assignTerminalProject(baseId, projectId);
     } catch (err) {
       showTerminalNotice(`Không chuyển được Terminal sang “${capsuleLabel}”: ${bridgeErrorText(err)}`);
       return false;
     }
-    if (reply === true || (reply && typeof reply === 'object' && reply.ok === true)) {
-      moveSessionToCapsuleLocally(baseId, capsuleId);
+    if (reply && typeof reply === 'object' && reply.ok === true) {
+      moveSessionToCapsuleLocally(baseId, reply.capsuleId, reply.ownerKey);
       showTerminalNotice(`Đã chuyển Terminal sang dự án “${capsuleLabel}”`, 'success');
       return true;
     }
@@ -4079,10 +4368,12 @@ async function assignSessionToCapsule(sessionId, entry) {
  * broadcast that follows is what the grouping is really derived from, so a row Main still
  * reports in the old place goes back there on the next push.
  */
-function moveSessionToCapsuleLocally(sessionId, capsuleId) {
-  const session = findSession(sessionId);
-  if (!session) return;
-  session.capsuleId = capsuleId;
+function moveSessionToCapsuleLocally(sessionId, capsuleId, ownerKey) {
+  for (const session of sessions) {
+    if (session.id !== sessionId && session.splitOf !== sessionId) continue;
+    session.capsuleId = capsuleId;
+    session.ownerKey = ownerKey;
+  }
   if (typeof renderTabs === 'function') renderTabs();
 }
 
@@ -4141,10 +4432,8 @@ function showContextMenu(e, sessionId) {
         : 'Đặt nhóm (Set category)...';
     }
   }
-  // Moving a terminal into another project belongs to the shared manager: a window that owns
-  // one project has no second project to move a terminal to, and an agent-held session is
-  // read-only for every window by contract. The row says which of the two applies rather than
-  // opening a picker whose every answer would come back refused.
+  // Project windows may move their own sessions; Main enforces the sender's scope.
+  // Agent-held sessions remain read-only even when the shared manager lists them.
   const assignItem = contextMenu.querySelector('.context-item[data-action="assign-capsule"]');
   if (assignItem) {
     const assignLabel = assignItem.querySelector('span:last-child');
@@ -4155,7 +4444,7 @@ function showContextMenu(e, sessionId) {
       ? capsuleLabelOf(currentCapsuleId)
       : '';
     const agentHeld = isAgentOwnedSession(targetSession);
-    const canAssign = isSharedManagerShell() && !agentHeld;
+    const canAssign = !agentHeld;
     assignItem.classList.toggle('is-disabled', !canAssign);
     assignItem.setAttribute('aria-disabled', canAssign ? 'false' : 'true');
     if (assignLabel) {
@@ -4163,11 +4452,9 @@ function showContextMenu(e, sessionId) {
         ? `Chuyển sang dự án khác… (đang ở ${currentCapsuleLabel})`
         : 'Chuyển Terminal sang Dự án… (Move to Project)';
     }
-    assignItem.title = !isSharedManagerShell()
-      ? 'Chỉ cửa sổ Terminal chung mới chuyển được Terminal giữa các dự án'
-      : (agentHeld
-        ? 'Terminal do agent sở hữu chỉ được xem, không chuyển được sang dự án khác'
-        : 'Mở cửa sổ của dự án đích rồi chuyển Terminal này sang đó');
+    assignItem.title = agentHeld
+      ? 'Terminal do agent sở hữu chỉ được xem, không chuyển được sang dự án khác'
+      : 'Mở cửa sổ của dự án đích rồi chuyển Terminal này sang đó';
   }
   // A TUI keeps no scrollback to offer (its alternate buffer is not history), so the
   // honest affordance is the retained capture read as text: labelled lossy because the
@@ -4280,12 +4567,7 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
       // pane into a group its parent is not in.
       showCategoryPicker(findSession(targetId)?.splitOf || targetId, anchor);
     } else if (action === 'assign-capsule') {
-      // The row is inert for both of these, and a programmatic click must not get further than
-      // a real one would: the refusal is said here, without a round-trip Main would repeat.
-      if (!isSharedManagerShell()) {
-        showTerminalNotice('Chỉ cửa sổ Terminal chung mới chuyển được Terminal giữa các dự án');
-        return;
-      }
+      // Repeat the agent guard for programmatic clicks; Main owns session-scope checks.
       if (isAgentOwnedSession(findSession(targetId))) {
         showTerminalNotice('Terminal do agent sở hữu chỉ được xem, không chuyển được sang dự án khác');
         return;

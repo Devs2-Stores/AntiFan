@@ -404,7 +404,17 @@ async function openProjectFromSidebar(sidebarSurface, project) {
     },
     'the project window for ' + project.name,
   );
-  return { result: result, entry: entry };
+  // A user open must put a window in front of the user. The entry existing is not that: a shell is
+  // built hidden and only Main's own presentation shows a window it created, so every row that
+  // opens a window waits for one the user could actually see.
+  const presented = await waitFor(
+    function () {
+      const current = authority.snapshot().find(function (candidate) { return candidate.ownerKey === entry.ownerKey; });
+      return current && current.visible === true ? current : false;
+    },
+    'the window opened for ' + project.name + ' to be presented',
+  );
+  return { result: result, entry: presented };
 }
 
 async function run() {
@@ -1135,9 +1145,9 @@ async function run() {
     if (alphaWindow.isMinimized()) alphaWindow.restore();
     alphaWindow.show();
     alphaWindow.focus();
-    // Criterion 5 is about two windows on screen at once with A holding the foreground, and the
-    // shipping composition builds every shell hidden: this row presents B without focusing it
-    // rather than assuming an earlier row left it presented.
+    // Criterion 5 is about two windows on screen at once with A holding the foreground. B was
+    // presented by its own user open (see openProjectFromSidebar), so this row re-presents it
+    // without focusing rather than assuming which window the earlier rows left in front.
     if (betaWindow.isMinimized()) betaWindow.restore();
     betaWindow.showInactive();
     const betaEntryUnfocused = await waitFor(

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { PROJECT_WINDOW_CHANNELS, TERMINAL_CHANNELS } from '../shared/contracts';
-import type { ProjectOpenResult, TerminalDataPayload, TerminalTabPrefs, TabsUpdatedPayload } from '../shared/contracts';
+import type { ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectOpenResult, TerminalDataPayload, TerminalTabPrefs, TabsUpdatedPayload } from '../shared/contracts';
 
 /**
  * The tab broadcast is one object carrying both halves the renderer reads. Normalizing
@@ -33,6 +33,19 @@ const api = {
   // whatever tab happens to be focused.
   openProject: (projectId?: string): Promise<ProjectOpenResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN, { projectId }),
+  // The picker's own three calls: the inventory Main offers, the push that asks this
+  // surface to host the modal, and the one answer that settles the request. The renderer
+  // echoes the requestId Main gave it back verbatim — it is the only proof the answer
+  // belongs to this request.
+  listProjects: (): Promise<ProjectOpenListResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_LIST),
+  onProjectOpenPicker: (cb: (payload: ProjectOpenPickerPush) => void) => {
+    const handler = (_e: unknown, payload: ProjectOpenPickerPush) => cb(payload);
+    ipcRenderer.on(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER, handler);
+    return () => ipcRenderer.removeListener(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER, handler);
+  },
+  answerProjectOpenPicker: (payload: ProjectOpenPickerAnswerPayload) =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER_ANSWER, payload),
   getInitialState: () => ipcRenderer.invoke('antifan:sidebar:get-initial-state'),
   startTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:start', cwd),
   sendTerminalInput: (input: string) => ipcRenderer.invoke('antifan:terminal:input', input),
@@ -67,12 +80,16 @@ const api = {
   pickWorkspaceFolder: (sessionId?: string) => ipcRenderer.invoke('antifan:capsule:pick-folder', { sessionId }),
   createCapsule: (name: string, workspacePath: string) => ipcRenderer.invoke('antifan:capsule:create', { name, workspacePath }),
   switchCapsule: (id: string, sessionId?: string) => ipcRenderer.invoke('antifan:capsule:switch', { capsuleId: id, sessionId }),
-  // Hand one terminal to the window that owns the target capsule. Distinct from `switchCapsule`,
+  // Hand one terminal to the window that owns the target project. Distinct from `switchCapsule`,
   // which re-points the whole calling window: this moves one session out of the window it is in.
   // Main decides whether the caller may (the shared manager may) and answers with a refusal
   // reason when it may not, so the renderer never has to guess an outcome.
-  assignTerminalCapsule: (sessionId: string, capsuleId: string) =>
-    ipcRenderer.invoke(TERMINAL_CHANNELS.ASSIGN_CAPSULE, { sessionId, capsuleId }),
+  assignTerminalProject: (sessionId: string, projectId: string) =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.ASSIGN_PROJECT, { sessionId, projectId }),
+  // A terminal's URL belongs to the project that owns the session, never to whichever window has
+  // focus when the link handler runs.
+  openTerminalLink: (sessionId: string, url: string) =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.OPEN_LINK, { sessionId, url }),
   togglePanel: () => ipcRenderer.invoke('antifan:toolbar:toggle-sidebar'),
   setPanelWidth: (width: number) => ipcRenderer.invoke('antifan:sidebar:set-width', width),
   setTerminalTabPrefs: (prefs: Partial<TerminalTabPrefs>) => ipcRenderer.invoke(TERMINAL_CHANNELS.SET_TAB_PREFS, prefs),

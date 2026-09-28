@@ -35,7 +35,7 @@ import {
   workspaceTerminalProvenance,
 } from '../../src/main/browser/terminal-manager';
 import { ownerKey, type WindowOwner } from '../../src/main/browser/project-window-shell';
-import { TERMINAL_CHANNELS, TOOLBAR_CHANNELS } from '../../src/shared/contracts';
+import { SIDEBAR_CHANNELS, TERMINAL_CHANNELS, TOOLBAR_CHANNELS } from '../../src/shared/contracts';
 import type { ShellDouble } from '../support/project-window-shell-double';
 // Type-only: erased at compile time, so it loads nothing before the Electron fault is installed.
 import type { TabHostCloseAdmission } from '../../src/main/browser/native-tab-host';
@@ -1498,5 +1498,35 @@ describe('project window identity', () => {
     const unassignedHarness: ChromeRouteHarness = createChromeRouteHarness({ host: asHost(unassigned) });
     const identity = ((await unassignedHarness.invoke(TOOLBAR_CHANNELS.GET_INITIAL_STATE)) as AnyRecord).projectWindow as AnyRecord;
     assert.deepEqual(identity.owner, { kind: 'unassigned' });
+  });
+
+  it('publishes the same shell identity on the sidebar boot payload, for both owner kinds', async () => {
+    // The sidebar renderer scopes its shell off the same `projectWindow` identity
+    // the toolbar publishes: a project shell is a project, the shared manager
+    // shell is Unassigned. The boot payload must also retain the fields it has
+    // always shipped.
+    const host = createHost({ owner: PROJECT_A, tabs: [['a1', { title: 'One' }]], activeTabId: 'a1' });
+    (host.shell as AnyRecord).title = 'Project A';
+    const harness: ChromeRouteHarness = createChromeRouteHarness({ host: asHost(host) });
+    const state = (await harness.invoke(SIDEBAR_CHANNELS.GET_INITIAL_STATE)) as AnyRecord;
+    assert.deepEqual(state.projectWindow.owner, PROJECT_A);
+    assert.equal(state.isOpen, false, 'the seeded sidebar state, not a dropped field');
+    assert.equal(state.width, 380);
+    for (const field of ['workspacePath', 'activeWorkspace', 'terminalTabPrefs', 'isOpen', 'width'] as const) {
+      assert.ok(field in state, `the ${field} field must still ship on the boot payload`);
+    }
+    assert.deepEqual(state.terminalTabPrefs, {
+      layout: 'horizontal',
+      sidebarWidth: 220,
+      collapsedCategories: [],
+      categories: [],
+      categoryColors: {},
+      starredCategories: [],
+    });
+
+    const unassigned = createHost({ tabs: [['u1']], activeTabId: 'u1' });
+    const unassignedHarness: ChromeRouteHarness = createChromeRouteHarness({ host: asHost(unassigned) });
+    const unassignedState = (await unassignedHarness.invoke(SIDEBAR_CHANNELS.GET_INITIAL_STATE)) as AnyRecord;
+    assert.deepEqual(unassignedState.projectWindow.owner, { kind: 'unassigned' });
   });
 });

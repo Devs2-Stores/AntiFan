@@ -5191,6 +5191,24 @@ function toCloseRefusalView(value: unknown): CloseRefusalView | null {
 }
 
 /**
+ * The route out of a vetoed close — the one refusal whose text names nothing the user can act on.
+ *
+ * A page that refuses to unload is never overridden by the shell, so Main's row says only
+ * "Page <id> refused to unload" and the close cannot proceed until that page is gone. Closing
+ * the tab does destroy it, which makes "close that tab and try again" the instruction that
+ * works. The name comes from the strip the user is looking at: Main reports an id, and an id
+ * is not something anyone can find. A veto with no tab on the strip still gets the route.
+ */
+function closeRefusalHint(reason: CloseRefusalReasonView): string {
+  if (reason.code !== 'unload-veto') return '';
+  const tab = reason.tabId ? currentTabs.find((entry) => entry && entry.id === reason.tabId) : undefined;
+  const name = tab ? tab.title || hostname(tab.url || '') : '';
+  return name
+    ? `Trang "${name}" đang chặn đóng. Đóng tab đó (nút × trên tab) rồi thử đóng lại cửa sổ.`
+    : 'Một trang trong cửa sổ này đang chặn đóng. Đóng tab đang chặn (nút × trên tab) rồi thử đóng lại cửa sổ.';
+}
+
+/**
  * One reason row: what Main recorded about the blocking work, then the controls it names
  * as guidance. Text only — details carry tab ids, paths and action ids.
  */
@@ -5209,6 +5227,13 @@ function buildCloseRefusalReasonRow(reason: CloseRefusalReasonView): HTMLElement
   detail.className = 'close-refusal-reason-detail';
   detail.textContent = reason.detail;
   row.appendChild(detail);
+  const hint = closeRefusalHint(reason);
+  if (hint) {
+    const line = document.createElement('div');
+    line.className = 'close-refusal-reason-hint';
+    line.textContent = hint;
+    row.appendChild(line);
+  }
   if (reason.controls.length > 0) {
     const controls = document.createElement('div');
     controls.className = 'close-refusal-controls';

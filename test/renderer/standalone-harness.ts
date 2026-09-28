@@ -56,10 +56,15 @@ export interface StandaloneApi {
   syncTerminalView: (payload: unknown) => Promise<unknown>;
   getFullBuffer: (sessionId: string) => Promise<unknown>;
   resizeTerminalTo: (sessionId: string, cols: number, rows: number) => void;
-  /** Project open, the capsule list the picker reads on open, and the handover it dispatches. */
+  /** Project inventory, capsule labels, and the project handover the picker dispatches. */
   openProject: (projectId: string) => Promise<unknown>;
   listCapsules: () => Promise<{ activeCapsuleId?: string; capsules: unknown[] }>;
-  assignTerminalCapsule: (sessionId: string, capsuleId: string) => Promise<unknown>;
+  assignTerminalProject: (sessionId: string, projectId: string) => Promise<unknown>;
+  /** Terminal link opening: Main opens the URL in the window that owns the session. */
+  openTerminalLink?: (sessionId: string, url: string) => Promise<unknown>;
+  listProjects: () => Promise<{ candidates: unknown[] }>;
+  answerProjectOpenPicker: (payload: unknown) => Promise<unknown>;
+  onProjectOpenPicker: (listener: (payload: unknown) => void) => unknown;
   [key: string]: unknown;
 }
 
@@ -148,6 +153,9 @@ export class FakeElement {
   public draggable = false;
   public style = new FakeStyle();
   public tabIndex = -1;
+  // data-* attributes live on `dataset` in the DOM; the renderer's modal state rows
+  // publish `data-state` through it.
+  public dataset: Record<string, string> = {};
   public parent: FakeElement | null = null;
   public readonly children: FakeElement[] = [];
   public clientHeight = 400;
@@ -389,6 +397,9 @@ export class FakeElement {
   private descendants(): FakeElement[] {
     const found: FakeElement[] = [];
     for (const child of this.children) {
+      // A text node is a child the DOM reports but no selector matches. The renderer
+      // appends them for spacing, and walking one as an element would crash.
+      if (!(child instanceof FakeElement)) continue;
       found.push(child, ...child.descendants());
     }
     return found;
@@ -512,6 +523,8 @@ export interface StandaloneHarness {
   emitSession(state: unknown): void;
   /** Push a tab broadcast through the renderer's `onTabsUpdated` listener. */
   emitTabsUpdated(payload: unknown): void;
+  /** Push a project-open request through the renderer's `onProjectOpenPicker` listener. */
+  emitProjectPicker(payload: unknown): void;
   /** Push a terminal data payload through the renderer's `onTerminalData` listener. */
   emitData(payload: unknown): void;
   /** Replace the renderer's live `sessions` array (plain data only). */
@@ -585,6 +598,22 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   // The capsule picker the tab context menu opens. It is read by id at open time and filled
   // with created nodes, exactly like the category picker beside it.
   standaloneElement.appendChild(elementById('capsulePickerPopover'));
+  // The project-open modal Main's push drives. The renderer reads its fields by id at
+  // push time — exactly as standalone.html declares them — so the subtree exists here the
+  // same way the other popovers do.
+  const projectOpenOverlayElement = elementById('projectOpenOverlay');
+  const projectOpenModalElement = new FakeElement('div');
+  projectOpenModalElement.className = 'project-open-modal';
+  projectOpenOverlayElement.appendChild(projectOpenModalElement);
+  projectOpenModalElement.appendChild(elementById('projectOpenTitle'));
+  projectOpenModalElement.appendChild(elementById('projectOpenInput'));
+  projectOpenModalElement.appendChild(elementById('projectOpenResults'));
+  const projectOpenActionsElement = new FakeElement('div');
+  projectOpenActionsElement.className = 'project-open-actions';
+  projectOpenActionsElement.appendChild(elementById('projectOpenFolder'));
+  projectOpenActionsElement.appendChild(elementById('projectOpenCancel'));
+  projectOpenModalElement.appendChild(projectOpenActionsElement);
+  standaloneElement.appendChild(projectOpenOverlayElement);
   const tabLayoutButtonElement = elementById('btnTerminalTabLayout');
 
   const documentKeydownListeners: Array<(event: KeyEventLike) => boolean | void> = [];
@@ -642,7 +671,6 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     clearInterval,
     queueMicrotask,
     localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-    navigator: { clipboard: { writeText: async () => {} }, userAgent: 'node' },
     matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
     getComputedStyle: () => computedStyle(),
   };
@@ -650,6 +678,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   const terminalDataListeners: Array<(payload: unknown) => void> = [];
   const terminalSessionListeners: Array<(state: unknown) => void> = [];
   const tabsUpdatedListeners: Array<(payload: unknown) => void> = [];
+  const projectPickerListeners: Array<(payload: unknown) => void> = [];
   const bridgeTarget: Record<string, unknown> = {
     getTerminalDelta: async () => null,
     splitTerminal: async () => '',
@@ -664,17 +693,19 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     wakeTerminal: async () => true,
     focusTab: async () => undefined,
     setCategory: async () => true,
-    // The ownership handover the tab context menu drives: the picker reads the capsule list on
-    // open, and picking one dispatches the transfer. Defaults are empty/true so a row that does
-    // not care about capsules still exercises the renderer's own paths.
     listCapsules: async () => ({ activeCapsuleId: '', capsules: [] as unknown[] }),
-    assignTerminalCapsule: async () => true,
+    assignTerminalProject: async (sessionId: string, projectId: string) => ({ ok: true, sessionId, projectId, ownerKey: `project:${projectId}` }),
     // Boot payload for the sidebar/tab-layout prefs, as GET_INITIAL_STATE returns it.
     getInitialState: async () => options.initialState,
     // Capture push-channel listeners so tests can drive the data/session flow.
     onTerminalData: (listener: (payload: unknown) => void) => { terminalDataListeners.push(listener); },
     onTerminalSession: (listener: (state: unknown) => void) => { terminalSessionListeners.push(listener); },
     onTabsUpdated: (listener: (payload: unknown) => void) => { tabsUpdatedListeners.push(listener); },
+    // The project-open push channel: listeners are captured so a test can deliver the
+    // requestId exactly as Main's send would.
+    onProjectOpenPicker: (listener: (payload: unknown) => void) => { projectPickerListeners.push(listener); },
+    listProjects: async () => ({ candidates: [] as unknown[] }),
+    answerProjectOpenPicker: async () => ({ status: 'ACCEPTED' }),
   };
   // The renderer wires its whole preload bridge at load time, so unimplemented members are no-ops.
   // Every invocation is recorded so a test can prove which bridge calls a flow actually made.
@@ -796,6 +827,9 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     },
     emitData: (payload: unknown) => {
       for (const listener of [...terminalDataListeners]) listener(payload);
+    },
+    emitProjectPicker: (payload: unknown) => {
+      for (const listener of [...projectPickerListeners]) listener(payload);
     },
     setSessions: (list: unknown[]) => {
       vm.runInContext(`sessions = ${JSON.stringify(list)};`, context);

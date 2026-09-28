@@ -16,6 +16,8 @@
 export interface ProjectOpenCandidate {
   projectId: string;
   title: string;
+  /** The workspace the record names, when it names one — listed in `detail`, never on the button. */
+  pathLabel?: string;
 }
 
 /** The dialog Main shows, plus what each button stands for, position by position. */
@@ -57,12 +59,10 @@ export interface CollectProjectOpenCandidatesInput {
 /**
  * The inventory, de-duplicated and in a stable order.
  *
- * Every label carries its workspace path when the record has one, and only falls back to the
- * project id when it does not: the dialog's `detail` line is not rendered by every platform
- * (Windows drops it), so a bare title would leave two projects sharing a name — or a project
- * named after its own id — indistinguishable in the buttons the user actually clicks. A label
- * that is still ambiguous after the path is qualified with the id, which is unique by
- * construction.
+ * Every button is the project's own name and nothing else: a long "name — path" label makes
+ * the native button row unreadable, and the path is already listed in `detail` next to the
+ * name it belongs to. Two projects sharing a name are still told apart — the id, which is
+ * unique by construction, qualifies the title of each.
  */
 export function collectProjectOpenCandidates(
   input: CollectProjectOpenCandidatesInput,
@@ -88,20 +88,21 @@ export function collectProjectOpenCandidates(
       ? projection.title.trim()
       : projectId;
     const pathLabel = typeof projection.pathLabel === 'string' ? projection.pathLabel.trim() : '';
-    return { projectId, title, label: pathLabel ? `${title} — ${pathLabel}` : title };
+    return { projectId, title, pathLabel };
   });
 
   const labelCounts = new Map<string, number>();
   for (const entry of described) {
-    labelCounts.set(entry.label, (labelCounts.get(entry.label) ?? 0) + 1);
+    labelCounts.set(entry.title, (labelCounts.get(entry.title) ?? 0) + 1);
   }
 
   return described
     .map((entry) => ({
       projectId: entry.projectId,
-      title: (labelCounts.get(entry.label) ?? 0) > 1
-        ? `${entry.label} — ${entry.projectId}`
-        : entry.label,
+      title: (labelCounts.get(entry.title) ?? 0) > 1
+        ? `${entry.title} — ${entry.projectId}`
+        : entry.title,
+      ...(entry.pathLabel ? { pathLabel: entry.pathLabel } : {}),
     }))
     .sort((a, b) => a.title.localeCompare(b.title, 'en') || a.projectId.localeCompare(b.projectId, 'en'));
 }
@@ -116,10 +117,16 @@ export function projectOpenDialogSpec(
 ): ProjectOpenDialogSpec {
   const buttons = candidates.map((candidate) => candidate.title);
   const folderActionId = buttons.length;
+  // Paths ride in `detail` as one "name — path" line per project: the button stays a bare
+  // name the row can render, and where the platform drops detail the names still stand alone.
+  const pathLines = candidates
+    .filter((candidate) => candidate.pathLabel)
+    .map((candidate) => `${candidate.title} — ${candidate.pathLabel}`);
   return {
     message: 'Mở dự án',
     detail: 'Chọn dự án để mở trong cửa sổ riêng, hoặc chọn một thư mục để mở nó thành dự án mới. '
-      + 'Mỗi dự án có cửa sổ, tab và phiên terminal riêng.',
+      + 'Mỗi dự án có cửa sổ, tab và phiên terminal riêng.'
+      + (pathLines.length ? `\n${pathLines.join('\n')}` : ''),
     buttons: [...buttons, PROJECT_OPEN_FOLDER_LABEL, PROJECT_OPEN_CANCEL_LABEL],
     defaultId: 0,
     cancelId: folderActionId + 1,
@@ -149,4 +156,25 @@ export function projectOpenChoiceFor(
   if (response < 0 || response >= spec.ids.length) return { kind: 'cancelled' };
   const projectId = spec.ids[response];
   return projectId ? { kind: 'project', projectId } : { kind: 'cancelled' };
+}
+
+/**
+ * A renderer picker's answer, validated against the spec Main pushed for that request.
+ *
+ * The wire payload carries an id rather than a button position, so the check is different
+ * from `projectOpenChoiceFor` in one place only: a `project` answer names an id the spec
+ * actually offered, and anything else — a missing payload, an unknown kind, or an id the
+ * dialog never listed — is a dismissal rather than a project the user could not have picked.
+ */
+export function projectOpenWireChoice(
+  spec: ProjectOpenDialogSpec,
+  choice: unknown,
+): ProjectOpenChoice {
+  if (!choice || typeof choice !== 'object' || Array.isArray(choice)) return { kind: 'cancelled' };
+  if (!('kind' in choice)) return { kind: 'cancelled' };
+  if (choice.kind === 'folder') return { kind: 'folder' };
+  if (choice.kind !== 'project' || !('projectId' in choice)) return { kind: 'cancelled' };
+  const projectId = choice.projectId;
+  if (typeof projectId !== 'string' || !spec.ids.includes(projectId)) return { kind: 'cancelled' };
+  return { kind: 'project', projectId };
 }

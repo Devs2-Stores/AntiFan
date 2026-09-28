@@ -163,6 +163,22 @@
     <div id="categoryPickerPopover" class="terminal-category-picker" style="display:none;"></div>
     <!-- PROJECT PICKER POPOVER — searchable, because the store holds hundreds of capsules -->
     <div id="capsulePickerPopover" class="terminal-capsule-picker" style="display:none;"></div>
+    <!-- PROJECT OPEN PICKER — Main pushes a requestId, this modal answers it -->
+    <div id="projectOpenOverlay" class="project-open-overlay" style="display:none;">
+      <div class="project-open-modal" role="dialog" aria-modal="true" aria-labelledby="projectOpenTitle">
+        <div class="project-open-header">
+          <span id="projectOpenTitle" class="project-open-title">Mở dự án</span>
+        </div>
+        <input type="text" id="projectOpenInput" class="project-open-input" role="combobox"
+               aria-expanded="true" aria-controls="projectOpenResults" aria-autocomplete="list"
+               aria-activedescendant="" placeholder="Tìm dự án… (tên hoặc đường dẫn)" autocomplete="off" spellcheck="false" />
+        <div id="projectOpenResults" class="project-open-results" role="listbox" aria-label="Danh sách dự án" data-state="idle"></div>
+        <div class="project-open-actions">
+          <button type="button" id="projectOpenFolder" class="project-open-btn">Chọn thư mục…</button>
+          <button type="button" id="projectOpenCancel" class="project-open-btn">Huỷ</button>
+        </div>
+      </div>
+    </div>
   </main>
   <script>
     (function() {

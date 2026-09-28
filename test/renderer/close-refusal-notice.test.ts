@@ -4,7 +4,8 @@
  * Loads the shipped toolbar chrome (toolbar.html + its compiled toolbar.js) into jsdom with a
  * stubbed antifanToolbar bridge and drives the shipped subscription for the behavior the
  * close gate depends on: a refusal Main already decided is rendered as the summary it carries
- * plus one row per reason, each reason's named controls are shown as guidance, the latest
+ * plus one row per reason, each reason's named controls are shown as guidance, a vetoed close
+ * also names the tab that is blocking it and the route that clears it, the latest
  * notice replaces the previous one, dismiss clears the region, a malformed payload paints
  * nothing and throws nothing, and none of it takes focus.
  *
@@ -141,14 +142,14 @@ async function flush(rounds = 12) {
   }
 }
 
-async function loadToolbar(projectWindow: unknown) {
+async function loadToolbar(projectWindow: unknown, tabs: unknown[] = []) {
   // Replaced by `makeApi` with the real channel to the chrome's own subscription.
   const stub: BridgeStub = { pushRefusal: () => { throw new Error('the bridge was never installed'); } };
   const { JSDOM } = loadJsdom();
   const html = fs.readFileSync(path.join(RENDERER_MARKUP_DIR, 'toolbar.html'), 'utf8');
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' });
   const win = dom.window;
-  const state: Record<string, unknown> = { tabs: [], activeTabId: '', bookmarks: [], projectWindow };
+  const state: Record<string, unknown> = { tabs, activeTabId: '', bookmarks: [], projectWindow };
   win.antifanToolbar = makeApi(state, stub);
   win.eval(fs.readFileSync(path.join(RENDERER_MARKUP_DIR, 'exports-shim.js'), 'utf8'));
   win.eval(fs.readFileSync(path.join(RENDERER_SCRIPT_DIR, 'toolbar.js'), 'utf8'));
@@ -284,6 +285,72 @@ describe('Refused close/quit notice', () => {
       label: 'Stop the run where it was started (the toolbar stop button for a workflow, the agent client for its own run), or wait for it to finish',
     }]);
     assert.deepStrictEqual(rowControls(rows[1]), [{
+      id: 'antifan:terminal:remove-tab',
+      label: 'Unbind this page from the terminal in the terminal workbench (✕ on the terminal tab), or stop or sleep the session using it',
+    }]);
+  });
+
+  test('a vetoed close names the tab that is blocking it and the one route past it', async () => {
+    const ctx = await loadToolbar({ owner: { kind: 'unassigned' } }, [
+      {
+        id: 'tab-music-1',
+        title: 'Nhạc thư giãn, tĩnh tâm | 1 Hour Relaxing Piano Music',
+        url: 'https://music.youtube.com/watch?v=QU_ZXKlBk9I',
+      },
+    ]);
+    dom = ctx.dom;
+    const { doc, stub } = ctx;
+
+    stub.pushRefusal({
+      kind: 'close',
+      ownerKey: 'project:acme',
+      haltedBy: 'unload-veto',
+      summary:
+        'Close of project:acme: shell retained, stopped by unload-veto (closed 2, skipped 7, failed 0); earlier closes stand and are not transactional.',
+      reasons: [
+        { code: 'unload-veto', detail: 'Page tab-music-1 refused to unload', tabId: 'tab-music-1', controls: [] },
+      ],
+    });
+    await flush();
+
+    const row = reasonRows(doc)[0];
+    assert.strictEqual(row?.getAttribute('data-reason-code'), 'unload-veto');
+    // Main refuses this close and offers no control, so the row is the only place the user can
+    // learn what stands in the way and what actually clears it.
+    assert.strictEqual(rowControls(row).length, 0, 'the veto names no control over the blocking page');
+    const hint = row?.querySelector('.close-refusal-reason-hint')?.textContent ?? '';
+    assert.ok(
+      hint.includes('Nhạc thư giãn, tĩnh tâm'),
+      'the veto names the tab the user is looking at, not only its id'
+    );
+    assert.ok(hint.includes('Đóng tab đó'), 'the veto carries the route that does work: closing that tab');
+
+    // An id whose tab the strip no longer shows still gets the route, just without a name.
+    stub.pushRefusal({
+      kind: 'close',
+      summary: 'Close refused',
+      reasons: [{ code: 'unload-veto', detail: 'Page gone-1 refused to unload', tabId: 'gone-1', controls: [] }],
+    });
+    await flush();
+
+    const unnamed = reasonRows(doc)[0]?.querySelector('.close-refusal-reason-hint')?.textContent ?? '';
+    assert.ok(unnamed.includes('Đóng tab đang chặn'), 'an unnamed veto still names the route');
+    assert.ok(!unnamed.includes('gone-1'), 'a tab id is not a name to show the user');
+
+    // Every other refusal keeps exactly the text Main wrote for it, controls included.
+    stub.pushRefusal(REFUSED_CLOSE);
+    await flush();
+
+    const otherRows = reasonRows(doc);
+    assert.strictEqual(otherRows.length, 2);
+    for (const otherRow of otherRows) {
+      assert.strictEqual(
+        otherRow.querySelector('.close-refusal-reason-hint'),
+        null,
+        'a refusal that is not a veto gains no instruction of its own'
+      );
+    }
+    assert.deepStrictEqual(rowControls(otherRows[1]), [{
       id: 'antifan:terminal:remove-tab',
       label: 'Unbind this page from the terminal in the terminal workbench (✕ on the terminal tab), or stop or sleep the session using it',
     }]);

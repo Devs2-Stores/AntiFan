@@ -75,8 +75,8 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'TERMINAL_CHANNELS.KILL',
       'TERMINAL_CHANNELS.RESTART',
       // The ownership handover the tab context menu drives: a session may be moved to
-      // another capsule, and the host is the only side that may re-stamp it.
-      'TERMINAL_CHANNELS.ASSIGN_CAPSULE',
+      // another project, and the host is the only side that may re-stamp it.
+      'TERMINAL_CHANNELS.ASSIGN_PROJECT',
     ];
 
     for (const channel of requiredTerminalChannels) {
@@ -168,11 +168,16 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.match(nativeContent, /antifan:terminal:new-session/);
     assert.match(preloadContent, /pickWorkspaceFolder:\s*\(sessionId\?: string\).*\{ sessionId \}/);
     // The tab context menu's ownership handover: the renderer names the session and the
-    // capsule it is moving to, and the host owns the re-stamp. Both ends name the one
+    // project it is moving to, and the host owns the re-stamp. Both ends name the one
     // channel, and the payload keys are the frozen pair.
-    assert.match(preloadContent, /assignTerminalCapsule/);
-    assert.match(preloadContent, /invoke\(\s*TERMINAL_CHANNELS\.ASSIGN_CAPSULE\s*,\s*\{[^}]*sessionId[^}]*capsuleId/);
-    assert.match(nativeContent, /channel:\s*TERMINAL_CHANNELS\.ASSIGN_CAPSULE/);
+    assert.match(preloadContent, /assignTerminalProject/);
+    assert.match(preloadContent, /invoke\(\s*TERMINAL_CHANNELS\.ASSIGN_PROJECT\s*,\s*\{[^}]*sessionId[^}]*projectId/);
+    assert.match(nativeContent, /channel:\s*TERMINAL_CHANNELS\.ASSIGN_PROJECT/);
+    // A terminal's own URL clicks join the owning project through Main, never whichever window
+    // currently has focus.
+    assert.match(preloadContent, /openTerminalLink/);
+    assert.match(preloadContent, /invoke\(\s*TERMINAL_CHANNELS\.OPEN_LINK\s*,\s*\{[^}]*sessionId[^}]*url/);
+    assert.match(nativeContent, /channel:\s*TERMINAL_CHANNELS\.OPEN_LINK/);
     // The audit pins the contract the picker must keep: the folder the user chose and the
     // session it was picked for reach setCapsule, for whichever capsule the route adopted.
     assert.match(nativeContent, /capsule:pick-folder[^]*setCapsule\([\w$]+\.id, chosenPath, opts\?\.sessionId\)/);

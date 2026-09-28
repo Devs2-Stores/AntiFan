@@ -4,6 +4,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
+import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, Menu, ipcMain, protocol, session, nativeTheme, webContents, crashReporter, dialog, type IpcMainInvokeEvent, type OpenDialogOptions } from 'electron';
 
 // Register custom privileged scheme for local workspace preview before app.whenReady()
@@ -28,7 +29,10 @@ import {
   collectProjectOpenCandidates,
   projectOpenDialogSpec,
   projectOpenChoiceFor,
+  projectOpenWireChoice,
   type ProjectOpenCandidate,
+  type ProjectOpenChoice,
+  type ProjectOpenDialogSpec,
 } from './project/project-open-picker';
 import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
@@ -90,6 +94,7 @@ import { IosDeviceAdapter } from './device/ios-device-adapter';
 import { validateControlPlaneId, makeControlPlaneId, type ProjectRecord } from '../shared/control-plane-contracts';
 import {
   PROJECT_WINDOW_CHANNELS,
+  type ProjectOpenListCandidate,
   type ProjectOpenResult,
   type ProjectTabActivationResult,
   type ProjectTabSearchRow,
@@ -517,10 +522,6 @@ function liveShellFor(ownerKeyValue: string): ProjectWindowShell | undefined {
   return liveProjectShells().find((shell) => ownerKey(shell.owner) === ownerKeyValue);
 }
 
-/** The OS window title: the project's validated label, with this build's marker in dev. */
-function shellTitleFor(projectTitle: string): string {
-  return IS_DEV ? `${projectTitle} [DEV]` : projectTitle;
-}
 
 /** The icon this build ships, resolved once for every window. */
 let cachedAppIconPath: string | null | undefined;
@@ -598,6 +599,12 @@ export function resolveWindowRecord(owner: WindowOwner): {
       if (proj?.name) title = proj.name;
     } catch {}
   }
+  // The built-in browsing window keeps its stable owner key and existing tabs.
+  // Only replace the generated label; explicit project/capsule names still win.
+  if (owner.projectId === DEFAULT_BOOT_PROJECT_ID
+    && (title === owner.projectId || title === `Project-${owner.projectId}`)) {
+    title = 'Tổng hợp';
+  }
 
   // Preference order for workspaceId: explicit capsule workspaceId wins, then registry workspaceId
   const workspaceId = capsule?.workspaceId || registryWorkspaceId;
@@ -630,6 +637,33 @@ export function isKnownProjectId(projectId: string): boolean {
   // marker with no workspace id) cannot authorize an open the registry knows nothing about.
   if (uniqueValidatedClaim(capsuleManager?.list() ?? [], projectId)) return true;
   return liveProjectShells().some((shell) => shell.owner.kind === 'project' && shell.owner.projectId === projectId);
+}
+
+/** Resolve transfer ownership from project identity; ambiguous capsule claims never become a capsule-less destination. */
+function resolveProjectAssignment(projectId: string): { capsuleId?: string } | undefined {
+  if (!isKnownProjectId(projectId)) return undefined;
+  const record = resolveWindowRecord({ kind: 'project', projectId });
+  if (record.capsuleId) return { capsuleId: record.capsuleId };
+  if (capsuleManager?.list().some((capsule) => capsule.projectId === projectId)) return undefined;
+  return {};
+}
+
+/** A terminal click opens in the project window that owns that exact session, never the focused host. */
+async function openTerminalLinkInOwner(ownerKeyValue: string, url: string): Promise<boolean> {
+  if (!ownerKeyValue || typeof url !== 'string' || !url) return false;
+  let host = hostForOwnerKey(ownerKeyValue);
+  if (!host) {
+    const shellOwner = ownerKeyValue.startsWith('project:')
+      ? { kind: 'project' as const, projectId: ownerKeyValue.slice('project:'.length) }
+      : ownerKeyValue === 'unassigned'
+        ? { kind: 'unassigned' as const }
+        : null;
+    if (!shellOwner) return false;
+    if (shellOwner.kind === 'project' && !isKnownProjectId(shellOwner.projectId)) return false;
+    assertApplicationAdmitsWork(closeReservations, 'Open terminal link owner');
+    host = (await ensureProjectWindow(shellOwner, 'user')).host;
+  }
+  return Boolean(host.createTab(url));
 }
 
 /**
@@ -904,6 +938,8 @@ function attachSharedServices(host: NativeTabHost): void {
   // through this seam — the same shape as the close reservations above — and never by opening
   // a window from the tab host.
   host.setOwnerWindowPresence((ownerKeyValue) => liveShellFor(ownerKeyValue) !== undefined);
+  host.setProjectAssignmentResolver(resolveProjectAssignment);
+  host.setTerminalLinkOpener(openTerminalLinkInOwner);
 }
 
 /**
@@ -1444,8 +1480,17 @@ function attachShellLifecycle(shell: ProjectWindowShell): void {
  * registered with the window directory (which is what makes its tabs routable), its
  * own owner-keyed placement and saved tabs, and its own close gate. A path that
  * created only a shell would leave a window whose tabs nothing could resolve.
+ *
+ * A creation with user intent is also presented here, on its first paint, because
+ * construction never presents. `onFirstPresented` reports that moment to the one caller that
+ * measures it; arming the presentation here rather than beside it is what keeps a single
+ * presenter per window, and the caller's marker exactly once.
  */
-async function ensureProjectWindow(owner: WindowOwner, intent: OpenIntent): Promise<ProjectWindowRuntime> {
+async function ensureProjectWindow(
+  owner: WindowOwner,
+  intent: OpenIntent,
+  options?: { onFirstPresented?: () => void },
+): Promise<ProjectWindowRuntime> {
   const manager = projectWindows;
   if (!manager) throw new Error('The project window manager is not up yet');
 
@@ -1459,6 +1504,12 @@ async function ensureProjectWindow(owner: WindowOwner, intent: OpenIntent): Prom
   // check and the registration, so two callers cannot both build a host for one shell.
   const existingHost = tabAuthorities.hostForShell(shell);
   if (existingHost) return { shell, host: existingHost, created: false };
+
+  // A window the user asked for must be shown; the manager only presents a shell it joins, and
+  // construction never presents, so a creation with no presenter would leave the window alive,
+  // answering its chrome and invisible. Agent intent is excluded: nothing here may raise a window
+  // a caller created for work the user did not request.
+  if (intent === 'user') presentShellOnFirstPaint(shell, options?.onFirstPresented);
 
   const host = new NativeTabHost(shell, capsuleManager || undefined);
   // The reservation table, before the host can restore or create a single page: a tab
@@ -1518,15 +1569,22 @@ function installApplicationMenu(): void {
     // other, and both ask the same Main function, so neither can drift from the other's
     // validation.
     openProjectPicker: (window) => { void openProjectWindow({}, window); },
+    // The manager window has no chrome entry by design, so the menu is its only door.
+    openSharedTerminalManager: () => { void openSharedTerminalManagerWindow(); },
   }));
 }
 
 /**
- * Present the bootstrap window as soon as its renderer paints, with a bounded fallback
- * so a slow first paint cannot leave the app invisible. Only the bootstrap window is
- * presented here: an agent-created window is never shown by this path.
+ * Present one shell as soon as its renderer paints, with a bounded fallback so a slow first
+ * paint cannot leave a window the user asked for invisible. Construction never presents, so
+ * this is the only thing that can show a window Main created after boot: without it a window
+ * would exist, answer its chrome, and never be seen.
+ *
+ * Only an explicit user action arms this. `onFirstPaint` reports the moment this call is what
+ * showed the window, which is how the bootstrap marks its startup measurement exactly once
+ * instead of arming a second presenter for the same window.
  */
-function presentBootstrapWindow(shell: ProjectWindowShell): void {
+function presentShellOnFirstPaint(shell: ProjectWindowShell, onFirstPaint?: () => void): void {
   const placement = windowStateManager?.getValidBounds(ownerKey(shell.owner));
   let fallbackTimer: NodeJS.Timeout | null = null;
   const present = (): void => {
@@ -1542,9 +1600,7 @@ function presentBootstrapWindow(shell: ProjectWindowShell): void {
     }
     shell.window.show();
     shell.window.focus();
-    recordBenchmark({ surface: 'startup', name: 'firstVisible' });
-    recordProcessMetrics('afterFirstVisible');
-    startProcessMetricsSampling();
+    onFirstPaint?.();
   };
   shell.window.once('ready-to-show', present);
   shell.window.once('closed', () => {
@@ -1559,6 +1615,25 @@ function presentBootstrapWindow(shell: ProjectWindowShell): void {
 const PROJECT_WINDOW_ROUTE_SURFACES: readonly RoutedSurface[] = ['toolbar', 'sidebar'];
 
 /**
+ * Surfaces that may ask Main to open a project.
+ *
+ * The toolbar and the sidebar ask for the user's next project. A terminal window asks for
+ * the project it is about to hand a session to: opening or focusing that window is the
+ * first step of moving a terminal, and it is the shared manager window — a
+ * `terminalPopout` — where unclaimed sessions are listed and moved from. Refusing that
+ * surface left the manager's own action failing against the router, so the move could
+ * never start. Every other cross-window channel keeps the narrower list.
+ */
+const PROJECT_OPEN_ROUTE_SURFACES: readonly RoutedSurface[] = ['toolbar', 'sidebar', 'terminalPopout'];
+
+/**
+ * Surfaces that may host the renderer picker: both chrome views of a shell and the
+ * standalone workbench windows (popout and extra terminal windows). The answer channel
+ * serves exactly these because the push can only ever reach one of them.
+ */
+const PROJECT_PICKER_ROUTE_SURFACES: readonly RoutedSurface[] = ['toolbar', 'sidebar', 'terminalPopout'];
+
+/**
  * Main's own label for an owner key: the window's validated record, the same source the
  * window's title and its identity message use. The host labels a project owner by its id,
  * which is the right stable key for persistence but not what a user searches against —
@@ -1566,7 +1641,7 @@ const PROJECT_WINDOW_ROUTE_SURFACES: readonly RoutedSurface[] = ['toolbar', 'sid
  */
 function projectLabelFor(ownerKeyValue: string): string | undefined {
   const shell = liveShellFor(ownerKeyValue);
-  return shell ? shellTitleFor(resolveWindowRecord(shell.owner).title) : undefined;
+  return shell ? resolveWindowRecord(shell.owner).title : undefined;
 }
 
 /** One inventory row as the renderer's contract sees it. Main asserts liveness only for rows built from live tabs. */
@@ -1608,6 +1683,172 @@ function projectOpenCandidates(): ProjectOpenCandidate[] {
   });
 }
 
+/** How long a pushed picker request may wait for its answer before the native dialog takes over. */
+const PROJECT_PICKER_WAIT_MS = 120_000;
+
+interface PendingProjectPicker {
+  senderId: number;
+  /** The inventory pushed with the request, so a later answer is validated against it, never re-derived. */
+  spec: ProjectOpenDialogSpec;
+  resolve: (choice: ProjectOpenChoice | null) => void;
+  timer: NodeJS.Timeout;
+}
+
+/**
+ * Requests Main pushed and is still waiting on, keyed by requestId. An answer that names
+ * no live entry — a duplicate, a replay, or a stale id — is ignored rather than settled
+ * against a different pick.
+ */
+const pendingProjectPickers = new Map<string, PendingProjectPicker>();
+let projectPickerRequestSeq = 0;
+
+/** The standalone renderer bundle a popout/new terminal window loads, resolved the way the host resolves it. */
+function standaloneRendererPagePath(): string {
+  const bundled = path.join(__dirname, '..', 'renderer', 'standalone.html');
+  if (fs.existsSync(bundled)) return bundled;
+  return path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
+}
+
+/**
+ * Whether a webContents is showing the terminal workbench page — the one renderer outside
+ * a shell's chrome views that can host the project picker. Page identity is checked the
+ * same way `chromeSurfaceFor` checks chrome views: a view navigated elsewhere keeps its
+ * preload, so the URL is what proves which surface the user is looking at.
+ */
+function isStandaloneRendererContents(contents: Electron.WebContents | null | undefined): boolean {
+  if (!contents || contents.isDestroyed()) return false;
+  try {
+    if (typeof contents.isLoading === 'function' && contents.isLoading()) return false;
+    const frameUrl = contents.mainFrame?.url || contents.getURL();
+    if (!frameUrl.startsWith('file:')) return false;
+    const loaded = path.resolve(fileURLToPath(frameUrl));
+    const expected = path.resolve(standaloneRendererPagePath());
+    return process.platform === 'win32' ? loaded.toLowerCase() === expected.toLowerCase() : loaded === expected;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The webContents that can host the in-window picker for one parent window, and the shell
+ * that owns it. A shell parent is picked by its chrome views — the toolbar first because a
+ * pushed modal is chrome work, then the sidebar — and a non-shell parent only when its own
+ * page is the standalone workbench (a terminal popout or workbench window). Any other
+ * parent yields nothing and the caller falls back to the native dialog.
+ */
+function projectPickerHostFor(
+  parent: BrowserWindow | null,
+): { contents: Electron.WebContents; shell: ProjectWindowShell | null } | null {
+  if (!parent || parent.isDestroyed()) return null;
+  const shell = shellForBrowserWindow(parent) ?? null;
+  if (shell) {
+    // The sidebar is the chrome surface that hosts the modal — and only while it is open:
+    // a push into a 0×0 view is a push into nothing, and the user would wait out the
+    // timeout for a dialog that could have opened immediately.
+    if (!shell.isSidebarOpen) return null;
+    const contents = shell.sidebarView?.webContents;
+    if (!contents || contents.isDestroyed()) return null;
+    return shell.chromeSurfaceFor(contents.id) === 'sidebar' ? { contents, shell } : null;
+  }
+  const contents = parent.webContents;
+  return isStandaloneRendererContents(contents) ? { contents, shell: null } : null;
+}
+
+/**
+ * The shell behind a chrome webContents, for the `isCurrent` marker on `PROJECT_LIST`:
+ * the sender's own host is resolved through the authority directory, then reversed to the
+ * shell that host presents. A contents no live window owns has no current project.
+ */
+function shellForPickerContents(sender: Electron.WebContents | undefined): ProjectWindowShell | undefined {
+  if (!sender || sender.isDestroyed()) return undefined;
+  const routed = tabAuthorities.resolveSender(sender.id);
+  if (!routed) return undefined;
+  return liveProjectShells().find((shell) => tabAuthorities.hostForShell(shell) === routed.host);
+}
+
+/**
+ * The inventory `PROJECT_LIST` answers with: the same candidates `projectOpenCandidates()`
+ * builds for Main's own picker, split back into the name/path fields a row list renders,
+ * with `isCurrent` on the project the asking window already owns.
+ */
+function projectOpenListFor(sender: Electron.WebContents | undefined): { candidates: ProjectOpenListCandidate[] } {
+  const shell = shellForPickerContents(sender);
+  const currentProjectId = shell && shell.owner.kind === 'project' ? shell.owner.projectId : '';
+  return {
+    candidates: projectOpenCandidates().map((candidate) => {
+      const record = resolveWindowRecord({ kind: 'project', projectId: candidate.projectId });
+      return {
+        projectId: candidate.projectId,
+        name: record.title || candidate.title,
+        workspacePath: record.workspacePath || record.pathLabel || '',
+        canAssignTerminal: resolveProjectAssignment(candidate.projectId) !== undefined,
+        ...(record.capsuleId ? { capsuleId: record.capsuleId } : {}),
+        ...(candidate.projectId === currentProjectId ? { isCurrent: true } : {}),
+      };
+    }),
+  };
+}
+
+/**
+ * An answer arriving on `PROJECT_OPEN_PICKER_ANSWER`. It settles the pending request only
+ * when the requestId is one Main is still waiting on and the answering webContents is the
+ * exact one the request was pushed to — a stale requestId or a sender that was never asked
+ * changes nothing. Returns whether the answer was accepted, for the invoker's result.
+ */
+function acceptProjectPickerAnswer(
+  sender: Electron.WebContents | undefined,
+  payload: unknown,
+): 'ACCEPTED' | 'IGNORED' {
+  const requestId = payload && typeof payload === 'object' && 'requestId' in payload && typeof payload.requestId === 'string'
+    ? payload.requestId
+    : '';
+  const pending = requestId ? pendingProjectPickers.get(requestId) : undefined;
+  if (!pending || !sender || sender.id !== pending.senderId) return 'IGNORED';
+  const choice = payload && typeof payload === 'object' && 'choice' in payload ? payload.choice : undefined;
+  pendingProjectPickers.delete(requestId);
+  clearTimeout(pending.timer);
+  pending.resolve(projectOpenWireChoice(pending.spec, choice));
+  return 'ACCEPTED';
+}
+
+/**
+ * Ask a renderer to host the picker for one request and wait for its answer — bounded, so a
+ * dead or stuck chrome cannot strand the open request behind it. `null` is the timeout or a
+ * refused send, both of which read the same way to the caller: the renderer could not host
+ * this pick and the native dialog is the answer instead.
+ */
+function awaitProjectPickerAnswer(
+  spec: ProjectOpenDialogSpec,
+  contents: Electron.WebContents,
+): Promise<ProjectOpenChoice | null> {
+  const requestId = `pick-${Date.now().toString(36)}-${++projectPickerRequestSeq}`;
+  const { promise, resolve } = Promise.withResolvers<ProjectOpenChoice | null>();
+  const timer = setTimeout(() => {
+    pendingProjectPickers.delete(requestId);
+    recordLifecycleEvent('project-open.picker-timeout', { requestId });
+    resolve(null);
+  }, PROJECT_PICKER_WAIT_MS);
+  pendingProjectPickers.set(requestId, { senderId: contents.id, spec, resolve, timer });
+  if (!safeSendWebContents(contents, PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER, { requestId })) {
+    pendingProjectPickers.delete(requestId);
+    clearTimeout(timer);
+    resolve(null);
+  }
+  return promise;
+}
+
+/** The choice an answer produced, mapped into the pick the open path already understands. */
+function pickFromChoice(choice: ProjectOpenChoice): ProjectOpenPick {
+  if (choice.kind === 'folder') {
+    recordLifecycleEvent('project-open.folder', {});
+    return { kind: 'folder' };
+  }
+  return choice.kind === 'project'
+    ? { kind: 'picked', projectId: choice.projectId }
+    : { kind: 'cancelled' };
+}
+
+
 /**
  * The outcome of Main's picker: a project the user chose, their request to choose a folder
  * instead, or a dialog they dismissed. There is no "nothing to offer" case: the folder action is
@@ -1620,20 +1861,35 @@ type ProjectOpenPick =
   | { kind: 'cancelled' };
 
 /**
- * Main's own project-opening surface: a native list of the projects it can actually open,
- * modal to the window that asked. The answer is an id from Main's own inventory or the explicit
- * request to choose a folder, so the open path that follows validates nothing it did not build
- * itself.
+ * Main's project-opening surface for the window that asked: the in-window picker first,
+ * the native dialog wherever no renderer can host it. Both answer the same spec — an id
+ * from Main's own inventory, the folder chooser, or a dismissal — so the open path that
+ * follows validates nothing it did not build itself, whichever surface answered.
  *
- * The spec always exists (`projectOpenDialogSpec`), which is why the folder action is offered even
- * with an empty inventory: opening one of the user's own folders is a real answer to "open a
- * project", and a dialog whose only other button was dismissal would be a dead end. Every label
- * carries its workspace path because the `detail` line is not rendered on every platform (Windows
- * drops it), so a bare title would leave two same-named projects indistinguishable in the buttons
- * the user actually clicks.
+ * The renderer path is preferred when the asking window's chrome is live: the native
+ * dialog renders every candidate as one button row (and drops `detail` on Windows), which
+ * is cramped and illegible next to a real list. The native dialog stays the answer when
+ * there is no such renderer, when the surface rejects the push, or when the bounded wait
+ * expires — a push a chrome ignored must not leave the user with nothing.
+ *
+ * The spec always exists (`projectOpenDialogSpec`), which is why the folder action is
+ * offered even with an empty inventory: opening one of the user's own folders is a real
+ * answer to "open a project", and a dialog whose only other button was dismissal would be
+ * a dead end.
  */
 async function pickProjectToOpen(parent: BrowserWindow | null): Promise<ProjectOpenPick> {
   const spec = projectOpenDialogSpec(projectOpenCandidates());
+  const host = projectPickerHostFor(parent);
+  if (host) {
+    const choice = await awaitProjectPickerAnswer(spec, host.contents);
+    if (choice !== null) {
+      recordLifecycleEvent('project-open.picker-answered', {});
+      return pickFromChoice(choice);
+    }
+    // Fell through: the surface refused the push or never answered in time. The native
+    // dialog is the same question asked again on the surface that always answers.
+    recordLifecycleEvent('project-open.picker-fallback', {});
+  }
   const options = {
     type: 'question' as const,
     title: spec.message,
@@ -1644,19 +1900,18 @@ async function pickProjectToOpen(parent: BrowserWindow | null): Promise<ProjectO
     cancelId: spec.cancelId,
     noLink: true,
   };
+  // Focus the asking window first: a click delivered while the window had no focus only
+  // activates the window, which is why the first click on a button seemed to do nothing.
+  if (parent && !parent.isDestroyed()) {
+    if (parent.isMinimized()) parent.restore();
+    parent.focus();
+  }
   // A dialog with no parent cannot be attached to one: the unparented overload is the only
   // legal call, and it is also what a window-less Main (a probe seam) has to use.
   const answer = parent && !parent.isDestroyed()
     ? await dialog.showMessageBox(parent, options)
     : await dialog.showMessageBox(options);
-  const choice = projectOpenChoiceFor(spec, answer.response);
-  if (choice.kind === 'folder') {
-    recordLifecycleEvent('project-open.folder', {});
-    return { kind: 'folder' };
-  }
-  return choice.kind === 'project'
-    ? { kind: 'picked', projectId: choice.projectId }
-    : { kind: 'cancelled' };
+  return pickFromChoice(projectOpenChoiceFor(spec, answer.response));
 }
 
 /**
@@ -1837,6 +2092,29 @@ async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null
   }
 }
 
+/**
+ * Present the one shared-terminal-manager window: the Unassigned shell whose sidebar lists every
+ * project's terminals and where a row is filed under another capsule.
+ *
+ * It is created through `ensureProjectWindow` like every other window — the same factory the
+ * bootstrap and `antifan:project:open` use — so its host joins the window directory, its placement
+ * is its own owner-keyed record, and the close gate counts it. Nothing calls it but the
+ * application menu: a chrome route would let a renderer ask for a window kind no project owns, and
+ * the menu already reaches Main directly.
+ */
+async function openSharedTerminalManagerWindow(): Promise<void> {
+  try {
+    // New work, treated exactly as `openProjectWindow` treats it: a committed quit has already
+    // counted every window it intends to end, so admitting one now would leave it alive outside
+    // the teardown.
+    assertApplicationAdmitsWork(closeReservations, 'Open shared terminal manager window');
+    const { created } = await ensureProjectWindow({ kind: 'unassigned' }, 'user');
+    recordLifecycleEvent('terminal-manager-open', { created });
+  } catch (err) {
+    recordLifecycleEvent('terminal-manager-open.failed', { detail: redactCredentials(String(err)) });
+  }
+}
+
 /** The user-visible inventory every window can search. Listing has no side effects at all. */
 function searchProjectTabs(payload: unknown): ProjectTabSearchResult {
   const query = payload && typeof payload === 'object' && 'query' in payload && typeof payload.query === 'string'
@@ -1895,9 +2173,21 @@ function activateProjectTab(payload: unknown): ProjectTabActivationResult {
 export const PROJECT_WINDOW_ROUTES: readonly IpcRoute[] = [
   {
     channel: PROJECT_WINDOW_CHANNELS.PROJECT_OPEN,
-    surface: PROJECT_WINDOW_ROUTE_SURFACES,
+    surface: PROJECT_OPEN_ROUTE_SURFACES,
     kind: 'handle',
     run: (_target, event, args) => openProjectWindow(args[0], senderWindowFor(event)),
+  },
+  {
+    channel: PROJECT_WINDOW_CHANNELS.PROJECT_LIST,
+    surface: PROJECT_PICKER_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, event) => projectOpenListFor(event?.sender),
+  },
+  {
+    channel: PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER_ANSWER,
+    surface: PROJECT_PICKER_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, event, args) => acceptProjectPickerAnswer(event?.sender, args[0]),
   },
   {
     channel: PROJECT_WINDOW_CHANNELS.TABS_SEARCH,
@@ -1955,7 +2245,7 @@ async function createWindow(): Promise<void> {
       return new ProjectWindowShell(
         {
           owner: shellOwner,
-          title: shellTitleFor(record.title),
+          title: record.title,
           pathLabel: record.pathLabel,
           icon: appIconPath(),
           bounds: {
@@ -1967,7 +2257,7 @@ async function createWindow(): Promise<void> {
           minWidth: 700,
           minHeight: 500,
           backgroundColor: '#080c14',
-          // First paint stays the presenter's job (see `presentBootstrapWindow`): showing
+          // First paint stays the presenter's job (see `presentShellOnFirstPaint`): showing
           // at construction would skip the ready-to-show path and its benchmark marker.
           show: false,
         },
@@ -2050,6 +2340,22 @@ async function createWindow(): Promise<void> {
   const terminalManager = TerminalManager.getInstance();
 
   const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || DEFAULT_BOOT_WORKSPACE_ID, 'workspace');
+  /**
+   * Measured affiliation of a tab: the capsule it was created under, read off the live host rather
+   * than the capsule ledger (which holds entries no runtime path writes). Shared by the control
+   * plane's terminal-origin gate and the browser port, so both refuse a foreign bound tab on the
+   * same evidence instead of two copies that can drift apart.
+   */
+  const measuredTabAffiliation = (tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined => {
+    const host = hostForTabOrBootstrap(tabId);
+    if (!host.hasTab(tabId)) return undefined;
+    const resolvedTabId = host.resolveTargetTabId ? host.resolveTargetTabId(tabId) : tabId;
+    const capsuleId = host.getTabCapsuleId(resolvedTabId ?? tabId);
+    const capsule = capsuleId ? capsuleManager?.list().find((c) => c.id === capsuleId) : undefined;
+    if (!capsule) return undefined;
+    return { projectId: capsule.projectId, workspaceId: capsule.workspaceId, capsuleId: capsule.id };
+  };
+
   controlPlane = new ControlPlaneRuntime({
     projectId,
     workspaceId,
@@ -2100,6 +2406,22 @@ async function createWindow(): Promise<void> {
       }
       return anyReleased;
     },
+    // Terminal-origin MCP authority is minted under, and re-measured against, the terminal's
+    // measured scope — never the caller's cwd. Capsule-exact first: the terminal's own workspace
+    // capsule names one workspace even when its project holds several. A row with no capsule, or one
+    // whose affiliation is incomplete, declines here on purpose, so the runtime's owner-key fallback
+    // and its fail-closed TERMINAL_SCOPE_UNRESOLVED stay the reachable paths rather than being
+    // short-circuited by a guess.
+    resolveTerminalProjectScope: (terminalSessionId: string) => {
+      const capsuleId = terminalManager.sessionCapsuleId(terminalSessionId);
+      if (!capsuleId) return undefined;
+      const capsule = capsuleManager?.list().find((c) => c.id === capsuleId);
+      if (!capsule?.projectId || !capsule.workspaceId) return undefined;
+      return { projectId: capsule.projectId, workspaceId: capsule.workspaceId };
+    },
+    // A bound tab that provably belongs to another project than the attachment is refused with
+    // POLICY_DENIED, so the runtime gates on the same measured affiliation the browser port uses.
+    resolveTabAffiliation: measuredTabAffiliation,
   });
 
   // Synchronize capsule affiliations into the shared ProjectRegistry before opening any window
@@ -2107,18 +2429,23 @@ async function createWindow(): Promise<void> {
     synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
   }
 
-  // Every window — this one and every later one — goes through the same factory.
-  const { shell, host: bootstrapHost } = await ensureProjectWindow(owner, 'user');
+  // Every window — this one and every later one — goes through the same factory. The startup
+  // window is also presented by it (see `presentShellOnFirstPaint`), so the user sees chrome as
+  // soon as the renderer paints instead of waiting for the ~4s ledger/attachments replay — and
+  // the measurement of that moment is armed with the presentation itself, never by a second
+  // presenter racing it for the same window.
+  const { shell, host: bootstrapHost } = await ensureProjectWindow(owner, 'user', {
+    onFirstPresented: () => {
+      recordBenchmark({ surface: 'startup', name: 'firstVisible' });
+      recordProcessMetrics('afterFirstVisible');
+      startProcessMetricsSampling();
+    },
+  });
   bootstrapShell = shell;
   recordBenchmark({ surface: 'startup', name: 'windowCtor' });
 
   // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
   installApplicationMenu();
-
-  // Show the window as soon as its renderer paints (see `presentBootstrapWindow`), so
-  // the user sees chrome immediately instead of waiting for the ~4s ledger/attachments
-  // replay.
-  presentBootstrapWindow(shell);
 
   // Finish control-plane init (async relative to the window show above; the
   // renderer already painted and is interactive). The ledger/attachment replay
@@ -2223,21 +2550,7 @@ async function createWindow(): Promise<void> {
       }
     },
     isTabOffscreen: (tabId) => (tabId ? hostForTabOrBootstrap(tabId).isTabOffscreen(tabId) : false),
-    resolveTabAffiliation: (tabId) => {
-      const host = hostForTabOrBootstrap(tabId);
-      if (!host.hasTab(tabId)) return undefined;
-      // The tab's own creation-time capsule is the measured affiliation: a tab carries the capsule
-      // it was created in, while the capsule ledger holds entries no runtime path writes.
-      const resolvedTabId = host.resolveTargetTabId ? host.resolveTargetTabId(tabId) : tabId;
-      const capsuleId = host.getTabCapsuleId(resolvedTabId ?? tabId);
-      const capsule = capsuleId ? capsuleManager?.list().find((c) => c.id === capsuleId) : undefined;
-      if (!capsule) return undefined;
-      return {
-        projectId: capsule.projectId,
-        workspaceId: capsule.workspaceId,
-        capsuleId: capsule.id,
-      };
-    },
+    resolveTabAffiliation: measuredTabAffiliation,
     createTab: (url, activate = false, options) => {
       // `anchorTabId` selects the window; the host would not know what to do with it,
       // so it is consumed here and never forwarded.

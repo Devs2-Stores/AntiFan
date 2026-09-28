@@ -317,6 +317,9 @@ export const PROJECT_WINDOW_CHANNELS = {
   TABS_SEARCH: 'antifan:tabs:search',
   TABS_SEARCH_ACTIVATE: 'antifan:tabs:search-activate',
   PROJECT_OPEN: 'antifan:project:open',
+  PROJECT_LIST: 'antifan:project:list',
+  PROJECT_OPEN_PICKER: 'antifan:project:open-picker',
+  PROJECT_OPEN_PICKER_ANSWER: 'antifan:project:open-picker-answer',
   CLOSE_REFUSED: 'antifan:close:refused',
 } as const;
 
@@ -400,6 +403,48 @@ export type ProjectOpenResult =
   | { status: 'FOCUSED'; projectId: string }
   | { status: 'CANCELLED' }
   | { status: 'FAILED'; projectId?: string; reason: string };
+
+/**
+ * One row of the project inventory a renderer may host a picker for. Everything in it is
+ * resolved by Main from its own records — `isCurrent` marks the project the asking window
+ * already owns — so a click can only ever echo an id Main itself offered.
+ */
+export interface ProjectOpenListCandidate {
+  projectId: string;
+  name: string;
+  workspacePath: string;
+  /** Canonical capsule resolved for this project; absent when no unambiguous target exists. */
+  capsuleId?: string;
+  /** False only when Main currently refuses terminal assignment (unknown or ambiguous capsule claim). */
+  canAssignTerminal?: boolean;
+  isCurrent?: boolean;
+}
+
+/** Answer to `PROJECT_LIST`: the same inventory Main's own picker is built from. */
+export interface ProjectOpenListResult {
+  candidates: ProjectOpenListCandidate[];
+}
+
+/** `PROJECT_OPEN_PICKER` push: the request a chrome's modal answers under. */
+export interface ProjectOpenPickerPush {
+  requestId: string;
+}
+
+/**
+ * The modal's answer, position-free: a project id Main offered, the folder chooser, or a
+ * dismissal. Unlike the native button index, the id is validated against the inventory
+ * Main pushed for that request, so a forged or stale id is a dismissal, never a project.
+ */
+export type ProjectOpenPickerChoice =
+  | { kind: 'project'; projectId: string }
+  | { kind: 'folder' }
+  | { kind: 'cancelled' };
+
+/** `PROJECT_OPEN_PICKER_ANSWER` payload: which request this choice belongs to. */
+export interface ProjectOpenPickerAnswerPayload {
+  requestId: string;
+  choice: ProjectOpenPickerChoice;
+}
 
 /**
  * One reason a close or quit was refused, as a display projection.
@@ -488,7 +533,8 @@ export const TERMINAL_CHANNELS = {
   SLEEP_SESSION: 'antifan:terminal:sleep-session',
   WAKE_SESSION: 'antifan:terminal:wake-session',
   SET_CATEGORY: 'antifan:terminal:set-category',
-  ASSIGN_CAPSULE: 'antifan:terminal:assign-capsule',
+  ASSIGN_PROJECT: 'antifan:terminal:assign-project',
+  OPEN_LINK: 'antifan:terminal:open-link',
   GET_ALL_AFFINITIES: 'antifan:terminal:get-all-affinities',
   SET_TAB_PREFS: 'antifan:terminal:set-tab-prefs',
 } as const;
