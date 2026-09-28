@@ -38,7 +38,7 @@ import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './t
 import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCaptureEnvelope } from '../verification/visual-capture';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
-import { WorkspaceCapsuleManager, findCapsuleByRoot, findReusableCapsule, type WorkspaceCapsule } from '../project/workspace-capsule';
+import { WorkspaceCapsuleManager, findCapsuleByRoot, findReusableCapsule, type WorkspaceCapsule, type CapsuleAffiliation } from '../project/workspace-capsule';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
 import type { ControlPlaneResourceStats, ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
@@ -135,6 +135,38 @@ export const SAVED_TABS_SCHEMA_VERSION = 2;
 
 /** Owner key of the Unassigned window; derived, never a second literal. */
 const UNASSIGNED_OWNER_KEY = ownerKey({ kind: 'unassigned' });
+
+/**
+ * Owner-key prefix of a session an agent created (`window-owner.ts` spells the window
+ * owners; this is the third class, and no window ever carries it).
+ */
+const AGENT_OWNER_KEY_PREFIX = 'agent:';
+
+/**
+ * Why handing one session to a capsule's window was refused. One vocabulary for the route's
+ * own reply and for the renderer that has to say something to the user, rather than a thrown
+ * message the invoker would have to parse.
+ */
+type TerminalCapsuleAssignReason =
+  | 'INVALID_PAYLOAD'
+  | 'UNKNOWN_CAPSULE'
+  | 'CAPSULE_WITHOUT_PROJECT'
+  | 'TARGET_WINDOW_ABSENT'
+  | 'SESSION_NOT_VISIBLE'
+  | 'UNKNOWN_SESSION'
+  | 'MANAGER_AGENT_SESSION_READ_ONLY';
+
+/** The answer `antifan:terminal:assign-capsule` gives the renderer: an outcome, or a refusal it can render. */
+export type TerminalCapsuleAssignResult =
+  | { ok: true; sessionId: string; capsuleId: string; ownerKey: string }
+  | { ok: false; reason: TerminalCapsuleAssignReason; message: string };
+
+/**
+ * A refusal of the shared manager's write gate: a typed answer, never a throw. The route that
+ * hit it decides how its own contract carries the refusal — a boolean route answers `false`, a
+ * fire-and-forget channel logs it, and the assign route replies with the code itself.
+ */
+type ManagerWriteRefusal = { ok: false; reason: Extract<TerminalCapsuleAssignReason, 'MANAGER_AGENT_SESSION_READ_ONLY'>; message: string };
 
 /** One terminal window as persisted inside the record of the window that owns it. */
 export interface SavedTerminalWindowRecord {
@@ -319,6 +351,13 @@ type TerminalManagerSeam = TerminalManager & {
    */
   sessionOwnerKey?(sessionId: string): string | undefined;
 };
+
+/** The WebContents id behind an IPC sender, when the sender is one. */
+function senderWebContentsId(sender: unknown): number | undefined {
+  if (!sender || typeof sender !== 'object' || !('id' in sender)) return undefined;
+  const id = sender.id;
+  return typeof id === 'number' ? id : undefined;
+}
 
 function isExistingDirectory(candidate: string | undefined): boolean {
   if (!candidate) return false;
@@ -1089,6 +1128,47 @@ export class NativeTabHost extends EventEmitter {
     return this.capsuleManager ? this.capsuleManager.getActive() : null;
   }
 
+  /**
+   * The one open project + workspace a capsule belongs to, or undefined when nothing claims it
+   * unambiguously.
+   *
+   * A record that carries both ids is taken at its word — affiliation was validated when it was
+   * written. A record that carries neither is a legacy one, and its directory decides: the registry
+   * answers only when exactly one open project attaches that root, so a folder two projects attach
+   * resolves to nothing. That refusal is the point: a capsule whose project cannot be named has no
+   * window to hand a terminal to, and guessing one would file a running shell under a window the
+   * user never chose.
+   */
+  private capsuleAffiliation(capsule: WorkspaceCapsule): CapsuleAffiliation | undefined {
+    const projectId = typeof capsule.projectId === 'string' ? capsule.projectId.trim() : '';
+    const workspaceId = typeof capsule.workspaceId === 'string' ? capsule.workspaceId.trim() : '';
+    if (projectId && workspaceId) return { projectId, workspaceId };
+    return this.capsuleManager.uniqueAffiliationByRoot(capsule.workspacePath);
+  }
+
+  /** The owner key of the window a capsule's project owns, or undefined when it names no project. */
+  private capsuleOwnerKey(capsule: WorkspaceCapsule): string | undefined {
+    const projectId = this.capsuleAffiliation(capsule)?.projectId;
+    return projectId ? ownerKey({ kind: 'project', projectId }) : undefined;
+  }
+
+  /**
+   * Whether a window currently owns an owner key, as Main's window directory answers it.
+   *
+   * A seam that is absent, or that fails, answers "absent": the hand-over is refused rather than
+   * performed against a window nothing can prove exists.
+   */
+  private ownerWindowPresenceFor(ownerKeyValue: string): boolean {
+    const presence = this.ownerWindowPresence;
+    if (!presence) return false;
+    try {
+      return presence(ownerKeyValue) === true;
+    } catch (err) {
+      console.warn(`[native-tab-host] window presence for '${ownerKeyValue}' could not be read:`, err);
+      return false;
+    }
+  }
+
   public get isInspecting(): boolean {
     return this.devToolsHost ? this.devToolsHost.getIsInspecting() : false;
   }
@@ -1459,7 +1539,11 @@ export class NativeTabHost extends EventEmitter {
         safeSendWebContents(
           this.shell.sidebarView?.webContents,
           'antifan:terminal:session',
-          this.terminalStateForWindow(TerminalManager.getInstance().getSessionState()),
+          this.terminalStateForWindow(
+            TerminalManager.getInstance().getSessionState(),
+            undefined,
+            this.shell.sidebarView?.webContents?.id,
+          ),
         );
       });
     }
@@ -1640,14 +1724,18 @@ export class NativeTabHost extends EventEmitter {
       // Session state must never overtake buffered output for the same session.
       this.flushAllTerminalDataBatches();
       if (this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
-        safeSendWebContents(this.shell.sidebarView.webContents, 'antifan:terminal:session', this.terminalStateForWindow(state));
+        safeSendWebContents(
+          this.shell.sidebarView.webContents,
+          'antifan:terminal:session',
+          this.terminalStateForWindow(state, undefined, this.shell.sidebarView.webContents.id),
+        );
       }
       for (const [id, win] of this.terminalWindows.entries()) {
         if (win && !win.isDestroyed()) {
           // A popout keeps the session it was opened with, even when that session is
           // outside the window's capsule filter.
           const boundSessionId = this.terminalWindowMeta.get(id)?.sessionId;
-          safeSendWebContents(win.webContents, 'antifan:terminal:session', this.terminalStateForWindow(state, boundSessionId));
+          safeSendWebContents(win.webContents, 'antifan:terminal:session', this.terminalStateForWindow(state, boundSessionId, win.webContents.id));
         } else {
           this.terminalWindows.delete(id);
         }
@@ -2418,13 +2506,13 @@ export class NativeTabHost extends EventEmitter {
   {
     channel: TERMINAL_CHANNELS.DUMP_DIAGNOSTICS,
     surface: ['sidebar', 'terminalPopout'],
-    run: async ({ host }) => {
+    run: async ({ host }, event) => {
       // The manager may be the detached daemon's proxy, whose diagnostics answer arrives as a
       // promise; it is awaited and then narrowed, because a filtered report spread out of a
       // pending promise would silently drop every session row instead of scoping them.
       const report: unknown = await Promise.resolve(TerminalManager.getInstance().getDiagnostics());
       return {
-        ...host.scopeTerminalDiagnostics(report),
+        ...host.scopeTerminalDiagnostics(report, event?.sender?.id),
         fanoutMessages: host.terminalFanoutMessages,
       };
     },
@@ -2533,6 +2621,13 @@ export class NativeTabHost extends EventEmitter {
           // active one: another window's switch must not receive this window's keystrokes.
           const targetId = host.windowActiveSessionId(event?.sender);
           if (!targetId) return false;
+          // The shared manager presents every row, including an agent's; writing into one is the
+          // one thing showing it does not license.
+          const gate = host.assertManagerMayOperate(targetId, event?.sender?.id);
+          if (gate !== true) {
+            host.reportManagerWriteRefusal('antifan:terminal:input', gate);
+            return false;
+          }
           const written: unknown = TerminalManager.getInstance().writeTo(targetId, input);
           // The singleton is a daemon proxy installed by cast: it answers boolean|Promise<boolean>
           // while the in-process manager answers undefined, which maps to the old constant true.
@@ -2550,6 +2645,14 @@ export class NativeTabHost extends EventEmitter {
       const { id, input } = (args[0] || {}) as { id: string; input: string };
       const senderInfo = host.findTabByWebContents(event?.sender);
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      // The named session's own gate, read before the admission is taken: the shared manager may
+      // render an agent-owned row, but typing into it would take that agent's shell out from under
+      // it. This channel has no reply, so the refusal is the log line rather than a value.
+      const gate = host.assertManagerMayOperate(id, event?.sender?.id);
+      if (gate !== true) {
+        host.reportManagerWriteRefusal('antifan:terminal:input-session', gate);
+        return;
+      }
       // A write can be what wakes a sleeping session and spawns its PTY, so it is admitted
       // like the mint it may become. This channel is fire-and-forget: the router dispatches it
       // without awaiting and with no rejection path back to the sender, so the handler stays
@@ -2606,6 +2709,13 @@ export class NativeTabHost extends EventEmitter {
       // active session may belong to another project's window.
       const targetId = host.windowActiveSessionId(event?.sender);
       if (!targetId) return false;
+      // An agent's terminal is shown to the shared manager, not handed to it: ending that PTY
+      // would end the work the agent is in the middle of.
+      const gate = host.assertManagerMayOperate(targetId, event?.sender?.id);
+      if (gate !== true) {
+        host.reportManagerWriteRefusal('antifan:terminal:kill', gate);
+        return false;
+      }
       return TerminalManager.getInstance().closeSession(targetId);
     },
   },
@@ -2646,6 +2756,12 @@ export class NativeTabHost extends EventEmitter {
           // Restarting "the terminal" means the one this window presents: the manager only
           // exposes restart against its process-wide active session, so the window's own
           // session is made active for the call and the previous one restored after it.
+          const targetId = host.windowActiveSessionId(event?.sender);
+          const gate = host.assertManagerMayOperate(targetId, event?.sender?.id);
+          if (gate !== true) {
+            host.reportManagerWriteRefusal('antifan:terminal:restart', gate);
+            return false;
+          }
           return host.runAgainstWindowActive(event?.sender, () => TerminalManager.getInstance().restart(cwd));
         }
       );
@@ -2764,6 +2880,13 @@ export class NativeTabHost extends EventEmitter {
         targetParentId = host.windowActiveSessionId(event?.sender);
         if (!targetParentId) return false;
       }
+      // A split mints a second PTY beside the parent: for the shared manager presenting an
+      // agent's row, that would put a shell the agent never asked for next to its own.
+      const gate = host.assertManagerMayOperate(targetParentId || '', event?.sender?.id);
+      if (gate !== true) {
+        host.reportManagerWriteRefusal('antifan:terminal:split-session', gate);
+        return false;
+      }
       const splitId = await (async () => {
         // Same shape as `new-session`: the split PTY is minted inside the daemon, so the
         // admission is re-read and registered in one step across the call.
@@ -2815,10 +2938,11 @@ export class NativeTabHost extends EventEmitter {
   {
     channel: TERMINAL_CHANNELS.LIST_SESSIONS,
     surface: ['sidebar', 'terminalPopout'],
-    run: ({ host }) => {
+    run: ({ host }, event) => {
       // The list the sidebar bootstraps from carries the same scope as its pushed
-      // projection: never another project's sessions.
-      return host.visibleTerminalSessions();
+      // projection: never another project's sessions — and every project's, when the
+      // asking renderer is the shared manager's own chrome.
+      return host.visibleTerminalSessions(event?.sender?.id);
     },
   },
   {
@@ -2884,6 +3008,13 @@ export class NativeTabHost extends EventEmitter {
       if (isAgent && id) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
+      // The manager's own read-only rule: it may close any row it shows except the agent-owned
+      // ones, whose shells are not the manager's to end.
+      const gate = host.assertManagerMayOperate(id, event?.sender?.id);
+      if (gate !== true) {
+        host.reportManagerWriteRefusal('antifan:terminal:close-session', gate);
+        return false;
+      }
       host.clearTerminalAgentAffinity(id);
       return TerminalManager.getInstance().closeSession(id);
     },
@@ -2898,6 +3029,13 @@ export class NativeTabHost extends EventEmitter {
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
         host.assertTerminalAccess(senderInfo.tabId, id);
+      }
+      // Deleting is closing by another name, so the manager's read-only rule is the same one:
+      // an agent-owned row is shown, never destroyed.
+      const gate = host.assertManagerMayOperate(id, event?.sender?.id);
+      if (gate !== true) {
+        host.reportManagerWriteRefusal('antifan:terminal:delete-session', gate);
+        return false;
       }
       host.clearTerminalAgentAffinity(id);
       return TerminalManager.getInstance().closeSession(id);
@@ -2988,6 +3126,12 @@ export class NativeTabHost extends EventEmitter {
       if (isAgent) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
+      // Sleeping parks a session the manager shows; an agent-owned one is the agent's to park.
+      const gate = host.assertManagerMayOperate(id, event?.sender?.id);
+      if (gate !== true) {
+        host.reportManagerWriteRefusal('antifan:terminal:sleep-session', gate);
+        return false;
+      }
       return TerminalManager.getInstance().sleepSession(id);
     },
   },
@@ -3008,6 +3152,11 @@ export class NativeTabHost extends EventEmitter {
       // until the wake settles, and the access refusal above stays synchronous.
       // The wake is what emits 'session-woken'; the affinity tombstone written
       // while the session slept is lifted by the listener, not here.
+      const gate = host.assertManagerMayOperate(id, event?.sender?.id);
+      if (gate !== true) {
+        host.reportManagerWriteRefusal('antifan:terminal:wake-session', gate);
+        return false;
+      }
       return host.admitThenRun(
         'antifan:terminal:wake-session',
         { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
@@ -3458,9 +3607,17 @@ export class NativeTabHost extends EventEmitter {
     channel: 'antifan:capsule:list',
     surface: ['sidebar', 'terminalPopout'],
     run: ({ host }) => {
+      // `projectId` is optional on a capsule record and a legacy record carries none, so the
+      // renderer cannot always name the project window it would open before handing a terminal
+      // over. The resolved id is additive: the stored record stays exactly as the store spells it,
+      // and this is the same affiliation the assign route computes for itself, so the renderer
+      // opens the very window the move will target instead of one it guessed.
       return {
         activeCapsuleId: host.capsuleManager.getActive()?.id || '',
-        capsules: host.capsuleManager.list(),
+        capsules: host.capsuleManager.list().map((capsule) => {
+          const projectId = host.capsuleAffiliation(capsule)?.projectId;
+          return projectId ? { ...capsule, resolvedProjectId: projectId } : capsule;
+        }),
       };
     },
   },
@@ -3582,6 +3739,76 @@ export class NativeTabHost extends EventEmitter {
         });
       }
       return true;
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.ASSIGN_CAPSULE,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      const raw = args[0];
+      const payload = raw && typeof raw === 'object' ? raw : {};
+      const sessionId = 'sessionId' in payload && typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+      const capsuleId = 'capsuleId' in payload && typeof payload.capsuleId === 'string' ? payload.capsuleId.trim() : '';
+      const refused = (reason: TerminalCapsuleAssignReason, message: string): TerminalCapsuleAssignResult => ({ ok: false, reason, message });
+      // Both ids come from a renderer, so neither is trusted: a session id nothing owns and a
+      // capsule id nothing stores are answered, not attempted.
+      if (!sessionId || !capsuleId) {
+        return refused('INVALID_PAYLOAD', 'assign-capsule needs both a sessionId and a capsuleId');
+      }
+      let capsule: WorkspaceCapsule;
+      try {
+        capsule = host.capsuleManager.get(capsuleId);
+      } catch {
+        return refused('UNKNOWN_CAPSULE', `No capsule '${capsuleId}'`);
+      }
+      // The window a row belongs to is its project's window, and only an unambiguous affiliation
+      // names one. Main's own directory refuses an ambiguous record rather than choosing a project
+      // for it, so the same answer holds here: a capsule that names no single project cannot hand a
+      // terminal to a window, and picking one would file a running shell under a window the user
+      // never chose.
+      const ownerKeyValue = host.capsuleOwnerKey(capsule);
+      if (!ownerKeyValue) {
+        return refused('CAPSULE_WITHOUT_PROJECT', `Capsule '${capsuleId}' has no one open project to own the session`);
+      }
+      // A row's owner key IS the window that renders it, so the move is only legal onto a window
+      // that exists: a project-owned row no window claims would be visible to no window at all.
+      // Opening that window is the renderer's step (the same `openProject` call a user's own open
+      // goes through); this route never creates a window.
+      if (!host.ownerWindowPresenceFor(ownerKeyValue)) {
+        return refused('TARGET_WINDOW_ABSENT', `No open window owns '${ownerKeyValue}'`);
+      }
+      // The manager reads every row; it drives none of the agent-owned ones. A window that cannot
+      // even see the session has no authority over it either, which is what keeps one project's
+      // terminal from being re-homed by another project's window.
+      const gate = host.assertManagerMayOperate(sessionId, event?.sender?.id);
+      if (gate !== true) return refused(gate.reason, gate.message);
+      if (!host.isSessionVisibleToWindow(sessionId, undefined, event?.sender?.id)) {
+        return refused('SESSION_NOT_VISIBLE', `Session '${sessionId}' does not belong to this window`);
+      }
+      // The move re-stamps a live row, so it is admitted like every other mutation: a close attempt
+      // that already began measures this work instead of a row changing hands underneath it.
+      const settled: unknown = host.admitThenRun(
+        TERMINAL_CHANNELS.ASSIGN_CAPSULE,
+        { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        () => {
+          const transferred: unknown = TerminalManager.getInstance().transferSessionOwner(sessionId, ownerKeyValue, capsuleId);
+          // The singleton is a daemon proxy installed by cast: it answers the same boolean the
+          // in-process manager does, but as the settlement of its round-trip, so a refusal is read
+          // off whichever answer arrives.
+          const thenable = transferred as { then?: unknown } | null | undefined;
+          if (thenable && typeof thenable.then === 'function') {
+            return Promise.resolve(transferred).then((moved: unknown) =>
+              moved === true
+                ? ({ ok: true, sessionId, capsuleId, ownerKey: ownerKeyValue } satisfies TerminalCapsuleAssignResult)
+                : refused('UNKNOWN_SESSION', `No live session '${sessionId}'`)
+            );
+          }
+          return transferred === true
+            ? ({ ok: true, sessionId, capsuleId, ownerKey: ownerKeyValue } satisfies TerminalCapsuleAssignResult)
+            : refused('UNKNOWN_SESSION', `No live session '${sessionId}'`);
+        }
+      );
+      return settled;
     },
   },
   {
@@ -3748,7 +3975,7 @@ export class NativeTabHost extends EventEmitter {
       safeSendWebContents(
         this.shell.sidebarView.webContents,
         'antifan:terminal:session',
-        this.terminalStateForWindow(TerminalManager.getInstance().getSessionState()),
+        this.terminalStateForWindow(TerminalManager.getInstance().getSessionState(), undefined, this.shell.sidebarView.webContents.id),
       );
     }
     return this.shell.isSidebarOpen;
@@ -5068,14 +5295,85 @@ export class NativeTabHost extends EventEmitter {
    * attached by another project — never matches. A window with no verified workspace at all
    * sees only what no window claimed (`DEFAULT_TERMINAL_CAPSULE_ID`, or a legacy record that
    * carries no tag).
+   *
+   * `managerAll` is the third answer, and it is not a wider version of the two above: the shared
+   * manager window sees every row there is (see `isSharedTerminalManagerSender`). Everything that
+   * reads a terminal row on behalf of a window asks here, so the manager answers the same way for
+   * the projection it renders, the list it bootstraps from and the diagnostics it can read.
    */
-  private windowSessionScope(): { ownerKey: string; tags: Set<string>; acceptsUnclaimed: boolean } {
+  private windowSessionScope(senderId?: number): { ownerKey: string; tags: Set<string>; acceptsUnclaimed: boolean; managerAll: boolean } {
     const tags = new Set<string>();
     const capsuleId = this.windowWorkspaceAffiliation?.capsuleId;
     if (capsuleId) tags.add(capsuleId);
     const root = this.resolveWindowWorkspaceRoot();
     if (root) tags.add(workspaceTerminalProvenance(this.windowOwnerKey(), root));
-    return { ownerKey: this.windowOwnerKey(), tags, acceptsUnclaimed: tags.size === 0 };
+    return {
+      ownerKey: this.windowOwnerKey(),
+      tags,
+      acceptsUnclaimed: tags.size === 0,
+      managerAll: this.isSharedTerminalManagerSender(senderId),
+    };
+  }
+
+  /**
+   * Whether a caller is the shared terminal manager — the one window that shows every project's
+   * terminals at once.
+   *
+   * The manager is the Unassigned shell: the window that belongs to no project, and whose whole
+   * purpose is one list spanning capsules. Its scope is therefore the process-wide one, `agent:`
+   * rows included, because an agent's terminal is exactly the kind of row a person watching all
+   * projects wants to see. What that scope may *do* with those rows is decided separately (see
+   * `assertManagerMayOperate`).
+   *
+   * Only that window's own chrome may ask. A page inside it is not the manager — a page is never a
+   * chrome surface, so the WebContents check below refuses it — and neither is the bridge or MCP:
+   * those answer through the terminal capability surface and never reach this host. A caller that
+   * names no WebContents at all is the host projecting to its own renderers (its sidebar, its
+   * terminal windows, its diagnostics), and the host's own window is the only scope it can be
+   * speaking for.
+   */
+  private isSharedTerminalManagerSender(senderId?: number): boolean {
+    if (this.windowOwnerKey() !== UNASSIGNED_OWNER_KEY) return false;
+    return senderId === undefined || this.ownsChromeSender(senderId);
+  }
+
+  /**
+   * The manager's write gate: a session it may only read is refused before any manager call.
+   *
+   * The shared manager renders every window's rows, and an `agent:` row belongs to no window at
+   * all — an agent created that shell and is driving it. Showing it is the point; typing into it,
+   * sleeping it, killing it or handing it to another capsule would take a running agent's shell out
+   * from under it, so the manager reads those rows and nothing more. Reads are untouched: every
+   * projection, diagnostics report and buffer stays whole for the manager.
+   *
+   * The refusal is returned, never thrown: the calling route answers in its own contract, so a
+   * boolean channel resolves `false` and a fire-and-forget channel reports the code it logged
+   * instead of leaving a throw in an IPC path that has nowhere to put one.
+   */
+  public assertManagerMayOperate(sessionId: string, senderId?: number): true | ManagerWriteRefusal {
+    const id = typeof sessionId === 'string' ? sessionId.trim() : '';
+    if (!id) return true;
+    if (!this.isSharedTerminalManagerSender(senderId)) return true;
+    const owner = this.sessionOwnerKey(id);
+    if (!owner || !owner.startsWith(AGENT_OWNER_KEY_PREFIX)) return true;
+    return {
+      ok: false,
+      reason: 'MANAGER_AGENT_SESSION_READ_ONLY',
+      message: `Agent-owned session '${id}' is shown to the shared manager read-only`,
+    };
+  }
+
+  /** The owner key the manager holds for a session; `undefined` when nothing owns it. */
+  private sessionOwnerKey(sessionId: string): string | undefined {
+    const tm = TerminalManager.getInstance() as TerminalManagerSeam;
+    if (typeof tm.sessionOwnerKey !== 'function') return undefined;
+    const owner = tm.sessionOwnerKey(sessionId);
+    return typeof owner === 'string' && owner.length > 0 ? owner : undefined;
+  }
+
+  /** Report a manager write refusal on the channel that hit it, for the channels that cannot reply. */
+  private reportManagerWriteRefusal(surface: string, refusal: ManagerWriteRefusal): void {
+    console.warn(`[native-tab-host] ${surface} refused: ${refusal.reason} — ${refusal.message}`);
   }
 
   /**
@@ -5087,21 +5385,25 @@ export class NativeTabHost extends EventEmitter {
    * project's sessions, and falling back to it would hand a scoped window exactly what the
    * scope exists to withhold.
    */
-  private scopedTerminalProjection(includeSessionId?: string): TerminalSessionStateProjection {
-    return this.terminalStateForWindow(TerminalManager.getInstance().getSessionState(), includeSessionId);
+  private scopedTerminalProjection(includeSessionId?: string, senderId?: number): TerminalSessionStateProjection {
+    return this.terminalStateForWindow(TerminalManager.getInstance().getSessionState(), includeSessionId, senderId);
   }
 
   /**
    * The terminal state this window may see, projected from the process-wide view.
    *
-   * Only the sessions this window can attribute to itself survive; the transcript on hand
-   * belongs to whichever session the process view made active, so a window that may not see
-   * that session is given an empty one instead of a foreign transcript.
+   * Only the sessions this window can attribute to itself survive — every one of them, when the
+   * window is the shared manager; the transcript on hand belongs to whichever session the process
+   * view made active, so a window that may not see that session is given an empty one instead of a
+   * foreign transcript.
+   *
+   * `senderId` is the WebContents the projection is being built for, so the manager rule is
+   * decided by the same funnel that decides the row's visibility (`windowSessionScope`).
    */
-  private terminalStateForWindow(state: unknown, includeSessionId?: string): TerminalSessionStateProjection {
+  private terminalStateForWindow(state: unknown, includeSessionId?: string, senderId?: number): TerminalSessionStateProjection {
     const projection = (state ?? {}) as Partial<TerminalSessionStateProjection>;
     const sessions = (Array.isArray(projection.sessions) ? projection.sessions : []).filter(
-      (session) => session && (this.isSessionVisibleToWindow(session.id) || session.id === includeSessionId),
+      (session) => session && (this.isSessionVisibleToWindow(session.id, undefined, senderId) || session.id === includeSessionId),
     );
     const rawActive = typeof projection.activeSessionId === 'string' ? projection.activeSessionId : '';
     const wanted = includeSessionId && sessions.some((session) => session.id === includeSessionId) ? includeSessionId : undefined;
@@ -5129,9 +5431,10 @@ export class NativeTabHost extends EventEmitter {
    * presents nothing.
    */
   public windowActiveSessionId(sender?: unknown): string {
+    const senderId = senderWebContentsId(sender);
     const bound = this.terminalSessionForSender(sender);
-    if (bound && this.isSessionVisibleToWindow(bound)) return bound;
-    return this.terminalStateForWindow(TerminalManager.getInstance().getSessionState()).activeSessionId;
+    if (bound && this.isSessionVisibleToWindow(bound, undefined, senderId)) return bound;
+    return this.terminalStateForWindow(TerminalManager.getInstance().getSessionState(), undefined, senderId).activeSessionId;
   }
 
   /**
@@ -5170,8 +5473,8 @@ export class NativeTabHost extends EventEmitter {
    * manager, so a renderer cannot read, type into, rename or kill a session it was never
    * shown. A route that names no session acts on this window's own active session instead.
    */
-  public admitsSessionForWindow(sessionId: string): boolean {
-    return this.isSessionVisibleToWindow(sessionId);
+  public admitsSessionForWindow(sessionId: string, senderId?: number): boolean {
+    return this.isSessionVisibleToWindow(sessionId, undefined, senderId);
   }
 
   /**
@@ -5188,19 +5491,27 @@ export class NativeTabHost extends EventEmitter {
    * seam that cannot answer — is refused rather than passed through, because the unscoped
    * answer is every project's session.
    *
+   * The shared manager window is the one exception, and it is a scope of its own rather than a
+   * widened project scope: an Unassigned window's own chrome sees every row, because one list
+   * across projects is what that window is for (`windowSessionScope`).
+   *
    * `facts` are the ownership facts a caller already holds, as a diagnostics row does. A
    * caller holding none has them read from the manager seam.
    */
-  private isSessionVisibleToWindow(sessionId: string, facts?: { ownerKey?: string; capsuleId?: string }): boolean {
+  private isSessionVisibleToWindow(sessionId: string, facts?: { ownerKey?: string; capsuleId?: string }, senderId?: number): boolean {
     // A terminal window and the sidebar that opened it are the same window: the
     // session one of this host's own windows presents stays visible to its host.
     for (const meta of this.terminalWindowMeta.values()) {
       if (meta?.sessionId === sessionId) return true;
     }
+    const { ownerKey, tags, acceptsUnclaimed, managerAll } = this.windowSessionScope(senderId);
+    // The shared manager shows every project's rows, `agent:` rows included: the two rules below
+    // attribute a row to ONE window, which is exactly the attribution this window exists to see
+    // past. What it may then do with a row is a separate question (`assertManagerMayOperate`).
+    if (managerAll) return true;
     const tm = TerminalManager.getInstance() as TerminalManagerSeam;
     const rowOwner = typeof facts?.ownerKey === 'string' && facts.ownerKey ? facts.ownerKey : undefined;
     const rowCapsule = typeof facts?.capsuleId === 'string' && facts.capsuleId ? facts.capsuleId : undefined;
-    const { ownerKey, tags, acceptsUnclaimed } = this.windowSessionScope();
 
     const sessionOwner = rowOwner ??
       (typeof tm.sessionOwnerKey === 'function' ? tm.sessionOwnerKey(sessionId) : undefined);
@@ -5225,9 +5536,9 @@ export class NativeTabHost extends EventEmitter {
    * Same scope as `terminalStateForWindow`. The unscoped list is every project's
    * terminals, so it never leaves this host.
    */
-  public visibleTerminalSessions(): SessionSummary[] {
+  public visibleTerminalSessions(senderId?: number): SessionSummary[] {
     const tm = TerminalManager.getInstance();
-    return this.terminalStateForWindow(tm.getSessionState()).sessions;
+    return this.terminalStateForWindow(tm.getSessionState(), undefined, senderId).sessions;
   }
 
   /**
@@ -5242,20 +5553,20 @@ export class NativeTabHost extends EventEmitter {
    * answers it asynchronously, so the caller awaits it and narrows the result here rather
    * than asking the authority for a filtered report it cannot always compute.
    */
-  public scopeTerminalDiagnostics(report: unknown): TerminalDiagnosticsReport {
+  public scopeTerminalDiagnostics(report: unknown, senderId?: number): TerminalDiagnosticsReport {
     const source = (report ?? {}) as Partial<TerminalDiagnosticsReport>;
     // Each row names its own owner key and capsule, so the row is decided on the facts it
     // carries — by the same rule, in the same order, the sidebar and every other terminal read
     // go through.
     const sessions = (Array.isArray(source.sessions) ? source.sessions : []).filter(
-      (session) => Boolean(session) && this.isSessionVisibleToWindow(session.sessionId, session),
+      (session) => Boolean(session) && this.isSessionVisibleToWindow(session.sessionId, session, senderId),
     );
     // A subscriber row that cannot name its session cannot be attributed to any window, so it
     // is dropped rather than shown: `recordSubscriberAck` always records a session id.
     const subscribers = (Array.isArray(source.subscribers) ? source.subscribers : []).filter(
-      (subscriber) => typeof subscriber?.sessionId === 'string' && this.isSessionVisibleToWindow(subscriber.sessionId),
+      (subscriber) => typeof subscriber?.sessionId === 'string' && this.isSessionVisibleToWindow(subscriber.sessionId, undefined, senderId),
     );
-    const activeSessionId = typeof source.activeSessionId === 'string' && this.isSessionVisibleToWindow(source.activeSessionId)
+    const activeSessionId = typeof source.activeSessionId === 'string' && this.isSessionVisibleToWindow(source.activeSessionId, undefined, senderId)
       ? source.activeSessionId
       : '';
     return {
@@ -10142,6 +10453,26 @@ export class NativeTabHost extends EventEmitter {
    * before this seam existed instead of guessing at an attempt's state.
    */
   private closeAdmission: TabHostCloseAdmission | null = null;
+  /**
+   * Whether a window currently exists for an owner key, as Main's window directory answers it.
+   *
+   * A terminal row's owner key names the window that renders it, so a row moved onto a project
+   * whose window is not open would belong to nothing: no window's scope matches it and the shell
+   * the user meant to hand it to is not there to show it. Main owns the window directory, so the
+   * host asks through this seam rather than inferring a window from a title or a census. A host
+   * that was never wired answers "absent", which refuses the move instead of filing a row under a
+   * window nothing can produce.
+   */
+  private ownerWindowPresence: ((ownerKey: string) => boolean) | null = null;
+
+  /**
+   * Install (or clear) the window-presence seam. Main injects its window directory here, the
+   * way it injects the close reservations; a host without it refuses owner-keyed moves rather
+   * than assuming the window exists.
+   */
+  public setOwnerWindowPresence(presence: ((ownerKey: string) => boolean) | null): void {
+    this.ownerWindowPresence = typeof presence === 'function' ? presence : null;
+  }
   /**
    * Nesting depth of admitted agent actions. The keyboard action the automation host
    * routes back through this host arrives with an action already admitted, so the inner

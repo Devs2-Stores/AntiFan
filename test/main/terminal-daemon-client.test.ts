@@ -15,7 +15,7 @@ import * as net from 'node:net';
 import * as http from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { DaemonClient, DaemonTerminalProxy, HANDSHAKE_TIMEOUT_MS } from '../../src/main/terminal-daemon/daemon-client';
-import { HOST_METHOD } from '../../src/main/terminal-daemon/protocol';
+import { HOST_METHOD, HOST_EVENT_TO_LOCAL } from '../../src/main/terminal-daemon/protocol';
 
 const SETTLE_BOUND_MS = 2000;
 
@@ -277,6 +277,141 @@ describe('DaemonTerminalProxy — write settlement contract', () => {
 
     assert.equal(await writeResult, false, 'a failed RPC resolves false, never a stray true');
     assert.equal(await writeToResult, false);
+  });
+});
+
+describe('DaemonTerminalProxy — owner handover contract', () => {
+  /**
+   * The daemon owns the session records, so the facade can only ask it to re-stamp a row and then
+   * read the answer back from the summaries the host pushes. Two questions are pinned here: does a
+   * refusal stay a refusal (false, not a throw) so a caller can tell "not moved" from "could not
+   * ask", and does the cache the host scopes by carry the new owner once the move is accepted.
+   *
+   * The transport is the same deferred-call fake the write rows use, joined to the proxy's own
+   * `wireEvents` wiring so the pushed session state travels the path it travels in production.
+   */
+  function proxyWithTransport(): {
+    proxy: DaemonTerminalProxy;
+    calls: Array<{ method: string; params: Record<string, unknown>; deferred: PromiseWithResolvers<unknown> }>;
+    pushSession: (state: Record<string, unknown>) => void;
+  } {
+    const calls: Array<{ method: string; params: Record<string, unknown>; deferred: PromiseWithResolvers<unknown> }> = [];
+    const listeners = new Map<string, (data: unknown) => void>();
+    const client = {
+      call(method: string, params: Record<string, unknown>) {
+        const deferred = Promise.withResolvers<unknown>();
+        calls.push({ method, params, deferred });
+        return deferred.promise;
+      },
+      onEvent(remote: string, listener: (data: unknown) => void) {
+        listeners.set(remote, listener);
+      },
+    };
+    // Same seam as the write rows: the transport is injected as a record field, and the event
+    // wiring is the proxy's own, because that wiring is what feeds the cache under test. The cache
+    // fields are seeded for the same reason the transport is injected: `Object.create` skips the
+    // class-field initializers, so an unseeded proxy would fail the push rather than the contract.
+    const proxy = Object.create(DaemonTerminalProxy.prototype) as Record<string, unknown>;
+    proxy.client = client;
+    proxy.cachedSessions = [];
+    proxy.cachedSessionsById = new Map<string, Record<string, unknown>>();
+    proxy.cachedActiveSessionId = '';
+    proxy.cachedCwd = '';
+    proxy.cachedSessionState = null;
+    proxy.cachedStats = {
+      sessionCount: 0,
+      runningPtyCount: 0,
+      transcriptBytes: 0,
+      dataSubscriptionCount: 0,
+      exitSubscriptionCount: 0,
+      memoryEstimateBytes: 0,
+    };
+    (proxy as unknown as { wireEvents: () => void }).wireEvents();
+
+    const sessionEvent = Object.entries(HOST_EVENT_TO_LOCAL).find(([, local]) => local === 'session')?.[0];
+    assert.ok(sessionEvent, 'the protocol must map the session push this facade caches from');
+    return {
+      proxy: proxy as unknown as DaemonTerminalProxy,
+      calls,
+      pushSession: (state: Record<string, unknown>) => {
+        const listener = listeners.get(sessionEvent);
+        assert.ok(listener, 'wireEvents must subscribe to the session push');
+        listener(state);
+      },
+    };
+  }
+
+  it('resolves true for an accepted move, and leaves the new owner in the cache the host scopes by', async () => {
+    const { proxy, calls, pushSession } = proxyWithTransport();
+    pushSession({ sessions: [{ id: 'terminal-1', ownerKey: 'project:proj-comnieu', capsuleId: 'capsule-comnieu', state: 'running' }], activeSessionId: 'terminal-1' });
+    assert.equal(proxy.sessionOwnerKey('terminal-1'), 'project:proj-comnieu', 'the row starts on its source window');
+
+    const moved = proxy.transferOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
+    assert.deepStrictEqual(
+      calls.map((c) => ({ method: c.method, params: c.params })),
+      [{ method: HOST_METHOD.transferOwner, params: { sessionId: 'terminal-1', ownerKey: 'project:proj-phukien', capsuleId: 'capsule-phukien' } }],
+      'the handover carries the session, the new owner and the new capsule in one request'
+    );
+
+    // A move is not "done" until the daemon says so: answering early is what would let a window
+    // show a row it does not own yet.
+    let settled = false;
+    void moved.then(() => { settled = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(settled, false, 'the facade must not answer before the RPC settles');
+
+    // The host broadcasts the ordinary session event before answering, so the cache is warm by the
+    // time the promise settles — and the two answers below are what every window scopes by.
+    pushSession({ sessions: [{ id: 'terminal-1', ownerKey: 'project:proj-phukien', capsuleId: 'capsule-phukien', state: 'running' }], activeSessionId: 'terminal-1' });
+    calls[0]!.deferred.resolve({ transferred: true });
+
+    assert.equal(await moved, true, 'an accepted move resolves true');
+    assert.equal(proxy.sessionOwnerKey('terminal-1'), 'project:proj-phukien', 'the cached summary carries the new owner');
+    assert.equal(proxy.sessionCapsuleId('terminal-1'), 'capsule-phukien', 'and the new capsule');
+  });
+
+  it('resolves false for every refusal the daemon answers, so a refusal is never a rejection', async () => {
+    const { proxy, calls } = proxyWithTransport();
+
+    const unknown = proxy.transferOwner('terminal-gone', 'project:proj-phukien', 'capsule-phukien');
+    const emptyOwner = proxy.transferOwner('terminal-1', '', 'capsule-phukien');
+    const blankCapsule = proxy.transferOwner('terminal-1', 'project:proj-phukien', '   ');
+    // A daemon answer that forgot the field is a refusal too: only an explicit true is a move.
+    const malformed = proxy.transferOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
+
+    assert.deepStrictEqual(
+      calls.map((c) => ({ method: c.method, params: c.params })),
+      [
+        { method: HOST_METHOD.transferOwner, params: { sessionId: 'terminal-gone', ownerKey: 'project:proj-phukien', capsuleId: 'capsule-phukien' } },
+        { method: HOST_METHOD.transferOwner, params: { sessionId: 'terminal-1', ownerKey: '', capsuleId: 'capsule-phukien' } },
+        { method: HOST_METHOD.transferOwner, params: { sessionId: 'terminal-1', ownerKey: 'project:proj-phukien', capsuleId: '   ' } },
+        { method: HOST_METHOD.transferOwner, params: { sessionId: 'terminal-1', ownerKey: 'project:proj-phukien', capsuleId: 'capsule-phukien' } },
+      ],
+      'the facade asks the daemon and passes the identity through: a blank owner is the daemon\'s to refuse, not a local guess'
+    );
+
+    calls[0]!.deferred.resolve({ transferred: false });
+    calls[1]!.deferred.resolve({ transferred: false });
+    calls[2]!.deferred.resolve({ transferred: false });
+    calls[3]!.deferred.resolve({});
+
+    assert.equal(await unknown, false, 'an unknown session is answered, not thrown');
+    assert.equal(await emptyOwner, false);
+    assert.equal(await blankCapsule, false);
+    assert.equal(await malformed, false, 'a missing answer field is not read as success');
+  });
+
+  it('rejects when the daemon cannot answer at all, so a dead transport is not read as a refusal', async () => {
+    const { proxy, calls, pushSession } = proxyWithTransport();
+    pushSession({ sessions: [{ id: 'terminal-1', ownerKey: 'project:proj-comnieu', capsuleId: 'capsule-comnieu', state: 'running' }], activeSessionId: 'terminal-1' });
+
+    const moved = proxy.transferOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
+    calls[0]!.deferred.reject(new Error('daemon socket closed'));
+
+    await assert.rejects(moved, /daemon socket closed/, 'a transport failure must stay a rejection');
+    assert.equal(proxy.sessionOwnerKey('terminal-1'), 'project:proj-comnieu', 'a move that could not be asked leaves the row where it was');
+    assert.equal(proxy.sessionCapsuleId('terminal-1'), 'capsule-comnieu');
   });
 });
 

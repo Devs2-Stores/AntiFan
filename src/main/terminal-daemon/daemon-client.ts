@@ -21,7 +21,7 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { HOST_METHOD, HOST_EVENT, HOST_EVENT_TO_LOCAL } from './protocol';
-import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostStartParams, HostStartResult } from './protocol';
+import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostStartParams, HostStartResult, HostTransferOwnerParams } from './protocol';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload } from '../../shared/contracts';
 import type { TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
 
@@ -547,6 +547,26 @@ export class DaemonTerminalProxy extends EventEmitter {
 
   async setCapsule(capsuleId: string, cwd?: string, sessionId?: string): Promise<void> {
     await this.client.call(HOST_METHOD.setCapsule, { capsuleId, cwd, sessionId });
+  }
+
+  /**
+   * Move a live session onto another window owner, re-stamping its owner key and workspace capsule.
+   *
+   * ASYNC/SYNC SEAM CONTRACT: `TerminalManager.transferSessionOwner(sessionId, ownerKey, capsuleId)`
+   * in-process is synchronous and returns `boolean`; the daemon owns the records, so this facade
+   * returns `Promise<boolean>` for the same call.
+   *
+   * A refusal — unknown session, already-closed session, empty identity — resolves `false` instead of
+   * rejecting, because that is exactly what the in-process call returns for the same inputs. Only a
+   * transport failure or a malformed request rejects, so a caller can tell "not moved" from "could
+   * not ask". The host broadcasts the ordinary session event before answering, so the cached
+   * summaries this facade answers {@link sessionOwnerKey} and {@link sessionCapsuleId} from carry the
+   * new owner by the time this promise settles.
+   */
+  async transferOwner(sessionId: string, ownerKey: string, capsuleId: string): Promise<boolean> {
+    const payload: HostTransferOwnerParams = { sessionId, ownerKey, capsuleId };
+    const r = await this.client.call<{ transferred: boolean }>(HOST_METHOD.transferOwner, payload);
+    return r.transferred === true;
   }
 
   async recordSubscriberAck(ack: TerminalAckPayload): Promise<void> {

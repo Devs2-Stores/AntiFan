@@ -636,7 +636,9 @@ describe('Renderer bulk affinity badges', () => {
 describe('Renderer tab context-menu actions', () => {
   it('wires sleep, wake and the category picker, and refuses impossible actions', async () => {
     const harness = loadStandalone({
-      contextMenuActions: ['sleep', 'wake', 'category', 'rebind-tab', 'close'],
+      // `assign-capsule` is the tab→project handover: its item must exist for the menu to offer
+      // the move, and the picker it opens is driven in terminal-capsule-picker.test.ts.
+      contextMenuActions: ['sleep', 'wake', 'category', 'rebind-tab', 'assign-capsule', 'close'],
     });
     await flush();
     const list = [

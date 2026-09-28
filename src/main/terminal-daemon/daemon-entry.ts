@@ -398,6 +398,20 @@ function main(): void {
             break;
           }
 
+          case HOST_METHOD.transferOwner: {
+            // The refusal is the manager's answer, not a transport failure: an unknown, closed,
+            // empty-keyed or no-op transfer must resolve `false` on the proxy exactly as it returns
+            // `false` in-process. Reporting it as `success:false` would make the proxy reject and
+            // hand the caller a different shape for the same call depending on which side it ran.
+            const transferred = tm.transferSessionOwner(
+              String(p.sessionId || ''),
+              String(p.ownerKey || ''),
+              String(p.capsuleId || ''),
+            );
+            respond(true, { transferred });
+            break;
+          }
+
           case HOST_METHOD.recordSubscriberAck:
             tm.recordSubscriberAck({
               rendererInstanceId: String(p.rendererInstanceId || ''),

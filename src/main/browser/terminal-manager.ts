@@ -1203,6 +1203,65 @@ export class TerminalManager extends EventEmitter {
   }
 
   /**
+   * Move a live session onto another window owner.
+   *
+   * Every other path stamps an owner exactly once, at creation, and never again: ownership is what
+   * decides which window's sidebar may show the row, so a silent re-stamp would move a running
+   * shell out from under the user. This is the one call that is allowed to move it, because a
+   * person explicitly asked for it — the terminal manager handing a row to the capsule it belongs to.
+   *
+   * The window owner and the workspace capsule move together, never separately: a row whose owner
+   * and capsule disagree is a shell shown in one project's window while attributed to another
+   * project's workspace. Global creation state (`currentCapsuleId`/`currentCwd`) is deliberately
+   * untouched — this re-stamps existing records, it does not adopt anything, so the calling window's
+   * next session still lands where it would have.
+   *
+   * A pane is a separate record with its own PTY, its own capsule AND its own owner, so moving only
+   * the row that was addressed would leave a tab and its panes owned by two different windows. The
+   * addressed id is therefore resolved to the base session first — the same shape `setCategory`
+   * uses — and every pane of that tab is re-stamped with it, so assigning a pane moves its whole tab
+   * and assigning a tab takes its panes along.
+   *
+   * Refuses an unknown or already-closed session with `false` and never throws: a refusal is an
+   * answer the caller reports, not an error. An empty owner/capsule is refused too, since it would
+   * file the row under nothing. A sleeping or exited session transfers like a running one — its tab
+   * is still on screen, and the new owner needs the row to render it. One ordinary `'session'`
+   * broadcast follows for the whole cascade, so both the window losing the rows and the window
+   * gaining them re-render from a single push.
+   */
+  public transferSessionOwner(sessionId: string, ownerKey: string, capsuleId: string): boolean {
+    const direct = this.sessions.get(sessionId);
+    if (!direct || direct.disposed || direct.state === 'closed') return false;
+    const nextOwnerKey = typeof ownerKey === 'string' ? ownerKey.trim() : '';
+    const nextCapsuleId = typeof capsuleId === 'string' ? capsuleId.trim() : '';
+    if (!nextOwnerKey || !nextCapsuleId) return false;
+    // A pane cannot outlive the tab it splits, so it may not be owned apart from it either: the
+    // addressed id resolves to its base session, exactly as the category and sleep cascades do.
+    const baseId = direct.splitOf || sessionId;
+    const base = this.sessions.get(baseId) || direct;
+    const affected: Session[] = [base];
+    for (const split of this.sessions.values()) {
+      if (split.splitOf === baseId) affected.push(split);
+    }
+    const moved = affected.filter(s => s.ownerKey !== nextOwnerKey || s.capsuleId !== nextCapsuleId);
+    // Nothing to move: the tab and every pane already belong to the target. Not a failure — the
+    // caller asked for a state that already holds — and not a reason to rewrite the file.
+    if (moved.length === 0) return true;
+    for (const s of moved) {
+      s.ownerKey = nextOwnerKey;
+      s.capsuleId = nextCapsuleId;
+      this.dirtySessionIds.add(s.id);
+    }
+    // The debounced writer is the same one the category/sleep mutations use, and it goes through
+    // serializeSessionFragment: the owner is a persisted field (the restore stamps read it back
+    // verbatim), so a transfer that never reached the file would come back owned by the old window.
+    // This marks the base dirty and arms the write; the panes were marked in the loop above.
+    this.schedulePersist(baseId);
+    this.emitSession();
+    return true;
+  }
+
+  /**
    * Creates the session record (transcript, generation, identity) without a shell.
    * Restoring several Windows PTYs in one loop blocked the main thread for 3.5-7.9s
    * (measured: 150-800ms per spawn), so restored background sessions are recorded

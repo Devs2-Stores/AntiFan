@@ -43,6 +43,12 @@ export const HOST_METHOD = {
   wakeSession: 'terminalWakeSession',
   setCategory: 'terminalSetCategory',
   setCapsule: 'terminalSetCapsule',
+  /**
+   * Re-stamp one live session's owner key and capsule. Dotted deliberately: unlike its siblings,
+   * this wire name is a frozen contract shared with the assign-capsule route, so it keeps its own
+   * spelling instead of the `terminalXxx` form.
+   */
+  transferOwner: 'terminal.transferOwner',
   recordSubscriberAck: 'terminalRecordSubscriberAck',
   restart: 'terminalRestart',
   getStats: 'terminalGetStats',
@@ -118,6 +124,17 @@ export interface HostRestartParams {
    * attribution, in which case the host falls back to the legacy capsule/workspace-tag attribution.
    */
   ownerKey?: string;
+  /** Forward-compatible wire payload: unknown fields travel through untouched. */
+  [key: string]: unknown;
+}
+
+/** Wire parameters for terminal.transferOwner */
+export interface HostTransferOwnerParams {
+  sessionId: string;
+  /** Window owner key the session moves to (`project:<projectId>` | `unassigned`). */
+  ownerKey: string;
+  /** Workspace capsule the session moves to; it travels with the owner so the row cannot be shown under a capsule it is not attributed to. */
+  capsuleId: string;
   /** Forward-compatible wire payload: unknown fields travel through untouched. */
   [key: string]: unknown;
 }

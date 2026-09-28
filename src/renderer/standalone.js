@@ -71,6 +71,15 @@ function applyShellScope(source) {
   shellScope.workspacePath = scopedWorkspace || legacyWorkspace;
 
   renderShellScopeChip();
+
+  // A manager shell presents terminals from many capsules and labels them by capsule, so it
+  // needs the id→name index before it can name what it is showing. One read per shell; a shell
+  // that owns a project never asks, because its own capsule is the only one its rows can be in.
+  if (isSharedManagerShell()) {
+    void ensureCapsuleIndex().then((changed) => {
+      if (changed && typeof renderTabs === 'function') renderTabs();
+    });
+  }
 }
 
 /**
@@ -204,29 +213,39 @@ let terminalNoticeEl = null;
 let terminalNoticeTimer = null;
 
 /**
- * Show a terminal-command refusal inside the panel the command was issued from.
+ * Box treatment shared by every notice tone; only the three colour declarations differ, so a
+ * notice that moves from "opening…" to a refusal repaints instead of keeping the colour of
+ * the step before it. Inline like the chip's own container: the notice must be readable even
+ * when the stylesheet that ships with the panel is not what painted this shell.
+ */
+const TERMINAL_NOTICE_BASE_STYLE = 'position:fixed;top:10px;right:12px;z-index:60;max-width:min(440px,70%);'
+  + 'padding:8px 10px;border-radius:8px;font-size:11px;line-height:1.35;'
+  + 'box-shadow:0 6px 18px rgba(0,0,0,0.35);display:none;pointer-events:none;word-break:break-word;';
+
+/** A refusal (the default), a completed move, and a step still in flight. */
+const TERMINAL_NOTICE_TONES = {
+  error: 'border:1px solid rgba(248,113,113,0.55);background:rgba(69,10,10,0.94);color:#fecaca;',
+  success: 'border:1px solid rgba(74,222,128,0.5);background:rgba(6,45,26,0.94);color:#bbf7d0;',
+  info: 'border:1px solid rgba(148,163,184,0.5);background:rgba(15,23,42,0.94);color:#cbd5e1;',
+};
+
+/**
+ * Show a terminal-command outcome inside the panel the command was issued from.
  *
  * The shell chip is not a usable surface for this: Main hides it outright for a shell whose owner
  * it has not described (`renderShellScopeChip`), so a refusal reported there can be painted into an
  * element the user cannot see. This notice is created on demand in the panel itself, so it exists
  * whether or not the header knows what the shell belongs to.
  */
-function showTerminalNotice(message) {
+function showTerminalNotice(message, tone) {
   if (!terminalNoticeEl) {
     terminalNoticeEl = document.createElement('div');
     terminalNoticeEl.id = 'terminalNotice';
     terminalNoticeEl.setAttribute('role', 'status');
-    // Inline like the chip's own container: the notice must be readable even when the stylesheet
-    // that ships with the panel is not what painted this shell.
-    terminalNoticeEl.setAttribute(
-      'style',
-      'position:fixed;top:10px;right:12px;z-index:60;max-width:min(440px,70%);padding:8px 10px;'
-      + 'border-radius:8px;border:1px solid rgba(248,113,113,0.55);background:rgba(69,10,10,0.94);'
-      + 'color:#fecaca;font-size:11px;line-height:1.35;box-shadow:0 6px 18px rgba(0,0,0,0.35);'
-      + 'display:none;pointer-events:none;word-break:break-word;',
-    );
     document.body.appendChild(terminalNoticeEl);
   }
+  const toneStyle = TERMINAL_NOTICE_TONES[tone] || TERMINAL_NOTICE_TONES.error;
+  terminalNoticeEl.setAttribute('style', TERMINAL_NOTICE_BASE_STYLE + toneStyle);
   terminalNoticeEl.textContent = message;
   terminalNoticeEl.style.display = 'block';
   clearTimeout(terminalNoticeTimer);
@@ -694,7 +713,7 @@ function categoryKeyOf(session) {
 function groupKeyOf(session, keyBySessionId) {
   const parentId = (session && typeof session.splitOf === 'string') ? session.splitOf : '';
   const parentKey = parentId ? keyBySessionId.get(parentId) : undefined;
-  return parentKey === undefined ? categoryKeyOf(session) : parentKey;
+  return parentKey === undefined ? rowGroupKeyOf(session) : parentKey;
 }
 
 /** Category name -> user-chosen chip colour. Absence means "derive it from the name". */
@@ -744,11 +763,151 @@ function categoryColorOf(key) {
   return derivedCategoryColorOf(key);
 }
 
+// ---------------------------------------------------------------------------
+// Capsules (projects): the axis a shared manager shell groups by.
+//
+// A window that owns a project shows that project's terminals, so its capsule is a constant
+// there and grouping by it would add one useless header. The manager shell — a window Main
+// has left Unassigned — shows terminals from every project instead, and there the capsule is
+// the only thing that says which storefront a row belongs to.
+// ---------------------------------------------------------------------------
+
+/** Group-key namespace for a capsule section. Prefixed so a key can never collide with a
+ *  user-typed group name (`terminalCategories` is what Main persists, so the two lists must
+ *  stay distinguishable). */
+const CAPSULE_GROUP_PREFIX = 'capsule:';
+
 /**
- * Bucket sessions by category, preserving the first-appearance order of each
- * group. Iterating `sessions` (which main owns) is what makes the group order
- * stable across renders — a hash-map or alphabetical sort would reshuffle the
- * sidebar every time a tab's activity changed.
+ * True when this shell is the shared manager: no project of its own, so its view spans every
+ * capsule. Main decides what a shell belongs to and this only reads the decision it sent — a
+ * shell it has not described is not a manager, because nothing has said it is.
+ */
+function isSharedManagerShell() {
+  return shellScope.ownerKind === 'unassigned';
+}
+
+function isCapsuleGroupKey(key) {
+  return typeof key === 'string' && key.startsWith(CAPSULE_GROUP_PREFIX) && key.length > CAPSULE_GROUP_PREFIX.length;
+}
+
+/** Capsule id -> { id, name, workspacePath, projectId } behind the rows on screen. */
+let capsuleIndex = new Map();
+let capsuleIndexLoaded = false;
+let capsuleIndexError = '';
+let capsuleIndexPending = null;
+
+/** Normalize one capsule row. `resolvedProjectId` is Main's additively resolved affiliation
+ *  for a capsule whose own record claims none. */
+function capsuleEntryOf(capsule) {
+  if (!capsule || typeof capsule !== 'object') return null;
+  const id = typeof capsule.id === 'string' ? capsule.id.trim() : '';
+  if (!id) return null;
+  const resolved = typeof capsule.resolvedProjectId === 'string' ? capsule.resolvedProjectId.trim() : '';
+  const claimed = typeof capsule.projectId === 'string' ? capsule.projectId.trim() : '';
+  return {
+    id,
+    name: typeof capsule.name === 'string' && capsule.name.trim() ? capsule.name.trim() : id,
+    workspacePath: typeof capsule.workspacePath === 'string' ? capsule.workspacePath : '',
+    projectId: resolved || claimed,
+  };
+}
+
+/**
+ * Read the capsule list into `capsuleIndex`, once per shell unless `force` asks for a fresh
+ * read (the picker does, so a capsule created in another window is offered without a restart).
+ *
+ * Resolves with whether the index changed and never rejects: a failed read is recorded in
+ * `capsuleIndexError` and shown where the list would have been, because a picker that silently
+ * offers nothing is indistinguishable from a store with no projects in it.
+ */
+function ensureCapsuleIndex(force) {
+  if (capsuleIndexPending && !force) return capsuleIndexPending;
+  if (capsuleIndexLoaded && !force) return Promise.resolve(false);
+  const read = (async () => {
+    if (!api?.listCapsules) {
+      capsuleIndexError = 'preload thiếu listCapsules';
+      capsuleIndexLoaded = true;
+      return false;
+    }
+    try {
+      const reply = await api.listCapsules();
+      const rows = reply && typeof reply === 'object' && Array.isArray(reply.capsules) ? reply.capsules : null;
+      if (!rows) {
+        capsuleIndexError = 'Danh sách dự án trả về không hợp lệ';
+        capsuleIndexLoaded = true;
+        return false;
+      }
+      const next = new Map();
+      for (const row of rows) {
+        const entry = capsuleEntryOf(row);
+        if (entry) next.set(entry.id, entry);
+      }
+      capsuleIndex = next;
+      capsuleIndexError = '';
+      capsuleIndexLoaded = true;
+      return true;
+    } catch (err) {
+      capsuleIndexError = bridgeErrorText(err);
+      capsuleIndexLoaded = true;
+      return false;
+    }
+  })();
+  capsuleIndexPending = read;
+  const settle = () => { if (capsuleIndexPending === read) capsuleIndexPending = null; };
+  read.then(settle, settle);
+  return read;
+}
+
+/** The capsule a session is filed under, or '' when it carries none. */
+function capsuleIdOf(session) {
+  return session && typeof session.capsuleId === 'string' ? session.capsuleId.trim() : '';
+}
+
+/** Display name for a capsule id. An id the index has never seen is shown as itself: the row
+ *  still belongs to that capsule, and naming it something else would be a guess. */
+function capsuleLabelOf(capsuleId) {
+  const entry = capsuleIndex.get(capsuleId);
+  return entry ? entry.name : capsuleId;
+}
+
+/** The workspace path behind a capsule id, or '' when the index has not named it. */
+function capsulePathOf(capsuleId) {
+  const entry = capsuleIndex.get(capsuleId);
+  return entry ? entry.workspacePath : '';
+}
+
+/**
+ * The group a row belongs in for this shell: its capsule in the manager, its category
+ * everywhere else — and its category in the manager too when it carries no capsule, which is
+ * what keeps a terminal that was never given a workspace reachable.
+ */
+function rowGroupKeyOf(session) {
+  const capsuleId = isSharedManagerShell() ? capsuleIdOf(session) : '';
+  return capsuleId ? CAPSULE_GROUP_PREFIX + capsuleId : categoryKeyOf(session);
+}
+
+/** The group record for one key: a capsule section in the manager, a category group otherwise. */
+function buildGroupForKey(key) {
+  if (isCapsuleGroupKey(key)) {
+    const capsuleId = key.slice(CAPSULE_GROUP_PREFIX.length);
+    return {
+      key,
+      kind: 'capsule',
+      capsuleId,
+      label: capsuleLabelOf(capsuleId),
+      color: derivedCategoryColorOf(capsuleId),
+      hint: capsulePathOf(capsuleId),
+      items: [],
+    };
+  }
+  return { key, kind: 'category', label: categoryLabelOf(key), color: categoryColorOf(key), items: [] };
+}
+
+/**
+ * Bucket sessions by the group key this shell files rows under — a capsule in the manager,
+ * a category otherwise — preserving the first-appearance order of each group. Iterating
+ * `sessions` (which main owns) is what makes the group order stable across renders — a
+ * hash-map or alphabetical sort would reshuffle the sidebar every time a tab's activity changed.
  */
 function groupSessionsByCategory(list) {
   const groups = [];
@@ -759,7 +918,7 @@ function groupSessionsByCategory(list) {
   // currently filed under it.
   for (const name of terminalCategories) {
     if (byKey.has(name)) continue;
-    const seeded = { key: name, label: name, color: categoryColorOf(name), items: [] };
+    const seeded = { key: name, kind: 'category', label: name, color: categoryColorOf(name), items: [] };
     byKey.set(name, seeded);
     groups.push(seeded);
     if (!categoryOrder.includes(name)) {
@@ -774,12 +933,12 @@ function groupSessionsByCategory(list) {
   }
   // Every session's own key, so a pane can be filed under the key of the tab it splits.
   const keyBySessionId = new Map();
-  for (const s of (list || [])) keyBySessionId.set(s.id, categoryKeyOf(s));
+  for (const s of (list || [])) keyBySessionId.set(s.id, rowGroupKeyOf(s));
   for (const s of (list || [])) {
     const key = groupKeyOf(s, keyBySessionId);
     let group = byKey.get(key);
     if (!group) {
-      group = { key, label: categoryLabelOf(key), color: categoryColorOf(key), items: [] };
+      group = buildGroupForKey(key);
       byKey.set(key, group);
       groups.push(group);
       if (!categoryOrder.includes(key)) categoryOrder.push(key);
@@ -3480,6 +3639,453 @@ function applyCategoryToSession(sessionId, rawCategory, popover) {
   } catch {}
 }
 
+// ---------------------------------------------------------------------------
+// Moving a terminal to a project (capsule).
+//
+// A terminal is owned by the window it runs in, and only Main moves it. The assignment is two
+// calls on purpose: the route that performs the move never opens a window, so the target
+// project has to be opened first — otherwise the move is refused as "no live window owns that
+// project" however many times it is retried. Nothing here reports success that Main did not
+// answer.
+// ---------------------------------------------------------------------------
+
+/** How many rows the picker paints at once. The store holds hundreds of capsules, and a
+ *  filtered list is what the field is for; the remainder is named in the hint instead of
+ *  being silently dropped. */
+const CAPSULE_PICKER_MAX_ROWS = 80;
+
+/** Sessions with an assignment round-trip in flight, so a second pick cannot fire a
+ *  second move for the same terminal while the first is still being answered. */
+const capsuleAssignmentsInFlight = new Set();
+
+/** Closes the picker view that is open, if any. Every open replaces the shared popover element,
+ *  so the previous view's document listeners are released here instead of being left attached to
+ *  a surface whose nodes no longer exist. */
+let activeCapsulePickerClose = null;
+
+/** Main's refusal codes, in the user's language. Anything unnamed is shown verbatim
+ *  rather than replaced by a guess. */
+const ASSIGN_REFUSAL_TEXT = {
+  INVALID_PAYLOAD: 'Yêu cầu chuyển Terminal không hợp lệ',
+  UNKNOWN_CAPSULE: 'Dự án này không còn tồn tại',
+  CAPSULE_WITHOUT_PROJECT: 'Dự án này chưa gắn hồ sơ dự án nên không mở được cửa sổ',
+  TARGET_WINDOW_ABSENT: 'Cửa sổ của dự án đích chưa mở',
+  UNKNOWN_SESSION: 'Terminal này đã đóng hoặc không còn tồn tại',
+  TRANSFER_UNAVAILABLE: 'Tiến trình hiện tại không chuyển được Terminal',
+  MANAGER_AGENT_SESSION_READ_ONLY: 'Terminal do agent sở hữu chỉ được xem, không chuyển được',
+  RUNTIME_DRAINING: 'Ứng dụng đang thoát nên không nhận thêm yêu cầu',
+  TARGET_STALE: 'Cửa sổ đích vừa đóng',
+};
+
+function assignRefusalText(reason, message) {
+  if (typeof reason === 'string' && ASSIGN_REFUSAL_TEXT[reason]) return ASSIGN_REFUSAL_TEXT[reason];
+  if (typeof message === 'string' && message) return message;
+  if (typeof reason === 'string' && reason) return reason;
+  return 'không rõ nguyên nhân';
+}
+
+/** The message of whatever a rejected bridge call threw, as text. The `message` property is
+ *  read rather than trusted to `instanceof`: an error raised on the other side of the isolated
+ *  world is not an instance of this realm's `Error`, and `String(err)` would prefix it with
+ *  "Error:" — text meant for the user, not for a log. */
+function bridgeErrorText(err) {
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && typeof err.message === 'string' && err.message) return err.message;
+  return String(err);
+}
+
+/** The project whose window has to exist before a capsule can receive a terminal. */
+function capsuleProjectIdOf(entry) {
+  return entry && typeof entry.projectId === 'string' ? entry.projectId.trim() : '';
+}
+
+/**
+ * True when an agent, not a window, owns the session. Those rows are readable from any shell —
+ * the manager included — but are never moved to another project.
+ */
+function isAgentOwnedSession(session) {
+  return Boolean(session && typeof session.ownerKey === 'string' && session.ownerKey.startsWith('agent:'));
+}
+
+/** Capsule names in the order a Vietnamese reader expects, with a plain fallback for a
+ *  process whose collation data is unavailable. */
+function compareCapsuleNames(a, b) {
+  try {
+    return a.name.localeCompare(b.name, 'vi', { sensitivity: 'base', numeric: true });
+  } catch {
+    return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0);
+  }
+}
+
+/** Capsules that can receive a terminal first, then in name order. A store of hundreds of
+ *  capsules mixes folders with project-bearing ones, and interleaving the rows that only
+ *  explain why they cannot be picked with the ones a pick acts on makes the list harder to
+ *  scan than it has to be. */
+function compareCapsuleEntries(a, b) {
+  const rankA = capsuleProjectIdOf(a) ? 0 : 1;
+  const rankB = capsuleProjectIdOf(b) ? 0 : 1;
+  if (rankA !== rankB) return rankA - rankB;
+  return compareCapsuleNames(a, b);
+}
+
+/**
+ * The searchable project picker.
+ *
+ * Modelled on `showCategoryPicker` — same popover conventions, same click-outside dismissal,
+ * the authoritative value coming from Main's `session` broadcast — with the one difference a
+ * store of hundreds of capsules forces: a filter field. Rows are rebuilt from the query, the
+ * session's own capsule is marked and refuses to be re-picked, and a capsule that cannot be
+ * opened is shown with its reason instead of offering an action that would come back refused.
+ */
+function showCapsulePicker(sessionId, anchorEl) {
+  const popover = document.getElementById('capsulePickerPopover');
+  if (!popover) return;
+
+  const session = findSession(sessionId);
+  const currentCapsuleId = capsuleIdOf(session);
+
+  if (activeCapsulePickerClose) activeCapsulePickerClose();
+  popover.innerHTML = '';
+  // `innerHTML = ''` is the browser's own clear; detaching the children as well is what keeps a
+  // DOM that does not implement the parse step (the test harness's stub) from accumulating the
+  // previous view's nodes behind the new one, where a query would find the stale input.
+  while (popover.firstChild) popover.removeChild(popover.firstChild);
+  popover.setAttribute('data-active-session-id', sessionId);
+
+  const header = document.createElement('div');
+  header.className = 'terminal-capsule-picker-header';
+  header.textContent = 'Chuyển Terminal sang Dự án';
+  popover.appendChild(header);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'terminal-capsule-picker-input';
+  input.placeholder = 'Tìm dự án… (tên hoặc đường dẫn)';
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'Tìm dự án để chuyển Terminal');
+  popover.appendChild(input);
+
+  const hint = document.createElement('div');
+  hint.className = 'terminal-capsule-picker-hint';
+  popover.appendChild(hint);
+
+  const list = document.createElement('div');
+  list.className = 'terminal-capsule-picker-list';
+  list.setAttribute('role', 'listbox');
+  list.setAttribute('aria-label', 'Danh sách dự án');
+  popover.appendChild(list);
+
+  let entries = Array.from(capsuleIndex.values()).sort(compareCapsuleEntries);
+  /** Rows that can actually be picked this paint, in paint order. */
+  let pickable = [];
+  let highlighted = -1;
+  let closed = false;
+
+  const setHint = (text) => {
+    if (hint.textContent !== text) hint.textContent = text;
+  };
+
+  /** Empty the row list. Same reasoning as the popover's own clear: repainting on every
+   *  keystroke must not leave the previous rows behind in a DOM without `innerHTML`'s
+   *  parse step, where they would still be queryable. */
+  const clearList = () => {
+    list.innerHTML = '';
+    while (list.firstChild) list.removeChild(list.firstChild);
+  };
+
+  const isPickableEntry = (entry) => entry.id !== currentCapsuleId && Boolean(capsuleProjectIdOf(entry));
+
+  const clearHighlight = () => {
+    highlighted = -1;
+    for (const row of pickable) {
+      row.item.classList.remove('is-highlighted');
+      row.item.setAttribute('aria-selected', 'false');
+    }
+  };
+
+  const paintError = (text) => {
+    clearList();
+    pickable = [];
+    highlighted = -1;
+    const item = document.createElement('div');
+    item.className = 'terminal-capsule-picker-item is-error';
+    item.textContent = text;
+    list.appendChild(item);
+    setHint('Không đọc được danh sách dự án');
+  };
+
+  const paint = () => {
+    const tokens = parseSearchTokens(input.value);
+    const query = input.value.trim();
+    const matched = entries.filter((entry) => tokens.every((token) => tokenMatchesHaystack(
+      token,
+      `${foldForSearch(entry.name)} ${foldForSearch(entry.workspacePath)}`,
+    )));
+    const shown = matched.slice(0, CAPSULE_PICKER_MAX_ROWS);
+
+    clearList();
+    pickable = [];
+    highlighted = -1;
+    for (const entry of shown) {
+      const item = document.createElement('div');
+      item.className = 'terminal-capsule-picker-item';
+      item.setAttribute('data-capsule-id', entry.id);
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', 'false');
+
+      const dot = document.createElement('span');
+      dot.className = 'terminal-capsule-picker-dot';
+      dot.style.background = derivedCategoryColorOf(entry.id);
+      const name = document.createElement('span');
+      name.className = 'terminal-capsule-picker-name';
+      name.textContent = entry.name;
+      item.append(dot, name);
+      if (entry.workspacePath) {
+        const pathEl = document.createElement('span');
+        pathEl.className = 'terminal-capsule-picker-path';
+        pathEl.textContent = entry.workspacePath;
+        item.appendChild(pathEl);
+      }
+
+      if (!isPickableEntry(entry) && entry.id === currentCapsuleId) {
+        // The session's own capsule is the one pick that would be a no-op, so it is named as
+        // the current state and offers nothing: a row that looks pickable but refuses is worse
+        // than one that says why it does not.
+        item.classList.add('active', 'is-disabled');
+        item.setAttribute('aria-disabled', 'true');
+        const current = document.createElement('span');
+        current.className = 'terminal-capsule-picker-current';
+        current.textContent = '✓ Hiện tại';
+        item.appendChild(current);
+        item.title = 'Terminal này đang thuộc dự án này';
+      } else if (!isPickableEntry(entry)) {
+        item.classList.add('is-disabled');
+        item.setAttribute('aria-disabled', 'true');
+        const blocked = document.createElement('span');
+        blocked.className = 'terminal-capsule-picker-blocked';
+        blocked.textContent = 'chưa gắn dự án';
+        item.appendChild(blocked);
+        item.title = 'Dự án này chưa gắn hồ sơ dự án nên không có cửa sổ để chuyển Terminal tới';
+      } else {
+        item.setAttribute('aria-disabled', 'false');
+        item.title = `Mở cửa sổ dự án “${entry.name}” rồi chuyển Terminal này sang đó`;
+        item.onclick = (ev) => {
+          ev.stopPropagation();
+          pick(entry);
+        };
+        pickable.push({ entry, item });
+      }
+      list.appendChild(item);
+    }
+
+    if (shown.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'terminal-capsule-picker-item is-empty';
+      empty.textContent = query
+        ? `Không có dự án nào khớp “${query}”`
+        : 'Chưa có dự án nào trong máy này';
+      list.appendChild(empty);
+      setHint(query ? `0/${entries.length} dự án khớp` : '0 dự án');
+      return;
+    }
+
+    const currentLabel = currentCapsuleId ? capsuleLabelOf(currentCapsuleId) : '';
+    const shownNote = matched.length > shown.length ? ` — hiển thị ${shown.length}/${matched.length}` : '';
+    const hintParts = query
+      ? [`${matched.length}/${entries.length} dự án khớp “${query}”${shownNote}`]
+      : [`${entries.length} dự án${currentLabel ? ` — hiện tại: ${currentLabel}` : ''}${shownNote}`];
+    // The list on screen is the last one Main answered with. Saying so beats passing a stale
+    // list off as current, and beats dropping rows that are still real.
+    if (capsuleIndexError) hintParts.push('danh sách có thể đã cũ');
+    setHint(hintParts.join(' — '));
+  };
+
+  const moveHighlight = (delta) => {
+    if (pickable.length === 0) return;
+    clearHighlight();
+    highlighted = (highlighted + delta + pickable.length) % pickable.length;
+    const row = pickable[highlighted];
+    if (!row) return;
+    row.item.classList.add('is-highlighted');
+    row.item.setAttribute('aria-selected', 'true');
+    // `scrollIntoView` keeps the keyboard cursor visible inside the scrolling list. Guarded
+    // because a non-browser context (the test harness) has no layout to scroll.
+    if (typeof row.item.scrollIntoView === 'function') {
+      try { row.item.scrollIntoView({ block: 'nearest' }); } catch {}
+    }
+  };
+
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    popover.style.display = 'none';
+    document.removeEventListener('keydown', onDocumentKeydown);
+    document.removeEventListener('click', onDocumentClick);
+    if (activeCapsulePickerClose === close) activeCapsulePickerClose = null;
+  };
+
+  const onDocumentClick = (e) => {
+    if (!popover.contains(e.target) && e.target !== anchorEl) close();
+  };
+  const onDocumentKeydown = (e) => {
+    if (e.key === 'Escape') close();
+  };
+
+  const pick = (entry) => {
+    close();
+    void assignSessionToCapsule(sessionId, entry);
+  };
+
+  input.addEventListener('click', (e) => e.stopPropagation());
+  input.addEventListener('input', () => {
+    highlighted = -1;
+    paint();
+  });
+  input.addEventListener('keydown', (e) => {
+    // The strip's own shortcuts must not act on a keystroke typed into this field.
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Enter picks the keyboard cursor, or the first pickable row when the user is typing
+      // and has not moved it: "type three letters, press Enter" is the fast path.
+      const row = pickable[highlighted] || pickable[0];
+      if (row) pick(row.entry);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveHighlight(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveHighlight(-1);
+    }
+  });
+
+  const rect = anchorEl && typeof anchorEl.getBoundingClientRect === 'function'
+    ? anchorEl.getBoundingClientRect()
+    : null;
+  popover.style.display = 'block';
+  const popoverWidth = popover.offsetWidth || 300;
+  const popoverHeight = popover.offsetHeight || 320;
+  const left = Math.max(10, Math.min(window.innerWidth - popoverWidth - 10, rect ? rect.left : 10));
+  // This popover is taller than the other two, so "below the row" alone parks its list off the
+  // bottom edge: it flips above the anchor when it does not fit and is clamped when neither
+  // side has room.
+  const below = rect ? rect.bottom + 4 : 10;
+  const above = rect ? rect.top - popoverHeight - 4 : 10;
+  const top = (below + popoverHeight > window.innerHeight - 10 && above > 10) ? above : below;
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(Math.max(10, Math.min(top, window.innerHeight - popoverHeight - 10)))}px`;
+
+  setTimeout(() => {
+    if (closed) return;
+    document.addEventListener('click', onDocumentClick);
+    document.addEventListener('keydown', onDocumentKeydown);
+  }, 10);
+  activeCapsulePickerClose = close;
+
+  if (capsuleIndexError && entries.length === 0) paintError(capsuleIndexError);
+  else paint();
+
+  // A fresh read on every open: a capsule created in another window since the last load has to
+  // be offered without restarting, and Main is the only side that knows about it. A refresh that
+  // fails over a usable cached list is reported in the hint rather than replacing the rows.
+  void ensureCapsuleIndex(true).then(() => {
+    if (closed) return;
+    entries = Array.from(capsuleIndex.values()).sort(compareCapsuleEntries);
+    if (capsuleIndexError && entries.length === 0) paintError(capsuleIndexError);
+    else paint();
+  });
+
+  try { input.focus(); } catch {}
+}
+
+/**
+ * Move one terminal into a capsule's window, as the user asked for it.
+ *
+ * Step one opens (or focuses) the project's window because the move route never opens one;
+ * step two hands the session over. Only a reported OPENED/FOCUSED reaches step two, and only
+ * Main's own answer is reported as success — a cancelled open and every refusal leave the row
+ * where it is and say why.
+ */
+async function assignSessionToCapsule(sessionId, entry) {
+  // A pane has no window of its own: the move is the tab's, so the whole family travels with it.
+  const baseId = findSession(sessionId)?.splitOf || sessionId;
+  const capsuleId = entry && typeof entry.id === 'string' ? entry.id : '';
+  const capsuleLabel = (entry && entry.name) || capsuleId;
+  const projectId = capsuleProjectIdOf(entry);
+  if (!capsuleId) return false;
+  if (!api?.assignTerminalCapsule) {
+    showTerminalNotice('Không chuyển được Terminal: preload thiếu assignTerminalCapsule');
+    return false;
+  }
+  if (!api?.openProject) {
+    showTerminalNotice('Không chuyển được Terminal: preload thiếu openProject');
+    return false;
+  }
+  if (!projectId) {
+    showTerminalNotice(`Không chuyển được sang “${capsuleLabel}”: dự án này chưa gắn hồ sơ dự án nên không mở được cửa sổ`);
+    return false;
+  }
+  if (capsuleAssignmentsInFlight.has(baseId)) {
+    showTerminalNotice('Đang chuyển Terminal này…', 'info');
+    return false;
+  }
+  capsuleAssignmentsInFlight.add(baseId);
+  showTerminalNotice(`Đang mở dự án “${capsuleLabel}”…`, 'info');
+  try {
+    let opened;
+    try {
+      opened = await api.openProject(projectId);
+    } catch (err) {
+      showTerminalNotice(`Không mở được dự án “${capsuleLabel}”: ${bridgeErrorText(err)}`);
+      return false;
+    }
+    const status = opened && typeof opened === 'object' ? opened.status : '';
+    if (status === 'CANCELLED') {
+      showTerminalNotice(`Đã huỷ mở dự án “${capsuleLabel}” — Terminal vẫn ở lại đây`, 'info');
+      return false;
+    }
+    if (status !== 'OPENED' && status !== 'FOCUSED') {
+      const reason = opened && typeof opened === 'object' ? opened.reason : '';
+      showTerminalNotice(`Không mở được dự án “${capsuleLabel}”: ${projectOpenFailureText(reason)}`);
+      return false;
+    }
+
+    let reply;
+    try {
+      reply = await api.assignTerminalCapsule(baseId, capsuleId);
+    } catch (err) {
+      showTerminalNotice(`Không chuyển được Terminal sang “${capsuleLabel}”: ${bridgeErrorText(err)}`);
+      return false;
+    }
+    if (reply === true || (reply && typeof reply === 'object' && reply.ok === true)) {
+      moveSessionToCapsuleLocally(baseId, capsuleId);
+      showTerminalNotice(`Đã chuyển Terminal sang dự án “${capsuleLabel}”`, 'success');
+      return true;
+    }
+    const reason = reply && typeof reply === 'object' ? reply.reason : '';
+    const message = reply && typeof reply === 'object' ? reply.message : '';
+    showTerminalNotice(`Không chuyển được Terminal sang “${capsuleLabel}”: ${assignRefusalText(reason, message)}`);
+    return false;
+  } finally {
+    capsuleAssignmentsInFlight.delete(baseId);
+  }
+}
+
+/**
+ * File the row under its new capsule and repaint. A display update only: the `session`
+ * broadcast that follows is what the grouping is really derived from, so a row Main still
+ * reports in the old place goes back there on the next push.
+ */
+function moveSessionToCapsuleLocally(sessionId, capsuleId) {
+  const session = findSession(sessionId);
+  if (!session) return;
+  session.capsuleId = capsuleId;
+  if (typeof renderTabs === 'function') renderTabs();
+}
+
 function showContextMenu(e, sessionId) {
   e.preventDefault();
   e.stopPropagation();
@@ -3534,6 +4140,34 @@ function showContextMenu(e, sessionId) {
         ? `Đặt nhóm: ${currentCategory}...`
         : 'Đặt nhóm (Set category)...';
     }
+  }
+  // Moving a terminal into another project belongs to the shared manager: a window that owns
+  // one project has no second project to move a terminal to, and an agent-held session is
+  // read-only for every window by contract. The row says which of the two applies rather than
+  // opening a picker whose every answer would come back refused.
+  const assignItem = contextMenu.querySelector('.context-item[data-action="assign-capsule"]');
+  if (assignItem) {
+    const assignLabel = assignItem.querySelector('span:last-child');
+    const currentCapsuleId = capsuleIdOf(targetSession);
+    // Only a capsule Main has named is worth putting in the label: the raw id of one the index
+    // has not seen would read as noise.
+    const currentCapsuleLabel = currentCapsuleId && capsuleIndex.has(currentCapsuleId)
+      ? capsuleLabelOf(currentCapsuleId)
+      : '';
+    const agentHeld = isAgentOwnedSession(targetSession);
+    const canAssign = isSharedManagerShell() && !agentHeld;
+    assignItem.classList.toggle('is-disabled', !canAssign);
+    assignItem.setAttribute('aria-disabled', canAssign ? 'false' : 'true');
+    if (assignLabel) {
+      assignLabel.textContent = currentCapsuleLabel
+        ? `Chuyển sang dự án khác… (đang ở ${currentCapsuleLabel})`
+        : 'Chuyển Terminal sang Dự án… (Move to Project)';
+    }
+    assignItem.title = !isSharedManagerShell()
+      ? 'Chỉ cửa sổ Terminal chung mới chuyển được Terminal giữa các dự án'
+      : (agentHeld
+        ? 'Terminal do agent sở hữu chỉ được xem, không chuyển được sang dự án khác'
+        : 'Mở cửa sổ của dự án đích rồi chuyển Terminal này sang đó');
   }
   // A TUI keeps no scrollback to offer (its alternate buffer is not history), so the
   // honest affordance is the retained capture read as text: labelled lossy because the
@@ -3645,6 +4279,22 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
       // shown, and picking one moves the parent — with its panes — rather than filing a
       // pane into a group its parent is not in.
       showCategoryPicker(findSession(targetId)?.splitOf || targetId, anchor);
+    } else if (action === 'assign-capsule') {
+      // The row is inert for both of these, and a programmatic click must not get further than
+      // a real one would: the refusal is said here, without a round-trip Main would repeat.
+      if (!isSharedManagerShell()) {
+        showTerminalNotice('Chỉ cửa sổ Terminal chung mới chuyển được Terminal giữa các dự án');
+        return;
+      }
+      if (isAgentOwnedSession(findSession(targetId))) {
+        showTerminalNotice('Terminal do agent sở hữu chỉ được xem, không chuyển được sang dự án khác');
+        return;
+      }
+      const wrap = tabsEl.querySelector(`.terminal-tab-wrap[data-session-id="${targetId}"]`);
+      const anchor = wrap?.querySelector('.terminal-tab-affinity-badge') || wrap || item;
+      // The move belongs to the tab that owns the pane: its session id is the one Main owns,
+      // and a pane moved on its own would be a window split across two projects.
+      showCapsulePicker(findSession(targetId)?.splitOf || targetId, anchor);
     } else if (action === 'transcript') {
       if (transcriptPreviewSessionId === targetId) {
         closeTranscriptPreview();
@@ -4188,12 +4838,16 @@ function ensureCategoryHeader(group) {
     // Marking, colouring and reordering are the same right as renaming, so they share
     // one guard: neither derived bucket can be renamed — the catch-all has no name to
     // change, and the sleep bucket's name is a state, not a category — and neither can
-    // be marked, coloured or moved for the same reason. Dropping is the opposite —
-    // releasing a tab onto the catch-all is precisely how a tab leaves its group — so
-    // only the sleep bucket refuses drops, because "file this tab under a state" is not
-    // an operation that exists.
-    const canManage = group.key !== UNCATEGORIZED_CATEGORY && group.key !== SLEEPING_CATEGORY;
-    const canAcceptDrop = group.key !== SLEEPING_CATEGORY;
+    // be marked, coloured or moved for the same reason. A capsule section is out for the
+    // same reason again: it is named by the project store, not by the user, and letting the
+    // group menu write one into `terminalCategories` would file a project as a group.
+    // Dropping is the opposite — releasing a tab onto the catch-all is precisely how a tab
+    // leaves its group — so the sleep bucket and capsule sections refuse drops, because
+    // "file this terminal under a state" and "file this terminal under a storefront" are not
+    // operations a drag can mean.
+    const isCapsuleGroup = group.kind === 'capsule';
+    const canManage = !isCapsuleGroup && group.key !== UNCATEGORIZED_CATEGORY && group.key !== SLEEPING_CATEGORY;
+    const canAcceptDrop = !isCapsuleGroup && group.key !== SLEEPING_CATEGORY;
 
     // A rename affordance owned by the header itself: renaming a group is its own
     // operation and must not require right-clicking a tab.
@@ -4280,12 +4934,19 @@ function ensureCategoryHeader(group) {
   // path only flips its visibility. It is a plain marker, not an ordering: the group
   // list stays wherever the user put it.
   header.classList.toggle('is-starred', starredCategories.has(group.key));
+  // Which axis the section names is refreshed here rather than only at creation: a key is
+  // reused across renders, and the marker is what tells a project section from a user group.
+  header.classList.toggle('is-capsule-group', group.kind === 'capsule');
+  header.setAttribute('data-group-kind', group.kind === 'capsule' ? 'capsule' : 'category');
 
   // While a filter is applied every surviving group is shown open: a collapsed group
   // hiding the very match the user just searched for would look like a failed search.
   const isCollapsed = collapsedCategories.has(group.key) && !tabSearchActive;
   header.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
-  header.title = isCollapsed ? `Mở nhóm ${group.label}` : `Thu gọn nhóm ${group.label}`;
+  const collapseTitle = isCollapsed ? `Mở nhóm ${group.label}` : `Thu gọn nhóm ${group.label}`;
+  // A capsule section names a project, and the name alone is not enough to tell two
+  // storefronts with the same title apart — the workspace behind it does that.
+  header.title = group.hint ? `${collapseTitle} — ${group.hint}` : collapseTitle;
   return header;
 }
 
@@ -4302,6 +4963,10 @@ function displayCategoryOrder() {
   const seen = new Set();
   const add = (key) => {
     if (!key || key === UNCATEGORIZED_CATEGORY || key === SLEEPING_CATEGORY) return;
+    // A capsule section is drawn in the same sidebar but is not a user group: this list is
+    // what the group menu reorders and writes back into `terminalCategories`, which is the
+    // list Main persists, so a project key must never be able to enter it.
+    if (isCapsuleGroupKey(key)) return;
     if (seen.has(key)) return;
     seen.add(key);
     out.push(key);
@@ -4623,27 +5288,55 @@ function beginRenameCategory(key) {
   });
 }
 
-/** Horizontal mode conveys grouping with a colour chip on the pill instead. */
-function applyCategoryChip(wrap, group, isSidebarLayout) {
+/**
+ * Horizontal mode conveys grouping with a colour chip on the pill instead.
+ *
+ * In the manager shell the chip names the capsule, because that is the grouping the row is
+ * filed under and the only layout where the capsule is not already written above the row: a
+ * project section header names it in the sidebar, so a row inside one carries no chip, while
+ * a sleeping row — parked in the state bucket, outside every section — keeps its capsule.
+ */
+function applyCategoryChip(wrap, group, isSidebarLayout, session) {
   const btn = wrap.querySelector('.terminal-tab');
   if (!btn) return;
   const existing = wrap.querySelector('.terminal-tab-category-chip');
+  const capsuleId = isSharedManagerShell() ? capsuleIdOf(session) : '';
+  const headerNamesTheCapsule = isSidebarLayout && group.kind === 'capsule';
+  if (capsuleId && !headerNamesTheCapsule) {
+    const chip = existing || createCategoryChip(wrap, btn);
+    const label = capsuleLabelOf(capsuleId);
+    const path = capsulePathOf(capsuleId);
+    const className = 'terminal-tab-category-chip terminal-tab-capsule-chip';
+    if (chip.className !== className) chip.className = className;
+    chip.setAttribute('data-capsule-id', capsuleId);
+    chip.removeAttribute('data-category');
+    const tip = path ? `Dự án: ${label} — ${path}` : `Dự án: ${label}`;
+    if (chip.title !== tip) chip.title = tip;
+    chip.style.background = derivedCategoryColorOf(capsuleId);
+    if (chip.textContent !== label) chip.textContent = label;
+    return;
+  }
   if (isSidebarLayout || group.key === UNCATEGORIZED_CATEGORY || group.key === SLEEPING_CATEGORY) {
     if (existing) existing.remove();
     return;
   }
-  let chip = existing;
-  if (!chip) {
-    chip = document.createElement('span');
-    chip.className = 'terminal-tab-category-chip';
-    const badge = btn.querySelector('.terminal-tab-affinity-badge');
-    if (badge) btn.insertBefore(chip, badge);
-    else btn.appendChild(chip);
-  }
+  const chip = existing || createCategoryChip(wrap, btn);
+  if (chip.className !== 'terminal-tab-category-chip') chip.className = 'terminal-tab-category-chip';
+  chip.removeAttribute('data-capsule-id');
   chip.setAttribute('data-category', group.key);
   chip.title = `Nhóm: ${group.label}`;
   chip.style.background = group.color;
   if (chip.textContent !== group.label) chip.textContent = group.label;
+}
+
+/** The chip element every grouping label shares, placed before the affinity badge. */
+function createCategoryChip(wrap, btn) {
+  const chip = document.createElement('span');
+  chip.className = 'terminal-tab-category-chip';
+  const badge = btn.querySelector('.terminal-tab-affinity-badge');
+  if (badge) btn.insertBefore(chip, badge);
+  else btn.appendChild(chip);
+  return chip;
 }
 
 /**
@@ -4704,10 +5397,15 @@ function tokenMatchesHaystack(token, haystack) {
 function sessionMatchesQuery(session, tokens) {
   if (tokens.length === 0) return true;
   if (!session) return false;
+  const capsuleId = capsuleIdOf(session);
   const haystack = [
     foldForSearch(session.name),
     foldForSearch(session.cwd),
     foldForSearch(session.category),
+    // In the manager the capsule is the row's grouping, so a query that names a storefront
+    // has to narrow to its terminals: searching "Comnieusiba" across a mixed strip is how a
+    // user reaches that project's rows without scrolling past every other one.
+    foldForSearch(capsuleId && isSharedManagerShell() ? `${capsuleLabelOf(capsuleId)} ${capsulePathOf(capsuleId)}` : ''),
   ].join(' ');
   return tokens.every((token) => tokenMatchesHaystack(token, haystack));
 }
@@ -4851,6 +5549,7 @@ function renderTabs() {
   if (sleepingSessions.length > 0) {
     groups.push({
       key: SLEEPING_CATEGORY,
+      kind: 'sleep',
       label: SLEEPING_CATEGORY_LABEL,
       color: '',
       items: sleepingSessions,
@@ -4910,7 +5609,7 @@ function renderTabs() {
       // pane row could only produce a drop the next render would undo.
       wrap.draggable = false;
       wrap.classList.toggle('is-category-collapsed', isCollapsed);
-      applyCategoryChip(wrap, group, isSidebarLayout);
+      applyCategoryChip(wrap, group, isSidebarLayout, s);
       updateTabActivityUi(s.id);
       ordered.push(wrap);
     }

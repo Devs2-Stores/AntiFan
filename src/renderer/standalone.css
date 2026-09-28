@@ -496,6 +496,7 @@ button {
 }
 
 .terminal-affinity-picker,
+.terminal-capsule-picker,
 .terminal-category-picker {
   position: absolute;
   z-index: 10000;
@@ -511,6 +512,7 @@ button {
 }
 
 .terminal-affinity-picker-header,
+.terminal-capsule-picker-header,
 .terminal-category-picker-header {
   font-weight: 600;
   padding: 5px 8px;
@@ -522,6 +524,7 @@ button {
 }
 
 .terminal-affinity-picker-item,
+.terminal-capsule-picker-item,
 .terminal-category-picker-item {
   display: flex;
   align-items: center;
@@ -629,7 +632,17 @@ button {
   text-overflow: ellipsis;
 }
 
+/* The same slot on the pill, carrying the other grouping axis: a project. Both chips are
+   background-coloured from a derived palette, so the project one is squared off on its left
+   edge — a row shows one chip or the other, and they must never look interchangeable. */
+.terminal-tab-capsule-chip {
+  max-width: 86px;
+  border-radius: 3px 3px 3px 0;
+  box-shadow: inset 2px 0 0 rgba(2, 6, 23, 0.5);
+}
+
 /* CATEGORY PICKER POPOVER */
+.terminal-capsule-picker-input,
 .terminal-category-picker-input {
   display: block;
   width: 100%;
@@ -645,11 +658,13 @@ button {
   outline: none;
 }
 
+.terminal-capsule-picker-input:focus,
 .terminal-category-picker-input:focus {
   border-color: #38bdf8;
   box-shadow: 0 0 6px rgba(56, 189, 248, 0.35);
 }
 
+.terminal-capsule-picker-dot,
 .terminal-category-picker-dot {
   display: inline-block;
   width: 8px;
@@ -658,6 +673,7 @@ button {
   border-radius: 50%;
 }
 
+.terminal-capsule-picker-name,
 .terminal-category-picker-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -689,6 +705,104 @@ button {
   color: #94a3b8;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   margin-top: 4px;
+}
+
+/* PROJECT (CAPSULE) PICKER POPOVER
+   The category picker fronts a handful of groups; this one fronts a store of hundreds, so it
+   is wider, scrolls, and gives every row a second line for the workspace behind the name —
+   two storefronts can share a title, and the path is what tells them apart. */
+.terminal-capsule-picker {
+  min-width: 300px;
+  max-width: 400px;
+}
+
+.terminal-capsule-picker-list {
+  max-height: 264px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.terminal-capsule-picker-item {
+  flex-wrap: wrap;
+  row-gap: 1px;
+}
+
+/* The path sits on its own line, indented past the dot so the name column stays aligned. */
+.terminal-capsule-picker-path {
+  flex: 1 0 100%;
+  padding-left: 14px;
+  font-size: 10px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-capsule-picker-item:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.terminal-capsule-picker-item.active {
+  background: rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+/* The row the keyboard cursor is on. Distinct from `.active`, which marks where the session
+   already is: one follows the arrow keys, the other does not move at all. */
+.terminal-capsule-picker-item.is-highlighted {
+  background: rgba(56, 189, 248, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.45);
+}
+
+/* Rows that cannot be picked — the session's own capsule, and one with no project to open.
+   Kept visible with their reason: a row that vanishes leaves the user wondering whether the
+   project is missing, and a row that looks pickable but refuses is worse than one that says so. */
+.terminal-capsule-picker-item.is-disabled,
+.terminal-capsule-picker-item.is-disabled:hover {
+  color: #475569;
+  background: transparent;
+  cursor: default;
+}
+
+.terminal-capsule-picker-item.is-disabled .terminal-capsule-picker-path {
+  color: #3f4a5c;
+}
+
+.terminal-capsule-picker-current,
+.terminal-capsule-picker-blocked {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.terminal-capsule-picker-current {
+  color: #34d399;
+}
+
+.terminal-capsule-picker-blocked {
+  color: #fbbf24;
+}
+
+.terminal-capsule-picker-item.is-empty,
+.terminal-capsule-picker-item.is-empty:hover {
+  color: #64748b;
+  background: transparent;
+  cursor: default;
+}
+
+/* A failed read is a refusal, not an empty store: it is painted in the refusal colour so it
+   cannot be mistaken for "no projects". */
+.terminal-capsule-picker-item.is-error,
+.terminal-capsule-picker-item.is-error:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.10);
+  cursor: default;
+  white-space: normal;
 }
 
 /* An action that cannot apply to the right-clicked tab (sleep while asleep, wake
@@ -1419,6 +1533,7 @@ button {
 }
 
 .standalone.tabs-sidebar > .terminal-affinity-picker,
+.standalone.tabs-sidebar > .terminal-capsule-picker,
 .standalone.tabs-sidebar > .terminal-category-picker {
   position: absolute;
 }
@@ -1498,6 +1613,16 @@ button {
   width: 62px;
 }
 
+/* A capsule label can reach a sidebar row too — a sleeping terminal is parked in the state
+   bucket, outside every project section, and its capsule is the only thing that says which
+   project it came from. Sized for the column rather than the strip, so it cannot push the
+   tab's own name out of the row. */
+.standalone.tabs-sidebar .terminal-tab-capsule-chip {
+  max-width: 56px;
+  font-size: 8.5px;
+  padding: 0 4px;
+}
+
 .standalone.tabs-sidebar .terminal-tab-category-header {
   display: flex;
   align-items: center;
@@ -1519,6 +1644,19 @@ button {
 
 .standalone.tabs-sidebar .terminal-tab-category-header:first-child {
   margin-top: 0;
+}
+
+/* A capsule section names a project, not a user group. Same header geometry — both are
+   collapsible sections of the same strip — with a project-coloured edge so the axis a section
+   belongs to is legible before its name is read. */
+.standalone.tabs-sidebar .terminal-tab-category-header.is-capsule-group {
+  box-shadow: inset 2px 0 0 rgba(56, 189, 248, 0.55);
+  padding-left: 10px;
+  color: #7dd3fc;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-capsule-group:hover {
+  color: #bae6fd;
 }
 
 .standalone.tabs-sidebar .terminal-tab-category-header:hover {
@@ -1694,6 +1832,7 @@ button {
   color: #38bdf8;
 }
 
+.terminal-capsule-picker-hint,
 .terminal-category-picker-hint {
   padding: 2px 8px 6px;
   font-size: 10px;

@@ -488,6 +488,7 @@ export const TERMINAL_CHANNELS = {
   SLEEP_SESSION: 'antifan:terminal:sleep-session',
   WAKE_SESSION: 'antifan:terminal:wake-session',
   SET_CATEGORY: 'antifan:terminal:set-category',
+  ASSIGN_CAPSULE: 'antifan:terminal:assign-capsule',
   GET_ALL_AFFINITIES: 'antifan:terminal:get-all-affinities',
   SET_TAB_PREFS: 'antifan:terminal:set-tab-prefs',
 } as const;

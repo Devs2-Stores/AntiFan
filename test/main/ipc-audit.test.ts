@@ -74,6 +74,9 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'TERMINAL_CHANNELS.INPUT',
       'TERMINAL_CHANNELS.KILL',
       'TERMINAL_CHANNELS.RESTART',
+      // The ownership handover the tab context menu drives: a session may be moved to
+      // another capsule, and the host is the only side that may re-stamp it.
+      'TERMINAL_CHANNELS.ASSIGN_CAPSULE',
     ];
 
     for (const channel of requiredTerminalChannels) {
@@ -164,6 +167,12 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.match(nativeContent, /antifan:standalone:open-workspace/);
     assert.match(nativeContent, /antifan:terminal:new-session/);
     assert.match(preloadContent, /pickWorkspaceFolder:\s*\(sessionId\?: string\).*\{ sessionId \}/);
+    // The tab context menu's ownership handover: the renderer names the session and the
+    // capsule it is moving to, and the host owns the re-stamp. Both ends name the one
+    // channel, and the payload keys are the frozen pair.
+    assert.match(preloadContent, /assignTerminalCapsule/);
+    assert.match(preloadContent, /invoke\(\s*TERMINAL_CHANNELS\.ASSIGN_CAPSULE\s*,\s*\{[^}]*sessionId[^}]*capsuleId/);
+    assert.match(nativeContent, /channel:\s*TERMINAL_CHANNELS\.ASSIGN_CAPSULE/);
     // The audit pins the contract the picker must keep: the folder the user chose and the
     // session it was picked for reach setCapsule, for whichever capsule the route adopted.
     assert.match(nativeContent, /capsule:pick-folder[^]*setCapsule\([\w$]+\.id, chosenPath, opts\?\.sessionId\)/);

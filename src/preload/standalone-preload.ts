@@ -67,6 +67,12 @@ const api = {
   pickWorkspaceFolder: (sessionId?: string) => ipcRenderer.invoke('antifan:capsule:pick-folder', { sessionId }),
   createCapsule: (name: string, workspacePath: string) => ipcRenderer.invoke('antifan:capsule:create', { name, workspacePath }),
   switchCapsule: (id: string, sessionId?: string) => ipcRenderer.invoke('antifan:capsule:switch', { capsuleId: id, sessionId }),
+  // Hand one terminal to the window that owns the target capsule. Distinct from `switchCapsule`,
+  // which re-points the whole calling window: this moves one session out of the window it is in.
+  // Main decides whether the caller may (the shared manager may) and answers with a refusal
+  // reason when it may not, so the renderer never has to guess an outcome.
+  assignTerminalCapsule: (sessionId: string, capsuleId: string) =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.ASSIGN_CAPSULE, { sessionId, capsuleId }),
   togglePanel: () => ipcRenderer.invoke('antifan:toolbar:toggle-sidebar'),
   setPanelWidth: (width: number) => ipcRenderer.invoke('antifan:sidebar:set-width', width),
   setTerminalTabPrefs: (prefs: Partial<TerminalTabPrefs>) => ipcRenderer.invoke(TERMINAL_CHANNELS.SET_TAB_PREFS, prefs),

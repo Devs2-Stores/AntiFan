@@ -899,6 +899,11 @@ function attachSharedServices(host: NativeTabHost): void {
     host.setControlPlane(controlPlane);
   }
   if (browserPort) host.setViewportGate(browserPort.viewportGate);
+  // The terminal hand-over needs one fact this host cannot compute for itself: whether the
+  // window a row is being moved to currently exists. Main owns that directory, so it is read
+  // through this seam — the same shape as the close reservations above — and never by opening
+  // a window from the tab host.
+  host.setOwnerWindowPresence((ownerKeyValue) => liveShellFor(ownerKeyValue) !== undefined);
 }
 
 /**

@@ -56,6 +56,10 @@ export interface StandaloneApi {
   syncTerminalView: (payload: unknown) => Promise<unknown>;
   getFullBuffer: (sessionId: string) => Promise<unknown>;
   resizeTerminalTo: (sessionId: string, cols: number, rows: number) => void;
+  /** Project open, the capsule list the picker reads on open, and the handover it dispatches. */
+  openProject: (projectId: string) => Promise<unknown>;
+  listCapsules: () => Promise<{ activeCapsuleId?: string; capsules: unknown[] }>;
+  assignTerminalCapsule: (sessionId: string, capsuleId: string) => Promise<unknown>;
   [key: string]: unknown;
 }
 
@@ -578,6 +582,9 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   }
   standaloneElement.appendChild(elementById('affinityPickerPopover'));
   standaloneElement.appendChild(elementById('categoryPickerPopover'));
+  // The capsule picker the tab context menu opens. It is read by id at open time and filled
+  // with created nodes, exactly like the category picker beside it.
+  standaloneElement.appendChild(elementById('capsulePickerPopover'));
   const tabLayoutButtonElement = elementById('btnTerminalTabLayout');
 
   const documentKeydownListeners: Array<(event: KeyEventLike) => boolean | void> = [];
@@ -657,6 +664,11 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     wakeTerminal: async () => true,
     focusTab: async () => undefined,
     setCategory: async () => true,
+    // The ownership handover the tab context menu drives: the picker reads the capsule list on
+    // open, and picking one dispatches the transfer. Defaults are empty/true so a row that does
+    // not care about capsules still exercises the renderer's own paths.
+    listCapsules: async () => ({ activeCapsuleId: '', capsules: [] as unknown[] }),
+    assignTerminalCapsule: async () => true,
     // Boot payload for the sidebar/tab-layout prefs, as GET_INITIAL_STATE returns it.
     getInitialState: async () => options.initialState,
     // Capture push-channel listeners so tests can drive the data/session flow.

@@ -58,7 +58,8 @@ only that window's layout and its tabs' presented bounds.
 
 There is no single main window. Presentation is **one browser window per owner**
 (one per project, plus an `Unassigned` window when an unmapped page needs one), while
-tab identity, queues, sessions and automation stay in one shared authority.
+tab identity, queues, sessions and automation stay in one shared authority. The
+`Unassigned` window is also where the shared Terminal Manager lives (§Scope Rules).
 
 - `ProjectWindowManager` (`src/main/browser/project-window-manager.ts`) is the window
   directory: at most one live shell per owner key, the close-surface directory, and the
@@ -148,6 +149,26 @@ whose parent is gone leaves no orphan tab behind.
   window. Rows written before owner keys existed keep the capsule rule
   (`windowSessionScope` in `src/main/browser/native-tab-host.ts`), and a restart
   never re-parents the session it replaces.
+- The window owned by the `unassigned` sentinel is the **shared Terminal Manager**:
+  it is the one window whose terminal list reaches every project, while every
+  project window keeps showing only its own. Its reach is a view plus control
+  over project and unassigned rows — an `agent:<tab>` row stays view-only, listed
+  and streamed but never typed into — and it is reachable only from that window's
+  own chrome renderer, so MCP and bridge callers keep their refusal for naming no
+  window. Assigning a row to a capsule from the manager's tab context menu ensures
+  the target capsule's window exists and then re-stamps the row's owner key and
+  capsule together: the one user-ordered reassignment of a minted owner key.
+  Nothing implicit — window focus, tab activation, capsule switch — gains that
+  power, and `setCapsule` keeps its capsule-only rule. The reach lives in
+  `windowSessionScope` / `isSessionVisibleToWindow` / `admitsSessionForWindow` and
+  the `antifan:terminal:assign-capsule` route
+  (`src/main/browser/native-tab-host.ts`), with the record-level seam in
+  `TerminalManager.transferSessionOwner` (`src/main/browser/terminal-manager.ts`).
+  Design and the seams it orders:
+  [shared Terminal Manager](superpowers/specs/2026-09-28-shared-terminal-manager-capsule-assignment-design.md).
+  This paragraph is the contract; the tree answers for how much of it is wired, and
+  each half names its own owner — the route table (`NativeTabHost.CHROME_ROUTES`),
+  `windowSessionScope` with its manager gate, and the sidebar's tab context menu.
 - Composer attachments are immutable artifact refs; raw bytes never live in
   renderer state.
 
