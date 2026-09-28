@@ -94,7 +94,7 @@ const silentVbs = path.join(ROOT, 'run-antifan.vbs');
 // `--allow-eval` is the explicit authority opt-in for agent write/eval. Regenerating
 // this launcher without it silently downgrades every eval-grant session started here
 // to read-only, so the flag is part of the launcher contract, not a local tweak.
-const vbsContent = `Set WshShell = CreateObject("WScript.Shell")\nWshShell.CurrentDirectory = "${ROOT.replace(/\\/g, '\\\\')}"\nWshShell.Run """${electronExe.replace(/\\/g, '\\\\')}"" ""${ROOT.replace(/\\/g, '\\\\')}"" --allow-eval", 0, False\n`;
+const vbsContent = `' AntiFan Browser Desktop - Development Background Launcher\n' Launches Electron with --allow-eval, coherent with dev.mjs and run-electron.cjs (dev mode).\nSet WshShell = CreateObject("WScript.Shell")\nWshShell.CurrentDirectory = "${ROOT.replace(/\\/g, '\\\\')}"\nWshShell.Run """${electronExe.replace(/\\/g, '\\\\')}"" ""${ROOT.replace(/\\/g, '\\\\')}"" --allow-eval", 0, False\n`;
 fs.writeFileSync(silentVbs, vbsContent, 'utf8');
 console.log(`[installer] Created root launcher: ${silentVbs}`);
 
