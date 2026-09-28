@@ -24,6 +24,11 @@
  *                        mid-run events are skipped)
  *   session_shutdown     one BRIDGE_SESSION_SHUTDOWN row + pack identity release
  *
+ * Mode vocabulary: `[⚡Direct-Edit]`, `[🚀Super-Fast]` and `[🧠Core-Context]` are
+ * derived by the shared src/omp-hooks/edit-mode.ts module (resolved at load
+ * time — see the loader below) and latched per session as the anti-direct
+ * policy: Direct and Super-Fast arm it, Core disarms it.
+ *
  * Evidence: every bridge event is appended as a session entry via
  * pi.appendEntry('antifan-core-bridge', ...) AND written as one JSONL line to
  * <projectRoot>/.canary/core-bridge/events.jsonl (override:
@@ -33,7 +38,105 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+// The one mode vocabulary this hook's anti-direct latch is derived from.
+import type { EditMode, EditModeTrigger } from "../../../src/omp-hooks/edit-mode";
+
+// ---------------------------------------------------------------------------
+// Shared edit-mode vocabulary (src/omp-hooks/edit-mode.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * The tag vocabulary and the mode derivation live in one module so this repo
+ * hook, the user-scope guard and the QA gate cannot disagree about what
+ * `[⚡Direct-Edit]` means. It is resolved at load time instead of being written
+ * as a static relative specifier because two different loaders import this file
+ * from two different places: the OMP runtime imports it where it sits
+ * (`<repo>/.omp/hooks/pre/`), while the unit tests import a throwaway `.mts`
+ * copy of it out of the OS temp dir — a relative specifier that resolves for
+ * one is a missing file for the other. The hook's own location is tried first
+ * (that is the real deployment), then the ancestors of the session cwd.
+ */
+const SHARED_EDIT_MODE_REL = path.join("src", "omp-hooks", "edit-mode.ts");
+/** Same walk bound as `resolveWorkspaceShape()` in src/omp-hooks/theme-paths.ts. */
+const MAX_ANCESTOR_LEVELS = 12;
+
+// Type-only, so nothing here is resolved at runtime: the module is loaded by
+// path below, and this import keeps its shape checkable.
+import type * as EditModeModule from "../../../src/omp-hooks/edit-mode";
+type SharedEditMode = typeof EditModeModule;
+
+/** First existing `src/omp-hooks/edit-mode.ts`: hook-relative, then up from cwd. */
+function resolveSharedEditModePath(): string | null {
+	const here = path.dirname(fileURLToPath(import.meta.url));
+	const candidates = [path.resolve(here, "..", "..", "..", SHARED_EDIT_MODE_REL)];
+	let dir = process.cwd();
+	for (let level = 0; level < MAX_ANCESTOR_LEVELS; level += 1) {
+		candidates.push(path.join(dir, SHARED_EDIT_MODE_REL));
+		const parent = path.dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
+/**
+ * Node refuses ESM syntax in a `.ts` file whose nearest package.json declares
+ * `"type": "commonjs"` — the repo root declares exactly that — so on Node the
+ * identical bytes are loaded from an `.mts` copy, which is the same trick the
+ * unit tests use. The copy is content-addressed, so concurrent sessions share
+ * it. Bun, the OMP runtime, imports the source directly.
+ */
+async function importEsmCopy(sourcePath: string): Promise<SharedEditMode> {
+	const source = fs.readFileSync(sourcePath, "utf8");
+	const digest = createHash("sha256").update(source, "utf8").digest("hex").slice(0, 16);
+	const copyPath = path.join(os.tmpdir(), `antifan-edit-mode-${digest}.mts`);
+	if (!fs.existsSync(copyPath)) fs.writeFileSync(copyPath, source, "utf8");
+	return (await import(pathToFileURL(copyPath).href)) as SharedEditMode;
+}
+
+/** Bun loads a `.ts` source as written; Node needs the `.mts` copy above. */
+const IMPORTS_TS_DIRECTLY = "Bun" in globalThis;
+
+/**
+ * The shared vocabulary, or a load error — never a silently weaker policy.
+ *
+ * The specifier is runtime-selected on purpose: a static import can spell only
+ * one relative path, and the deployed hook and the temp copy the unit tests
+ * import need different ones, so a static specifier always breaks one of them.
+ */
+async function loadSharedEditMode(): Promise<SharedEditMode> {
+	const sourcePath = resolveSharedEditModePath();
+	if (!sourcePath) {
+		throw new Error(
+			`antifan-core-bridge: ${SHARED_EDIT_MODE_REL} not found above this hook or the session cwd`,
+		);
+	}
+	let shared: SharedEditMode;
+	if (IMPORTS_TS_DIRECTLY) {
+		try {
+			// A computed specifier types as `any`; the shape check below is the boundary.
+			shared = (await import(pathToFileURL(sourcePath).href)) as SharedEditMode;
+		} catch {
+			shared = await importEsmCopy(sourcePath);
+		}
+	} else {
+		shared = await importEsmCopy(sourcePath);
+	}
+	if (
+		typeof shared.deriveEditMode !== "function" ||
+		typeof shared.readEditModeEnv !== "function" ||
+		!Array.isArray(shared.SCOPED_MODES)
+	) {
+		throw new Error(`antifan-core-bridge: ${sourcePath} did not expose the shared edit-mode vocabulary`);
+	}
+	return shared;
+}
+
+const { deriveEditMode, readEditModeEnv, SCOPED_MODES } = await loadSharedEditMode();
 
 // ---------------------------------------------------------------------------
 // Local structural types (the runtime supplies these objects; declared here so
@@ -107,13 +210,15 @@ interface BridgeState {
 	shutdownEmitted: boolean;
 	/** Anti-direct policy state: true disables Core pack seeding and retrieval tools. */
 	antiDirect: boolean;
-	antiDirectTrigger: "user_skill_invocation" | "natural_language" | "annotation_tag" | null;
+	antiDirectTrigger: BridgeTrigger | null;
 	/**
-	 * Last explicit mode signal of the session: an annotation-mode tag or a
-	 * skill/natural-language directive. A Core request must be able to switch a
-	 * Direct-armed session back, so the last explicit signal wins.
+	 * Last explicit mode signal of the session, in the shared vocabulary: an
+	 * annotation-mode tag or a skill/natural-language directive. A Core request
+	 * must be able to switch a Direct-armed session back, so the last explicit
+	 * signal wins. `fast` stays distinct from `direct` — Super-Fast arms the same
+	 * anti-direct latch, and the mode is what the session actually ran in.
 	 */
-	directMode: "unset" | "direct" | "core";
+	directMode: EditMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,38 +434,64 @@ function classifyTaskIntent(task: string): TaskIntentClass {
 	return "general";
 }
 
-const ANTI_DIRECT_NL_RE =
-	/(?:sửa\s+trực\s+tiếp|không\s+tra\s+core|tắt\s+core|bỏ\s+qua\s+core|skip\s+core)/i;
+/**
+ * Trigger names this hook records in telemetry and in compaction state. They are
+ * an external contract (the Core health service and the acceptance tests read
+ * them), so the shared vocabulary's names are mapped onto them rather than
+ * renamed.
+ */
+type BridgeTrigger = "user_skill_invocation" | "natural_language" | "annotation_tag";
 
 /**
- * Mode tag the AntiFan annotation popup puts in every prompt it builds: the
- * Direct Edit chip is the popup default, and the Core tick flips the same tag
- * slot to a Core request.
+ * The shared vocabulary names the arming signal; this hook's audit trail keeps
+ * its own three names. Returns undefined for a prompt that carried no signal, so
+ * the caller can keep the trigger that armed the session.
  */
-const ANTI_DIRECT_TAG_RE = /\[[^\]]*direct[- ]?edit\]/i;
-const CORE_CONTEXT_TAG_RE = /\[[^\]]*core[- ]?(?:context|pack)\]/i;
+function bridgeTrigger(trigger: EditModeTrigger | undefined): BridgeTrigger | undefined {
+	switch (trigger) {
+		case "annotation_tag":
+			return "annotation_tag";
+		case "natural_language":
+			return "natural_language";
+		case "skill_invocation":
+		case "env_latch":
+		case "inherited":
+			return "user_skill_invocation";
+		default:
+			return undefined;
+	}
+}
 
 /**
- * Detects whether anti-direct mode is requested via process env, skill invocation,
- * annotation tag, or natural language directive.
+ * The mode a session starts in before any prompt signal: `ANTIFAN_ANTI_DIRECT`
+ * is this hook's own latch (set so a spawned subagent inherits it, and read
+ * here for exactly that), `ANTIFAN_EDIT_MODE` is the shared contract the AntiFan
+ * terminal writes. Both are the *initial* latch only — a prompt tag outranks it.
  */
-function detectAntiDirectIntent(task: string): {
-	active: boolean;
-	triggeredBy?: "user_skill_invocation" | "natural_language" | "annotation_tag";
+function inheritedEditMode(): { mode: EditMode; trigger: EditModeTrigger } | null {
+	if (process.env.ANTIFAN_ANTI_DIRECT === "1") return { mode: "direct", trigger: "inherited" };
+	const mode = readEditModeEnv();
+	if (mode === "direct" || mode === "fast" || mode === "core") return { mode, trigger: "env_latch" };
+	return null;
+}
+
+/**
+ * Anti-direct intent for one prompt, on top of the shared derivation: a Direct
+ * or Super-Fast tag, the anti-direct skill and spoken arming all arm the latch,
+ * a Core signal disarms it, and a prompt with no signal keeps whatever the
+ * session already latched. The whole tag vocabulary lives in the shared module —
+ * this function must not reintroduce a matcher of its own.
+ */
+function detectAntiDirectIntent(task: string, latched: EditMode): {
+	action: "arm" | "disarm" | "none";
+	mode: EditMode;
+	triggeredBy?: EditModeTrigger;
 } {
-	if (process.env.ANTIFAN_ANTI_DIRECT === "1") {
-		return { active: true, triggeredBy: "user_skill_invocation" };
-	}
-	if (/\b(?:skill:)?anti-direct\b/i.test(task)) {
-		return { active: true, triggeredBy: "user_skill_invocation" };
-	}
-	if (ANTI_DIRECT_TAG_RE.test(task)) {
-		return { active: true, triggeredBy: "annotation_tag" };
-	}
-	if (ANTI_DIRECT_NL_RE.test(task)) {
-		return { active: true, triggeredBy: "natural_language" };
-	}
-	return { active: false };
+	const decision = deriveEditMode(task, latched);
+	const triggeredBy = decision.trigger === "latched" ? undefined : decision.trigger;
+	if (decision.mode === "core") return { action: "disarm", mode: decision.mode, triggeredBy };
+	if (SCOPED_MODES.includes(decision.mode)) return { action: "arm", mode: decision.mode, triggeredBy };
+	return { action: "none", mode: decision.mode, triggeredBy };
 }
 
 /** ANTIFAN_CORE_BRIDGE_GATE=off disables intent gating (always seed). */
@@ -910,9 +1041,13 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				return undefined;
 			}
 
-			// Anti-direct policy check (P0 priority: user explicit directive outranks auto heuristics)
-			const antiDirectCheck = detectAntiDirectIntent(task);
-			if (CORE_CONTEXT_TAG_RE.test(task)) {
+			// Anti-direct policy check (P0 priority: user explicit directive outranks auto heuristics).
+			// The environment is only the session's initial latch — what a spawned
+			// subagent inherits — and a prompt signal is what the person typed, so the
+			// signal outranks it. Before any signal, the latch is what was inherited.
+			const inherited = state.directMode === "unset" ? inheritedEditMode() : null;
+			const antiDirectCheck = detectAntiDirectIntent(task, inherited?.mode ?? state.directMode);
+			if (antiDirectCheck.action === "disarm") {
 				// An annotation ticked for Core context is an explicit per-prompt
 				// request: it must switch a Direct-armed session back, not just
 				// skip the arming this once.
@@ -921,10 +1056,14 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				state.antiDirectTrigger = null;
 				delete process.env.ANTIFAN_ANTI_DIRECT;
 				delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
-			} else if (antiDirectCheck.active || state.antiDirect) {
+			} else if (antiDirectCheck.action === "arm") {
 				state.antiDirect = true;
-				state.directMode = "direct";
-				state.antiDirectTrigger = antiDirectCheck.triggeredBy ?? state.antiDirectTrigger ?? "user_skill_invocation";
+				state.directMode = antiDirectCheck.mode;
+				state.antiDirectTrigger =
+					bridgeTrigger(antiDirectCheck.triggeredBy) ??
+					bridgeTrigger(inherited?.trigger) ??
+					state.antiDirectTrigger ??
+					"user_skill_invocation";
 				process.env.ANTIFAN_ANTI_DIRECT = "1";
 				if (ctx?.sessionManager?.getSessionId?.()) {
 					process.env.ANTIFAN_ANTI_DIRECT_ORIGIN = ctx.sessionManager.getSessionId();

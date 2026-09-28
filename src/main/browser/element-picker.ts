@@ -864,15 +864,25 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     const QUEUE_PREFIX = '/queue ';
     const DIRECT_TAG = '[⚡Direct-Edit]';
     const CORE_TAG = '[🧠Core-Context]';
+    // Enforcement-side counterparts are SUPER_FAST_TAG_RE / DIRECT_TAG_RE /
+    // CORE_TAG_RE in src/omp-hooks/edit-mode.ts. Importing is not viable: this
+    // script is serialized into the page and runs there with no module scope, and
+    // that module exports matchers rather than tag literals. Keep every spelling
+    // below accepted by those regexes.
+    const SUPER_FAST_TAG = '[🚀Super-Fast]';
+    // The mode property marks the chips that own the single-select mode slot; the
+    // others are orthogonal routing chips sharing the same row.
     const actionChips = [
       { id: 'theme', label: '🎨 Sửa Theme', tag: '[🎨Theme-Fix]', title: 'Áp dụng quy chuẩn theme platform (Haravan/Shopify/Sapo)' },
-      { id: 'direct', label: '⚡ Direct Edit', tag: DIRECT_TAG, title: 'Sửa trực tiếp, bỏ qua tra Core context (anti-direct) — mặc định bật' },
+      { id: 'direct', mode: 'direct', label: '⚡ Direct Edit', tag: DIRECT_TAG, title: 'Sửa trực tiếp, bỏ qua tra Core context (anti-direct) — mặc định bật' },
+      { id: 'fast', mode: 'fast', label: '🚀 Super-Fast', tag: SUPER_FAST_TAG, title: 'Chỉ sửa file trong theme: không shell, không browser/MCP — chế độ nhanh nhất' },
       { id: 'speed', label: '🚀 PageSpeed', tag: '[🚀PageSpeed]', title: 'Tối ưu Core Web Vitals & pagespeed' },
     ];
 
-    // Direct Edit is the popup default, so the Core tick starts off and owns the
-    // per-annotation mode tag the pre-hook reads: unticked → Direct Edit, ticked
-    // → Core context retrieval. The other chips never touch this.
+    // Direct Edit is the popup default, so the Core tick starts off. The tick
+    // mirrors the mode slot instead of owning it: exactly one of Direct Edit,
+    // Core context retrieval or Super-Fast is selected, and the mode tag the
+    // pre-hook reads is always the selected one — never a stack of them.
     const coreTick = document.createElement('label');
     coreTick.id = 'antifanCoreTick';
     coreTick.title = 'Tra Core context (claims + history) cho annotation này — mặc định tắt';
@@ -888,17 +898,22 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     coreTick.appendChild(coreTickText);
 
     const chipButtons = {};
-    const isDirectMode = () => !coreTickInput.checked;
+    const MODE_TAGS = { direct: DIRECT_TAG, core: CORE_TAG, fast: SUPER_FAST_TAG };
+    let mode = 'direct';
+    const setMode = (next) => {
+      mode = next;
+      coreTickInput.checked = next === 'core';
+    };
     const applyChipState = () => {
       actionChips.forEach((c) => {
         const btn = chipButtons[c.id];
         if (!btn) return;
-        const isOn = c.id === 'direct' ? isDirectMode() : activeActionChip === c.id;
+        const isOn = c.mode ? mode === c.mode : activeActionChip === c.id;
         btn.style.background = isOn ? '#0284c7' : '#0f172a';
         btn.style.color = isOn ? '#ffffff' : '#94a3b8';
         btn.style.borderColor = isOn ? '#38bdf8' : '#1e293b';
       });
-      coreTick.style.borderColor = isDirectMode() ? '#1e293b' : '#38bdf8';
+      coreTick.style.borderColor = mode === 'core' ? '#38bdf8' : '#1e293b';
     };
     const stripManagedTags = () => {
       let body = textarea.value.replace(/^(\\s*\\/queue\\b\\s*)+/gi, '');
@@ -917,8 +932,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         const active = actionChips.filter((c) => c.id === activeActionChip)[0];
         if (active) tags.push(active.tag);
       }
-      if (isDirectMode()) tags.push(DIRECT_TAG);
-      else tags.push(CORE_TAG);
+      tags.push(MODE_TAGS[mode]);
       return QUEUE_PREFIX + (tags.length ? tags.join(' ') + ' ' : '') + body;
     };
     const syncPromptTags = () => {
@@ -940,8 +954,11 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           e.stopPropagation();
           e.preventDefault();
         }
-        if (c.id === 'direct') {
-          coreTickInput.checked = isDirectMode();
+        if (c.mode) {
+          // Direct keeps its two-mode toggle so a second click never strands it on;
+          // Super-Fast is a plain select that clears the other two. Routing chips
+          // toggle independently of the mode slot.
+          setMode(c.id === 'direct' && mode === 'direct' ? 'core' : c.mode);
         } else {
           activeActionChip = activeActionChip === c.id ? null : c.id;
         }
@@ -952,6 +969,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       chipRow.appendChild(btn);
     });
     coreTickInput.onchange = () => {
+      // The tick is a shortcut for the Core mode, not a fourth mode: unticking it
+      // falls back to the popup default.
+      setMode(coreTickInput.checked ? 'core' : 'direct');
       syncPromptTags();
       textarea.focus();
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);

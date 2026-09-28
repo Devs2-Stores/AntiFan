@@ -12,6 +12,7 @@ import {
   extractSourceHintsTS,
 } from '../../src/main/browser/element-picker';
 import { AnnotationManager } from '../../src/main/bridge/annotation-manager';
+import { SUPER_FAST_TAG_RE } from '../../src/omp-hooks/edit-mode';
 
 interface JsdomLike {
   window: Window & typeof globalThis & { eval: (src: string) => unknown; __antifanPickerCleanup?: () => void };
@@ -334,6 +335,51 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
     coreTick.click();
     assert.strictEqual(promptOf(h, modal), '/queue [🧠Core-Context] ', 'the Core tick alone owns the mode tag');
     assert.strictEqual(directChip.textContent, '⚡ Direct Edit', 'the chip label is not the mode carrier');
+
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+
+  it('resolves the Super-Fast chip over the same single-select mode slot', async (t) => {
+    const { JSDOM } = loadJsdom();
+    const h = createPickerHarness(JSDOM);
+    const modal = h.openModal();
+    assert.ok(modal);
+    const textarea = modalTextarea(h, modal);
+    const chip = (id: string): HTMLElement => {
+      const el = modal.querySelector('#antifanChip-' + id);
+      assert.ok(el instanceof h.win.HTMLElement, `chip #antifanChip-${id} must exist`);
+      return el as HTMLElement;
+    };
+
+    assert.strictEqual(textarea.value, '/queue [⚡Direct-Edit] ', 'the popup default stays Direct Edit');
+    const coreTick = modal.querySelector('#antifanCoreTickInput');
+    assert.ok(coreTick instanceof h.win.HTMLInputElement);
+
+    coreTick.click();
+    assert.strictEqual(promptOf(h, modal), '/queue [🧠Core-Context] ');
+
+    chip('fast').click();
+    assert.strictEqual(promptOf(h, modal), '/queue [🚀Super-Fast] ', 'the Super-Fast chip resolves to the Super-Fast tag');
+    assert.ok(SUPER_FAST_TAG_RE.test(promptOf(h, modal)), 'the enforcement-side matcher reads the emitted tag as Super-Fast');
+    assert.strictEqual(coreTick.checked, false, 'Super-Fast clears the Core tick');
+
+    textarea.value = promptOf(h, modal) + 'sửa lề nút cart';
+    chip('direct').click();
+    assert.strictEqual(
+      promptOf(h, modal),
+      '/queue [⚡Direct-Edit] sửa lề nút cart',
+      'Direct Edit replaces Super-Fast, so exactly one mode tag ships',
+    );
+
+    chip('fast').click();
+    assert.strictEqual(promptOf(h, modal), '/queue [🚀Super-Fast] sửa lề nút cart', 'Super-Fast clears Direct Edit the same way');
+    chip('speed').click();
+    assert.strictEqual(
+      promptOf(h, modal),
+      '/queue [🚀PageSpeed] [🚀Super-Fast] sửa lề nút cart',
+      'an action-chip click adds its routing tag without clearing the selected mode',
+    );
 
     h.win.__antifanPickerCleanup?.();
     h.win.close();
@@ -778,6 +824,50 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
   });
 
 
+
+  it('routes a Super-Fast annotation to anti-direct and drops pagespeed when the speed heuristics also match', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-test-superfast-'));
+    const manager = AnnotationManager.getInstance();
+    const base = {
+      workspaceDir: tempDir,
+      url: 'https://m-n-bakery.myharavan.com/products/banh-mi',
+      selector: '.product-card__title',
+      tagName: 'a',
+      dimensions: '200 x 40 px',
+    };
+    const skillsSection = async (userComment: string, actionChip?: string): Promise<string> => {
+      const res = await manager.processAnnotationPayload({ ...base, userComment, actionChip });
+      assert.strictEqual(res.ok, true);
+      const start = res.markdownContent.indexOf('## 🎯 Recommended Skills & Agent Directives');
+      assert.notStrictEqual(start, -1, `the skills section must be present for: ${userComment}`);
+      return res.markdownContent.slice(start);
+    };
+
+    const fast = await skillsSection('[🚀Super-Fast] sửa lề nút cart\ntối ưu tốc độ');
+    assert.ok(fast.includes('skill://anti-direct'), 'Super-Fast edits theme files directly, so anti-direct is the routed skill');
+    assert.ok(!fast.includes('skill://pagespeed'), 'Super-Fast must not route pagespeed even when the text matches the speed heuristics');
+    assert.ok(
+      fast.includes('- **Super-Fast Mode Armed**: edit theme files directly — no shell, no dispatch, no live-browser or QA round-trips (`[🚀Super-Fast]`).'),
+      'the Super-Fast directive line ships',
+    );
+    assert.ok(!fast.includes('**Direct Mode Armed**'), 'Super-Fast is its own mode, not a Direct comment');
+    assert.ok(!fast.includes('**Performance Focus**'), 'the suppressed pagespeed route must not leave its directive behind');
+    assert.strictEqual(fast.split('skill://anti-direct').length - 1, 1, 'anti-direct is recommended exactly once');
+
+    const direct = await skillsSection('[⚡Direct-Edit] sửa lề nút cart');
+    assert.ok(direct.includes('- **Recommended Skill**: `skill://anti-direct`'));
+    assert.ok(direct.includes('**Direct Mode Armed**'));
+    assert.ok(!direct.includes('**Super-Fast Mode Armed**'));
+
+    const speed = await skillsSection('[🚀PageSpeed] tối ưu tốc độ');
+    assert.ok(speed.includes('- **Recommended Skill**: `skill://pagespeed`'));
+    assert.ok(speed.includes('**Performance Focus**'));
+    assert.ok(!speed.includes('skill://anti-direct'), 'the PageSpeed chip routes the performance skill without arming a mode');
+
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+  });
 
   it('ELEMENT_PICKER_SCRIPT executes cleanly without reference errors', () => {
     assert.doesNotThrow(() => {

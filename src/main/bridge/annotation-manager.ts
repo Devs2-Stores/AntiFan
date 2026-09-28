@@ -106,8 +106,15 @@ export interface AnnotationPayload {
   actionChip?: string;
 }
 function buildRecommendedSkillsSection(platform: string, userComment: string, actionChip?: string): string {
+  // Super-Fast is a mode of its own; the enforcement side matches the same tag
+  // with SUPER_FAST_TAG_RE in src/omp-hooks/edit-mode.ts. It outranks both other
+  // heuristics: Fast already edits theme files directly, so it never routes the
+  // performance skill and never renders a second mode directive.
+  const isFast = actionChip === 'fast' || /\[🚀?\s*super[- ]?fast\]/i.test(userComment);
   const isDirect = actionChip === 'direct' || /\[⚡?\s*direct[- ]?edit\]/i.test(userComment) || /sửa trực tiếp|không tra core|skip core|tắt core/i.test(userComment);
   const isSpeed = actionChip === 'speed' || /\[🚀?\s*pagespeed\]/i.test(userComment) || /pagespeed|tối ưu speed|tối ưu tốc độ|cwv|lcp|cls/i.test(userComment);
+  const showDirectDirective = isDirect && !isFast;
+  const showSpeedDirective = isSpeed && !isFast;
   const skills: string[] = [];
   let primaryThemeSkill = '';
   if (platform === 'haravan') {
@@ -120,17 +127,17 @@ function buildRecommendedSkillsSection(platform: string, userComment: string, ac
     primaryThemeSkill = 'skill://sapo-theme';
     skills.push('skill://sapo-theme');
   }
-  if (isDirect) {
+  if (isDirect || isFast) {
     skills.push('skill://anti-direct');
   }
-  if (isSpeed) {
+  if (isSpeed && !isFast) {
     skills.push('skill://pagespeed');
   }
   if (skills.length === 0) return '';
   return `## 🎯 Recommended Skills & Agent Directives
 - **Platform Identified**: ${platform !== 'unknown' ? platform.toUpperCase() : 'Generic Storefront'}
 ${skills.map((s) => `- **Recommended Skill**: \`${s}\``).join('\n')}
-${isDirect ? '- **Direct Mode Armed**: Inspect & edit code directly without retrieving historical Core context packs (`skill://anti-direct`).\n' : ''}${isSpeed ? '- **Performance Focus**: Analyze and optimize Core Web Vitals (LCP, CLS, TBT) per `skill://pagespeed`.\n' : ''}${primaryThemeSkill ? `- **Platform Standards**: Adhere to Liquid patterns, asset directories, and schema conventions in \`${primaryThemeSkill}\`.\n` : ''}`;
+${isFast ? '- **Super-Fast Mode Armed**: edit theme files directly — no shell, no dispatch, no live-browser or QA round-trips (`[🚀Super-Fast]`).\n' : ''}${showDirectDirective ? '- **Direct Mode Armed**: Inspect & edit code directly without retrieving historical Core context packs (`skill://anti-direct`).\n' : ''}${showSpeedDirective ? '- **Performance Focus**: Analyze and optimize Core Web Vitals (LCP, CLS, TBT) per `skill://pagespeed`.\n' : ''}${primaryThemeSkill ? `- **Platform Standards**: Adhere to Liquid patterns, asset directories, and schema conventions in \`${primaryThemeSkill}\`.\n` : ''}`;
 }
 
 export class AnnotationManager {

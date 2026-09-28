@@ -1,10 +1,14 @@
-// Phase 6.0 hardening tests for the AntiFan theme-qa-gate hook.
+// Behavioral tests for the AntiFan theme-qa-gate hook.
 //
-// The hook lives OUTSIDE the repo (user-scope hook), so it is read from disk,
-// transpiled in-memory with the repo's own TypeScript, written to a throwaway
-// .cjs file and required. Each test loads a FRESH module instance (unique file
-// name => fresh require cache entry) so module-level state (pending map,
-// throttle counter, churn warning set, mcp-first flag) cannot leak between tests.
+// The hook's source lives IN the repo (src/omp-hooks/theme-qa-gate.ts) and is
+// installed to user scope by scripts/install-omp-hooks.mjs. Every test stages a
+// throwaway copy of the hook and its src/omp-hooks dependencies as .mts modules
+// in a fresh temp dir, rewrites the extensionless relative specifiers to those
+// copies, and loads it through the Node type stripper — so the tests exercise the
+// shipped source, and each load is a FRESH module instance (pending map, throttle
+// counter, churn warning set, mcp-first flag, edit-mode cache cannot leak between
+// tests). Set THEME_QA_GATE_HOOK to point at another copy of the same source (the
+// installed hook) and the same suite runs against it.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -12,12 +16,20 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const ts = require("typescript");
 
-const HOOK_PATH =
-  process.env.THEME_QA_GATE_HOOK ?? "C:\\Users\\Admin\\.omp\\agent\\hooks\\post\\theme-qa-gate.ts";
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const HOOK_SRC_DIR = path.join(REPO, "src", "omp-hooks");
+const HOOK_PATH = process.env.THEME_QA_GATE_HOOK ?? path.join(HOOK_SRC_DIR, "theme-qa-gate.ts");
+/** src/omp-hooks modules the hook imports relatively; staged beside every load. */
+const HOOK_DEPS = ["edit-mode.ts", "theme-paths.ts"];
+
+// The hook reads ANTIFAN_EDIT_MODE from the real process env: a developer shell
+// that exported it must not change what these tests observe.
+const PREV_EDIT_MODE = process.env.ANTIFAN_EDIT_MODE;
+delete process.env.ANTIFAN_EDIT_MODE;
 
 const BYPASS_TOKENS = [
   "qaStatus: QA_UNAVAILABLE",
@@ -33,14 +45,23 @@ const CHURN_SENTINEL = "theme-qa-gate:churn";
 const MCP_FIRST_SENTINEL = "theme-qa-gate:mcp-first";
 
 const hookSource = fs.readFileSync(HOOK_PATH, "utf8");
-const transpiled = ts.transpileModule(hookSource, {
-  compilerOptions: {
-    module: ts.ModuleKind.CommonJS,
-    target: ts.ScriptTarget.ES2022,
-    esModuleInterop: false,
-  },
-  fileName: "theme-qa-gate.ts",
-}).outputText;
+const depSources = HOOK_DEPS.map((dep) => {
+  const file = path.join(HOOK_SRC_DIR, dep);
+  return { name: dep.replace(/\.ts$/, ".mts"), source: fs.readFileSync(file, "utf8") };
+});
+
+/**
+ * Point the staged copy's relative imports at its staged neighbours: Node's ESM
+ * resolver needs the real file name, while the source keeps the extensionless
+ * specifiers `tsc` and esbuild resolve.
+ */
+function stagedSource(source) {
+  let out = source;
+  for (const dep of depSources) {
+    out = out.split(`from "./${dep.name.replace(/\.mts$/, "")}"`).join(`from "./${dep.name}"`);
+  }
+  return out;
+}
 
 const scratchDirs = [];
 let loadSeq = 0;
@@ -53,23 +74,32 @@ test.after(() => {
       /* best effort */
     }
   }
+  if (PREV_EDIT_MODE === undefined) delete process.env.ANTIFAN_EDIT_MODE;
+  else process.env.ANTIFAN_EDIT_MODE = PREV_EDIT_MODE;
 });
 
-/** Transpile-load a pristine copy of the hook and capture its registered handlers. */
+/** Stage-load a pristine copy of the hook and capture its registered handlers. */
 function loadHook() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-hook-"));
   scratchDirs.push(dir);
-  const file = path.join(dir, `hook-${loadSeq++}.cjs`);
-  fs.writeFileSync(file, transpiled, "utf8");
+  for (const dep of depSources) {
+    fs.writeFileSync(path.join(dir, dep.name), stagedSource(dep.source), "utf8");
+  }
+  const file = path.join(dir, `hook-${loadSeq++}.mts`);
+  fs.writeFileSync(file, stagedSource(hookSource), "utf8");
   const mod = require(file);
   const factory = mod.default ?? mod;
   assert.equal(typeof factory, "function", "hook module must default-export a factory");
   const handlers = new Map();
-  factory({ on: (event, handler) => handlers.set(event, handler) });
-  for (const event of ["tool_call", "tool_result", "context", "session_start"]) {
+  const sent = [];
+  factory({
+    on: (event, handler) => handlers.set(event, handler),
+    sendMessage: (message) => sent.push(message),
+  });
+  for (const event of ["tool_call", "tool_result", "context", "turn_end", "session_start"]) {
     assert.equal(typeof handlers.get(event), "function", `hook must register a ${event} handler`);
   }
-  return { handlers };
+  return { handlers, sent };
 }
 
 function makeWorkspace() {
@@ -698,5 +728,179 @@ test("a cwd without .antifan, templates/, or /customizes/ does not get MCP-first
   assert.equal(res, undefined, "non-theme cwd is not injected");
   const out = handlers.get("context")({ messages: [{ role: "user", content: "hi" }] }, ctx);
   assert.equal(out, undefined, "non-theme context is untouched");
+});
+
+// ---------------------------------------------------------------------------
+// Edit-mode scoping: Direct/Super-Fast sessions skip storefront QA
+// ---------------------------------------------------------------------------
+
+/** Context of a session whose mode the edit guard latched into `branch`. */
+function sessionCtx(cwd, sessionId, branch) {
+  return {
+    cwd,
+    sessionManager: {
+      getSessionId: () => sessionId,
+      getBranch: () => branch,
+    },
+  };
+}
+
+/** The `antifan.edit-mode` custom entry the edit guard appends on a mode change. */
+function modeEntry(mode) {
+  return {
+    type: "custom",
+    customType: "antifan.edit-mode",
+    data: { mode, trigger: "annotation_tag", at: new Date().toISOString() },
+  };
+}
+
+/** One audit row, shaped exactly as src/omp-hooks/edit-guard.ts writes it. */
+function auditRow(runSeq, filePath, decision = "allow") {
+  return {
+    ts: new Date().toISOString(),
+    runSeq,
+    mode: "direct",
+    tool: "edit",
+    path: filePath,
+    decision,
+    code: decision === "block" ? "REFUSED_EDIT_SCOPE" : "ALLOWED",
+    terminalSessionId: null,
+    ompSessionId: "test-session",
+  };
+}
+
+function writeEditGuardLog(root, sessionId, rows) {
+  const dir = path.join(root, ".antifan", "edit-guard");
+  fs.mkdirSync(dir, { recursive: true });
+  const lines = rows.map((row) => (typeof row === "string" ? row : JSON.stringify(row)));
+  fs.writeFileSync(path.join(dir, `${sessionId}.jsonl`), `${lines.join("\n")}\n`, "utf8");
+}
+
+/** Run `fn` with ANTIFAN_EDIT_MODE set to `mode` (undefined leaves it unset). */
+function withEditMode(mode, fn) {
+  const before = process.env.ANTIFAN_EDIT_MODE;
+  if (mode === undefined) delete process.env.ANTIFAN_EDIT_MODE;
+  else process.env.ANTIFAN_EDIT_MODE = mode;
+  try {
+    return fn();
+  } finally {
+    if (before === undefined) delete process.env.ANTIFAN_EDIT_MODE;
+    else process.env.ANTIFAN_EDIT_MODE = before;
+  }
+}
+
+test("scoped mode: six unmarked results stay silent, turn_end states the changed-file count", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+  const sessionId = "01a0scoped01";
+  writeEditGuardLog(root, sessionId, [
+    auditRow(1, "sections/old.liquid"), // an earlier run is not this run's count
+    auditRow(2, "sections/hero.liquid"),
+    auditRow(2, "sections/hero.liquid"), // the same file twice is one changed file
+    auditRow(2, "assets/theme.css"),
+    auditRow(2, "templates/index.liquid", "block"), // refused, so not a change
+    "{ not json", // a torn line must not hide the run it sits in
+  ]);
+  const ctx = sessionCtx(root, sessionId, [modeEntry("direct")]);
+
+  // This write would arm the gate in an unscoped session; a scoped one ignores it.
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  for (let i = 0; i < 6; i++) {
+    assert.equal(
+      result(handlers, ctx, `tool output ${i}`),
+      undefined,
+      "scoped mode appends no reminder, churn or MCP-first chunk"
+    );
+  }
+  assert.equal(sent.length, 0, "tool results never message the session");
+
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "turn_end sends exactly one line");
+  assert.equal(
+    sent[0].content,
+    "[edit-guard] Direct-Edit: 2 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)"
+  );
+  assert.equal(sent[0].customType, "theme-qa-gate");
+  assert.equal(sent[0].display, true);
+  assert.equal(sent[0].attribution, "agent");
+  assert.deepEqual(sent[0].details, { kind: "edit-guard-skip", mode: "direct", changedFiles: 2 });
+
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 2, "the next turn gets its own single line");
+});
+
+test("scoped mode: the branch latch silences the gate until a Core entry reopens it", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const branch = [modeEntry("fast")];
+  const ctx = sessionCtx(root, "01a0scoped02", branch);
+
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  assert.equal(result(handlers, ctx, "first"), undefined, "Super-Fast keeps tool results clean");
+  assert.equal(result(handlers, ctx, "second"), undefined, "and keeps them clean across calls");
+  assert.equal(
+    handlers.get("context")({ messages: [{ role: "user", content: "sua banner" }] }, ctx),
+    undefined,
+    "Super-Fast is not told to go use AntiFan MCP"
+  );
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1);
+
+  // What a `[🧠Core-Context]` prompt makes the edit guard append.
+  branch.push(modeEntry("core"));
+  const reopened = resText(result(handlers, ctx, "after core"));
+  assert.equal(count(reopened, GATE_REMINDER_SENTINEL), 1, "the gate asks for QA again");
+  assert.equal(count(reopened, MCP_FIRST_SENTINEL), 1, "and MCP-first injection resumes");
+  // The context handler reads messages again too: an assistant declaration clears
+  // the pending edit, which the scoped early return would never have reached.
+  handlers.get("context")({ messages: [{ role: "assistant", content: BYPASS_TOKENS[0] }] }, ctx);
+  assert.equal(result(handlers, ctx, "after declaration"), undefined, "the gate cleared");
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "an unscoped turn says nothing at turn_end");
+});
+
+test("scoped mode: without a readable audit trail the skip line carries no count", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  withEditMode("fast", () => {
+    // Logged-in session, but no audit file yet: nothing to count.
+    handlers.get("turn_end")({ type: "turn_end" }, sessionCtx(root, "01a0scoped03", []));
+    // Session the host gives no id for: the audit trail cannot be located at all.
+    handlers.get("turn_end")({ type: "turn_end" }, { cwd: root });
+  });
+  assert.equal(sent.length, 2);
+  assert.equal(
+    sent[0].content,
+    "[edit-guard] Super-Fast: edit finished — storefront QA skipped (send [🧠Core-Context] to run it)"
+  );
+  assert.equal(sent[1].content, sent[0].content, "a missing session id degrades the same way");
+  assert.equal(sent[0].details.changedFiles, null);
+});
+
+test("unset and core modes keep today's reminder behaviour and stay quiet at turn_end", () => {
+  for (const mode of [undefined, "core"]) {
+    const label = mode ?? "unset";
+    const { handlers, sent } = loadHook();
+    const root = makeWorkspace();
+    const ctx = { cwd: root };
+    withEditMode(mode, () => {
+      writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+      const first = resText(result(handlers, ctx, "output 1"));
+      assert.equal(
+        count(first, GATE_REMINDER_SENTINEL),
+        REMIND_EVERY,
+        `${label} reminds on an unmarked result`
+      );
+      assert.equal(count(first, MCP_FIRST_SENTINEL), 1, `${label} still injects MCP-first`);
+      assert.equal(
+        result(handlers, ctx, `output 2\n[theme-qa-gate] QA GATE PENDING — stale copy`),
+        undefined,
+        `${label} does not re-append to a marked result`
+      );
+      handlers.get("turn_end")({ type: "turn_end" }, ctx);
+      assert.equal(sent.length, 0, `${label} sends no turn_end line`);
+    });
+  }
 });
 
