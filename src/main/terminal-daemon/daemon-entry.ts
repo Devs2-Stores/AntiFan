@@ -400,13 +400,16 @@ function main(): void {
 
           case HOST_METHOD.transferOwner: {
             // The refusal is the manager's answer, not a transport failure: an unknown, closed,
-            // empty-keyed or no-op transfer must resolve `false` on the proxy exactly as it returns
-            // `false` in-process. Reporting it as `success:false` would make the proxy reject and
-            // hand the caller a different shape for the same call depending on which side it ran.
+            // empty-keyed or present-but-empty-capsule transfer must resolve `false` on the proxy
+            // exactly as it returns `false` in-process. Reporting it as `success:false` would make
+            // the proxy reject and hand the caller a different shape for the same call depending
+            // on which side it ran.
             const transferred = tm.transferSessionOwner(
               String(p.sessionId || ''),
               String(p.ownerKey || ''),
-              String(p.capsuleId || ''),
+              // `undefined` is a real answer — "the target project has no workspace" — so it must
+              // not be coerced into the same empty string a malformed non-string capsule uses.
+              typeof p.capsuleId === 'string' ? p.capsuleId : (p.capsuleId === undefined ? undefined : String(p.capsuleId)),
             );
             respond(true, { transferred });
             break;

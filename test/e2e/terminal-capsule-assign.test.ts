@@ -31,8 +31,8 @@
  *   Automated here (a scripted harness observes them):
  *     - two project windows live on distinct owners, each listing only its own terminal
  *     - the manager window's own list is the superset: every live project's session
- *     - a session minted by the manager, assigned to a capsule through the real
- *       `TERMINAL_CHANNELS.ASSIGN_CAPSULE` invoke, appears in the target window's scope
+ *     - a session minted by the manager, assigned to a project through the real
+ *       `TERMINAL_CHANNELS.ASSIGN_PROJECT` invoke, appears in the target window's scope
  *     - a session moved out of the project window that minted it disappears from that
  *       window's scope while the manager keeps listing it
  *     - a target capsule whose window is closed is refused first (`TARGET_WINDOW_ABSENT`),
@@ -171,7 +171,7 @@ async function pickFreePort(): Promise<number> {
 /** The scenario that runs inside the real Electron main process. */
 const TERMINAL_CAPSULE_ASSIGN_DRIVER_SOURCE = `
 'use strict';
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
@@ -240,7 +240,12 @@ fs.writeFileSync(
         workspaceId: entry.workspaceId,
         migrationMarker: 'explicit',
       };
-    }),
+    }).concat(Array.from({ length: 226 }, function (_, index) {
+      return { id: 'legacy-alpha-' + index, name: ALPHA.name, workspacePath: ALPHA.path,
+        state: {}, createdAt: 1, updatedAt: 1 };
+    })).concat([{ id: 'legacy-alpha-ambiguous', name: 'Ambiguous Alpha', workspacePath: ALPHA.path,
+      state: {}, createdAt: 1, updatedAt: 1, projectId: ALPHA.projectId, workspaceId: ALPHA.workspaceId,
+      migrationMarker: 'explicit' }]),
   }, null, 2),
   'utf8',
 );
@@ -353,6 +358,21 @@ const ownerOfProject = function (project) { return 'project:' + project.projectI
 const entryFor = function (ownerKeyValue) {
   return authority.snapshot().find(function (entry) { return entry.ownerKey === ownerKeyValue; }) || null;
 };
+/**
+ * The menu item the user clicks, found the way Electron finds one: by label in the menu this
+ * process installed. No row may open a window through a path the user cannot, so the manager row
+ * clicks this rather than calling the factory behind it.
+ */
+const applicationMenuItem = function (label) {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return null;
+  for (const section of menu.items) {
+    if (!section.submenu) continue;
+    const found = section.submenu.items.find(function (item) { return item.label === label; });
+    if (found) return found;
+  }
+  return null;
+};
 const ownerKeyOf = function (sessionId) { return TerminalManager.getInstance().sessionOwnerKey(sessionId); };
 const capsuleOf = function (sessionId) { return TerminalManager.getInstance().sessionCapsuleId(sessionId); };
 
@@ -379,13 +399,13 @@ const waitForRowGone = async function (surface, sessionId, description) {
 const newTerminal = async function (surface, cwd) {
   return await surface.executeJavaScript('window.antifanStandalone.newTerminal(' + JSON.stringify(cwd) + ')', true);
 };
-const assignCapsule = async function (surface, sessionId, capsuleId) {
+const assignProject = async function (surface, sessionId, projectId) {
   return await surface.executeJavaScript(
-    'window.antifanStandalone.assignTerminalCapsule(' + JSON.stringify(sessionId) + ', ' + JSON.stringify(capsuleId) + ')',
+    'window.antifanStandalone.assignTerminalProject(' + JSON.stringify(sessionId) + ', ' + JSON.stringify(projectId) + ')',
     true,
   );
 };
-/** Open one project the way its own opening surface does, and wait for its window. */
+/** Open one project the way its own opening surface does, and wait for its presentable window. */
 async function openProjectAndWait(surface, project) {
   const result = await surface.executeJavaScript(
     'window.antifanStandalone.openProject(' + JSON.stringify(project.projectId) + ')',
@@ -395,7 +415,16 @@ async function openProjectAndWait(surface, project) {
     function () { return entryFor(ownerOfProject(project)) || false; },
     'the project window for ' + project.name,
   );
-  return { result: result, entry: entry };
+  // The entry existing is not the window reaching the user: a shell is built hidden, so a user
+  // open must be shown by Main's own presentation, and every row here waits for that.
+  const presented = await waitFor(
+    function () {
+      const current = entryFor(ownerOfProject(project));
+      return current && current.visible === true ? current : false;
+    },
+    'the window opened for ' + project.name + ' to be presented',
+  );
+  return { result: result, entry: presented };
 }
 
 async function run() {
@@ -419,7 +448,25 @@ async function run() {
     expect(alphaShell, 'the startup window has no shell');
     alphaSidebar = surfaceOf(alphaShell, 'sidebar');
     expect(alphaSidebar, 'the startup window has no sidebar surface');
-    await waitForApi(alphaSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.assignTerminalCapsule === 'function'");
+    await waitForApi(alphaSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.assignTerminalProject === 'function'");
+    const alphaToolbar = surfaceOf(alphaShell, 'toolbar');
+    const alphaChip = alphaToolbar
+      ? await alphaToolbar.executeJavaScript('document.getElementById("projectChipTitle")?.textContent || null', true)
+      : null;
+    // The two names a project shell presents, captured before either is judged: the native
+    // title Main set, and the record title the entry carries. Alpha's project carries two
+    // capsule records on purpose (the transfer row needs an ambiguous destination), so both
+    // must land on the stable label rather than on either record's name.
+    observations.alphaPresentation = {
+      nativeTitle: alphaShell.window.getTitle(),
+      recordTitle: startup.title,
+      chip: alphaChip,
+    };
+    const alphaRecordTitle = startup.title;
+    expect(alphaShell.window.getTitle() === alphaRecordTitle, 'the native title ' + JSON.stringify(alphaShell.window.getTitle()) + ' differs from the record title ' + JSON.stringify(alphaRecordTitle));
+    expect(alphaShell.window.getTitle().includes(ALPHA.projectId), 'the ambiguous project was presented as ' + JSON.stringify(alphaShell.window.getTitle()) + ' instead of a label naming ' + ALPHA.projectId);
+    expect(alphaShell.window.getTitle() !== ALPHA.name && alphaShell.window.getTitle() !== 'Ambiguous Alpha', 'an ambiguous claim was presented as a project name: ' + JSON.stringify(alphaShell.window.getTitle()));
+    await waitForApi(alphaToolbar, 'document.getElementById("projectChipTitle")?.textContent === ' + JSON.stringify(alphaRecordTitle));
 
     const opened = await openProjectAndWait(alphaSidebar, BETA);
     betaEntry = opened.entry;
@@ -434,6 +481,12 @@ async function run() {
     betaSidebar = surfaceOf(betaShell, 'sidebar');
     expect(betaSidebar, 'the second window has no sidebar surface');
     await waitForApi(betaSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.listTerminals === 'function'");
+    // Beta's claim is unambiguous — exactly one record names its project — so this is the window
+    // where a capsule's own name must reach the user, in the record the window directory holds and
+    // in the native title the shell was built with.
+    observations.betaPresentation = { nativeTitle: betaShell.window.getTitle(), recordTitle: betaEntry.title };
+    expect(betaEntry.title === BETA.name, 'the second window record presented ' + JSON.stringify(betaEntry.title) + ' instead of its capsule name');
+    expect(betaShell.window.getTitle() === BETA.name, 'the second window native title was ' + JSON.stringify(betaShell.window.getTitle()) + ' instead of ' + JSON.stringify(BETA.name));
 
     // Each window mints its own terminal through its own chrome. The working directory is a real
     // path inside this run's temp root, so no shell can spawn anywhere else.
@@ -464,10 +517,35 @@ async function run() {
   // ------------------------------------ (2) the shared manager window and its superset view
   await check('terminal.manager-window-lists-every-project-scope', async function () {
     expect(entryFor('unassigned') === null, 'the manager window was already open before the row started');
-    // There is no chrome route that opens the Unassigned window (the user reaches it through
-    // Main's own surface), so the probe uses the same factory a user open does.
-    managerEntry = await authority.ensureProjectWindow({ kind: 'unassigned' }, 'user');
+    // The user's own door: the Terminal menu entry this process installed at boot, clicked the way
+    // the native menu clicks it. There is no chrome route that opens the Unassigned window, so if
+    // this entry is missing, disabled or wired to nothing, the manager is unreachable — which is
+    // exactly what this row must catch.
+    const managerMenuItem = applicationMenuItem('Cửa sổ Terminal chung (Shared Terminal Manager)');
+    expect(managerMenuItem, 'the Terminal menu has no shared-manager entry');
+    expect(managerMenuItem.enabled === true, 'the shared-manager entry is disabled');
+    managerMenuItem.click({}, BrowserWindow.getAllWindows()[0]);
+    managerEntry = await waitFor(
+      function () { return entryFor('unassigned'); },
+      'the menu click to open the manager window',
+    );
     expect(managerEntry.ownerKey === 'unassigned', 'the manager window owner key was ' + String(managerEntry.ownerKey));
+    // A window the user asked for must reach the user: an invisible manager would be as
+    // unreachable as the disabled menu entry this row replaced.
+    const presented = await waitFor(
+      function () { const entry = entryFor('unassigned'); return entry && entry.visible === true ? entry : false; },
+      'the manager window the menu opened to be presented',
+    );
+    managerEntry = presented;
+    expect(authority.browserShellCount() === 3, 'the menu click left ' + authority.browserShellCount() + ' shells with two projects and one manager');
+    // A second click is the same window again: the manager is one window per process, and a
+    // duplicate would split the cross-project list in two.
+    const managerWindowId = managerEntry.windowId;
+    managerMenuItem.click({}, BrowserWindow.getAllWindows()[0]);
+    await sleep(500);
+    const reclicked = entryFor('unassigned');
+    expect(reclicked && reclicked.windowId === managerWindowId, 'the second click opened window ' + String(reclicked && reclicked.windowId) + ' instead of focusing ' + String(managerWindowId));
+    expect(authority.browserShellCount() === 3, 'the second click left ' + authority.browserShellCount() + ' shells');
     const managerShell = authority.shellFor('unassigned');
     expect(managerShell, 'the manager window has no shell');
     managerSidebar = surfaceOf(managerShell, 'sidebar');
@@ -495,7 +573,7 @@ async function run() {
     expect(idsOf(await listOf(alphaSidebar)).includes(String(managerSession)) === false, 'the first project window lists the unassigned session before any assignment');
     expect(idsOf(await listOf(betaSidebar)).includes(String(managerSession)) === false, 'the second project window lists the unassigned session before any assignment');
 
-    const reply = await assignCapsule(managerSidebar, managerSession, BETA.capsuleId);
+    const reply = await assignProject(managerSidebar, managerSession, BETA.projectId);
     observations.assignReply = reply;
     expect(reply && typeof reply === 'object', 'the assign invoke answered ' + JSON.stringify(reply));
     expect(reply.ok === true, 'the assign invoke refused: ' + JSON.stringify(reply));
@@ -514,11 +592,47 @@ async function run() {
     expect(idsOf(await listOf(alphaSidebar)).includes(String(managerSession)) === false, 'a project window that was never the target lists the assigned session');
     await waitForRowIn(managerSidebar, managerSession, 'the manager window to still list the assigned session');
 
-    // The previous-window direction: a session a project window minted is handed to another
-    // project's capsule from the manager, and the window it came from must lose it.
-    const moved = await assignCapsule(managerSidebar, alphaSession, BETA.capsuleId);
-    expect(moved && moved.ok === true, 'moving a project-owned session was refused: ' + JSON.stringify(moved));
-    expect(moved.ownerKey === ownerOfProject(BETA), 'the moved session owner was ' + String(moved.ownerKey));
+    // Drive the shipped project renderer's context menu, not just the preload IPC:
+    // a renderer-only scope gate must not hide a transfer that Main permits.
+    const beforeMove = TerminalManager.getInstance().getSession(alphaSession);
+    const originalPid = beforeMove.pty.pid;
+    const originalCwd = beforeMove.cwd;
+    await waitForApi(alphaSidebar, "typeof showContextMenu === 'function'");
+    const menu = await alphaSidebar.executeJavaScript(
+      '(function () { showContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 20, clientY: 20 }, ' + JSON.stringify(alphaSession) + '); const item = document.querySelector("[data-action=assign-capsule]"); const state = { disabled: item.getAttribute("aria-disabled"), title: item.title }; item.click(); return state; })()',
+      true,
+    );
+    expect(menu.disabled === 'false', 'project terminal move is disabled: ' + menu.title);
+    const targetSelector = JSON.stringify('[data-project-id=' + BETA.projectId + ']');
+    await waitForApi(alphaSidebar, 'Boolean(document.querySelector(' + targetSelector + '))');
+    const destinations = await alphaSidebar.executeJavaScript('Array.from(document.querySelectorAll("#capsulePickerPopover [data-project-id]")).map(row => ({ projectId: row.getAttribute("data-project-id"), capsuleId: row.getAttribute("data-capsule-id"), ariaDisabled: row.getAttribute("aria-disabled"), pickable: typeof row.onclick === "function" }))', true);
+    const inventory = await alphaSidebar.executeJavaScript('window.antifanStandalone.listProjects()', true);
+    expect(destinations.length === inventory.candidates.length, 'terminal destinations differ from Open Project inventory');
+    expect(new Set(destinations.map(row => row.projectId)).size === destinations.length, 'duplicate project destinations');
+    const betaRow = destinations.find(row => row.projectId === BETA.projectId);
+    expect(betaRow.capsuleId === BETA.capsuleId, 'wrong canonical target capsule');
+    // Pickability is the user's half of the contract: a destination Main would accept must be a
+    // row that can be clicked, and one Main resolves to nothing must not look clickable.
+    expect(betaRow.ariaDisabled === 'false' && betaRow.pickable === true, 'the canonical destination is not pickable: ' + JSON.stringify(betaRow));
+    const alphaRow = destinations.find(row => row.projectId === ALPHA.projectId);
+    expect(alphaRow.capsuleId === null, 'ambiguous claims still offered a transfer capsule');
+    expect(alphaRow.ariaDisabled === 'true' && alphaRow.pickable === false, 'an ambiguous destination is offered as pickable: ' + JSON.stringify(alphaRow));
+    await alphaSidebar.executeJavaScript('document.querySelector(' + targetSelector + ').click()', true);
+    // The click answers through the renderer's own notice, and reading it is what separates
+    // "Main refused the move" from "the row never acted" when the ownership wait below fails.
+    const transferNotice = await waitFor(
+      async function () {
+        const text = await alphaSidebar.executeJavaScript('(document.getElementById("terminalNotice") || {}).textContent || null', true);
+        return text && text.indexOf('Đang mở') === -1 ? text : false;
+      },
+      'the renderer notice answering the transfer click',
+    );
+    observations.transferNotice = transferNotice;
+    await waitFor(function () { return ownerKeyOf(alphaSession) === ownerOfProject(BETA); }, 'project menu to transfer ownership after ' + JSON.stringify(transferNotice));
+    const afterMove = TerminalManager.getInstance().getSession(alphaSession);
+    expect(afterMove.pty.pid === originalPid, 'transfer restarted the running shell');
+    expect(afterMove.cwd === originalCwd, 'transfer changed the running shell working directory');
+    expect(capsuleOf(alphaSession) === BETA.capsuleId, 'transfer did not update the capsule');
     await waitForRowIn(betaSidebar, alphaSession, 'the target window to list the moved session');
     await waitForRowGone(alphaSidebar, alphaSession, 'the previous owner window to drop the moved session');
     observations.moved = {
@@ -542,7 +656,7 @@ async function run() {
 
     // The route refuses a target no window owns rather than moving a session into a scope that
     // does not exist yet: a silently dropped row would be the worst outcome here.
-    const refusal = await assignCapsule(managerSidebar, gammaSession, GAMMA.capsuleId);
+    const refusal = await assignProject(managerSidebar, gammaSession, GAMMA.projectId);
     observations.closedTarget = { refusal: refusal, openResult: {}, assignReply: {}, targetListed: false };
     expect(refusal && typeof refusal === 'object', 'the closed-target assign answered ' + JSON.stringify(refusal));
     expect(refusal.ok === false, 'assigning to a capsule whose window is closed was accepted: ' + JSON.stringify(refusal));
@@ -561,13 +675,54 @@ async function run() {
     expect(gammaSidebar, 'the opened window has no sidebar surface');
     await waitForApi(gammaSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.listTerminals === 'function'");
 
-    const accepted = await assignCapsule(managerSidebar, gammaSession, GAMMA.capsuleId);
+    const accepted = await assignProject(managerSidebar, gammaSession, GAMMA.projectId);
     observations.closedTarget.assignReply = accepted;
     expect(accepted && accepted.ok === true, 'the assign was refused after the window opened: ' + JSON.stringify(accepted));
     expect(accepted.ownerKey === ownerOfProject(GAMMA), 'the accepted assign named owner ' + String(accepted.ownerKey));
     await waitForRowIn(gammaSidebar, gammaSession, 'the opened window to list the assigned session');
     observations.closedTarget.targetListed = true;
     expect(ownerKeyOf(gammaSession) === ownerOfProject(GAMMA), 'the assigned session owner was ' + String(ownerKeyOf(gammaSession)));
+
+    // The built-in capsule-less project is the durable destination itself: assigning to it
+    // clears the old capsule stamp instead of inventing a workspace link. A project no capsule
+    // record names cannot arrive from the capsule store at all, so the harness seeds the same
+    // runtime projection Main's own synchronizer writes, through the registry's public API.
+    const unmappedProjectId = 'project-00000000-0000-4000-8000-000000000001';
+    const unmappedWorkspaceId = 'workspace-00000000-0000-4000-8000-000000000001';
+    mainProcess.projectRegistry.registerProject({
+      id: unmappedProjectId, name: 'Tổng hợp', dataRoot: tempRoot, state: 'open', createdAt: 1, updatedAt: 1,
+    });
+    mainProcess.projectRegistry.registerWorkspace({
+      id: unmappedWorkspaceId, projectId: unmappedProjectId, rootPath: tempRoot, state: 'attached', createdAt: 1, updatedAt: 1,
+    });
+    // The user's half of the contract for such a destination: unresolved is not the same as
+    // unassignable, so it must be offered as a destination that can actually be picked.
+    const unmappedInventory = await managerSidebar.executeJavaScript('window.antifanStandalone.listProjects()', true);
+    const unmappedCandidate = (unmappedInventory.candidates || []).find((candidate) => candidate.projectId === unmappedProjectId);
+    observations.closedTarget.unmappedCandidate = unmappedCandidate;
+    expect(unmappedCandidate && unmappedCandidate.canAssignTerminal === true, 'a capsule-less known project was not offered as a transfer destination: ' + JSON.stringify(unmappedCandidate));
+    const bootOpened = await openProjectAndWait(managerSidebar, {
+      projectId: unmappedProjectId,
+      workspaceId: unmappedWorkspaceId,
+      capsuleId: '',
+      name: 'Tổng hợp',
+      path: tempRoot,
+    });
+    expect(bootOpened.result && (bootOpened.result.status === 'OPENED' || bootOpened.result.status === 'FOCUSED'), 'the capsule-less project window did not open');
+    const boot = await assignProject(managerSidebar, managerSession, unmappedProjectId);
+    expect(boot && boot.ok === true, 'the unmapped project refused a terminal: ' + JSON.stringify(boot));
+    expect(boot.projectId === unmappedProjectId, 'the assign named project ' + String(boot.projectId));
+    expect(boot.capsuleId === undefined, 'the unmapped project answered with capsule ' + String(boot.capsuleId));
+    expect(ownerKeyOf(managerSession) === 'project:' + unmappedProjectId, 'the unmapped owner was ' + String(ownerKeyOf(managerSession)));
+    expect(capsuleOf(managerSession) === undefined, 'the unmapped project kept capsule ' + String(capsuleOf(managerSession)));
+    // The stamp is cleared, not re-pointed, and the row lands in the destination's own window:
+    // both halves are what the user sees after the move.
+    const unmappedShell = authority.shellFor('project:' + unmappedProjectId);
+    expect(unmappedShell, 'the capsule-less project has no shell to read');
+    const unmappedSidebar = surfaceOf(unmappedShell, 'sidebar');
+    expect(unmappedSidebar, 'the capsule-less project has no sidebar surface');
+    await waitForApi(unmappedSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.listTerminals === 'function'");
+    await waitForRowIn(unmappedSidebar, managerSession, 'the capsule-less project window to list the session handed to it');
   });
 
   // ------------------------- (6) a caller that names no window: a renderer no shell owns

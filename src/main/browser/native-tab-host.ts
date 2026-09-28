@@ -143,30 +143,49 @@ const UNASSIGNED_OWNER_KEY = ownerKey({ kind: 'unassigned' });
 const AGENT_OWNER_KEY_PREFIX = 'agent:';
 
 /**
- * Why handing one session to a capsule's window was refused. One vocabulary for the route's
- * own reply and for the renderer that has to say something to the user, rather than a thrown
- * message the invoker would have to parse.
+ * Why handing one session to a project window was refused. One vocabulary for the route's own
+ * reply and for the renderer that has to say something to the user, rather than a thrown message
+ * the invoker would have to parse.
  */
-type TerminalCapsuleAssignReason =
+type TerminalProjectAssignReason =
   | 'INVALID_PAYLOAD'
-  | 'UNKNOWN_CAPSULE'
-  | 'CAPSULE_WITHOUT_PROJECT'
+  | 'PROJECT_UNAVAILABLE'
   | 'TARGET_WINDOW_ABSENT'
   | 'SESSION_NOT_VISIBLE'
   | 'UNKNOWN_SESSION'
   | 'MANAGER_AGENT_SESSION_READ_ONLY';
 
-/** The answer `antifan:terminal:assign-capsule` gives the renderer: an outcome, or a refusal it can render. */
-export type TerminalCapsuleAssignResult =
-  | { ok: true; sessionId: string; capsuleId: string; ownerKey: string }
-  | { ok: false; reason: TerminalCapsuleAssignReason; message: string };
+/** The assignment authority Main resolves for a project id, when the project may receive a terminal. */
+export interface TerminalProjectAssignment {
+  /** Canonical capsule stamped on a project that has one; omitted for a workspace-less project. */
+  capsuleId?: string;
+}
+
+/** The answer `antifan:terminal:assign-project` gives the renderer: an outcome, or a refusal it can render. */
+export type TerminalProjectAssignResult =
+  | { ok: true; sessionId: string; projectId: string; ownerKey: string; capsuleId?: string }
+  | { ok: false; reason: TerminalProjectAssignReason; message: string };
+
+/** Why opening a terminal's URL was refused before any window could claim it. */
+type TerminalProjectLinkReason =
+  | 'INVALID_PAYLOAD'
+  | 'SESSION_NOT_VISIBLE'
+  | 'UNKNOWN_SESSION'
+  | 'MANAGER_AGENT_SESSION_READ_ONLY'
+  | 'TERMINAL_OWNER_UNAVAILABLE'
+  | 'TARGET_WINDOW_ABSENT';
+
+/** The answer `antifan:terminal:open-link` gives the renderer: a typed outcome, never a fallback instruction. */
+export type TerminalProjectLinkResult =
+  | { ok: true; sessionId: string; ownerKey: string }
+  | { ok: false; reason: TerminalProjectLinkReason; message: string };
 
 /**
  * A refusal of the shared manager's write gate: a typed answer, never a throw. The route that
  * hit it decides how its own contract carries the refusal — a boolean route answers `false`, a
  * fire-and-forget channel logs it, and the assign route replies with the code itself.
  */
-type ManagerWriteRefusal = { ok: false; reason: Extract<TerminalCapsuleAssignReason, 'MANAGER_AGENT_SESSION_READ_ONLY'>; message: string };
+type ManagerWriteRefusal = { ok: false; reason: Extract<TerminalProjectAssignReason | TerminalProjectLinkReason, 'MANAGER_AGENT_SESSION_READ_ONLY'>; message: string };
 
 /** One terminal window as persisted inside the record of the window that owns it. */
 export interface SavedTerminalWindowRecord {
@@ -1135,9 +1154,9 @@ export class NativeTabHost extends EventEmitter {
    * A record that carries both ids is taken at its word — affiliation was validated when it was
    * written. A record that carries neither is a legacy one, and its directory decides: the registry
    * answers only when exactly one open project attaches that root, so a folder two projects attach
-   * resolves to nothing. That refusal is the point: a capsule whose project cannot be named has no
-   * window to hand a terminal to, and guessing one would file a running shell under a window the
-   * user never chose.
+   * resolves to nothing. That refusal is the point: the capsule list answers `resolvedProjectId`
+   * only for a capsule whose project can be named, and guessing one would hand its row to a window
+   * the user never chose.
    */
   private capsuleAffiliation(capsule: WorkspaceCapsule): CapsuleAffiliation | undefined {
     const projectId = typeof capsule.projectId === 'string' ? capsule.projectId.trim() : '';
@@ -1146,11 +1165,6 @@ export class NativeTabHost extends EventEmitter {
     return this.capsuleManager.uniqueAffiliationByRoot(capsule.workspacePath);
   }
 
-  /** The owner key of the window a capsule's project owns, or undefined when it names no project. */
-  private capsuleOwnerKey(capsule: WorkspaceCapsule): string | undefined {
-    const projectId = this.capsuleAffiliation(capsule)?.projectId;
-    return projectId ? ownerKey({ kind: 'project', projectId }) : undefined;
-  }
 
   /**
    * Whether a window currently owns an owner key, as Main's window directory answers it.
@@ -3742,34 +3756,24 @@ export class NativeTabHost extends EventEmitter {
     },
   },
   {
-    channel: TERMINAL_CHANNELS.ASSIGN_CAPSULE,
+    channel: TERMINAL_CHANNELS.ASSIGN_PROJECT,
     surface: ['sidebar', 'terminalPopout'],
     run: ({ host }, event, args) => {
       const raw = args[0];
       const payload = raw && typeof raw === 'object' ? raw : {};
       const sessionId = 'sessionId' in payload && typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
-      const capsuleId = 'capsuleId' in payload && typeof payload.capsuleId === 'string' ? payload.capsuleId.trim() : '';
-      const refused = (reason: TerminalCapsuleAssignReason, message: string): TerminalCapsuleAssignResult => ({ ok: false, reason, message });
+      const projectId = 'projectId' in payload && typeof payload.projectId === 'string' ? payload.projectId.trim() : '';
+      const refused = (reason: TerminalProjectAssignReason, message: string): TerminalProjectAssignResult => ({ ok: false, reason, message });
       // Both ids come from a renderer, so neither is trusted: a session id nothing owns and a
-      // capsule id nothing stores are answered, not attempted.
-      if (!sessionId || !capsuleId) {
-        return refused('INVALID_PAYLOAD', 'assign-capsule needs both a sessionId and a capsuleId');
+      // project id Main's own directory cannot resolve are answered, not attempted.
+      if (!sessionId || !projectId) {
+        return refused('INVALID_PAYLOAD', 'assign-project needs both a sessionId and a projectId');
       }
-      let capsule: WorkspaceCapsule;
-      try {
-        capsule = host.capsuleManager.get(capsuleId);
-      } catch {
-        return refused('UNKNOWN_CAPSULE', `No capsule '${capsuleId}'`);
+      const assignment = host.projectAssignmentFor(projectId);
+      if (!assignment) {
+        return refused('PROJECT_UNAVAILABLE', `Project '${projectId}' has no unambiguous terminal assignment`);
       }
-      // The window a row belongs to is its project's window, and only an unambiguous affiliation
-      // names one. Main's own directory refuses an ambiguous record rather than choosing a project
-      // for it, so the same answer holds here: a capsule that names no single project cannot hand a
-      // terminal to a window, and picking one would file a running shell under a window the user
-      // never chose.
-      const ownerKeyValue = host.capsuleOwnerKey(capsule);
-      if (!ownerKeyValue) {
-        return refused('CAPSULE_WITHOUT_PROJECT', `Capsule '${capsuleId}' has no one open project to own the session`);
-      }
+      const ownerKeyValue = ownerKey({ kind: 'project', projectId });
       // A row's owner key IS the window that renders it, so the move is only legal onto a window
       // that exists: a project-owned row no window claims would be visible to no window at all.
       // Opening that window is the renderer's step (the same `openProject` call a user's own open
@@ -3785,10 +3789,18 @@ export class NativeTabHost extends EventEmitter {
       if (!host.isSessionVisibleToWindow(sessionId, undefined, event?.sender?.id)) {
         return refused('SESSION_NOT_VISIBLE', `Session '${sessionId}' does not belong to this window`);
       }
+      const capsuleId = assignment.capsuleId;
+      const success = (): TerminalProjectAssignResult => ({
+        ok: true,
+        sessionId,
+        projectId,
+        ownerKey: ownerKeyValue,
+        ...(capsuleId ? { capsuleId } : {}),
+      });
       // The move re-stamps a live row, so it is admitted like every other mutation: a close attempt
       // that already began measures this work instead of a row changing hands underneath it.
       const settled: unknown = host.admitThenRun(
-        TERMINAL_CHANNELS.ASSIGN_CAPSULE,
+        TERMINAL_CHANNELS.ASSIGN_PROJECT,
         { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
         () => {
           const transferred: unknown = TerminalManager.getInstance().transferSessionOwner(sessionId, ownerKeyValue, capsuleId);
@@ -3798,17 +3810,69 @@ export class NativeTabHost extends EventEmitter {
           const thenable = transferred as { then?: unknown } | null | undefined;
           if (thenable && typeof thenable.then === 'function') {
             return Promise.resolve(transferred).then((moved: unknown) =>
-              moved === true
-                ? ({ ok: true, sessionId, capsuleId, ownerKey: ownerKeyValue } satisfies TerminalCapsuleAssignResult)
-                : refused('UNKNOWN_SESSION', `No live session '${sessionId}'`)
+              moved === true ? success() : refused('UNKNOWN_SESSION', `No live session '${sessionId}'`)
             );
           }
           return transferred === true
-            ? ({ ok: true, sessionId, capsuleId, ownerKey: ownerKeyValue } satisfies TerminalCapsuleAssignResult)
+            ? success()
             : refused('UNKNOWN_SESSION', `No live session '${sessionId}'`);
         }
       );
       return settled;
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.OPEN_LINK,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      const raw = args[0];
+      const payload = raw && typeof raw === 'object' ? raw : {};
+      const sessionId = 'sessionId' in payload && typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+      const url = 'url' in payload && typeof payload.url === 'string' ? payload.url.trim() : '';
+      const refused = (reason: TerminalProjectLinkReason, message: string): TerminalProjectLinkResult => ({ ok: false, reason, message });
+      if (!sessionId || !url || !isAllowedNavigation(url)) {
+        return refused('INVALID_PAYLOAD', 'open-link needs a sessionId and a navigable url');
+      }
+      const gate = host.assertManagerMayOperate(sessionId, event?.sender?.id);
+      if (gate !== true) return refused(gate.reason, gate.message);
+      if (!host.isSessionVisibleToWindow(sessionId, undefined, event?.sender?.id)) {
+        return refused('SESSION_NOT_VISIBLE', `Session '${sessionId}' does not belong to this window`);
+      }
+      let ownerKeyValue = '';
+      try {
+        ownerKeyValue = TerminalManager.getInstance().sessionOwnerKey(sessionId) || '';
+      } catch {
+        ownerKeyValue = '';
+      }
+      if (!ownerKeyValue) {
+        return refused('UNKNOWN_SESSION', `No live session '${sessionId}'`);
+      }
+      // The three refusals above separate on their own evidence, and each one is the one its own
+      // caller can act on: the manager's chrome is told agent rows are read-only, a window that
+      // never saw the row is told so, and only a caller with neither objection - a popout
+      // presenting the agent's own session, whose host-scope check passes - reaches this one,
+      // where the honest answer is that no project window owns the row to open the link in.
+      if (ownerKeyValue.startsWith(AGENT_OWNER_KEY_PREFIX)) {
+        return refused('TERMINAL_OWNER_UNAVAILABLE', `Session '${sessionId}' is owned by an agent, not a project window`);
+      }
+      const opener = host.terminalLinkOpener;
+      if (!opener) {
+        return refused('TARGET_WINDOW_ABSENT', `No project window can own '${ownerKeyValue}'`);
+      }
+      const success = (): TerminalProjectLinkResult => ({ ok: true, sessionId, ownerKey: ownerKeyValue });
+      const targetAbsent = (): TerminalProjectLinkResult => refused('TARGET_WINDOW_ABSENT', `No project window can own '${ownerKeyValue}'`);
+      const opened: unknown = host.admitThenRun(
+        TERMINAL_CHANNELS.OPEN_LINK,
+        { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        () => opener(ownerKeyValue, url),
+      );
+      const thenable = opened as { then?: unknown } | null | undefined;
+      if (thenable && typeof thenable.then === 'function') {
+        return Promise.resolve(opened)
+          .then((openedInTarget) => (openedInTarget === true ? success() : targetAbsent()))
+          .catch(() => targetAbsent());
+      }
+      return opened === true ? success() : targetAbsent();
     },
   },
   {
@@ -3855,6 +3919,10 @@ export class NativeTabHost extends EventEmitter {
           categoryColors: host.terminalCategoryColors,
           starredCategories: host.terminalStarredCategories,
         } satisfies TerminalTabPrefs,
+        // The renderer scopes its shell owner off this identity, same contract
+        // the toolbar publishes: a project shell its project, the shared
+        // manager shell Unassigned.
+        projectWindow: host.projectWindowIdentity(),
       };
     },
   },
@@ -10472,6 +10540,53 @@ export class NativeTabHost extends EventEmitter {
    */
   public setOwnerWindowPresence(presence: ((ownerKey: string) => boolean) | null): void {
     this.ownerWindowPresence = typeof presence === 'function' ? presence : null;
+  }
+  /**
+   * Main's canonical answer for one project id, or undefined when the project has no unambiguous
+   * assignment target. Main owns project/capsule authority, so the host asks through this seam and
+   * never resolves a capsule from renderer state.
+   */
+  private projectAssignmentResolver: ((projectId: string) => TerminalProjectAssignment | undefined) | null = null;
+
+  /**
+   * Install (or clear) Main's project assignment resolver. A host without it cannot prove a
+   * project id, so project-keyed moves fail closed rather than stamping a capsule id the renderer
+   * supplied.
+   */
+  public setProjectAssignmentResolver(resolver: ((projectId: string) => TerminalProjectAssignment | undefined) | null): void {
+    this.projectAssignmentResolver = typeof resolver === 'function' ? resolver : null;
+  }
+
+  /**
+   * Main's assignment record for a project id, or undefined for an unknown or ambiguous project.
+   * Resolver failure is observed as a refusal: a malformed authority never turns into a guess.
+   */
+  private projectAssignmentFor(projectId: string): TerminalProjectAssignment | undefined {
+    const resolver = this.projectAssignmentResolver;
+    if (!resolver) return undefined;
+    try {
+      const assignment = resolver(projectId);
+      if (!assignment) return undefined;
+      const capsuleId = typeof assignment.capsuleId === 'string' ? assignment.capsuleId.trim() : '';
+      return capsuleId ? { capsuleId } : {};
+    } catch (err) {
+      console.warn(`[native-tab-host] project assignment for '${projectId}' could not be resolved:`, err);
+      return undefined;
+    }
+  }
+
+  /**
+   * Main-owned open for a terminal link. The owner key names the destination project window and the
+   * opener is required to route the URL there — never to the caller's window and never externally.
+   */
+  private terminalLinkOpener: ((ownerKey: string, url: string) => Promise<boolean> | boolean) | null = null;
+
+  /**
+   * Install (or clear) Main's terminal-link opener. A host without it refuses the click rather than
+   * opening the URL in whichever window happened to receive it.
+   */
+  public setTerminalLinkOpener(opener: ((ownerKey: string, url: string) => Promise<boolean> | boolean) | null): void {
+    this.terminalLinkOpener = typeof opener === 'function' ? opener : null;
   }
   /**
    * Nesting depth of admitted agent actions. The keyboard action the automation host

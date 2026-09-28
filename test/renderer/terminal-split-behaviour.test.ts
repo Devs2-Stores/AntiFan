@@ -178,8 +178,11 @@ describe('Renderer split-pane behaviour', () => {
     assert.match(splitItem.title, /Chia đôi màn hình terminal/);
   });
 
-  it('routes terminal hyperlinks through createTab with an openExternal fallback', async () => {
+  it('opens a clicked terminal link through the owning-window route and states the refusal', async () => {
     const opened: string[] = [];
+    const handed: string[] = [];
+    // A tab surface is present throughout: it must stay untouched while the route answers, so
+    // these rows also prove the fallback is not reached on the happy path or on a refusal.
     harness.api.createTab = async (url?: string) => {
       opened.push(`tab:${url}`);
       return 'tab-1';
@@ -187,6 +190,10 @@ describe('Renderer split-pane behaviour', () => {
     harness.api.openExternal = (url?: string) => {
       opened.push(`external:${url}`);
       return undefined;
+    };
+    harness.api.openTerminalLink = async (sessionId: string, url: string) => {
+      handed.push(`${sessionId} ${url}`);
+      return { ok: true, sessionId, ownerKey: 'project:proj-phukien' };
     };
 
     const pane = harness.read<(id: string, snapshot?: string, seq?: number, authoritative?: boolean) => unknown>('getOrCreateTerminalPane');
@@ -197,28 +204,86 @@ describe('Renderer split-pane behaviour', () => {
 
     handler({}, 'https://example.com/a');
     await settle();
-    assert.deepStrictEqual(opened, ['tab:https://example.com/a']);
+    assert.deepStrictEqual(handed, ['link-session https://example.com/a'],
+      'the click is offered to Main with the session that owns it, not to whichever tab surface is local');
+    assert.deepStrictEqual(opened, [], 'a routed link must not also open in this window');
 
-    opened.length = 0;
+    // A refusal is final: the window that shows the notice is not the window that may open the tab.
+    handed.length = 0;
+    harness.api.openTerminalLink = async (sessionId: string, url: string) => {
+      handed.push(`${sessionId} ${url}`);
+      return { ok: false, reason: 'TARGET_WINDOW_ABSENT', message: 'Cua so du an dich chua mo' };
+    };
     handler({}, 'https://example.com/b');
     await settle();
-    assert.deepStrictEqual(opened, ['tab:https://example.com/b']);
+    assert.deepStrictEqual(handed, ['link-session https://example.com/b']);
+    assert.deepStrictEqual(opened, [], 'a refused link must not fall back to the local tab surface');
+    assert.strictEqual(
+      harness.read<string>('terminalNoticeEl ? terminalNoticeEl.textContent : ""'),
+      'Cua so du an dich chua mo',
+      'the refusal Main typed is what the user reads',
+    );
 
-    // With no tab surface available the link opens externally.
-    harness.api.createTab = undefined;
-    opened.length = 0;
+    // A malformed answer is not a success either: silence here would be a dead click.
+    handed.length = 0;
+    harness.api.openTerminalLink = async (sessionId: string, url: string) => {
+      handed.push(`${sessionId} ${url}`);
+      return undefined;
+    };
     handler({}, 'https://example.com/c');
     await settle();
-    assert.deepStrictEqual(opened, ['external:https://example.com/c']);
+    assert.deepStrictEqual(opened, [], 'an answer that is not an explicit success opens nothing locally');
+    assert.match(
+      harness.read<string>('terminalNoticeEl ? terminalNoticeEl.textContent : ""'),
+      /liên kết/,
+      'an answer with no outcome still says the link did not open',
+    );
 
-    // A rejected tab request also falls back to the external opener.
-    harness.api.createTab = async () => {
-      throw new Error('no tab surface');
+    // A bridge failure is reported, not retried through the focused window.
+    handed.length = 0;
+    harness.api.openTerminalLink = async () => {
+      throw new Error('bridge down');
     };
-    opened.length = 0;
     handler({}, 'https://example.com/d');
     await settle();
-    assert.deepStrictEqual(opened, ['external:https://example.com/d']);
+    assert.deepStrictEqual(opened, [], 'a rejected route must not fall back to the local tab surface');
+    assert.match(
+      harness.read<string>('terminalNoticeEl ? terminalNoticeEl.textContent : ""'),
+      /bridge down/,
+      'the bridge failure is reported with its own reason',
+    );
+
+    // A drifted preload is a build fault, reported like the sibling handover route reports its own
+    // missing method — never resolved by opening the tab in this window.
+    harness.api.openTerminalLink = undefined;
+    handler({}, 'https://example.com/e');
+    await settle();
+    assert.deepStrictEqual(opened, [], 'a preload without the route must not open the link locally');
+    assert.match(
+      harness.read<string>('terminalNoticeEl ? terminalNoticeEl.textContent : ""'),
+      /preload thiếu openTerminalLink/,
+      'the missing preload method is named',
+    );
+
+    // A pane with no session cannot be scoped, so it says so rather than guessing a window.
+    harness.api.openTerminalLink = async (sessionId: string, url: string) => {
+      handed.push(`${sessionId} ${url}`);
+      return { ok: true, sessionId, ownerKey: 'unassigned' };
+    };
+    pane('', '', 0, false);
+    const unscopedHandler = harness.webLinksHandlers[harness.webLinksHandlers.length - 1];
+    assert.ok(unscopedHandler, 'the new pane registers its own handler');
+    handed.length = 0;
+    opened.length = 0;
+    unscopedHandler({}, 'https://example.com/h');
+    await settle();
+    assert.deepStrictEqual(handed, [], 'a pane with no session id must not ask Main to open anything');
+    assert.deepStrictEqual(opened, [], 'and it must not open the link locally either');
+    assert.match(
+      harness.read<string>('terminalNoticeEl ? terminalNoticeEl.textContent : ""'),
+      /chưa xác định được phiên terminal/,
+      'the unscoped pane says what is missing instead of opening elsewhere',
+    );
 
     opened.length = 0;
     handler({}, '');

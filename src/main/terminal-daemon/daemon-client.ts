@@ -554,17 +554,20 @@ export class DaemonTerminalProxy extends EventEmitter {
    *
    * ASYNC/SYNC SEAM CONTRACT: `TerminalManager.transferSessionOwner(sessionId, ownerKey, capsuleId)`
    * in-process is synchronous and returns `boolean`; the daemon owns the records, so this facade
-   * returns `Promise<boolean>` for the same call.
+   * keeps the manager's public name and returns `Promise<boolean>` for the same call. A project
+   * without a workspace passes no `capsuleId`: the field is omitted from the wire so the daemon
+   * clears the row's old workspace stamp rather than preserving it.
    *
-   * A refusal — unknown session, already-closed session, empty identity — resolves `false` instead of
-   * rejecting, because that is exactly what the in-process call returns for the same inputs. Only a
-   * transport failure or a malformed request rejects, so a caller can tell "not moved" from "could
-   * not ask". The host broadcasts the ordinary session event before answering, so the cached
-   * summaries this facade answers {@link sessionOwnerKey} and {@link sessionCapsuleId} from carry the
-   * new owner by the time this promise settles.
+   * A refusal — unknown session, already-closed session, empty owner or a present-but-empty
+   * capsule — resolves `false` instead of rejecting, because that is exactly what the in-process
+   * call returns for the same inputs. Only a transport failure or a malformed request rejects, so
+   * a caller can tell "not moved" from "could not ask". The host broadcasts the ordinary session
+   * event before answering, so the cached summaries this facade answers {@link sessionOwnerKey}
+   * and {@link sessionCapsuleId} from carry the new owner by the time this promise settles.
    */
-  async transferOwner(sessionId: string, ownerKey: string, capsuleId: string): Promise<boolean> {
-    const payload: HostTransferOwnerParams = { sessionId, ownerKey, capsuleId };
+  async transferSessionOwner(sessionId: string, ownerKey: string, capsuleId?: string): Promise<boolean> {
+    const payload: HostTransferOwnerParams = { sessionId, ownerKey };
+    if (capsuleId !== undefined) payload.capsuleId = capsuleId;
     const r = await this.client.call<{ transferred: boolean }>(HOST_METHOD.transferOwner, payload);
     return r.transferred === true;
   }

@@ -22,6 +22,23 @@ import {
 } from '../../src/main/index';
 
 describe('Capsule store to ProjectRegistry synchronization', () => {
+  it('names the default browsing project Tổng hợp without changing its identity or workspace', () => {
+    const projectId = 'project-00000000-0000-4000-8000-000000000001';
+    const workspaceId = 'workspace-00000000-0000-4000-8000-000000000001';
+    sharedProjectRegistry.ensureInitialWorkspace(projectId, workspaceId, os.tmpdir(), os.tmpdir());
+    const original = sharedProjectRegistry.getProject(projectId);
+    try {
+      const record = resolveWindowRecord({ kind: 'project', projectId });
+      assert.strictEqual(record.title, 'Tổng hợp');
+      assert.strictEqual(record.projectId, projectId);
+      assert.strictEqual(record.workspaceId, workspaceId);
+      assert.strictEqual(record.workspacePath, path.resolve(os.tmpdir()));
+      sharedProjectRegistry.registerProject({ ...original, name: 'Personal browsing' });
+      assert.strictEqual(resolveWindowRecord({ kind: 'project', projectId }).title, 'Personal browsing');
+    } finally {
+      sharedProjectRegistry.registerProject(original);
+    }
+  });
   it('a capsule-claimed project becomes openable and control-plane-resolvable after synchronization', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-sync-test-1-'));
     try {

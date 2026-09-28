@@ -346,7 +346,7 @@ describe('DaemonTerminalProxy — owner handover contract', () => {
     pushSession({ sessions: [{ id: 'terminal-1', ownerKey: 'project:proj-comnieu', capsuleId: 'capsule-comnieu', state: 'running' }], activeSessionId: 'terminal-1' });
     assert.equal(proxy.sessionOwnerKey('terminal-1'), 'project:proj-comnieu', 'the row starts on its source window');
 
-    const moved = proxy.transferOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
+    const moved = proxy.transferSessionOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
     assert.deepStrictEqual(
       calls.map((c) => ({ method: c.method, params: c.params })),
       [{ method: HOST_METHOD.transferOwner, params: { sessionId: 'terminal-1', ownerKey: 'project:proj-phukien', capsuleId: 'capsule-phukien' } }],
@@ -371,14 +371,28 @@ describe('DaemonTerminalProxy — owner handover contract', () => {
     assert.equal(proxy.sessionCapsuleId('terminal-1'), 'capsule-phukien', 'and the new capsule');
   });
 
+  it('omits capsuleId when the target project has no workspace, so the wire asks for a cleared stamp', async () => {
+    const { proxy, calls } = proxyWithTransport();
+
+    const moved = proxy.transferSessionOwner('terminal-1', 'project:proj-phukien');
+
+    assert.deepStrictEqual(
+      calls.map((c) => ({ method: c.method, params: c.params })),
+      [{ method: HOST_METHOD.transferOwner, params: { sessionId: 'terminal-1', ownerKey: 'project:proj-phukien' } }],
+      'a workspace-less handover must leave the field absent, not send an empty capsule or retain the old one'
+    );
+    calls[0]!.deferred.resolve({ transferred: true });
+    assert.equal(await moved, true, 'the accepted move still answers true with no capsule on the wire');
+  });
+
   it('resolves false for every refusal the daemon answers, so a refusal is never a rejection', async () => {
     const { proxy, calls } = proxyWithTransport();
 
-    const unknown = proxy.transferOwner('terminal-gone', 'project:proj-phukien', 'capsule-phukien');
-    const emptyOwner = proxy.transferOwner('terminal-1', '', 'capsule-phukien');
-    const blankCapsule = proxy.transferOwner('terminal-1', 'project:proj-phukien', '   ');
+    const unknown = proxy.transferSessionOwner('terminal-gone', 'project:proj-phukien', 'capsule-phukien');
+    const emptyOwner = proxy.transferSessionOwner('terminal-1', '', 'capsule-phukien');
+    const blankCapsule = proxy.transferSessionOwner('terminal-1', 'project:proj-phukien', '   ');
     // A daemon answer that forgot the field is a refusal too: only an explicit true is a move.
-    const malformed = proxy.transferOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
+    const malformed = proxy.transferSessionOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
 
     assert.deepStrictEqual(
       calls.map((c) => ({ method: c.method, params: c.params })),
@@ -406,7 +420,7 @@ describe('DaemonTerminalProxy — owner handover contract', () => {
     const { proxy, calls, pushSession } = proxyWithTransport();
     pushSession({ sessions: [{ id: 'terminal-1', ownerKey: 'project:proj-comnieu', capsuleId: 'capsule-comnieu', state: 'running' }], activeSessionId: 'terminal-1' });
 
-    const moved = proxy.transferOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
+    const moved = proxy.transferSessionOwner('terminal-1', 'project:proj-phukien', 'capsule-phukien');
     calls[0]!.deferred.reject(new Error('daemon socket closed'));
 
     await assert.rejects(moved, /daemon socket closed/, 'a transport failure must stay a rejection');

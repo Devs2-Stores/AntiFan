@@ -133,9 +133,8 @@ export interface HostTransferOwnerParams {
   sessionId: string;
   /** Window owner key the session moves to (`project:<projectId>` | `unassigned`). */
   ownerKey: string;
-  /** Workspace capsule the session moves to; it travels with the owner so the row cannot be shown under a capsule it is not attributed to. */
-  capsuleId: string;
-  /** Forward-compatible wire payload: unknown fields travel through untouched. */
+  /** Workspace capsule the session moves to; it travels with the owner so the row cannot be shown under a capsule it is not attributed to. Omitted when the target project has no workspace, which clears the old stamp. */
+  capsuleId?: string;
   [key: string]: unknown;
 }
 

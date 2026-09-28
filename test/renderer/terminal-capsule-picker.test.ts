@@ -7,8 +7,8 @@
  *
  * The four properties the flow lives or dies on:
  *   1. The picker is opened from the tab context menu, against the row that was right-clicked.
- *   2. The list comes from Main on every open — a capsule created in another window has to be
- *      offered without a restart — and only a capsule whose project can be named is pickable.
+ *   2. The list comes from Main's project inventory on every open, not capsule history;
+ *      only a project with a canonical destination capsule is pickable.
  *   3. Typing filters on the name and the path, and Enter dispatches the row the user can see.
  *   4. The window is opened BEFORE the session is handed over, and a cancelled or refused open
  *      leaves the row exactly where it was.
@@ -43,21 +43,18 @@ const menuEvent = (): KeyEventLike & { clientX: number; clientY: number } => ({
   stopPropagation: () => {},
 });
 
-/**
- * The shell Main reports for the shared manager: one that owns no project. The handover row in the
- * tab context menu is enabled only there — a window that owns a single project has no second
- * project to move a terminal to — and a manager shell reads the capsule index once at boot so it can
- * name the capsules its rows belong to.
- */
-const MANAGER_STATE = { projectWindow: { owner: { kind: 'unassigned' }, title: 'Unassigned' } };
+/** The shared manager reads every project's rows; project shells read only their own. */
+const MANAGER_STATE: { projectWindow: { owner: { kind: string; projectId?: string }; title: string } } = {
+  projectWindow: { owner: { kind: 'unassigned' }, title: 'Unassigned' },
+};
 
 /**
  * Load the renderer as the shared manager and let its boot settle, then start recording calls: the
  * boot read of the capsule index is the shell starting up, not the flow under test, and a row that
  * counted it would be measuring the wrong thing.
  */
-async function loadManagerShell(): Promise<StandaloneHarness> {
-  const harness = loadStandalone({ contextMenuActions: ['assign-capsule'], initialState: MANAGER_STATE });
+async function loadManagerShell(initialState = MANAGER_STATE): Promise<StandaloneHarness> {
+  const harness = loadStandalone({ contextMenuActions: ['assign-capsule'], initialState });
   await flush();
   harness.apiCalls.length = 0;
   harness.apiCallArgs.length = 0;
@@ -99,6 +96,11 @@ const CAPSULES = [
   { id: 'capsule-phukien', name: 'Phukienmymoc', workspacePath: 'E:/Work/phukienmymoc', resolvedProjectId: 'proj-phukien' },
   { id: 'capsule-folder', name: 'Folder only', workspacePath: 'E:/Work/loose-folder' },
 ];
+const PROJECTS = [
+  { projectId: 'proj-comnieu', name: 'Comnieu', workspacePath: 'E:/Work/comnieu', capsuleId: 'capsule-comnieu' },
+  { projectId: 'proj-phukien', name: 'Phukienmymoc', workspacePath: 'E:/Work/phukienmymoc', capsuleId: 'capsule-phukien' },
+  { projectId: 'proj-unmapped', name: 'Unmapped project', workspacePath: '' },
+];
 
 interface PickerFixture {
   harness: StandaloneHarness;
@@ -108,14 +110,17 @@ interface PickerFixture {
 
 /** Load the renderer, open the picker from the context menu of `sessionId`, and hand back its parts. */
 async function openPicker(options: {
+  initialState?: typeof MANAGER_STATE;
   sessions?: unknown[];
   active?: string;
   rightClicked: string;
   listCapsules?: () => Promise<{ activeCapsuleId?: string; capsules: unknown[] }>;
+  listProjects?: () => Promise<{ candidates: unknown[] }>;
   openProject?: (projectId: string) => Promise<unknown>;
 }): Promise<PickerFixture> {
-  const harness = await loadManagerShell();
+  const harness = await loadManagerShell(options.initialState);
   harness.api.listCapsules = options.listCapsules ?? (async () => ({ activeCapsuleId: 'capsule-comnieu', capsules: CAPSULES }));
+  harness.api.listProjects = options.listProjects ?? (async () => ({ candidates: PROJECTS }));
   // Main reports the window it opened, and only that answer lets step two run: the default here is
   // the successful open, so a row that means to fail the open has to say so on purpose.
   harness.api.openProject = options.openProject ?? (async () => ({ status: 'OPENED' }));
@@ -124,7 +129,7 @@ async function openPicker(options: {
 
   harness.showContextMenu(menuEvent(), options.rightClicked);
   menuItem(harness, 'assign-capsule').dispatch('click');
-  // The open reads the capsule list from Main and repaints when that read lands.
+  // The open reads the project inventory from Main and repaints when that read lands.
   await flush();
   await flush();
 
@@ -135,37 +140,113 @@ async function openPicker(options: {
 }
 
 describe('Renderer capsule picker — opening from the tab context menu', () => {
-  it('opens for the right-clicked row and offers every capsule Main knows', async () => {
+  it('offers the authoritative project inventory, not historical workspace capsules', async () => {
     const { harness, popover } = await openPicker({ rightClicked: 'c1' });
 
     assert.strictEqual(popover.style.display, 'block', 'the picker is shown');
     assert.strictEqual(popover.getAttribute('data-active-session-id'), 'c1', 'the picker names the session it would move');
     assert.strictEqual(popover.querySelector('.terminal-capsule-picker-header')?.textContent, 'Chuyển Terminal sang Dự án');
-    assert.strictEqual(countCalls(harness, 'listCapsules'), 1, 'the list is read from Main on open, not from a boot-time index');
+    assert.strictEqual(countCalls(harness, 'listProjects'), 1, 'project inventory is refreshed on every open');
 
     assert.deepStrictEqual(
       offeredCapsules(popover).map((entry) => entry.id),
-      ['capsule-comnieu', 'capsule-phukien', 'capsule-folder'],
-      'every capsule is offered, in name order',
+      ['capsule-comnieu', 'capsule-phukien'],
+      'only canonical capsules from the project inventory are offered',
     );
-    // The session's own capsule is named as the current state, and a folder row names no project,
-    // so neither is a pick the user can make. Only the one real move is offered.
+    // A known project without a workspace can still own a terminal.
     assert.strictEqual(capsuleRow(popover, 'capsule-phukien').querySelector('.terminal-capsule-picker-name')?.textContent, 'Phukienmymoc');
     assert.strictEqual(capsuleRow(popover, 'capsule-comnieu').getAttribute('aria-disabled'), 'true');
     assert.strictEqual(capsuleRow(popover, 'capsule-comnieu').querySelector('.terminal-capsule-picker-current')?.textContent, '✓ Hiện tại');
-    assert.strictEqual(capsuleRow(popover, 'capsule-folder').getAttribute('aria-disabled'), 'true');
-    assert.strictEqual(capsuleRow(popover, 'capsule-folder').querySelector('.terminal-capsule-picker-blocked')?.textContent, 'chưa gắn dự án');
+    const unmapped = popover.querySelector('[data-project-id="proj-unmapped"]');
+    assert.ok(unmapped);
+    assert.strictEqual(unmapped.getAttribute('aria-disabled'), 'false');
     assert.strictEqual(capsuleRow(popover, 'capsule-phukien').getAttribute('aria-disabled'), 'false');
   });
 
-  it('shows what Main reported when the capsule list cannot be read', async () => {
+  it('refreshes manager labels for capsules created or renamed after boot', async () => {
+    const { harness, input } = await openPicker({ rightClicked: 'c1' });
+    const chip = () => harness.tabsRoot.querySelector('.terminal-tab-capsule-chip[data-capsule-id="capsule-comnieu"]');
+    assert.strictEqual(chip()?.textContent, 'Comnieu');
+    input.dispatch('keydown', { key: 'Escape' });
+    harness.api.listCapsules = async () => ({ capsules: [
+      { ...CAPSULES[0], name: 'Renamed project' },
+      { id: 'capsule-new', name: 'New project', workspacePath: 'E:/Work/new' },
+    ] });
+    seed(harness, [
+      { id: 'c1', state: 'running', capsuleId: 'capsule-comnieu' },
+      { id: 'c2', state: 'running', capsuleId: 'capsule-new' },
+    ], 'c1');
+    harness.renderTabs();
+    harness.showContextMenu(menuEvent(), 'c1');
+    menuItem(harness, 'assign-capsule').dispatch('click');
+    await flush();
+    await flush();
+    assert.strictEqual(chip()?.textContent, 'Renamed project');
+    assert.strictEqual(harness.tabsRoot.querySelector('.terminal-tab-capsule-chip[data-capsule-id="capsule-new"]')?.textContent, 'New project');
+  });
+
+  it('opens from a project window for its own terminal and offers another project', async () => {
+    const { harness, popover } = await openPicker({
+      initialState: { projectWindow: { owner: { kind: 'project', projectId: 'proj-comnieu' }, title: 'Comnieu' } },
+      rightClicked: 'c1',
+    });
+    assert.strictEqual(menuItem(harness, 'assign-capsule').getAttribute('aria-disabled'), 'false');
+    assert.strictEqual(popover.style.display, 'block');
+    assert.strictEqual(capsuleRow(popover, 'capsule-comnieu').getAttribute('aria-disabled'), 'true');
+    assert.strictEqual(capsuleRow(popover, 'capsule-phukien').getAttribute('aria-disabled'), 'false');
+  });
+
+  it('shows one canonical destination despite hundreds of legacy capsule duplicates', async () => {
+    const { popover } = await openPicker({
+      rightClicked: 'c1',
+      listCapsules: async () => ({ capsules: [
+        ...CAPSULES,
+        ...Array.from({ length: 226 }, (_, index) => ({
+          id: `legacy-${index}`, name: 'Comnieu', workspacePath: 'E:/Work/comnieu', resolvedProjectId: 'proj-comnieu',
+        })),
+      ] }),
+    });
+    assert.deepStrictEqual(offeredCapsules(popover).map((entry) => entry.id), ['capsule-comnieu', 'capsule-phukien']);
+    assert.strictEqual(popover.querySelector('.terminal-capsule-picker-hint')?.textContent, '3 dự án — hiện tại: Comnieu');
+  });
+
+  it('marks the session owner as current even when the session has no capsule', async () => {
+    const { popover } = await openPicker({
+      rightClicked: 'c1',
+      sessions: [{ id: 'c1', state: 'running', ownerKey: 'project:proj-comnieu' }],
+    });
+    assert.strictEqual(capsuleRow(popover, 'capsule-comnieu').getAttribute('aria-disabled'), 'true');
+    assert.strictEqual(capsuleRow(popover, 'capsule-phukien').getAttribute('aria-disabled'), 'false');
+  });
+
+  for (const owner of [{ kind: 'unassigned' }, { kind: 'project', projectId: 'proj-comnieu' }]) {
+    it(`keeps agent-owned terminals read-only in a ${owner.kind} window`, async () => {
+      const harness = loadStandalone({
+        contextMenuActions: ['assign-capsule'],
+        initialState: { projectWindow: { owner, title: 'Shell' } },
+      });
+      await flush();
+      seed(harness, [{ id: 'agent-session', name: 'Agent', state: 'running', ownerKey: 'agent:tab-9' }], 'agent-session');
+      harness.renderTabs();
+      harness.showContextMenu(menuEvent(), 'agent-session');
+      const item = menuItem(harness, 'assign-capsule');
+      assert.strictEqual(item.getAttribute('aria-disabled'), 'true');
+      item.dispatch('click');
+      await flush();
+      assert.notStrictEqual(pickerPopover(harness).style.display, 'block');
+      assert.strictEqual(countCalls(harness, 'openProject'), 0);
+      assert.strictEqual(countCalls(harness, 'assignTerminalProject'), 0);
+    });
+  }
+
+  it('shows what Main reported when the project inventory cannot be read', async () => {
     const { harness, popover } = await openPicker({
       rightClicked: 'c1',
-      listCapsules: async () => { throw new Error('bridge offline'); },
+      listProjects: async () => { throw new Error('bridge offline'); },
     });
 
     assert.strictEqual(capsuleRow_optionalError(popover), 'bridge offline');
-    assert.strictEqual(countCalls(harness, 'assignTerminalCapsule'), 0, 'a list that could not be read moves nothing');
+    assert.strictEqual(countCalls(harness, 'assignTerminalProject'), 0, 'a list that could not be read moves nothing');
   });
 });
 
@@ -201,9 +282,9 @@ describe('Renderer capsule picker — filtering and picking', () => {
     assert.strictEqual(popover.style.display, 'none', 'picking closes the picker');
     assert.deepStrictEqual(lastArgs(harness, 'openProject'), ['proj-phukien'], "the target project's window is opened first");
     assert.deepStrictEqual(
-      lastArgs(harness, 'assignTerminalCapsule'),
-      ['c1', 'capsule-phukien'],
-      "the handover names the right-clicked session and the capsule the user picked",
+      lastArgs(harness, 'assignTerminalProject'),
+      ['c1', 'proj-phukien'],
+      'the handover names the right-clicked session and durable project identity',
     );
   });
 
@@ -222,8 +303,8 @@ describe('Renderer capsule picker — filtering and picking', () => {
     await flush();
 
     assert.deepStrictEqual(
-      lastArgs(harness, 'assignTerminalCapsule'),
-      ['c1', 'capsule-phukien'],
+      lastArgs(harness, 'assignTerminalProject'),
+      ['c1', 'proj-phukien'],
       'a pane has no window of its own: the move is the owning tab\'s, so the whole family travels',
     );
   });
@@ -231,6 +312,7 @@ describe('Renderer capsule picker — filtering and picking', () => {
   it('leaves the row where it is when the target window is never opened', async () => {
     const harness = await loadManagerShell();
     harness.api.listCapsules = (async () => ({ activeCapsuleId: 'capsule-comnieu', capsules: CAPSULES })) as unknown as StandaloneHarness['api']['listCapsules'];
+    harness.api.listProjects = async () => ({ candidates: PROJECTS });
     harness.api.openProject = (async () => ({ status: 'CANCELLED' })) as unknown as StandaloneHarness['api']['openProject'];
     seed(harness, [{ id: 'c1', name: 'C1', state: 'running', capsuleId: 'capsule-comnieu' }], 'c1');
     harness.renderTabs();
@@ -245,7 +327,7 @@ describe('Renderer capsule picker — filtering and picking', () => {
     await flush();
 
     assert.deepStrictEqual(lastArgs(harness, 'openProject'), ['proj-phukien'], 'the window open was attempted');
-    assert.strictEqual(countCalls(harness, 'assignTerminalCapsule'), 0, 'a cancelled open must not hand the session over');
+    assert.strictEqual(countCalls(harness, 'assignTerminalProject'), 0, 'a cancelled open must not hand the session over');
     assert.strictEqual(
       harness.getSessions().find((session) => session.id === 'c1')?.capsuleId,
       'capsule-comnieu',
@@ -253,16 +335,27 @@ describe('Renderer capsule picker — filtering and picking', () => {
     );
   });
 
-  it('never dispatches a move for a capsule whose project cannot be named', async () => {
+  it('moves into a project without a workspace and clears the prior capsule label', async () => {
     const { harness, popover } = await openPicker({ rightClicked: 'c1' });
-
-    // The folder row carries no project id, so the renderer has no window to open for it: the row
-    // is painted disabled and offers no click at all.
-    capsuleRow(popover, 'capsule-folder').dispatch('click');
+    const destination = popover.querySelector('[data-project-id="proj-unmapped"]');
+    assert.ok(destination);
+    destination.dispatch('click');
     await flush();
+    assert.deepStrictEqual(lastArgs(harness, 'assignTerminalProject'), ['c1', 'proj-unmapped']);
+    const session = harness.getSessions().find((row) => row.id === 'c1');
+    assert.strictEqual(session?.ownerKey, 'project:proj-unmapped');
+    assert.strictEqual(session?.capsuleId, undefined);
+  });
 
-    assert.strictEqual(countCalls(harness, 'openProject'), 0, 'no window can be opened for a capsule with no project');
-    assert.strictEqual(countCalls(harness, 'assignTerminalCapsule'), 0);
-    assert.strictEqual(popover.style.display, 'block', 'the picker stays open, with the reason on the row');
+  it('refuses a project Main reports as ambiguous even when its old capsule is present', async () => {
+    const { harness, popover } = await openPicker({
+      rightClicked: 'c1',
+      listProjects: async () => ({ candidates: [{ ...PROJECTS[1], canAssignTerminal: false }] }),
+    });
+    const row = capsuleRow(popover, 'capsule-phukien');
+    assert.strictEqual(row.getAttribute('aria-disabled'), 'true');
+    row.dispatch('click');
+    await flush();
+    assert.strictEqual(countCalls(harness, 'assignTerminalProject'), 0);
   });
 });

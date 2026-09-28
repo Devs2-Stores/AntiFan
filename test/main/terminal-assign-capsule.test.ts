@@ -1,11 +1,11 @@
 /**
- * Terminal → capsule handover: moving a terminal to another project (the tab context menu's
- * "assign to capsule" action).
+ * Terminal → project handover: moving a terminal to another project (the tab context menu's
+ * assignment action).
  *
  * One contract, four layers. They are asserted separately because each can be wrong alone:
  *
  *   1. `TerminalManager.transferSessionOwner` re-stamps the owner key and the workspace capsule
- *      together, refuses (never throws) an unknown, closed, empty-keyed or empty-capsule target,
+ *      together, clears the capsule for a workspace-less project, refuses invalid targets,
  *      and the re-stamped row is the row the restore path reads back off disk.
  *   2. The shared manager window — an Unassigned shell reading through its own chrome — is a
  *      superset VIEW: every row is visible to it, `agent:*` rows included. A project window still
@@ -14,7 +14,7 @@
  *   3. What that superset may DO with an `agent:` row is narrower than what it may read: the row
  *      is read-only, and the gate answers a typed refusal instead of throwing into an IPC path
  *      that has nowhere to put one.
- *   4. The route that carries the handover (`antifan:terminal:assign-capsule`) answers in the
+ *   4. The route that carries the handover (`antifan:terminal:assign-project`) answers in the
  *      same typed vocabulary and reaches `transferSessionOwner` only when it may.
  *
  * Only the OS boundaries are doubled: the Electron module and the PTY spawn step. The manager,
@@ -33,10 +33,12 @@ import {
   DEFAULT_TERMINAL_OWNER_KEY,
 } from '../../src/main/browser/terminal-manager';
 import { TERMINAL_CHANNELS } from '../../src/shared/contracts';
-import type { NativeTabHost, TerminalCapsuleAssignResult } from '../../src/main/browser/native-tab-host';
+import type { NativeTabHost, TerminalProjectAssignment, TerminalProjectAssignResult } from '../../src/main/browser/native-tab-host';
+import type { TerminalProjectLinkResult } from '../../src/main/browser/native-tab-host';
 import type { PageCloseReservations } from '../../src/main/browser/project-close-coordinator';
 import type { ChromeRouteHarness } from '../support/chrome-route-harness';
 import type { ShellDouble } from '../support/project-window-shell-double';
+import type { WorkspaceCapsule } from '../../src/main/project/workspace-capsule';
 
 // The host module reaches for Electron while it is being loaded, so the fault has to be installed
 // before the import runs. (`import type` above is erased and loads nothing.)
@@ -55,8 +57,10 @@ const PROJECT_A: WindowOwner = { kind: 'project', projectId: 'proj-a' };
 const PROJECT_B: WindowOwner = { kind: 'project', projectId: 'proj-b' };
 const AGENT_OWNER_KEY = 'agent:tab-9';
 const PHUKIEN_CAPSULE = 'capsule-phukien';
-const PHUKIEN_PROJECT = 'proj-phukien';
+const PHUKIEN_PROJECT = 'project-00000000-0000-4000-8000-0000000000a1';
 const PHUKIEN_OWNER_KEY = ownerKey({ kind: 'project', projectId: PHUKIEN_PROJECT });
+const WORKSPACELESS_PROJECT = 'project-00000000-0000-4000-8000-0000000000a3';
+const WORKSPACELESS_OWNER_KEY = ownerKey({ kind: 'project', projectId: WORKSPACELESS_PROJECT });
 
 const SCRATCH_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assign-capsule-'));
 process.env.ANTIFAN_CONFIG_DIR = SCRATCH_DIR;
@@ -176,7 +180,7 @@ after(async () => {
   try { fs.rmSync(SCRATCH_DIR, { recursive: true, force: true }); } catch {}
 });
 
-describe('Terminal capsule handover — TerminalManager.transferSessionOwner', () => {
+describe('Terminal project handover — TerminalManager.transferSessionOwner', () => {
   it('moves the owner key and the capsule together, in one call', () => {
     resetManagerState();
     const id = tm.createSession(SCRATCH_DIR, 'capsule-comnieu', ownerKey({ kind: 'project', projectId: 'proj-comnieu' }));
@@ -219,6 +223,26 @@ describe('Terminal capsule handover — TerminalManager.transferSessionOwner', (
     assert.ok(tm.listSessions().some((session) => session.id === id), 'the row comes back');
     assert.equal(tm.sessionOwnerKey(id), PHUKIEN_OWNER_KEY, 'ownership survives the restart');
     assert.equal(tm.sessionCapsuleId(id), PHUKIEN_CAPSULE, 'and so does the workspace it was handed to');
+  });
+
+  it('clears a workspace capsule when handing a tab and its panes to a workspace-less project', () => {
+    resetManagerState();
+    const base = tm.createSession(SCRATCH_DIR, PHUKIEN_CAPSULE, PHUKIEN_OWNER_KEY);
+    const pane = tm.createSession(SCRATCH_DIR, PHUKIEN_CAPSULE, PHUKIEN_OWNER_KEY);
+    const paneRow = tmInternal.sessions.get(pane);
+    assert.ok(paneRow, 'the pane was minted');
+    paneRow.splitOf = base;
+
+    assert.equal(tm.transferSessionOwner(pane, WORKSPACELESS_OWNER_KEY), true);
+    tm.persistSync();
+    for (const sessionId of [base, pane]) {
+      assert.equal(tm.sessionOwnerKey(sessionId), WORKSPACELESS_OWNER_KEY);
+      assert.equal(tm.sessionCapsuleId(sessionId), undefined);
+      const onDisk = savedRow(sessionId);
+      assert.ok(onDisk);
+      assert.equal(onDisk.ownerKey, WORKSPACELESS_OWNER_KEY);
+      assert.equal(onDisk.capsuleId, undefined, 'no previous workspace stamp survives persistence');
+    }
   });
 
   it('refuses an unknown, closed or empty-keyed target with `false`, never with a throw', async () => {
@@ -295,7 +319,7 @@ class RecordingTerminalManager {
     this.calls.push(`getFullBuffer:${sessionId}`);
     return { sessionId, buffer: `buffer-of-${sessionId}`, snapshotThroughSeq: 1 };
   }
-  public transferSessionOwner(sessionId: string, ownerKeyValue: string, capsuleId: string): boolean {
+  public transferSessionOwner(sessionId: string, ownerKeyValue: string, capsuleId?: string): boolean {
     this.calls.push(`transferSessionOwner:${sessionId}:${ownerKeyValue}:${capsuleId}`);
     const row = this.rows.find((entry) => entry.id === sessionId);
     if (!row) return false;
@@ -330,6 +354,8 @@ interface HostUnderTest {
   assertManagerMayOperate(sessionId: string, senderId?: number): true | { ok: false; reason: string; message: string };
   shellOwnerKeyForSender(senderId: number | undefined): string | undefined;
   setOwnerWindowPresence(presence: ((ownerKeyValue: string) => boolean) | null): void;
+  setProjectAssignmentResolver(resolver: ((projectId: string) => TerminalProjectAssignment | undefined) | null): void;
+  setTerminalLinkOpener(opener: ((ownerKey: string, url: string) => Promise<boolean> | boolean) | null): void;
 }
 
 function buildHost(options: { owner: WindowOwner; capsuleManager?: unknown; affiliation?: { capsuleId: string; workspacePath: string } }): HostUnderTest & Record<string, unknown> {
@@ -438,7 +464,7 @@ function capsuleRegistry(rows: Record<string, { id: string; name: string; worksp
   };
 }
 
-describe("Terminal capsule handover — the shared manager's scope", () => {
+describe("Terminal project handover — the shared manager's scope", () => {
   const ROWS = [OWN_ROW, OTHER_ROW, AGENT_ROW, UNCLAIMED_ROW, LEGACY_ROW, LEGACY_UNTAGGED_ROW];
 
   it('shows the manager every row there is, `agent:` rows included', () => {
@@ -505,7 +531,7 @@ describe("Terminal capsule handover — the shared manager's scope", () => {
 // Layer 3: what the manager may do with an agent row
 // ---------------------------------------------------------------------------
 
-describe('Terminal capsule handover — what the manager may do with an agent row', () => {
+describe('Terminal project handover — what the manager may do with an agent row', () => {
   const ROWS = [OWN_ROW, OTHER_ROW, AGENT_ROW];
 
   it('answers a typed read-only refusal for an `agent:` row, and nothing else', () => {
@@ -574,7 +600,7 @@ describe('Terminal capsule handover — what the manager may do with an agent ro
     const invocations: Array<[string, unknown[]]> = [
       ['antifan:terminal:close-session', [AGENT_ROW.id]],
       [TERMINAL_CHANNELS.GET_FULL_BUFFER, [AGENT_ROW.id]],
-      [TERMINAL_CHANNELS.ASSIGN_CAPSULE, [{ sessionId: OWN_ROW.id, capsuleId: PHUKIEN_CAPSULE }]],
+      [TERMINAL_CHANNELS.ASSIGN_PROJECT, [{ sessionId: OWN_ROW.id, projectId: PHUKIEN_PROJECT }]],
     ];
     for (const [channel, args] of invocations) {
       await assert.rejects(
@@ -590,23 +616,126 @@ describe('Terminal capsule handover — what the manager may do with an agent ro
 });
 
 // ---------------------------------------------------------------------------
+// Terminal link ownership — a URL click names its session's owner, never the window that happens
+// to be focused.
+// ---------------------------------------------------------------------------
+
+type OpenLinkSuccess = Extract<TerminalProjectLinkResult, { ok: true }>;
+type OpenLinkFailure = Extract<TerminalProjectLinkResult, { ok: false }>;
+
+function readLinkOutcome(value: unknown): OpenLinkSuccess | OpenLinkFailure {
+  if (!value || typeof value !== 'object' || !('ok' in value)) throw new Error(`open-link must answer an outcome, got ${JSON.stringify(value)}`);
+  if (value.ok === true) {
+    const { sessionId, ownerKey: openedOwner } = value as { sessionId?: unknown; ownerKey?: unknown };
+    if (typeof sessionId !== 'string' || typeof openedOwner !== 'string') throw new Error(`open-link must name the session and owner, got ${JSON.stringify(value)}`);
+    return value as OpenLinkSuccess;
+  }
+  if (value.ok !== false) throw new Error(`open-link must answer ok true or false, got ${JSON.stringify(value)}`);
+  const { reason, message } = value as { reason?: unknown; message?: unknown };
+  if (typeof reason !== 'string' || typeof message !== 'string') throw new Error(`open-link must name its refusal, got ${JSON.stringify(value)}`);
+  return value as OpenLinkFailure;
+}
+
+const openLink = (harness: ChromeRouteHarness, sessionId: string, url: string): Promise<OpenLinkSuccess | OpenLinkFailure> =>
+  Promise.resolve(harness.invoke(TERMINAL_CHANNELS.OPEN_LINK, { sessionId, url })).then(readLinkOutcome);
+
+function linkFixture(options: { owner?: WindowOwner; rows?: RecordedRow[]; opener?: ((ownerKey: string, url: string) => Promise<boolean> | boolean) | null } = {}): WindowFixture & { opened: Array<{ ownerKey: string; url: string }> } {
+  const fixture = windowFixture({ owner: options.owner ?? MANAGER, rows: options.rows ?? [OWN_ROW, OTHER_ROW, AGENT_ROW] });
+  const opened: Array<{ ownerKey: string; url: string }> = [];
+  fixture.host.setTerminalLinkOpener(options.opener === undefined
+    ? async (ownerKey, url) => { opened.push({ ownerKey, url }); return true; }
+    : options.opener);
+  return { ...fixture, opened };
+}
+
+describe('Terminal project handover — project-owned link opens', () => {
+  it('asks Main to open a URL in the session owner, for the pane the user actually clicked', async () => {
+    const { harness, opened } = linkFixture();
+
+    const result = await Promise.resolve(openLink(harness, OTHER_ROW.id, 'https://example.com/project-b'));
+
+    assert.deepEqual(result, { ok: true, sessionId: OTHER_ROW.id, ownerKey: ownerKey(PROJECT_B) });
+    assert.deepEqual(opened, [{ ownerKey: ownerKey(PROJECT_B), url: 'https://example.com/project-b' }], 'a foreign project row never borrows the calling window');
+  });
+
+  it('refuses an unknown session, unaffiliated URL, missing opener and a refused target without external fallback', async () => {
+    const unknown = linkFixture();
+    const unknownResult = await Promise.resolve(openLink(unknown.harness, 'terminal-gone', 'https://example.com/valid'));
+    assert.equal(unknownResult.ok === false && unknownResult.reason, 'UNKNOWN_SESSION');
+    assert.deepEqual(unknown.opened, []);
+
+    const invalid = linkFixture();
+    const invalidResult = await Promise.resolve(openLink(invalid.harness, OWN_ROW.id, 'javascript:alert(1)'));
+    assert.equal(invalidResult.ok === false && invalidResult.reason, 'INVALID_PAYLOAD');
+    assert.deepEqual(invalid.opened, []);
+
+    // The manager reads the agent row but may not operate it: its read-only gate answers first,
+    // before the owner check ever runs.
+    const agent = linkFixture();
+    const agentResult = await Promise.resolve(openLink(agent.harness, AGENT_ROW.id, 'https://example.com/agent'));
+    assert.equal(agentResult.ok === false && agentResult.reason, 'MANAGER_AGENT_SESSION_READ_ONLY');
+    assert.deepEqual(agent.opened, []);
+
+    const boundToAgent = linkFixture({ owner: PROJECT_A });
+    boundToAgent.host.terminalWindowMeta.set(9, { sessionId: AGENT_ROW.id });
+    const boundAgent = await Promise.resolve(openLink(boundToAgent.harness, AGENT_ROW.id, 'https://example.com/agent'));
+    assert.equal(boundAgent.ok === false && boundAgent.reason, 'TERMINAL_OWNER_UNAVAILABLE');
+    assert.deepEqual(boundToAgent.opened, [], 'an agent-owned link has no project window to claim it');
+
+    for (const opener of [null, async () => false, async () => { throw new Error('window failed'); }]) {
+      const fixture = linkFixture({ opener });
+      const result = await Promise.resolve(openLink(fixture.harness, OWN_ROW.id, 'https://example.com/phukien'));
+      assert.equal(result.ok === false && result.reason, 'TARGET_WINDOW_ABSENT');
+      assert.deepEqual(fixture.opened, []);
+    }
+  });
+
+  it("keeps a project window's click within a row it can see", async () => {
+    const { recording, harness, opened } = linkFixture({ owner: PROJECT_A });
+
+    const result = await Promise.resolve(openLink(harness, OTHER_ROW.id, 'https://example.com/project-b'));
+
+    assert.equal(result.ok === false && result.reason, 'SESSION_NOT_VISIBLE');
+    assert.deepEqual(opened, []);
+    assert.deepEqual(recording.calls, []);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Layer 4: the route the tab context menu's handover goes through
 // ---------------------------------------------------------------------------
 
-const PHUKIEN_CAPSULE_ROW = { id: PHUKIEN_CAPSULE, name: 'Phukienmymoc', workspacePath: 'E:/Work/phukienmymoc', projectId: PHUKIEN_PROJECT, workspaceId: 'workspace-phukien' };
-const FOLDER_ONLY_CAPSULE_ROW = { id: 'capsule-folder', name: 'Folder only', workspacePath: 'E:/Work/loose-folder' };
-const LEGACY_CAPSULE_ROW = { id: 'capsule-legacy', name: 'Comnieu (pre-affiliation record)', workspacePath: 'E:/Work/comnieu' };
-const LEGACY_PROJECT = 'proj-comnieu';
+const PHUKIEN_CAPSULE_ROW: WorkspaceCapsule = {
+  id: PHUKIEN_CAPSULE,
+  name: 'Phukienmymoc',
+  workspacePath: 'E:/Work/phukienmymoc',
+  projectId: PHUKIEN_PROJECT,
+  workspaceId: 'workspace-00000000-0000-4000-8000-0000000000a1',
+  state: { browserTabs: [], terminalTabs: [], sidebarOpen: false, sidebarWidth: 380, appZoomFactor: 1, devicePresetId: 'responsive' },
+  createdAt: 1,
+  updatedAt: 1,
+};
+const FOLDER_ONLY_CAPSULE_ROW: WorkspaceCapsule = {
+  ...PHUKIEN_CAPSULE_ROW, id: 'capsule-folder', name: 'Folder only', workspacePath: 'E:/Work/loose-folder', projectId: undefined, workspaceId: undefined,
+};
+const LEGACY_CAPSULE_ROW: WorkspaceCapsule = {
+  ...PHUKIEN_CAPSULE_ROW, id: 'capsule-legacy', name: 'Comnieu (pre-affiliation record)', workspacePath: 'E:/Work/comnieu', projectId: undefined, workspaceId: undefined,
+};
+const LEGACY_PROJECT = 'project-00000000-0000-4000-8000-0000000000a2';
 const LEGACY_WINDOW_KEY = ownerKey({ kind: 'project', projectId: LEGACY_PROJECT });
-const CAPSULE_ROWS = {
+const CANONICAL_COMNIEU_ROW: WorkspaceCapsule = {
+  ...LEGACY_CAPSULE_ROW, id: 'capsule-comnieu', projectId: LEGACY_PROJECT, workspaceId: 'workspace-00000000-0000-4000-8000-0000000000a2',
+};
+const CAPSULE_ROWS: Record<string, WorkspaceCapsule> = {
   [PHUKIEN_CAPSULE]: PHUKIEN_CAPSULE_ROW,
   'capsule-folder': FOLDER_ONLY_CAPSULE_ROW,
   'capsule-legacy': LEGACY_CAPSULE_ROW,
+  [CANONICAL_COMNIEU_ROW.id]: CANONICAL_COMNIEU_ROW,
 };
-const AFFILIATIONS_BY_ROOT = { 'E:/Work/comnieu': { projectId: LEGACY_PROJECT, workspaceId: 'workspace-comnieu' } };
+const AFFILIATIONS_BY_ROOT = { 'E:/Work/comnieu': { projectId: LEGACY_PROJECT, workspaceId: 'workspace-00000000-0000-4000-8000-0000000000a2' } };
 
-interface AssignSuccess { ok: true; sessionId: string; capsuleId: string; ownerKey: string }
-interface AssignFailure { ok: false; reason: string; message: string }
+type AssignSuccess = Extract<TerminalProjectAssignResult, { ok: true }>;
+type AssignFailure = Extract<TerminalProjectAssignResult, { ok: false }>;
 
 /**
  * Read a route reply as the union it declares. Every field the rows assert is checked here, so a
@@ -616,9 +745,9 @@ interface AssignFailure { ok: false; reason: string; message: string }
 function readAssignOutcome(value: unknown, channel: string): AssignSuccess | AssignFailure {
   if (!value || typeof value !== 'object' || !('ok' in value)) throw new Error(`${channel} must answer an outcome, got ${JSON.stringify(value)}`);
   if (value.ok === true) {
-    const { sessionId, capsuleId, ownerKey: movedTo } = value as { sessionId?: unknown; capsuleId?: unknown; ownerKey?: unknown };
-    if (typeof sessionId !== 'string' || typeof capsuleId !== 'string' || typeof movedTo !== 'string') {
-      throw new Error(`${channel} must name the session, the capsule and the owner it moved to, got ${JSON.stringify(value)}`);
+    const { sessionId, projectId, capsuleId, ownerKey: movedTo } = value as { sessionId?: unknown; projectId?: unknown; capsuleId?: unknown; ownerKey?: unknown };
+    if (typeof sessionId !== 'string' || typeof projectId !== 'string' || (capsuleId !== undefined && typeof capsuleId !== 'string') || typeof movedTo !== 'string') {
+      throw new Error(`${channel} must name the session, project, optional capsule and owner it moved to, got ${JSON.stringify(value)}`);
     }
     return value as AssignSuccess;
   }
@@ -630,28 +759,52 @@ function readAssignOutcome(value: unknown, channel: string): AssignSuccess | Ass
   return value as AssignFailure;
 }
 
-const assign = (harness: ChromeRouteHarness, sessionId: string, capsuleId: string): AssignSuccess | AssignFailure =>
-  readAssignOutcome(harness.invoke(TERMINAL_CHANNELS.ASSIGN_CAPSULE, { sessionId, capsuleId }), TERMINAL_CHANNELS.ASSIGN_CAPSULE);
+/**
+ * The resolver Main installs on a real host, re-spelled for the harness: a project id resolves to
+ * the single validated capsule claiming it, a project with no claim resolves to a bare assignment
+ * when the registry knows it (the workspace-less default-window case), and anything ambiguous or
+ * unknown resolves to nothing — the route must refuse all three the same way Main refuses them.
+ */
+function assignmentResolverFor(capsules: Record<string, WorkspaceCapsule>, knownProjects: readonly string[]): (projectId: string) => TerminalProjectAssignment | undefined {
+  const KNOWN: Record<string, true> = Object.fromEntries(knownProjects.map((id) => [id, true]));
+  const VALID_ID = /^[a-z]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  return (projectId) => {
+    const claims = Object.values(capsules).filter((capsule) => capsule.projectId === projectId);
+    if (claims.length > 1) return undefined;
+    if (claims.length === 1) {
+      const only = claims[0]!;
+      return VALID_ID.test(only.projectId || '') && VALID_ID.test(only.workspaceId || '') && only.id
+        ? { capsuleId: only.id }
+        : undefined;
+    }
+    return KNOWN[projectId] ? {} : undefined;
+  };
+}
 
-function assignRouteFixture(options: { owner?: WindowOwner; rows?: RecordedRow[]; windows?: (ownerKeyValue: string) => boolean } = {}): WindowFixture {
+const assign = (harness: ChromeRouteHarness, sessionId: string, projectId: string): AssignSuccess | AssignFailure =>
+  readAssignOutcome(harness.invoke(TERMINAL_CHANNELS.ASSIGN_PROJECT, { sessionId, projectId }), TERMINAL_CHANNELS.ASSIGN_PROJECT);
+
+function assignRouteFixture(options: { owner?: WindowOwner; rows?: RecordedRow[]; windows?: (ownerKeyValue: string) => boolean; capsules?: Record<string, WorkspaceCapsule> } = {}): WindowFixture {
+  const capsules = options.capsules ?? CAPSULE_ROWS;
   const fixture = windowFixture({
     owner: options.owner ?? MANAGER,
     rows: options.rows ?? [OWN_ROW, AGENT_ROW],
-    capsuleManager: capsuleRegistry(CAPSULE_ROWS, AFFILIATIONS_BY_ROOT),
+    capsuleManager: capsuleRegistry(capsules, AFFILIATIONS_BY_ROOT),
   });
   fixture.host.setOwnerWindowPresence(options.windows ?? ((ownerKeyValue: string) => ownerKeyValue === PHUKIEN_OWNER_KEY));
+  fixture.host.setProjectAssignmentResolver(assignmentResolverFor(capsules, [WORKSPACELESS_PROJECT]));
   return fixture;
 }
 
-describe('Terminal capsule handover — the assign route', () => {
-  it("hands the row to the capsule's window and reports the owner it moved it to", () => {
+describe('Terminal project handover — the assign route', () => {
+  it("hands the row to the project's unique validated canonical capsule and reports its owner", () => {
     const { recording, harness } = assignRouteFixture();
 
-    const result = assign(harness, OWN_ROW.id, PHUKIEN_CAPSULE);
+    const result = assign(harness, OWN_ROW.id, PHUKIEN_PROJECT);
 
     assert.deepEqual(
       result,
-      { ok: true, sessionId: OWN_ROW.id, capsuleId: PHUKIEN_CAPSULE, ownerKey: PHUKIEN_OWNER_KEY },
+      { ok: true, sessionId: OWN_ROW.id, projectId: PHUKIEN_PROJECT, capsuleId: PHUKIEN_CAPSULE, ownerKey: PHUKIEN_OWNER_KEY },
       'the renderer is told where the session went'
     );
     assert.deepEqual(
@@ -661,40 +814,93 @@ describe('Terminal capsule handover — the assign route', () => {
     );
   });
 
-  it('resolves a legacy capsule through its directory, and hands the row to that project', () => {
-    const { recording, harness } = assignRouteFixture({ windows: () => true });
+  it('accepts a known workspace-less project and clears the previous capsule', () => {
+    resetManagerState();
+    const sessionId = tm.createSession(SCRATCH_DIR, PHUKIEN_CAPSULE, MANAGER_OWNER_KEY);
+    const { harness } = assignRouteFixture({ windows: () => true });
+    TerminalManager.setInstance(tm);
 
-    const result = assign(harness, OWN_ROW.id, 'capsule-legacy');
+    const result = assign(harness, sessionId, WORKSPACELESS_PROJECT);
 
-    assert.deepEqual(result, { ok: true, sessionId: OWN_ROW.id, capsuleId: 'capsule-legacy', ownerKey: LEGACY_WINDOW_KEY });
-    assert.deepEqual(recording.calls, [`transferSessionOwner:${OWN_ROW.id}:${LEGACY_WINDOW_KEY}:capsule-legacy`]);
+    assert.deepEqual(result, { ok: true, sessionId, projectId: WORKSPACELESS_PROJECT, ownerKey: WORKSPACELESS_OWNER_KEY });
+    assert.equal(tm.sessionOwnerKey(sessionId), WORKSPACELESS_OWNER_KEY);
+    assert.equal(tm.sessionCapsuleId(sessionId), undefined);
   });
 
-  it('refuses an unknown capsule, a capsule with no project, an absent window and an unknown session', () => {
-    // No such capsule in the registry.
-    const unknownCapsule = assignRouteFixture();
-    const unknownCapsuleResult = assign(unknownCapsule.harness, OWN_ROW.id, 'capsule-not-in-the-registry');
-    assert.equal(unknownCapsuleResult.ok, false);
-    assert.equal(unknownCapsuleResult.ok === false && unknownCapsuleResult.reason, 'UNKNOWN_CAPSULE');
-    assert.deepEqual(unknownCapsule.recording.calls, [], 'a refusal before the move never reaches the manager');
+  it('uses the project canonical capsule instead of a stale renderer legacy capsule', () => {
+    resetManagerState();
+    const sessionId = tm.createSession(SCRATCH_DIR, PHUKIEN_CAPSULE, MANAGER_OWNER_KEY);
+    const { harness } = assignRouteFixture({ windows: () => true });
+    TerminalManager.setInstance(tm);
 
-    // A folder row names no project, so there is no window to hand the terminal to.
-    const folderOnly = assignRouteFixture();
-    const folderOnlyResult = assign(folderOnly.harness, OWN_ROW.id, 'capsule-folder');
-    assert.equal(folderOnlyResult.ok, false);
-    assert.equal(folderOnlyResult.ok === false && folderOnlyResult.reason, 'CAPSULE_WITHOUT_PROJECT');
-    assert.deepEqual(folderOnly.recording.calls, []);
+    const result = readAssignOutcome(harness.invoke(TERMINAL_CHANNELS.ASSIGN_PROJECT, {
+      sessionId, projectId: LEGACY_PROJECT, capsuleId: LEGACY_CAPSULE_ROW.id,
+    }), TERMINAL_CHANNELS.ASSIGN_PROJECT);
+
+    assert.deepEqual(result, { ok: true, sessionId, projectId: LEGACY_PROJECT, capsuleId: CANONICAL_COMNIEU_ROW.id, ownerKey: LEGACY_WINDOW_KEY });
+    assert.equal(tm.sessionOwnerKey(sessionId), LEGACY_WINDOW_KEY);
+    assert.equal(tm.sessionCapsuleId(sessionId), CANONICAL_COMNIEU_ROW.id);
+  });
+
+  it('refuses duplicate claims that appeared after the project was selected', () => {
+    const capsules = { ...CAPSULE_ROWS };
+    const { recording, harness } = assignRouteFixture({ capsules });
+    capsules['capsule-phukien-duplicate'] = { ...PHUKIEN_CAPSULE_ROW, id: 'capsule-phukien-duplicate' };
+
+    const result = assign(harness, OWN_ROW.id, PHUKIEN_PROJECT);
+    assert.equal(result.ok, false);
+    assert.equal(result.ok === false && result.reason, 'PROJECT_UNAVAILABLE');
+    assert.deepEqual(recording.calls, [], 'neither duplicate may receive the terminal');
+    assert.deepEqual(recording.getSession(OWN_ROW.id), OWN_ROW);
+  });
+
+  it('refuses an explicit capsule whose affiliation no longer validates', () => {
+    const { recording, harness } = assignRouteFixture({
+      capsules: { ...CAPSULE_ROWS, [PHUKIEN_CAPSULE]: { ...PHUKIEN_CAPSULE_ROW, workspaceId: 'workspace-invalid' } },
+    });
+
+    const result = assign(harness, OWN_ROW.id, PHUKIEN_PROJECT);
+    assert.equal(result.ok, false);
+    assert.equal(result.ok === false && result.reason, 'PROJECT_UNAVAILABLE');
+    assert.deepEqual(recording.calls, []);
+    assert.deepEqual(recording.getSession(OWN_ROW.id), OWN_ROW);
+  });
+
+  it('fails closed when canonical authority is missing, unresolved or throws', () => {
+    const resolvers: Array<((projectId: string) => TerminalProjectAssignment | undefined) | null> = [
+      null,
+      () => undefined,
+      () => { throw new Error('capsule authority unavailable'); },
+    ];
+    for (const resolver of resolvers) {
+      const { host, recording, harness } = assignRouteFixture();
+      host.setProjectAssignmentResolver(resolver);
+
+      const result = assign(harness, OWN_ROW.id, PHUKIEN_PROJECT);
+      assert.equal(result.ok, false);
+      assert.equal(result.ok === false && result.reason, 'PROJECT_UNAVAILABLE');
+      assert.deepEqual(recording.calls, [], 'an open target window alone cannot authorize a transfer');
+      assert.deepEqual(recording.getSession(OWN_ROW.id), OWN_ROW);
+    }
+  });
+
+  it('refuses an unknown project, an absent window and an unknown session', () => {
+    const unknownProject = assignRouteFixture();
+    const unknownProjectResult = assign(unknownProject.harness, OWN_ROW.id, 'project-00000000-0000-4000-8000-0000000000ff');
+    assert.equal(unknownProjectResult.ok, false);
+    assert.equal(unknownProjectResult.ok === false && unknownProjectResult.reason, 'PROJECT_UNAVAILABLE');
+    assert.deepEqual(unknownProject.recording.calls, [], 'a refusal before the move never reaches the manager');
 
     // The project's window was closed between the renderer's open request and this call.
     const absentWindow = assignRouteFixture({ windows: () => false });
-    const absentWindowResult = assign(absentWindow.harness, OWN_ROW.id, PHUKIEN_CAPSULE);
+    const absentWindowResult = assign(absentWindow.harness, OWN_ROW.id, PHUKIEN_PROJECT);
     assert.equal(absentWindowResult.ok, false);
     assert.equal(absentWindowResult.ok === false && absentWindowResult.reason, 'TARGET_WINDOW_ABSENT');
     assert.deepEqual(absentWindow.recording.calls, []);
 
     // A row that is not there any more is an answer too, never a throw.
     const unknownSession = assignRouteFixture();
-    const unknownSessionResult = assign(unknownSession.harness, 'terminal-gone', PHUKIEN_CAPSULE);
+    const unknownSessionResult = assign(unknownSession.harness, 'terminal-gone', PHUKIEN_PROJECT);
     assert.equal(unknownSessionResult.ok, false);
     assert.equal(unknownSessionResult.ok === false && unknownSessionResult.reason, 'UNKNOWN_SESSION');
     assert.equal(unknownSession.recording.getSession('terminal-gone'), undefined);
@@ -704,9 +910,13 @@ describe('Terminal capsule handover — the assign route', () => {
     const { host, recording, harness } = assignRouteFixture();
 
     // Both ids come from a renderer, so a call that names only one is answered, not attempted.
-    const malformed = readAssignOutcome(harness.invoke(TERMINAL_CHANNELS.ASSIGN_CAPSULE, { capsuleId: PHUKIEN_CAPSULE }), TERMINAL_CHANNELS.ASSIGN_CAPSULE);
+    const malformed = readAssignOutcome(harness.invoke(TERMINAL_CHANNELS.ASSIGN_PROJECT, { projectId: PHUKIEN_PROJECT }), TERMINAL_CHANNELS.ASSIGN_PROJECT);
     assert.equal(malformed.ok, false);
     assert.equal(malformed.ok === false && malformed.reason, 'INVALID_PAYLOAD');
+    assert.deepEqual(recording.calls, []);
+    const stalePayload = readAssignOutcome(harness.invoke(TERMINAL_CHANNELS.ASSIGN_PROJECT, { sessionId: OWN_ROW.id, capsuleId: PHUKIEN_CAPSULE }), TERMINAL_CHANNELS.ASSIGN_PROJECT);
+    assert.equal(stalePayload.ok, false);
+    assert.equal(stalePayload.ok === false && stalePayload.reason, 'INVALID_PAYLOAD', 'capsule-only requests cannot choose a project');
     assert.deepEqual(recording.calls, []);
 
     // The route answers its own refusals, but the admission it runs under is the window's: a
@@ -714,7 +924,7 @@ describe('Terminal capsule handover — the assign route', () => {
     const release = host.closeAdmission.reserveApplicationAdmission();
     try {
       assert.throws(
-        () => assign(harness, OWN_ROW.id, PHUKIEN_CAPSULE),
+        () => assign(harness, OWN_ROW.id, PHUKIEN_PROJECT),
         (error: unknown) => (error as { code?: string })?.code === 'RUNTIME_DRAINING',
         'a mint during a quit is refused by the host, not answered by the route'
       );
@@ -727,7 +937,7 @@ describe('Terminal capsule handover — the assign route', () => {
   it("refuses to move an agent's shell out from under it", () => {
     const { recording, harness } = assignRouteFixture();
 
-    const result = assign(harness, AGENT_ROW.id, PHUKIEN_CAPSULE);
+    const result = assign(harness, AGENT_ROW.id, PHUKIEN_PROJECT);
     assert.equal(result.ok, false);
     assert.equal(result.ok === false && result.reason, 'MANAGER_AGENT_SESSION_READ_ONLY');
     assert.deepEqual(recording.calls, [], "the agent's shell is not re-owned by anyone");
@@ -736,14 +946,14 @@ describe('Terminal capsule handover — the assign route', () => {
   it("is the manager's control only: a project window may not hand over a row it cannot see", () => {
     const { recording, harness } = assignRouteFixture({ owner: PROJECT_A, rows: [OWN_ROW, OTHER_ROW] });
 
-    const foreign = assign(harness, OTHER_ROW.id, PHUKIEN_CAPSULE);
+    const foreign = assign(harness, OTHER_ROW.id, PHUKIEN_PROJECT);
     assert.equal(foreign.ok, false);
     assert.equal(foreign.ok === false && foreign.reason, 'SESSION_NOT_VISIBLE', "another project's row is not this window's to move");
     assert.deepEqual(recording.calls, []);
 
     // Its own row is still its own to move, which is what keeps the refusal a scope rule rather
     // than a blanket ban on the route.
-    const own = assign(harness, OWN_ROW.id, PHUKIEN_CAPSULE);
-    assert.deepEqual(own, { ok: true, sessionId: OWN_ROW.id, capsuleId: PHUKIEN_CAPSULE, ownerKey: PHUKIEN_OWNER_KEY });
+    const own = assign(harness, OWN_ROW.id, PHUKIEN_PROJECT);
+    assert.deepEqual(own, { ok: true, sessionId: OWN_ROW.id, projectId: PHUKIEN_PROJECT, capsuleId: PHUKIEN_CAPSULE, ownerKey: PHUKIEN_OWNER_KEY });
   });
 });

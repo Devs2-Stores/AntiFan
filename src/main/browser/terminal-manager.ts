@@ -194,7 +194,13 @@ export class SessionRecord {
   public cwd: string;
   public pty: pty.IPty | null = null;
   public splitOf?: string;
-  public capsuleId: string;
+  /**
+   * The workspace attribution this row carries: the capsule it was created in, or nothing once a
+   * transfer moved it into a project that owns no workspace. Absence is the canonical clearing
+   * state - an empty string would attribute the row to nothing while still looking like a stamp -
+   * which is why the transfer path clears it rather than blanking it.
+   */
+  public capsuleId?: string;
   /**
    * The window owner this session belongs to. Deliberately separate from `capsuleId`, which
    * stays the workspace-attribution field: two project windows may attach the same folder, so
@@ -488,7 +494,8 @@ export interface TerminalSessionDiagnostics {
   state: 'running' | 'exited' | 'closed' | 'sleeping';
   splitOf?: string;
   altScreen: boolean;
-  capsuleId: string;
+  /** Capsule the session is attributed to; absent once a transfer cleared it. */
+  capsuleId?: string;
   /** Window owner the session belongs to; absent on a row written before owner keys existed. */
   ownerKey?: string;
 }
@@ -742,7 +749,7 @@ export class TerminalManager extends EventEmitter {
     name: string;
     cwd: string;
     splitOf?: string;
-    capsuleId: string;
+    capsuleId?: string;
     ownerKey?: string;
     cols: number;
     rows: number;
@@ -1212,9 +1219,11 @@ export class TerminalManager extends EventEmitter {
    *
    * The window owner and the workspace capsule move together, never separately: a row whose owner
    * and capsule disagree is a shell shown in one project's window while attributed to another
-   * project's workspace. Global creation state (`currentCapsuleId`/`currentCwd`) is deliberately
-   * untouched — this re-stamps existing records, it does not adopt anything, so the calling window's
-   * next session still lands where it would have.
+   * project's workspace. A project can exist without a workspace, so `capsuleId` is optional:
+   * omitting it clears the old stamp as part of the move, while a present-but-empty value is still
+   * refused because it would file the row under a nonexistent capsule. Global creation state
+   * (`currentCapsuleId`/`currentCwd`) is deliberately untouched — this re-stamps existing records,
+   * it does not adopt anything, so the calling window's next session still lands where it would have.
    *
    * A pane is a separate record with its own PTY, its own capsule AND its own owner, so moving only
    * the row that was addressed would leave a tab and its panes owned by two different windows. The
@@ -1223,18 +1232,21 @@ export class TerminalManager extends EventEmitter {
    * and assigning a tab takes its panes along.
    *
    * Refuses an unknown or already-closed session with `false` and never throws: a refusal is an
-   * answer the caller reports, not an error. An empty owner/capsule is refused too, since it would
-   * file the row under nothing. A sleeping or exited session transfers like a running one — its tab
+   * answer the caller reports, not an error. An empty owner or a present-but-empty capsule is
+   * refused too, since the first would file the row under nothing and the second would claim a
+   * workspace the row is not in. A sleeping or exited session transfers like a running one — its tab
    * is still on screen, and the new owner needs the row to render it. One ordinary `'session'`
    * broadcast follows for the whole cascade, so both the window losing the rows and the window
    * gaining them re-render from a single push.
    */
-  public transferSessionOwner(sessionId: string, ownerKey: string, capsuleId: string): boolean {
+  public transferSessionOwner(sessionId: string, ownerKey: string, capsuleId?: string): boolean {
     const direct = this.sessions.get(sessionId);
     if (!direct || direct.disposed || direct.state === 'closed') return false;
     const nextOwnerKey = typeof ownerKey === 'string' ? ownerKey.trim() : '';
-    const nextCapsuleId = typeof capsuleId === 'string' ? capsuleId.trim() : '';
-    if (!nextOwnerKey || !nextCapsuleId) return false;
+    // A present-but-empty capsule would attribute the row to nothing; an absent one is
+    // the canonical answer for a project with no workspace and clears the old stamp.
+    const nextCapsuleId = capsuleId === undefined ? undefined : (typeof capsuleId === 'string' ? capsuleId.trim() : '');
+    if (!nextOwnerKey || nextCapsuleId === '') return false;
     // A pane cannot outlive the tab it splits, so it may not be owned apart from it either: the
     // addressed id resolves to its base session, exactly as the category and sleep cascades do.
     const baseId = direct.splitOf || sessionId;
