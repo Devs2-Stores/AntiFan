@@ -85,6 +85,13 @@ prompt-injectable caller, so exposure is gated:
   own Chromium. The in-app command security policy (deny-list for
   `haravan`/`hrv`, see `decideCommandSecurity`) applies to whatever reaches
   the broker.
+- Multi-window changes what an agent intent can reach, not who owns it: every
+  browser shell is created and owned by Main, and an agent intent for a window is
+  satisfied by Main's window factory, with the created surface proven
+  un-presented — it is never raised, focused or shown for the agent
+  (`test/e2e/project-windows.test.ts`, the agent-intent un-presented row).
+  MCP still launches and owns no Chromium process; it reaches tabs only through
+  the broker attachment named above.
 - stdout carries only MCP frames (logs routed to stderr via
   `setMcpStdioMode`); the workspace must be outside the app directory
   (self-modification guard); the single-instance lock is skipped so the

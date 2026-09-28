@@ -8,7 +8,7 @@ Index of engineering specifications, security models, operational runbooks, rese
 
 | Document | Purpose |
 |---|---|
-| [`ui-architecture.md`](ui-architecture.md) | Authoritative visual hierarchy, layout boundaries, Multi-WebContentsView surface model, split-review coordination, and cutover contracts. |
+| [`ui-architecture.md`](ui-architecture.md) | Authoritative visual hierarchy, layout boundaries, per-owner window and shared-tab-authority model, Multi-WebContentsView surface model, split-review coordination, close/quit admission, and cutover contracts. |
 | [`security-model.md`](security-model.md) | Comprehensive trust boundaries, process isolation, profile partitions, lease authorization, and MCP capability risk gating. |
 | [`operations.md`](operations.md) | Operational runbook for MCP control plane tools, Theme QA verification gates, Super Core local evidence store, and physical device adapters. |
 | [`mcp-advertised-schema-enforcement.md`](mcp-advertised-schema-enforcement.md) | Technical rationale, boundary enforcement sites, and verification evidence preventing silent argument fabrication on advertised schemas. |
@@ -24,6 +24,7 @@ Dated research records preserved for architectural provenance and technical deci
 | [`research-9router-auth.md`](research-9router-auth.md) | Direct OAuth authentication spike against upstream Google Code Assist endpoints, eliminating MITM proxy latency. |
 | [`research-browser-agent-seamless-execution.md`](research-browser-agent-seamless-execution.md) | Comparative evaluation of leading AI browser agent architectures covering action batching, Bézier kinematics, and continuous streaming. |
 | [`research-mobile-device-parity-chrome-sync.md`](research-mobile-device-parity-chrome-sync.md) | Hardware-fidelity iPhone 13 emulation blueprint using CDP native primitives (Retina DPR 3, platform string, viewport geometry, touch). |
+| [`research-system-one-jev-repos.md`](research-system-one-jev-repos.md) | Primary-source verification of TypeSafe Jev claims plus evaluation of 4 open-source System One / code-review repos (openJev, nagi, CLM, alibaba/open-code-review) with AntiFan adoption roadmap. |
 
 ---
 
